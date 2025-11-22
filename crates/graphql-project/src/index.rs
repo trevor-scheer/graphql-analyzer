@@ -706,7 +706,9 @@ mod tests {
 
         let index = SchemaIndex::from_schema(schema);
 
-        let fields = index.get_fields("Query").expect("Query fields should exist");
+        let fields = index
+            .get_fields("Query")
+            .expect("Query fields should exist");
         assert_eq!(fields.len(), 2);
 
         // Test user field with single argument
@@ -722,7 +724,10 @@ mod tests {
         assert_eq!(list_field.arguments.len(), 2);
         assert_eq!(list_field.arguments[0].name, "limit");
         assert_eq!(list_field.arguments[0].type_name, "Int");
-        assert_eq!(list_field.arguments[0].default_value, Some("10".to_string()));
+        assert_eq!(
+            list_field.arguments[0].default_value,
+            Some("10".to_string())
+        );
         assert_eq!(list_field.arguments[1].name, "offset");
         assert_eq!(list_field.arguments[1].type_name, "Int");
     }
@@ -778,7 +783,10 @@ mod tests {
             fields[0].description,
             Some("The unique identifier".to_string())
         );
-        assert_eq!(fields[1].description, Some("The user's full name".to_string()));
+        assert_eq!(
+            fields[1].description,
+            Some("The user's full name".to_string())
+        );
     }
 
     #[test]
@@ -817,10 +825,7 @@ mod tests {
         let fields = index.get_fields("User").expect("User fields should exist");
 
         assert!(fields[0].deprecated.is_none()); // id
-        assert_eq!(
-            fields[1].deprecated,
-            Some("Use 'name' instead".to_string())
-        ); // username
+        assert_eq!(fields[1].deprecated, Some("Use 'name' instead".to_string())); // username
         assert!(fields[2].deprecated.is_none()); // name
         assert_eq!(
             fields[3].deprecated,
@@ -843,7 +848,9 @@ mod tests {
             .expect("auth directive should exist");
         assert_eq!(directive.name, "auth");
         assert_eq!(directive.locations.len(), 2);
-        assert!(directive.locations.contains(&"FIELD_DEFINITION".to_string()));
+        assert!(directive
+            .locations
+            .contains(&"FIELD_DEFINITION".to_string()));
         assert!(directive.locations.contains(&"OBJECT".to_string()));
     }
 
@@ -1027,7 +1034,9 @@ mod tests {
         let product = index.get_type("Product").expect("Product should exist");
         assert_eq!(product.kind, TypeKind::Object);
 
-        let product_fields = index.get_fields("Product").expect("Product fields should exist");
+        let product_fields = index
+            .get_fields("Product")
+            .expect("Product fields should exist");
         assert_eq!(product_fields.len(), 6);
 
         // Check variants field has arguments
@@ -1036,10 +1045,15 @@ mod tests {
             .find(|f| f.name == "variants")
             .expect("variants field should exist");
         assert_eq!(variants_field.arguments.len(), 1);
-        assert_eq!(variants_field.arguments[0].default_value, Some("10".to_string()));
+        assert_eq!(
+            variants_field.arguments[0].default_value,
+            Some("10".to_string())
+        );
 
         // Check Query type
-        let query_fields = index.get_fields("Query").expect("Query fields should exist");
+        let query_fields = index
+            .get_fields("Query")
+            .expect("Query fields should exist");
         assert_eq!(query_fields.len(), 2);
 
         let products_field = query_fields
@@ -1106,7 +1120,9 @@ mod tests {
 
         let index = SchemaIndex::from_schema(schema);
 
-        let fields = index.get_fields("Query").expect("Query fields should exist");
+        let fields = index
+            .get_fields("Query")
+            .expect("Query fields should exist");
         let search_field = &fields[0];
 
         assert_eq!(search_field.arguments.len(), 2);
