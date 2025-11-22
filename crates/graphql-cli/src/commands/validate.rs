@@ -154,6 +154,13 @@ pub async fn run(
             // Validate each extracted GraphQL document
             for (doc_index, item) in extracted.iter().enumerate() {
                 let source = &item.source;
+
+                // Skip documents that only contain fragments
+                // Fragments need to be validated in the context of an operation
+                if source.trim_start().starts_with("fragment") && !source.contains("query") && !source.contains("mutation") && !source.contains("subscription") {
+                    continue;
+                }
+
                 match project.validate_document(source) {
                     Ok(()) => {
                         // Valid document - no output in human mode unless verbose
@@ -163,41 +170,71 @@ pub async fn run(
                         for diagnostic in diagnostics.iter() {
                             total_errors += 1;
 
+                            // Get the line/column from the diagnostic
+                            let diag_location = diagnostic.line_column_range();
+
                             match format {
                                 OutputFormat::Human => {
-                                    // Use DiagnosticList's built-in Display formatting
-                                    println!(
-                                        "{} {}{}",
-                                        "error:".red().bold(),
-                                        file_path,
-                                        if extracted.len() > 1 {
-                                            format!(" (document {})", doc_index + 1)
+                                    // Format: file_path:line:column
+                                    if let Some(range) = diag_location {
+                                        // Adjust line number based on where GraphQL was extracted
+                                        // range.start.line is 0-indexed in apollo-compiler
+                                        // item.location.range.start.line is 0-indexed in graphql-extract
+                                        let actual_line = item.location.range.start.line + range.start.line + 1; // +1 for 1-indexed display
+                                        let actual_column = if range.start.line == 0 {
+                                            // First line: add column offset
+                                            item.location.range.start.column + range.start.column + 1
                                         } else {
-                                            String::new()
-                                        }
-                                    );
-                                    println!("{}", diagnostic);
+                                            range.start.column + 1
+                                        };
+
+                                        println!(
+                                            "{} {}:{}:{}",
+                                            "error:".red().bold(),
+                                            file_path,
+                                            actual_line,
+                                            actual_column
+                                        );
+                                    } else {
+                                        println!(
+                                            "{} {}",
+                                            "error:".red().bold(),
+                                            file_path
+                                        );
+                                    }
+
+                                    // Print the error message
+                                    println!("  {}", diagnostic.error);
                                 }
                                 OutputFormat::Json => {
-                                    // For JSON output, format as structured data
+                                    // For JSON output, format as structured data with adjusted locations
+                                    let adjusted_location = diag_location.map(|range| {
+                                        let actual_line = item.location.range.start.line + range.start.line;
+                                        let actual_column = if range.start.line == 0 {
+                                            item.location.range.start.column + range.start.column
+                                        } else {
+                                            range.start.column
+                                        };
+
+                                        serde_json::json!({
+                                            "start": {
+                                                "line": actual_line,
+                                                "column": actual_column
+                                            },
+                                            "end": {
+                                                "line": item.location.range.start.line + range.end.line,
+                                                "column": range.end.column
+                                            }
+                                        })
+                                    });
+
                                     println!(
                                         "{}",
                                         serde_json::json!({
                                             "file": file_path,
                                             "document_index": doc_index,
                                             "error": format!("{}", diagnostic.error),
-                                            "location": diagnostic.line_column_range().map(|range| {
-                                                serde_json::json!({
-                                                    "start": {
-                                                        "line": range.start.line,
-                                                        "column": range.start.column
-                                                    },
-                                                    "end": {
-                                                        "line": range.end.line,
-                                                        "column": range.end.column
-                                                    }
-                                                })
-                                            })
+                                            "location": adjusted_location
                                         })
                                     );
                                 }
