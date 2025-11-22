@@ -148,7 +148,9 @@ impl TypeInfo {
         let (kind, description) = match ext_type {
             ExtendedType::Object(obj) => (
                 TypeKind::Object,
-                obj.description.as_ref().map(std::string::ToString::to_string),
+                obj.description
+                    .as_ref()
+                    .map(std::string::ToString::to_string),
             ),
             ExtendedType::Interface(iface) => (
                 TypeKind::Interface,
@@ -569,7 +571,7 @@ mod tests {
         let fields = index.get_fields("User").expect("User fields should exist");
 
         assert!(fields[0].deprecated.is_none()); // id
-        // apollo-compiler marks the field as deprecated but doesn't expose reason easily
+                                                 // apollo-compiler marks the field as deprecated but doesn't expose reason easily
         assert!(fields[1].deprecated.is_some()); // username
         assert!(fields[2].deprecated.is_none()); // name
         assert!(fields[3].deprecated.is_some()); // oldField
