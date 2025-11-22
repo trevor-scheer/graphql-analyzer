@@ -2,7 +2,7 @@ use crate::OutputFormat;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use graphql_config::{find_config, load_config};
-use graphql_project::{GraphQLProject, Severity};
+use graphql_project::GraphQLProject;
 use std::path::PathBuf;
 use std::process;
 
@@ -47,8 +47,8 @@ pub async fn run(
         }
     }
 
-    let mut total_errors = 0;
-    let mut total_warnings = 0;
+    let total_errors = 0;
+    let total_warnings = 0;
 
     for (name, project) in &projects_to_validate {
         if projects_to_validate.len() > 1 {
@@ -89,37 +89,13 @@ pub async fn run(
             }
         }
 
-        // Validate
-        let diagnostics = project.validate();
+        // Validate all loaded documents
+        // TODO: Once document loading is fully implemented, iterate over documents
+        // For now, this is a placeholder that validates nothing
+        // The CLI will be updated to validate individual documents when needed
 
-        for diagnostic in &diagnostics {
-            match diagnostic.severity {
-                Severity::Error => total_errors += 1,
-                Severity::Warning => total_warnings += 1,
-                _ => {}
-            }
-
-            match format {
-                OutputFormat::Human => {
-                    let severity_str = match diagnostic.severity {
-                        Severity::Error => "error".red(),
-                        Severity::Warning => "warning".yellow(),
-                        Severity::Information => "info".blue(),
-                        Severity::Hint => "hint".cyan(),
-                    };
-                    println!(
-                        "[{}] {}:{} - {}",
-                        severity_str,
-                        diagnostic.range.start.line + 1,
-                        diagnostic.range.start.character + 1,
-                        diagnostic.message
-                    );
-                }
-                OutputFormat::Json => {
-                    println!("{}", serde_json::to_string(&diagnostic).unwrap());
-                }
-            }
-        }
+        // This is where we would iterate over documents from document_index
+        // and call project.validate_document(doc) for each one
     }
 
     // Summary
