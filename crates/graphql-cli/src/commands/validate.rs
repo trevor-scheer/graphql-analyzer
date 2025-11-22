@@ -47,8 +47,7 @@ pub async fn run(
         }
     }
 
-    let total_errors = 0;
-    let total_warnings = 0;
+    let mut total_errors = 0;
 
     for (name, project) in &projects_to_validate {
         if projects_to_validate.len() > 1 {
@@ -90,23 +89,98 @@ pub async fn run(
         }
 
         // Validate all loaded documents
-        // TODO: Once document loading is fully implemented, iterate over documents
-        // For now, this is a placeholder that validates nothing
-        // The CLI will be updated to validate individual documents when needed
+        let document_index = project.get_document_index();
 
-        // This is where we would iterate over documents from document_index
-        // and call project.validate_document(doc) for each one
+        // Collect all unique file paths from operations and fragments
+        let mut file_paths = std::collections::HashSet::new();
+        for op_info in document_index.operations.values() {
+            file_paths.insert(&op_info.file_path);
+        }
+        for frag_info in document_index.fragments.values() {
+            file_paths.insert(&frag_info.file_path);
+        }
+
+        // Validate each file
+        for file_path in file_paths {
+            // Read the file contents
+            let contents = match std::fs::read_to_string(file_path) {
+                Ok(contents) => contents,
+                Err(e) => {
+                    eprintln!("{} {}: {}", "✗ Failed to read".red(), file_path, e);
+                    continue;
+                }
+            };
+
+            // For now, just validate the raw file contents as GraphQL
+            // TODO: Use graphql-extract once it's available in the CLI
+            let extracted = vec![contents];
+
+            // Validate each extracted GraphQL document
+            for (doc_index, source) in extracted.iter().enumerate() {
+                match project.validate_document(source) {
+                    Ok(()) => {
+                        // Valid document - no output in human mode unless verbose
+                    }
+                    Err(diagnostics) => {
+                        // Found validation errors
+                        for diagnostic in diagnostics.iter() {
+                            total_errors += 1;
+
+                            match format {
+                                OutputFormat::Human => {
+                                    // Use DiagnosticList's built-in Display formatting
+                                    println!(
+                                        "{} {}{}",
+                                        "error:".red().bold(),
+                                        file_path,
+                                        if extracted.len() > 1 {
+                                            format!(" (document {})", doc_index + 1)
+                                        } else {
+                                            String::new()
+                                        }
+                                    );
+                                    println!("{}", diagnostic);
+                                }
+                                OutputFormat::Json => {
+                                    // For JSON output, format as structured data
+                                    println!(
+                                        "{}",
+                                        serde_json::json!({
+                                            "file": file_path,
+                                            "document_index": doc_index,
+                                            "error": format!("{}", diagnostic.error),
+                                            "location": diagnostic.line_column_range().map(|range| {
+                                                serde_json::json!({
+                                                    "start": {
+                                                        "line": range.start.line,
+                                                        "column": range.start.column
+                                                    },
+                                                    "end": {
+                                                        "line": range.end.line,
+                                                        "column": range.end.column
+                                                    }
+                                                })
+                                            })
+                                        })
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Summary
     if matches!(format, OutputFormat::Human) {
         println!();
-        if total_errors == 0 && total_warnings == 0 {
+        if total_errors == 0 {
             println!("{}", "✓ All validations passed!".green().bold());
         } else {
             println!(
                 "{}",
-                format!("Found {total_errors} error(s) and {total_warnings} warning(s)").yellow()
+                format!("Found {total_errors} error(s)").yellow()
             );
         }
     }
