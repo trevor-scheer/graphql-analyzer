@@ -1,0 +1,29 @@
+{
+  "commands": [
+    {
+      "name": "test",
+      "description": "Run cargo tests",
+      "command": "cargo test"
+    },
+    {
+      "name": "build",
+      "description": "Build the project with cargo",
+      "command": "cargo build"
+    },
+    {
+      "name": "fmt",
+      "description": "Format code with rustfmt",
+      "command": "cargo fmt"
+    },
+    {
+      "name": "clippy",
+      "description": "Run clippy linter",
+      "command": "cargo clippy -- -D warnings"
+    },
+    {
+      "name": "check",
+      "description": "Run cargo check",
+      "command": "cargo check"
+    }
+  ]
+}

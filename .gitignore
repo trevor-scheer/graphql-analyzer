@@ -28,5 +28,5 @@
 .env
 .env.local
 
-# Claude (keep)
-.claude
+# Claude
+.claude/settings.local.json
