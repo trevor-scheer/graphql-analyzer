@@ -11,10 +11,11 @@ thiserror = { workspace = true }
 glob = { workspace = true }
 walkdir = { workspace = true }
 
-# For TypeScript/JavaScript parsing (disabled for now)
-# Will re-enable with updated versions in Phase 4
-# swc_core = { workspace = true, optional = true }
-# swc_common = { workspace = true, optional = true }
+# For TypeScript/JavaScript parsing
+swc_common = { workspace = true, optional = true }
+swc_ecma_parser = { workspace = true, optional = true }
+swc_ecma_ast = { workspace = true, optional = true }
+swc_ecma_visit = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
@@ -22,6 +23,5 @@ tempfile = "3.0"
 
 [features]
 default = []
-# Placeholder feature for TypeScript/JavaScript extraction
-# Will be enabled with SWC dependencies in Phase 4
-typescript = []
+# TypeScript/JavaScript extraction using SWC
+typescript = ["dep:swc_common", "dep:swc_ecma_parser", "dep:swc_ecma_ast", "dep:swc_ecma_visit"]
