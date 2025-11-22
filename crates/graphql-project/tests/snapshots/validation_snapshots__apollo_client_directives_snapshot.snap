@@ -1,0 +1,66 @@
+---
+source: crates/graphql-project/tests/validation_snapshots.rs
+expression: "all_diagnostics.join(\"\\n\\n\")"
+---
+=== Query 1 ===
+Error: type `User` does not have a field `isLoggedIn`
+    ╭─[ apollo_client_directives.tsx:7:7 ]
+    │
+  7 │       isLoggedIn @client
+    │       ─────┬────  
+    │            ╰────── field `isLoggedIn` selected here
+    │
+    ├─[ schema.graphql:15:6 ]
+    │
+ 15 │ type User {
+    │      ──┬─  
+    │        ╰─── type `User` defined here
+    │ 
+    │ Note: path to the field: `query GetUser → user → isLoggedIn`
+────╯
+
+
+Error: type `User` does not have a field `localData`
+    ╭─[ apollo_client_directives.tsx:8:7 ]
+    │
+  8 │       localData @client(always: true)
+    │       ────┬────  
+    │           ╰────── field `localData` selected here
+    │
+    ├─[ schema.graphql:15:6 ]
+    │
+ 15 │ type User {
+    │      ──┬─  
+    │        ╰─── type `User` defined here
+    │ 
+    │ Note: path to the field: `query GetUser → user → localData`
+────╯
+
+
+=== Query 2 ===
+Error: unused variable: `$after`
+   ╭─[ apollo_client_directives.tsx:2:18 ]
+   │
+ 2 │   query GetPosts($after: String) {
+   │                  ───┬──  
+   │                     ╰──── variable is never used
+───╯
+
+
+Error: cannot find directive `@connection` in this document
+   ╭─[ apollo_client_directives.tsx:3:11 ]
+   │
+ 3 │     posts @connection(key: "allPosts", filter: ["published"]) {
+   │           ─────────────────────────┬─────────────────────────  
+   │                                    ╰─────────────────────────── directive not defined
+───╯
+
+
+=== Query 3 ===
+Error: cannot find directive `@defer` in this document
+   ╭─[ apollo_client_directives.tsx:6:11 ]
+   │
+ 6 │       ... @defer(label: "posts") {
+   │           ───────────┬──────────  
+   │                      ╰──────────── directive not defined
+───╯
