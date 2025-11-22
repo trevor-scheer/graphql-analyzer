@@ -111,17 +111,37 @@ pub async fn run(
         // Validate all loaded documents
         let document_index = project.get_document_index();
 
-        // Collect all unique file paths from operations and fragments
-        let mut file_paths = std::collections::HashSet::new();
-        for op_info in document_index.operations.values() {
-            file_paths.insert(&op_info.file_path);
-        }
+        // Collect all fragment definitions from the project
+        // These will be included when validating operations
+        let mut all_fragments = Vec::new();
+        let mut fragment_file_paths = std::collections::HashSet::new();
+
         for frag_info in document_index.fragments.values() {
-            file_paths.insert(&frag_info.file_path);
+            fragment_file_paths.insert(&frag_info.file_path);
         }
 
-        // Validate each file
-        for file_path in file_paths {
+        // Extract all fragment sources
+        for frag_path in fragment_file_paths {
+            if let Ok(extracted) = graphql_extract::extract_from_file(
+                std::path::Path::new(frag_path),
+                &graphql_extract::ExtractConfig::default(),
+            ) {
+                for item in extracted {
+                    if item.source.trim_start().starts_with("fragment") {
+                        all_fragments.push(item.source);
+                    }
+                }
+            }
+        }
+
+        // Collect unique file paths that contain operations
+        let mut operation_file_paths = std::collections::HashSet::new();
+        for op_info in document_index.operations.values() {
+            operation_file_paths.insert(&op_info.file_path);
+        }
+
+        // Validate each file containing operations
+        for file_path in operation_file_paths {
             // Use graphql-extract to extract GraphQL from the file
             // This handles both .graphql files and embedded GraphQL in TypeScript/JavaScript
             let extracted = match graphql_extract::extract_from_file(
@@ -156,16 +176,58 @@ pub async fn run(
                 let source = &item.source;
 
                 // Skip documents that only contain fragments
-                // Fragments need to be validated in the context of an operation
+                // Fragments are validated in the context of operations
                 if source.trim_start().starts_with("fragment") && !source.contains("query") && !source.contains("mutation") && !source.contains("subscription") {
                     continue;
                 }
+
+                // Find all fragment spreads recursively (fragments can reference other fragments)
+                let mut referenced_fragments = std::collections::HashSet::new();
+                let mut to_process = vec![source.to_string()];
+
+                while let Some(doc) = to_process.pop() {
+                    for line in doc.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("...") {
+                            // Extract fragment name (everything after ... until whitespace or special char)
+                            let frag_name = trimmed[3..].split(|c: char| c.is_whitespace() || c == '@').next().unwrap_or("");
+                            if !frag_name.is_empty() && !referenced_fragments.contains(frag_name) {
+                                referenced_fragments.insert(frag_name.to_string());
+
+                                // Find and queue the fragment definition for processing
+                                if let Some(frag_def) = all_fragments.iter().find(|f| {
+                                    f.contains(&format!("fragment {}", frag_name))
+                                }) {
+                                    to_process.push(frag_def.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Collect all referenced fragments
+                let relevant_fragments: Vec<&String> = all_fragments
+                    .iter()
+                    .filter(|frag| {
+                        referenced_fragments.iter().any(|name| {
+                            frag.contains(&format!("fragment {}", name))
+                        })
+                    })
+                    .collect();
+
+                // Combine the operation with all referenced fragments (including transitive dependencies)
+                let combined_source = if relevant_fragments.is_empty() {
+                    source.to_string()
+                } else {
+                    let fragments_str = relevant_fragments.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n\n");
+                    format!("{}\n\n{}", source, fragments_str)
+                };
 
                 // Validate with the actual file path and line offset
                 // This makes apollo-compiler's diagnostics show the correct file:line:column
                 let line_offset = item.location.range.start.line;
                 let validation_result = project.validate_document_with_location(
-                    source,
+                    &combined_source,
                     file_path,
                     line_offset,
                 );
