@@ -119,6 +119,21 @@ impl GraphQLProject {
         validator.validate_document(document, &schema_index)
     }
 
+    /// Validate a document with file location information for accurate diagnostics
+    ///
+    /// This method adjusts the source to include line offsets, making apollo-compiler's
+    /// diagnostics show the correct file name and line numbers.
+    pub fn validate_document_with_location(
+        &self,
+        document: &str,
+        file_name: &str,
+        line_offset: usize,
+    ) -> std::result::Result<(), DiagnosticList> {
+        let schema_index = self.schema_index.read().unwrap();
+        let validator = Validator::new();
+        validator.validate_document_with_location(document, &schema_index, file_name, line_offset)
+    }
+
     /// Get the schema index for advanced operations
     #[must_use]
     pub fn get_schema_index(&self) -> SchemaIndex {

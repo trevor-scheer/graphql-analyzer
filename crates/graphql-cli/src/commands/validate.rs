@@ -152,7 +152,7 @@ pub async fn run(
             }
 
             // Validate each extracted GraphQL document
-            for (doc_index, item) in extracted.iter().enumerate() {
+            for item in extracted.iter() {
                 let source = &item.source;
 
                 // Skip documents that only contain fragments
@@ -161,70 +161,39 @@ pub async fn run(
                     continue;
                 }
 
-                match project.validate_document(source) {
+                // Validate with the actual file path and line offset
+                // This makes apollo-compiler's diagnostics show the correct file:line:column
+                let line_offset = item.location.range.start.line;
+                let validation_result = project.validate_document_with_location(
+                    source,
+                    file_path,
+                    line_offset,
+                );
+
+                match validation_result {
                     Ok(()) => {
                         // Valid document - no output in human mode unless verbose
                     }
                     Err(diagnostics) => {
-                        // Found validation errors
+                        // Found validation errors - diagnostics already have correct file and line numbers
                         for diagnostic in diagnostics.iter() {
                             total_errors += 1;
 
-                            // Get the line/column from the diagnostic
-                            let diag_location = diagnostic.line_column_range();
-
                             match format {
                                 OutputFormat::Human => {
-                                    // Print file location header
-                                    if let Some(range) = diag_location {
-                                        // Adjust line number based on where GraphQL was extracted
-                                        // range.start.line is 1-indexed from apollo-compiler's line_column_range()
-                                        // item.location.range.start.line is 0-indexed in graphql-extract
-                                        // Calculation: file_line = extraction_start_line (0-indexed) + diagnostic_line (1-indexed)
-                                        let actual_line = item.location.range.start.line + range.start.line;
-                                        let actual_column = if range.start.line == 1 {
-                                            // First line of GraphQL: add column offset from where template starts
-                                            item.location.range.start.column + range.start.column
-                                        } else {
-                                            range.start.column
-                                        };
-
-                                        println!(
-                                            "\n{} {}:{}:{}",
-                                            "error:".red().bold(),
-                                            file_path,
-                                            actual_line,
-                                            actual_column
-                                        );
-                                    } else {
-                                        println!(
-                                            "\n{} {}",
-                                            "error:".red().bold(),
-                                            file_path
-                                        );
-                                    }
-
-                                    // Print the beautiful DiagnosticList formatting
-                                    println!("{}", diagnostic);
+                                    // Just print the diagnostic - it already has the correct location
+                                    println!("\n{}", diagnostic);
                                 }
                                 OutputFormat::Json => {
-                                    // For JSON output, format as structured data with adjusted locations
-                                    let adjusted_location = diag_location.map(|range| {
-                                        // Same calculation as Human format
-                                        let actual_line = item.location.range.start.line + range.start.line;
-                                        let actual_column = if range.start.line == 1 {
-                                            item.location.range.start.column + range.start.column
-                                        } else {
-                                            range.start.column
-                                        };
-
+                                    // For JSON output, extract location from diagnostic
+                                    let location = diagnostic.line_column_range().map(|range| {
                                         serde_json::json!({
                                             "start": {
-                                                "line": actual_line,
-                                                "column": actual_column
+                                                "line": range.start.line,
+                                                "column": range.start.column
                                             },
                                             "end": {
-                                                "line": item.location.range.start.line + range.end.line,
+                                                "line": range.end.line,
                                                 "column": range.end.column
                                             }
                                         })
@@ -234,9 +203,8 @@ pub async fn run(
                                         "{}",
                                         serde_json::json!({
                                             "file": file_path,
-                                            "document_index": doc_index,
                                             "error": format!("{}", diagnostic.error),
-                                            "location": adjusted_location
+                                            "location": location
                                         })
                                     );
                                 }
