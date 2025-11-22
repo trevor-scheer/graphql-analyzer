@@ -10,18 +10,7 @@ authors.workspace = true
 thiserror = { workspace = true }
 glob = { workspace = true }
 walkdir = { workspace = true }
-
-# For TypeScript/JavaScript parsing
-swc_common = { workspace = true, optional = true }
-swc_ecma_parser = { workspace = true, optional = true }
-swc_ecma_ast = { workspace = true, optional = true }
-swc_ecma_visit = { workspace = true, optional = true }
+swc_common = { workspace = true }
+swc_core = { workspace = true }
 
 [dev-dependencies]
-anyhow = { workspace = true }
-tempfile = "3.0"
-
-[features]
-default = []
-# TypeScript/JavaScript extraction using SWC
-typescript = ["dep:swc_common", "dep:swc_ecma_parser", "dep:swc_ecma_ast", "dep:swc_ecma_visit"]

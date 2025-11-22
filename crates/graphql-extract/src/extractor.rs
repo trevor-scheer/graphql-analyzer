@@ -62,7 +62,6 @@ pub fn extract_from_file(path: &Path, config: &ExtractConfig) -> Result<Vec<Extr
 }
 
 /// Extract GraphQL from source code string
-#[allow(unused_variables)] // config unused until TypeScript extraction is implemented
 pub fn extract_from_source(
     source: &str,
     language: Language,
@@ -85,23 +84,16 @@ pub fn extract_from_source(
             }])
         }
         Language::TypeScript | Language::JavaScript => {
-            #[cfg(feature = "typescript")]
-            {
-                extract_from_js_family(source, language, config)
-            }
-            #[cfg(not(feature = "typescript"))]
-            {
-                #[allow(clippy::used_underscore_binding)] // False positive with cfg
-                {
-                    Err(ExtractError::UnsupportedLanguage(language))
-                }
-            }
+            extract_from_js_family(source, language, config)
         }
         _ => Err(ExtractError::UnsupportedLanguage(language)),
     }
 }
 
 #[cfg(feature = "typescript")]
+#[allow(dead_code)] // Will be used when TS/JS extraction is implemented
+#[allow(clippy::unnecessary_wraps)] // Will return errors when implemented
+#[allow(clippy::missing_const_for_fn)] // Will not be const when implemented
 fn extract_from_js_family(
     source: &str,
     language: Language,
@@ -386,6 +378,11 @@ impl swc_ecma_visit::Visit for GraphQLVisitor<'_> {
         // Continue traversal into child nodes
         decl.visit_children_with(self);
     }
+    // TODO: Implement SWC-based extraction
+    // This will parse JS/TS files and extract:
+    // - Template literals tagged with gql/graphql
+    // - Strings preceded by magic comments (/* GraphQL */)
+    Ok(vec![])
 }
 
 /// Calculate position from byte offset
