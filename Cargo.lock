@@ -781,11 +781,9 @@ dependencies = [
 name = "graphql-extract"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "glob",
  "swc_common",
  "swc_core",
- "tempfile",
  "thiserror 1.0.69",
  "walkdir",
 ]

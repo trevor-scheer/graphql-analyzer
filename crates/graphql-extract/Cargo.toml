@@ -10,9 +10,7 @@ authors.workspace = true
 thiserror = { workspace = true }
 glob = { workspace = true }
 walkdir = { workspace = true }
-swc_core = { workspace = true }
 swc_common = { workspace = true }
+swc_core = { workspace = true }
 
 [dev-dependencies]
-anyhow = { workspace = true }
-tempfile = "3.0"
