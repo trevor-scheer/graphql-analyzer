@@ -1,4 +1,5 @@
-use crate::{Diagnostic, DocumentIndex, DocumentLoader, Result, SchemaIndex, SchemaLoader};
+use crate::{DocumentIndex, DocumentLoader, Result, SchemaIndex, SchemaLoader, Validator};
+use apollo_compiler::validation::DiagnosticList;
 use graphql_config::{GraphQLConfig, ProjectConfig};
 use std::sync::{Arc, RwLock};
 
@@ -8,7 +9,6 @@ pub struct GraphQLProject {
     schema: Arc<RwLock<Option<String>>>,
     schema_index: Arc<RwLock<SchemaIndex>>,
     document_index: Arc<RwLock<DocumentIndex>>,
-    diagnostics: Arc<RwLock<Vec<Diagnostic>>>,
 }
 
 impl GraphQLProject {
@@ -20,7 +20,6 @@ impl GraphQLProject {
             schema: Arc::new(RwLock::new(None)),
             schema_index: Arc::new(RwLock::new(SchemaIndex::new())),
             document_index: Arc::new(RwLock::new(DocumentIndex::new())),
-            diagnostics: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -77,12 +76,23 @@ impl GraphQLProject {
         Ok(())
     }
 
-    /// Validate all documents against the schema
+    /// Validate a single document string against the loaded schema
+    ///
+    /// Returns Ok(()) if valid, or Err with a `DiagnosticList` containing errors and warnings.
+    /// This validates a single GraphQL document against the project's schema.
+    ///
+    /// The `DiagnosticList` can be used directly for CLI output or converted to LSP diagnostics
+    /// by the language server package.
+    pub fn validate_document(&self, document: &str) -> std::result::Result<(), DiagnosticList> {
+        let schema_index = self.schema_index.read().unwrap();
+        let validator = Validator::new();
+        validator.validate_document(document, &schema_index)
+    }
+
+    /// Get the schema index for advanced operations
     #[must_use]
-    pub fn validate(&self) -> Vec<Diagnostic> {
-        // TODO: Implement full validation
-        // For now, return empty diagnostics
-        self.diagnostics.read().unwrap().clone()
+    pub fn get_schema_index(&self) -> SchemaIndex {
+        self.schema_index.read().unwrap().clone()
     }
 
     /// Get schema as string
@@ -100,18 +110,6 @@ impl GraphQLProject {
             operations: index.operations.clone(),
             fragments: index.fragments.clone(),
         }
-    }
-
-    /// Get all diagnostics
-    #[must_use]
-    pub fn get_diagnostics(&self) -> Vec<Diagnostic> {
-        self.diagnostics.read().unwrap().clone()
-    }
-
-    /// Clear all diagnostics
-    pub fn clear_diagnostics(&self) {
-        let mut diagnostics = self.diagnostics.write().unwrap();
-        diagnostics.clear();
     }
 }
 
