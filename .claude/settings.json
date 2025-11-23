@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test"
+            "command": "cargo fmt --check && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test"
           }
         ]
       }
