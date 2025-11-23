@@ -157,9 +157,21 @@ impl GraphQLLanguageServer {
             return;
         };
 
+        let file_path = uri.to_file_path();
+
+        // Check if this is a schema file - schema files shouldn't be validated as executable documents
+        if let Some(ref path) = file_path {
+            if project.is_schema_file(path.as_ref()) {
+                tracing::debug!("Skipping validation for schema file: {:?}", uri);
+                // Clear any existing diagnostics
+                self.client.publish_diagnostics(uri, vec![], None).await;
+                return;
+            }
+        }
+
         // Check if this is a TypeScript/JavaScript file
-        let is_ts_js = uri
-            .to_file_path()
+        let is_ts_js = file_path
+            .as_ref()
             .and_then(|path| {
                 path.extension()
                     .and_then(|ext| ext.to_str())

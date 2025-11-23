@@ -156,6 +156,53 @@ impl GraphQLProject {
             fragments: index.fragments.clone(),
         }
     }
+
+    /// Check if a file path matches the schema configuration
+    ///
+    /// This is used by the LSP to determine if a file should be validated
+    /// as a schema file (type definitions) or as a document (executable operations).
+    #[must_use]
+    pub fn is_schema_file(&self, file_path: &std::path::Path) -> bool {
+        use glob::Pattern;
+
+        let schema_patterns = self.config.schema.paths();
+
+        // Get the file path as a string for matching
+        let Some(file_str) = file_path.to_str() else {
+            return false;
+        };
+
+        // Check if file matches any schema pattern
+        for pattern_str in schema_patterns {
+            // Try to resolve pattern relative to base_dir if we have one
+            let full_pattern = self
+                .base_dir
+                .as_ref()
+                .map_or_else(|| pattern_str.to_string(), |base| {
+                    base.join(pattern_str)
+                        .to_str()
+                        .map_or_else(|| pattern_str.to_string(), String::from)
+                });
+
+            // Try both exact match and glob pattern
+            if let Ok(pattern) = Pattern::new(&full_pattern) {
+                if pattern.matches(file_str) {
+                    return true;
+                }
+            }
+
+            // Also try matching just the filename against the pattern
+            if let Some(filename) = file_path.file_name().and_then(|f| f.to_str()) {
+                if let Ok(pattern) = Pattern::new(pattern_str) {
+                    if pattern.matches(filename) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
 }
 
 #[cfg(test)]
