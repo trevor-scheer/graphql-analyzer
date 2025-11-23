@@ -1,22 +1,31 @@
 use dashmap::DashMap;
-use graphql_project::GraphQLProject;
+use graphql_project::{GraphQLProject, SchemaIndex, Validator};
 use lsp_types::{
-    CompletionOptions, CompletionParams, CompletionResponse, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
-    Hover, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-    InitializedParams, Location, MessageType, OneOf, ReferenceParams, ServerCapabilities,
-    ServerInfo, SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
-    WorkspaceSymbol, WorkspaceSymbolParams,
+    CompletionOptions, CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, DocumentSymbolParams, DocumentSymbolResponse,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability,
+    InitializeParams, InitializeResult, InitializedParams, Location, MessageType, OneOf,
+    Position, Range, ReferenceParams, ServerCapabilities, ServerInfo, SymbolInformation,
+    TextDocumentSyncCapability, TextDocumentSyncKind, Uri, WorkspaceSymbol,
+    WorkspaceSymbolParams,
 };
 use std::sync::Arc;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::{Client, LanguageServer};
 
+/// Stores document content and associated schema
+struct DocumentState {
+    content: String,
+    schema: Option<SchemaIndex>,
+}
+
 pub struct GraphQLLanguageServer {
     client: Client,
     #[allow(dead_code)] // Will be used when LSP features are implemented
     projects: Arc<DashMap<Uri, GraphQLProject>>,
+    documents: Arc<DashMap<Uri, DocumentState>>,
+    validator: Validator,
 }
 
 impl GraphQLLanguageServer {
@@ -24,7 +33,55 @@ impl GraphQLLanguageServer {
         Self {
             client,
             projects: Arc::new(DashMap::new()),
+            documents: Arc::new(DashMap::new()),
+            validator: Validator::new(),
         }
+    }
+
+    /// Validate a document and publish diagnostics
+    async fn validate_and_publish(&self, uri: Uri, content: &str, schema: &SchemaIndex) {
+        let diagnostics = match self.validator.validate_document(content, schema) {
+            Ok(_) => {
+                // No errors
+                vec![]
+            }
+            Err(diagnostic_list) => {
+                // Convert apollo-compiler diagnostics to LSP diagnostics
+                // For now, we'll create a simple diagnostic at line 0 with the full message
+                // TODO: Parse the diagnostic output to extract proper line/column info
+                diagnostic_list
+                    .iter()
+                    .map(|diag| {
+                        // Use the Display formatting to get the full diagnostic message
+                        let message = format!("{}", diag);
+
+                        // For now, place error at the start of the document
+                        // In the future, we should parse the diagnostic to extract proper location
+                        let range = Range {
+                            start: Position {
+                                line: 0,
+                                character: 0,
+                            },
+                            end: Position {
+                                line: 0,
+                                character: 100,
+                            },
+                        };
+
+                        Diagnostic {
+                            range,
+                            severity: Some(DiagnosticSeverity::ERROR),
+                            code: None,
+                            source: Some("graphql".to_string()),
+                            message,
+                            ..Default::default()
+                        }
+                    })
+                    .collect()
+            }
+        };
+
+        self.client.publish_diagnostics(uri, diagnostics, None).await;
     }
 }
 
@@ -39,7 +96,7 @@ impl LanguageServer for GraphQLLanguageServer {
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::INCREMENTAL,
+                    TextDocumentSyncKind::FULL,
                 )),
                 completion_provider: Some(CompletionOptions {
                     trigger_characters: Some(vec![
@@ -76,13 +133,68 @@ impl LanguageServer for GraphQLLanguageServer {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        tracing::info!("Document opened: {:?}", params.text_document.uri);
-        // TODO: Load project, validate document, publish diagnostics
+        let uri = params.text_document.uri.clone();
+        let content = params.text_document.text.clone();
+        tracing::info!("Document opened: {:?}", uri);
+
+        // For now, use a simple schema. Later this should load from graphql.config
+        // You can create a test schema here or load from workspace
+        let schema_content = r#"
+            type Query {
+                user(id: ID!): User
+                post(id: ID!): Post
+            }
+
+            type User {
+                id: ID!
+                name: String!
+                posts: [Post!]!
+            }
+
+            type Post {
+                id: ID!
+                title: String!
+                content: String!
+                author: User!
+            }
+        "#;
+
+        let schema = SchemaIndex::from_schema(schema_content);
+
+        // Store document state
+        self.documents.insert(
+            uri.clone(),
+            DocumentState {
+                content: content.clone(),
+                schema: Some(schema.clone()),
+            },
+        );
+
+        // Validate and publish diagnostics
+        self.validate_and_publish(uri, &content, &schema).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        tracing::debug!("Document changed: {:?}", params.text_document.uri);
-        // TODO: Update document, re-validate, publish diagnostics
+        let uri = params.text_document.uri.clone();
+        tracing::debug!("Document changed: {:?}", uri);
+
+        // Get the latest content from the changes
+        for change in params.content_changes {
+            if let Some(mut doc_state) = self.documents.get_mut(&uri) {
+                // For full sync, replace entire document
+                doc_state.content = change.text.clone();
+
+                // Validate if we have a schema
+                if let Some(schema) = &doc_state.schema {
+                    let content = doc_state.content.clone();
+                    let schema = schema.clone();
+                    drop(doc_state); // Release the lock before async call
+
+                    self.validate_and_publish(uri.clone(), &content, &schema)
+                        .await;
+                }
+            }
+        }
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
