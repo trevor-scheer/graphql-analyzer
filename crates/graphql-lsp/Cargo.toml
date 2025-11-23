@@ -35,3 +35,6 @@ thiserror = { workspace = true }
 # Logging
 tracing = "0.1"
 tracing-subscriber = "0.3"
+
+# Temp files for TypeScript extraction
+tempfile = "3.0"
