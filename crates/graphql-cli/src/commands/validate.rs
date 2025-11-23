@@ -67,7 +67,11 @@ pub async fn run(
                     let schema = project.get_schema();
                     if let Some(ref schema_str) = schema {
                         let line_count = schema_str.lines().count();
-                        println!("{} ({} lines)", "✓ Schema loaded successfully".green(), line_count);
+                        println!(
+                            "{} ({} lines)",
+                            "✓ Schema loaded successfully".green(),
+                            line_count
+                        );
                     } else {
                         println!("{}", "✓ Schema loaded successfully".green());
                     }
@@ -162,11 +166,7 @@ pub async fn run(
 
             if extracted.is_empty() {
                 if matches!(format, OutputFormat::Human) {
-                    eprintln!(
-                        "{} {} (no GraphQL found)",
-                        "⚠".yellow(),
-                        file_path
-                    );
+                    eprintln!("{} {} (no GraphQL found)", "⚠".yellow(), file_path);
                 }
                 continue;
             }
@@ -177,7 +177,11 @@ pub async fn run(
 
                 // Skip documents that only contain fragments
                 // Fragments are validated in the context of operations
-                if source.trim_start().starts_with("fragment") && !source.contains("query") && !source.contains("mutation") && !source.contains("subscription") {
+                if source.trim_start().starts_with("fragment")
+                    && !source.contains("query")
+                    && !source.contains("mutation")
+                    && !source.contains("subscription")
+                {
                     continue;
                 }
 
@@ -190,14 +194,18 @@ pub async fn run(
                         let trimmed = line.trim();
                         if trimmed.starts_with("...") {
                             // Extract fragment name (everything after ... until whitespace or special char)
-                            let frag_name = trimmed[3..].split(|c: char| c.is_whitespace() || c == '@').next().unwrap_or("");
+                            let frag_name = trimmed[3..]
+                                .split(|c: char| c.is_whitespace() || c == '@')
+                                .next()
+                                .unwrap_or("");
                             if !frag_name.is_empty() && !referenced_fragments.contains(frag_name) {
                                 referenced_fragments.insert(frag_name.to_string());
 
                                 // Find and queue the fragment definition for processing
-                                if let Some(frag_def) = all_fragments.iter().find(|f| {
-                                    f.contains(&format!("fragment {}", frag_name))
-                                }) {
+                                if let Some(frag_def) = all_fragments
+                                    .iter()
+                                    .find(|f| f.contains(&format!("fragment {}", frag_name)))
+                                {
                                     to_process.push(frag_def.clone());
                                 }
                             }
@@ -209,9 +217,9 @@ pub async fn run(
                 let relevant_fragments: Vec<&String> = all_fragments
                     .iter()
                     .filter(|frag| {
-                        referenced_fragments.iter().any(|name| {
-                            frag.contains(&format!("fragment {}", name))
-                        })
+                        referenced_fragments
+                            .iter()
+                            .any(|name| frag.contains(&format!("fragment {}", name)))
                     })
                     .collect();
 
@@ -219,7 +227,11 @@ pub async fn run(
                 let combined_source = if relevant_fragments.is_empty() {
                     source.to_string()
                 } else {
-                    let fragments_str = relevant_fragments.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n\n");
+                    let fragments_str = relevant_fragments
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
                     format!("{}\n\n{}", source, fragments_str)
                 };
 
@@ -284,10 +296,7 @@ pub async fn run(
         if total_errors == 0 {
             println!("{}", "✓ All validations passed!".green().bold());
         } else {
-            println!(
-                "{}",
-                format!("Found {total_errors} error(s)").yellow()
-            );
+            println!("{}", format!("Found {total_errors} error(s)").yellow());
         }
     }
 
