@@ -55,9 +55,13 @@ export function activate(context: ExtensionContext) {
     documentSelector: [
       { scheme: 'file', language: 'graphql' },
       { scheme: 'file', pattern: '**/*.{graphql,gql}' },
+      { scheme: 'file', language: 'typescript' },
+      { scheme: 'file', language: 'typescriptreact' },
+      { scheme: 'file', language: 'javascript' },
+      { scheme: 'file', language: 'javascriptreact' },
     ],
     synchronize: {
-      fileEvents: workspace.createFileSystemWatcher('**/*.{graphql,gql}'),
+      fileEvents: workspace.createFileSystemWatcher('**/*.{graphql,gql,ts,tsx,js,jsx}'),
     },
     outputChannel: outputChannel,
   };

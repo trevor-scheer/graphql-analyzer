@@ -11,7 +11,8 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "*"
+    "workspaceContains:**/graphql.config.{yaml,yml,json}",
+    "workspaceContains:**/.graphqlrc{.yaml,.yml,.json,}"
   ],
   "main": "./out/extension.js",
   "contributes": {

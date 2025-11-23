@@ -796,6 +796,7 @@ dependencies = [
  "anyhow",
  "dashmap 5.5.3",
  "graphql-config",
+ "graphql-extract",
  "graphql-project",
  "lsp-types",
  "serde",
