@@ -4,7 +4,7 @@ expression: "all_diagnostics.join(\"\\n\\n\")"
 ---
 === Query 1 ===
 Error: type `User` does not have a field `isLoggedIn`
-    ╭─[ /Users/trevor/Repositories/graphql-lsp/crates/graphql-project/tests/fixtures/apollo_client_directives.tsx:9:7 ]
+    ╭─[ crates/graphql-project/tests/fixtures/apollo_client_directives.tsx:9:7 ]
     │
   9 │       isLoggedIn @client
     │       ─────┬────  
@@ -21,7 +21,7 @@ Error: type `User` does not have a field `isLoggedIn`
 
 
 Error: type `User` does not have a field `localData`
-    ╭─[ /Users/trevor/Repositories/graphql-lsp/crates/graphql-project/tests/fixtures/apollo_client_directives.tsx:10:7 ]
+    ╭─[ crates/graphql-project/tests/fixtures/apollo_client_directives.tsx:10:7 ]
     │
  10 │       localData @client(always: true)
     │       ────┬────  
@@ -39,7 +39,7 @@ Error: type `User` does not have a field `localData`
 
 === Query 2 ===
 Error: unused variable: `$after`
-    ╭─[ /Users/trevor/Repositories/graphql-lsp/crates/graphql-project/tests/fixtures/apollo_client_directives.tsx:16:18 ]
+    ╭─[ crates/graphql-project/tests/fixtures/apollo_client_directives.tsx:16:18 ]
     │
  16 │   query GetPosts($after: String) {
     │                  ───┬──  
@@ -48,7 +48,7 @@ Error: unused variable: `$after`
 
 
 Error: cannot find directive `@connection` in this document
-    ╭─[ /Users/trevor/Repositories/graphql-lsp/crates/graphql-project/tests/fixtures/apollo_client_directives.tsx:17:11 ]
+    ╭─[ crates/graphql-project/tests/fixtures/apollo_client_directives.tsx:17:11 ]
     │
  17 │     posts @connection(key: "allPosts", filter: ["published"]) {
     │           ─────────────────────────┬─────────────────────────  
@@ -58,7 +58,7 @@ Error: cannot find directive `@connection` in this document
 
 === Query 3 ===
 Error: cannot find directive `@defer` in this document
-    ╭─[ /Users/trevor/Repositories/graphql-lsp/crates/graphql-project/tests/fixtures/apollo_client_directives.tsx:30:11 ]
+    ╭─[ crates/graphql-project/tests/fixtures/apollo_client_directives.tsx:30:11 ]
     │
  30 │       ... @defer(label: "posts") {
     │           ───────────┬──────────  

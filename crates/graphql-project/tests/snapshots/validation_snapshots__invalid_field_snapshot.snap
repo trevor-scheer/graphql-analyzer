@@ -3,7 +3,7 @@ source: crates/graphql-project/tests/validation_snapshots.rs
 expression: format_diagnostics(&diagnostics)
 ---
 Error: type `User` does not have a field `invalidField`
-    ╭─[ /Users/trevor/Repositories/graphql-lsp/crates/graphql-project/tests/fixtures/invalid_field.graphql:5:5 ]
+    ╭─[ crates/graphql-project/tests/fixtures/invalid_field.graphql:5:5 ]
     │
   5 │     invalidField
     │     ──────┬─────  
@@ -20,7 +20,7 @@ Error: type `User` does not have a field `invalidField`
 
 
 Error: type `User` does not have a field `anotherInvalidField`
-    ╭─[ /Users/trevor/Repositories/graphql-lsp/crates/graphql-project/tests/fixtures/invalid_field.graphql:6:5 ]
+    ╭─[ crates/graphql-project/tests/fixtures/invalid_field.graphql:6:5 ]
     │
   6 │     anotherInvalidField
     │     ─────────┬─────────  

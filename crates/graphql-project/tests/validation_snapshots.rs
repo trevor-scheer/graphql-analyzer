@@ -13,6 +13,20 @@ fn load_schema() -> SchemaIndex {
     SchemaIndex::from_schema(&schema_content)
 }
 
+/// Convert absolute path to relative path from workspace root
+fn to_relative_path(path: &Path) -> String {
+    // Get the workspace root by going up from CARGO_MANIFEST_DIR
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("Failed to find workspace root");
+
+    path.strip_prefix(workspace_root)
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| path.display().to_string())
+}
+
 /// Format diagnostics for snapshot testing
 fn format_diagnostics(diagnostics: &apollo_compiler::validation::DiagnosticList) -> String {
     diagnostics
@@ -51,7 +65,7 @@ fn test_invalid_field_snapshot() {
     let result = validator.validate_document_with_name(
         &document,
         &schema,
-        &document_path.display().to_string(),
+        &to_relative_path(&document_path),
     );
 
     assert!(result.is_err(), "Should have validation errors");
@@ -74,7 +88,7 @@ fn test_missing_argument_snapshot() {
     let result = validator.validate_document_with_name(
         &document,
         &schema,
-        &document_path.display().to_string(),
+        &to_relative_path(&document_path),
     );
 
     assert!(result.is_err(), "Should have validation errors");
@@ -97,7 +111,7 @@ fn test_invalid_fragment_snapshot() {
     let result = validator.validate_document_with_name(
         &document,
         &schema,
-        &document_path.display().to_string(),
+        &to_relative_path(&document_path),
     );
 
     assert!(result.is_err(), "Should have validation errors");
@@ -161,7 +175,7 @@ fn test_valid_typescript_snapshot() {
         let result = validator.validate_document_with_name(
             &combined,
             &schema,
-            &document_path.display().to_string(),
+            &to_relative_path(&document_path),
         );
         assert!(
             result.is_ok(),
@@ -196,7 +210,7 @@ fn test_invalid_typescript_snapshot() {
         let result = validator.validate_document_with_location(
             &item.source,
             &schema,
-            &document_path.display().to_string(),
+            &to_relative_path(&document_path),
             line_offset,
         );
 
@@ -242,7 +256,7 @@ fn test_apollo_client_directives_snapshot() {
         let result = validator.validate_document_with_location(
             &item.source,
             &schema,
-            &document_path.display().to_string(),
+            &to_relative_path(&document_path),
             line_offset,
         );
 
@@ -288,7 +302,7 @@ query GetUser($id: ID!) {
     let result = validator.validate_document_with_name(
         document,
         &schema,
-        &file_path.display().to_string(),
+        &to_relative_path(&file_path),
     );
 
     assert!(result.is_err(), "Should have validation errors");
@@ -330,7 +344,7 @@ query ComplexQuery($userId: ID!, $postId: ID!) {
     let result = validator.validate_document_with_name(
         document,
         &schema,
-        &file_path.display().to_string(),
+        &to_relative_path(&file_path),
     );
 
     assert!(result.is_err(), "Should have validation errors");
@@ -360,7 +374,7 @@ query GetUser($id: ID!) {
     let result = validator.validate_document_with_name(
         document,
         &schema,
-        &file_path.display().to_string(),
+        &to_relative_path(&file_path),
     );
 
     assert!(result.is_err(), "Should have validation errors");
@@ -389,7 +403,7 @@ query GetUser($id: String!) {
     let result = validator.validate_document_with_name(
         document,
         &schema,
-        &file_path.display().to_string(),
+        &to_relative_path(&file_path),
     );
 
     // This might or might not error depending on apollo-compiler's validation
