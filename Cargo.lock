@@ -794,6 +794,7 @@ name = "graphql-lsp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "apollo-compiler",
  "dashmap 5.5.3",
  "graphql-config",
  "graphql-extract",

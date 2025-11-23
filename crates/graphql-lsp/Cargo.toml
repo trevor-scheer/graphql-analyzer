@@ -16,6 +16,9 @@ graphql-project = { path = "../graphql-project" }
 graphql-config = { path = "../graphql-config" }
 graphql-extract = { path = "../graphql-extract" }
 
+# GraphQL
+apollo-compiler = { workspace = true }
+
 # LSP
 tower-lsp-server = { workspace = true }
 lsp-types = { workspace = true }

@@ -1,3 +1,4 @@
+use apollo_compiler::validation::DiagnosticList;
 use dashmap::DashMap;
 use graphql_config::{find_config, load_config};
 use graphql_extract::ExtractConfig;
@@ -5,17 +6,16 @@ use graphql_project::GraphQLProject;
 use lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentSymbolParams, DocumentSymbolResponse,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability,
-    InitializeParams, InitializeResult, InitializedParams, Location, MessageType, OneOf,
-    Position, Range, ReferenceParams, ServerCapabilities, ServerInfo, SymbolInformation,
-    TextDocumentSyncCapability, TextDocumentSyncKind, Uri, WorkspaceSymbol,
-    WorkspaceSymbolParams,
+    DidSaveTextDocumentParams, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability, InitializeParams,
+    InitializeResult, InitializedParams, Location, MessageType, OneOf, Position, Range,
+    ReferenceParams, ServerCapabilities, ServerInfo, SymbolInformation, TextDocumentSyncCapability,
+    TextDocumentSyncKind, Uri, WorkspaceSymbol, WorkspaceSymbolParams,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
 use tower_lsp_server::jsonrpc::Result;
-use tower_lsp_server::{Client, LanguageServer};
+use tower_lsp_server::{Client, LanguageServer, UriExt};
 
 pub struct GraphQLLanguageServer {
     client: Client,
@@ -23,7 +23,7 @@ pub struct GraphQLLanguageServer {
     init_workspace_folders: Arc<DashMap<String, PathBuf>>,
     /// Workspace roots indexed by workspace folder URI string
     workspace_roots: Arc<DashMap<String, PathBuf>>,
-    /// GraphQL projects by workspace URI -> Vec<(project_name, project)>
+    /// GraphQL projects by workspace URI -> Vec<(`project_name`, project)>
     projects: Arc<DashMap<String, Vec<(String, GraphQLProject)>>>,
 }
 
@@ -51,17 +51,19 @@ impl GraphQLLanguageServer {
                     Ok(config) => {
                         // Create projects from config
                         match GraphQLProject::from_config_with_base(&config, workspace_path) {
-                            Ok(mut projects) => {
+                            Ok(projects) => {
                                 tracing::info!("Loaded {} GraphQL project(s)", projects.len());
 
                                 // Load schemas for all projects
                                 for (name, project) in &projects {
                                     if let Err(e) = project.load_schema().await {
-                                        tracing::error!("Failed to load schema for project '{}': {}", name, e);
+                                        tracing::error!(
+                                            "Failed to load schema for project '{name}': {e}"
+                                        );
                                         self.client
                                             .log_message(
                                                 MessageType::ERROR,
-                                                format!("Failed to load schema for project '{}': {}", name, e),
+                                                format!("Failed to load schema for project '{name}': {e}"),
                                             )
                                             .await;
                                     } else {
@@ -75,26 +77,29 @@ impl GraphQLLanguageServer {
                                 self.projects.insert(workspace_uri.to_string(), projects);
 
                                 self.client
-                                    .log_message(MessageType::INFO, "GraphQL config loaded successfully")
+                                    .log_message(
+                                        MessageType::INFO,
+                                        "GraphQL config loaded successfully",
+                                    )
                                     .await;
                             }
                             Err(e) => {
-                                tracing::error!("Failed to create projects from config: {}", e);
+                                tracing::error!("Failed to create projects from config: {e}");
                                 self.client
                                     .log_message(
                                         MessageType::ERROR,
-                                        format!("Failed to load GraphQL projects: {}", e),
+                                        format!("Failed to load GraphQL projects: {e}"),
                                     )
                                     .await;
                             }
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Failed to load config: {}", e);
+                        tracing::error!("Failed to load config: {e}");
                         self.client
                             .log_message(
                                 MessageType::ERROR,
-                                format!("Failed to parse GraphQL config: {}", e),
+                                format!("Failed to parse GraphQL config: {e}"),
                             )
                             .await;
                     }
@@ -115,23 +120,19 @@ impl GraphQLLanguageServer {
         }
     }
 
-    /// Find the project for a given document URI
-    fn find_project_for_document(&self, document_uri: &Uri) -> Option<GraphQLProject> {
-        let doc_path = document_uri.path();
+    /// Find the workspace and project for a given document URI
+    fn find_workspace_and_project(&self, document_uri: &Uri) -> Option<(String, usize)> {
+        let doc_path = document_uri.to_file_path()?;
 
         // Try to find which workspace this document belongs to
         for workspace_entry in self.workspace_roots.iter() {
             let workspace_uri = workspace_entry.key();
             let workspace_path = workspace_entry.value();
 
-            if doc_path.starts_with(workspace_path.to_str()?) {
-                // Found the workspace, now get the first project
+            if doc_path.as_ref().starts_with(workspace_path.as_path()) {
+                // Found the workspace, return the workspace URI and project index (0 for now)
                 // TODO: Match document to correct project based on includes/excludes
-                if let Some(projects) = self.projects.get(workspace_uri) {
-                    if let Some((_, project)) = projects.first() {
-                        return Some(project.clone());
-                    }
-                }
+                return Some((workspace_uri.clone(), 0));
             }
         }
 
@@ -140,35 +141,58 @@ impl GraphQLLanguageServer {
 
     /// Validate a document and publish diagnostics
     async fn validate_document(&self, uri: Uri, content: &str) {
-        let Some(project) = self.find_project_for_document(&uri) else {
+        let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No project found for document: {:?}", uri);
             return;
         };
 
-        // Check if this is a TypeScript/JavaScript file
-        let is_ts_js = uri.path().ends_with(".ts")
-            || uri.path().ends_with(".tsx")
-            || uri.path().ends_with(".js")
-            || uri.path().ends_with(".jsx");
-
-        let diagnostics = if is_ts_js {
-            self.validate_typescript_document(&uri, content, &project)
-        } else {
-            self.validate_graphql_document(content, &project)
+        // Get the project from the workspace
+        let Some(projects) = self.projects.get(&workspace_uri) else {
+            tracing::warn!("No projects loaded for workspace: {workspace_uri}");
+            return;
         };
 
-        self.client.publish_diagnostics(uri, diagnostics, None).await;
+        let Some((_, project)) = projects.get(project_idx) else {
+            tracing::warn!("Project index {project_idx} not found in workspace {workspace_uri}");
+            return;
+        };
+
+        // Check if this is a TypeScript/JavaScript file
+        let is_ts_js = uri
+            .to_file_path()
+            .and_then(|path| {
+                path.extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| matches!(ext, "ts" | "tsx" | "js" | "jsx"))
+            })
+            .unwrap_or(false);
+
+        let diagnostics = if is_ts_js {
+            self.validate_typescript_document(&uri, content, project)
+        } else {
+            self.validate_graphql_document(content, project)
+        };
+
+        self.client
+            .publish_diagnostics(uri, diagnostics, None)
+            .await;
     }
 
     /// Validate a pure GraphQL document
-    fn validate_graphql_document(&self, content: &str, project: &GraphQLProject) -> Vec<Diagnostic> {
+    #[must_use]
+    fn validate_graphql_document(
+        &self,
+        content: &str,
+        project: &GraphQLProject,
+    ) -> Vec<Diagnostic> {
         match project.validate_document(content) {
-            Ok(_) => vec![],
+            Ok(()) => vec![],
             Err(diagnostic_list) => self.convert_diagnostics(&diagnostic_list),
         }
     }
 
     /// Validate GraphQL embedded in TypeScript/JavaScript
+    #[must_use]
     fn validate_typescript_document(
         &self,
         uri: &Uri,
@@ -189,16 +213,14 @@ impl GraphQLLanguageServer {
         };
 
         // Extract GraphQL from TypeScript/JavaScript
-        let extracted = match graphql_extract::extract_from_file(
-            temp_file.path(),
-            &ExtractConfig::default(),
-        ) {
-            Ok(extracted) => extracted,
-            Err(e) => {
-                tracing::error!("Failed to extract GraphQL from {:?}: {}", uri, e);
-                return vec![];
-            }
-        };
+        let extracted =
+            match graphql_extract::extract_from_file(temp_file.path(), &ExtractConfig::default()) {
+                Ok(extracted) => extracted,
+                Err(e) => {
+                    tracing::error!("Failed to extract GraphQL from {:?}: {}", uri, e);
+                    return vec![];
+                }
+            };
 
         if extracted.is_empty() {
             return vec![];
@@ -216,8 +238,12 @@ impl GraphQLLanguageServer {
         for item in extracted {
             let line_offset = item.location.range.start.line;
 
-            match project.validate_document_with_location(&item.source, &uri.to_string(), line_offset) {
-                Ok(_) => {}
+            match project.validate_document_with_location(
+                &item.source,
+                &uri.to_string(),
+                line_offset,
+            ) {
+                Ok(()) => {}
                 Err(diagnostic_list) => {
                     all_diagnostics.extend(self.convert_diagnostics(&diagnostic_list));
                 }
@@ -228,26 +254,14 @@ impl GraphQLLanguageServer {
     }
 
     /// Convert apollo-compiler diagnostics to LSP diagnostics
-    fn convert_diagnostics(
-        &self,
-        diagnostic_list: &apollo_compiler::validation::DiagnosticList,
-    ) -> Vec<Diagnostic> {
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::unused_self)]
+    fn convert_diagnostics(&self, diagnostic_list: &DiagnosticList) -> Vec<Diagnostic> {
         diagnostic_list
             .iter()
-            .filter_map(|diag| {
-                let range = if let Some(loc_range) = diag.line_column_range() {
-                    // apollo-compiler uses 1-based, LSP uses 0-based
-                    Range {
-                        start: Position {
-                            line: loc_range.start.line.saturating_sub(1) as u32,
-                            character: loc_range.start.column.saturating_sub(1) as u32,
-                        },
-                        end: Position {
-                            line: loc_range.end.line.saturating_sub(1) as u32,
-                            character: loc_range.end.column.saturating_sub(1) as u32,
-                        },
-                    }
-                } else {
+            .map(|diag| {
+                let range = diag.line_column_range().map_or(
                     Range {
                         start: Position {
                             line: 0,
@@ -257,17 +271,32 @@ impl GraphQLLanguageServer {
                             line: 0,
                             character: 1,
                         },
-                    }
-                };
+                    },
+                    |loc_range| {
+                        // apollo-compiler uses 1-based, LSP uses 0-based
+                        // We allow cast_possible_truncation because line/column numbers
+                        // in source files are unlikely to exceed u32::MAX
+                        Range {
+                            start: Position {
+                                line: loc_range.start.line.saturating_sub(1) as u32,
+                                character: loc_range.start.column.saturating_sub(1) as u32,
+                            },
+                            end: Position {
+                                line: loc_range.end.line.saturating_sub(1) as u32,
+                                character: loc_range.end.column.saturating_sub(1) as u32,
+                            },
+                        }
+                    },
+                );
 
-                Some(Diagnostic {
+                Diagnostic {
                     range,
                     severity: Some(DiagnosticSeverity::ERROR),
                     code: None,
                     source: Some("graphql".to_string()),
-                    message: format!("{}", diag.error),
+                    message: diag.error.to_string(),
                     ..Default::default()
-                })
+                }
             })
             .collect()
     }
@@ -281,9 +310,9 @@ impl LanguageServer for GraphQLLanguageServer {
         if let Some(ref folders) = params.workspace_folders {
             tracing::info!("Workspace folders: {} folders", folders.len());
             for folder in folders {
-                if let Ok(path) = folder.uri.to_file_path() {
+                if let Some(path) = folder.uri.to_file_path() {
                     self.init_workspace_folders
-                        .insert(folder.uri.to_string(), path);
+                        .insert(folder.uri.to_string(), path.into_owned());
                 }
             }
         }
@@ -315,16 +344,22 @@ impl LanguageServer for GraphQLLanguageServer {
         })
     }
 
-    async fn initialized(&self, params: InitializedParams) {
+    async fn initialized(&self, _params: InitializedParams) {
         tracing::info!("GraphQL Language Server initialized");
         self.client
             .log_message(MessageType::INFO, "GraphQL LSP initialized")
             .await;
 
-        // Load GraphQL config from all workspace folders
-        // We need to get workspace folders from somewhere - let's check if we saved them during initialize
-        // For now, we'll need to pass them through initialization_options or wait for a workspace folder change
-        // Let me check the InitializeParams we got in initialize()
+        // Load GraphQL config from workspace folders we stored during initialize
+        let folders: Vec<_> = self
+            .init_workspace_folders
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect();
+
+        for (uri, path) in folders {
+            self.load_workspace_config(&uri, &path).await;
+        }
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -333,78 +368,34 @@ impl LanguageServer for GraphQLLanguageServer {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let uri = params.text_document.uri.clone();
-        let content = params.text_document.text.clone();
+        let uri = params.text_document.uri;
+        let content = params.text_document.text;
         tracing::info!("Document opened: {:?}", uri);
 
-        // For now, use a simple schema. Later this should load from graphql.config
-        // You can create a test schema here or load from workspace
-        let schema_content = r#"
-            type Query {
-                user(id: ID!): User
-                post(id: ID!): Post
-            }
-
-            type User {
-                id: ID!
-                name: String!
-                posts: [Post!]!
-            }
-
-            type Post {
-                id: ID!
-                title: String!
-                content: String!
-                author: User!
-            }
-        "#;
-
-        let schema = SchemaIndex::from_schema(schema_content);
-
-        // Store document state
-        self.documents.insert(
-            uri.clone(),
-            DocumentState {
-                content: content.clone(),
-                schema: Some(schema.clone()),
-            },
-        );
-
-        // Validate and publish diagnostics
-        self.validate_and_publish(uri, &content, &schema).await;
+        self.validate_document(uri, &content).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        let uri = params.text_document.uri.clone();
+        let uri = params.text_document.uri;
         tracing::debug!("Document changed: {:?}", uri);
 
-        // Get the latest content from the changes
+        // Get the latest content from changes (full sync mode)
         for change in params.content_changes {
-            if let Some(mut doc_state) = self.documents.get_mut(&uri) {
-                // For full sync, replace entire document
-                doc_state.content = change.text.clone();
-
-                // Validate if we have a schema
-                if let Some(schema) = &doc_state.schema {
-                    let content = doc_state.content.clone();
-                    let schema = schema.clone();
-                    drop(doc_state); // Release the lock before async call
-
-                    self.validate_and_publish(uri.clone(), &content, &schema)
-                        .await;
-                }
-            }
+            self.validate_document(uri.clone(), &change.text).await;
         }
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         tracing::info!("Document saved: {:?}", params.text_document.uri);
-        // TODO: Re-validate document
+        // Re-validation happens automatically through did_change
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         tracing::info!("Document closed: {:?}", params.text_document.uri);
-        // TODO: Clean up document state
+        // Clear diagnostics
+        self.client
+            .publish_diagnostics(params.text_document.uri, vec![], None)
+            .await;
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
