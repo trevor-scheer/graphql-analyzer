@@ -4,9 +4,9 @@ expression: "all_diagnostics.join(\"\\n\\n\")"
 ---
 === Query 1 ===
 Error: type `User` does not have a field `isLoggedIn`
-    ╭─[ apollo_client_directives.tsx:7:7 ]
+    ╭─[ apollo_client_directives.tsx:9:7 ]
     │
-  7 │       isLoggedIn @client
+  9 │       isLoggedIn @client
     │       ─────┬────  
     │            ╰────── field `isLoggedIn` selected here
     │
@@ -21,9 +21,9 @@ Error: type `User` does not have a field `isLoggedIn`
 
 
 Error: type `User` does not have a field `localData`
-    ╭─[ apollo_client_directives.tsx:8:7 ]
+    ╭─[ apollo_client_directives.tsx:10:7 ]
     │
-  8 │       localData @client(always: true)
+ 10 │       localData @client(always: true)
     │       ────┬────  
     │           ╰────── field `localData` selected here
     │
@@ -39,28 +39,28 @@ Error: type `User` does not have a field `localData`
 
 === Query 2 ===
 Error: unused variable: `$after`
-   ╭─[ apollo_client_directives.tsx:2:18 ]
-   │
- 2 │   query GetPosts($after: String) {
-   │                  ───┬──  
-   │                     ╰──── variable is never used
-───╯
+    ╭─[ apollo_client_directives.tsx:16:18 ]
+    │
+ 16 │   query GetPosts($after: String) {
+    │                  ───┬──  
+    │                     ╰──── variable is never used
+────╯
 
 
 Error: cannot find directive `@connection` in this document
-   ╭─[ apollo_client_directives.tsx:3:11 ]
-   │
- 3 │     posts @connection(key: "allPosts", filter: ["published"]) {
-   │           ─────────────────────────┬─────────────────────────  
-   │                                    ╰─────────────────────────── directive not defined
-───╯
+    ╭─[ apollo_client_directives.tsx:17:11 ]
+    │
+ 17 │     posts @connection(key: "allPosts", filter: ["published"]) {
+    │           ─────────────────────────┬─────────────────────────  
+    │                                    ╰─────────────────────────── directive not defined
+────╯
 
 
 === Query 3 ===
 Error: cannot find directive `@defer` in this document
-   ╭─[ apollo_client_directives.tsx:6:11 ]
-   │
- 6 │       ... @defer(label: "posts") {
-   │           ───────────┬──────────  
-   │                      ╰──────────── directive not defined
-───╯
+    ╭─[ apollo_client_directives.tsx:30:11 ]
+    │
+ 30 │       ... @defer(label: "posts") {
+    │           ───────────┬──────────  
+    │                      ╰──────────── directive not defined
+────╯

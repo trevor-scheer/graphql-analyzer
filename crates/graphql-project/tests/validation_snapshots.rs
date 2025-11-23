@@ -48,11 +48,7 @@ fn test_invalid_field_snapshot() {
         .join("invalid_field.graphql");
     let document = fs::read_to_string(document_path).expect("Failed to read document");
 
-    let result = validator.validate_document_with_name(
-        &document,
-        &schema,
-        "invalid_field.graphql",
-    );
+    let result = validator.validate_document_with_name(&document, &schema, "invalid_field.graphql");
 
     assert!(result.is_err(), "Should have validation errors");
     let diagnostics = result.unwrap_err();
@@ -71,11 +67,8 @@ fn test_missing_argument_snapshot() {
         .join("missing_argument.graphql");
     let document = fs::read_to_string(document_path).expect("Failed to read document");
 
-    let result = validator.validate_document_with_name(
-        &document,
-        &schema,
-        "missing_argument.graphql",
-    );
+    let result =
+        validator.validate_document_with_name(&document, &schema, "missing_argument.graphql");
 
     assert!(result.is_err(), "Should have validation errors");
     let diagnostics = result.unwrap_err();
@@ -94,11 +87,8 @@ fn test_invalid_fragment_snapshot() {
         .join("invalid_fragment.graphql");
     let document = fs::read_to_string(document_path).expect("Failed to read document");
 
-    let result = validator.validate_document_with_name(
-        &document,
-        &schema,
-        "invalid_fragment.graphql",
-    );
+    let result =
+        validator.validate_document_with_name(&document, &schema, "invalid_fragment.graphql");
 
     assert!(result.is_err(), "Should have validation errors");
     let diagnostics = result.unwrap_err();
@@ -140,10 +130,7 @@ fn test_valid_typescript_snapshot() {
         // Find referenced fragments
         let mut referenced_fragments = Vec::new();
         for frag in &all_fragments {
-            let frag_name = frag
-                .split_whitespace()
-                .nth(1)
-                .unwrap_or("");
+            let frag_name = frag.split_whitespace().nth(1).unwrap_or("");
             if item.source.contains(&format!("...{}", frag_name)) {
                 referenced_fragments.push(*frag);
             }
@@ -153,15 +140,16 @@ fn test_valid_typescript_snapshot() {
         let combined = if referenced_fragments.is_empty() {
             item.source.clone()
         } else {
-            let fragments_str: String = referenced_fragments.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n\n");
+            let fragments_str: String = referenced_fragments
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n");
             format!("{}\n\n{}", item.source, fragments_str)
         };
 
-        let result = validator.validate_document_with_name(
-            &combined,
-            &schema,
-            "valid_typescript.tsx",
-        );
+        let result =
+            validator.validate_document_with_name(&combined, &schema, "valid_typescript.tsx");
         assert!(
             result.is_ok(),
             "Valid TypeScript should have no errors: {:?}",
@@ -200,14 +188,15 @@ fn test_invalid_typescript_snapshot() {
         );
 
         if let Err(diagnostics) = result {
-            all_diagnostics.push(format!("=== Document {} ===\n{}", idx + 1, format_diagnostics(&diagnostics)));
+            all_diagnostics.push(format!(
+                "=== Document {} ===\n{}",
+                idx + 1,
+                format_diagnostics(&diagnostics)
+            ));
         }
     }
 
-    assert!(
-        !all_diagnostics.is_empty(),
-        "Should have validation errors"
-    );
+    assert!(!all_diagnostics.is_empty(), "Should have validation errors");
     assert_snapshot!(all_diagnostics.join("\n\n"));
 }
 
@@ -236,14 +225,20 @@ fn test_apollo_client_directives_snapshot() {
     let mut all_diagnostics = Vec::new();
 
     for (idx, item) in extracted.iter().enumerate() {
-        let result = validator.validate_document_with_name(
+        let line_offset = item.location.range.start.line;
+        let result = validator.validate_document_with_location(
             &item.source,
             &schema,
             "apollo_client_directives.tsx",
+            line_offset,
         );
 
         if let Err(diagnostics) = result {
-            all_diagnostics.push(format!("=== Query {} ===\n{}", idx + 1, format_diagnostics(&diagnostics)));
+            all_diagnostics.push(format!(
+                "=== Query {} ===\n{}",
+                idx + 1,
+                format_diagnostics(&diagnostics)
+            ));
         }
     }
 
@@ -332,7 +327,8 @@ query GetUser($id: ID!) {
 }
 "#;
 
-    let result = validator.validate_document_with_name(document, &schema, "undefined_fragment.graphql");
+    let result =
+        validator.validate_document_with_name(document, &schema, "undefined_fragment.graphql");
 
     assert!(result.is_err(), "Should have validation errors");
     let diagnostics = result.unwrap_err();
