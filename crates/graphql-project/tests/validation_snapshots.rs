@@ -299,11 +299,8 @@ query GetUser($id: ID!) {
     let file_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("multiline.graphql");
-    let result = validator.validate_document_with_name(
-        document,
-        &schema,
-        &to_relative_path(&file_path),
-    );
+    let result =
+        validator.validate_document_with_name(document, &schema, &to_relative_path(&file_path));
 
     assert!(result.is_err(), "Should have validation errors");
     let diagnostics = result.unwrap_err();
@@ -341,11 +338,8 @@ query ComplexQuery($userId: ID!, $postId: ID!) {
     let file_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("complex.graphql");
-    let result = validator.validate_document_with_name(
-        document,
-        &schema,
-        &to_relative_path(&file_path),
-    );
+    let result =
+        validator.validate_document_with_name(document, &schema, &to_relative_path(&file_path));
 
     assert!(result.is_err(), "Should have validation errors");
     let diagnostics = result.unwrap_err();
@@ -371,11 +365,8 @@ query GetUser($id: ID!) {
     let file_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("undefined_fragment.graphql");
-    let result = validator.validate_document_with_name(
-        document,
-        &schema,
-        &to_relative_path(&file_path),
-    );
+    let result =
+        validator.validate_document_with_name(document, &schema, &to_relative_path(&file_path));
 
     assert!(result.is_err(), "Should have validation errors");
     let diagnostics = result.unwrap_err();
@@ -400,11 +391,8 @@ query GetUser($id: String!) {
     let file_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("type_mismatch.graphql");
-    let result = validator.validate_document_with_name(
-        document,
-        &schema,
-        &to_relative_path(&file_path),
-    );
+    let result =
+        validator.validate_document_with_name(document, &schema, &to_relative_path(&file_path));
 
     // This might or might not error depending on apollo-compiler's validation
     if let Err(diagnostics) = result {
