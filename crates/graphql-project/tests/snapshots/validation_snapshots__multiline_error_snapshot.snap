@@ -3,7 +3,7 @@ source: crates/graphql-project/tests/validation_snapshots.rs
 expression: format_diagnostics(&diagnostics)
 ---
 Error: type `Post` does not have a field `invalidField1`
-    ╭─[ multiline.graphql:8:7 ]
+    ╭─[ /Users/trevor/Repositories/graphql-lsp/crates/graphql-project/tests/multiline.graphql:8:7 ]
     │
   8 │       invalidField1
     │       ──────┬──────  
@@ -20,7 +20,7 @@ Error: type `Post` does not have a field `invalidField1`
 
 
 Error: type `Post` does not have a field `invalidField2`
-    ╭─[ multiline.graphql:10:7 ]
+    ╭─[ /Users/trevor/Repositories/graphql-lsp/crates/graphql-project/tests/multiline.graphql:10:7 ]
     │
  10 │       invalidField2
     │       ──────┬──────  

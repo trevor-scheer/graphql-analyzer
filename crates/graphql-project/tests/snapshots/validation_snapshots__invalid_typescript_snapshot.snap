@@ -4,7 +4,7 @@ expression: "all_diagnostics.join(\"\\n\\n\")"
 ---
 === Document 1 ===
 Error: type `User` does not have a field `invalidField`
-    ╭─[ invalid_typescript.tsx:7:7 ]
+    ╭─[ /Users/trevor/Repositories/graphql-lsp/crates/graphql-project/tests/fixtures/invalid_typescript.tsx:7:7 ]
     │
   7 │       invalidField
     │       ──────┬─────  
@@ -21,7 +21,7 @@ Error: type `User` does not have a field `invalidField`
 
 
 Error: type `User` does not have a field `anotherBadField`
-    ╭─[ invalid_typescript.tsx:9:7 ]
+    ╭─[ /Users/trevor/Repositories/graphql-lsp/crates/graphql-project/tests/fixtures/invalid_typescript.tsx:9:7 ]
     │
   9 │       anotherBadField
     │       ───────┬───────  
@@ -39,7 +39,7 @@ Error: type `User` does not have a field `anotherBadField`
 
 === Document 2 ===
 Error: the required argument `Query.post(id:)` is not provided
-    ╭─[ invalid_typescript.tsx:16:5 ]
+    ╭─[ /Users/trevor/Repositories/graphql-lsp/crates/graphql-project/tests/fixtures/invalid_typescript.tsx:16:5 ]
     │
  16 │ ╭─▶     post {
     ┆ ┆   

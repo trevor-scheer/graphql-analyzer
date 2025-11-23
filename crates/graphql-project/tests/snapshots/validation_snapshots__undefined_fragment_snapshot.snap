@@ -3,7 +3,7 @@ source: crates/graphql-project/tests/validation_snapshots.rs
 expression: format_diagnostics(&diagnostics)
 ---
 Error: cannot find fragment `UndefinedFragment` in this document
-   ╭─[ undefined_fragment.graphql:4:5 ]
+   ╭─[ /Users/trevor/Repositories/graphql-lsp/crates/graphql-project/tests/undefined_fragment.graphql:4:5 ]
    │
  4 │     ...UndefinedFragment
    │     ──────────┬─────────  

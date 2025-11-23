@@ -3,7 +3,7 @@ source: crates/graphql-project/tests/validation_snapshots.rs
 expression: format_diagnostics(&diagnostics)
 ---
 Error: the required argument `Query.user(id:)` is not provided
-   ╭─[ missing_argument.graphql:2:3 ]
+   ╭─[ /Users/trevor/Repositories/graphql-lsp/crates/graphql-project/tests/fixtures/missing_argument.graphql:2:3 ]
    │
  2 │ ╭─▶   user {
    ┆ ┆   
@@ -20,7 +20,7 @@ Error: the required argument `Query.user(id:)` is not provided
 
 
 Error: the required argument `Query.post(id:)` is not provided
-    ╭─[ missing_argument.graphql:10:3 ]
+    ╭─[ /Users/trevor/Repositories/graphql-lsp/crates/graphql-project/tests/fixtures/missing_argument.graphql:10:3 ]
     │
  10 │ ╭─▶   post {
     ┆ ┆   

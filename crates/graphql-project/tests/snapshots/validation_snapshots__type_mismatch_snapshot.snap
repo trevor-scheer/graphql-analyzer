@@ -3,7 +3,7 @@ source: crates/graphql-project/tests/validation_snapshots.rs
 expression: format_diagnostics(&diagnostics)
 ---
 Error: variable `$id` of type `String!` cannot be used for argument `id` of type `ID!`
-   ╭─[ type_mismatch.graphql:3:8 ]
+   ╭─[ /Users/trevor/Repositories/graphql-lsp/crates/graphql-project/tests/type_mismatch.graphql:3:8 ]
    │
  2 │ query GetUser($id: String!) {
    │               ──────┬─────  

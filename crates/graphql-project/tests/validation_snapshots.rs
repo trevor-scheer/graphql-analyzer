@@ -46,9 +46,13 @@ fn test_invalid_field_snapshot() {
         .join("tests")
         .join("fixtures")
         .join("invalid_field.graphql");
-    let document = fs::read_to_string(document_path).expect("Failed to read document");
+    let document = fs::read_to_string(&document_path).expect("Failed to read document");
 
-    let result = validator.validate_document_with_name(&document, &schema, "invalid_field.graphql");
+    let result = validator.validate_document_with_name(
+        &document,
+        &schema,
+        &document_path.display().to_string(),
+    );
 
     assert!(result.is_err(), "Should have validation errors");
     let diagnostics = result.unwrap_err();
@@ -65,10 +69,13 @@ fn test_missing_argument_snapshot() {
         .join("tests")
         .join("fixtures")
         .join("missing_argument.graphql");
-    let document = fs::read_to_string(document_path).expect("Failed to read document");
+    let document = fs::read_to_string(&document_path).expect("Failed to read document");
 
-    let result =
-        validator.validate_document_with_name(&document, &schema, "missing_argument.graphql");
+    let result = validator.validate_document_with_name(
+        &document,
+        &schema,
+        &document_path.display().to_string(),
+    );
 
     assert!(result.is_err(), "Should have validation errors");
     let diagnostics = result.unwrap_err();
@@ -85,10 +92,13 @@ fn test_invalid_fragment_snapshot() {
         .join("tests")
         .join("fixtures")
         .join("invalid_fragment.graphql");
-    let document = fs::read_to_string(document_path).expect("Failed to read document");
+    let document = fs::read_to_string(&document_path).expect("Failed to read document");
 
-    let result =
-        validator.validate_document_with_name(&document, &schema, "invalid_fragment.graphql");
+    let result = validator.validate_document_with_name(
+        &document,
+        &schema,
+        &document_path.display().to_string(),
+    );
 
     assert!(result.is_err(), "Should have validation errors");
     let diagnostics = result.unwrap_err();
@@ -148,8 +158,11 @@ fn test_valid_typescript_snapshot() {
             format!("{}\n\n{}", item.source, fragments_str)
         };
 
-        let result =
-            validator.validate_document_with_name(&combined, &schema, "valid_typescript.tsx");
+        let result = validator.validate_document_with_name(
+            &combined,
+            &schema,
+            &document_path.display().to_string(),
+        );
         assert!(
             result.is_ok(),
             "Valid TypeScript should have no errors: {:?}",
@@ -183,7 +196,7 @@ fn test_invalid_typescript_snapshot() {
         let result = validator.validate_document_with_location(
             &item.source,
             &schema,
-            "invalid_typescript.tsx",
+            &document_path.display().to_string(),
             line_offset,
         );
 
@@ -229,7 +242,7 @@ fn test_apollo_client_directives_snapshot() {
         let result = validator.validate_document_with_location(
             &item.source,
             &schema,
-            "apollo_client_directives.tsx",
+            &document_path.display().to_string(),
             line_offset,
         );
 
@@ -269,7 +282,14 @@ query GetUser($id: ID!) {
 }
 "#;
 
-    let result = validator.validate_document_with_name(document, &schema, "multiline.graphql");
+    let file_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("multiline.graphql");
+    let result = validator.validate_document_with_name(
+        document,
+        &schema,
+        &file_path.display().to_string(),
+    );
 
     assert!(result.is_err(), "Should have validation errors");
     let diagnostics = result.unwrap_err();
@@ -304,7 +324,14 @@ query ComplexQuery($userId: ID!, $postId: ID!) {
 }
 "#;
 
-    let result = validator.validate_document_with_name(document, &schema, "complex.graphql");
+    let file_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("complex.graphql");
+    let result = validator.validate_document_with_name(
+        document,
+        &schema,
+        &file_path.display().to_string(),
+    );
 
     assert!(result.is_err(), "Should have validation errors");
     let diagnostics = result.unwrap_err();
@@ -327,8 +354,14 @@ query GetUser($id: ID!) {
 }
 "#;
 
-    let result =
-        validator.validate_document_with_name(document, &schema, "undefined_fragment.graphql");
+    let file_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("undefined_fragment.graphql");
+    let result = validator.validate_document_with_name(
+        document,
+        &schema,
+        &file_path.display().to_string(),
+    );
 
     assert!(result.is_err(), "Should have validation errors");
     let diagnostics = result.unwrap_err();
@@ -350,7 +383,14 @@ query GetUser($id: String!) {
 }
 "#;
 
-    let result = validator.validate_document_with_name(document, &schema, "type_mismatch.graphql");
+    let file_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("type_mismatch.graphql");
+    let result = validator.validate_document_with_name(
+        document,
+        &schema,
+        &file_path.display().to_string(),
+    );
 
     // This might or might not error depending on apollo-compiler's validation
     if let Err(diagnostics) = result {
