@@ -187,7 +187,7 @@ pub async fn run(
 
                 // Find all fragment spreads recursively (fragments can reference other fragments)
                 let mut referenced_fragments = std::collections::HashSet::new();
-                let mut to_process = vec![source.to_string()];
+                let mut to_process = vec![source.clone()];
 
                 while let Some(doc) = to_process.pop() {
                     for line in doc.lines() {
