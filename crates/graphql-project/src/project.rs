@@ -174,27 +174,41 @@ impl GraphQLProject {
 
         // Check if file matches any schema pattern
         for pattern_str in schema_patterns {
-            // Try to resolve pattern relative to base_dir if we have one
-            let full_pattern = self
-                .base_dir
-                .as_ref()
-                .map_or_else(|| pattern_str.to_string(), |base| {
-                    base.join(pattern_str)
-                        .to_str()
-                        .map_or_else(|| pattern_str.to_string(), String::from)
-                });
+            // Resolve the pattern to an absolute path if we have a base_dir
+            if let Some(ref base) = self.base_dir {
+                // Normalize the pattern by stripping leading ./ if present
+                let normalized_pattern = pattern_str.strip_prefix("./").unwrap_or(pattern_str);
 
-            // Try both exact match and glob pattern
-            if let Ok(pattern) = Pattern::new(&full_pattern) {
-                if pattern.matches(file_str) {
-                    return true;
+                // Join with base directory to get absolute path
+                let full_path = base.join(normalized_pattern);
+
+                // Canonicalize both paths if possible for comparison
+                let canonical_full = full_path.canonicalize().ok();
+                let canonical_file = file_path.canonicalize().ok();
+
+                // Try exact match with canonicalized paths
+                if let (Some(ref full), Some(ref file)) = (&canonical_full, &canonical_file) {
+                    if full == file {
+                        return true;
+                    }
                 }
-            }
 
-            // Also try matching just the filename against the pattern
-            if let Some(filename) = file_path.file_name().and_then(|f| f.to_str()) {
+                // Also try glob pattern matching
+                if let (Some(full_str), Ok(pattern)) = (full_path.to_str(), Pattern::new(normalized_pattern)) {
+                    if pattern.matches(file_str) {
+                        return true;
+                    }
+                    // Try matching against the full resolved path
+                    if let Ok(full_pattern) = Pattern::new(full_str) {
+                        if full_pattern.matches(file_str) {
+                            return true;
+                        }
+                    }
+                }
+            } else {
+                // No base directory, try matching against the pattern directly
                 if let Ok(pattern) = Pattern::new(pattern_str) {
-                    if pattern.matches(filename) {
+                    if pattern.matches(file_str) {
                         return true;
                     }
                 }
