@@ -54,6 +54,7 @@ pub async fn run(
     }
 
     let mut total_errors = 0;
+    let mut total_warnings = 0;
 
     for (name, project) in &projects_to_validate {
         if projects_to_validate.len() > 1 {
@@ -246,7 +247,53 @@ pub async fn run(
 
                 match validation_result {
                     Ok(()) => {
-                        // Valid document - no output in human mode unless verbose
+                        // Valid document - check for deprecation warnings
+                        let validator = graphql_project::Validator::new();
+                        let schema_index = project.get_schema_index();
+                        let deprecation_warnings = validator.check_deprecated_fields_custom(
+                            &combined_source,
+                            &schema_index,
+                            file_path,
+                        );
+
+                        if !deprecation_warnings.is_empty() {
+                            for warning in deprecation_warnings {
+                                total_warnings += 1;
+
+                                match format {
+                                    OutputFormat::Human => {
+                                        println!(
+                                            "\n{}:{}:{}: {} {}",
+                                            file_path,
+                                            line_offset + warning.range.start.line + 1,
+                                            warning.range.start.character + 1,
+                                            "warning:".yellow().bold(),
+                                            warning.message.yellow()
+                                        );
+                                    }
+                                    OutputFormat::Json => {
+                                        println!(
+                                            "{}",
+                                            serde_json::json!({
+                                                "file": file_path,
+                                                "severity": "warning",
+                                                "message": warning.message,
+                                                "location": {
+                                                    "start": {
+                                                        "line": line_offset + warning.range.start.line + 1,
+                                                        "column": warning.range.start.character + 1
+                                                    },
+                                                    "end": {
+                                                        "line": line_offset + warning.range.end.line + 1,
+                                                        "column": warning.range.end.character + 1
+                                                    }
+                                                }
+                                            })
+                                        );
+                                    }
+                                }
+                            }
+                        }
                     }
                     Err(diagnostics) => {
                         // Found validation errors - diagnostics already have correct file and line numbers
@@ -277,10 +324,59 @@ pub async fn run(
                                         "{}",
                                         serde_json::json!({
                                             "file": file_path,
+                                            "severity": "error",
                                             "error": format!("{}", diagnostic.error),
                                             "location": location
                                         })
                                     );
+                                }
+                            }
+                        }
+
+                        // Even if there are errors, check for deprecation warnings
+                        let validator = graphql_project::Validator::new();
+                        let schema_index = project.get_schema_index();
+                        let deprecation_warnings = validator.check_deprecated_fields_custom(
+                            &combined_source,
+                            &schema_index,
+                            file_path,
+                        );
+
+                        if !deprecation_warnings.is_empty() {
+                            for warning in deprecation_warnings {
+                                total_warnings += 1;
+
+                                match format {
+                                    OutputFormat::Human => {
+                                        println!(
+                                            "\n{}:{}:{}: {} {}",
+                                            file_path,
+                                            line_offset + warning.range.start.line + 1,
+                                            warning.range.start.character + 1,
+                                            "warning:".yellow().bold(),
+                                            warning.message.yellow()
+                                        );
+                                    }
+                                    OutputFormat::Json => {
+                                        println!(
+                                            "{}",
+                                            serde_json::json!({
+                                                "file": file_path,
+                                                "severity": "warning",
+                                                "message": warning.message,
+                                                "location": {
+                                                    "start": {
+                                                        "line": line_offset + warning.range.start.line + 1,
+                                                        "column": warning.range.start.character + 1
+                                                    },
+                                                    "end": {
+                                                        "line": line_offset + warning.range.end.line + 1,
+                                                        "column": warning.range.end.character + 1
+                                                    }
+                                                }
+                                            })
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -293,10 +389,14 @@ pub async fn run(
     // Summary
     if matches!(format, OutputFormat::Human) {
         println!();
-        if total_errors == 0 {
+        if total_errors == 0 && total_warnings == 0 {
             println!("{}", "✓ All validations passed!".green().bold());
+        } else if total_errors == 0 {
+            println!("{}", format!("✓ Validation passed with {total_warnings} warning(s)").yellow().bold());
+        } else if total_warnings == 0 {
+            println!("{}", format!("✗ Found {total_errors} error(s)").red());
         } else {
-            println!("{}", format!("Found {total_errors} error(s)").yellow());
+            println!("{}", format!("✗ Found {total_errors} error(s) and {total_warnings} warning(s)").red());
         }
     }
 
