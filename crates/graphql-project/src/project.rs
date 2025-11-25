@@ -397,10 +397,13 @@ impl GraphQLProject {
         for diag in compiler_diags.iter() {
             let message = diag.error.to_string();
 
-            // Skip "unused fragment" warnings for fragment-only documents
+            // Skip "unused fragment" and "must be used" errors for fragment-only documents
             if is_fragment_only {
                 let message_lower = message.to_lowercase();
-                if message_lower.contains("unused") || message_lower.contains("never used") {
+                if message_lower.contains("unused")
+                    || message_lower.contains("never used")
+                    || message_lower.contains("must be used")
+                {
                     continue;
                 }
             }
