@@ -1,4 +1,6 @@
-use crate::{Diagnostic, DocumentIndex, DocumentLoader, Result, SchemaIndex, SchemaLoader, Validator};
+use crate::{
+    Diagnostic, DocumentIndex, DocumentLoader, Result, SchemaIndex, SchemaLoader, Validator,
+};
 use apollo_compiler::validation::DiagnosticList;
 use graphql_config::{GraphQLConfig, ProjectConfig};
 use std::sync::{Arc, RwLock};
@@ -172,8 +174,8 @@ impl GraphQLProject {
     #[must_use]
     #[allow(clippy::significant_drop_tightening)]
     pub fn validate_document_source(&self, source: &str, file_name: &str) -> Vec<Diagnostic> {
-        use apollo_compiler::{ExecutableDocument, parser::Parser};
         use apollo_compiler::validation::Valid;
+        use apollo_compiler::{parser::Parser, ExecutableDocument};
 
         let schema_index = self.schema_index.read().unwrap();
         let schema = schema_index.schema();
@@ -190,8 +192,8 @@ impl GraphQLProject {
             &mut builder,
         );
 
-        // Only add project fragments if this document contains operations
-        if !is_fragment_only {
+        // Only add project fragments if this document contains operations AND uses fragment spreads
+        if !is_fragment_only && source.contains("...") {
             let document_index = self.document_index.read().unwrap();
             for frag_info in document_index.fragments.values() {
                 if let Ok(frag_extracted) = graphql_extract::extract_from_file(
@@ -216,14 +218,19 @@ impl GraphQLProject {
         let mut diagnostics = match builder.build() {
             Ok(doc) => match doc.validate(valid_schema) {
                 Ok(_) => vec![],
-                Err(with_errors) => Self::convert_compiler_diagnostics(&with_errors.errors, is_fragment_only),
+                Err(with_errors) => {
+                    Self::convert_compiler_diagnostics(&with_errors.errors, is_fragment_only)
+                }
             },
-            Err(with_errors) => Self::convert_compiler_diagnostics(&with_errors.errors, is_fragment_only),
+            Err(with_errors) => {
+                Self::convert_compiler_diagnostics(&with_errors.errors, is_fragment_only)
+            }
         };
 
         // Add deprecation warnings
         let validator = Validator::new();
-        let deprecation_warnings = validator.check_deprecated_fields_custom(source, &schema_index, file_name);
+        let deprecation_warnings =
+            validator.check_deprecated_fields_custom(source, &schema_index, file_name);
         diagnostics.extend(deprecation_warnings);
 
         diagnostics
@@ -247,8 +254,8 @@ impl GraphQLProject {
         extracted: &[graphql_extract::ExtractedGraphQL],
         file_path: &str,
     ) -> Vec<Diagnostic> {
-        use apollo_compiler::{ExecutableDocument, parser::Parser};
         use apollo_compiler::validation::Valid;
+        use apollo_compiler::{parser::Parser, ExecutableDocument};
 
         if extracted.is_empty() {
             return vec![];
@@ -318,7 +325,10 @@ impl GraphQLProject {
                 Ok(doc) => match doc.validate(valid_schema) {
                     Ok(_) => vec![],
                     Err(with_errors) => {
-                        let mut diags = Self::convert_compiler_diagnostics(&with_errors.errors, is_fragment_only);
+                        let mut diags = Self::convert_compiler_diagnostics(
+                            &with_errors.errors,
+                            is_fragment_only,
+                        );
 
                         // For operations: filter to only errors within this document's line range
                         if !is_fragment_only {
@@ -334,7 +344,8 @@ impl GraphQLProject {
                     }
                 },
                 Err(with_errors) => {
-                    let mut diags = Self::convert_compiler_diagnostics(&with_errors.errors, is_fragment_only);
+                    let mut diags =
+                        Self::convert_compiler_diagnostics(&with_errors.errors, is_fragment_only);
 
                     // For operations: filter to only errors within this document's line range
                     if !is_fragment_only {
@@ -352,7 +363,8 @@ impl GraphQLProject {
 
             // Add deprecation warnings with line offset adjustment
             let validator = Validator::new();
-            let deprecation_warnings = validator.check_deprecated_fields_custom(source, &schema_index, file_path);
+            let deprecation_warnings =
+                validator.check_deprecated_fields_custom(source, &schema_index, file_path);
 
             for mut warning in deprecation_warnings {
                 warning.range.start.line += line_offset;
