@@ -397,8 +397,14 @@ impl GraphQLLanguageServer {
 
         let mut all_diagnostics = Vec::new();
 
+        // Collect all fragments from this file for use by operations
+        let fragments_in_current_file: Vec<_> = extracted
+            .iter()
+            .filter(|item| self.is_fragment_only(&item.source))
+            .collect();
+
         // Validate each extracted document
-        for item in extracted {
+        for item in &extracted {
             let line_offset = item.location.range.start.line;
             let source = &item.source;
 
@@ -423,11 +429,31 @@ impl GraphQLLanguageServer {
                 &mut builder,
             );
 
-            // Only add project fragments if this document contains operations
+            // Only add fragments if this document contains operations
             // Standalone fragments should be validated on their own, not with other fragments
             if !is_fragment_only {
+                // First, add fragments from the current file (without padding)
+                for frag_item in &fragments_in_current_file {
+                    Parser::new().parse_into_executable_builder(
+                        Some(valid_schema),
+                        &frag_item.source,
+                        &uri.to_string(),
+                        &mut builder,
+                    );
+                }
+
+                // Then add fragments from other files in the project
                 let document_index = project.get_document_index();
+                let current_file_path = uri.to_file_path();
+
                 for frag_info in document_index.fragments.values() {
+                    // Skip fragments from the current file - they're already added above
+                    if let Some(ref current_path) = current_file_path {
+                        if std::path::Path::new(&frag_info.file_path) == current_path.as_ref() {
+                            continue;
+                        }
+                    }
+
                     if let Ok(frag_extracted) = graphql_extract::extract_from_file(
                         std::path::Path::new(&frag_info.file_path),
                         &ExtractConfig::default(),
