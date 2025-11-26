@@ -217,6 +217,48 @@ impl HoverProvider {
                         }
                     }
                 }
+                cst::Definition::ObjectTypeDefinition(obj_type) => {
+                    if let Some(element) =
+                        Self::check_object_type_definition(&obj_type, byte_offset, schema_index)
+                    {
+                        return Some(element);
+                    }
+                }
+                cst::Definition::InterfaceTypeDefinition(interface) => {
+                    if let Some(element) =
+                        Self::check_interface_type_definition(&interface, byte_offset, schema_index)
+                    {
+                        return Some(element);
+                    }
+                }
+                cst::Definition::InputObjectTypeDefinition(input_obj) => {
+                    if let Some(element) = Self::check_input_object_type_definition(
+                        &input_obj,
+                        byte_offset,
+                        schema_index,
+                    ) {
+                        return Some(element);
+                    }
+                }
+                cst::Definition::EnumTypeDefinition(enum_def) => {
+                    if let Some(element) = Self::check_enum_type_definition(&enum_def, byte_offset)
+                    {
+                        return Some(element);
+                    }
+                }
+                cst::Definition::UnionTypeDefinition(union_def) => {
+                    if let Some(element) =
+                        Self::check_union_type_definition(&union_def, byte_offset)
+                    {
+                        return Some(element);
+                    }
+                }
+                cst::Definition::ScalarTypeDefinition(scalar) => {
+                    if let Some(element) = Self::check_scalar_type_definition(&scalar, byte_offset)
+                    {
+                        return Some(element);
+                    }
+                }
                 _ => {}
             }
         }
@@ -468,6 +510,365 @@ impl HoverProvider {
                     return Some(ElementType::Variable {
                         var_name: name.text().to_string(),
                     });
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Check if byte offset is within an object type definition
+    fn check_object_type_definition(
+        obj_type: &cst::ObjectTypeDefinition,
+        byte_offset: usize,
+        _schema_index: &SchemaIndex,
+    ) -> Option<ElementType> {
+        // Check if we're on the type name
+        if let Some(name) = obj_type.name() {
+            let range = name.syntax().text_range();
+            let start: usize = range.start().into();
+            let end: usize = range.end().into();
+
+            if byte_offset >= start && byte_offset < end {
+                return Some(ElementType::TypeReference {
+                    type_name: name.text().to_string(),
+                });
+            }
+        }
+
+        // Check fields
+        if let Some(fields_def) = obj_type.fields_definition() {
+            for field_def in fields_def.field_definitions() {
+                // Check field name
+                if let Some(field_name) = field_def.name() {
+                    let range = field_name.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+
+                    if byte_offset >= start && byte_offset < end {
+                        let parent_type = obj_type
+                            .name()
+                            .map(|n| n.text().to_string())
+                            .unwrap_or_default();
+
+                        return Some(ElementType::Field {
+                            field_name: field_name.text().to_string(),
+                            parent_type,
+                        });
+                    }
+                }
+
+                // Check field type reference
+                if let Some(field_type) = field_def.ty() {
+                    if let Some(element) = Self::check_type_for_reference(&field_type, byte_offset)
+                    {
+                        return Some(element);
+                    }
+                }
+
+                // Check arguments
+                if let Some(args_def) = field_def.arguments_definition() {
+                    for input_value_def in args_def.input_value_definitions() {
+                        // Check argument name
+                        if let Some(arg_name) = input_value_def.name() {
+                            let range = arg_name.syntax().text_range();
+                            let start: usize = range.start().into();
+                            let end: usize = range.end().into();
+
+                            if byte_offset >= start && byte_offset < end {
+                                let field_name = field_def
+                                    .name()
+                                    .map(|n| n.text().to_string())
+                                    .unwrap_or_default();
+                                let parent_type = obj_type
+                                    .name()
+                                    .map(|n| n.text().to_string())
+                                    .unwrap_or_default();
+
+                                return Some(ElementType::Argument {
+                                    arg_name: arg_name.text().to_string(),
+                                    field_name,
+                                    parent_type,
+                                });
+                            }
+                        }
+
+                        // Check argument type reference
+                        if let Some(arg_type) = input_value_def.ty() {
+                            if let Some(element) =
+                                Self::check_type_for_reference(&arg_type, byte_offset)
+                            {
+                                return Some(element);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check implemented interfaces
+        if let Some(implements) = obj_type.implements_interfaces() {
+            for named_type in implements.named_types() {
+                if let Some(name) = named_type.name() {
+                    let range = name.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+
+                    if byte_offset >= start && byte_offset < end {
+                        return Some(ElementType::TypeReference {
+                            type_name: name.text().to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Check if byte offset is within an interface type definition
+    fn check_interface_type_definition(
+        interface: &cst::InterfaceTypeDefinition,
+        byte_offset: usize,
+        _schema_index: &SchemaIndex,
+    ) -> Option<ElementType> {
+        // Check if we're on the type name
+        if let Some(name) = interface.name() {
+            let range = name.syntax().text_range();
+            let start: usize = range.start().into();
+            let end: usize = range.end().into();
+
+            if byte_offset >= start && byte_offset < end {
+                return Some(ElementType::TypeReference {
+                    type_name: name.text().to_string(),
+                });
+            }
+        }
+
+        // Check fields (similar to object type)
+        if let Some(fields_def) = interface.fields_definition() {
+            for field_def in fields_def.field_definitions() {
+                if let Some(field_name) = field_def.name() {
+                    let range = field_name.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+
+                    if byte_offset >= start && byte_offset < end {
+                        let parent_type = interface
+                            .name()
+                            .map(|n| n.text().to_string())
+                            .unwrap_or_default();
+
+                        return Some(ElementType::Field {
+                            field_name: field_name.text().to_string(),
+                            parent_type,
+                        });
+                    }
+                }
+
+                if let Some(field_type) = field_def.ty() {
+                    if let Some(element) = Self::check_type_for_reference(&field_type, byte_offset)
+                    {
+                        return Some(element);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Check if byte offset is within an input object type definition
+    fn check_input_object_type_definition(
+        input_obj: &cst::InputObjectTypeDefinition,
+        byte_offset: usize,
+        _schema_index: &SchemaIndex,
+    ) -> Option<ElementType> {
+        // Check if we're on the type name
+        if let Some(name) = input_obj.name() {
+            let range = name.syntax().text_range();
+            let start: usize = range.start().into();
+            let end: usize = range.end().into();
+
+            if byte_offset >= start && byte_offset < end {
+                return Some(ElementType::TypeReference {
+                    type_name: name.text().to_string(),
+                });
+            }
+        }
+
+        // Check input fields
+        if let Some(fields_def) = input_obj.input_fields_definition() {
+            for input_value_def in fields_def.input_value_definitions() {
+                if let Some(field_name) = input_value_def.name() {
+                    let range = field_name.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+
+                    if byte_offset >= start && byte_offset < end {
+                        let parent_type = input_obj
+                            .name()
+                            .map(|n| n.text().to_string())
+                            .unwrap_or_default();
+
+                        return Some(ElementType::Field {
+                            field_name: field_name.text().to_string(),
+                            parent_type,
+                        });
+                    }
+                }
+
+                if let Some(field_type) = input_value_def.ty() {
+                    if let Some(element) = Self::check_type_for_reference(&field_type, byte_offset)
+                    {
+                        return Some(element);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Check if byte offset is within an enum type definition
+    fn check_enum_type_definition(
+        enum_def: &cst::EnumTypeDefinition,
+        byte_offset: usize,
+    ) -> Option<ElementType> {
+        // Check if we're on the type name
+        if let Some(name) = enum_def.name() {
+            let range = name.syntax().text_range();
+            let start: usize = range.start().into();
+            let end: usize = range.end().into();
+
+            if byte_offset >= start && byte_offset < end {
+                return Some(ElementType::TypeReference {
+                    type_name: name.text().to_string(),
+                });
+            }
+        }
+
+        // Check enum values
+        if let Some(values_def) = enum_def.enum_values_definition() {
+            for enum_value_def in values_def.enum_value_definitions() {
+                if let Some(enum_value) = enum_value_def.enum_value() {
+                    let range = enum_value.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+
+                    if byte_offset >= start && byte_offset < end {
+                        let enum_type = enum_def.name().map(|n| n.text().to_string());
+
+                        return Some(ElementType::EnumValue {
+                            value_name: enum_value.text().to_string(),
+                            enum_type,
+                        });
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Check if byte offset is within a union type definition
+    fn check_union_type_definition(
+        union_def: &cst::UnionTypeDefinition,
+        byte_offset: usize,
+    ) -> Option<ElementType> {
+        // Check if we're on the type name
+        if let Some(name) = union_def.name() {
+            let range = name.syntax().text_range();
+            let start: usize = range.start().into();
+            let end: usize = range.end().into();
+
+            if byte_offset >= start && byte_offset < end {
+                return Some(ElementType::TypeReference {
+                    type_name: name.text().to_string(),
+                });
+            }
+        }
+
+        // Check union member types
+        if let Some(union_member_types) = union_def.union_member_types() {
+            for named_type in union_member_types.named_types() {
+                if let Some(name) = named_type.name() {
+                    let range = name.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+
+                    if byte_offset >= start && byte_offset < end {
+                        return Some(ElementType::TypeReference {
+                            type_name: name.text().to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Check if byte offset is within a scalar type definition
+    fn check_scalar_type_definition(
+        scalar: &cst::ScalarTypeDefinition,
+        byte_offset: usize,
+    ) -> Option<ElementType> {
+        // Check if we're on the type name
+        if let Some(name) = scalar.name() {
+            let range = name.syntax().text_range();
+            let start: usize = range.start().into();
+            let end: usize = range.end().into();
+
+            if byte_offset >= start && byte_offset < end {
+                return Some(ElementType::TypeReference {
+                    type_name: name.text().to_string(),
+                });
+            }
+        }
+
+        None
+    }
+
+    /// Check if a type contains a type reference at the byte offset
+    fn check_type_for_reference(ty: &cst::Type, byte_offset: usize) -> Option<ElementType> {
+        match ty {
+            cst::Type::NamedType(named_type) => {
+                if let Some(name) = named_type.name() {
+                    let range = name.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+
+                    if byte_offset >= start && byte_offset < end {
+                        return Some(ElementType::TypeReference {
+                            type_name: name.text().to_string(),
+                        });
+                    }
+                }
+            }
+            cst::Type::ListType(list_type) => {
+                if let Some(inner_type) = list_type.ty() {
+                    return Self::check_type_for_reference(&inner_type, byte_offset);
+                }
+            }
+            cst::Type::NonNullType(non_null_type) => {
+                // NonNullType can wrap either a NamedType or a ListType
+                if let Some(named) = non_null_type.named_type() {
+                    if let Some(name) = named.name() {
+                        let range = name.syntax().text_range();
+                        let start: usize = range.start().into();
+                        let end: usize = range.end().into();
+
+                        if byte_offset >= start && byte_offset < end {
+                            return Some(ElementType::TypeReference {
+                                type_name: name.text().to_string(),
+                            });
+                        }
+                    }
+                } else if let Some(list) = non_null_type.list_type() {
+                    if let Some(inner_type) = list.ty() {
+                        return Self::check_type_for_reference(&inner_type, byte_offset);
+                    }
                 }
             }
         }
@@ -1066,5 +1467,138 @@ query GetUser($id: ID!) {
 
         let hover_info = provider.hover(document, position, &schema);
         assert!(hover_info.is_none());
+    }
+
+    #[test]
+    fn test_hover_on_schema_type_name() {
+        let schema = create_test_schema();
+        let provider = HoverProvider::new();
+
+        let document = r"
+type User {
+    id: ID!
+    name: String!
+}
+";
+
+        // Hover on "User" in type definition
+        let position = Position {
+            line: 1,
+            character: 6,
+        };
+
+        let hover_info = provider.hover(document, position, &schema);
+        assert!(hover_info.is_some());
+
+        let info = hover_info.unwrap();
+        assert!(info.contents.contains("Type: `User`"));
+        assert!(info.contents.contains("Object"));
+        assert!(info.contents.contains("A user in the system"));
+    }
+
+    #[test]
+    fn test_hover_on_schema_field_name() {
+        let schema = create_test_schema();
+        let provider = HoverProvider::new();
+
+        let document = r"
+type User {
+    id: ID!
+    name: String!
+}
+";
+
+        // Hover on "name" field in schema
+        let position = Position {
+            line: 3,
+            character: 4,
+        };
+
+        let hover_info = provider.hover(document, position, &schema);
+        assert!(hover_info.is_some());
+
+        let info = hover_info.unwrap();
+        assert!(info.contents.contains("Field: `name`"));
+        assert!(info.contents.contains("String!"));
+        assert!(info.contents.contains("User's display name"));
+    }
+
+    #[test]
+    fn test_hover_on_schema_field_type_reference() {
+        let schema = create_test_schema();
+        let provider = HoverProvider::new();
+
+        let document = r"
+type Post {
+    id: ID!
+    title: String!
+    author: User!
+}
+";
+
+        // Hover on "User" type reference in field
+        let position = Position {
+            line: 4,
+            character: 13,
+        };
+
+        let hover_info = provider.hover(document, position, &schema);
+        assert!(hover_info.is_some());
+
+        let info = hover_info.unwrap();
+        assert!(info.contents.contains("Type: `User`"));
+        assert!(info.contents.contains("Object"));
+        assert!(info.contents.contains("A user in the system"));
+    }
+
+    #[test]
+    fn test_hover_on_schema_field_argument() {
+        let schema = create_test_schema();
+        let provider = HoverProvider::new();
+
+        let document = r"
+type Query {
+    user(id: ID!): User
+}
+";
+
+        // Hover on "id" argument in schema
+        let position = Position {
+            line: 2,
+            character: 10,
+        };
+
+        let hover_info = provider.hover(document, position, &schema);
+        assert!(hover_info.is_some());
+
+        let info = hover_info.unwrap();
+        assert!(info.contents.contains("Argument: `id`"));
+        assert!(info.contents.contains("ID!"));
+        assert!(info.contents.contains("The user ID"));
+    }
+
+    #[test]
+    fn test_hover_on_schema_list_type_reference() {
+        let schema = create_test_schema();
+        let provider = HoverProvider::new();
+
+        let document = r"
+type User {
+    posts: [Post!]!
+}
+";
+
+        // Hover on "Post" inside list type
+        let position = Position {
+            line: 2,
+            character: 13,
+        };
+
+        let hover_info = provider.hover(document, position, &schema);
+        assert!(hover_info.is_some());
+
+        let info = hover_info.unwrap();
+        assert!(info.contents.contains("Type: `Post`"));
+        assert!(info.contents.contains("Object"));
     }
 }
