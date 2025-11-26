@@ -181,16 +181,12 @@ impl GraphQLProject {
         let schema = schema_index.schema();
         let valid_schema = Valid::assume_valid_ref(schema);
 
-        let mut builder = ExecutableDocument::builder(Some(valid_schema));
+        let mut errors = apollo_compiler::validation::DiagnosticList::new(Default::default());
+        let mut builder = ExecutableDocument::builder(Some(valid_schema), &mut errors);
         let is_fragment_only = Self::is_fragment_only(source);
 
         // Add the current document
-        Parser::new().parse_into_executable_builder(
-            Some(valid_schema),
-            source,
-            file_name,
-            &mut builder,
-        );
+        Parser::new().parse_into_executable_builder(source, file_name, &mut builder);
 
         // Only add project fragments if this document contains operations AND uses fragment spreads
         if !is_fragment_only && source.contains("...") {
@@ -203,7 +199,6 @@ impl GraphQLProject {
                     for frag_item in frag_extracted {
                         if frag_item.source.trim_start().starts_with("fragment") {
                             Parser::new().parse_into_executable_builder(
-                                Some(valid_schema),
                                 &frag_item.source,
                                 &frag_info.file_path,
                                 &mut builder,
@@ -215,16 +210,16 @@ impl GraphQLProject {
         }
 
         // Build and validate
-        let mut diagnostics = match builder.build() {
-            Ok(doc) => match doc.validate(valid_schema) {
+        let doc = builder.build();
+        let mut diagnostics = if errors.is_empty() {
+            match doc.validate(valid_schema) {
                 Ok(_) => vec![],
                 Err(with_errors) => {
                     Self::convert_compiler_diagnostics(&with_errors.errors, is_fragment_only)
                 }
-            },
-            Err(with_errors) => {
-                Self::convert_compiler_diagnostics(&with_errors.errors, is_fragment_only)
             }
+        } else {
+            Self::convert_compiler_diagnostics(&errors, is_fragment_only)
         };
 
         // Add deprecation warnings
@@ -270,24 +265,30 @@ impl GraphQLProject {
         // Validate each extracted document
         for item in extracted {
             let line_offset = item.location.range.start.line;
+            let col_offset = item.location.range.start.column;
             let source = &item.source;
 
-            let mut builder = ExecutableDocument::builder(Some(valid_schema));
+            let mut errors = apollo_compiler::validation::DiagnosticList::new(Default::default());
+            let mut builder = ExecutableDocument::builder(Some(valid_schema), &mut errors);
             let is_fragment_only = Self::is_fragment_only(source);
 
-            // Add the current document with line offset padding for correct diagnostics
-            let padded_source = if line_offset > 0 {
-                format!("{}{}", "\n".repeat(line_offset), source)
+            // Use source_offset for accurate error reporting (convert 0-indexed to 1-indexed)
+            // Special handling: if the source starts with a newline (common in template literals),
+            // the actual content is on the next line, so adjust the offset accordingly
+            let (adjusted_line, adjusted_col) = if source.starts_with('\n') {
+                (line_offset + 1, 0) // Next line, column 0
             } else {
-                source.clone()
+                (line_offset, col_offset)
             };
 
-            Parser::new().parse_into_executable_builder(
-                Some(valid_schema),
-                &padded_source,
-                file_path,
-                &mut builder,
-            );
+            let offset = apollo_compiler::parser::SourceOffset {
+                line: adjusted_line + 1,  // Convert to 1-indexed
+                column: adjusted_col + 1,  // Convert to 1-indexed
+            };
+
+            Parser::new()
+                .source_offset(offset)
+                .parse_into_executable_builder(source, file_path, &mut builder);
 
             // Only add fragments if this document contains operations AND uses fragment spreads
             if !is_fragment_only && source.contains("...") {
@@ -309,7 +310,6 @@ impl GraphQLProject {
                         for frag_item in frag_extracted {
                             if frag_item.source.trim_start().starts_with("fragment") {
                                 Parser::new().parse_into_executable_builder(
-                                    Some(valid_schema),
                                     &frag_item.source,
                                     &frag_info.file_path,
                                     &mut builder,
@@ -321,8 +321,9 @@ impl GraphQLProject {
             }
 
             // Build and validate
-            let mut diagnostics = match builder.build() {
-                Ok(doc) => match doc.validate(valid_schema) {
+            let doc = builder.build();
+            let mut diagnostics = if errors.is_empty() {
+                match doc.validate(valid_schema) {
                     Ok(_) => vec![],
                     Err(with_errors) => {
                         let mut diags = Self::convert_compiler_diagnostics(
@@ -342,26 +343,26 @@ impl GraphQLProject {
 
                         diags
                     }
-                },
-                Err(with_errors) => {
-                    let mut diags =
-                        Self::convert_compiler_diagnostics(&with_errors.errors, is_fragment_only);
-
-                    // For operations: filter to only errors within this document's line range
-                    if !is_fragment_only {
-                        let source_line_count = source.lines().count();
-                        let end_line = line_offset + source_line_count;
-                        diags.retain(|d| {
-                            let start_line = d.range.start.line;
-                            start_line >= line_offset && start_line < end_line
-                        });
-                    }
-
-                    diags
                 }
+            } else {
+                let mut diags = Self::convert_compiler_diagnostics(&errors, is_fragment_only);
+
+                // For operations: filter to only errors within this document's line range
+                if !is_fragment_only {
+                    let source_line_count = source.lines().count();
+                    let end_line = line_offset + source_line_count;
+                    diags.retain(|d| {
+                        let start_line = d.range.start.line;
+                        start_line >= line_offset && start_line < end_line
+                    });
+                }
+
+                diags
             };
 
-            // Add deprecation warnings with line offset adjustment
+            // Add deprecation warnings
+            // Note: We still need to manually adjust line offsets for deprecation warnings
+            // since check_deprecated_fields_custom uses apollo-parser directly without offset support
             let validator = Validator::new();
             let deprecation_warnings =
                 validator.check_deprecated_fields_custom(source, &schema_index, file_path);
