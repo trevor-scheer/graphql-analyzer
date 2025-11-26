@@ -281,17 +281,10 @@ impl GraphQLProject {
             let is_fragment_only = Self::is_fragment_only(source);
 
             // Use source_offset for accurate error reporting (convert 0-indexed to 1-indexed)
-            // Special handling: if the source starts with a newline (common in template literals),
-            // the actual content is on the next line, so adjust the offset accordingly
-            let (adjusted_line, adjusted_col) = if source.starts_with('\n') {
-                (line_offset + 1, 0) // Next line, column 0
-            } else {
-                (line_offset, col_offset)
-            };
-
+            // graphql-extract gives us 0-indexed positions, apollo-compiler wants 1-indexed
             let offset = apollo_compiler::parser::SourceOffset {
-                line: adjusted_line + 1,  // Convert to 1-indexed
-                column: adjusted_col + 1, // Convert to 1-indexed
+                line: line_offset + 1,  // Convert to 1-indexed
+                column: col_offset + 1, // Convert to 1-indexed
             };
 
             Parser::new()
