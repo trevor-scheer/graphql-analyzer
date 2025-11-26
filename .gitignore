@@ -29,6 +29,7 @@
 .env.local
 
 # Claude
-.claude
+.claude/*
 !.claude/commands.json
 !.claude/settings.json
+!.claude/CLAUDE.md
