@@ -32,11 +32,16 @@ This is a GraphQL Language Server Protocol (LSP) implementation written in Rust.
 - Use `cargo test` to run all tests
 - Use `cargo insta` for snapshot testing (if applicable)
 
-## Important Validation Features
+## Important LSP Features
 
-- Project-wide unique name validation for operations and fragments
-- Correct line/column positioning for extracted GraphQL from TypeScript/JavaScript
-- Support for multiple GraphQL parsers (apollo-compiler and graphql-parser)
+- **Goto Definition**: Navigate from fragment spreads to their definitions across files
+  - Works in both pure GraphQL files (.graphql, .gql) and embedded GraphQL in TypeScript/JavaScript
+  - Handles TypeScript/JavaScript by extracting GraphQL and adjusting positions automatically
+- **Hover**: Type information and descriptions for GraphQL elements
+- **Diagnostics**: Project-wide validation with accurate error reporting
+  - Project-wide unique name validation for operations and fragments
+  - Correct line/column positioning for extracted GraphQL from TypeScript/JavaScript
+  - Support for multiple GraphQL parsers (apollo-compiler and graphql-parser)
 
 ## Development Notes
 

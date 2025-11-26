@@ -543,6 +543,7 @@ impl LanguageServer for GraphQLLanguageServer {
         Ok(Some(hover))
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
@@ -579,7 +580,104 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         };
 
-        // Convert LSP position to graphql-project Position (0-indexed)
+        // Check if this is a TypeScript/JavaScript file that needs GraphQL extraction
+        let file_path = uri.to_file_path();
+        let (is_ts_file, language) =
+            file_path
+                .as_ref()
+                .map_or((false, graphql_extract::Language::GraphQL), |path| {
+                    path.extension().and_then(|e| e.to_str()).map_or(
+                        (false, graphql_extract::Language::GraphQL),
+                        |ext| match ext {
+                            "ts" | "tsx" => (true, graphql_extract::Language::TypeScript),
+                            "js" | "jsx" => (true, graphql_extract::Language::JavaScript),
+                            _ => (false, graphql_extract::Language::GraphQL),
+                        },
+                    )
+                });
+
+        if is_ts_file {
+            // Extract GraphQL from TypeScript file
+            let extracted = match graphql_extract::extract_from_source(
+                &content,
+                language,
+                &ExtractConfig::default(),
+            ) {
+                Ok(extracted) => extracted,
+                Err(e) => {
+                    tracing::debug!("Failed to extract GraphQL from TypeScript file: {}", e);
+                    return Ok(None);
+                }
+            };
+
+            // Find which extracted GraphQL block contains the cursor position
+            let cursor_line = lsp_position.line as usize;
+            for item in extracted {
+                let start_line = item.location.range.start.line;
+                let end_line = item.location.range.end.line;
+
+                if cursor_line >= start_line && cursor_line <= end_line {
+                    // Adjust position relative to the extracted GraphQL
+                    #[allow(clippy::cast_possible_truncation)]
+                    let relative_position = graphql_project::Position {
+                        line: cursor_line - start_line,
+                        character: if cursor_line == start_line {
+                            lsp_position
+                                .character
+                                .saturating_sub(item.location.range.start.column as u32)
+                                as usize
+                        } else {
+                            lsp_position.character as usize
+                        },
+                    };
+
+                    tracing::debug!(
+                        "Adjusted position from {:?} to {:?} for extracted GraphQL",
+                        lsp_position,
+                        relative_position
+                    );
+
+                    // Get definition locations from the project using the extracted GraphQL
+                    let Some(locations) = project.goto_definition(&item.source, relative_position)
+                    else {
+                        tracing::debug!("No definition found at position {:?}", relative_position);
+                        continue;
+                    };
+
+                    tracing::debug!("Found {} definition location(s)", locations.len());
+
+                    // Convert to LSP Locations
+                    #[allow(clippy::cast_possible_truncation)]
+                    let lsp_locations: Vec<Location> = locations
+                        .iter()
+                        .filter_map(|loc| {
+                            let file_uri = Uri::from_file_path(&loc.file_path)?;
+                            Some(Location {
+                                uri: file_uri,
+                                range: Range {
+                                    start: Position {
+                                        line: loc.range.start.line as u32,
+                                        character: loc.range.start.character as u32,
+                                    },
+                                    end: Position {
+                                        line: loc.range.end.line as u32,
+                                        character: loc.range.end.character as u32,
+                                    },
+                                },
+                            })
+                        })
+                        .collect();
+
+                    if !lsp_locations.is_empty() {
+                        return Ok(Some(GotoDefinitionResponse::Array(lsp_locations)));
+                    }
+                }
+            }
+
+            return Ok(None);
+        }
+
+        // For pure GraphQL files, use the content as-is
         let position = graphql_project::Position {
             line: lsp_position.line as usize,
             character: lsp_position.character as usize,

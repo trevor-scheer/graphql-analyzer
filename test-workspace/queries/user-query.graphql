@@ -1,8 +1,7 @@
 # First definition of GetUser operation
 query GetUser($id: ID!) {
   user(id: $id) {
-    id
-    name
+    ...UserFields
     posts {
       id
       title
