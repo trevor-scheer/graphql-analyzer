@@ -126,17 +126,49 @@ pub async fn run(
         // Validate all loaded documents
         let document_index = project.get_document_index();
 
+        // Check for duplicate operation and fragment names across the entire project
+        let duplicate_diagnostics = document_index.check_duplicate_names();
+
         // Collect unique file paths that contain operations or fragments
         let mut all_file_paths = std::collections::HashSet::new();
-        for op_info in document_index.operations.values() {
-            all_file_paths.insert(&op_info.file_path);
+        for op_infos in document_index.operations.values() {
+            for op_info in op_infos {
+                all_file_paths.insert(&op_info.file_path);
+            }
         }
-        for frag_info in document_index.fragments.values() {
-            all_file_paths.insert(&frag_info.file_path);
+        for frag_infos in document_index.fragments.values() {
+            for frag_info in frag_infos {
+                all_file_paths.insert(&frag_info.file_path);
+            }
         }
 
         let mut all_warnings = Vec::new();
         let mut all_errors = Vec::new();
+
+        // Add project-wide duplicate name errors
+        for (file_path, diag) in duplicate_diagnostics {
+            use graphql_project::Severity;
+
+            // These diagnostics now have accurate line/column info
+            let diag_output = DiagnosticOutput {
+                file_path,
+                // graphql-project uses 0-based, CLI output uses 1-based
+                line: diag.range.start.line + 1,
+                column: diag.range.start.character + 1,
+                end_line: diag.range.end.line + 1,
+                end_column: diag.range.end.character + 1,
+                message: diag.message,
+            };
+
+            match diag.severity {
+                Severity::Warning | Severity::Information | Severity::Hint => {
+                    all_warnings.push(diag_output);
+                }
+                Severity::Error => {
+                    all_errors.push(diag_output);
+                }
+            }
+        }
 
         // Validate each file using the centralized validation logic
         for file_path in all_file_paths {

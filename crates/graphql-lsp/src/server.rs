@@ -166,13 +166,13 @@ impl GraphQLLanguageServer {
             return;
         };
 
-        // Get the project from the workspace
-        let Some(projects) = self.projects.get(&workspace_uri) else {
+        // Get the project from the workspace (need mutable to reload documents)
+        let Some(mut projects) = self.projects.get_mut(&workspace_uri) else {
             tracing::warn!("No projects loaded for workspace: {workspace_uri}");
             return;
         };
 
-        let Some((_, project)) = projects.get(project_idx) else {
+        let Some((_, project)) = projects.get_mut(project_idx) else {
             tracing::warn!("Project index {project_idx} not found in workspace {workspace_uri}");
             return;
         };
@@ -189,6 +189,12 @@ impl GraphQLLanguageServer {
             }
         }
 
+        // Reload documents to update the index with latest file contents from disk
+        // This is necessary for project-wide validation to work correctly
+        if let Err(e) = project.load_documents() {
+            tracing::warn!("Failed to reload documents: {}", e);
+        }
+
         // Check if this is a TypeScript/JavaScript file
         let is_ts_js = file_path
             .as_ref()
@@ -199,15 +205,43 @@ impl GraphQLLanguageServer {
             })
             .unwrap_or(false);
 
-        let diagnostics = if is_ts_js {
+        // Get document-specific diagnostics (type errors, etc.)
+        let mut diagnostics = if is_ts_js {
             self.validate_typescript_document(&uri, content, project)
         } else {
             self.validate_graphql_document(content, project)
         };
 
+        // Add project-wide duplicate name diagnostics for this file
+        if let Some(path) = uri.to_file_path() {
+            let file_path_str = path.display().to_string();
+            let project_wide_diags = self.get_project_wide_diagnostics(&file_path_str, project);
+            diagnostics.extend(project_wide_diags);
+        }
+
         self.client
-            .publish_diagnostics(uri, diagnostics, None)
+            .publish_diagnostics(uri.clone(), diagnostics, None)
             .await;
+    }
+
+    /// Get project-wide duplicate name diagnostics for a specific file
+    fn get_project_wide_diagnostics(
+        &self,
+        file_path: &str,
+        project: &GraphQLProject,
+    ) -> Vec<Diagnostic> {
+        // Get the document index
+        let document_index = project.get_document_index();
+
+        // Check for duplicate names across the project
+        let duplicate_diagnostics = document_index.check_duplicate_names();
+
+        // Filter to only diagnostics for this file and convert to LSP diagnostics
+        duplicate_diagnostics
+            .into_iter()
+            .filter(|(path, _)| path == file_path)
+            .map(|(_, diag)| self.convert_project_diagnostic(diag))
+            .collect()
     }
 
     /// Validate a pure GraphQL document

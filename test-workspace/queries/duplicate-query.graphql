@@ -1,0 +1,18 @@
+# Duplicate GetUser operation - should trigger project-wide validation error
+query GetUser($userId: ID!) {
+  user(id: $userId) {
+    id
+    posts {
+      id
+      content
+    }
+  }
+}
+
+# Duplicate UserFields fragment - should trigger project-wide validation error
+fragment UserFields on User {
+  id
+  posts {
+    id
+  }
+}
