@@ -121,6 +121,8 @@ impl DocumentLoader {
 
     /// Parse GraphQL source and add operations/fragments to index
     fn parse_and_index(source: &str, file_path: &str, index: &mut DocumentIndex) {
+        use apollo_parser::cst::CstNode;
+
         let parser = Parser::new(source);
         let tree = parser.parse();
 
@@ -145,12 +147,20 @@ impl DocumentLoader {
                         _ => OperationType::Query, // Default to query
                     };
 
-                    let name = op.name().map(|n| n.text().to_string());
+                    let (name, line, column) = op.name().map_or((None, 0, 0), |name_node| {
+                        let name_str = name_node.text().to_string();
+                        let syntax_node = name_node.syntax();
+                        let offset: usize = syntax_node.text_range().start().into();
+                        let (line, col) = Self::offset_to_line_col(source, offset);
+                        (Some(name_str), line, col)
+                    });
 
                     let info = OperationInfo {
                         name: name.clone(),
                         operation_type,
                         file_path: file_path.to_string(),
+                        line,
+                        column,
                     };
 
                     index.add_operation(name, info);
@@ -167,10 +177,19 @@ impl DocumentLoader {
                             .and_then(|nt| nt.name())
                             .map_or_else(String::new, |n| n.text().to_string());
 
+                        // Get position of fragment name
+                        let (line, column) = name_node.name().map_or((0, 0), |name_token| {
+                            let syntax_node = name_token.syntax();
+                            let offset: usize = syntax_node.text_range().start().into();
+                            Self::offset_to_line_col(source, offset)
+                        });
+
                         let info = FragmentInfo {
                             name: name.clone(),
                             type_condition,
                             file_path: file_path.to_string(),
+                            line,
+                            column,
                         };
 
                         index.add_fragment(name, info);
@@ -179,6 +198,30 @@ impl DocumentLoader {
                 _ => {} // Skip schema definitions in document files
             }
         }
+    }
+
+    /// Convert a byte offset to a line and column (0-indexed)
+    fn offset_to_line_col(document: &str, offset: usize) -> (usize, usize) {
+        let mut line = 0;
+        let mut col = 0;
+        let mut current_offset = 0;
+
+        for ch in document.chars() {
+            if current_offset >= offset {
+                break;
+            }
+
+            if ch == '\n' {
+                line += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+
+            current_offset += ch.len_utf8();
+        }
+
+        (line, col)
     }
 }
 

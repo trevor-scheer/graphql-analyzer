@@ -276,11 +276,13 @@ pub struct DirectiveInfo {
 /// Index of GraphQL documents (operations and fragments)
 #[derive(Debug, Default)]
 pub struct DocumentIndex {
-    /// Operation definitions (name -> location)
-    pub operations: std::collections::HashMap<String, OperationInfo>,
+    /// Operation definitions (name -> locations)
+    /// Changed to Vec to track all occurrences for duplicate detection
+    pub operations: std::collections::HashMap<String, Vec<OperationInfo>>,
 
-    /// Fragment definitions (name -> location)
-    pub fragments: std::collections::HashMap<String, FragmentInfo>,
+    /// Fragment definitions (name -> locations)
+    /// Changed to Vec to track all occurrences for duplicate detection
+    pub fragments: std::collections::HashMap<String, Vec<FragmentInfo>>,
 }
 
 #[derive(Debug, Clone)]
@@ -288,6 +290,10 @@ pub struct OperationInfo {
     pub name: Option<String>,
     pub operation_type: OperationType,
     pub file_path: String,
+    /// Line number (0-indexed) where the operation name appears
+    pub line: usize,
+    /// Column number (0-indexed) where the operation name appears
+    pub column: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -302,6 +308,10 @@ pub struct FragmentInfo {
     pub name: String,
     pub type_condition: String,
     pub file_path: String,
+    /// Line number (0-indexed) where the fragment name appears
+    pub line: usize,
+    /// Column number (0-indexed) where the fragment name appears
+    pub column: usize,
 }
 
 impl DocumentIndex {
@@ -313,25 +323,168 @@ impl DocumentIndex {
     /// Add an operation to the index
     pub fn add_operation(&mut self, name: Option<String>, info: OperationInfo) {
         if let Some(name) = name {
-            self.operations.insert(name, info);
+            self.operations.entry(name).or_default().push(info);
         }
     }
 
     /// Add a fragment to the index
     pub fn add_fragment(&mut self, name: String, info: FragmentInfo) {
-        self.fragments.insert(name, info);
+        self.fragments.entry(name).or_default().push(info);
     }
 
-    /// Get an operation by name
+    /// Get operations by name (returns all occurrences)
     #[must_use]
-    pub fn get_operation(&self, name: &str) -> Option<&OperationInfo> {
+    pub fn get_operations(&self, name: &str) -> Option<&Vec<OperationInfo>> {
         self.operations.get(name)
     }
 
-    /// Get a fragment by name
+    /// Get the first operation by name (for backward compatibility)
+    #[must_use]
+    pub fn get_operation(&self, name: &str) -> Option<&OperationInfo> {
+        self.operations.get(name).and_then(|ops| ops.first())
+    }
+
+    /// Get fragments by name (returns all occurrences)
+    #[must_use]
+    pub fn get_fragments_by_name(&self, name: &str) -> Option<&Vec<FragmentInfo>> {
+        self.fragments.get(name)
+    }
+
+    /// Get the first fragment by name (for backward compatibility)
     #[must_use]
     pub fn get_fragment(&self, name: &str) -> Option<&FragmentInfo> {
-        self.fragments.get(name)
+        self.fragments.get(name).and_then(|frags| frags.first())
+    }
+
+    /// Check for duplicate operation and fragment names across the project
+    ///
+    /// Returns a list of diagnostics for any duplicate names found, with one diagnostic
+    /// per occurrence at the actual file location
+    #[must_use]
+    #[allow(clippy::too_many_lines)]
+    pub fn check_duplicate_names(&self) -> Vec<(String, crate::Diagnostic)> {
+        use crate::{Diagnostic, Position, Range};
+        let mut diagnostics = Vec::new();
+
+        // Check for duplicate operation names
+        for (name, operations) in &self.operations {
+            if operations.len() > 1 {
+                for op in operations {
+                    let message = format!(
+                        "Operation name '{}' is not unique across the project. Found {} definitions.",
+                        name,
+                        operations.len()
+                    );
+
+                    // Use the actual position from the operation
+                    let range = Range {
+                        start: Position {
+                            line: op.line,
+                            character: op.column,
+                        },
+                        end: Position {
+                            line: op.line,
+                            character: op.column + name.len(),
+                        },
+                    };
+
+                    let mut diag = Diagnostic::error(range, message)
+                        .with_code("unique-operation-names-project")
+                        .with_source("graphql-validator");
+
+                    // Add related information for all other occurrences
+                    for other_op in operations {
+                        if other_op.file_path != op.file_path
+                            || other_op.line != op.line
+                            || other_op.column != op.column
+                        {
+                            use crate::diagnostics::{Location, RelatedInfo};
+                            let other_range = Range {
+                                start: Position {
+                                    line: other_op.line,
+                                    character: other_op.column,
+                                },
+                                end: Position {
+                                    line: other_op.line,
+                                    character: other_op.column + name.len(),
+                                },
+                            };
+                            let related = RelatedInfo {
+                                message: format!("Operation '{name}' also defined here"),
+                                location: Location {
+                                    uri: format!("file://{}", other_op.file_path),
+                                    range: other_range,
+                                },
+                            };
+                            diag = diag.with_related_info(related);
+                        }
+                    }
+
+                    diagnostics.push((op.file_path.clone(), diag));
+                }
+            }
+        }
+
+        // Check for duplicate fragment names
+        for (name, fragments) in &self.fragments {
+            if fragments.len() > 1 {
+                for frag in fragments {
+                    let message = format!(
+                        "Fragment name '{}' is not unique across the project. Found {} definitions.",
+                        name,
+                        fragments.len()
+                    );
+
+                    // Use the actual position from the fragment
+                    let range = Range {
+                        start: Position {
+                            line: frag.line,
+                            character: frag.column,
+                        },
+                        end: Position {
+                            line: frag.line,
+                            character: frag.column + name.len(),
+                        },
+                    };
+
+                    let mut diag = Diagnostic::error(range, message)
+                        .with_code("unique-fragment-names-project")
+                        .with_source("graphql-validator");
+
+                    // Add related information for all other occurrences
+                    for other_frag in fragments {
+                        if other_frag.file_path != frag.file_path
+                            || other_frag.line != frag.line
+                            || other_frag.column != frag.column
+                        {
+                            use crate::diagnostics::{Location, RelatedInfo};
+                            let other_range = Range {
+                                start: Position {
+                                    line: other_frag.line,
+                                    character: other_frag.column,
+                                },
+                                end: Position {
+                                    line: other_frag.line,
+                                    character: other_frag.column + name.len(),
+                                },
+                            };
+                            let related = RelatedInfo {
+                                message: format!("Fragment '{name}' also defined here"),
+                                location: Location {
+                                    uri: format!("file://{}", other_frag.file_path),
+                                    range: other_range,
+                                },
+                            };
+                            diag = diag.with_related_info(related);
+                        }
+                    }
+
+                    diagnostics.push((frag.file_path.clone(), diag));
+                }
+            }
+        }
+
+        diagnostics
     }
 }
 
@@ -884,6 +1037,165 @@ mod tests {
         assert_eq!(
             search_field.arguments[1].description,
             Some("Maximum number of results".to_string())
+        );
+    }
+
+    #[test]
+    fn test_document_index_tracks_duplicate_operations() {
+        let mut index = DocumentIndex::new();
+
+        // Add two operations with the same name
+        index.add_operation(
+            Some("GetUser".to_string()),
+            OperationInfo {
+                name: Some("GetUser".to_string()),
+                operation_type: OperationType::Query,
+                file_path: "/path/to/file1.graphql".to_string(),
+                line: 1,
+                column: 6,
+            },
+        );
+
+        index.add_operation(
+            Some("GetUser".to_string()),
+            OperationInfo {
+                name: Some("GetUser".to_string()),
+                operation_type: OperationType::Query,
+                file_path: "/path/to/file2.graphql".to_string(),
+                line: 5,
+                column: 6,
+            },
+        );
+
+        // Verify both operations are tracked
+        let operations = index
+            .get_operations("GetUser")
+            .expect("Should have operations");
+        assert_eq!(operations.len(), 2);
+
+        // Verify duplicate detection works
+        let diagnostics = index.check_duplicate_names();
+        assert_eq!(
+            diagnostics.len(),
+            2,
+            "Should have 2 errors (one for each occurrence)"
+        );
+        assert!(diagnostics
+            .iter()
+            .all(|(_, d)| d.message.contains("GetUser")));
+        assert!(diagnostics
+            .iter()
+            .all(|(_, d)| d.message.contains("not unique across the project")));
+
+        // Verify file paths are correct
+        assert_eq!(diagnostics[0].0, "/path/to/file1.graphql");
+        assert_eq!(diagnostics[1].0, "/path/to/file2.graphql");
+    }
+
+    #[test]
+    fn test_document_index_tracks_duplicate_fragments() {
+        let mut index = DocumentIndex::new();
+
+        // Add two fragments with the same name
+        index.add_fragment(
+            "UserFields".to_string(),
+            FragmentInfo {
+                name: "UserFields".to_string(),
+                type_condition: "User".to_string(),
+                file_path: "/path/to/file1.graphql".to_string(),
+                line: 2,
+                column: 9,
+            },
+        );
+
+        index.add_fragment(
+            "UserFields".to_string(),
+            FragmentInfo {
+                name: "UserFields".to_string(),
+                type_condition: "User".to_string(),
+                file_path: "/path/to/file2.graphql".to_string(),
+                line: 10,
+                column: 9,
+            },
+        );
+
+        // Verify both fragments are tracked
+        let fragments = index
+            .get_fragments_by_name("UserFields")
+            .expect("Should have fragments");
+        assert_eq!(fragments.len(), 2);
+
+        // Verify duplicate detection works
+        let diagnostics = index.check_duplicate_names();
+        assert_eq!(
+            diagnostics.len(),
+            2,
+            "Should have 2 errors (one for each occurrence)"
+        );
+        assert!(diagnostics
+            .iter()
+            .all(|(_, d)| d.message.contains("UserFields")));
+        assert!(diagnostics
+            .iter()
+            .all(|(_, d)| d.message.contains("not unique across the project")));
+    }
+
+    #[test]
+    fn test_document_index_unique_names_no_errors() {
+        let mut index = DocumentIndex::new();
+
+        // Add unique operations
+        index.add_operation(
+            Some("GetUser".to_string()),
+            OperationInfo {
+                name: Some("GetUser".to_string()),
+                operation_type: OperationType::Query,
+                file_path: "/path/to/file1.graphql".to_string(),
+                line: 0,
+                column: 6,
+            },
+        );
+
+        index.add_operation(
+            Some("GetUsers".to_string()),
+            OperationInfo {
+                name: Some("GetUsers".to_string()),
+                operation_type: OperationType::Query,
+                file_path: "/path/to/file2.graphql".to_string(),
+                line: 0,
+                column: 6,
+            },
+        );
+
+        // Add unique fragments
+        index.add_fragment(
+            "UserFields".to_string(),
+            FragmentInfo {
+                name: "UserFields".to_string(),
+                type_condition: "User".to_string(),
+                file_path: "/path/to/file1.graphql".to_string(),
+                line: 5,
+                column: 9,
+            },
+        );
+
+        index.add_fragment(
+            "PostFields".to_string(),
+            FragmentInfo {
+                name: "PostFields".to_string(),
+                type_condition: "Post".to_string(),
+                file_path: "/path/to/file2.graphql".to_string(),
+                line: 10,
+                column: 9,
+            },
+        );
+
+        // Verify no duplicates
+        let diagnostics = index.check_duplicate_names();
+        assert_eq!(
+            diagnostics.len(),
+            0,
+            "Should have no errors for unique names"
         );
     }
 }

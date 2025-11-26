@@ -1,0 +1,17 @@
+# First definition of GetUser operation
+query GetUser($id: ID!) {
+  user(id: $id) {
+    id
+    name
+    posts {
+      id
+      title
+    }
+  }
+}
+
+# First definition of UserFields fragment
+fragment UserFields on User {
+  id
+  name
+}

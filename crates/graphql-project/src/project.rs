@@ -192,18 +192,21 @@ impl GraphQLProject {
         // Only add project fragments if this document contains operations AND uses fragment spreads
         if !is_fragment_only && source.contains("...") {
             let document_index = self.document_index.read().unwrap();
-            for frag_info in document_index.fragments.values() {
-                if let Ok(frag_extracted) = graphql_extract::extract_from_file(
-                    std::path::Path::new(&frag_info.file_path),
-                    &graphql_extract::ExtractConfig::default(),
-                ) {
-                    for frag_item in frag_extracted {
-                        if frag_item.source.trim_start().starts_with("fragment") {
-                            Parser::new().parse_into_executable_builder(
-                                &frag_item.source,
-                                &frag_info.file_path,
-                                &mut builder,
-                            );
+            for frag_infos in document_index.fragments.values() {
+                // Process all fragments with this name (in case of duplicates)
+                for frag_info in frag_infos {
+                    if let Ok(frag_extracted) = graphql_extract::extract_from_file(
+                        std::path::Path::new(&frag_info.file_path),
+                        &graphql_extract::ExtractConfig::default(),
+                    ) {
+                        for frag_item in frag_extracted {
+                            if frag_item.source.trim_start().starts_with("fragment") {
+                                Parser::new().parse_into_executable_builder(
+                                    &frag_item.source,
+                                    &frag_info.file_path,
+                                    &mut builder,
+                                );
+                            }
                         }
                     }
                 }
@@ -228,6 +231,9 @@ impl GraphQLProject {
         let deprecation_warnings =
             validator.check_deprecated_fields_custom(source, &schema_index, file_name);
         diagnostics.extend(deprecation_warnings);
+
+        // Note: Within-document unique name validation is handled by apollo-compiler
+        // Project-wide unique name validation is handled separately via DocumentIndex
 
         diagnostics
     }
@@ -299,23 +305,26 @@ impl GraphQLProject {
                 let document_index = self.document_index.read().unwrap();
                 let current_path = std::path::Path::new(file_path);
 
-                for frag_info in document_index.fragments.values() {
-                    // Skip fragments from the current file
-                    if std::path::Path::new(&frag_info.file_path) == current_path {
-                        continue;
-                    }
+                for frag_infos in document_index.fragments.values() {
+                    // Process all fragments with this name (in case of duplicates)
+                    for frag_info in frag_infos {
+                        // Skip fragments from the current file
+                        if std::path::Path::new(&frag_info.file_path) == current_path {
+                            continue;
+                        }
 
-                    if let Ok(frag_extracted) = graphql_extract::extract_from_file(
-                        std::path::Path::new(&frag_info.file_path),
-                        &graphql_extract::ExtractConfig::default(),
-                    ) {
-                        for frag_item in frag_extracted {
-                            if frag_item.source.trim_start().starts_with("fragment") {
-                                Parser::new().parse_into_executable_builder(
-                                    &frag_item.source,
-                                    &frag_info.file_path,
-                                    &mut builder,
-                                );
+                        if let Ok(frag_extracted) = graphql_extract::extract_from_file(
+                            std::path::Path::new(&frag_info.file_path),
+                            &graphql_extract::ExtractConfig::default(),
+                        ) {
+                            for frag_item in frag_extracted {
+                                if frag_item.source.trim_start().starts_with("fragment") {
+                                    Parser::new().parse_into_executable_builder(
+                                        &frag_item.source,
+                                        &frag_info.file_path,
+                                        &mut builder,
+                                    );
+                                }
                             }
                         }
                     }
@@ -374,6 +383,9 @@ impl GraphQLProject {
                 warning.range.end.line += line_offset;
                 diagnostics.push(warning);
             }
+
+            // Note: Within-document unique name validation is handled by apollo-compiler
+            // Project-wide unique name validation is handled separately via DocumentIndex
 
             all_diagnostics.extend(diagnostics);
         }
