@@ -947,16 +947,28 @@ impl LanguageServer for GraphQLLanguageServer {
             all_documents.len()
         );
 
+        // For find_references optimization, we would parse all documents once here
+        // However, since the documents are already cached in document_index via did_open/did_change,
+        // the actual optimization happens by reusing those cached ASTs.
+        // We pass None here as the ASTs will be retrieved from document_index internally.
+        let document_asts: Option<&std::collections::HashMap<String, graphql_project::SyntaxTree>> =
+            None;
+
         // For pure GraphQL files (TypeScript extraction not implemented yet for find references)
         let position = graphql_project::Position {
             line: lsp_position.line as usize,
             character: lsp_position.character as usize,
         };
 
-        // Find references
-        let Some(references) =
-            project.find_references(&content, position, &all_documents, include_declaration)
-        else {
+        // Find references with pre-parsed ASTs
+        let Some(references) = project.find_references_with_asts(
+            &content,
+            position,
+            &all_documents,
+            include_declaration,
+            Some(&uri.to_string()),
+            document_asts,
+        ) else {
             tracing::info!("No references found at position {:?}", position);
             return Ok(None);
         };

@@ -3,8 +3,9 @@
 use crate::{DocumentIndex, Position, Range, SchemaIndex};
 use apollo_parser::{
     cst::{self, CstNode},
-    Parser,
+    Parser, SyntaxTree,
 };
+use std::collections::HashMap;
 
 /// Location information for find references
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,13 +46,50 @@ impl FindReferencesProvider {
         all_documents: &[(String, String)],
         include_declaration: bool,
     ) -> Option<Vec<ReferenceLocation>> {
+        self.find_references_with_asts(
+            source,
+            position,
+            document_index,
+            schema_index,
+            all_documents,
+            include_declaration,
+            None,
+            None,
+        )
+    }
+
+    /// Find all references with optional pre-parsed ASTs for optimization
+    ///
+    /// This method accepts optional cached ASTs to avoid re-parsing:
+    /// - `source_ast`: Pre-parsed AST of the source document
+    /// - `document_asts`: Pre-parsed ASTs of all workspace documents (`file_path` -> AST)
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::option_if_let_else)]
+    pub fn find_references_with_asts(
+        &self,
+        source: &str,
+        position: Position,
+        document_index: &DocumentIndex,
+        schema_index: &SchemaIndex,
+        all_documents: &[(String, String)],
+        include_declaration: bool,
+        source_ast: Option<&SyntaxTree>,
+        document_asts: Option<&HashMap<String, SyntaxTree>>,
+    ) -> Option<Vec<ReferenceLocation>> {
         tracing::info!(
             "FindReferencesProvider::find_references called with position: {:?}",
             position
         );
 
-        let parser = Parser::new(source);
-        let tree = parser.parse();
+        let tree_holder;
+        let tree = if let Some(ast) = source_ast {
+            ast
+        } else {
+            let parser = Parser::new(source);
+            tree_holder = parser.parse();
+            &tree_holder
+        };
 
         if tree.errors().count() > 0 {
             tracing::info!("Returning None due to parser errors");
@@ -64,12 +102,13 @@ impl FindReferencesProvider {
 
         tracing::info!("Finding references for element: {:?}", element_type);
 
-        let references = Self::find_all_references(
+        let references = Self::find_all_references_with_asts(
             &element_type,
             document_index,
             schema_index,
             all_documents,
             include_declaration,
+            document_asts,
         )?;
 
         Some(references)
@@ -295,18 +334,22 @@ impl FindReferencesProvider {
         None
     }
 
-    fn find_all_references(
+    fn find_all_references_with_asts(
         element_type: &ElementType,
         document_index: &DocumentIndex,
         _schema_index: &SchemaIndex,
         all_documents: &[(String, String)],
         include_declaration: bool,
+        document_asts: Option<&HashMap<String, SyntaxTree>>,
     ) -> Option<Vec<ReferenceLocation>> {
         match element_type {
             ElementType::FragmentDefinition { fragment_name } => {
                 // Find all fragment spreads that use this fragment
-                let mut references =
-                    Self::find_fragment_spread_references(fragment_name, all_documents)?;
+                let mut references = Self::find_fragment_spread_references_with_asts(
+                    fragment_name,
+                    all_documents,
+                    document_asts,
+                )?;
 
                 // Add fragment definitions if requested
                 if include_declaration {
@@ -331,24 +374,50 @@ impl FindReferencesProvider {
             }
             ElementType::FragmentSpread { fragment_name } => {
                 // When on a spread, find all spreads (same as definition)
-                Self::find_fragment_spread_references(fragment_name, all_documents)
+                Self::find_fragment_spread_references_with_asts(
+                    fragment_name,
+                    all_documents,
+                    document_asts,
+                )
             }
             ElementType::TypeDefinition { type_name } => {
                 // Find all type references
-                Self::find_type_references(type_name, all_documents, include_declaration)
+                Self::find_type_references_with_asts(
+                    type_name,
+                    all_documents,
+                    include_declaration,
+                    document_asts,
+                )
             }
         }
     }
 
-    fn find_fragment_spread_references(
+    #[allow(clippy::option_if_let_else)]
+    fn find_fragment_spread_references_with_asts(
         fragment_name: &str,
         all_documents: &[(String, String)],
+        document_asts: Option<&HashMap<String, SyntaxTree>>,
     ) -> Option<Vec<ReferenceLocation>> {
         let mut references = Vec::new();
 
         for (file_path, source) in all_documents {
-            let parser = Parser::new(source);
-            let tree = parser.parse();
+            // Try to use cached AST first, otherwise parse
+            let tree_holder;
+            let tree = if let Some(asts) = document_asts {
+                if let Some(cached) = asts.get(file_path) {
+                    cached
+                } else {
+                    // Parse if not in cache
+                    let parser = Parser::new(source);
+                    tree_holder = parser.parse();
+                    &tree_holder
+                }
+            } else {
+                // No AST cache provided, parse on demand
+                let parser = Parser::new(source);
+                tree_holder = parser.parse();
+                &tree_holder
+            };
 
             if tree.errors().count() > 0 {
                 continue;
@@ -456,17 +525,32 @@ impl FindReferencesProvider {
         }
     }
 
-    /// Find all type references in all documents
-    fn find_type_references(
+    /// Find all type references in all documents with optional pre-parsed ASTs
+    #[allow(clippy::option_if_let_else)]
+    fn find_type_references_with_asts(
         type_name: &str,
         all_documents: &[(String, String)],
         include_declaration: bool,
+        document_asts: Option<&HashMap<String, SyntaxTree>>,
     ) -> Option<Vec<ReferenceLocation>> {
         let mut references = Vec::new();
 
         for (file_path, source) in all_documents {
-            let parser = Parser::new(source);
-            let tree = parser.parse();
+            // Try to use cached AST first
+            let tree_holder;
+            let tree = if let Some(asts) = document_asts {
+                if let Some(cached) = asts.get(file_path) {
+                    cached
+                } else {
+                    let parser = Parser::new(source);
+                    tree_holder = parser.parse();
+                    &tree_holder
+                }
+            } else {
+                let parser = Parser::new(source);
+                tree_holder = parser.parse();
+                &tree_holder
+            };
 
             if tree.errors().count() > 0 {
                 continue;

@@ -574,16 +574,52 @@ impl GraphQLProject {
         all_documents: &[(String, String)],
         include_declaration: bool,
     ) -> Option<Vec<ReferenceLocation>> {
+        self.find_references_with_asts(
+            source,
+            position,
+            all_documents,
+            include_declaration,
+            None,
+            None,
+        )
+    }
+
+    /// Find all references with optional pre-parsed ASTs for optimization
+    ///
+    /// # Arguments
+    /// * `source` - The GraphQL source code of the current document
+    /// * `position` - The position in the document to find references for
+    /// * `all_documents` - All GraphQL documents in the project (for finding usages)
+    /// * `include_declaration` - Whether to include the declaration/definition in results
+    /// * `source_file_path` - File path of the source document (for AST lookup)
+    /// * `document_asts` - Pre-parsed ASTs map to avoid re-parsing all documents
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub fn find_references_with_asts(
+        &self,
+        source: &str,
+        position: Position,
+        all_documents: &[(String, String)],
+        include_declaration: bool,
+        source_file_path: Option<&str>,
+        document_asts: Option<&std::collections::HashMap<String, apollo_parser::SyntaxTree>>,
+    ) -> Option<Vec<ReferenceLocation>> {
         let document_index = self.document_index.read().unwrap();
         let schema_index = self.schema_index.read().unwrap();
         let provider = FindReferencesProvider::new();
-        provider.find_references(
+
+        // Get source AST from cache if available
+        let source_ast = source_file_path.and_then(|path| document_index.get_ast(path));
+
+        provider.find_references_with_asts(
             source,
             position,
             &document_index,
             &schema_index,
             all_documents,
             include_declaration,
+            source_ast.as_deref(),
+            document_asts,
         )
     }
 

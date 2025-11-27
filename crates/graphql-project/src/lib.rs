@@ -28,4 +28,5 @@ pub use validation::Validator;
 
 // Re-export common types from dependencies
 pub use apollo_compiler::validation::DiagnosticList;
+pub use apollo_parser::SyntaxTree;
 pub use graphql_config::{GraphQLConfig, ProjectConfig};
