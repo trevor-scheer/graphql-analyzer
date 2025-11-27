@@ -681,69 +681,64 @@ impl LanguageServer for GraphQLLanguageServer {
                 });
 
         if is_ts_file {
-            // Extract GraphQL from TypeScript file
-            let extracted = match graphql_extract::extract_from_source(
-                &content,
-                language,
-                &ExtractConfig::default(),
-            ) {
-                Ok(extracted) => extracted,
-                Err(e) => {
-                    tracing::debug!("Failed to extract GraphQL from TypeScript file: {}", e);
-                    return Ok(None);
-                }
-            };
+            // Try to use cached extracted blocks first (Phase 3 optimization)
+            let cached_blocks = project.get_extracted_blocks(&uri.to_string());
 
             // Find which extracted GraphQL block contains the cursor position
             let cursor_line = lsp_position.line as usize;
-            for item in extracted {
-                let start_line = item.location.range.start.line;
-                let end_line = item.location.range.end.line;
 
-                if cursor_line >= start_line && cursor_line <= end_line {
-                    // Adjust position relative to the extracted GraphQL
-                    #[allow(clippy::cast_possible_truncation)]
-                    let relative_position = graphql_project::Position {
-                        line: cursor_line - start_line,
-                        character: if cursor_line == start_line {
-                            lsp_position
-                                .character
-                                .saturating_sub(item.location.range.start.column as u32)
-                                as usize
-                        } else {
-                            lsp_position.character as usize
-                        },
-                    };
-
-                    tracing::debug!(
-                        "Adjusted position from {:?} to {:?} for extracted GraphQL",
-                        lsp_position,
-                        relative_position
-                    );
-
-                    // Get definition locations from the project using the extracted GraphQL
-                    let Some(locations) =
-                        project.goto_definition(&item.source, relative_position, &uri.to_string())
-                    else {
-                        tracing::debug!("No definition found at position {:?}", relative_position);
-                        continue;
-                    };
-
-                    tracing::debug!("Found {} definition location(s)", locations.len());
-
-                    // Convert to LSP Locations
-                    #[allow(clippy::cast_possible_truncation)]
-                    let lsp_locations: Vec<Location> = locations
-                        .iter()
-                        .filter_map(|loc| {
-                            // Check if the file_path is already a URI
-                            let file_uri = if loc.file_path.starts_with("file://") {
-                                // Already a URI, parse it directly
-                                loc.file_path.parse::<Uri>().ok()?
+            if let Some(blocks) = cached_blocks {
+                // Use cached blocks - no extraction or parsing needed!
+                for block in blocks {
+                    if cursor_line >= block.start_line && cursor_line <= block.end_line {
+                        // Adjust position relative to the extracted GraphQL
+                        #[allow(clippy::cast_possible_truncation)]
+                        let relative_position = graphql_project::Position {
+                            line: cursor_line - block.start_line,
+                            character: if cursor_line == block.start_line {
+                                lsp_position
+                                    .character
+                                    .saturating_sub(block.start_column as u32)
+                                    as usize
                             } else {
-                                // Resolve the file path relative to the workspace if it's not absolute
-                                let file_path =
-                                    if std::path::Path::new(&loc.file_path).is_absolute() {
+                                lsp_position.character as usize
+                            },
+                        };
+
+                        tracing::debug!(
+                            "Using cached extracted block at position {:?}",
+                            relative_position
+                        );
+
+                        // Get definition locations from the project using the cached GraphQL
+                        let Some(locations) = project.goto_definition(
+                            &block.content,
+                            relative_position,
+                            &uri.to_string(),
+                        ) else {
+                            tracing::debug!(
+                                "No definition found at position {:?}",
+                                relative_position
+                            );
+                            continue;
+                        };
+
+                        tracing::debug!("Found {} definition location(s)", locations.len());
+
+                        // Convert to LSP Locations (adjust positions back to original file coordinates)
+                        #[allow(clippy::cast_possible_truncation)]
+                        let lsp_locations: Vec<Location> = locations
+                            .iter()
+                            .filter_map(|loc| {
+                                // Check if the file_path is already a URI
+                                let file_uri = if loc.file_path.starts_with("file://") {
+                                    // Already a URI, parse it directly
+                                    loc.file_path.parse::<Uri>().ok()?
+                                } else {
+                                    // Resolve the file path relative to the workspace if it's not absolute
+                                    let file_path = if std::path::Path::new(&loc.file_path)
+                                        .is_absolute()
+                                    {
                                         std::path::PathBuf::from(&loc.file_path)
                                     } else {
                                         // Resolve relative to workspace root
@@ -751,57 +746,194 @@ impl LanguageServer for GraphQLLanguageServer {
                                         let workspace_file_path = workspace_path.to_file_path()?;
                                         workspace_file_path.join(&loc.file_path)
                                     };
-                                Uri::from_file_path(file_path)?
-                            };
 
-                            // If the location is in the same file, adjust positions back to original file coordinates
-                            let (start_line, start_char, end_line, end_char) = if file_uri == uri {
-                                // Adjust positions back from extracted GraphQL to original file
-                                let adjusted_start_line = loc.range.start.line + start_line;
-                                let adjusted_start_char = if loc.range.start.line == 0 {
-                                    loc.range.start.character + item.location.range.start.column
-                                } else {
-                                    loc.range.start.character
+                                    Uri::from_file_path(file_path)?
                                 };
-                                let adjusted_end_line = loc.range.end.line + start_line;
-                                let adjusted_end_char = if loc.range.end.line == 0 {
-                                    loc.range.end.character + item.location.range.start.column
-                                } else {
-                                    loc.range.end.character
-                                };
-                                (
-                                    adjusted_start_line as u32,
-                                    adjusted_start_char as u32,
-                                    adjusted_end_line as u32,
-                                    adjusted_end_char as u32,
-                                )
-                            } else {
-                                (
-                                    loc.range.start.line as u32,
-                                    loc.range.start.character as u32,
-                                    loc.range.end.line as u32,
-                                    loc.range.end.character as u32,
-                                )
-                            };
 
-                            Some(Location {
-                                uri: file_uri,
-                                range: Range {
-                                    start: Position {
-                                        line: start_line,
-                                        character: start_char,
+                                // If the location is in the same file, adjust positions back to original file coordinates
+                                let (start_line, start_char, end_line, end_char) = if file_uri
+                                    == uri
+                                {
+                                    // Adjust positions back from extracted GraphQL to original file
+                                    let adjusted_start_line =
+                                        loc.range.start.line + block.start_line;
+                                    let adjusted_start_char = if loc.range.start.line == 0 {
+                                        loc.range.start.character + block.start_column
+                                    } else {
+                                        loc.range.start.character
+                                    };
+                                    let adjusted_end_line = loc.range.end.line + block.start_line;
+                                    let adjusted_end_char = if loc.range.end.line == 0 {
+                                        loc.range.end.character + block.start_column
+                                    } else {
+                                        loc.range.end.character
+                                    };
+                                    (
+                                        adjusted_start_line as u32,
+                                        adjusted_start_char as u32,
+                                        adjusted_end_line as u32,
+                                        adjusted_end_char as u32,
+                                    )
+                                } else {
+                                    (
+                                        loc.range.start.line as u32,
+                                        loc.range.start.character as u32,
+                                        loc.range.end.line as u32,
+                                        loc.range.end.character as u32,
+                                    )
+                                };
+
+                                Some(Location {
+                                    uri: file_uri,
+                                    range: Range {
+                                        start: Position {
+                                            line: start_line,
+                                            character: start_char,
+                                        },
+                                        end: Position {
+                                            line: end_line,
+                                            character: end_char,
+                                        },
                                     },
-                                    end: Position {
-                                        line: end_line,
-                                        character: end_char,
-                                    },
-                                },
+                                })
                             })
-                        })
-                        .collect();
+                            .collect();
 
-                    if !lsp_locations.is_empty() {
-                        return Ok(Some(GotoDefinitionResponse::Array(lsp_locations)));
+                        if !lsp_locations.is_empty() {
+                            return Ok(Some(GotoDefinitionResponse::Array(lsp_locations)));
+                        }
+                    }
+                }
+            } else {
+                // Fallback: Extract GraphQL from TypeScript file (cache miss)
+                tracing::debug!("Cache miss - extracting GraphQL from TypeScript file");
+                let extracted = match graphql_extract::extract_from_source(
+                    &content,
+                    language,
+                    &ExtractConfig::default(),
+                ) {
+                    Ok(extracted) => extracted,
+                    Err(e) => {
+                        tracing::debug!("Failed to extract GraphQL from TypeScript file: {}", e);
+                        return Ok(None);
+                    }
+                };
+
+                for item in extracted {
+                    let start_line = item.location.range.start.line;
+                    let end_line = item.location.range.end.line;
+
+                    if cursor_line >= start_line && cursor_line <= end_line {
+                        // Adjust position relative to the extracted GraphQL
+                        #[allow(clippy::cast_possible_truncation)]
+                        let relative_position = graphql_project::Position {
+                            line: cursor_line - start_line,
+                            character: if cursor_line == start_line {
+                                lsp_position
+                                    .character
+                                    .saturating_sub(item.location.range.start.column as u32)
+                                    as usize
+                            } else {
+                                lsp_position.character as usize
+                            },
+                        };
+
+                        tracing::debug!(
+                            "Adjusted position from {:?} to {:?} for extracted GraphQL",
+                            lsp_position,
+                            relative_position
+                        );
+
+                        // Get definition locations from the project using the extracted GraphQL
+                        let Some(locations) = project.goto_definition(
+                            &item.source,
+                            relative_position,
+                            &uri.to_string(),
+                        ) else {
+                            tracing::debug!(
+                                "No definition found at position {:?}",
+                                relative_position
+                            );
+                            continue;
+                        };
+
+                        tracing::debug!("Found {} definition location(s)", locations.len());
+
+                        // Convert to LSP Locations
+                        #[allow(clippy::cast_possible_truncation)]
+                        let lsp_locations: Vec<Location> = locations
+                            .iter()
+                            .filter_map(|loc| {
+                                // Check if the file_path is already a URI
+                                let file_uri = if loc.file_path.starts_with("file://") {
+                                    // Already a URI, parse it directly
+                                    loc.file_path.parse::<Uri>().ok()?
+                                } else {
+                                    // Resolve the file path relative to the workspace if it's not absolute
+                                    let file_path = if std::path::Path::new(&loc.file_path)
+                                        .is_absolute()
+                                    {
+                                        std::path::PathBuf::from(&loc.file_path)
+                                    } else {
+                                        // Resolve relative to workspace root
+                                        let workspace_path: Uri = workspace_uri.parse().ok()?;
+                                        let workspace_file_path = workspace_path.to_file_path()?;
+                                        workspace_file_path.join(&loc.file_path)
+                                    };
+                                    Uri::from_file_path(file_path)?
+                                };
+
+                                // If the location is in the same file, adjust positions back to original file coordinates
+                                let (start_line, start_char, end_line, end_char) = if file_uri
+                                    == uri
+                                {
+                                    // Adjust positions back from extracted GraphQL to original file
+                                    let adjusted_start_line = loc.range.start.line + start_line;
+                                    let adjusted_start_char = if loc.range.start.line == 0 {
+                                        loc.range.start.character + item.location.range.start.column
+                                    } else {
+                                        loc.range.start.character
+                                    };
+                                    let adjusted_end_line = loc.range.end.line + start_line;
+                                    let adjusted_end_char = if loc.range.end.line == 0 {
+                                        loc.range.end.character + item.location.range.start.column
+                                    } else {
+                                        loc.range.end.character
+                                    };
+                                    (
+                                        adjusted_start_line as u32,
+                                        adjusted_start_char as u32,
+                                        adjusted_end_line as u32,
+                                        adjusted_end_char as u32,
+                                    )
+                                } else {
+                                    (
+                                        loc.range.start.line as u32,
+                                        loc.range.start.character as u32,
+                                        loc.range.end.line as u32,
+                                        loc.range.end.character as u32,
+                                    )
+                                };
+
+                                Some(Location {
+                                    uri: file_uri,
+                                    range: Range {
+                                        start: Position {
+                                            line: start_line,
+                                            character: start_char,
+                                        },
+                                        end: Position {
+                                            line: end_line,
+                                            character: end_char,
+                                        },
+                                    },
+                                })
+                            })
+                            .collect();
+
+                        if !lsp_locations.is_empty() {
+                            return Ok(Some(GotoDefinitionResponse::Array(lsp_locations)));
+                        }
                     }
                 }
             }

@@ -19,8 +19,8 @@ pub use find_references::{FindReferencesProvider, ReferenceLocation};
 pub use goto_definition::{DefinitionLocation, GotoDefinitionProvider};
 pub use hover::{HoverInfo, HoverProvider};
 pub use index::{
-    DocumentIndex, FieldDefinitionLocation, FragmentInfo, OperationInfo, OperationType,
-    SchemaIndex, TypeInfo,
+    DocumentIndex, ExtractedBlock, FieldDefinitionLocation, FragmentInfo, OperationInfo,
+    OperationType, SchemaIndex, TypeInfo,
 };
 pub use project::GraphQLProject;
 pub use schema::SchemaLoader;

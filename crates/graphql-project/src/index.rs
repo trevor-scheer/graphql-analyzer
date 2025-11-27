@@ -714,6 +714,24 @@ pub struct EnumValueInfo {
     pub deprecated: Option<String>,
 }
 
+/// Extracted GraphQL block from TypeScript/JavaScript with cached AST
+#[derive(Debug, Clone)]
+pub struct ExtractedBlock {
+    /// The extracted GraphQL source code
+    pub content: String,
+    /// Byte offset in the original file
+    pub offset: usize,
+    /// Length of the extracted content
+    pub length: usize,
+    /// Line and column range in the original file
+    pub start_line: usize,
+    pub start_column: usize,
+    pub end_line: usize,
+    pub end_column: usize,
+    /// Cached parsed AST for this block
+    pub parsed: std::sync::Arc<apollo_parser::SyntaxTree>,
+}
+
 /// Index of GraphQL documents (operations and fragments)
 #[derive(Debug, Default)]
 pub struct DocumentIndex {
@@ -728,6 +746,10 @@ pub struct DocumentIndex {
     /// Cached parsed ASTs for each document (`file_path` -> parsed `SyntaxTree`)
     /// This eliminates the need to re-parse on every LSP request
     pub parsed_asts: std::collections::HashMap<String, std::sync::Arc<apollo_parser::SyntaxTree>>,
+
+    /// Cached extracted GraphQL blocks from TypeScript/JavaScript files
+    /// This eliminates the need to re-extract on every LSP request
+    pub extracted_blocks: std::collections::HashMap<String, Vec<ExtractedBlock>>,
 }
 
 #[derive(Debug, Clone)]
@@ -815,6 +837,22 @@ impl DocumentIndex {
     /// Remove cached AST for a document
     pub fn remove_ast(&mut self, file_path: &str) {
         self.parsed_asts.remove(file_path);
+    }
+
+    /// Cache extracted GraphQL blocks for a document
+    pub fn cache_extracted_blocks(&mut self, file_path: String, blocks: Vec<ExtractedBlock>) {
+        self.extracted_blocks.insert(file_path, blocks);
+    }
+
+    /// Get cached extracted blocks for a document
+    #[must_use]
+    pub fn get_extracted_blocks(&self, file_path: &str) -> Option<&Vec<ExtractedBlock>> {
+        self.extracted_blocks.get(file_path)
+    }
+
+    /// Remove cached extracted blocks for a document
+    pub fn remove_extracted_blocks(&mut self, file_path: &str) {
+        self.extracted_blocks.remove(file_path);
     }
 
     /// Check for duplicate operation and fragment names across the project
