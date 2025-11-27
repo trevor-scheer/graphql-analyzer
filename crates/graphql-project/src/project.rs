@@ -146,7 +146,15 @@ impl GraphQLProject {
             operations: index.operations.clone(),
             fragments: index.fragments.clone(),
             parsed_asts: index.parsed_asts.clone(),
+            extracted_blocks: index.extracted_blocks.clone(),
         }
+    }
+
+    /// Get cached extracted blocks for a file
+    #[must_use]
+    pub fn get_extracted_blocks(&self, file_path: &str) -> Option<Vec<crate::ExtractedBlock>> {
+        let index = self.document_index.read().unwrap();
+        index.get_extracted_blocks(file_path).cloned()
     }
 
     /// Update document index for a single file with in-memory content
@@ -196,6 +204,27 @@ impl GraphQLProject {
 
             // Cache the parsed AST
             document_index.cache_ast(file_path.to_string(), parsed_arc);
+
+            // Cache extracted blocks with their parsed ASTs (Phase 3 optimization)
+            let mut cached_blocks = Vec::new();
+            for item in &extracted {
+                // Parse each extracted block and cache it
+                let block_parsed = Parser::new(&item.source).parse();
+                let block = crate::ExtractedBlock {
+                    content: item.source.clone(),
+                    offset: item.location.offset,
+                    length: item.location.length,
+                    start_line: item.location.range.start.line,
+                    start_column: item.location.range.start.column,
+                    end_line: item.location.range.end.line,
+                    end_column: item.location.range.end.column,
+                    parsed: std::sync::Arc::new(block_parsed),
+                };
+                cached_blocks.push(block);
+            }
+            if !cached_blocks.is_empty() {
+                document_index.cache_extracted_blocks(file_path.to_string(), cached_blocks);
+            }
 
             // Parse and index each extracted GraphQL block
             for item in extracted {
