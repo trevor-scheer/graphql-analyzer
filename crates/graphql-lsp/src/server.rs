@@ -895,12 +895,102 @@ impl LanguageServer for GraphQLLanguageServer {
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        tracing::debug!(
-            "References requested: {:?}",
-            params.text_document_position.text_document.uri
+        let uri = params.text_document_position.text_document.uri;
+        let lsp_position = params.text_document_position.position;
+        let include_declaration = params.context.include_declaration;
+
+        tracing::info!(
+            "Find references requested: {:?} at {:?} (include_declaration: {})",
+            uri,
+            lsp_position,
+            include_declaration
         );
-        // TODO: Implement find references
-        Ok(None)
+
+        // Get the cached document content
+        let Some(content) = self.document_cache.get(&uri.to_string()) else {
+            tracing::warn!("No cached content for document: {:?}", uri);
+            return Ok(None);
+        };
+
+        // Find the workspace and project for this document
+        let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) else {
+            tracing::warn!("No project found for document: {:?}", uri);
+            return Ok(None);
+        };
+
+        // Get the project
+        let Some(projects) = self.projects.get(&workspace_uri) else {
+            tracing::warn!("No projects loaded for workspace: {workspace_uri}");
+            return Ok(None);
+        };
+
+        let Some((_, project)) = projects.get(project_idx) else {
+            tracing::warn!("Project index {project_idx} not found in workspace {workspace_uri}");
+            return Ok(None);
+        };
+
+        // Collect all documents from the cache
+        let all_documents: Vec<(String, String)> = self
+            .document_cache
+            .iter()
+            .map(|entry| {
+                let uri_string = entry.key().clone();
+                let content = entry.value().clone();
+                (uri_string, content)
+            })
+            .collect();
+
+        tracing::debug!(
+            "Collected {} documents for reference search",
+            all_documents.len()
+        );
+
+        // For pure GraphQL files (TypeScript extraction not implemented yet for find references)
+        let position = graphql_project::Position {
+            line: lsp_position.line as usize,
+            character: lsp_position.character as usize,
+        };
+
+        // Find references
+        let Some(references) =
+            project.find_references(&content, position, &all_documents, include_declaration)
+        else {
+            tracing::info!("No references found at position {:?}", position);
+            return Ok(None);
+        };
+
+        tracing::info!("Found {} reference(s)", references.len());
+
+        // Convert to LSP Locations
+        #[allow(clippy::cast_possible_truncation)]
+        let lsp_locations: Vec<Location> = references
+            .iter()
+            .filter_map(|reference_loc| {
+                // The file_path in reference_loc is the URI string from the document cache
+                // Parse it as a URI
+                let file_uri: Uri = reference_loc.file_path.parse().ok()?;
+
+                Some(Location {
+                    uri: file_uri,
+                    range: Range {
+                        start: Position {
+                            line: reference_loc.range.start.line as u32,
+                            character: reference_loc.range.start.character as u32,
+                        },
+                        end: Position {
+                            line: reference_loc.range.end.line as u32,
+                            character: reference_loc.range.end.character as u32,
+                        },
+                    },
+                })
+            })
+            .collect();
+
+        if lsp_locations.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(lsp_locations))
+        }
     }
 
     async fn document_symbol(

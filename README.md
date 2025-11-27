@@ -55,11 +55,12 @@ Language Server Protocol implementation for GraphQL.
   - Fragment spreads, operations, types, fields
   - Variables, arguments, enum values
   - Directives and directive arguments
+- Find references for fragments and type definitions
 - Hover information for types and fields
 - Works with embedded GraphQL in TypeScript/JavaScript
 
 **Planned Features:**
-- Find references
+- Additional find references support (fields, variables, directives, enum values)
 - Autocomplete
 - Document symbols
 - Code actions
@@ -105,18 +106,18 @@ cargo run -p graphql-lsp
 - Core validation engine with project-wide diagnostics
 - Document loading and indexing
 - TypeScript/JavaScript extraction
-- LSP features: validation, go-to-definition, hover
+- LSP features: validation, go-to-definition, find references, hover
 - Schema and document indexing
 
 🚧 **In Progress:**
 - VS Code extension improvements
-- Additional LSP features (completions, find references)
+- Additional LSP features (completions, document symbols)
 
 📋 **Planned:**
 - Breaking change detection
 - Code actions and refactoring
 - Remote schema introspection
-- Document symbols and outline
+- Additional find references support (fields, variables, directives, enum values)
 
 ## Configuration Example
 

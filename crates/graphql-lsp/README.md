@@ -4,7 +4,15 @@ The main Language Server Protocol (LSP) implementation for GraphQL language supp
 
 ## Purpose
 
-This crate implements a GraphQL language server that provides IDE features like diagnostics, validation, goto definition, and hover information for GraphQL files. It communicates with editors via the LSP protocol using JSON-RPC over stdin/stdout.
+This crate implements a GraphQL language server that provides IDE features like diagnostics, validation, goto definition, find references, and hover information for GraphQL files. It communicates with editors via the LSP protocol using JSON-RPC over stdin/stdout.
+
+## Implemented Features
+
+- **Diagnostics**: Real-time validation with accurate error reporting
+- **Goto Definition**: Navigate to definitions for fragments, types, fields, variables, directives, enum values, and arguments
+- **Find References**: Find all usages of fragments and type definitions across the project
+- **Hover**: Display type information and descriptions
+- **TypeScript/JavaScript Support**: Extract and validate GraphQL from embedded code
 
 ## How it Fits
 

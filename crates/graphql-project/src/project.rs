@@ -1,7 +1,7 @@
 use crate::{
     CompletionItem, CompletionProvider, DefinitionLocation, Diagnostic, DocumentIndex,
-    DocumentLoader, GotoDefinitionProvider, HoverInfo, HoverProvider, Position, Result,
-    SchemaIndex, SchemaLoader, Validator,
+    DocumentLoader, FindReferencesProvider, GotoDefinitionProvider, HoverInfo, HoverProvider,
+    Position, ReferenceLocation, Result, SchemaIndex, SchemaLoader, Validator,
 };
 use apollo_compiler::validation::DiagnosticList;
 use graphql_config::{GraphQLConfig, ProjectConfig};
@@ -515,6 +515,38 @@ impl GraphQLProject {
         let schema_index = self.schema_index.read().unwrap();
         let provider = GotoDefinitionProvider::new();
         provider.goto_definition(source, position, &document_index, &schema_index, file_path)
+    }
+
+    /// Find all references to the element at a position in a GraphQL document
+    ///
+    /// Returns all locations where the element at the given position is referenced.
+    /// For example, finding references on a fragment definition will return all
+    /// fragment spreads that use that fragment.
+    ///
+    /// # Arguments
+    /// * `source` - The GraphQL source code of the current document
+    /// * `position` - The position in the document to find references for
+    /// * `all_documents` - All GraphQL documents in the project (for finding usages)
+    /// * `include_declaration` - Whether to include the declaration/definition in results
+    #[must_use]
+    pub fn find_references(
+        &self,
+        source: &str,
+        position: Position,
+        all_documents: &[(String, String)],
+        include_declaration: bool,
+    ) -> Option<Vec<ReferenceLocation>> {
+        let document_index = self.document_index.read().unwrap();
+        let schema_index = self.schema_index.read().unwrap();
+        let provider = FindReferencesProvider::new();
+        provider.find_references(
+            source,
+            position,
+            &document_index,
+            &schema_index,
+            all_documents,
+            include_declaration,
+        )
     }
 
     /// Check if a file path matches the schema configuration
