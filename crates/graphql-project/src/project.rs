@@ -320,6 +320,11 @@ impl GraphQLProject {
             validator.check_deprecated_fields_custom(source, &schema_index, file_name);
         diagnostics.extend(deprecation_warnings);
 
+        // Add unused fragment warnings for fragments defined in this file
+        let unused_fragment_warnings =
+            Self::check_unused_fragments_in_file(source, file_name, &used_fragments);
+        diagnostics.extend(unused_fragment_warnings);
+
         // Note: Within-document unique name validation is handled by apollo-compiler
         // Project-wide unique name validation is handled separately via DocumentIndex
 
@@ -339,6 +344,7 @@ impl GraphQLProject {
     /// A list of validation diagnostics with correct line/column positions
     #[must_use]
     #[allow(clippy::significant_drop_tightening)]
+    #[allow(clippy::too_many_lines)]
     pub fn validate_extracted_documents(
         &self,
         extracted: &[graphql_extract::ExtractedGraphQL],
@@ -476,6 +482,15 @@ impl GraphQLProject {
                 diagnostics.push(warning);
             }
 
+            // Add unused fragment warnings for fragments defined in this extracted block
+            let unused_warnings =
+                Self::check_unused_fragments_in_file(source, file_path, &used_fragments);
+            for mut warning in unused_warnings {
+                warning.range.start.line += line_offset;
+                warning.range.end.line += line_offset;
+                diagnostics.push(warning);
+            }
+
             // Note: Within-document unique name validation is handled by apollo-compiler
             // Project-wide unique name validation is handled separately via DocumentIndex
 
@@ -600,7 +615,7 @@ impl GraphQLProject {
     fn convert_compiler_diagnostics(
         compiler_diags: &apollo_compiler::validation::DiagnosticList,
         is_fragment_only: bool,
-        used_fragments: &std::collections::HashSet<String>,
+        _used_fragments: &std::collections::HashSet<String>,
         _file_name: &str,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
@@ -618,23 +633,16 @@ impl GraphQLProject {
                 continue;
             }
 
-            // Skip "unused fragment" errors for fragments that are actually used cross-file
-            // Extract fragment name from error message like "fragment `UserFragment` is never used"
-            // or "fragment `UserFragment` must be used in an operation"
+            // Skip ALL "unused fragment" errors from apollo-compiler
+            // We handle unused fragment warnings separately in check_unused_fragments_in_file
+            // which reports them at the correct location (the fragment definition file)
+            // rather than at arbitrary operation locations.
             if message_lower.contains("fragment")
                 && (message_lower.contains("unused")
                     || message_lower.contains("never used")
                     || message_lower.contains("must be used"))
             {
-                // Try to extract fragment name from the error message
-                // The pattern is typically: "fragment `FragmentName` ..."
-                if let Some(fragment_name) = Self::extract_fragment_name_from_error(&message) {
-                    // Check if this fragment is used anywhere in the project
-                    if used_fragments.contains(&fragment_name) {
-                        // Fragment is used cross-file, skip the error
-                        continue;
-                    }
-                }
+                continue;
             }
 
             if let Some(loc_range) = diag.line_column_range() {
@@ -662,20 +670,92 @@ impl GraphQLProject {
         diagnostics
     }
 
-    /// Extract fragment name from an error message
+    /// Check for unused fragments defined in this specific file/source
     ///
-    /// Handles patterns like:
-    /// - "fragment `FragmentName` is never used"
-    /// - "fragment `FragmentName` must be used in an operation"
-    fn extract_fragment_name_from_error(message: &str) -> Option<String> {
-        // Look for pattern: fragment `Name`
-        if let Some(start_idx) = message.find("fragment `") {
-            let start = start_idx + "fragment `".len();
-            if let Some(end_idx) = message[start..].find('`') {
-                return Some(message[start..start + end_idx].to_string());
+    /// Returns warnings for any fragment definitions in the source that are not
+    /// used anywhere in the project (based on the `used_fragments` set).
+    fn check_unused_fragments_in_file(
+        source: &str,
+        _file_name: &str,
+        used_fragments: &std::collections::HashSet<String>,
+    ) -> Vec<Diagnostic> {
+        use crate::{Diagnostic, Position, Range};
+        use apollo_parser::{cst::CstNode, Parser};
+
+        let mut warnings = Vec::new();
+        let parser = Parser::new(source);
+        let tree = parser.parse();
+
+        // If there are syntax errors, skip unused fragment checking
+        if tree.errors().len() > 0 {
+            return warnings;
+        }
+
+        // Walk through all fragment definitions in this source
+        for definition in tree.document().definitions() {
+            if let apollo_parser::cst::Definition::FragmentDefinition(fragment) = definition {
+                if let Some(fragment_name_node) = fragment.fragment_name() {
+                    if let Some(name_node) = fragment_name_node.name() {
+                        let fragment_name = name_node.text().to_string();
+
+                        // Check if this fragment is used anywhere in the project
+                        if !used_fragments.contains(&fragment_name) {
+                            // Fragment is truly unused - create a warning
+                            let syntax_node = name_node.syntax();
+                            let offset: usize = syntax_node.text_range().start().into();
+                            let (line, col) = Self::offset_to_line_col(source, offset);
+
+                            let range = Range {
+                                start: Position {
+                                    line,
+                                    character: col,
+                                },
+                                end: Position {
+                                    line,
+                                    character: col + fragment_name.len(),
+                                },
+                            };
+
+                            let message = format!(
+                                "Fragment '{fragment_name}' is defined but never used in any operation"
+                            );
+
+                            warnings.push(
+                                Diagnostic::warning(range, message)
+                                    .with_code("unused-fragment")
+                                    .with_source("graphql-validator"),
+                            );
+                        }
+                    }
+                }
             }
         }
-        None
+
+        warnings
+    }
+
+    /// Convert a byte offset to a line and column (0-indexed)
+    fn offset_to_line_col(source: &str, offset: usize) -> (usize, usize) {
+        let mut line = 0;
+        let mut col = 0;
+        let mut current_offset = 0;
+
+        for ch in source.chars() {
+            if current_offset >= offset {
+                break;
+            }
+
+            if ch == '\n' {
+                line += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+
+            current_offset += ch.len_utf8();
+        }
+
+        (line, col)
     }
 
     /// Get hover information for a position in a GraphQL document
