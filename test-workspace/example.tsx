@@ -36,6 +36,5 @@ const FRAGMENT = gql`
   fragment UserFragment on User {
     id
     name
-    b
   }
 `;
