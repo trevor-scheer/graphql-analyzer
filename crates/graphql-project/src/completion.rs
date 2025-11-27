@@ -365,6 +365,21 @@ impl CompletionProvider {
         }
 
         // If we reach here, we're at the top level of the selection set (not inside any field).
+
+        // Check if there's any "." before the cursor (within reasonable distance)
+        // This indicates the user is typing a fragment spread (... or ...) or inline fragment (... on)
+        // In these cases, we shouldn't suggest field names
+        if byte_offset >= 1 {
+            let start = byte_offset.saturating_sub(10);
+            let text_before = &source[start..byte_offset];
+            let trimmed = text_before.trim_end();
+            if trimmed.ends_with('.') || trimmed.ends_with("..") || trimmed.ends_with("...") {
+                // User typed one or more dots, they're starting a fragment spread
+                // Don't suggest field names - return FragmentSpread context
+                return Some(CompletionContext::FragmentSpread);
+            }
+        }
+
         // Check if there's an incomplete field with an alias right before the cursor position.
         // This handles the case where user typed "alias: " and the cursor is after the space,
         // but the parser's field node doesn't extend past the colon.
