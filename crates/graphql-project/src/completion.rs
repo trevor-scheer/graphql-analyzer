@@ -309,10 +309,12 @@ impl CompletionProvider {
                         ) {
                             return Some(context);
                         }
-                    }
-
-                    if let Some(name) = field.name() {
-                        already_selected_fields.push(name.text().to_string());
+                    } else {
+                        // Only add to already_selected_fields if we're NOT in this field
+                        // (we don't want to filter out the field we're currently completing)
+                        if let Some(name) = field.name() {
+                            already_selected_fields.push(name.text().to_string());
+                        }
                     }
                 }
                 cst::Selection::FragmentSpread(spread) => {
