@@ -45,6 +45,7 @@ impl GotoDefinitionProvider {
         position: Position,
         document_index: &DocumentIndex,
         schema_index: &SchemaIndex,
+        file_path: &str,
     ) -> Option<Vec<DefinitionLocation>> {
         tracing::info!(
             "GotoDefinitionProvider::goto_definition called with position: {:?}",
@@ -78,7 +79,13 @@ impl GotoDefinitionProvider {
         }
         let element_type = element_type?;
 
-        let result = Self::resolve_definition(element_type, document_index, schema_index);
+        let result = Self::resolve_definition(
+            element_type,
+            document_index,
+            schema_index,
+            source,
+            file_path,
+        );
         tracing::info!("resolve_definition returned: {:?}", result.is_some());
         result
     }
@@ -121,6 +128,9 @@ impl GotoDefinitionProvider {
         for definition in doc.definitions() {
             match definition {
                 cst::Definition::OperationDefinition(op) => {
+                    // Get the operation start offset for variable lookups
+                    let operation_start: usize = op.syntax().text_range().start().into();
+
                     // Check if cursor is on the operation name itself
                     if let Some(name) = op.name() {
                         let range = name.syntax().text_range();
@@ -138,6 +148,13 @@ impl GotoDefinitionProvider {
                         return Some(element);
                     }
 
+                    // Check directives on the operation
+                    if let Some(element) =
+                        Self::check_directives(op.directives(), byte_offset, schema_index)
+                    {
+                        return Some(element);
+                    }
+
                     if let Some(selection_set) = op.selection_set() {
                         let root_type = Self::get_operation_root_type(&op, schema_index);
                         if let Some(element) = Self::check_selection_set(
@@ -146,6 +163,7 @@ impl GotoDefinitionProvider {
                             root_type,
                             source,
                             schema_index,
+                            operation_start,
                         ) {
                             return Some(element);
                         }
@@ -181,6 +199,13 @@ impl GotoDefinitionProvider {
                         }
                     }
 
+                    // Check directives on the fragment
+                    if let Some(element) =
+                        Self::check_directives(frag.directives(), byte_offset, schema_index)
+                    {
+                        return Some(element);
+                    }
+
                     if let Some(selection_set) = frag.selection_set() {
                         let type_condition = frag
                             .type_condition()
@@ -195,6 +220,7 @@ impl GotoDefinitionProvider {
                             type_condition,
                             source,
                             schema_index,
+                            0,
                         ) {
                             return Some(element);
                         }
@@ -294,6 +320,7 @@ impl GotoDefinitionProvider {
         parent_type: String,
         source: &str,
         schema_index: &SchemaIndex,
+        operation_start: usize,
     ) -> Option<ElementType> {
         for selection in selection_set.selections() {
             match selection {
@@ -312,24 +339,57 @@ impl GotoDefinitionProvider {
                         }
                     }
 
+                    let field_name = field
+                        .name()
+                        .map(|n| n.text().to_string())
+                        .unwrap_or_default();
+
                     if let Some(arguments) = field.arguments() {
                         for arg in arguments.arguments() {
+                            // Check if cursor is on the argument name
+                            if let Some(arg_name) = arg.name() {
+                                let range = arg_name.syntax().text_range();
+                                let start: usize = range.start().into();
+                                let end: usize = range.end().into();
+
+                                if byte_offset >= start && byte_offset < end {
+                                    return Some(ElementType::ArgumentReference {
+                                        argument_name: arg_name.text().to_string(),
+                                        field_name,
+                                        parent_type,
+                                    });
+                                }
+                            }
+
+                            // Get the argument name for enum type resolution
+                            let arg_name =
+                                arg.name().map(|n| n.text().to_string()).unwrap_or_default();
+
                             if let Some(value) = arg.value() {
-                                if let Some(element) =
-                                    Self::check_value_for_variable(&value, byte_offset)
-                                {
+                                if let Some(element) = Self::check_value_for_element(
+                                    &value,
+                                    byte_offset,
+                                    operation_start,
+                                    &parent_type,
+                                    &field_name,
+                                    &arg_name,
+                                    schema_index,
+                                ) {
                                     return Some(element);
                                 }
                             }
                         }
                     }
 
+                    // Check directives on the field
+                    if let Some(element) =
+                        Self::check_directives(field.directives(), byte_offset, schema_index)
+                    {
+                        return Some(element);
+                    }
+
                     if let Some(nested_selection_set) = field.selection_set() {
                         // Resolve the field type from the schema
-                        let field_name = field
-                            .name()
-                            .map(|n| n.text().to_string())
-                            .unwrap_or_default();
                         let nested_type = schema_index.get_fields(&parent_type).map_or_else(
                             String::new,
                             |fields| {
@@ -361,6 +421,7 @@ impl GotoDefinitionProvider {
                             nested_type,
                             source,
                             schema_index,
+                            operation_start,
                         ) {
                             return Some(element);
                         }
@@ -377,6 +438,13 @@ impl GotoDefinitionProvider {
                                 fragment_name: frag_name.text().to_string(),
                             });
                         }
+                    }
+
+                    // Check directives on the fragment spread
+                    if let Some(element) =
+                        Self::check_directives(spread.directives(), byte_offset, schema_index)
+                    {
+                        return Some(element);
                     }
                 }
                 cst::Selection::InlineFragment(inline_frag) => {
@@ -396,6 +464,13 @@ impl GotoDefinitionProvider {
                         }
                     }
 
+                    // Check directives on the inline fragment
+                    if let Some(element) =
+                        Self::check_directives(inline_frag.directives(), byte_offset, schema_index)
+                    {
+                        return Some(element);
+                    }
+
                     if let Some(nested_selection_set) = inline_frag.selection_set() {
                         // Use type condition if present, otherwise use parent type
                         let nested_type = inline_frag
@@ -410,6 +485,7 @@ impl GotoDefinitionProvider {
                             nested_type,
                             source,
                             schema_index,
+                            operation_start,
                         ) {
                             return Some(element);
                         }
@@ -421,18 +497,170 @@ impl GotoDefinitionProvider {
         None
     }
 
-    /// Check if a value contains a variable at the byte offset
-    fn check_value_for_variable(value: &cst::Value, byte_offset: usize) -> Option<ElementType> {
-        if let cst::Value::Variable(var) = value {
-            if let Some(name) = var.name() {
+    /// Check if a value contains a variable or enum value at the byte offset
+    fn check_value_for_element(
+        value: &cst::Value,
+        byte_offset: usize,
+        operation_start: usize,
+        parent_type: &str,
+        field_name: &str,
+        arg_name: &str,
+        schema_index: &SchemaIndex,
+    ) -> Option<ElementType> {
+        match value {
+            cst::Value::Variable(var) => {
+                if let Some(name) = var.name() {
+                    let range = name.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+
+                    if byte_offset >= start && byte_offset < end {
+                        return Some(ElementType::Variable {
+                            var_name: name.text().to_string(),
+                            operation_offset: operation_start,
+                        });
+                    }
+                }
+            }
+            cst::Value::EnumValue(enum_val) => {
+                if let Some(name) = enum_val.name() {
+                    let range = name.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+
+                    if byte_offset >= start && byte_offset < end {
+                        let enum_type = Self::get_enum_type_for_argument(
+                            parent_type,
+                            field_name,
+                            arg_name,
+                            schema_index,
+                        );
+                        return Some(ElementType::EnumValue {
+                            enum_value: name.text().to_string(),
+                            enum_type,
+                        });
+                    }
+                }
+            }
+            cst::Value::ListValue(list) => {
+                for item in list.values() {
+                    if let Some(element) = Self::check_value_for_element(
+                        &item,
+                        byte_offset,
+                        operation_start,
+                        parent_type,
+                        field_name,
+                        arg_name,
+                        schema_index,
+                    ) {
+                        return Some(element);
+                    }
+                }
+            }
+            cst::Value::ObjectValue(obj) => {
+                for field in obj.object_fields() {
+                    if let Some(val) = field.value() {
+                        if let Some(element) = Self::check_value_for_element(
+                            &val,
+                            byte_offset,
+                            operation_start,
+                            parent_type,
+                            field_name,
+                            arg_name,
+                            schema_index,
+                        ) {
+                            return Some(element);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        None
+    }
+
+    /// Get the enum type for a field argument
+    fn get_enum_type_for_argument(
+        parent_type: &str,
+        field_name: &str,
+        arg_name: &str,
+        schema_index: &SchemaIndex,
+    ) -> String {
+        schema_index
+            .get_fields(parent_type)
+            .and_then(|fields| {
+                fields.iter().find(|f| f.name == field_name).and_then(|f| {
+                    // Look for the argument in the field's arguments
+                    f.arguments.iter().find(|a| a.name == arg_name).map(|a| {
+                        // Extract base type name (strip [], !)
+                        a.type_name
+                            .trim_matches(|c| c == '[' || c == ']' || c == '!')
+                            .to_string()
+                    })
+                })
+            })
+            .unwrap_or_default()
+    }
+
+    /// Check directives for goto definition
+    fn check_directives(
+        directives: Option<cst::Directives>,
+        byte_offset: usize,
+        schema_index: &SchemaIndex,
+    ) -> Option<ElementType> {
+        let directives = directives?;
+
+        for directive in directives.directives() {
+            // Check directive name
+            if let Some(name) = directive.name() {
                 let range = name.syntax().text_range();
                 let start: usize = range.start().into();
                 let end: usize = range.end().into();
 
                 if byte_offset >= start && byte_offset < end {
-                    return Some(ElementType::Variable {
-                        var_name: name.text().to_string(),
+                    return Some(ElementType::Directive {
+                        directive_name: name.text().to_string(),
                     });
+                }
+            }
+
+            // Check directive arguments
+            if let Some(arguments) = directive.arguments() {
+                let directive_name = directive
+                    .name()
+                    .map(|n| n.text().to_string())
+                    .unwrap_or_default();
+
+                for arg in arguments.arguments() {
+                    // Check if cursor is on the argument name
+                    if let Some(arg_name) = arg.name() {
+                        let range = arg_name.syntax().text_range();
+                        let start: usize = range.start().into();
+                        let end: usize = range.end().into();
+
+                        if byte_offset >= start && byte_offset < end {
+                            return Some(ElementType::DirectiveArgument {
+                                argument_name: arg_name.text().to_string(),
+                                directive_name,
+                            });
+                        }
+                    }
+
+                    // Check values in directive arguments (variables, enums, etc.)
+                    if let Some(value) = arg.value() {
+                        if let Some(element) = Self::check_value_for_element(
+                            &value,
+                            byte_offset,
+                            0,
+                            "",
+                            "",
+                            "",
+                            schema_index,
+                        ) {
+                            return Some(element);
+                        }
+                    }
                 }
             }
         }
@@ -614,11 +842,103 @@ impl GotoDefinitionProvider {
         None
     }
 
+    /// Find variable definition in an operation
+    fn find_variable_definition(
+        source: &str,
+        var_name: &str,
+        operation_offset: usize,
+        file_path: &str,
+    ) -> Option<Vec<DefinitionLocation>> {
+        // Parse from the operation start to find variable definitions
+        let parser = Parser::new(&source[operation_offset..]);
+        let tree = parser.parse();
+
+        if tree.errors().count() > 0 {
+            return None;
+        }
+
+        let doc = tree.document();
+
+        for definition in doc.definitions() {
+            if let cst::Definition::OperationDefinition(op) = definition {
+                if let Some(variable_defs) = op.variable_definitions() {
+                    for var_def in variable_defs.variable_definitions() {
+                        if let Some(variable) = var_def.variable() {
+                            if let Some(name) = variable.name() {
+                                if name.text() == var_name {
+                                    let range = name.syntax().text_range();
+                                    let start: usize = range.start().into();
+                                    let end: usize = range.end().into();
+
+                                    // Convert back to absolute offsets
+                                    let abs_start = operation_offset + start;
+                                    let abs_end = operation_offset + end;
+
+                                    // Convert to line/column positions
+                                    let start_pos = Self::offset_to_position(source, abs_start)?;
+                                    let end_pos = Self::offset_to_position(source, abs_end)?;
+
+                                    return Some(vec![DefinitionLocation::new(
+                                        file_path.to_string(),
+                                        Range {
+                                            start: start_pos,
+                                            end: end_pos,
+                                        },
+                                    )]);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                break;
+            }
+        }
+
+        None
+    }
+
+    /// Convert a byte offset to a line/column position
+    fn offset_to_position(source: &str, offset: usize) -> Option<Position> {
+        let mut current_line = 0;
+        let mut current_col = 0;
+        let mut current_offset = 0;
+
+        for ch in source.chars() {
+            if current_offset == offset {
+                return Some(Position {
+                    line: current_line,
+                    character: current_col,
+                });
+            }
+
+            if ch == '\n' {
+                current_line += 1;
+                current_col = 0;
+            } else {
+                current_col += 1;
+            }
+
+            current_offset += ch.len_utf8();
+        }
+
+        if current_offset == offset {
+            Some(Position {
+                line: current_line,
+                character: current_col,
+            })
+        } else {
+            None
+        }
+    }
+
     /// Resolve the definition location based on the element type
     fn resolve_definition(
         element_type: ElementType,
         document_index: &DocumentIndex,
         schema_index: &SchemaIndex,
+        source: &str,
+        file_path: &str,
     ) -> Option<Vec<DefinitionLocation>> {
         match element_type {
             ElementType::FragmentSpread { fragment_name } => document_index
@@ -706,10 +1026,99 @@ impl GotoDefinitionProvider {
 
                 Some(vec![DefinitionLocation::new(type_def.file_path, range)])
             }
-            ElementType::Variable { .. } => {
-                // TODO: Implement variable definition lookup
-                // This would require finding the operation's variable definition
-                None
+            ElementType::Variable {
+                var_name,
+                operation_offset,
+            } => {
+                // Find the variable definition in the operation
+                Self::find_variable_definition(source, &var_name, operation_offset, file_path)
+            }
+            ElementType::ArgumentReference {
+                argument_name,
+                field_name,
+                parent_type,
+            } => {
+                let arg_def = schema_index.find_argument_definition(
+                    &parent_type,
+                    &field_name,
+                    &argument_name,
+                )?;
+
+                let range = Range {
+                    start: Position {
+                        line: arg_def.line,
+                        character: arg_def.column,
+                    },
+                    end: Position {
+                        line: arg_def.line,
+                        character: arg_def.column + argument_name.len(),
+                    },
+                };
+
+                Some(vec![DefinitionLocation::new(arg_def.file_path, range)])
+            }
+            ElementType::EnumValue {
+                enum_value,
+                enum_type,
+            } => {
+                if enum_type.is_empty() {
+                    return None;
+                }
+
+                let enum_val_def =
+                    schema_index.find_enum_value_definition(&enum_type, &enum_value)?;
+
+                let range = Range {
+                    start: Position {
+                        line: enum_val_def.line,
+                        character: enum_val_def.column,
+                    },
+                    end: Position {
+                        line: enum_val_def.line,
+                        character: enum_val_def.column + enum_value.len(),
+                    },
+                };
+
+                Some(vec![DefinitionLocation::new(enum_val_def.file_path, range)])
+            }
+            ElementType::Directive { directive_name } => {
+                let directive_def = schema_index.find_directive_definition(&directive_name)?;
+
+                let range = Range {
+                    start: Position {
+                        line: directive_def.line,
+                        character: directive_def.column,
+                    },
+                    end: Position {
+                        line: directive_def.line,
+                        character: directive_def.column + directive_name.len(),
+                    },
+                };
+
+                Some(vec![DefinitionLocation::new(
+                    directive_def.file_path,
+                    range,
+                )])
+            }
+            ElementType::DirectiveArgument {
+                argument_name,
+                directive_name,
+            } => {
+                let arg_def = schema_index
+                    .find_directive_argument_definition(&directive_name, &argument_name)?;
+
+                let range = Range {
+                    start: Position {
+                        line: arg_def.line,
+                        character: arg_def.column,
+                    },
+                    end: Position {
+                        line: arg_def.line,
+                        character: arg_def.column + argument_name.len(),
+                    },
+                };
+
+                Some(vec![DefinitionLocation::new(arg_def.file_path, range)])
             }
             ElementType::FieldReference {
                 field_name,
@@ -758,10 +1167,27 @@ enum ElementType {
     },
     Variable {
         var_name: String,
+        operation_offset: usize,
     },
     FieldReference {
         field_name: String,
         parent_type: String,
+    },
+    ArgumentReference {
+        argument_name: String,
+        field_name: String,
+        parent_type: String,
+    },
+    EnumValue {
+        enum_value: String,
+        enum_type: String,
+    },
+    Directive {
+        directive_name: String,
+    },
+    DirectiveArgument {
+        argument_name: String,
+        directive_name: String,
     },
 }
 
@@ -811,7 +1237,13 @@ query GetUser {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find definition");
 
         assert_eq!(locations.len(), 1);
@@ -870,7 +1302,13 @@ query GetUser {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find definitions");
 
         assert_eq!(locations.len(), 2);
@@ -897,7 +1335,13 @@ query GetUser {
             character: 12,
         };
 
-        let locations = provider.goto_definition(document, position, &doc_index, &schema);
+        let locations = provider.goto_definition(
+            document,
+            position,
+            &doc_index,
+            &schema,
+            "file:///test.graphql",
+        );
 
         assert!(locations.is_none());
     }
@@ -919,7 +1363,13 @@ query GetUser {
             character: 12,
         };
 
-        let locations = provider.goto_definition(document, position, &doc_index, &schema);
+        let locations = provider.goto_definition(
+            document,
+            position,
+            &doc_index,
+            &schema,
+            "file:///test.graphql",
+        );
 
         assert!(locations.is_none());
     }
@@ -942,7 +1392,13 @@ fragment UserFields on User {
             character: 24,
         };
 
-        let locations = provider.goto_definition(document, position, &doc_index, &schema);
+        let locations = provider.goto_definition(
+            document,
+            position,
+            &doc_index,
+            &schema,
+            "file:///test.graphql",
+        );
 
         // For now this returns None since we haven't implemented schema definition lookup
         assert!(locations.is_none());
@@ -989,7 +1445,13 @@ fragment UserFields on User {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find all definitions with this name");
 
         // Should return both fragment definitions
@@ -1042,7 +1504,13 @@ query GetUser {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find all definitions with this name");
 
         // Should return both operation definitions
@@ -1094,7 +1562,13 @@ query GetUser {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find field definition");
 
         assert_eq!(locations.len(), 1);
@@ -1175,7 +1649,13 @@ query GetUser {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find nested field definition");
 
         assert_eq!(locations.len(), 1);
@@ -1217,7 +1697,13 @@ fragment UserFields on User {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find type definition");
 
         assert_eq!(locations.len(), 1);
@@ -1268,7 +1754,13 @@ query Search {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find type definition");
 
         assert_eq!(locations.len(), 1);
@@ -1308,7 +1800,13 @@ fragment NodeFields on Node {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find interface definition");
 
         assert_eq!(locations.len(), 1);
@@ -1353,7 +1851,13 @@ fragment SearchFields on SearchResult {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find union definition");
 
         assert_eq!(locations.len(), 1);
@@ -1394,7 +1898,13 @@ fragment UserFields on User {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find type definition");
 
         assert_eq!(locations.len(), 1);
@@ -1436,7 +1946,13 @@ type Mutation {
         };
 
         let locations = provider
-            .goto_definition(schema_document, position, &doc_index, &schema)
+            .goto_definition(
+                schema_document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///schema.graphql",
+            )
             .expect("Should find input object definition");
 
         assert_eq!(locations.len(), 1);
@@ -1473,7 +1989,13 @@ type Query {
         };
 
         let locations = provider
-            .goto_definition(schema_document, position, &doc_index, &schema)
+            .goto_definition(
+                schema_document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///schema.graphql",
+            )
             .expect("Should find type definition");
 
         assert_eq!(locations.len(), 1);
@@ -1510,7 +2032,13 @@ type User implements Node {
         };
 
         let locations = provider
-            .goto_definition(schema_document, position, &doc_index, &schema)
+            .goto_definition(
+                schema_document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///schema.graphql",
+            )
             .expect("Should find interface definition");
 
         assert_eq!(locations.len(), 1);
@@ -1548,7 +2076,13 @@ union SearchResult = User | Post
         };
 
         let locations = provider
-            .goto_definition(schema_document, position, &doc_index, &schema)
+            .goto_definition(
+                schema_document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///schema.graphql",
+            )
             .expect("Should find type definition");
 
         assert_eq!(locations.len(), 1);
@@ -1583,7 +2117,13 @@ type Event {
         };
 
         let locations = provider
-            .goto_definition(schema_document, position, &doc_index, &schema)
+            .goto_definition(
+                schema_document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///schema.graphql",
+            )
             .expect("Should find scalar definition");
 
         assert_eq!(locations.len(), 1);
@@ -1620,7 +2160,13 @@ type Query {
         };
 
         let locations = provider
-            .goto_definition(schema_document, position, &doc_index, &schema)
+            .goto_definition(
+                schema_document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///schema.graphql",
+            )
             .expect("Should find type definition");
 
         assert_eq!(locations.len(), 1);
@@ -1661,7 +2207,13 @@ query GetUser($userId: ID!) {
             character: 23,
         };
 
-        let locations = provider.goto_definition(document, position, &doc_index, &schema);
+        let locations = provider.goto_definition(
+            document,
+            position,
+            &doc_index,
+            &schema,
+            "file:///test.graphql",
+        );
 
         // ID is a built-in scalar, may or may not be explicitly defined in schema
         // This test ensures we don't crash when trying to look it up
@@ -1669,5 +2221,450 @@ query GetUser($userId: ID!) {
         if let Some(locs) = locations {
             assert!(!locs.is_empty());
         }
+    }
+
+    #[test]
+    fn test_goto_variable_definition() {
+        let doc_index = DocumentIndex::new();
+        let schema_str = r"
+type Query {
+  user(id: ID!): User
+}
+
+type User {
+  id: ID!
+  name: String!
+}
+";
+        let schema = SchemaIndex::from_schema(schema_str);
+        let provider = GotoDefinitionProvider::new();
+
+        let document = r"
+query GetUser($userId: ID!) {
+    user(id: $userId) {
+        name
+    }
+}
+";
+
+        // Position on "$userId" in the field argument (line 2, column 14)
+        let position = Position {
+            line: 2,
+            character: 14,
+        };
+
+        let locations = provider
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
+            .expect("Should find variable definition");
+
+        assert_eq!(locations.len(), 1);
+        // Should point to the variable definition in line 1
+        assert_eq!(locations[0].range.start.line, 1);
+        assert_eq!(locations[0].range.start.character, 15); // Position of "$userId"
+    }
+
+    #[test]
+    fn test_goto_argument_definition() {
+        let doc_index = DocumentIndex::new();
+        let schema_str = r"
+type Query {
+  user(id: ID!): User
+}
+
+type User {
+  id: ID!
+  name: String!
+}
+";
+        let schema = SchemaIndex::from_schema(schema_str);
+        let provider = GotoDefinitionProvider::new();
+
+        let document = r#"
+query GetUser {
+    user(id: "123") {
+        name
+    }
+}
+"#;
+
+        // Position on "id" argument name (line 2, column 9)
+        let position = Position {
+            line: 2,
+            character: 9,
+        };
+
+        let locations = provider
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
+            .expect("Should find argument definition");
+
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file_path, "schema.graphql");
+        // "id" argument definition in Query.user
+        assert_eq!(locations[0].range.start.line, 2);
+    }
+
+    #[test]
+    fn test_goto_enum_value_definition() {
+        let doc_index = DocumentIndex::new();
+        let schema_str = r"
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+type User {
+  id: ID!
+  status: UserStatus
+}
+
+type Query {
+  user(status: UserStatus): User
+}
+";
+        let schema = SchemaIndex::from_schema(schema_str);
+        let provider = GotoDefinitionProvider::new();
+
+        let document = r"
+query GetUser {
+    user(status: ACTIVE) {
+        id
+    }
+}
+";
+
+        // Position on "ACTIVE" enum value (line 2, column 17)
+        let position = Position {
+            line: 2,
+            character: 17,
+        };
+
+        let locations = provider
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
+            .expect("Should find enum value definition");
+
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file_path, "schema.graphql");
+        // "ACTIVE" enum value
+        assert_eq!(locations[0].range.start.line, 2);
+    }
+
+    #[test]
+    fn test_goto_directive_definition() {
+        let doc_index = DocumentIndex::new();
+        let schema_str = r"
+directive @auth(requires: String!) on QUERY | FIELD
+
+type Query {
+  user: User
+}
+
+type User {
+  id: ID!
+  name: String!
+}
+";
+        let schema = SchemaIndex::from_schema(schema_str);
+        let provider = GotoDefinitionProvider::new();
+
+        let document = r#"
+query GetUser @auth(requires: "USER") {
+    user {
+        name
+    }
+}
+"#;
+
+        // Position on "@auth" directive name (line 1, column 15)
+        let position = Position {
+            line: 1,
+            character: 15,
+        };
+
+        let locations = provider
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
+            .expect("Should find directive definition");
+
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file_path, "schema.graphql");
+        // "@auth" directive definition
+        assert_eq!(locations[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn test_goto_directive_argument_definition() {
+        let doc_index = DocumentIndex::new();
+        let schema_str = r"
+directive @auth(requires: String!) on QUERY | FIELD
+
+type Query {
+  user: User
+}
+
+type User {
+  id: ID!
+  name: String!
+}
+";
+        let schema = SchemaIndex::from_schema(schema_str);
+        let provider = GotoDefinitionProvider::new();
+
+        let document = r#"
+query GetUser @auth(requires: "USER") {
+    user {
+        name
+    }
+}
+"#;
+
+        // Position on "requires" argument name (line 1, column 21)
+        let position = Position {
+            line: 1,
+            character: 21,
+        };
+
+        let locations = provider
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
+            .expect("Should find directive argument definition");
+
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file_path, "schema.graphql");
+        // "requires" argument in @auth directive
+        assert_eq!(locations[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn test_goto_directive_on_field() {
+        let doc_index = DocumentIndex::new();
+        let schema_str = r"
+directive @deprecated(reason: String) on FIELD_DEFINITION | ENUM_VALUE
+
+type Query {
+  user: User
+}
+
+type User {
+  id: ID!
+  name: String!
+}
+";
+        let schema = SchemaIndex::from_schema(schema_str);
+        let provider = GotoDefinitionProvider::new();
+
+        let document = r#"
+query GetUser {
+    user {
+        name @deprecated(reason: "Use fullName")
+    }
+}
+"#;
+
+        // Position on "@deprecated" directive (line 3, column 14)
+        let position = Position {
+            line: 3,
+            character: 14,
+        };
+
+        let locations = provider
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
+            .expect("Should find directive definition");
+
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file_path, "schema.graphql");
+        assert_eq!(locations[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn test_goto_variable_in_nested_field() {
+        let doc_index = DocumentIndex::new();
+        let schema_str = r"
+type Query {
+  user(id: ID!): User
+}
+
+type User {
+  id: ID!
+  posts(limit: Int): [Post!]!
+}
+
+type Post {
+  id: ID!
+  title: String!
+}
+";
+        let schema = SchemaIndex::from_schema(schema_str);
+        let provider = GotoDefinitionProvider::new();
+
+        let document = r"
+query GetUser($userId: ID!, $limit: Int) {
+    user(id: $userId) {
+        posts(limit: $limit) {
+            title
+        }
+    }
+}
+";
+
+        // Position on "$limit" in the nested field argument (line 3, column 22)
+        let position = Position {
+            line: 3,
+            character: 22,
+        };
+
+        let locations = provider
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
+            .expect("Should find variable definition");
+
+        assert_eq!(locations.len(), 1);
+        // Should point to the variable definition in line 1
+        assert_eq!(locations[0].range.start.line, 1);
+        assert_eq!(locations[0].range.start.character, 29); // Position of "$limit"
+    }
+
+    #[test]
+    fn test_goto_argument_in_nested_field() {
+        let doc_index = DocumentIndex::new();
+        let schema_str = r"
+type Query {
+  user(id: ID!): User
+}
+
+type User {
+  id: ID!
+  posts(limit: Int, offset: Int): [Post!]!
+}
+
+type Post {
+  id: ID!
+  title: String!
+}
+";
+        let schema = SchemaIndex::from_schema(schema_str);
+        let provider = GotoDefinitionProvider::new();
+
+        let document = r#"
+query GetUser {
+    user(id: "123") {
+        posts(limit: 10, offset: 0) {
+            title
+        }
+    }
+}
+"#;
+
+        // Position on "offset" argument name (line 3, column 26)
+        let position = Position {
+            line: 3,
+            character: 26,
+        };
+
+        let locations = provider
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
+            .expect("Should find argument definition");
+
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file_path, "schema.graphql");
+        // "offset" argument in User.posts
+        assert_eq!(locations[0].range.start.line, 7);
+    }
+
+    #[test]
+    fn test_goto_enum_value_in_list() {
+        let doc_index = DocumentIndex::new();
+        let schema_str = r"
+enum Role {
+  ADMIN
+  USER
+  GUEST
+}
+
+type Query {
+  users(roles: [Role!]): [User!]!
+}
+
+type User {
+  id: ID!
+  name: String!
+}
+";
+        let schema = SchemaIndex::from_schema(schema_str);
+        let provider = GotoDefinitionProvider::new();
+
+        let document = r"
+query GetUsers {
+    users(roles: [ADMIN, USER]) {
+        name
+    }
+}
+";
+
+        // Position on "USER" enum value in list (line 2, column 25)
+        let position = Position {
+            line: 2,
+            character: 25,
+        };
+
+        let locations = provider
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
+            .expect("Should find enum value definition");
+
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file_path, "schema.graphql");
+        // "USER" enum value
+        assert_eq!(locations[0].range.start.line, 3);
     }
 }

@@ -499,11 +499,12 @@ impl GraphQLProject {
         &self,
         source: &str,
         position: Position,
+        file_path: &str,
     ) -> Option<Vec<DefinitionLocation>> {
         let document_index = self.document_index.read().unwrap();
         let schema_index = self.schema_index.read().unwrap();
         let provider = GotoDefinitionProvider::new();
-        provider.goto_definition(source, position, &document_index, &schema_index)
+        provider.goto_definition(source, position, &document_index, &schema_index, file_path)
     }
 
     /// Check if a file path matches the schema configuration

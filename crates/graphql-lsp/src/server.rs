@@ -646,7 +646,8 @@ impl LanguageServer for GraphQLLanguageServer {
                     );
 
                     // Get definition locations from the project using the extracted GraphQL
-                    let Some(locations) = project.goto_definition(&item.source, relative_position)
+                    let Some(locations) =
+                        project.goto_definition(&item.source, relative_position, &uri.to_string())
                     else {
                         tracing::debug!("No definition found at position {:?}", relative_position);
                         continue;
@@ -659,27 +660,64 @@ impl LanguageServer for GraphQLLanguageServer {
                     let lsp_locations: Vec<Location> = locations
                         .iter()
                         .filter_map(|loc| {
-                            // Resolve the file path relative to the workspace if it's not absolute
-                            let file_path = if std::path::Path::new(&loc.file_path).is_absolute() {
-                                std::path::PathBuf::from(&loc.file_path)
+                            // Check if the file_path is already a URI
+                            let file_uri = if loc.file_path.starts_with("file://") {
+                                // Already a URI, parse it directly
+                                loc.file_path.parse::<Uri>().ok()?
                             } else {
-                                // Resolve relative to workspace root
-                                let workspace_path: Uri = workspace_uri.parse().ok()?;
-                                let workspace_file_path = workspace_path.to_file_path()?;
-                                workspace_file_path.join(&loc.file_path)
+                                // Resolve the file path relative to the workspace if it's not absolute
+                                let file_path =
+                                    if std::path::Path::new(&loc.file_path).is_absolute() {
+                                        std::path::PathBuf::from(&loc.file_path)
+                                    } else {
+                                        // Resolve relative to workspace root
+                                        let workspace_path: Uri = workspace_uri.parse().ok()?;
+                                        let workspace_file_path = workspace_path.to_file_path()?;
+                                        workspace_file_path.join(&loc.file_path)
+                                    };
+                                Uri::from_file_path(file_path)?
                             };
 
-                            let file_uri = Uri::from_file_path(file_path)?;
+                            // If the location is in the same file, adjust positions back to original file coordinates
+                            let (start_line, start_char, end_line, end_char) = if file_uri == uri {
+                                // Adjust positions back from extracted GraphQL to original file
+                                let adjusted_start_line = loc.range.start.line + start_line;
+                                let adjusted_start_char = if loc.range.start.line == 0 {
+                                    loc.range.start.character + item.location.range.start.column
+                                } else {
+                                    loc.range.start.character
+                                };
+                                let adjusted_end_line = loc.range.end.line + start_line;
+                                let adjusted_end_char = if loc.range.end.line == 0 {
+                                    loc.range.end.character + item.location.range.start.column
+                                } else {
+                                    loc.range.end.character
+                                };
+                                (
+                                    adjusted_start_line as u32,
+                                    adjusted_start_char as u32,
+                                    adjusted_end_line as u32,
+                                    adjusted_end_char as u32,
+                                )
+                            } else {
+                                (
+                                    loc.range.start.line as u32,
+                                    loc.range.start.character as u32,
+                                    loc.range.end.line as u32,
+                                    loc.range.end.character as u32,
+                                )
+                            };
+
                             Some(Location {
                                 uri: file_uri,
                                 range: Range {
                                     start: Position {
-                                        line: loc.range.start.line as u32,
-                                        character: loc.range.start.character as u32,
+                                        line: start_line,
+                                        character: start_char,
                                     },
                                     end: Position {
-                                        line: loc.range.end.line as u32,
-                                        character: loc.range.end.character as u32,
+                                        line: end_line,
+                                        character: end_char,
                                     },
                                 },
                             })
@@ -708,7 +746,7 @@ impl LanguageServer for GraphQLLanguageServer {
         tracing::info!("Content length: {} bytes", content.len());
 
         // Get definition locations from the project
-        let Some(locations) = project.goto_definition(&content, position) else {
+        let Some(locations) = project.goto_definition(&content, position, &uri.to_string()) else {
             tracing::info!(
                 "project.goto_definition returned None at position {:?}",
                 position
@@ -732,19 +770,25 @@ impl LanguageServer for GraphQLLanguageServer {
         let lsp_locations: Vec<Location> = locations
             .iter()
             .filter_map(|loc| {
-                // Resolve the file path relative to the workspace if it's not absolute
-                let file_path = if std::path::Path::new(&loc.file_path).is_absolute() {
-                    std::path::PathBuf::from(&loc.file_path)
+                // Check if the file_path is already a URI
+                let file_uri = if loc.file_path.starts_with("file://") {
+                    // Already a URI, parse it directly
+                    loc.file_path.parse::<Uri>().ok()?
                 } else {
-                    // Resolve relative to workspace root
-                    let workspace_path: Uri = workspace_uri.parse().ok()?;
-                    let workspace_file_path = workspace_path.to_file_path()?;
-                    workspace_file_path.join(&loc.file_path)
+                    // Resolve the file path relative to the workspace if it's not absolute
+                    let file_path = if std::path::Path::new(&loc.file_path).is_absolute() {
+                        std::path::PathBuf::from(&loc.file_path)
+                    } else {
+                        // Resolve relative to workspace root
+                        let workspace_path: Uri = workspace_uri.parse().ok()?;
+                        let workspace_file_path = workspace_path.to_file_path()?;
+                        workspace_file_path.join(&loc.file_path)
+                    };
+
+                    tracing::info!("Resolved file path: {:?}", file_path);
+                    Uri::from_file_path(&file_path)?
                 };
 
-                tracing::info!("Resolved file path: {:?}", file_path);
-
-                let file_uri = Uri::from_file_path(&file_path)?;
                 tracing::info!("Created URI: {:?}", file_uri);
 
                 let lsp_loc = Location {

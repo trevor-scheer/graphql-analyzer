@@ -36,7 +36,13 @@ query GetUser {
     };
 
     let locations = provider
-        .goto_definition(document, position, &doc_index, &schema_index)
+        .goto_definition(
+            document,
+            position,
+            &doc_index,
+            &schema_index,
+            "file:///test.graphql",
+        )
         .expect("Should find definition");
 
     assert_eq!(locations.len(), 1);
