@@ -65,3 +65,4 @@ This is a GraphQL Language Server Protocol (LSP) implementation written in Rust.
 - Default to creating a new branch, committing changes, and opening a pull request for any modifications suggested.
 - Don't add needless comments in source code; code should describe itself. Use comments to call out things that are subtle, confusing, or surprising.
 - After finishing making changes, make sure the debug binary is built and the editor extensions are rebuilt if necessary to enable human testing.
+- Put user reported bugs in .claude/notes/BUGS.md
