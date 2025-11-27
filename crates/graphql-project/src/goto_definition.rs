@@ -45,6 +45,7 @@ impl GotoDefinitionProvider {
         position: Position,
         document_index: &DocumentIndex,
         schema_index: &SchemaIndex,
+        file_path: &str,
     ) -> Option<Vec<DefinitionLocation>> {
         tracing::info!(
             "GotoDefinitionProvider::goto_definition called with position: {:?}",
@@ -78,7 +79,13 @@ impl GotoDefinitionProvider {
         }
         let element_type = element_type?;
 
-        let result = Self::resolve_definition(element_type, document_index, schema_index, source);
+        let result = Self::resolve_definition(
+            element_type,
+            document_index,
+            schema_index,
+            source,
+            file_path,
+        );
         tracing::info!("resolve_definition returned: {:?}", result.is_some());
         result
     }
@@ -840,6 +847,7 @@ impl GotoDefinitionProvider {
         source: &str,
         var_name: &str,
         operation_offset: usize,
+        file_path: &str,
     ) -> Option<Vec<DefinitionLocation>> {
         // Parse from the operation start to find variable definitions
         let parser = Parser::new(&source[operation_offset..]);
@@ -871,7 +879,7 @@ impl GotoDefinitionProvider {
                                     let end_pos = Self::offset_to_position(source, abs_end)?;
 
                                     return Some(vec![DefinitionLocation::new(
-                                        String::new(), // Same file
+                                        file_path.to_string(),
                                         Range {
                                             start: start_pos,
                                             end: end_pos,
@@ -930,6 +938,7 @@ impl GotoDefinitionProvider {
         document_index: &DocumentIndex,
         schema_index: &SchemaIndex,
         source: &str,
+        file_path: &str,
     ) -> Option<Vec<DefinitionLocation>> {
         match element_type {
             ElementType::FragmentSpread { fragment_name } => document_index
@@ -1022,7 +1031,7 @@ impl GotoDefinitionProvider {
                 operation_offset,
             } => {
                 // Find the variable definition in the operation
-                Self::find_variable_definition(source, &var_name, operation_offset)
+                Self::find_variable_definition(source, &var_name, operation_offset, file_path)
             }
             ElementType::ArgumentReference {
                 argument_name,
@@ -1228,7 +1237,13 @@ query GetUser {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find definition");
 
         assert_eq!(locations.len(), 1);
@@ -1287,7 +1302,13 @@ query GetUser {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find definitions");
 
         assert_eq!(locations.len(), 2);
@@ -1314,7 +1335,13 @@ query GetUser {
             character: 12,
         };
 
-        let locations = provider.goto_definition(document, position, &doc_index, &schema);
+        let locations = provider.goto_definition(
+            document,
+            position,
+            &doc_index,
+            &schema,
+            "file:///test.graphql",
+        );
 
         assert!(locations.is_none());
     }
@@ -1336,7 +1363,13 @@ query GetUser {
             character: 12,
         };
 
-        let locations = provider.goto_definition(document, position, &doc_index, &schema);
+        let locations = provider.goto_definition(
+            document,
+            position,
+            &doc_index,
+            &schema,
+            "file:///test.graphql",
+        );
 
         assert!(locations.is_none());
     }
@@ -1359,7 +1392,13 @@ fragment UserFields on User {
             character: 24,
         };
 
-        let locations = provider.goto_definition(document, position, &doc_index, &schema);
+        let locations = provider.goto_definition(
+            document,
+            position,
+            &doc_index,
+            &schema,
+            "file:///test.graphql",
+        );
 
         // For now this returns None since we haven't implemented schema definition lookup
         assert!(locations.is_none());
@@ -1406,7 +1445,13 @@ fragment UserFields on User {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find all definitions with this name");
 
         // Should return both fragment definitions
@@ -1459,7 +1504,13 @@ query GetUser {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find all definitions with this name");
 
         // Should return both operation definitions
@@ -1511,7 +1562,13 @@ query GetUser {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find field definition");
 
         assert_eq!(locations.len(), 1);
@@ -1592,7 +1649,13 @@ query GetUser {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find nested field definition");
 
         assert_eq!(locations.len(), 1);
@@ -1634,7 +1697,13 @@ fragment UserFields on User {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find type definition");
 
         assert_eq!(locations.len(), 1);
@@ -1685,7 +1754,13 @@ query Search {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find type definition");
 
         assert_eq!(locations.len(), 1);
@@ -1725,7 +1800,13 @@ fragment NodeFields on Node {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find interface definition");
 
         assert_eq!(locations.len(), 1);
@@ -1770,7 +1851,13 @@ fragment SearchFields on SearchResult {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find union definition");
 
         assert_eq!(locations.len(), 1);
@@ -1811,7 +1898,13 @@ fragment UserFields on User {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find type definition");
 
         assert_eq!(locations.len(), 1);
@@ -1853,7 +1946,13 @@ type Mutation {
         };
 
         let locations = provider
-            .goto_definition(schema_document, position, &doc_index, &schema)
+            .goto_definition(
+                schema_document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///schema.graphql",
+            )
             .expect("Should find input object definition");
 
         assert_eq!(locations.len(), 1);
@@ -1890,7 +1989,13 @@ type Query {
         };
 
         let locations = provider
-            .goto_definition(schema_document, position, &doc_index, &schema)
+            .goto_definition(
+                schema_document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///schema.graphql",
+            )
             .expect("Should find type definition");
 
         assert_eq!(locations.len(), 1);
@@ -1927,7 +2032,13 @@ type User implements Node {
         };
 
         let locations = provider
-            .goto_definition(schema_document, position, &doc_index, &schema)
+            .goto_definition(
+                schema_document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///schema.graphql",
+            )
             .expect("Should find interface definition");
 
         assert_eq!(locations.len(), 1);
@@ -1965,7 +2076,13 @@ union SearchResult = User | Post
         };
 
         let locations = provider
-            .goto_definition(schema_document, position, &doc_index, &schema)
+            .goto_definition(
+                schema_document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///schema.graphql",
+            )
             .expect("Should find type definition");
 
         assert_eq!(locations.len(), 1);
@@ -2000,7 +2117,13 @@ type Event {
         };
 
         let locations = provider
-            .goto_definition(schema_document, position, &doc_index, &schema)
+            .goto_definition(
+                schema_document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///schema.graphql",
+            )
             .expect("Should find scalar definition");
 
         assert_eq!(locations.len(), 1);
@@ -2037,7 +2160,13 @@ type Query {
         };
 
         let locations = provider
-            .goto_definition(schema_document, position, &doc_index, &schema)
+            .goto_definition(
+                schema_document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///schema.graphql",
+            )
             .expect("Should find type definition");
 
         assert_eq!(locations.len(), 1);
@@ -2078,7 +2207,13 @@ query GetUser($userId: ID!) {
             character: 23,
         };
 
-        let locations = provider.goto_definition(document, position, &doc_index, &schema);
+        let locations = provider.goto_definition(
+            document,
+            position,
+            &doc_index,
+            &schema,
+            "file:///test.graphql",
+        );
 
         // ID is a built-in scalar, may or may not be explicitly defined in schema
         // This test ensures we don't crash when trying to look it up
@@ -2119,7 +2254,13 @@ query GetUser($userId: ID!) {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find variable definition");
 
         assert_eq!(locations.len(), 1);
@@ -2159,7 +2300,13 @@ query GetUser {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find argument definition");
 
         assert_eq!(locations.len(), 1);
@@ -2205,7 +2352,13 @@ query GetUser {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find enum value definition");
 
         assert_eq!(locations.len(), 1);
@@ -2247,7 +2400,13 @@ query GetUser @auth(requires: "USER") {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find directive definition");
 
         assert_eq!(locations.len(), 1);
@@ -2289,7 +2448,13 @@ query GetUser @auth(requires: "USER") {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find directive argument definition");
 
         assert_eq!(locations.len(), 1);
@@ -2331,7 +2496,13 @@ query GetUser {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find directive definition");
 
         assert_eq!(locations.len(), 1);
@@ -2377,7 +2548,13 @@ query GetUser($userId: ID!, $limit: Int) {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find variable definition");
 
         assert_eq!(locations.len(), 1);
@@ -2424,7 +2601,13 @@ query GetUser {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find argument definition");
 
         assert_eq!(locations.len(), 1);
@@ -2470,7 +2653,13 @@ query GetUsers {
         };
 
         let locations = provider
-            .goto_definition(document, position, &doc_index, &schema)
+            .goto_definition(
+                document,
+                position,
+                &doc_index,
+                &schema,
+                "file:///test.graphql",
+            )
             .expect("Should find enum value definition");
 
         assert_eq!(locations.len(), 1);

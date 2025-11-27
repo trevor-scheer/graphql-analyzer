@@ -646,7 +646,8 @@ impl LanguageServer for GraphQLLanguageServer {
                     );
 
                     // Get definition locations from the project using the extracted GraphQL
-                    let Some(locations) = project.goto_definition(&item.source, relative_position)
+                    let Some(locations) =
+                        project.goto_definition(&item.source, relative_position, &uri.to_string())
                     else {
                         tracing::debug!("No definition found at position {:?}", relative_position);
                         continue;
@@ -708,7 +709,7 @@ impl LanguageServer for GraphQLLanguageServer {
         tracing::info!("Content length: {} bytes", content.len());
 
         // Get definition locations from the project
-        let Some(locations) = project.goto_definition(&content, position) else {
+        let Some(locations) = project.goto_definition(&content, position, &uri.to_string()) else {
             tracing::info!(
                 "project.goto_definition returned None at position {:?}",
                 position
