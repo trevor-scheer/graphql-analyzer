@@ -49,9 +49,24 @@ This is a GraphQL Language Server Protocol (LSP) implementation written in Rust.
 
 ## Important LSP Features
 
-- **Goto Definition**: Navigate from fragment spreads to their definitions across files
+- **Goto Definition**: Comprehensive navigation support for all GraphQL language constructs
+  - Fragment spreads to their definitions across files
+  - Operation names to their definitions
+  - Type references (in fragments, inline fragments, implements clauses, union members, field types, variable types)
+  - Field references to their schema definitions
+  - Variable references to their operation variable definitions
+  - Field argument names to their schema argument definitions
+  - Enum values to their enum value definitions
+  - Directive names to their directive definitions
+  - Directive argument names to their argument definitions
   - Works in both pure GraphQL files (.graphql, .gql) and embedded GraphQL in TypeScript/JavaScript
   - Handles TypeScript/JavaScript by extracting GraphQL and adjusting positions automatically
+- **Find References**: Find all usages of GraphQL elements across the project
+  - Fragment definitions → All fragment spreads using that fragment
+  - Type definitions → All usages in field types, union members, implements clauses, input fields, arguments
+  - Supports List and NonNull type wrappers
+  - Respects include/exclude declaration context from client
+  - Works across all open documents in the workspace
 - **Hover**: Type information and descriptions for GraphQL elements
 - **Diagnostics**: Project-wide validation with accurate error reporting
   - Project-wide unique name validation for operations and fragments
