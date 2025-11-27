@@ -1,0 +1,71 @@
+# Get a single Pokemon by ID
+query GetPokemon($id: ID!) {
+  pokemon(id: $id) {
+    ...PokemonWithEvolution
+    moves {
+      ...MoveInfo
+    }
+  }
+}
+
+# Get Pokemon by name with detailed info
+query GetPokemonByName($name: String!) {
+  pokemonByName(name: $name) {
+    ...PokemonWithEvolution
+  }
+}
+
+# List all Pokemon with filters
+query ListPokemon(
+  $limit: Int = 20
+  $offset: Int = 0
+  $type: PokemonType
+  $region: Region
+  $isLegendary: Boolean
+) {
+  allPokemon(
+    limit: $limit
+    offset: $offset
+    type: $type
+    region: $region
+    isLegendary: $isLegendary
+  ) {
+    nodes {
+      ...PokemonDetailed
+    }
+    totalCount
+    hasNextPage
+  }
+}
+
+# Search Pokemon by name pattern
+query SearchPokemon($query: String!) {
+  searchPokemon(query: $query) {
+    ...PokemonBasic
+    stats {
+      ...PokemonStats
+    }
+  }
+}
+
+# Get all legendary Pokemon from a specific region
+query GetLegendaryPokemon($region: Region!) {
+  allPokemon(region: $region, isLegendary: true, limit: 100) {
+    nodes {
+      ...PokemonDetailed
+    }
+    totalCount
+  }
+}
+
+# Get Pokemon with specific type
+query GetPokemonByType($type: PokemonType!, $limit: Int = 50) {
+  allPokemon(type: $type, limit: $limit) {
+    nodes {
+      ...PokemonBasic
+      stats {
+        total
+      }
+    }
+  }
+}

@@ -1,0 +1,37 @@
+
+# Get a trainer with their full team
+query GetTrainer($id: ID!) {
+  trainer(id: $id) {
+    ...TrainerWithTeam
+  }
+}
+
+# Get trainer by name
+query GetTrainerByName($name: String!) {
+  trainerByName(name: $name) {
+    ...TrainerWithTeam
+  }
+}
+
+# List all trainers in a region
+query ListTrainersByRegion($region: Region!) {
+  allTrainers(region: $region) {
+    ...TrainerBasic
+    stats {
+      ...TrainerStats
+    }
+    team {
+      ...TeamPokemonBasic
+    }
+  }
+}
+
+# Get all trainers (no filter)
+query ListAllTrainers {
+  allTrainers {
+    ...TrainerBasic
+    badges {
+      ...BadgeInfo
+    }
+  }
+}

@@ -1,0 +1,64 @@
+
+# Create a new trainer
+mutation CreateTrainer($input: CreateTrainerInput!) {
+  createTrainer(input: $input) {
+    ...TrainerWithTeam
+  }
+}
+
+# Update an existing trainer
+mutation UpdateTrainer($id: ID!, $input: UpdateTrainerInput!) {
+  updateTrainer(id: $id, input: $input) {
+    ...TrainerWithTeam
+  }
+}
+
+# Add a Pokemon to trainer's team
+mutation AddPokemonToTeam($trainerId: ID!, $input: AddPokemonInput!) {
+  addPokemonToTeam(trainerId: $trainerId, input: $input) {
+    ...TrainerWithTeam
+  }
+}
+
+# Remove a Pokemon from trainer's team
+mutation RemovePokemonFromTeam($trainerId: ID!, $pokemonId: ID!) {
+  removePokemonFromTeam(trainerId: $trainerId, pokemonId: $pokemonId) {
+    ...TrainerWithTeam
+  }
+}
+
+# Update a Pokemon in the team
+mutation UpdateTeamPokemon(
+  $trainerId: ID!
+  $pokemonId: ID!
+  $input: UpdateTeamPokemonInput!
+) {
+  updateTeamPokemon(trainerId: $trainerId, pokemonId: $pokemonId, input: $input) {
+    ...TeamPokemonDetailed
+  }
+}
+
+# Catch a wild Pokemon
+mutation CatchPokemon($trainerId: ID!, $pokemonId: ID!, $pokeball: ID!) {
+  catchPokemon(trainerId: $trainerId, pokemonId: $pokemonId, pokeball: $pokeball) {
+    success
+    message
+    pokemon {
+      ...TeamPokemonDetailed
+    }
+  }
+}
+
+# Release a Pokemon
+mutation ReleasePokemon($trainerId: ID!, $pokemonId: ID!) {
+  releasePokemon(trainerId: $trainerId, pokemonId: $pokemonId) {
+    ...TrainerWithTeam
+  }
+}
+
+# Evolve a Pokemon
+mutation EvolvePokemon($trainerId: ID!, $pokemonId: ID!) {
+  evolvePokemon(trainerId: $trainerId, pokemonId: $pokemonId) {
+    ...TeamPokemonDetailed
+  }
+}

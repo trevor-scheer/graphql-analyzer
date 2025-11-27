@@ -1,17 +1,369 @@
-type Query {
-  user(id: ID!): User
-  post(id: ID!): Post
-}
+# Pokemon GraphQL Schema
+# A comprehensive schema for managing Pokemon data, trainers, and battles
 
-type User {
+"""
+Represents a Pokemon with all its attributes and relationships
+"""
+type Pokemon {
   id: ID!
   name: String!
-  posts: [Post!]!
+  number: Int!
+  types: [PokemonType!]!
+  stats: Stats!
+  abilities: [Ability!]!
+  moves: [Move!]!
+  evolution: Evolution
+  region: Region!
+  description: String!
+  height: Float!
+  weight: Float!
+  captureRate: Int!
+  isLegendary: Boolean!
+  isMythical: Boolean!
 }
 
-type Post {
+"""
+Pokemon elemental types
+"""
+enum PokemonType {
+  NORMAL
+  FIRE
+  WATER
+  ELECTRIC
+  GRASS
+  ICE
+  FIGHTING
+  POISON
+  GROUND
+  FLYING
+  PSYCHIC
+  BUG
+  ROCK
+  GHOST
+  DRAGON
+  DARK
+  STEEL
+  FAIRY
+}
+
+"""
+Pokemon base statistics
+"""
+type Stats {
+  hp: Int!
+  attack: Int!
+  defense: Int!
+  specialAttack: Int!
+  specialDefense: Int!
+  speed: Int!
+  total: Int!
+}
+
+"""
+Special abilities that Pokemon can have
+"""
+type Ability {
   id: ID!
-  title: String!
-  content: String! @deprecated(reason: "use other")
-  author: User!
+  name: String!
+  description: String!
+  isHidden: Boolean!
+}
+
+"""
+Moves that Pokemon can learn
+"""
+type Move {
+  id: ID!
+  name: String!
+  type: PokemonType!
+  category: MoveCategory!
+  power: Int
+  accuracy: Int
+  pp: Int!
+  description: String!
+}
+
+enum MoveCategory {
+  PHYSICAL
+  SPECIAL
+  STATUS
+}
+
+"""
+Evolution chain information
+"""
+type Evolution {
+  evolvesFrom: Pokemon
+  evolvesTo: [EvolutionPath!]!
+}
+
+type EvolutionPath {
+  pokemon: Pokemon!
+  requirement: EvolutionRequirement!
+}
+
+union EvolutionRequirement = LevelRequirement | ItemRequirement | TradeRequirement | FriendshipRequirement
+
+type LevelRequirement {
+  level: Int!
+}
+
+type ItemRequirement {
+  item: Item!
+}
+
+type TradeRequirement {
+  withItem: Item
+}
+
+type FriendshipRequirement {
+  minimumFriendship: Int!
+}
+
+"""
+Items that can be used or held
+"""
+type Item {
+  id: ID!
+  name: String!
+  description: String!
+  category: ItemCategory!
+}
+
+enum ItemCategory {
+  POKEBALL
+  MEDICINE
+  BERRY
+  EVOLUTION_STONE
+  HELD_ITEM
+  KEY_ITEM
+}
+
+"""
+Geographic regions in the Pokemon world
+"""
+enum Region {
+  KANTO
+  JOHTO
+  HOENN
+  SINNOH
+  UNOVA
+  KALOS
+  ALOLA
+  GALAR
+  PALDEA
+}
+
+"""
+A Pokemon trainer
+"""
+type Trainer {
+  id: ID!
+  name: String!
+  age: Int
+  team: [TeamPokemon!]!
+  badges: [Badge!]!
+  region: Region!
+  trainerClass: TrainerClass!
+  stats: TrainerStats!
+}
+
+"""
+Pokemon in a trainer's team with additional context
+"""
+type TeamPokemon {
+  pokemon: Pokemon!
+  nickname: String
+  level: Int!
+  experience: Int!
+  friendship: Int!
+  heldItem: Item
+  moves: [Move!]!
+  isShiny: Boolean!
+}
+
+type Badge {
+  id: ID!
+  name: String!
+  region: Region!
+  gymLeader: String!
+}
+
+enum TrainerClass {
+  ACE_TRAINER
+  YOUNGSTER
+  LASS
+  BUG_CATCHER
+  SWIMMER
+  HIKER
+  BREEDER
+  CHAMPION
+  GYM_LEADER
+  ELITE_FOUR
+}
+
+type TrainerStats {
+  totalBattles: Int!
+  wins: Int!
+  losses: Int!
+  pokemonCaught: Int!
+}
+
+"""
+A battle between trainers
+"""
+type Battle {
+  id: ID!
+  trainer1: Trainer!
+  trainer2: Trainer!
+  winner: Trainer
+  turns: [BattleTurn!]!
+  status: BattleStatus!
+  startedAt: String!
+  endedAt: String
+}
+
+enum BattleStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FORFEITED
+}
+
+type BattleTurn {
+  turnNumber: Int!
+  trainer: Trainer!
+  action: BattleAction!
+}
+
+union BattleAction = AttackAction | SwitchAction | ItemAction
+
+type AttackAction {
+  pokemon: TeamPokemon!
+  move: Move!
+  damage: Int!
+  wasEffective: Effectiveness!
+}
+
+enum Effectiveness {
+  NOT_VERY_EFFECTIVE
+  NORMAL
+  SUPER_EFFECTIVE
+}
+
+type SwitchAction {
+  fromPokemon: TeamPokemon!
+  toPokemon: TeamPokemon!
+}
+
+type ItemAction {
+  item: Item!
+  targetPokemon: TeamPokemon!
+}
+
+type Query {
+  pokemon(id: ID!): Pokemon
+  pokemonByName(name: String!): Pokemon
+  pokemonByNumber(number: Int!): Pokemon
+  allPokemon(
+    limit: Int = 20
+    offset: Int = 0
+    type: PokemonType
+    region: Region
+    isLegendary: Boolean
+  ): PokemonConnection!
+  searchPokemon(query: String!): [Pokemon!]!
+
+  trainer(id: ID!): Trainer
+  trainerByName(name: String!): Trainer
+  allTrainers(region: Region): [Trainer!]!
+
+  battle(id: ID!): Battle
+  activeBattles: [Battle!]!
+  trainerBattles(trainerId: ID!): [Battle!]!
+
+  item(id: ID!): Item
+  allItems(category: ItemCategory): [Item!]!
+
+  move(id: ID!): Move
+  movesByType(type: PokemonType!): [Move!]!
+
+  ability(id: ID!): Ability
+  allAbilities: [Ability!]!
+
+  typeEffectiveness(attackType: PokemonType!, defendType: PokemonType!): Effectiveness!
+}
+
+type PokemonConnection {
+  nodes: [Pokemon!]!
+  totalCount: Int!
+  hasNextPage: Boolean!
+}
+
+type Mutation {
+  createTrainer(input: CreateTrainerInput!): Trainer!
+  updateTrainer(id: ID!, input: UpdateTrainerInput!): Trainer!
+
+  addPokemonToTeam(trainerId: ID!, input: AddPokemonInput!): Trainer!
+  removePokemonFromTeam(trainerId: ID!, pokemonId: ID!): Trainer!
+  updateTeamPokemon(trainerId: ID!, pokemonId: ID!, input: UpdateTeamPokemonInput!): TeamPokemon!
+
+  startBattle(trainer1Id: ID!, trainer2Id: ID!): Battle!
+  performBattleAction(battleId: ID!, trainerId: ID!, action: BattleActionInput!): Battle!
+  forfeitBattle(battleId: ID!, trainerId: ID!): Battle!
+
+  catchPokemon(trainerId: ID!, pokemonId: ID!, pokeball: ID!): CatchResult!
+  releasePokemon(trainerId: ID!, pokemonId: ID!): Trainer!
+  evolvePokemon(trainerId: ID!, pokemonId: ID!): TeamPokemon!
+}
+
+input CreateTrainerInput {
+  name: String!
+  age: Int
+  region: Region!
+  trainerClass: TrainerClass!
+}
+
+input UpdateTrainerInput {
+  name: String
+  age: Int
+  trainerClass: TrainerClass
+}
+
+input AddPokemonInput {
+  pokemonId: ID!
+  nickname: String
+  level: Int!
+  isShiny: Boolean
+}
+
+input UpdateTeamPokemonInput {
+  nickname: String
+  heldItem: ID
+  moves: [ID!]
+}
+
+input BattleActionInput {
+  type: BattleActionType!
+  moveId: ID
+  switchToPokemonId: ID
+  itemId: ID
+  targetPokemonId: ID
+}
+
+enum BattleActionType {
+  ATTACK
+  SWITCH
+  USE_ITEM
+}
+
+type CatchResult {
+  success: Boolean!
+  pokemon: TeamPokemon
+  message: String!
+}
+
+type Subscription {
+  battleUpdated(battleId: ID!): Battle!
+  trainerUpdated(trainerId: ID!): Trainer!
 }
