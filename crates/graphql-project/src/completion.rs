@@ -54,6 +54,8 @@ impl CompletionItem {
 enum CompletionContext {
     FieldSelection {
         parent_type: String,
+        already_selected_fields: Vec<String>,
+        is_in_alias: bool,
     },
     FragmentSpread,
     TypeCondition,
@@ -280,17 +282,42 @@ impl CompletionProvider {
             return None;
         }
 
+        let mut already_selected_fields = Vec::new();
+        let mut is_in_alias = false;
+
         for selection in selection_set.selections() {
             match selection {
                 cst::Selection::Field(field) => {
-                    if let Some(context) = Self::check_field_for_context(
-                        &field,
+                    let field_range = field.syntax().text_range();
+                    let in_this_field = Self::range_contains(
+                        field_range.start().into(),
+                        field_range.end().into(),
                         byte_offset,
-                        source,
-                        schema_index,
-                        parent_type,
-                    ) {
-                        return Some(context);
+                    );
+
+                    if in_this_field {
+                        if let Some(alias) = field.alias() {
+                            let alias_range = alias.syntax().text_range();
+                            is_in_alias = Self::range_contains(
+                                alias_range.start().into(),
+                                alias_range.end().into(),
+                                byte_offset,
+                            );
+                        }
+
+                        if let Some(context) = Self::check_field_for_context(
+                            &field,
+                            byte_offset,
+                            source,
+                            schema_index,
+                            parent_type,
+                        ) {
+                            return Some(context);
+                        }
+                    }
+
+                    if let Some(name) = field.name() {
+                        already_selected_fields.push(name.text().to_string());
                     }
                 }
                 cst::Selection::FragmentSpread(spread) => {
@@ -319,6 +346,8 @@ impl CompletionProvider {
 
         Some(CompletionContext::FieldSelection {
             parent_type: parent_type.to_string(),
+            already_selected_fields,
+            is_in_alias,
         })
     }
 
@@ -462,9 +491,16 @@ impl CompletionProvider {
         schema_index: &SchemaIndex,
     ) -> Vec<CompletionItem> {
         match context {
-            CompletionContext::FieldSelection { parent_type } => {
-                Self::complete_fields(&parent_type, schema_index)
-            }
+            CompletionContext::FieldSelection {
+                parent_type,
+                already_selected_fields,
+                is_in_alias,
+            } => Self::complete_fields(
+                &parent_type,
+                schema_index,
+                &already_selected_fields,
+                is_in_alias,
+            ),
             CompletionContext::FragmentSpread => Self::complete_fragments(document_index),
             CompletionContext::TypeCondition | CompletionContext::FieldType => {
                 Self::complete_types(schema_index)
@@ -481,7 +517,12 @@ impl CompletionProvider {
         }
     }
 
-    fn complete_fields(parent_type: &str, schema_index: &SchemaIndex) -> Vec<CompletionItem> {
+    fn complete_fields(
+        parent_type: &str,
+        schema_index: &SchemaIndex,
+        already_selected_fields: &[String],
+        is_in_alias: bool,
+    ) -> Vec<CompletionItem> {
         let mut items = Vec::new();
 
         let Some(fields) = schema_index.get_fields(parent_type) else {
@@ -489,6 +530,10 @@ impl CompletionProvider {
         };
 
         for field in fields {
+            if !is_in_alias && already_selected_fields.contains(&field.name) {
+                continue;
+            }
+
             let detail = Some(field.type_name.clone());
             let documentation = field.description.clone();
             let deprecated = field.deprecated.is_some();
