@@ -346,16 +346,23 @@ impl GotoDefinitionProvider {
                             },
                         );
 
-                        if !nested_type.is_empty() {
-                            if let Some(element) = Self::check_selection_set(
-                                &nested_selection_set,
-                                byte_offset,
-                                nested_type,
-                                source,
-                                schema_index,
-                            ) {
-                                return Some(element);
-                            }
+                        // Always recurse into nested selections, even if we can't resolve the type
+                        // This is important for finding fragment spreads and other elements
+                        // when the schema is incomplete or empty
+                        let nested_type = if nested_type.is_empty() {
+                            parent_type.clone()
+                        } else {
+                            nested_type
+                        };
+
+                        if let Some(element) = Self::check_selection_set(
+                            &nested_selection_set,
+                            byte_offset,
+                            nested_type,
+                            source,
+                            schema_index,
+                        ) {
+                            return Some(element);
                         }
                     }
                 }
