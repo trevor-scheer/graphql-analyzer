@@ -1,0 +1,56 @@
+
+# Start a new battle between two trainers
+mutation StartBattle($trainer1Id: ID!, $trainer2Id: ID!) {
+  startBattle(trainer1Id: $trainer1Id, trainer2Id: $trainer2Id) {
+    ...BattleDetailed
+  }
+}
+
+# Perform an attack action
+mutation PerformAttack($battleId: ID!, $trainerId: ID!, $moveId: ID!) {
+  performBattleAction(
+    battleId: $battleId
+    trainerId: $trainerId
+    action: { type: ATTACK, moveId: $moveId }
+  ) {
+    ...BattleDetailed
+  }
+}
+
+# Switch Pokemon
+mutation SwitchPokemon(
+  $battleId: ID!
+  $trainerId: ID!
+  $switchToPokemonId: ID!
+) {
+  performBattleAction(
+    battleId: $battleId
+    trainerId: $trainerId
+    action: { type: SWITCH, switchToPokemonId: $switchToPokemonId }
+  ) {
+    ...BattleDetailed
+  }
+}
+
+# Use an item in battle
+mutation UseItemInBattle(
+  $battleId: ID!
+  $trainerId: ID!
+  $itemId: ID!
+  $targetPokemonId: ID!
+) {
+  performBattleAction(
+    battleId: $battleId
+    trainerId: $trainerId
+    action: { type: USE_ITEM, itemId: $itemId, targetPokemonId: $targetPokemonId }
+  ) {
+    ...BattleDetailed
+  }
+}
+
+# Forfeit a battle
+mutation ForfeitBattle($battleId: ID!, $trainerId: ID!) {
+  forfeitBattle(battleId: $battleId, trainerId: $trainerId) {
+    ...BattleDetailed
+  }
+}

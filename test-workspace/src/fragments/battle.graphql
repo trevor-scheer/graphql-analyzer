@@ -1,0 +1,71 @@
+# Battle Fragments
+
+fragment BattleBasic on Battle {
+  id
+  status
+  startedAt
+  endedAt
+}
+
+fragment AttackActionInfo on AttackAction {
+  pokemon {
+    ...TeamPokemonBasic
+  }
+  move {
+    ...MoveInfo
+  }
+  damage
+  wasEffective
+}
+
+fragment SwitchActionInfo on SwitchAction {
+  fromPokemon {
+    ...TeamPokemonBasic
+  }
+  toPokemon {
+    ...TeamPokemonBasic
+  }
+}
+
+fragment ItemActionInfo on ItemAction {
+  item {
+    ...ItemBasic
+  }
+  targetPokemon {
+    ...TeamPokemonBasic
+  }
+}
+
+fragment BattleTurnInfo on BattleTurn {
+  turnNumber
+  trainer {
+    ...TrainerBasic
+  }
+  action {
+    ... on AttackAction {
+      ...AttackActionInfo
+    }
+    ... on SwitchAction {
+      ...SwitchActionInfo
+    }
+    ... on ItemAction {
+      ...ItemActionInfo
+    }
+  }
+}
+
+fragment BattleDetailed on Battle {
+  ...BattleBasic
+  trainer1 {
+    ...TrainerWithTeam
+  }
+  trainer2 {
+    ...TrainerWithTeam
+  }
+  winner {
+    ...TrainerBasic
+  }
+  turns {
+    ...BattleTurnInfo
+  }
+}

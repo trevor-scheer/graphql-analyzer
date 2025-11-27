@@ -1,0 +1,47 @@
+
+# Get all items
+query GetAllItems($category: ItemCategory) {
+  allItems(category: $category) {
+    ...ItemBasic
+  }
+}
+
+# Get a specific item
+query GetItem($id: ID!) {
+  item(id: $id) {
+    ...ItemBasic
+  }
+}
+
+# Get moves by type
+query GetMovesByType($type: PokemonType!) {
+  movesByType(type: $type) {
+    ...MoveInfo
+  }
+}
+
+# Get a specific move
+query GetMove($id: ID!) {
+  move(id: $id) {
+    ...MoveInfo
+  }
+}
+
+# Get all abilities
+query GetAllAbilities {
+  allAbilities {
+    ...AbilityInfo
+  }
+}
+
+# Get a specific ability
+query GetAbility($id: ID!) {
+  ability(id: $id) {
+    ...AbilityInfo
+  }
+}
+
+# Check type effectiveness
+query CheckTypeEffectiveness($attackType: PokemonType!, $defendType: PokemonType!) {
+  typeEffectiveness(attackType: $attackType, defendType: $defendType)
+}

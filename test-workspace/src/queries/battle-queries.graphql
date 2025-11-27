@@ -1,0 +1,30 @@
+
+# Get a specific battle
+query GetBattle($id: ID!) {
+  battle(id: $id) {
+    ...BattleDetailed
+  }
+}
+
+# Get all active battles
+query GetActiveBattles {
+  activeBattles {
+    ...BattleDetailed
+  }
+}
+
+# Get all battles for a specific trainer
+query GetTrainerBattles($trainerId: ID!) {
+  trainerBattles(trainerId: $trainerId) {
+    ...BattleBasic
+    trainer1 {
+      ...TrainerBasic
+    }
+    trainer2 {
+      ...TrainerBasic
+    }
+    winner {
+      ...TrainerBasic
+    }
+  }
+}

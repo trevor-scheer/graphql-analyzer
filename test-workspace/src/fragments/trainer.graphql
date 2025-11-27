@@ -1,0 +1,57 @@
+# Trainer Fragments
+
+fragment TrainerBasic on Trainer {
+  id
+  name
+  region
+  trainerClass
+}
+
+fragment TrainerStats on TrainerStats {
+  totalBattles
+  wins
+  losses
+  pokemonCaught
+}
+
+fragment BadgeInfo on Badge {
+  id
+  name
+  region
+  gymLeader
+}
+
+fragment TeamPokemonBasic on TeamPokemon {
+  nickname
+  level
+  experience
+  friendship
+  isShiny
+  pokemon {
+    ...PokemonBasic
+  }
+}
+
+fragment TeamPokemonDetailed on TeamPokemon {
+  ...TeamPokemonBasic
+  heldItem {
+    ...ItemBasic
+  }
+  moves {
+    ...MoveInfo
+  }
+}
+
+fragment TrainerWithTeam on Trainer {
+  ...TrainerBasic
+  age
+  stats {
+    ...TrainerStats
+  }
+  badges {
+    ...BadgeInfo
+  }
+  team {
+    ...TeamPokemonDetailed
+  }
+}
