@@ -678,16 +678,46 @@ impl LanguageServer for GraphQLLanguageServer {
                                 Uri::from_file_path(file_path)?
                             };
 
+                            // If the location is in the same file, adjust positions back to original file coordinates
+                            let (start_line, start_char, end_line, end_char) = if file_uri == uri {
+                                // Adjust positions back from extracted GraphQL to original file
+                                let adjusted_start_line = loc.range.start.line + start_line;
+                                let adjusted_start_char = if loc.range.start.line == 0 {
+                                    loc.range.start.character + item.location.range.start.column
+                                } else {
+                                    loc.range.start.character
+                                };
+                                let adjusted_end_line = loc.range.end.line + start_line;
+                                let adjusted_end_char = if loc.range.end.line == 0 {
+                                    loc.range.end.character + item.location.range.start.column
+                                } else {
+                                    loc.range.end.character
+                                };
+                                (
+                                    adjusted_start_line as u32,
+                                    adjusted_start_char as u32,
+                                    adjusted_end_line as u32,
+                                    adjusted_end_char as u32,
+                                )
+                            } else {
+                                (
+                                    loc.range.start.line as u32,
+                                    loc.range.start.character as u32,
+                                    loc.range.end.line as u32,
+                                    loc.range.end.character as u32,
+                                )
+                            };
+
                             Some(Location {
                                 uri: file_uri,
                                 range: Range {
                                     start: Position {
-                                        line: loc.range.start.line as u32,
-                                        character: loc.range.start.character as u32,
+                                        line: start_line,
+                                        character: start_char,
                                     },
                                     end: Position {
-                                        line: loc.range.end.line as u32,
-                                        character: loc.range.end.character as u32,
+                                        line: end_line,
+                                        character: end_char,
                                     },
                                 },
                             })
