@@ -151,8 +151,10 @@ impl SchemaIndex {
 
     /// Find the location of a field definition in the schema source
     ///
-    /// Returns the line, column (0-indexed), and file path where the field is defined
+    /// Returns the line, column (0-indexed), and file path where the field name is defined
     /// in the schema source using apollo-compiler's built-in location tracking.
+    ///
+    /// The location points to the start of the field name, not the description (if any).
     #[must_use]
     pub fn find_field_definition(
         &self,
@@ -173,23 +175,16 @@ impl SchemaIndex {
 
         // Find the field
         let field_component = fields.get(field_name)?;
-        let field_node = &field_component.node;
+        let field_def = &field_component.node;
 
-        // Get the location from the Node
-        let location = field_node.location()?;
+        // Get the field name, which has its own location info
+        let name = &field_def.name;
 
-        // Convert to line/column using the schema's source map
-        let line_col_range = field_node.line_column_range(&self.schema.sources)?;
+        // Get the line/column range for the field name (not the whole field definition)
+        let line_col_range = name.line_column_range(&self.schema.sources)?;
 
-        tracing::info!(
-            "Apollo compiler line_col_range for {}.{}: start.line={}, start.column={}",
-            type_name,
-            field_name,
-            line_col_range.start.line,
-            line_col_range.start.column
-        );
-
-        // Get the file path from the source map
+        // Get the file path from the name's location
+        let location = name.location()?;
         let file_id = location.file_id();
         let file_path = self
             .schema
@@ -199,19 +194,81 @@ impl SchemaIndex {
             .to_string_lossy()
             .to_string();
 
+        // Convert to 0-indexed (apollo-compiler uses 1-indexed)
         let result_line = line_col_range.start.line.saturating_sub(1);
         let result_col = line_col_range.start.column.saturating_sub(1);
 
         tracing::info!(
-            "After converting to 0-indexed: line={}, col={}",
+            "Field {}.{} name location: line={}, col={}",
+            type_name,
+            field_name,
             result_line,
             result_col
         );
 
         Some(FieldDefinitionLocation {
-            line: result_line,  // Convert to 0-indexed
-            column: result_col, // Convert to 0-indexed
+            line: result_line,
+            column: result_col,
             field_name: field_name.to_string(),
+            file_path,
+        })
+    }
+
+    /// Find the location of a type definition in the schema source
+    ///
+    /// Returns the line, column (0-indexed), and file path where the type name is defined
+    /// in the schema source using apollo-compiler's built-in location tracking.
+    ///
+    /// Supports all GraphQL type kinds: Object, Interface, Union, Enum, Scalar, and `InputObject`.
+    ///
+    /// The location points to the start of the type name, not the description (if any).
+    #[must_use]
+    pub fn find_type_definition(&self, type_name: &str) -> Option<TypeDefinitionLocation> {
+        use apollo_compiler::schema::ExtendedType;
+
+        // Get the type from the schema
+        let extended_type = self.schema.types.get(type_name)?;
+
+        // Get the name field from the type, which has its own location info
+        // The Name type in apollo-compiler tracks its location in the source
+        let name = match extended_type {
+            ExtendedType::Object(obj) => &obj.name,
+            ExtendedType::Interface(iface) => &iface.name,
+            ExtendedType::Union(union) => &union.name,
+            ExtendedType::Enum(enum_def) => &enum_def.name,
+            ExtendedType::InputObject(input) => &input.name,
+            ExtendedType::Scalar(scalar) => &scalar.name,
+        };
+
+        // Get the line/column range for the name (not the whole type definition)
+        let line_col_range = name.line_column_range(&self.schema.sources)?;
+
+        // Get the file path from the name's location
+        let location = name.location()?;
+        let file_id = location.file_id();
+        let file_path = self
+            .schema
+            .sources
+            .get(&file_id)?
+            .path()
+            .to_string_lossy()
+            .to_string();
+
+        // Convert to 0-indexed (apollo-compiler uses 1-indexed)
+        let result_line = line_col_range.start.line.saturating_sub(1);
+        let result_col = line_col_range.start.column.saturating_sub(1);
+
+        tracing::info!(
+            "Type {} name location: line={}, col={}",
+            type_name,
+            result_line,
+            result_col
+        );
+
+        Some(TypeDefinitionLocation {
+            line: result_line,
+            column: result_col,
+            type_name: type_name.to_string(),
             file_path,
         })
     }
@@ -223,6 +280,15 @@ pub struct FieldDefinitionLocation {
     pub line: usize,
     pub column: usize,
     pub field_name: String,
+    pub file_path: String,
+}
+
+/// Location information for a type definition in schema
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeDefinitionLocation {
+    pub line: usize,
+    pub column: usize,
+    pub type_name: String,
     pub file_path: String,
 }
 
@@ -1138,6 +1204,44 @@ mod tests {
         assert_eq!(
             search_field.arguments[1].description,
             Some("Maximum number of results".to_string())
+        );
+    }
+
+    #[test]
+    fn test_find_type_definition_with_description() {
+        let schema = r#"
+"""
+Represents a Pokemon with all its attributes
+"""
+type Pokemon {
+  id: ID!
+  name: String!
+}
+
+type Query {
+  pokemon: Pokemon
+}
+"#;
+
+        let index = SchemaIndex::from_schema(schema);
+
+        // Find the Pokemon type definition
+        let location = index
+            .find_type_definition("Pokemon")
+            .expect("Should find Pokemon type");
+
+        // The location should point to the "type Pokemon" line (line 5, 0-indexed = line 4)
+        // NOT to the description (which starts at line 2)
+        println!(
+            "Pokemon type location: line={}, col={}",
+            location.line, location.column
+        );
+
+        // Line 5 in the schema is "type Pokemon {" (0-indexed = 4)
+        // We expect the cursor to be at the start of "Pokemon" which is after "type "
+        assert_eq!(
+            location.line, 4,
+            "Should point to 'type Pokemon' line, not description"
         );
     }
 
