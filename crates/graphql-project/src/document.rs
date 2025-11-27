@@ -120,7 +120,7 @@ impl DocumentLoader {
     }
 
     /// Parse GraphQL source and add operations/fragments to index
-    fn parse_and_index(
+    pub fn parse_and_index(
         item: &graphql_extract::ExtractedGraphQL,
         file_path: &str,
         index: &mut DocumentIndex,

@@ -192,10 +192,18 @@ impl GraphQLLanguageServer {
             }
         }
 
-        // Reload documents to update the index with latest file contents from disk
-        // This is necessary for project-wide validation to work correctly
-        if let Err(e) = project.load_documents() {
-            tracing::warn!("Failed to reload documents: {}", e);
+        // Update the document index for this specific file with in-memory content
+        // This is more efficient than reloading all documents from disk and
+        // ensures we use the latest editor content even before it's saved
+        if let Some(path) = uri.to_file_path() {
+            let file_path_str = path.display().to_string();
+            if let Err(e) = project.update_document_index(&file_path_str, content) {
+                tracing::warn!(
+                    "Failed to update document index for {}: {}",
+                    file_path_str,
+                    e
+                );
+            }
         }
 
         // Check if this is a TypeScript/JavaScript file

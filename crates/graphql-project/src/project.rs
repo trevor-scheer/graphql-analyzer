@@ -160,6 +160,55 @@ impl GraphQLProject {
         }
     }
 
+    /// Update document index for a single file with in-memory content
+    ///
+    /// This removes all operations and fragments from the specified file path,
+    /// then re-indexes the provided content as if it came from that file.
+    /// This is used by the LSP to keep the index up-to-date with editor changes
+    /// without needing to reload all files from disk.
+    #[allow(clippy::significant_drop_tightening)]
+    pub fn update_document_index(&self, file_path: &str, content: &str) -> Result<()> {
+        use graphql_extract::{extract_from_source, ExtractConfig, Language};
+        use std::path::Path;
+
+        // Determine language from file extension
+        let path = Path::new(file_path);
+        let language = path.extension().and_then(|ext| ext.to_str()).map_or(
+            Language::GraphQL,
+            |ext| match ext.to_lowercase().as_str() {
+                "ts" | "tsx" => Language::TypeScript,
+                "js" | "jsx" => Language::JavaScript,
+                _ => Language::GraphQL,
+            },
+        );
+
+        // Extract GraphQL from the content
+        let extracted = extract_from_source(content, language, &ExtractConfig::default())
+            .map_err(|e| crate::ProjectError::DocumentLoad(format!("Extract error: {e}")))?;
+
+        // Acquire write lock and update index
+        {
+            let mut document_index = self.document_index.write().unwrap();
+
+            // Remove all existing entries for this file
+            document_index.operations.retain(|_, ops| {
+                ops.retain(|op| op.file_path != file_path);
+                !ops.is_empty()
+            });
+            document_index.fragments.retain(|_, frags| {
+                frags.retain(|frag| frag.file_path != file_path);
+                !frags.is_empty()
+            });
+
+            // Parse and index each extracted GraphQL block
+            for item in extracted {
+                DocumentLoader::parse_and_index(&item, file_path, &mut document_index);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Validate a GraphQL document source with global fragment resolution
     ///
     /// This method handles validation of GraphQL documents (pure .graphql files or extracted sources)
