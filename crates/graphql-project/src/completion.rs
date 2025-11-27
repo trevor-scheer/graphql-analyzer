@@ -364,12 +364,12 @@ impl CompletionProvider {
             }
         }
 
-        // If we reach here, we're not inside any specific field, so we're completing
-        // at the top level of the selection set. In this case, don't filter anything
-        // because the user might be about to type an alias.
+        // If we reach here, we're at the top level of the selection set (not inside any field).
+        // Filter out already-selected fields to prevent duplicates.
+        // The user can still type an alias if they want to select the same field multiple times.
         Some(CompletionContext::FieldSelection {
             parent_type: parent_type.to_string(),
-            already_selected_fields: Vec::new(),
+            already_selected_fields,
             is_in_alias: false,
         })
     }
