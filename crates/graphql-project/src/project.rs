@@ -1,7 +1,7 @@
 use crate::{
-    DefinitionLocation, Diagnostic, DocumentIndex, DocumentLoader, FindReferencesProvider,
-    GotoDefinitionProvider, HoverInfo, HoverProvider, Position, ReferenceLocation, Result,
-    SchemaIndex, SchemaLoader, Validator,
+    CompletionItem, CompletionProvider, DefinitionLocation, Diagnostic, DocumentIndex,
+    DocumentLoader, FindReferencesProvider, GotoDefinitionProvider, HoverInfo, HoverProvider,
+    Position, ReferenceLocation, Result, SchemaIndex, SchemaLoader, Validator,
 };
 use apollo_compiler::validation::DiagnosticList;
 use graphql_config::{GraphQLConfig, ProjectConfig};
@@ -490,6 +490,15 @@ impl GraphQLProject {
         hover_provider.hover(source, position, &schema_index)
     }
 
+    /// Get completion items for a position in a GraphQL document
+    #[must_use]
+    pub fn complete(&self, source: &str, position: Position) -> Option<Vec<CompletionItem>> {
+        let document_index = self.document_index.read().unwrap();
+        let schema_index = self.schema_index.read().unwrap();
+        let completion_provider = CompletionProvider::new();
+        completion_provider.complete(source, position, &document_index, &schema_index)
+    }
+
     /// Get definition locations for a position in a GraphQL document
     ///
     /// Returns the locations where the element at the given position is defined.
@@ -500,11 +509,12 @@ impl GraphQLProject {
         &self,
         source: &str,
         position: Position,
+        file_path: &str,
     ) -> Option<Vec<DefinitionLocation>> {
         let document_index = self.document_index.read().unwrap();
         let schema_index = self.schema_index.read().unwrap();
         let provider = GotoDefinitionProvider::new();
-        provider.goto_definition(source, position, &document_index, &schema_index)
+        provider.goto_definition(source, position, &document_index, &schema_index, file_path)
     }
 
     /// Find all references to the element at a position in a GraphQL document

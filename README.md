@@ -49,13 +49,21 @@ Core library providing validation, indexing, and diagnostics.
 ### graphql-lsp
 Language Server Protocol implementation for GraphQL.
 
-**Features:**
-- ✅ Real-time validation with accurate diagnostics
-- ✅ Go-to-definition (fragments, types, fields, variables, directives, enum values, arguments)
-- ✅ Find references (fragments, type definitions)
-- ✅ Hover information with type details
-- 🚧 Autocomplete (in progress)
-- 🚧 Document symbols (in progress)
+**Implemented Features:**
+- Real-time validation with project-wide diagnostics
+- Comprehensive go-to-definition support:
+  - Fragment spreads, operations, types, fields
+  - Variables, arguments, enum values
+  - Directives and directive arguments
+- Find references for fragments and type definitions
+- Hover information for types and fields
+- Works with embedded GraphQL in TypeScript/JavaScript
+
+**Planned Features:**
+- Additional find references support (fields, variables, directives, enum values)
+- Autocomplete
+- Document symbols
+- Code actions
 
 ### graphql-cli
 Command-line tool for validation and CI/CD integration.
@@ -95,20 +103,19 @@ cargo run -p graphql-lsp
 ✅ **Completed:**
 - Cargo workspace structure
 - graphql-config implementation (parsing, loading, validation)
-- Core validation engine with accurate diagnostics
+- Core validation engine with project-wide diagnostics
 - Document loading and indexing
 - TypeScript/JavaScript extraction
-- LSP goto definition (comprehensive support for all GraphQL constructs)
-- LSP find references (fragments and type definitions)
-- LSP hover information
-- VS Code extension
+- LSP features: validation, go-to-definition, find references, hover
+- Schema and document indexing
 
 🚧 **In Progress:**
-- LSP autocomplete
-- LSP document symbols
+- VS Code extension improvements
+- Additional LSP features (completions, document symbols)
 
 📋 **Planned:**
 - Breaking change detection
+- Code actions and refactoring
 - Remote schema introspection
 - Additional find references support (fields, variables, directives, enum values)
 

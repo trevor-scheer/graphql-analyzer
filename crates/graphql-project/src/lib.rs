@@ -1,3 +1,4 @@
+mod completion;
 mod diagnostics;
 mod document;
 mod error;
@@ -10,6 +11,7 @@ mod schema;
 mod validation;
 
 // Export diagnostics types for LSP package to use when converting DiagnosticList
+pub use completion::{CompletionItem, CompletionItemKind, CompletionProvider};
 pub use diagnostics::{Diagnostic, Position, Range, RelatedInfo, Severity};
 pub use document::DocumentLoader;
 pub use error::{ProjectError, Result};
