@@ -1,6 +1,7 @@
 mod diagnostics;
 mod document;
 mod error;
+mod find_references;
 mod goto_definition;
 mod hover;
 mod index;
@@ -12,6 +13,7 @@ mod validation;
 pub use diagnostics::{Diagnostic, Position, Range, RelatedInfo, Severity};
 pub use document::DocumentLoader;
 pub use error::{ProjectError, Result};
+pub use find_references::{FindReferencesProvider, ReferenceLocation};
 pub use goto_definition::{DefinitionLocation, GotoDefinitionProvider};
 pub use hover::{HoverInfo, HoverProvider};
 pub use index::{
