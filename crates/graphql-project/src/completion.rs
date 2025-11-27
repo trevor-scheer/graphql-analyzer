@@ -282,8 +282,27 @@ impl CompletionProvider {
             return None;
         }
 
+        // First, collect all the field names (excluding the one we're in)
         let mut already_selected_fields = Vec::new();
+        for selection in selection_set.selections() {
+            if let cst::Selection::Field(field) = selection {
+                let field_range = field.syntax().text_range();
+                let in_this_field = Self::range_contains(
+                    field_range.start().into(),
+                    field_range.end().into(),
+                    byte_offset,
+                );
 
+                // Only collect fields we're NOT currently in
+                if !in_this_field {
+                    if let Some(name) = field.name() {
+                        already_selected_fields.push(name.text().to_string());
+                    }
+                }
+            }
+        }
+
+        // Now process selections to find what context we're in
         for selection in selection_set.selections() {
             match selection {
                 cst::Selection::Field(field) => {
@@ -295,13 +314,8 @@ impl CompletionProvider {
                     );
 
                     if in_this_field {
-                        // We're inside a field, check if it's incomplete (being typed)
-                        // If the field has an alias OR has no name yet, allow all fields
                         let has_alias = field.alias().is_some();
                         let has_name = field.name().is_some();
-
-                        // If field has no name yet, user might be typing an alias or field name
-                        // In either case, don't filter
                         let should_filter = !has_alias && has_name;
 
                         if let Some(context) = Self::check_field_for_context(
@@ -314,8 +328,7 @@ impl CompletionProvider {
                             return Some(context);
                         }
 
-                        // If we're here, we're in a field but check_field_for_context returned None
-                        // This means we're at the field name position itself
+                        // If we're here, we're at the field name position itself
                         return Some(CompletionContext::FieldSelection {
                             parent_type: parent_type.to_string(),
                             already_selected_fields: if should_filter {
@@ -325,11 +338,6 @@ impl CompletionProvider {
                             },
                             is_in_alias: has_alias,
                         });
-                    }
-
-                    // Only add to already_selected_fields if we're NOT in this field
-                    if let Some(name) = field.name() {
-                        already_selected_fields.push(name.text().to_string());
                     }
                 }
                 cst::Selection::FragmentSpread(spread) => {
