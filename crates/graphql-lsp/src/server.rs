@@ -265,42 +265,48 @@ impl GraphQLLanguageServer {
             return;
         };
 
-        // Get the project from the workspace (need mutable to reload documents)
-        let Some(mut projects) = self.projects.get_mut(&workspace_uri) else {
-            tracing::warn!("No projects loaded for workspace: {workspace_uri}");
-            return;
-        };
-
-        let Some((_, project)) = projects.get_mut(project_idx) else {
-            tracing::warn!("Project index {project_idx} not found in workspace {workspace_uri}");
-            return;
-        };
-
         let file_path = uri.to_file_path();
 
-        // Check if this is a schema file - schema files shouldn't be validated as executable documents
-        if let Some(ref path) = file_path {
-            if project.is_schema_file(path.as_ref()) {
-                tracing::debug!("Skipping validation for schema file: {:?}", uri);
-                // Clear any existing diagnostics
-                self.client.publish_diagnostics(uri, vec![], None).await;
+        // Check if this is a schema file and update document index
+        // We do this in a narrow scope to minimize lock duration
+        {
+            // Get the project from the workspace (need mutable to update document index)
+            let Some(mut projects) = self.projects.get_mut(&workspace_uri) else {
+                tracing::warn!("No projects loaded for workspace: {workspace_uri}");
                 return;
-            }
-        }
+            };
 
-        // Update the document index for this specific file with in-memory content
-        // This is more efficient than reloading all documents from disk and
-        // ensures we use the latest editor content even before it's saved
-        if let Some(path) = uri.to_file_path() {
-            let file_path_str = path.display().to_string();
-            if let Err(e) = project.update_document_index(&file_path_str, content) {
+            let Some((_, project)) = projects.get_mut(project_idx) else {
                 tracing::warn!(
-                    "Failed to update document index for {}: {}",
-                    file_path_str,
-                    e
+                    "Project index {project_idx} not found in workspace {workspace_uri}"
                 );
+                return;
+            };
+
+            // Check if this is a schema file - schema files shouldn't be validated as executable documents
+            if let Some(ref path) = file_path {
+                if project.is_schema_file(path.as_ref()) {
+                    tracing::debug!("Skipping validation for schema file: {:?}", uri);
+                    // Clear any existing diagnostics
+                    self.client.publish_diagnostics(uri, vec![], None).await;
+                    return;
+                }
             }
-        }
+
+            // Update the document index for this specific file with in-memory content
+            // This is more efficient than reloading all documents from disk and
+            // ensures we use the latest editor content even before it's saved
+            if let Some(path) = &file_path {
+                let file_path_str = path.display().to_string();
+                if let Err(e) = project.update_document_index(&file_path_str, content) {
+                    tracing::warn!(
+                        "Failed to update document index for {}: {}",
+                        file_path_str,
+                        e
+                    );
+                }
+            }
+        } // Drop the mutable lock here before validation
 
         // Check if this is a TypeScript/JavaScript file
         let is_ts_js = file_path
@@ -313,18 +319,69 @@ impl GraphQLLanguageServer {
             .unwrap_or(false);
 
         // Get document-specific diagnostics (type errors, etc.)
-        let mut diagnostics = if is_ts_js {
-            self.validate_typescript_document(&uri, content, project)
-        } else {
-            self.validate_graphql_document(content, project)
-        };
+        // Now we get a read-only reference for validation, which won't block other operations
+        let mut diagnostics = {
+            let Some(projects) = self.projects.get(&workspace_uri) else {
+                tracing::warn!("No projects loaded for workspace: {workspace_uri}");
+                return;
+            };
+
+            let Some((_, project)) = projects.get(project_idx) else {
+                tracing::warn!(
+                    "Project index {project_idx} not found in workspace {workspace_uri}"
+                );
+                return;
+            };
+
+            if is_ts_js {
+                self.validate_typescript_document(&uri, content, project)
+            } else {
+                self.validate_graphql_document(content, project)
+            }
+        }; // Drop the read lock here
 
         // Add project-wide duplicate name diagnostics for this file
         if let Some(path) = uri.to_file_path() {
             let file_path_str = path.display().to_string();
-            let project_wide_diags = self.get_project_wide_diagnostics(&file_path_str, project);
+
+            let project_wide_diags = {
+                let Some(projects) = self.projects.get(&workspace_uri) else {
+                    tracing::warn!("No projects loaded for workspace: {workspace_uri}");
+                    return;
+                };
+
+                let Some((_, project)) = projects.get(project_idx) else {
+                    tracing::warn!(
+                        "Project index {project_idx} not found in workspace {workspace_uri}"
+                    );
+                    return;
+                };
+
+                self.get_project_wide_diagnostics(&file_path_str, project)
+            }; // Drop the read lock here
+
             diagnostics.extend(project_wide_diags);
         }
+
+        // Filter out diagnostics with invalid ranges (defensive fix for stale diagnostics)
+        // Count total lines in the content to validate ranges
+        let line_count = content.lines().count();
+        diagnostics.retain(|diag| {
+            let start_line = diag.range.start.line as usize;
+            let end_line = diag.range.end.line as usize;
+
+            // Keep diagnostic only if both start and end are within document bounds
+            if start_line >= line_count || end_line >= line_count {
+                tracing::warn!(
+                    "Filtered out diagnostic with invalid range: {:?} (document has {} lines)",
+                    diag.range,
+                    line_count
+                );
+                false
+            } else {
+                true
+            }
+        });
 
         self.client
             .publish_diagnostics(uri.clone(), diagnostics, None)
