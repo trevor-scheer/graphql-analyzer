@@ -162,8 +162,104 @@ impl GraphQLLanguageServer {
         None
     }
 
+    /// Re-validate all fragment definition files in the project
+    /// This is called after document changes to update unused fragment warnings
+    async fn revalidate_fragment_files(&self, changed_uri: &Uri) {
+        let start = std::time::Instant::now();
+        tracing::info!(
+            "Starting re-validation of fragment files for: {:?}",
+            changed_uri
+        );
+
+        // Find the workspace and project for the changed document
+        let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(changed_uri)
+        else {
+            tracing::debug!("No workspace found for URI: {:?}", changed_uri);
+            return;
+        };
+
+        // Get all fragment files from the document index
+        // We need to collect the file paths and then drop the borrow before validating
+        let index_start = std::time::Instant::now();
+        let fragment_files: std::collections::HashSet<String> = {
+            let Some(projects) = self.projects.get(&workspace_uri) else {
+                tracing::debug!("No projects loaded for workspace: {}", workspace_uri);
+                return;
+            };
+
+            let Some((_, project)) = projects.get(project_idx) else {
+                tracing::debug!(
+                    "Project index {} not found in workspace {}",
+                    project_idx,
+                    workspace_uri
+                );
+                return;
+            };
+
+            let document_index = project.get_document_index();
+            tracing::debug!("Got document index in {:?}", index_start.elapsed());
+
+            document_index
+                .fragments
+                .values()
+                .flatten() // Flatten Vec<FragmentInfo> to iterate over each FragmentInfo
+                .map(|frag_info| frag_info.file_path.clone())
+                .collect()
+        }; // Drop the borrow here before we start validating
+
+        tracing::info!(
+            "Re-validating {} fragment files after document change",
+            fragment_files.len()
+        );
+
+        // Re-validate each fragment file
+        for file_path in fragment_files {
+            let file_start = std::time::Instant::now();
+            tracing::debug!("Re-validating fragment file: {}", file_path);
+
+            // Convert file path to URI
+            let Some(fragment_uri) = Uri::from_file_path(&file_path) else {
+                tracing::warn!("Failed to convert file path to URI: {}", file_path);
+                continue;
+            };
+
+            // Get content from cache or read from disk
+            let content =
+                if let Some(cached_content) = self.document_cache.get(&fragment_uri.to_string()) {
+                    tracing::debug!("Using cached content for: {}", file_path);
+                    cached_content.clone()
+                } else {
+                    // Fragment file not open in editor, read from disk
+                    tracing::debug!("Reading fragment file from disk: {}", file_path);
+                    match std::fs::read_to_string(&file_path) {
+                        Ok(content) => content,
+                        Err(e) => {
+                            tracing::warn!("Failed to read fragment file {}: {}", file_path, e);
+                            continue;
+                        }
+                    }
+                };
+
+            // Validate the fragment file
+            self.validate_document(fragment_uri, &content).await;
+            tracing::debug!(
+                "Validated fragment file {} in {:?}",
+                file_path,
+                file_start.elapsed()
+            );
+        }
+
+        tracing::info!(
+            "Completed re-validation of fragment files in {:?}",
+            start.elapsed()
+        );
+    }
+
     /// Validate a document and publish diagnostics
     async fn validate_document(&self, uri: Uri, content: &str) {
+        let start = std::time::Instant::now();
+        tracing::debug!("Validating document: {:?}", uri);
+
         let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No project found for document: {:?}", uri);
             return;
@@ -233,6 +329,8 @@ impl GraphQLLanguageServer {
         self.client
             .publish_diagnostics(uri.clone(), diagnostics, None)
             .await;
+
+        tracing::debug!("Validated document {:?} in {:?}", uri, start.elapsed());
     }
 
     /// Get project-wide duplicate name diagnostics for a specific file
@@ -446,7 +544,8 @@ impl LanguageServer for GraphQLLanguageServer {
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
-        tracing::debug!("Document changed: {:?}", uri);
+        let start = std::time::Instant::now();
+        tracing::info!("Document changed: {:?}", uri);
 
         // Get the latest content from changes (full sync mode)
         for change in params.content_changes {
@@ -454,8 +553,26 @@ impl LanguageServer for GraphQLLanguageServer {
             self.document_cache
                 .insert(uri.to_string(), change.text.clone());
 
+            let validate_start = std::time::Instant::now();
             self.validate_document(uri.clone(), &change.text).await;
+            tracing::debug!("Main validation took {:?}", validate_start.elapsed());
+
+            // Re-validate all fragment definition files to update unused fragment warnings
+            // This ensures that when fragment usage changes in one file, warnings in
+            // fragment files are immediately updated
+            let revalidate_start = std::time::Instant::now();
+            self.revalidate_fragment_files(&uri).await;
+            tracing::debug!(
+                "Fragment revalidation took {:?}",
+                revalidate_start.elapsed()
+            );
         }
+
+        tracing::info!(
+            "Completed did_change for {:?} in {:?}",
+            uri,
+            start.elapsed()
+        );
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
@@ -632,13 +749,15 @@ impl LanguageServer for GraphQLLanguageServer {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
+        let start = std::time::Instant::now();
         let uri = params.text_document_position_params.text_document.uri;
         let lsp_position = params.text_document_position_params.position;
 
         tracing::info!(
-            "Go to definition requested: {:?} at {:?}",
+            "Go to definition requested: {:?} at line={} char={}",
             uri,
-            lsp_position
+            lsp_position.line,
+            lsp_position.character
         );
 
         // Get the cached document content
@@ -1021,6 +1140,12 @@ impl LanguageServer for GraphQLLanguageServer {
             })
             .collect();
 
+        tracing::info!(
+            "Goto definition completed in {:?}, returning {} location(s)",
+            start.elapsed(),
+            lsp_locations.len()
+        );
+
         if lsp_locations.is_empty() {
             Ok(None)
         } else {
@@ -1029,14 +1154,16 @@ impl LanguageServer for GraphQLLanguageServer {
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let start = std::time::Instant::now();
         let uri = params.text_document_position.text_document.uri;
         let lsp_position = params.text_document_position.position;
         let include_declaration = params.context.include_declaration;
 
         tracing::info!(
-            "Find references requested: {:?} at {:?} (include_declaration: {})",
+            "Find references requested: {:?} at line={} char={} (include_declaration: {})",
             uri,
-            lsp_position,
+            lsp_position.line,
+            lsp_position.character,
             include_declaration
         );
 
@@ -1064,6 +1191,7 @@ impl LanguageServer for GraphQLLanguageServer {
         };
 
         // Collect all documents from the cache
+        let collect_start = std::time::Instant::now();
         let all_documents: Vec<(String, String)> = self
             .document_cache
             .iter()
@@ -1074,9 +1202,10 @@ impl LanguageServer for GraphQLLanguageServer {
             })
             .collect();
 
-        tracing::debug!(
-            "Collected {} documents for reference search",
-            all_documents.len()
+        tracing::info!(
+            "Collected {} documents for reference search in {:?}",
+            all_documents.len(),
+            collect_start.elapsed()
         );
 
         // For find_references optimization, we would parse all documents once here
@@ -1093,6 +1222,7 @@ impl LanguageServer for GraphQLLanguageServer {
         };
 
         // Find references with pre-parsed ASTs
+        let find_start = std::time::Instant::now();
         let Some(references) = project.find_references_with_asts(
             &content,
             position,
@@ -1105,7 +1235,11 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         };
 
-        tracing::info!("Found {} reference(s)", references.len());
+        tracing::info!(
+            "Found {} reference(s) in {:?}",
+            references.len(),
+            find_start.elapsed()
+        );
 
         // Convert to LSP Locations
         #[allow(clippy::cast_possible_truncation)]
@@ -1131,6 +1265,12 @@ impl LanguageServer for GraphQLLanguageServer {
                 })
             })
             .collect();
+
+        tracing::info!(
+            "Find references completed in {:?}, returning {} location(s)",
+            start.elapsed(),
+            lsp_locations.len()
+        );
 
         if lsp_locations.is_empty() {
             Ok(None)

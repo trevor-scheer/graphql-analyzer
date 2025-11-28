@@ -511,55 +511,52 @@ impl GraphQLProject {
     ///
     /// This scans all documents in the project to find fragment spreads and returns a set
     /// of fragment names that are referenced anywhere in the codebase.
+    ///
+    /// Uses cached parsed ASTs from the document index for efficiency and to ensure we use
+    /// up-to-date in-memory content rather than stale files from disk.
     fn collect_used_fragment_names(&self) -> std::collections::HashSet<String> {
-        use apollo_parser::{cst, Parser};
+        use apollo_parser::cst;
         use std::collections::HashSet;
 
         let mut used_fragments = HashSet::new();
 
-        // Collect all unique file paths from operations and fragments
-        let all_files = {
-            let document_index = self.document_index.read().unwrap();
-            let mut files = HashSet::new();
-            for ops in document_index.operations.values() {
-                for op in ops {
-                    files.insert(op.file_path.clone());
+        // Use the cached parsed ASTs from the document index
+        // This ensures we use up-to-date in-memory content that was updated via update_document_index
+        let document_index = self.document_index.read().unwrap();
+
+        // Scan each cached AST for fragment spreads
+        for ast in document_index.parsed_asts.values() {
+            // Walk the document looking for fragment spreads
+            for definition in ast.document().definitions() {
+                if let cst::Definition::OperationDefinition(operation) = definition {
+                    if let Some(selection_set) = operation.selection_set() {
+                        Self::collect_fragment_spreads_from_selection_set(
+                            &selection_set,
+                            &mut used_fragments,
+                        );
+                    }
                 }
             }
-            for frags in document_index.fragments.values() {
-                for frag in frags {
-                    files.insert(frag.file_path.clone());
-                }
-            }
-            drop(document_index);
-            files
-        };
+        }
 
-        // Scan each file for fragment spreads
-        for file_path in all_files {
-            // Try to extract GraphQL from the file
-            if let Ok(extracted) = graphql_extract::extract_from_file(
-                std::path::Path::new(&file_path),
-                &graphql_extract::ExtractConfig::default(),
-            ) {
-                for item in extracted {
-                    let parser = Parser::new(&item.source);
-                    let tree = parser.parse();
-
-                    // Walk the document looking for fragment spreads
-                    for definition in tree.document().definitions() {
-                        if let cst::Definition::OperationDefinition(operation) = definition {
-                            if let Some(selection_set) = operation.selection_set() {
-                                Self::collect_fragment_spreads_from_selection_set(
-                                    &selection_set,
-                                    &mut used_fragments,
-                                );
-                            }
+        // Also check extracted blocks for TypeScript/JavaScript files
+        for blocks in document_index.extracted_blocks.values() {
+            for block in blocks {
+                // Walk the pre-parsed AST looking for fragment spreads
+                for definition in block.parsed.document().definitions() {
+                    if let cst::Definition::OperationDefinition(operation) = definition {
+                        if let Some(selection_set) = operation.selection_set() {
+                            Self::collect_fragment_spreads_from_selection_set(
+                                &selection_set,
+                                &mut used_fragments,
+                            );
                         }
                     }
                 }
             }
         }
+
+        drop(document_index);
 
         used_fragments
     }
