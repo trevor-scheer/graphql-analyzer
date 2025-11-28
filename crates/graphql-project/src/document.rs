@@ -105,13 +105,47 @@ impl DocumentLoader {
 
     /// Load a single file and add operations/fragments to the index
     fn load_file(&self, path: &Path, index: &mut DocumentIndex) -> Result<()> {
+        use std::fs;
+
+        // Read the file content
+        let content = fs::read_to_string(path)
+            .map_err(|e| ProjectError::DocumentLoad(format!("Failed to read file: {e}")))?;
+
+        // Parse the full content once and cache it
+        let parsed = Parser::new(&content).parse();
+        let parsed_arc = std::sync::Arc::new(parsed);
+
         // Extract GraphQL from the file
         let extracted = extract_from_file(path, &self.extract_config)
             .map_err(|e| ProjectError::DocumentLoad(format!("Extract error: {e}")))?;
 
         let file_path = path.display().to_string();
 
-        // Parse each extracted GraphQL document
+        // Cache the parsed AST for pure GraphQL files
+        index.cache_ast(file_path.clone(), parsed_arc);
+
+        // Cache extracted blocks with their parsed ASTs (for TypeScript/JavaScript files)
+        if !extracted.is_empty() {
+            let mut cached_blocks = Vec::new();
+            for item in &extracted {
+                // Parse each extracted block and cache it
+                let block_parsed = Parser::new(&item.source).parse();
+                let block = crate::ExtractedBlock {
+                    content: item.source.clone(),
+                    offset: item.location.offset,
+                    length: item.location.length,
+                    start_line: item.location.range.start.line,
+                    start_column: item.location.range.start.column,
+                    end_line: item.location.range.end.line,
+                    end_column: item.location.range.end.column,
+                    parsed: std::sync::Arc::new(block_parsed),
+                };
+                cached_blocks.push(block);
+            }
+            index.cache_extracted_blocks(file_path.clone(), cached_blocks);
+        }
+
+        // Parse each extracted GraphQL document and add to index
         for item in extracted {
             Self::parse_and_index(&item, &file_path, index);
         }

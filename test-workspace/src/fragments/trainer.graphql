@@ -51,7 +51,4 @@ fragment TrainerWithTeam on Trainer {
   badges {
     ...BadgeInfo
   }
-  team {
-    ...TeamPokemonDetailed
-  }
 }

@@ -137,10 +137,14 @@ fragment PostFields on Post {
     let diagnostics = project.validate_document_source(fragment, "fragment.graphql");
 
     // Standalone fragments should be validated for schema correctness
-    assert!(
-        diagnostics.is_empty(),
-        "Valid standalone fragment should have no errors: {diagnostics:?}"
+    // and should show a warning if unused
+    assert_eq!(
+        diagnostics.len(),
+        1,
+        "Should have one unused fragment warning"
     );
+    assert_eq!(diagnostics[0].severity, graphql_project::Severity::Warning);
+    assert!(diagnostics[0].message.contains("never used"));
 }
 
 #[tokio::test]

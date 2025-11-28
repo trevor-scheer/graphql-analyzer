@@ -34,7 +34,8 @@ mutation UpdateTeamPokemon(
   $input: UpdateTeamPokemonInput!
 ) {
   updateTeamPokemon(trainerId: $trainerId, pokemonId: $pokemonId, input: $input) {
-    ...TeamPokemonDetailed
+    # ...TeamPokemonDetailed
+    experience
   }
 }
 
@@ -44,7 +45,8 @@ mutation CatchPokemon($trainerId: ID!, $pokemonId: ID!, $pokeball: ID!) {
     success
     message
     pokemon {
-      ...TeamPokemonDetailed
+      #...TeamPokemonDetailed
+      experience
     }
   }
 }
@@ -59,6 +61,7 @@ mutation ReleasePokemon($trainerId: ID!, $pokemonId: ID!) {
 # Evolve a Pokemon
 mutation EvolvePokemon($trainerId: ID!, $pokemonId: ID!) {
   evolvePokemon(trainerId: $trainerId, pokemonId: $pokemonId) {
-    ...TeamPokemonDetailed
+    # ...TeamPokemonDetailed
+    experience
   }
 }
