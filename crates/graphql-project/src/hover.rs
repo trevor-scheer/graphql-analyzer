@@ -106,7 +106,12 @@ impl HoverProvider {
         };
 
         // If there are syntax errors, we may not be able to provide accurate hover info
-        if tree.errors().count() > 0 {
+        let error_count = tree.errors().count();
+        if error_count > 0 {
+            tracing::debug!(
+                "Hover provider: parse tree has {} syntax error(s), returning None",
+                error_count
+            );
             return None;
         }
 
