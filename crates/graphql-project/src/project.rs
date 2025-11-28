@@ -222,7 +222,11 @@ impl GraphQLProject {
                 };
                 cached_blocks.push(block);
             }
-            if !cached_blocks.is_empty() {
+            // Always update the cache, even if empty, to ensure stale data is cleared
+            if cached_blocks.is_empty() {
+                // Remove the cached blocks for this file if there are none
+                document_index.remove_extracted_blocks(file_path);
+            } else {
                 document_index.cache_extracted_blocks(file_path.to_string(), cached_blocks);
             }
 

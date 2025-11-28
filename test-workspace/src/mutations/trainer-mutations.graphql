@@ -34,7 +34,8 @@ mutation UpdateTeamPokemon(
   $input: UpdateTeamPokemonInput!
 ) {
   updateTeamPokemon(trainerId: $trainerId, pokemonId: $pokemonId, input: $input) {
-    # ...TeamPokemonDetailed
+    ...TeamPokemonDetailed
+  
     experience
   }
 }
