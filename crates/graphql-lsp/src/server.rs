@@ -767,15 +767,20 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         };
 
-        // Convert LSP position to graphql-project Position (0-indexed)
+        // Convert LSP position to graphql-project Position
         let position = graphql_project::Position {
             line: lsp_position.line as usize,
             character: lsp_position.character as usize,
         };
 
-        // Get hover info from the project
-        let file_path = uri.to_string();
-        let Some(hover_info) = project.hover_info(&content, position, &file_path) else {
+        // Get hover info from the project (handles TypeScript extraction internally)
+        // Convert URI to file path for cache lookup consistency
+        let file_path = uri
+            .to_file_path()
+            .map_or_else(|| uri.to_string(), |path| path.display().to_string());
+
+        let Some(hover_info) = project.hover_info_at_position(&file_path, position, &content)
+        else {
             return Ok(None);
         };
 

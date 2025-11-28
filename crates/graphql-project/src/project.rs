@@ -900,6 +900,97 @@ impl GraphQLProject {
         hover_provider.hover_with_ast(source, position, &schema_index, cached_ast.as_deref())
     }
 
+    /// Get hover information at a position, handling TypeScript/JavaScript extraction
+    ///
+    /// This method automatically detects if the file is TypeScript/JavaScript and
+    /// extracts GraphQL blocks, adjusting positions accordingly. For pure GraphQL
+    /// files, it delegates to `hover_info`.
+    ///
+    /// # Arguments
+    /// * `file_path` - The file path or URI (used to determine file type and retrieve cached blocks)
+    /// * `position` - The position in the original file
+    /// * `full_content` - The full document content (used for GraphQL files)
+    #[must_use]
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
+    pub fn hover_info_at_position(
+        &self,
+        file_path: &str,
+        position: Position,
+        full_content: &str,
+    ) -> Option<HoverInfo> {
+        // Check if this is a TypeScript/JavaScript file
+        // file_path can be a URI (file:///...) or a regular path, so we use ends_with
+        let is_ts_file = file_path.ends_with(".ts")
+            || file_path.ends_with(".tsx")
+            || file_path.ends_with(".js")
+            || file_path.ends_with(".jsx");
+
+        if is_ts_file {
+            tracing::debug!(
+                "Detected TypeScript/JavaScript file, looking for extracted blocks for: {}",
+                file_path
+            );
+
+            // Try to use cached extracted blocks
+            let cached_blocks = self.get_extracted_blocks(file_path)?;
+
+            tracing::debug!("Found {} extracted blocks", cached_blocks.len());
+
+            // Find which extracted GraphQL block contains the cursor position
+            for block in cached_blocks {
+                if position.line >= block.start_line && position.line <= block.end_line {
+                    // Adjust position relative to the extracted GraphQL
+                    let relative_position = Position {
+                        line: position.line - block.start_line,
+                        character: if position.line == block.start_line {
+                            position.character.saturating_sub(block.start_column)
+                        } else {
+                            position.character
+                        },
+                    };
+
+                    tracing::debug!(
+                        "Adjusted position from {:?} to {:?} for extracted block",
+                        position,
+                        relative_position
+                    );
+
+                    // Get hover info using the extracted GraphQL content and its cached AST
+                    // Use the block's parsed AST instead of looking up by file_path
+                    // (which would return the TypeScript file's AST with syntax errors)
+                    let hover_result = {
+                        let schema_index = self.schema_index.read().unwrap();
+                        let hover_provider = HoverProvider::new();
+                        hover_provider.hover_with_ast(
+                            &block.content,
+                            relative_position,
+                            &schema_index,
+                            Some(&block.parsed),
+                        )
+                    };
+
+                    if hover_result.is_none() {
+                        tracing::debug!(
+                            "hover_info returned None for extracted block at position {:?}. Block content:\n{}",
+                            relative_position,
+                            block.content
+                        );
+                    } else {
+                        tracing::debug!("hover_info succeeded for extracted block");
+                    }
+
+                    return hover_result;
+                }
+            }
+
+            // Cursor not in any GraphQL block
+            None
+        } else {
+            // For .graphql files, use the original logic
+            self.hover_info(full_content, position, file_path)
+        }
+    }
+
     /// Get completion items for a position in a GraphQL document
     #[must_use]
     pub fn complete(
