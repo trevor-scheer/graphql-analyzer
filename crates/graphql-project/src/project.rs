@@ -5,6 +5,7 @@ use crate::{
 };
 use apollo_compiler::validation::DiagnosticList;
 use graphql_config::{GraphQLConfig, ProjectConfig};
+use graphql_extract::ExtractConfig;
 use std::sync::{Arc, RwLock};
 
 /// Main project structure that manages schema, documents, and validation
@@ -13,6 +14,16 @@ pub struct GraphQLProject {
     base_dir: Option<std::path::PathBuf>,
     schema_index: Arc<RwLock<SchemaIndex>>,
     document_index: Arc<RwLock<DocumentIndex>>,
+}
+
+/// Extract `ExtractConfig` from `ProjectConfig` extensions
+fn get_extract_config(config: &ProjectConfig) -> ExtractConfig {
+    config
+        .extensions
+        .as_ref()
+        .and_then(|ext| ext.get("extractConfig"))
+        .and_then(|value| serde_json::from_value(value.clone()).ok())
+        .unwrap_or_default()
 }
 
 impl GraphQLProject {
@@ -92,6 +103,9 @@ impl GraphQLProject {
             loader = loader.with_base_path(base_dir);
         }
 
+        // Set extract config from project extensions
+        loader = loader.with_extract_config(get_extract_config(&self.config));
+
         let index = loader.load()?;
 
         // Update document index
@@ -157,6 +171,12 @@ impl GraphQLProject {
         index.get_extracted_blocks(file_path).cloned()
     }
 
+    /// Get the extract configuration for this project
+    #[must_use]
+    pub fn get_extract_config(&self) -> ExtractConfig {
+        get_extract_config(&self.config)
+    }
+
     /// Update document index for a single file with in-memory content
     ///
     /// This removes all operations and fragments from the specified file path,
@@ -166,7 +186,7 @@ impl GraphQLProject {
     #[allow(clippy::significant_drop_tightening)]
     pub fn update_document_index(&self, file_path: &str, content: &str) -> Result<()> {
         use apollo_parser::Parser;
-        use graphql_extract::{extract_from_source, ExtractConfig, Language};
+        use graphql_extract::{extract_from_source, Language};
         use std::path::Path;
 
         // Determine language from file extension
@@ -185,8 +205,9 @@ impl GraphQLProject {
         let parsed_arc = std::sync::Arc::new(parsed);
 
         // Extract GraphQL from the content
-        let extracted = extract_from_source(content, language, &ExtractConfig::default())
-            .map_err(|e| crate::ProjectError::DocumentLoad(format!("Extract error: {e}")))?;
+        let extracted =
+            extract_from_source(content, language, &get_extract_config(&self.config))
+                .map_err(|e| crate::ProjectError::DocumentLoad(format!("Extract error: {e}")))?;
 
         // Acquire write lock and update index
         {
@@ -278,7 +299,7 @@ impl GraphQLProject {
             for fragment_name in referenced_fragments {
                 if let Some(frag_info) = self.get_fragment(&fragment_name) {
                     // Extract just this specific fragment from the file
-                    if let Some(fragment_source) = Self::extract_fragment_from_file(
+                    if let Some(fragment_source) = self.extract_fragment_from_file(
                         std::path::Path::new(&frag_info.file_path),
                         &fragment_name,
                     ) {
@@ -405,7 +426,7 @@ impl GraphQLProject {
                         }
 
                         // Extract just this specific fragment from the file
-                        if let Some(fragment_source) = Self::extract_fragment_from_file(
+                        if let Some(fragment_source) = self.extract_fragment_from_file(
                             std::path::Path::new(&frag_info.file_path),
                             &fragment_name,
                         ) {
@@ -647,7 +668,7 @@ impl GraphQLProject {
             if let Some(frag_info) = project.get_fragment(&fragment_name) {
                 if let Ok(frag_extracted) = graphql_extract::extract_from_file(
                     std::path::Path::new(&frag_info.file_path),
-                    &graphql_extract::ExtractConfig::default(),
+                    &get_extract_config(&project.config),
                 ) {
                     for frag_item in frag_extracted {
                         let frag_parser = Parser::new(&frag_item.source);
@@ -692,17 +713,16 @@ impl GraphQLProject {
     /// This parses the file and extracts only the named fragment, rather than
     /// including all fragments in the file. Returns None if the fragment isn't found.
     fn extract_fragment_from_file(
+        &self,
         file_path: &std::path::Path,
         fragment_name: &str,
     ) -> Option<String> {
         use apollo_parser::{cst::CstNode, Parser};
 
         // Extract GraphQL from the file
-        let extracted = graphql_extract::extract_from_file(
-            file_path,
-            &graphql_extract::ExtractConfig::default(),
-        )
-        .ok()?;
+        let extracted =
+            graphql_extract::extract_from_file(file_path, &get_extract_config(&self.config))
+                .ok()?;
 
         // Parse each extracted block looking for the fragment
         for item in extracted {
@@ -1204,5 +1224,68 @@ mod tests {
         let projects = GraphQLProject::from_config(&config).unwrap();
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].0, "default");
+    }
+
+    #[test]
+    fn test_get_extract_config_default() {
+        let config = ProjectConfig {
+            schema: SchemaConfig::Path("schema.graphql".to_string()),
+            documents: None,
+            include: None,
+            exclude: None,
+            extensions: None,
+        };
+        let extract_config = get_extract_config(&config);
+        assert_eq!(extract_config.magic_comment, "GraphQL");
+        assert_eq!(extract_config.tag_identifiers, vec!["gql", "graphql"]);
+        assert!(!extract_config.allow_global_identifiers);
+    }
+
+    #[test]
+    fn test_get_extract_config_from_extensions() {
+        let mut extensions = std::collections::HashMap::new();
+        extensions.insert(
+            "extractConfig".to_string(),
+            serde_json::json!({
+                "magicComment": "CustomGraphQL",
+                "tagIdentifiers": ["gql", "customTag"],
+                "modules": ["custom-module"],
+                "allowGlobalIdentifiers": true
+            }),
+        );
+        let config = ProjectConfig {
+            schema: SchemaConfig::Path("schema.graphql".to_string()),
+            documents: None,
+            include: None,
+            exclude: None,
+            extensions: Some(extensions),
+        };
+        let extract_config = get_extract_config(&config);
+        assert_eq!(extract_config.magic_comment, "CustomGraphQL");
+        assert_eq!(extract_config.tag_identifiers, vec!["gql", "customTag"]);
+        assert_eq!(extract_config.modules, vec!["custom-module"]);
+        assert!(extract_config.allow_global_identifiers);
+    }
+
+    #[test]
+    fn test_get_extract_config_partial() {
+        let mut extensions = std::collections::HashMap::new();
+        extensions.insert(
+            "extractConfig".to_string(),
+            serde_json::json!({
+                "allowGlobalIdentifiers": true
+            }),
+        );
+        let config = ProjectConfig {
+            schema: SchemaConfig::Path("schema.graphql".to_string()),
+            documents: None,
+            include: None,
+            exclude: None,
+            extensions: Some(extensions),
+        };
+        let extract_config = get_extract_config(&config);
+        assert_eq!(extract_config.magic_comment, "GraphQL");
+        assert_eq!(extract_config.tag_identifiers, vec!["gql", "graphql"]);
+        assert!(extract_config.allow_global_identifiers);
     }
 }

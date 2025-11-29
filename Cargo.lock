@@ -781,6 +781,7 @@ name = "graphql-extract"
 version = "0.1.1"
 dependencies = [
  "glob",
+ "serde",
  "swc_common",
  "swc_core",
  "thiserror 2.0.17",

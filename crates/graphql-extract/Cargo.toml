@@ -15,5 +15,6 @@ glob = { workspace = true }
 walkdir = { workspace = true }
 swc_common = { workspace = true }
 swc_core = { workspace = true }
+serde = { workspace = true }
 
 [dev-dependencies]
