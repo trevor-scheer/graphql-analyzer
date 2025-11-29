@@ -295,31 +295,101 @@ impl swc_core::ecma::visit::Visit for GraphQLVisitor<'_> {
         tagged.visit_children_with(self);
     }
 
-    /// Visit call expressions to handle cases like gql(/* GraphQL */ "query")
+    /// Visit call expressions to handle cases like:
+    /// - gql(/* GraphQL */ "query")
+    /// - graphql(`query { ... }`, [fragment1, fragment2])
     fn visit_call_expr(&mut self, call: &swc_core::ecma::ast::CallExpr) {
-        use swc_core::ecma::ast::{Expr, Lit};
+        use swc_core::ecma::ast::{Callee, Expr, Lit};
         use swc_core::ecma::visit::VisitWith;
-        // Check if there are any string arguments with magic comments
-        for arg in &call.args {
-            if let Expr::Lit(Lit::Str(str_lit)) = &*arg.expr {
-                let pos = str_lit.span.lo.0 as usize;
-                if self.check_magic_comment(pos) {
-                    let start_offset = str_lit.span.lo.0 as usize - 1;
-                    let content = String::from_utf8_lossy(str_lit.value.as_bytes()).to_string();
-                    let length = content.len();
 
-                    let start_pos = position_from_offset(self.source, start_offset);
-                    let end_pos = position_from_offset(self.source, start_offset + length);
+        // Check if this is a call to a configured tag identifier (e.g., gql(...) or graphql(...))
+        let tag_name = match &call.callee {
+            Callee::Expr(expr) => match &**expr {
+                Expr::Ident(ident) => {
+                    let name = String::from_utf8_lossy(ident.sym.as_bytes()).to_string();
+                    if self.config.tag_identifiers.contains(&name) && self.is_valid_tag(&name) {
+                        Some(name)
+                    } else {
+                        None
+                    }
+                }
+                Expr::Member(member) => {
+                    // Handle member expressions like `graphql.default`
+                    if let Expr::Ident(obj) = &*member.obj {
+                        let name = String::from_utf8_lossy(obj.sym.as_bytes()).to_string();
+                        if self.config.tag_identifiers.contains(&name) && self.is_valid_tag(&name) {
+                            Some(name)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            },
+            _ => None,
+        };
 
-                    self.extracted.push(ExtractedGraphQL {
-                        source: content,
-                        location: SourceLocation::new(
-                            start_offset,
-                            length,
-                            Range::new(start_pos, end_pos),
-                        ),
-                        tag_name: None,
-                    });
+        // If this is a valid GraphQL tag function call, check the first argument
+        if let Some(tag) = tag_name {
+            if let Some(first_arg) = call.args.first() {
+                match &*first_arg.expr {
+                    // Handle template literal: graphql(`query { ... }`)
+                    Expr::Tpl(tpl) => {
+                        if let Some(extracted) = self.extract_template_literal(tpl, Some(tag)) {
+                            self.extracted.push(extracted);
+                        }
+                    }
+                    // Handle string literal with magic comment: gql(/* GraphQL */ "query")
+                    Expr::Lit(Lit::Str(str_lit)) => {
+                        let pos = str_lit.span.lo.0 as usize;
+                        if self.check_magic_comment(pos) {
+                            let start_offset = str_lit.span.lo.0 as usize - 1;
+                            let content =
+                                String::from_utf8_lossy(str_lit.value.as_bytes()).to_string();
+                            let length = content.len();
+
+                            let start_pos = position_from_offset(self.source, start_offset);
+                            let end_pos = position_from_offset(self.source, start_offset + length);
+
+                            self.extracted.push(ExtractedGraphQL {
+                                source: content,
+                                location: SourceLocation::new(
+                                    start_offset,
+                                    length,
+                                    Range::new(start_pos, end_pos),
+                                ),
+                                tag_name: None,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        } else {
+            // Not a GraphQL tag function, check for magic comments in string arguments
+            for arg in &call.args {
+                if let Expr::Lit(Lit::Str(str_lit)) = &*arg.expr {
+                    let pos = str_lit.span.lo.0 as usize;
+                    if self.check_magic_comment(pos) {
+                        let start_offset = str_lit.span.lo.0 as usize - 1;
+                        let content = String::from_utf8_lossy(str_lit.value.as_bytes()).to_string();
+                        let length = content.len();
+
+                        let start_pos = position_from_offset(self.source, start_offset);
+                        let end_pos = position_from_offset(self.source, start_offset + length);
+
+                        self.extracted.push(ExtractedGraphQL {
+                            source: content,
+                            location: SourceLocation::new(
+                                start_offset,
+                                length,
+                                Range::new(start_pos, end_pos),
+                            ),
+                            tag_name: None,
+                        });
+                    }
                 }
             }
         }
@@ -796,6 +866,79 @@ const query = gql`query Test { field }`;
                 let result = extract_from_source(source, lang, &config).unwrap();
                 assert_eq!(result.len(), 1, "Failed for {lang:?}");
             }
+        }
+
+        #[test]
+        fn test_extract_call_expression_with_second_argument() {
+            let source = r"
+import { graphql } from 'graphql-tag';
+
+const fragment1 = graphql`fragment F1 on User { id }`;
+const fragment2 = graphql`fragment F2 on User { name }`;
+
+const document = graphql(`
+  query GetUser {
+    user {
+      ...F1
+      ...F2
+    }
+  }
+`, [fragment1, fragment2]);
+";
+            let config = ExtractConfig::default();
+            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+
+            // Should extract all three: both fragments and the query
+            assert_eq!(result.len(), 3);
+            assert!(result[0].source.contains("fragment F1"));
+            assert!(result[1].source.contains("fragment F2"));
+            assert!(result[2].source.contains("query GetUser"));
+            assert_eq!(result[2].tag_name, Some("graphql".to_string()));
+        }
+
+        #[test]
+        fn test_extract_call_expression_without_second_argument() {
+            let source = r"
+import { graphql } from 'graphql-tag';
+
+const document = graphql(`
+  query GetUser {
+    user {
+      id
+    }
+  }
+`);
+";
+            let config = ExtractConfig::default();
+            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+
+            // Should extract the query
+            assert_eq!(result.len(), 1);
+            assert!(result[0].source.contains("query GetUser"));
+            assert_eq!(result[0].tag_name, Some("graphql".to_string()));
+        }
+
+        #[test]
+        fn test_extract_call_expression_gql_variant() {
+            let source = r"
+import { gql } from 'graphql-tag';
+
+const document = gql(`
+  query GetPosts {
+    posts {
+      id
+      title
+    }
+  }
+`, []);
+";
+            let config = ExtractConfig::default();
+            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+
+            // Should extract the query
+            assert_eq!(result.len(), 1);
+            assert!(result[0].source.contains("query GetPosts"));
+            assert_eq!(result[0].tag_name, Some("gql".to_string()));
         }
     }
 }
