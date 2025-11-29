@@ -8,6 +8,28 @@ A VS Code extension that provides GraphQL language support with validation, comp
 - **Error Diagnostics**: Inline error messages with squiggly underlines
 - **Future**: Autocompletion, hover info, go-to-definition (coming soon)
 
+## Installation
+
+### From GitHub Release
+
+1. Download the `.vsix` file from the [latest release](https://github.com/trevor-scheer/graphql-lsp/releases)
+2. Install in VS Code:
+   - Open VS Code
+   - Go to Extensions view (Ctrl/Cmd+Shift+X)
+   - Click the "..." menu at the top of the Extensions view
+   - Select "Install from VSIX..."
+   - Choose the downloaded `.vsix` file
+
+Or install via command line:
+
+```bash
+code --install-extension graphql-lsp-*.vsix
+```
+
+### From Marketplace
+
+Coming soon - this extension will be published to the VS Code Marketplace.
+
 ## Development Setup
 
 1. Build the LSP server:
