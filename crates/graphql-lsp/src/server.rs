@@ -493,12 +493,37 @@ impl GraphQLLanguageServer {
             uri
         );
 
-        // Use the centralized validation logic from graphql-project
+        // Use the centralized validation logic from graphql-project (Apollo compiler)
         let file_path = uri.to_string();
-        let project_diagnostics = project.validate_extracted_documents(&extracted, &file_path);
+        let mut all_diagnostics = project.validate_extracted_documents(&extracted, &file_path);
+
+        // Run custom lints (if configured)
+        let lint_config = project.get_lint_config();
+        let linter = graphql_project::Linter::new(lint_config);
+        let schema_index = project.get_schema_index();
+
+        for block in &extracted {
+            let lint_diagnostics = linter.lint_document(&block.source, &schema_index, &file_path);
+
+            // Adjust positions for extracted blocks
+            for mut diag in lint_diagnostics {
+                diag.range.start.line += block.location.range.start.line;
+                diag.range.end.line += block.location.range.start.line;
+
+                // Adjust column only for first line
+                if diag.range.start.line == block.location.range.start.line {
+                    diag.range.start.character += block.location.range.start.column;
+                }
+                if diag.range.end.line == block.location.range.start.line {
+                    diag.range.end.character += block.location.range.start.column;
+                }
+
+                all_diagnostics.push(diag);
+            }
+        }
 
         // Convert graphql-project diagnostics to LSP diagnostics
-        project_diagnostics
+        all_diagnostics
             .into_iter()
             .map(|d| self.convert_project_diagnostic(d))
             .collect()
