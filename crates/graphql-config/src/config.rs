@@ -219,4 +219,23 @@ mod tests {
             DocumentsConfig::Patterns(vec!["**/*.graphql".to_string(), "**/*.ts".to_string()]);
         assert_eq!(multiple.patterns(), vec!["**/*.graphql", "**/*.ts"]);
     }
+
+    #[test]
+    fn test_extensions_field() {
+        // Test that extensions field can be deserialized
+        let yaml = r#"
+schema: schema.graphql
+extensions:
+  extractConfig:
+    magicComment: "MyGraphQL"
+    tagIdentifiers: ["myTag"]
+  otherExtension:
+    someKey: "someValue"
+"#;
+        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.extensions.is_some());
+        let extensions = config.extensions.unwrap();
+        assert!(extensions.contains_key("extractConfig"));
+        assert!(extensions.contains_key("otherExtension"));
+    }
 }

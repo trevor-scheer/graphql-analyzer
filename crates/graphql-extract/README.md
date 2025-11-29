@@ -122,10 +122,63 @@ let lang = Language::from_path("file.tsx")?;
 use graphql_extract::ExtractConfig;
 
 let config = ExtractConfig {
-    tags: vec!["gql".to_string(), "graphql".to_string(), "apollo".to_string()],
+    magic_comment: "GraphQL".to_string(),
+    tag_identifiers: vec!["gql".to_string(), "graphql".to_string()],
+    modules: vec!["graphql-tag".to_string(), "@apollo/client".to_string()],
+    allow_global_identifiers: false,
 };
 
-let result = extract_from_file_with_config("src/queries.ts", config)?;
+let result = extract_from_file("src/queries.ts", &config)?;
+```
+
+### Configuration via `.graphqlrc`
+
+When using this library with `graphql-config`, you can configure extraction behavior in your `.graphqlrc` file:
+
+```yaml
+schema: schema.graphql
+documents: "src/**/*.ts"
+extensions:
+  extractConfig:
+    magicComment: "GraphQL"
+    tagIdentifiers: ["gql", "query", "mutation"]
+    modules: ["graphql-tag", "@apollo/client", "custom-gql-module"]
+    allowGlobalIdentifiers: true
+```
+
+All fields are optional and will fall back to defaults:
+- `magicComment`: "GraphQL"
+- `tagIdentifiers`: ["gql", "graphql"]
+- `modules`: ["graphql-tag", "@apollo/client", "apollo-server", "apollo-server-express", "gatsby", "react-relay"]
+- `allowGlobalIdentifiers`: false
+
+## Import Tracking
+
+By default, the extractor tracks imports to ensure GraphQL is only extracted from recognized module sources. This prevents false positives from unrelated code that happens to use similar tag names.
+
+```typescript
+// ✓ Will be extracted (gql imported from graphql-tag)
+import { gql } from 'graphql-tag';
+const query = gql`query { ... }`;
+
+// ✗ Will NOT be extracted (gql imported from unknown module)
+import { gql } from 'unknown-module';
+const query = gql`query { ... }`;
+
+// ✗ Will NOT be extracted by default (no import)
+const query = gql`query { ... }`;
+```
+
+To allow extraction without imports (e.g., when `gql` is globally available), set `allowGlobalIdentifiers: true` in your configuration.
+
+### Custom Modules
+
+If you use a custom GraphQL library, add it to the `modules` list:
+
+```yaml
+extensions:
+  extractConfig:
+    modules: ["graphql-tag", "@apollo/client", "my-custom-gql-lib"]
 ```
 
 ## Source Location Mapping

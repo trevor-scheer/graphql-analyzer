@@ -1,39 +1,57 @@
 use crate::{ExtractError, Language, Position, Range, Result, SourceLocation};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
 /// Configuration for GraphQL extraction
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExtractConfig {
     /// Magic comment to look for (default: "GraphQL")
     /// Matches comments like: /* GraphQL */ `query { ... }`
+    #[serde(default = "default_magic_comment")]
     pub magic_comment: String,
 
     /// Tag identifiers to extract (default: `["gql", "graphql"]`)
     /// Matches: `gql`query { ... }`\` or `graphql`query { ... }`\`
+    #[serde(default = "default_tag_identifiers")]
     pub tag_identifiers: Vec<String>,
 
     /// Module names to recognize as GraphQL sources
     /// Default includes: graphql-tag, @apollo/client, etc.
+    #[serde(default = "default_modules")]
     pub modules: Vec<String>,
 
     /// Allow extraction without imports (global identifiers)
+    #[serde(default)]
     pub allow_global_identifiers: bool,
+}
+
+fn default_magic_comment() -> String {
+    "GraphQL".to_string()
+}
+
+fn default_tag_identifiers() -> Vec<String> {
+    vec!["gql".to_string(), "graphql".to_string()]
+}
+
+fn default_modules() -> Vec<String> {
+    vec![
+        "graphql-tag".to_string(),
+        "@apollo/client".to_string(),
+        "apollo-server".to_string(),
+        "apollo-server-express".to_string(),
+        "gatsby".to_string(),
+        "react-relay".to_string(),
+    ]
 }
 
 impl Default for ExtractConfig {
     fn default() -> Self {
         Self {
-            magic_comment: "GraphQL".to_string(),
-            tag_identifiers: vec!["gql".to_string(), "graphql".to_string()],
-            modules: vec![
-                "graphql-tag".to_string(),
-                "@apollo/client".to_string(),
-                "apollo-server".to_string(),
-                "apollo-server-express".to_string(),
-                "gatsby".to_string(),
-                "react-relay".to_string(),
-            ],
+            magic_comment: default_magic_comment(),
+            tag_identifiers: default_tag_identifiers(),
+            modules: default_modules(),
             allow_global_identifiers: false,
         }
     }
