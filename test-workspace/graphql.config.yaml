@@ -2,8 +2,4 @@ schema: schema.graphql
 documents: "**/*.{graphql,gql,ts,tsx,js,jsx}"
 extensions:
   project:
-    lint:
-      # Enable recommended lints (unique_names: error, deprecated_field: warn)
-      recommended: error
-      # You can override specific rules:
-      # deprecated_field: off
+    lint: "recommended"

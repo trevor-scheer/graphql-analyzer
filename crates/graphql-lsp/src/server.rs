@@ -406,17 +406,21 @@ impl GraphQLLanguageServer {
         file_path: &str,
         project: &GraphQLProject,
     ) -> Vec<Diagnostic> {
-        // Check if unique_names lint is enabled
+        use graphql_project::LintSeverity;
+
+        // Check if unique_names lint is enabled and get its severity
         let lint_config = project.get_lint_config();
-        if !lint_config.is_enabled("unique_names") {
-            return Vec::new();
-        }
+        let severity = match lint_config.get_severity("unique_names") {
+            Some(LintSeverity::Error) => graphql_project::Severity::Error,
+            Some(LintSeverity::Warn) => graphql_project::Severity::Warning,
+            Some(LintSeverity::Off) | None => return Vec::new(),
+        };
 
         // Get the document index
         let document_index = project.get_document_index();
 
-        // Check for duplicate names across the project
-        let duplicate_diagnostics = document_index.check_duplicate_names();
+        // Check for duplicate names across the project with the configured severity
+        let duplicate_diagnostics = document_index.check_duplicate_names(severity);
 
         // Filter to only diagnostics for this file and convert to LSP diagnostics
         duplicate_diagnostics
