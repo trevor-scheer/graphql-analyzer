@@ -3,7 +3,9 @@
   "displayName": "GraphQL LSP",
   "description": "GraphQL Language Server with validation, completion, and go-to-definition",
   "version": "0.1.1",
-  "publisher": "Trevor Scheer <trevor.scheer@gmail.com>",
+  "repository": "https://github.com/trevor-scheer/graphql-lsp",
+  "license": "MIT",
+  "publisher": "trevor-scheer",
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -74,7 +76,8 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
@@ -82,6 +85,7 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.75.0",
+    "@vscode/vsce": "^3.2.1",
     "typescript": "^5.0.0"
   }
 }
