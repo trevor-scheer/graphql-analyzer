@@ -74,6 +74,24 @@ const query = gql`
 `;
 ```
 
+### Call Expression with Arguments
+
+```typescript
+const fragment1 = graphql`fragment F1 on User { id }`;
+const fragment2 = graphql`fragment F2 on User { name }`;
+
+const document = graphql(`
+  query GetUser {
+    user {
+      ...F1
+      ...F2
+    }
+  }
+`, [fragment1, fragment2]);
+```
+
+This pattern is useful when passing fragments as a second argument. The extractor only processes the first argument (the template literal) and ignores additional arguments.
+
 ## Usage
 
 ### Extract from File
