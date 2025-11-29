@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=./graphqlrc.schema.json
+# Or use public URL: https://raw.githubusercontent.com/trevor-scheer/graphql-lsp/main/crates/graphql-config/schema/graphqlrc.schema.json
+
+# Example GraphQL configuration file with schema validation
+# This file demonstrates all supported configuration options
+
+schema: schema.graphql
+documents: "**/*.{graphql,gql,ts,tsx,js,jsx}"
+
+# Optional: include/exclude patterns
+include:
+  - "src/**/*"
+exclude:
+  - "**/*.test.ts"
+  - "**/__tests__/**"
+
+# Tool-specific extensions
+extensions:
+  # Configuration for extracting GraphQL from TypeScript/JavaScript
+  extractConfig:
+    magicComment: "GraphQL"
+    tagIdentifiers:
+      - "gql"
+      - "graphql"
+    modules:
+      - "graphql-tag"
+      - "@apollo/client"
+    allowGlobalIdentifiers: false
+
+  # Project-level settings for GraphQL LSP
+  project:
+    lint: "recommended"
+    # Or use custom rules:
+    # lint:
+    #   recommended: error
+    #   deprecated_field: warn
+    #   unique_names: error
