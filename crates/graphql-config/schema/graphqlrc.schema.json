@@ -1,0 +1,219 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://graphql-lsp.dev/schemas/graphqlrc.json",
+  "title": "GraphQL Configuration",
+  "description": "Configuration file for GraphQL LSP and related tools",
+  "oneOf": [
+    {
+      "description": "Single project configuration",
+      "$ref": "#/definitions/ProjectConfig"
+    },
+    {
+      "description": "Multi-project configuration",
+      "type": "object",
+      "required": ["projects"],
+      "properties": {
+        "projects": {
+          "type": "object",
+          "description": "Named projects in this configuration",
+          "additionalProperties": {
+            "$ref": "#/definitions/ProjectConfig"
+          }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "ProjectConfig": {
+      "type": "object",
+      "required": ["schema"],
+      "properties": {
+        "schema": {
+          "$ref": "#/definitions/SchemaConfig",
+          "description": "GraphQL schema source(s)"
+        },
+        "documents": {
+          "$ref": "#/definitions/DocumentsConfig",
+          "description": "Document patterns for queries, mutations, and fragments"
+        },
+        "include": {
+          "description": "File patterns to include",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "exclude": {
+          "description": "File patterns to exclude",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "extensions": {
+          "type": "object",
+          "description": "Tool-specific extensions",
+          "properties": {
+            "extractConfig": {
+              "$ref": "#/definitions/ExtractConfig",
+              "description": "Configuration for extracting GraphQL from TypeScript/JavaScript files"
+            },
+            "project": {
+              "type": "object",
+              "description": "Project-level settings for GraphQL LSP",
+              "properties": {
+                "lint": {
+                  "$ref": "#/definitions/LintConfig",
+                  "description": "Linting configuration"
+                }
+              }
+            }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "SchemaConfig": {
+      "description": "GraphQL schema source configuration",
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Single schema file path, glob pattern, or HTTP URL"
+        },
+        {
+          "type": "array",
+          "description": "Multiple schema sources",
+          "items": {
+            "type": "string",
+            "description": "Schema file path, glob pattern, or HTTP URL"
+          }
+        }
+      ]
+    },
+    "DocumentsConfig": {
+      "description": "Document source configuration",
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Single document pattern"
+        },
+        {
+          "type": "array",
+          "description": "Multiple document patterns",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "ExtractConfig": {
+      "type": "object",
+      "description": "Configuration for extracting GraphQL from TypeScript/JavaScript",
+      "properties": {
+        "magicComment": {
+          "type": "string",
+          "description": "Magic comment to look for (e.g., /* GraphQL */)",
+          "default": "GraphQL"
+        },
+        "tagIdentifiers": {
+          "type": "array",
+          "description": "Tag identifiers to extract (e.g., gql, graphql)",
+          "items": {
+            "type": "string"
+          },
+          "default": ["gql", "graphql"]
+        },
+        "modules": {
+          "type": "array",
+          "description": "Module names to recognize as GraphQL sources",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "graphql-tag",
+            "@apollo/client",
+            "apollo-server",
+            "apollo-server-express",
+            "gatsby",
+            "react-relay"
+          ]
+        },
+        "allowGlobalIdentifiers": {
+          "type": "boolean",
+          "description": "Allow extraction without imports (global identifiers)",
+          "default": false
+        }
+      }
+    },
+    "LintConfig": {
+      "description": "Linting configuration for GraphQL documents",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["recommended"],
+          "description": "Use the recommended preset with default rule configuration"
+        },
+        {
+          "type": "object",
+          "description": "Custom lint rule configuration",
+          "properties": {
+            "recommended": {
+              "$ref": "#/definitions/LintSeverity",
+              "description": "Enable recommended rules with this severity, can be overridden per rule"
+            },
+            "unique_names": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Ensure operation and fragment names are unique across the project"
+            },
+            "deprecated_field": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Warn about usage of deprecated fields"
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/LintRuleConfig"
+          }
+        }
+      ]
+    },
+    "LintRuleConfig": {
+      "description": "Configuration for a single lint rule",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/LintSeverity"
+        },
+        {
+          "type": "object",
+          "required": ["severity"],
+          "properties": {
+            "severity": {
+              "$ref": "#/definitions/LintSeverity"
+            },
+            "options": {
+              "description": "Rule-specific options (future use)"
+            }
+          }
+        }
+      ]
+    },
+    "LintSeverity": {
+      "type": "string",
+      "enum": ["off", "warn", "error"],
+      "description": "Severity level for a lint rule"
+    }
+  }
+}

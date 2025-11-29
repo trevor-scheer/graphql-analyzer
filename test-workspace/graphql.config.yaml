@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../crates/graphql-config/schema/graphqlrc.schema.json
 schema: schema.graphql
 documents: "**/*.{graphql,gql,ts,tsx,js,jsx}"
 extensions:

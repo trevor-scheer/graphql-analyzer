@@ -1,0 +1,41 @@
+# yaml-language-server: $schema=./graphqlrc.schema.json
+# Or use public URL: https://raw.githubusercontent.com/trevor-scheer/graphql-lsp/main/crates/graphql-config/schema/graphqlrc.schema.json
+
+# Example multi-project GraphQL configuration
+
+projects:
+  api:
+    schema: api/schema.graphql
+    documents: "api/**/*.graphql"
+    extensions:
+      project:
+        lint:
+          recommended: error
+          deprecated_field: off
+
+  client:
+    schema:
+      - client/schema.graphql
+      - client/fragments/*.graphql
+    documents:
+      - "client/**/*.ts"
+      - "client/**/*.tsx"
+    include:
+      - "client/src/**/*"
+    exclude:
+      - "client/**/*.test.ts"
+    extensions:
+      extractConfig:
+        tagIdentifiers: ["gql"]
+        modules: ["@apollo/client"]
+      project:
+        lint:
+          unique_names: error
+          deprecated_field: warn
+
+  admin:
+    schema: "https://admin-api.example.com/graphql"
+    documents: "admin/**/*.graphql"
+    extensions:
+      project:
+        lint: "recommended"

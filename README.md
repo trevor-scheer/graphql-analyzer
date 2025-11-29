@@ -19,27 +19,33 @@ graphql-lsp/
 ## Crates
 
 ### graphql-config
+
 Parses and loads `.graphqlrc` configuration files with parity to the npm `graphql-config` package.
 
 **Features:**
+
 - YAML and JSON config formats
 - Single and multi-project configurations
 - Schema and document patterns
 - Configuration discovery (walks up directory tree)
 
 ### graphql-extract
+
 Extracts GraphQL queries, mutations, and fragments from source files.
 
 **Supported:**
+
 - Raw GraphQL files (`.graphql`, `.gql`, `.gqls`)
 - TypeScript/JavaScript (via SWC) - Coming soon
 - Template literals with `gql` tags
 - Magic comments (`/* GraphQL */`)
 
 ### graphql-project
+
 Core library providing validation, indexing, diagnostics, and linting.
 
 **Features:**
+
 - Schema loading from files and URLs
 - Document loading and extraction
 - Apollo compiler validation engine
@@ -48,9 +54,11 @@ Core library providing validation, indexing, diagnostics, and linting.
 - Diagnostic system
 
 ### graphql-lsp
+
 Language Server Protocol implementation for GraphQL.
 
 **Implemented Features:**
+
 - Real-time validation with project-wide diagnostics
 - Configurable linting with custom rules
 - Comprehensive go-to-definition support:
@@ -62,15 +70,18 @@ Language Server Protocol implementation for GraphQL.
 - Works with embedded GraphQL in TypeScript/JavaScript
 
 **Planned Features:**
+
 - Additional find references support (fields, variables, directives, enum values)
 - Autocomplete
 - Document symbols
 - Code actions
 
 ### graphql-cli
+
 Command-line tool for validation, linting, and CI/CD integration.
 
 **Commands:**
+
 - `graphql validate` - Validate schema and documents (Apollo compiler validation)
 - `graphql lint` - Run custom lint rules with configurable severity
 - `graphql check` - Check for breaking changes (coming soon)
@@ -82,11 +93,13 @@ Command-line tool for validation, linting, and CI/CD integration.
 #### Install from Binary (Recommended)
 
 **macOS and Linux:**
+
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/trevor-scheer/graphql-lsp/releases/latest/download/graphql-cli-installer.sh | sh
 ```
 
 **Windows (PowerShell):**
+
 ```powershell
 irm https://github.com/trevor-scheer/graphql-lsp/releases/latest/download/graphql-cli-installer.ps1 | iex
 ```
@@ -100,6 +113,7 @@ cargo install --git https://github.com/trevor-scheer/graphql-lsp graphql-cli
 #### Download Binary Directly
 
 Download the appropriate binary for your platform from the [releases page](https://github.com/trevor-scheer/graphql-lsp/releases):
+
 - macOS (Intel): `graphql-cli-x86_64-apple-darwin.tar.xz`
 - macOS (Apple Silicon): `graphql-cli-aarch64-apple-darwin.tar.xz`
 - Linux (x86_64): `graphql-cli-x86_64-unknown-linux-gnu.tar.xz`
@@ -117,12 +131,14 @@ Simply install the VSCode extension - it will download the appropriate binary fo
 #### Manual Installation
 
 **Via cargo:**
+
 ```bash
 cargo install graphql-lsp
 ```
 
 **From releases:**
 Download the appropriate binary from the [releases page](https://github.com/trevor-scheer/graphql-lsp/releases):
+
 - macOS (Intel): `graphql-lsp-x86_64-apple-darwin.tar.xz`
 - macOS (Apple Silicon): `graphql-lsp-aarch64-apple-darwin.tar.xz`
 - Linux (x86_64): `graphql-lsp-x86_64-unknown-linux-gnu.tar.xz`
@@ -187,6 +203,7 @@ cargo run -p graphql-lsp
 ## Development Status
 
 ✅ **Completed:**
+
 - Cargo workspace structure
 - graphql-config implementation (parsing, loading, validation)
 - Core validation engine with project-wide diagnostics
@@ -196,19 +213,27 @@ cargo run -p graphql-lsp
 - Schema and document indexing
 
 🚧 **In Progress:**
+
 - VS Code extension improvements
 - Additional LSP features (completions, document symbols)
 
 📋 **Planned:**
+
 - Breaking change detection
 - Code actions and refactoring
 - Remote schema introspection
 - Additional find references support (fields, variables, directives, enum values)
 
-## Configuration Example
+## Configuration
+
+Configuration files support IDE validation and autocompletion via JSON Schema. See [graphqlrc.schema.md](./crates/graphql-config/schema/graphqlrc.schema.md) for setup instructions.
+
+### Configuration Example
 
 `.graphqlrc.yml`:
+
 ```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/trevor-scheer/graphql-lsp/main/crates/graphql-config/schema/graphqlrc.schema.json
 schema: "schema.graphql"
 documents: "src/**/*.{graphql,ts,tsx}"
 extensions:
@@ -222,6 +247,7 @@ extensions:
 ```
 
 Multi-project:
+
 ```yaml
 projects:
   frontend:
@@ -241,23 +267,27 @@ projects:
 Linting is opt-in and configured via the `extensions.project.lint` section:
 
 **Available rules:**
+
 - `unique_names` - Ensures operation and fragment names are unique (recommended: error)
 - `deprecated_field` - Warns when using fields marked with @deprecated (recommended: warn)
 
 **Severity levels:**
+
 - `off` - Disable the rule
 - `warn` - Show as warning
 - `error` - Show as error
 
 **Recommended preset:**
+
 ```yaml
 extensions:
   project:
     lint:
-      recommended: error  # Enables all recommended rules
+      recommended: error # Enables all recommended rules
 ```
 
 **Custom configuration:**
+
 ```yaml
 extensions:
   project:
@@ -267,12 +297,13 @@ extensions:
 ```
 
 **Override recommended:**
+
 ```yaml
 extensions:
   project:
     lint:
       recommended: error
-      deprecated_field: off  # Disable specific rule
+      deprecated_field: off # Disable specific rule
 ```
 
 ## License
