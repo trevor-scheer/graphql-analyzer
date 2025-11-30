@@ -12,8 +12,16 @@ use lsp_types::{
 };
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::{Client, LanguageServer, UriExt};
+
+/// Debounce delay for validation in milliseconds
+const VALIDATION_DEBOUNCE_MS: u64 = 200;
+
+/// Type alias for validation task handle
+type ValidationTask = Arc<Mutex<Option<JoinHandle<()>>>>;
 
 pub struct GraphQLLanguageServer {
     client: Client,
@@ -25,6 +33,9 @@ pub struct GraphQLLanguageServer {
     projects: Arc<DashMap<String, Vec<(String, GraphQLProject)>>>,
     /// Document content cache indexed by URI string
     document_cache: Arc<DashMap<String, String>>,
+    /// Pending validation tasks (URI -> `JoinHandle`) for debouncing
+    /// Each document can have at most one pending validation task
+    validation_tasks: Arc<DashMap<String, ValidationTask>>,
 }
 
 impl GraphQLLanguageServer {
@@ -35,6 +46,7 @@ impl GraphQLLanguageServer {
             workspace_roots: Arc::new(DashMap::new()),
             projects: Arc::new(DashMap::new()),
             document_cache: Arc::new(DashMap::new()),
+            validation_tasks: Arc::new(DashMap::new()),
         }
     }
 
@@ -914,6 +926,83 @@ impl GraphQLLanguageServer {
             ..Default::default()
         }
     }
+
+    /// Schedule a debounced validation for a document
+    ///
+    /// Cancels any pending validation for the same document and schedules a new one
+    /// after `VALIDATION_DEBOUNCE_MS` milliseconds. This prevents validation spam during
+    /// rapid typing.
+    async fn schedule_debounced_validation(&self, uri: Uri, content: String) {
+        let uri_string = uri.to_string();
+
+        // Get or create the task slot for this document
+        let task_slot = self
+            .validation_tasks
+            .entry(uri_string.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(None)))
+            .clone();
+
+        // Cancel any existing pending validation for this document
+        {
+            let mut task_guard = task_slot.lock().await;
+            if let Some(existing_task) = task_guard.take() {
+                existing_task.abort();
+                tracing::debug!(uri = ?uri, "Cancelled previous validation task");
+            }
+        }
+
+        // Clone necessary data for the async task
+        let server = Self {
+            client: self.client.clone(),
+            init_workspace_folders: self.init_workspace_folders.clone(),
+            workspace_roots: self.workspace_roots.clone(),
+            projects: self.projects.clone(),
+            document_cache: self.document_cache.clone(),
+            validation_tasks: self.validation_tasks.clone(),
+        };
+
+        // Clone uri for the closure
+        let uri_for_task = uri.clone();
+
+        // Spawn a new debounced validation task
+        let task = tokio::spawn(async move {
+            // Wait for the debounce period
+            tokio::time::sleep(tokio::time::Duration::from_millis(VALIDATION_DEBOUNCE_MS)).await;
+
+            tracing::debug!(uri = ?uri_for_task, delay_ms = VALIDATION_DEBOUNCE_MS, "Debounce period elapsed, starting validation");
+
+            let validate_start = std::time::Instant::now();
+            server
+                .validate_document(uri_for_task.clone(), &content)
+                .await;
+            tracing::debug!(uri = ?uri_for_task, elapsed_ms = validate_start.elapsed().as_millis(), "Main validation completed");
+
+            // Re-validate all fragment definition files to update unused fragment warnings
+            // This ensures that when fragment usage changes in one file, warnings in
+            // fragment files are immediately updated
+            let revalidate_start = std::time::Instant::now();
+            server.revalidate_fragment_files(&uri_for_task).await;
+            tracing::debug!(
+                uri = ?uri_for_task,
+                elapsed_ms = revalidate_start.elapsed().as_millis(),
+                "Fragment revalidation completed"
+            );
+
+            // Clear the task slot once validation completes
+            if let Some(slot) = server.validation_tasks.get(&uri_for_task.to_string()) {
+                let mut task_guard = slot.lock().await;
+                *task_guard = None;
+            }
+        });
+
+        // Store the new task
+        {
+            let mut task_guard = task_slot.lock().await;
+            *task_guard = Some(task);
+        }
+
+        tracing::debug!(uri = ?uri, delay_ms = VALIDATION_DEBOUNCE_MS, "Scheduled debounced validation");
+    }
 }
 
 impl LanguageServer for GraphQLLanguageServer {
@@ -1002,27 +1091,14 @@ impl LanguageServer for GraphQLLanguageServer {
             self.document_cache
                 .insert(uri.to_string(), change.text.clone());
 
-            let validate_start = std::time::Instant::now();
-            self.validate_document(uri.clone(), &change.text).await;
-            tracing::debug!("Main validation took {:?}", validate_start.elapsed());
-
-            // Re-validate all fragment definition files to update unused fragment warnings
-            // This ensures that when fragment usage changes in one file, warnings in
-            // fragment files are immediately updated
-            // Note: Fragment revalidation happens on change (not save) because it's fast
-            // and provides immediate feedback. Schema revalidation happens on save (see did_save)
-            // because lint_project() is expensive and would slow down typing.
-            let revalidate_start = std::time::Instant::now();
-            self.revalidate_fragment_files(&uri).await;
-            tracing::debug!(
-                "Fragment revalidation took {:?}",
-                revalidate_start.elapsed()
-            );
+            // Schedule debounced validation instead of immediate validation
+            self.schedule_debounced_validation(uri.clone(), change.text.clone())
+                .await;
         }
 
-        tracing::info!(
+        tracing::debug!(
             elapsed_ms = start.elapsed().as_millis(),
-            "Completed did_change"
+            "Completed did_change (scheduled debounced validation)"
         );
     }
 
