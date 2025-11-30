@@ -69,6 +69,10 @@ impl DocumentLoader {
             {
                 match entry {
                     Ok(path) if path.is_file() => {
+                        // Skip files in node_modules directories
+                        if path.components().any(|c| c.as_os_str() == "node_modules") {
+                            continue;
+                        }
                         if !files.contains(&path) {
                             files.push(path);
                         }
@@ -446,5 +450,29 @@ mod tests {
 
         // Should only have the valid query
         assert!(index.get_operation("Valid").is_some());
+    }
+
+    #[test]
+    fn test_skip_node_modules() {
+        let temp_dir = tempdir().unwrap();
+
+        // Create a node_modules directory with a GraphQL file
+        let node_modules = temp_dir.path().join("node_modules").join("some-package");
+        fs::create_dir_all(&node_modules).unwrap();
+        let node_modules_file = node_modules.join("schema.graphql");
+        fs::write(&node_modules_file, "query NodeModulesQuery { __typename }").unwrap();
+
+        // Create a regular GraphQL file outside node_modules
+        let regular_file = temp_dir.path().join("query.graphql");
+        fs::write(&regular_file, "query RegularQuery { __typename }").unwrap();
+
+        let pattern = temp_dir.path().join("**/*.graphql").display().to_string();
+        let config = DocumentsConfig::Pattern(pattern);
+        let loader = DocumentLoader::new(config);
+        let index = loader.load().unwrap();
+
+        // Should only have the regular query, not the one from node_modules
+        assert!(index.get_operation("RegularQuery").is_some());
+        assert!(index.get_operation("NodeModulesQuery").is_none());
     }
 }
