@@ -8,9 +8,17 @@ use std::collections::HashMap;
 pub enum GraphQLConfig {
     /// Single project configuration
     Single(ProjectConfig),
-    /// Multi-project configuration
+    /// Multi-project configuration with optional top-level lint and extensions
     Multi {
         projects: HashMap<String, ProjectConfig>,
+
+        /// Top-level lint configuration (applies to all tools by default)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        lint: Option<serde_json::Value>,
+
+        /// Top-level extensions for tool-specific configuration
+        #[serde(skip_serializing_if = "Option::is_none")]
+        extensions: Option<HashMap<String, serde_json::Value>>,
     },
 }
 
@@ -21,7 +29,7 @@ impl GraphQLConfig {
     pub fn projects(&self) -> Box<dyn Iterator<Item = (&str, &ProjectConfig)> + '_> {
         match self {
             Self::Single(config) => Box::new(std::iter::once(("default", config))),
-            Self::Multi { projects } => Box::new(
+            Self::Multi { projects, .. } => Box::new(
                 projects
                     .iter()
                     .map(|(name, config)| (name.as_str(), config)),
@@ -36,7 +44,7 @@ impl GraphQLConfig {
         match self {
             Self::Single(config) if name == "default" => Some(config),
             Self::Single(_) => None,
-            Self::Multi { projects } => projects.get(name),
+            Self::Multi { projects, .. } => projects.get(name),
         }
     }
 
@@ -51,7 +59,25 @@ impl GraphQLConfig {
     pub fn project_count(&self) -> usize {
         match self {
             Self::Single(_) => 1,
-            Self::Multi { projects } => projects.len(),
+            Self::Multi { projects, .. } => projects.len(),
+        }
+    }
+
+    /// Get the top-level lint configuration
+    #[must_use]
+    pub const fn lint_config(&self) -> Option<&serde_json::Value> {
+        match self {
+            Self::Single(_) => None,
+            Self::Multi { lint, .. } => lint.as_ref(),
+        }
+    }
+
+    /// Get the top-level extensions
+    #[must_use]
+    pub const fn extensions(&self) -> Option<&HashMap<String, serde_json::Value>> {
+        match self {
+            Self::Single(_) => None,
+            Self::Multi { extensions, .. } => extensions.as_ref(),
         }
     }
 }
@@ -174,7 +200,11 @@ mod tests {
             },
         );
 
-        let config = GraphQLConfig::Multi { projects };
+        let config = GraphQLConfig::Multi {
+            projects,
+            lint: None,
+            extensions: None,
+        };
 
         assert!(config.is_multi_project());
         assert_eq!(config.project_count(), 2);
