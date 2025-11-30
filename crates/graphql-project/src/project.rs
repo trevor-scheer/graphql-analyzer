@@ -230,6 +230,7 @@ impl GraphQLProject {
             fragments: index.fragments.clone(),
             parsed_asts: index.parsed_asts.clone(),
             extracted_blocks: index.extracted_blocks.clone(),
+            line_indices: index.line_indices.clone(),
         }
     }
 
@@ -326,6 +327,10 @@ impl GraphQLProject {
             if is_pure_graphql {
                 document_index.cache_ast(file_path.to_string(), Arc::clone(&parsed_arc));
             }
+
+            // Build and cache line index for fast position<->offset conversion
+            let line_index = crate::LineIndex::new(content);
+            document_index.cache_line_index(file_path.to_string(), std::sync::Arc::new(line_index));
 
             // Cache extracted blocks with their parsed ASTs
             let mut cached_blocks = Vec::new();
@@ -1020,11 +1025,23 @@ impl GraphQLProject {
         position: Position,
         file_path: &str,
     ) -> Option<HoverInfo> {
+        let cached_ast = {
+            let document_index = self.document_index.read().unwrap();
+            document_index.get_ast(file_path)
+        };
+
         let schema_index = self.schema_index.read().unwrap();
-        let cached_ast = self.document_index.read().unwrap().get_ast(file_path);
+        let document_index = self.document_index.read().unwrap();
         let hover_provider = HoverProvider::new();
 
-        hover_provider.hover_with_ast(source, position, &schema_index, cached_ast.as_deref())
+        hover_provider.hover_with_ast(
+            source,
+            position,
+            &schema_index,
+            cached_ast.as_deref(),
+            Some(&document_index),
+            Some(file_path),
+        )
     }
 
     /// Get hover information at a position, handling TypeScript/JavaScript extraction
@@ -1086,6 +1103,7 @@ impl GraphQLProject {
                     // Use the block's parsed AST instead of looking up by file_path
                     // (which would return the TypeScript file's AST with syntax errors)
                     let hover_result = {
+                        let document_index = self.document_index.read().unwrap();
                         let schema_index = self.schema_index.read().unwrap();
                         let hover_provider = HoverProvider::new();
                         hover_provider.hover_with_ast(
@@ -1093,6 +1111,8 @@ impl GraphQLProject {
                             relative_position,
                             &schema_index,
                             Some(&block.parsed),
+                            Some(&document_index),
+                            Some(file_path),
                         )
                     };
 
@@ -1126,7 +1146,11 @@ impl GraphQLProject {
         position: Position,
         file_path: &str,
     ) -> Option<Vec<CompletionItem>> {
-        let cached_ast = self.document_index.read().unwrap().get_ast(file_path);
+        let cached_ast = {
+            let document_index = self.document_index.read().unwrap();
+            document_index.get_ast(file_path)
+        };
+
         let document_index = self.document_index.read().unwrap();
         let schema_index = self.schema_index.read().unwrap();
         let completion_provider = CompletionProvider::new();
@@ -1137,6 +1161,7 @@ impl GraphQLProject {
             &document_index,
             &schema_index,
             cached_ast.as_deref(),
+            Some(file_path),
         )
     }
 
@@ -1232,6 +1257,7 @@ impl GraphQLProject {
             include_declaration,
             source_ast.as_deref(),
             document_asts,
+            source_file_path,
         )
     }
 
