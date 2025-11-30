@@ -289,10 +289,6 @@ impl GraphQLProject {
             },
         );
 
-        // Parse the full content once and cache it
-        let parsed = Parser::new(content).parse();
-        let parsed_arc = std::sync::Arc::new(parsed);
-
         // Extract GraphQL from the content
         let extracted =
             extract_from_source(content, language, &get_extract_config(&self.config))
@@ -312,18 +308,41 @@ impl GraphQLProject {
                 !frags.is_empty()
             });
 
-            // Cache the parsed AST
-            document_index.cache_ast(file_path.to_string(), parsed_arc);
+            // For pure GraphQL files with single extraction, reuse the parsed tree
+            // For TypeScript/JavaScript files, parse each extracted block
+            let is_pure_graphql = matches!(language, Language::GraphQL) && extracted.len() == 1;
+
+            // Parse once if pure GraphQL, or parse each block for embedded GraphQL
+            let parsed_arc = if is_pure_graphql {
+                // Single parse for pure GraphQL files
+                let parsed = Parser::new(content).parse();
+                std::sync::Arc::new(parsed)
+            } else {
+                // For TypeScript/JavaScript files, don't parse the full content
+                // (it's not valid GraphQL anyway). We'll parse individual blocks below.
+                std::sync::Arc::new(Parser::new("").parse()) // Placeholder
+            };
+
+            // Cache the parsed AST (only meaningful for pure GraphQL files)
+            if is_pure_graphql {
+                document_index.cache_ast(file_path.to_string(), Arc::clone(&parsed_arc));
+            }
 
             // Build and cache line index for fast position<->offset conversion
             let line_index = crate::LineIndex::new(content);
             document_index.cache_line_index(file_path.to_string(), std::sync::Arc::new(line_index));
 
-            // Cache extracted blocks with their parsed ASTs (Phase 3 optimization)
+            // Cache extracted blocks with their parsed ASTs
             let mut cached_blocks = Vec::new();
             for item in &extracted {
-                // Parse each extracted block and cache it
-                let block_parsed = Parser::new(&item.source).parse();
+                // For pure GraphQL, reuse the single parse; for embedded, parse each block
+                let block_parsed_arc = if is_pure_graphql {
+                    Arc::clone(&parsed_arc)
+                } else {
+                    // Parse individual extracted block
+                    std::sync::Arc::new(Parser::new(&item.source).parse())
+                };
+
                 let block = crate::ExtractedBlock {
                     content: item.source.clone(),
                     offset: item.location.offset,
@@ -332,7 +351,7 @@ impl GraphQLProject {
                     start_column: item.location.range.start.column,
                     end_line: item.location.range.end.line,
                     end_column: item.location.range.end.column,
-                    parsed: std::sync::Arc::new(block_parsed),
+                    parsed: block_parsed_arc,
                 };
                 cached_blocks.push(block);
             }
