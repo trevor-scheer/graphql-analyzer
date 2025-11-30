@@ -2,7 +2,8 @@ use crate::OutputFormat;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use graphql_config::{find_config, load_config};
-use graphql_project::{GraphQLProject, Linter, Severity};
+use graphql_linter::{DocumentSchemaContext, LintConfig, Linter};
+use graphql_project::{GraphQLProject, Severity};
 use std::path::PathBuf;
 use std::process;
 
@@ -111,7 +112,30 @@ pub async fn run(
         }
 
         // Get lint config and create linter
-        let lint_config = project.get_lint_config();
+        // Load CLI-specific lint configuration (extensions.cli.lint overrides top-level lint)
+        let base_lint_config: LintConfig = config
+            .lint_config()
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .unwrap_or_default();
+
+        let cli_lint_config = config
+            .extensions()
+            .and_then(|ext| ext.get("cli"))
+            .and_then(|cli_ext| {
+                if let serde_json::Value::Object(map) = cli_ext {
+                    map.get("lint")
+                } else {
+                    None
+                }
+            })
+            .and_then(|value| serde_json::from_value::<LintConfig>(value.clone()).ok());
+
+        let lint_config = if let Some(cli_overrides) = cli_lint_config {
+            base_lint_config.merge(&cli_overrides)
+        } else {
+            base_lint_config
+        };
+
         let linter = Linter::new(lint_config);
 
         // Get extract config
@@ -163,7 +187,12 @@ pub async fn run(
 
             // Run lints on each extracted block
             for block in &extracted {
-                let diagnostics = linter.lint_document(&block.source, &schema_index, file_path);
+                let ctx = DocumentSchemaContext {
+                    document: &block.source,
+                    file_name: file_path,
+                    schema: &schema_index,
+                };
+                let diagnostics = linter.lint_document(&ctx);
 
                 // Convert diagnostics to output format
                 for diag in diagnostics {
@@ -212,41 +241,41 @@ pub async fn run(
         }
 
         // Run project-wide lint rules (e.g., unused_fields, unique_names)
-        let project_diagnostics = project.lint_project();
-        for diag in project_diagnostics {
-            // Extract file path from diagnostic source field (format: "graphql-linter:path")
-            let file_path = if diag.source.starts_with("graphql-linter:") {
-                diag.source
-                    .strip_prefix("graphql-linter:")
-                    .unwrap()
-                    .to_string()
-            } else {
-                "(project)".to_string()
-            };
+        let document_index = project.get_document_index();
+        let schema_index = project.get_schema_index();
+        let ctx = graphql_linter::ProjectContext {
+            documents: &document_index,
+            schema: &schema_index,
+        };
+        let project_diagnostics = linter.lint_project(&ctx);
 
-            let diag_output = DiagnosticOutput {
-                file_path,
-                // Convert from 0-indexed to 1-indexed for display
-                line: diag.range.start.line + 1,
-                column: diag.range.start.character + 1,
-                end_line: diag.range.end.line + 1,
-                end_column: diag.range.end.character + 1,
-                message: diag.message,
-                severity: match diag.severity {
-                    Severity::Error => "error".to_string(),
-                    Severity::Warning => "warning".to_string(),
-                    Severity::Information => "info".to_string(),
-                    Severity::Hint => "hint".to_string(),
-                },
-                rule: diag.code.clone(),
-            };
+        // Flatten the HashMap<String, Vec<Diagnostic>> into Vec<Diagnostic>
+        for (file_path, diagnostics) in project_diagnostics {
+            for diag in diagnostics {
+                let diag_output = DiagnosticOutput {
+                    file_path: file_path.clone(),
+                    // Convert from 0-indexed to 1-indexed for display
+                    line: diag.range.start.line + 1,
+                    column: diag.range.start.character + 1,
+                    end_line: diag.range.end.line + 1,
+                    end_column: diag.range.end.character + 1,
+                    message: diag.message,
+                    severity: match diag.severity {
+                        Severity::Error => "error".to_string(),
+                        Severity::Warning => "warning".to_string(),
+                        Severity::Information => "info".to_string(),
+                        Severity::Hint => "hint".to_string(),
+                    },
+                    rule: diag.code.clone(),
+                };
 
-            match diag.severity {
-                Severity::Warning | Severity::Information | Severity::Hint => {
-                    all_warnings.push(diag_output);
-                }
-                Severity::Error => {
-                    all_errors.push(diag_output);
+                match diag.severity {
+                    Severity::Warning | Severity::Information | Severity::Hint => {
+                        all_warnings.push(diag_output);
+                    }
+                    Severity::Error => {
+                        all_errors.push(diag_output);
+                    }
                 }
             }
         }

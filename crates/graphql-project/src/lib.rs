@@ -7,14 +7,13 @@ mod goto_definition;
 mod hover;
 mod index;
 mod line_index;
-mod lint;
 mod project;
 mod schema;
 mod validation;
 
 // Export diagnostics types for LSP package to use when converting DiagnosticList
 pub use completion::{CompletionItem, CompletionItemKind, CompletionProvider};
-pub use diagnostics::{Diagnostic, Position, Range, RelatedInfo, Severity};
+pub use diagnostics::{Diagnostic, Location, Position, Range, RelatedInfo, Severity};
 pub use document::DocumentLoader;
 pub use error::{ProjectError, Result};
 pub use find_references::{FindReferencesProvider, ReferenceLocation};
@@ -25,7 +24,6 @@ pub use index::{
     OperationType, SchemaIndex, TypeInfo,
 };
 pub use line_index::LineIndex;
-pub use lint::{LintConfig, LintRuleConfig, LintSeverity, Linter};
 pub use project::GraphQLProject;
 pub use schema::SchemaLoader;
 pub use validation::Validator;

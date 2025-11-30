@@ -6,7 +6,7 @@ members = [
     "crates/graphql-project",
     "crates/graphql-lsp",
     "crates/graphql-cli",
-    ".husky",
+    ".husky", "crates/graphql-linter",
 ]
 
 [workspace.package]

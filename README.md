@@ -9,6 +9,7 @@ graphql-lsp/
 ├── crates/
 │   ├── graphql-config/       # .graphqlrc parser and loader
 │   ├── graphql-extract/      # Extract GraphQL from source files
+│   ├── graphql-linter/       # Linting engine with custom rules
 │   ├── graphql-project/      # Core: validation, indexing, diagnostics
 │   ├── graphql-lsp/          # LSP server implementation
 │   └── graphql-cli/          # CLI tool for CI/CD
@@ -40,18 +41,36 @@ Extracts GraphQL queries, mutations, and fragments from source files.
 - Template literals with `gql` tags
 - Magic comments (`/* GraphQL */`)
 
+### graphql-linter
+
+Flexible linting engine with support for different linting contexts.
+
+**Features:**
+
+- Document-level lints (fast, real-time feedback)
+- Project-wide lints (comprehensive analysis)
+- Schema validation rules
+- Configurable severity levels
+- Tool-specific configuration (LSP vs CLI)
+
+**Current rules:**
+
+- `deprecated_field` - Warns when using @deprecated fields
+- `unique_names` - Ensures operation/fragment names are unique
+- `unused_fields` - Detects schema fields never used in operations (opt-in)
+
 ### graphql-project
 
-Core library providing validation, indexing, diagnostics, and linting.
+Core library providing validation, indexing, and diagnostics.
 
 **Features:**
 
 - Schema loading from files and URLs
 - Document loading and extraction
 - Apollo compiler validation engine
-- Configurable linting system with custom rules
 - Schema and document indexing
 - Diagnostic system
+- Type information and hover support
 
 ### graphql-lsp
 
@@ -236,14 +255,13 @@ Configuration files support IDE validation and autocompletion via JSON Schema. S
 # yaml-language-server: $schema=https://raw.githubusercontent.com/trevor-scheer/graphql-lsp/main/crates/graphql-config/schema/graphqlrc.schema.json
 schema: "schema.graphql"
 documents: "src/**/*.{graphql,ts,tsx}"
-extensions:
-  project:
-    lint:
-      # Enable recommended lints
-      recommended: error
-      # Override specific rules
-      deprecated_field: warn
-      unique_names: off
+lint:
+  # Enable recommended lints
+  recommended: error
+  rules:
+    # Override specific rules
+    deprecated_field: warn
+    unique_names: off
 ```
 
 Multi-project:
@@ -253,23 +271,24 @@ projects:
   frontend:
     schema: "https://api.example.com/graphql"
     documents: "frontend/**/*.ts"
-    extensions:
-      project:
-        lint:
-          recommended: error
+    lint:
+      recommended: error
   backend:
     schema: "backend/schema.graphql"
     documents: "backend/**/*.graphql"
+    lint:
+      recommended: warn
 ```
 
 ### Lint Configuration
 
-Linting is opt-in and configured via the `extensions.project.lint` section:
+Linting is configured via top-level `lint` with optional tool-specific overrides:
 
 **Available rules:**
 
-- `unique_names` - Ensures operation and fragment names are unique (recommended: error)
 - `deprecated_field` - Warns when using fields marked with @deprecated (recommended: warn)
+- `unique_names` - Ensures operation and fragment names are unique (recommended: error)
+- `unused_fields` - Detects schema fields never used (off by default, expensive)
 
 **Severity levels:**
 
@@ -277,33 +296,49 @@ Linting is opt-in and configured via the `extensions.project.lint` section:
 - `warn` - Show as warning
 - `error` - Show as error
 
-**Recommended preset:**
+**Basic configuration:**
 
 ```yaml
-extensions:
-  project:
-    lint:
-      recommended: error # Enables all recommended rules
+# Top-level lint applies to all tools
+lint:
+  recommended: error  # Enable recommended rules
 ```
 
-**Custom configuration:**
+**Tool-specific overrides:**
 
 ```yaml
+# Base configuration
+lint:
+  recommended: error
+  rules:
+    unused_fields: off  # Expensive, off by default
+
+# Tool-specific overrides
 extensions:
-  project:
+  # CLI: Enable expensive lints for CI
+  cli:
     lint:
-      unique_names: error
-      deprecated_field: warn
+      rules:
+        unused_fields: error
+
+  # LSP: Keep expensive lints off for performance
+  lsp:
+    lint:
+      rules:
+        unused_fields: off
 ```
 
-**Override recommended:**
+**Per-project configuration:**
 
 ```yaml
-extensions:
-  project:
+projects:
+  default:
+    schema: "schema.graphql"
+    documents: "src/**/*.graphql"
     lint:
       recommended: error
-      deprecated_field: off # Disable specific rule
+      rules:
+        deprecated_field: off  # Project-specific override
 ```
 
 ## License

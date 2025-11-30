@@ -1,5 +1,6 @@
 use dashmap::DashMap;
-use graphql_config::{find_config, load_config};
+use graphql_config::{find_config, load_config, GraphQLConfig};
+use graphql_linter::{DocumentSchemaContext, LintConfig, Linter, ProjectContext};
 use graphql_project::GraphQLProject;
 use lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
@@ -23,6 +24,39 @@ const VALIDATION_DEBOUNCE_MS: u64 = 200;
 /// Type alias for validation task handle
 type ValidationTask = Arc<Mutex<Option<JoinHandle<()>>>>;
 
+/// Load lint configuration with LSP-specific overrides
+///
+/// Priority (highest to lowest):
+/// 1. `extensions.lsp.lint` - LSP-specific overrides
+/// 2. Top-level `lint` - Global defaults
+fn load_lsp_lint_config(config: &GraphQLConfig) -> LintConfig {
+    // Get base lint config from top-level
+    let base_config: LintConfig = config
+        .lint_config()
+        .and_then(|value| serde_json::from_value(value.clone()).ok())
+        .unwrap_or_default();
+
+    // Get LSP-specific overrides from extensions.lsp.lint
+    let lsp_overrides = config
+        .extensions()
+        .and_then(|ext| ext.get("lsp"))
+        .and_then(|lsp_ext| {
+            if let serde_json::Value::Object(map) = lsp_ext {
+                map.get("lint")
+            } else {
+                None
+            }
+        })
+        .and_then(|value| serde_json::from_value::<LintConfig>(value.clone()).ok());
+
+    // Merge: LSP-specific overrides take precedence over base config
+    if let Some(overrides) = lsp_overrides {
+        base_config.merge(&overrides)
+    } else {
+        base_config
+    }
+}
+
 pub struct GraphQLLanguageServer {
     client: Client,
     /// Workspace folders from initialization (stored temporarily until we load configs)
@@ -31,6 +65,8 @@ pub struct GraphQLLanguageServer {
     workspace_roots: Arc<DashMap<String, PathBuf>>,
     /// GraphQL projects by workspace URI -> Vec<(`project_name`, project)>
     projects: Arc<DashMap<String, Vec<(String, GraphQLProject)>>>,
+    /// Linters by workspace URI (one linter per workspace with LSP-specific config)
+    linters: Arc<DashMap<String, Linter>>,
     /// Document content cache indexed by URI string
     document_cache: Arc<DashMap<String, String>>,
     /// Pending validation tasks (URI -> `JoinHandle`) for debouncing
@@ -45,6 +81,7 @@ impl GraphQLLanguageServer {
             init_workspace_folders: Arc::new(DashMap::new()),
             workspace_roots: Arc::new(DashMap::new()),
             projects: Arc::new(DashMap::new()),
+            linters: Arc::new(DashMap::new()),
             document_cache: Arc::new(DashMap::new()),
             validation_tasks: Arc::new(DashMap::new()),
         }
@@ -110,10 +147,16 @@ impl GraphQLLanguageServer {
                                     }
                                 }
 
-                                // Store workspace and projects
+                                // Load LSP-specific lint config and create linter
+                                let lint_config = load_lsp_lint_config(&config);
+                                let linter = Linter::new(lint_config);
+                                tracing::info!("Loaded LSP lint configuration");
+
+                                // Store workspace, projects, and linter
                                 self.workspace_roots
                                     .insert(workspace_uri.to_string(), workspace_path.clone());
                                 self.projects.insert(workspace_uri.to_string(), projects);
+                                self.linters.insert(workspace_uri.to_string(), linter);
 
                                 self.client
                                     .log_message(
@@ -477,9 +520,14 @@ impl GraphQLLanguageServer {
                         return;
                     };
 
+                    let Some(linter) = self.linters.get(&workspace_uri) else {
+                        tracing::warn!("No linter loaded for workspace: {workspace_uri}");
+                        return;
+                    };
+
                     file_path.as_ref().map_or_else(Vec::new, |path| {
                         let file_path_str = path.display().to_string();
-                        self.get_project_wide_diagnostics(&file_path_str, project)
+                        self.get_project_wide_diagnostics(&file_path_str, project, &linter)
                     })
                 };
 
@@ -536,10 +584,15 @@ impl GraphQLLanguageServer {
                 return;
             };
 
+            let Some(linter) = self.linters.get(&workspace_uri) else {
+                tracing::warn!("No linter loaded for workspace: {workspace_uri}");
+                return;
+            };
+
             if is_ts_js {
-                self.validate_typescript_document(&uri, content, project)
+                self.validate_typescript_document(&uri, content, project, &linter)
             } else {
-                self.validate_graphql_document(content, project)
+                self.validate_graphql_document(content, project, &linter)
             }
         }; // Drop the read lock here
 
@@ -560,7 +613,12 @@ impl GraphQLLanguageServer {
                     return;
                 };
 
-                self.get_project_wide_diagnostics(&file_path_str, project)
+                let Some(linter) = self.linters.get(&workspace_uri) else {
+                    tracing::warn!("No linter loaded for workspace: {workspace_uri}");
+                    return;
+                };
+
+                self.get_project_wide_diagnostics(&file_path_str, project, &linter)
             }; // Drop the read lock here
 
             diagnostics.extend(project_wide_diags);
@@ -606,82 +664,45 @@ impl GraphQLLanguageServer {
         &self,
         file_path: &str,
         project: &GraphQLProject,
+        linter: &Linter,
     ) -> Vec<Diagnostic> {
-        use graphql_project::LintSeverity;
+        // Run project-wide lint rules using graphql-linter
+        let document_index = project.get_document_index();
+        let schema_index = project.get_schema_index();
 
-        let mut diagnostics = Vec::new();
-
-        // Get lint config
-        let lint_config = project.get_lint_config();
-
-        // Check if unique_names lint is enabled (for backwards compatibility with the old implementation)
-        let unique_names_severity = match lint_config.get_severity("unique_names") {
-            Some(LintSeverity::Error) => Some(graphql_project::Severity::Error),
-            Some(LintSeverity::Warn) => Some(graphql_project::Severity::Warning),
-            Some(LintSeverity::Off) | None => None,
+        let ctx = ProjectContext {
+            documents: &document_index,
+            schema: &schema_index,
         };
 
-        if let Some(severity) = unique_names_severity {
-            // Get the document index
-            let document_index = project.get_document_index();
+        let project_diagnostics_by_file = linter.lint_project(&ctx);
 
-            // Check for duplicate names across the project with the configured severity
-            let duplicate_diagnostics = document_index.check_duplicate_names(severity);
-
-            // Filter to only diagnostics for this file and convert to LSP diagnostics
-            diagnostics.extend(
-                duplicate_diagnostics
-                    .into_iter()
-                    .filter(|(path, _)| path == file_path)
-                    .map(|(_, diag)| self.convert_project_diagnostic(diag)),
-            );
-        }
-
-        // Run all project-wide lint rules (includes unique_names and unused_fields)
-        // Note: This will run unique_names again, but we deduplicate below
-        let project_diagnostics = project.lint_project();
-
-        // Add project-wide diagnostics that apply to this file
-        // Parse file path from diagnostic source field (format: "graphql-linter:path")
-        diagnostics.extend(project_diagnostics.into_iter().filter_map(|diag| {
-            // Extract file path from source field if present
-            let diag_file_path = if diag.source.starts_with("graphql-linter:") {
-                Some(diag.source.strip_prefix("graphql-linter:").unwrap())
-            } else {
-                None
-            };
-
-            // Only include diagnostics that:
-            // 1. Have a file path that matches the current file, OR
-            // 2. Have meaningful positions (for backwards compatibility)
-            let matches_file = diag_file_path.is_some_and(|path| path == file_path);
-            let has_position = diag.range.start.line > 0 || diag.range.start.character > 0;
-
-            if matches_file || (diag_file_path.is_none() && has_position) {
-                Some(self.convert_project_diagnostic(diag))
-            } else {
-                None
-            }
-        }));
-
-        diagnostics
+        // Get diagnostics for this specific file
+        project_diagnostics_by_file
+            .get(file_path)
+            .map(|diags| {
+                diags
+                    .iter()
+                    .map(|diag| self.convert_project_diagnostic(diag.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
-    /// Refresh diagnostics for all files affected by duplicate name changes
+    /// Refresh diagnostics for all files affected by project-wide lint changes
     ///
-    /// When a file is edited and introduces or removes duplicate names, other files
-    /// that share those names need to have their diagnostics refreshed to show or
-    /// clear duplicate name errors.
+    /// When a file is edited and introduces or removes issues detected by project-wide
+    /// lints (like duplicate names or unused fields), other files that are affected
+    /// need to have their diagnostics refreshed.
     async fn refresh_affected_files_diagnostics(
         &self,
         workspace_uri: &str,
         project_idx: usize,
         changed_file_uri: &Uri,
     ) {
-        use graphql_project::LintSeverity;
         use std::collections::HashSet;
 
-        // Get the project and check if unique_names lint is enabled
+        // Get the project and linter
         let Some(projects) = self.projects.get(workspace_uri) else {
             return;
         };
@@ -690,22 +711,21 @@ impl GraphQLLanguageServer {
             return;
         };
 
-        let lint_config = project.get_lint_config();
-        let severity = match lint_config.get_severity("unique_names") {
-            Some(LintSeverity::Error) => graphql_project::Severity::Error,
-            Some(LintSeverity::Warn) => graphql_project::Severity::Warning,
-            Some(LintSeverity::Off) | None => return,
+        let Some(linter) = self.linters.get(workspace_uri) else {
+            return;
         };
 
-        // Get all duplicate name diagnostics
+        // Run project-wide lints to get all affected files
         let document_index = project.get_document_index();
-        let duplicate_diagnostics = document_index.check_duplicate_names(severity);
+        let schema_index = project.get_schema_index();
+        let ctx = ProjectContext {
+            documents: &document_index,
+            schema: &schema_index,
+        };
+        let project_diagnostics_by_file = linter.lint_project(&ctx);
 
-        // Extract unique file paths that have duplicate name diagnostics
-        let affected_files: HashSet<String> = duplicate_diagnostics
-            .iter()
-            .map(|(path, _)| path.clone())
-            .collect();
+        // Extract unique file paths that have project-wide diagnostics
+        let affected_files: HashSet<String> = project_diagnostics_by_file.keys().cloned().collect();
 
         let changed_file_path = changed_file_uri.to_file_path();
 
@@ -738,22 +758,40 @@ impl GraphQLLanguageServer {
                 }
             };
 
-            // Check if this is a TypeScript/JavaScript file
-            let is_ts_js = std::path::Path::new(&file_path)
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .is_some_and(|ext| matches!(ext, "ts" | "tsx" | "js" | "jsx"));
+            // Check if this is a schema file
+            let is_schema_file = project.is_schema_file(std::path::Path::new(&file_path));
 
-            // Get document-specific diagnostics (type errors, etc.)
-            let mut diagnostics = if is_ts_js {
-                self.validate_typescript_document(&file_uri, &content, project)
-            } else {
-                self.validate_graphql_document(&content, project)
+            // Get the linter for this workspace
+            let Some(linter) = self.linters.get(workspace_uri) else {
+                tracing::warn!("No linter loaded for workspace: {}", workspace_uri);
+                continue;
             };
 
-            // Add project-wide duplicate name diagnostics for this file
-            let project_wide_diags = self.get_project_wide_diagnostics(&file_path, project);
-            diagnostics.extend(project_wide_diags);
+            // For schema files, only publish project-wide diagnostics (unused_fields)
+            // Schema files should not be validated as executable documents
+            let mut diagnostics = if is_schema_file {
+                // Schema files only get project-wide diagnostics
+                self.get_project_wide_diagnostics(&file_path, project, &linter)
+            } else {
+                // Check if this is a TypeScript/JavaScript file
+                let is_ts_js = std::path::Path::new(&file_path)
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| matches!(ext, "ts" | "tsx" | "js" | "jsx"));
+
+                // Get document-specific diagnostics (type errors, etc.)
+                let mut diagnostics = if is_ts_js {
+                    self.validate_typescript_document(&file_uri, &content, project, &linter)
+                } else {
+                    self.validate_graphql_document(&content, project, &linter)
+                };
+
+                // Add project-wide diagnostics for this file
+                let project_wide_diags =
+                    self.get_project_wide_diagnostics(&file_path, project, &linter);
+                diagnostics.extend(project_wide_diags);
+                diagnostics
+            };
 
             // Filter out diagnostics with invalid ranges
             let line_count = content.lines().count();
@@ -792,9 +830,20 @@ impl GraphQLLanguageServer {
         &self,
         content: &str,
         project: &GraphQLProject,
+        linter: &Linter,
     ) -> Vec<Diagnostic> {
         // Use the centralized validation logic from graphql-project
-        let project_diagnostics = project.validate_document_source(content, "document.graphql");
+        let mut project_diagnostics = project.validate_document_source(content, "document.graphql");
+
+        // Run document-level lints using graphql-linter
+        let schema_index = project.get_schema_index();
+        let ctx = DocumentSchemaContext {
+            document: content,
+            file_name: "document.graphql",
+            schema: &schema_index,
+        };
+        let lint_diagnostics = linter.lint_document(&ctx);
+        project_diagnostics.extend(lint_diagnostics);
 
         // Convert graphql-project diagnostics to LSP diagnostics
         project_diagnostics
@@ -811,6 +860,7 @@ impl GraphQLLanguageServer {
         uri: &Uri,
         content: &str,
         project: &GraphQLProject,
+        linter: &Linter,
     ) -> Vec<Diagnostic> {
         use std::io::Write;
 
@@ -862,13 +912,16 @@ impl GraphQLLanguageServer {
         let file_path = uri.to_string();
         let mut all_diagnostics = project.validate_extracted_documents(&extracted, &file_path);
 
-        // Run custom lints (if configured)
-        let lint_config = project.get_lint_config();
-        let linter = graphql_project::Linter::new(lint_config);
+        // Run document-level lints using graphql-linter
         let schema_index = project.get_schema_index();
 
         for block in &extracted {
-            let lint_diagnostics = linter.lint_document(&block.source, &schema_index, &file_path);
+            let ctx = DocumentSchemaContext {
+                document: &block.source,
+                file_name: &file_path,
+                schema: &schema_index,
+            };
+            let lint_diagnostics = linter.lint_document(&ctx);
 
             // Adjust positions for extracted blocks
             for mut diag in lint_diagnostics {
@@ -957,6 +1010,7 @@ impl GraphQLLanguageServer {
             init_workspace_folders: self.init_workspace_folders.clone(),
             workspace_roots: self.workspace_roots.clone(),
             projects: self.projects.clone(),
+            linters: self.linters.clone(),
             document_cache: self.document_cache.clone(),
             validation_tasks: self.validation_tasks.clone(),
         };
@@ -1110,13 +1164,39 @@ impl LanguageServer for GraphQLLanguageServer {
         // We do this on save (not on every keystroke) to avoid performance issues
         // When field usage changes in operations/fragments, unused_fields diagnostics
         // in schema files need to be updated
+        //
+        // Only revalidate schema files if the saved file is NOT a schema file
+        // (schema file changes trigger full revalidation via validate_document_impl)
         let uri = params.text_document.uri;
-        let schema_revalidate_start = std::time::Instant::now();
-        self.revalidate_schema_files(&uri).await;
-        tracing::debug!(
-            "Schema revalidation took {:?}",
-            schema_revalidate_start.elapsed()
-        );
+
+        // Check if this is a schema file
+        let is_schema_file = {
+            let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) else {
+                return;
+            };
+
+            let Some(projects) = self.projects.get(&workspace_uri) else {
+                return;
+            };
+
+            let Some((_, project)) = projects.get(project_idx) else {
+                return;
+            };
+
+            uri.to_file_path()
+                .as_ref()
+                .is_some_and(|path| project.is_schema_file(path.as_ref()))
+        };
+
+        // Only revalidate schema files if this is NOT a schema file
+        if !is_schema_file {
+            let schema_revalidate_start = std::time::Instant::now();
+            self.revalidate_schema_files(&uri).await;
+            tracing::debug!(
+                "Schema revalidation took {:?}",
+                schema_revalidate_start.elapsed()
+            );
+        }
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {

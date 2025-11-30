@@ -1,13 +1,14 @@
-use crate::{Diagnostic, Position, Range, SchemaIndex};
+use crate::context::DocumentSchemaContext;
 use apollo_parser::cst::{self, CstNode};
 use apollo_parser::Parser;
+use graphql_project::{Diagnostic, Position, Range, SchemaIndex};
 
-use super::LintRule;
+use super::DocumentSchemaRule;
 
 /// Lint rule that checks for usage of deprecated fields
 pub struct DeprecatedFieldRule;
 
-impl LintRule for DeprecatedFieldRule {
+impl DocumentSchemaRule for DeprecatedFieldRule {
     fn name(&self) -> &'static str {
         "deprecated_field"
     }
@@ -16,12 +17,9 @@ impl LintRule for DeprecatedFieldRule {
         "Warns when using fields marked with @deprecated directive"
     }
 
-    fn check(
-        &self,
-        document: &str,
-        schema_index: &SchemaIndex,
-        _file_name: &str,
-    ) -> Vec<Diagnostic> {
+    fn check(&self, ctx: &DocumentSchemaContext) -> Vec<Diagnostic> {
+        let document = ctx.document;
+        let schema_index = ctx.schema;
         let mut warnings = Vec::new();
         let parser = Parser::new(document);
         let tree = parser.parse();
@@ -35,35 +33,57 @@ impl LintRule for DeprecatedFieldRule {
 
         // Walk through all definitions in the document
         for definition in doc_cst.definitions() {
-            if let cst::Definition::OperationDefinition(operation) = definition {
-                // Get the root type name for this operation
-                let root_type_name = match operation.operation_type() {
-                    Some(op_type) if op_type.query_token().is_some() => {
-                        schema_index.schema().schema_definition.query.as_ref()
-                    }
-                    Some(op_type) if op_type.mutation_token().is_some() => {
-                        schema_index.schema().schema_definition.mutation.as_ref()
-                    }
-                    Some(op_type) if op_type.subscription_token().is_some() => schema_index
-                        .schema()
-                        .schema_definition
-                        .subscription
-                        .as_ref(),
-                    None => schema_index.schema().schema_definition.query.as_ref(),
-                    _ => None,
-                };
+            match definition {
+                cst::Definition::OperationDefinition(operation) => {
+                    // Get the root type name for this operation
+                    let root_type_name = match operation.operation_type() {
+                        Some(op_type) if op_type.query_token().is_some() => {
+                            schema_index.schema().schema_definition.query.as_ref()
+                        }
+                        Some(op_type) if op_type.mutation_token().is_some() => {
+                            schema_index.schema().schema_definition.mutation.as_ref()
+                        }
+                        Some(op_type) if op_type.subscription_token().is_some() => schema_index
+                            .schema()
+                            .schema_definition
+                            .subscription
+                            .as_ref(),
+                        None => schema_index.schema().schema_definition.query.as_ref(),
+                        _ => None,
+                    };
 
-                if let Some(root_type_name) = root_type_name {
-                    if let Some(selection_set) = operation.selection_set() {
-                        check_selection_set_cst(
-                            &selection_set,
-                            root_type_name.as_str(),
-                            schema_index,
-                            &mut warnings,
-                            document,
-                        );
+                    if let Some(root_type_name) = root_type_name {
+                        if let Some(selection_set) = operation.selection_set() {
+                            check_selection_set_cst(
+                                &selection_set,
+                                root_type_name.as_str(),
+                                schema_index,
+                                &mut warnings,
+                                document,
+                            );
+                        }
                     }
                 }
+                cst::Definition::FragmentDefinition(fragment) => {
+                    // Get the type condition (the type this fragment is on)
+                    if let Some(type_condition) = fragment.type_condition() {
+                        if let Some(named_type) = type_condition.named_type() {
+                            if let Some(type_name) = named_type.name() {
+                                let type_name_str = type_name.text();
+                                if let Some(selection_set) = fragment.selection_set() {
+                                    check_selection_set_cst(
+                                        &selection_set,
+                                        type_name_str.as_ref(),
+                                        schema_index,
+                                        &mut warnings,
+                                        document,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -189,6 +209,8 @@ fn offset_to_line_col(document: &str, offset: usize) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::context::DocumentSchemaContext;
+    use graphql_project::Severity;
 
     #[test]
     fn test_deprecated_field_warning() {
@@ -219,12 +241,16 @@ mod tests {
             }
         ";
 
-        let warnings = rule.check(document, &schema, "test.graphql");
+        let warnings = rule.check(&DocumentSchemaContext {
+            document,
+            file_name: "test.graphql",
+            schema: &schema,
+        });
 
         assert_eq!(warnings.len(), 1, "Should have exactly one warning");
         assert!(warnings[0].message.contains("email"));
         assert!(warnings[0].message.contains("Use 'emailAddress' instead"));
-        assert_eq!(warnings[0].severity, crate::Severity::Warning);
+        assert_eq!(warnings[0].severity, Severity::Warning);
     }
 
     #[test]
@@ -257,7 +283,11 @@ mod tests {
             }
         ";
 
-        let warnings = rule.check(document, &schema, "test.graphql");
+        let warnings = rule.check(&DocumentSchemaContext {
+            document,
+            file_name: "test.graphql",
+            schema: &schema,
+        });
 
         assert_eq!(warnings.len(), 2, "Should have two warnings");
         assert!(warnings.iter().any(|w| w.message.contains("oldName")));
@@ -301,7 +331,11 @@ mod tests {
             }
         ";
 
-        let warnings = rule.check(document, &schema, "test.graphql");
+        let warnings = rule.check(&DocumentSchemaContext {
+            document,
+            file_name: "test.graphql",
+            schema: &schema,
+        });
 
         assert_eq!(warnings.len(), 1, "Should have one warning");
         assert!(warnings[0].message.contains("oldAvatar"));
@@ -336,8 +370,54 @@ mod tests {
             }
         ";
 
-        let warnings = rule.check(document, &schema, "test.graphql");
+        let warnings = rule.check(&DocumentSchemaContext {
+            document,
+            file_name: "test.graphql",
+            schema: &schema,
+        });
 
         assert_eq!(warnings.len(), 0, "Should have no warnings");
+    }
+
+    #[test]
+    fn test_deprecated_field_in_fragment() {
+        let schema = SchemaIndex::from_schema(
+            r#"
+            type Query {
+                user(id: ID!): User
+            }
+
+            type User {
+                id: ID!
+                name: String!
+                oldEmail: String @deprecated(reason: "Use 'email' instead")
+                email: String
+            }
+            "#,
+        );
+
+        let rule = DeprecatedFieldRule;
+
+        let document = r"
+            fragment UserInfo on User {
+                id
+                name
+                oldEmail
+            }
+        ";
+
+        let warnings = rule.check(&DocumentSchemaContext {
+            document,
+            file_name: "test.graphql",
+            schema: &schema,
+        });
+
+        assert_eq!(
+            warnings.len(),
+            1,
+            "Should have one warning for deprecated field in fragment"
+        );
+        assert!(warnings[0].message.contains("oldEmail"));
+        assert!(warnings[0].message.contains("Use 'email' instead"));
     }
 }

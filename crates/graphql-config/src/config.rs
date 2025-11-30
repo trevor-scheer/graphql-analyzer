@@ -6,12 +6,12 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum GraphQLConfig {
-    /// Single project configuration
-    Single(ProjectConfig),
     /// Multi-project configuration
     Multi {
         projects: HashMap<String, ProjectConfig>,
     },
+    /// Single project configuration
+    Single(ProjectConfig),
 }
 
 impl GraphQLConfig {
@@ -21,7 +21,7 @@ impl GraphQLConfig {
     pub fn projects(&self) -> Box<dyn Iterator<Item = (&str, &ProjectConfig)> + '_> {
         match self {
             Self::Single(config) => Box::new(std::iter::once(("default", config))),
-            Self::Multi { projects } => Box::new(
+            Self::Multi { projects, .. } => Box::new(
                 projects
                     .iter()
                     .map(|(name, config)| (name.as_str(), config)),
@@ -36,7 +36,7 @@ impl GraphQLConfig {
         match self {
             Self::Single(config) if name == "default" => Some(config),
             Self::Single(_) => None,
-            Self::Multi { projects } => projects.get(name),
+            Self::Multi { projects, .. } => projects.get(name),
         }
     }
 
@@ -52,6 +52,28 @@ impl GraphQLConfig {
         match self {
             Self::Single(_) => 1,
             Self::Multi { projects } => projects.len(),
+        }
+    }
+
+    /// Get lint configuration from the first/default project
+    /// For single-project configs, returns the project's lint config
+    /// For multi-project configs, returns None (each project has its own)
+    #[must_use]
+    pub const fn lint_config(&self) -> Option<&serde_json::Value> {
+        match self {
+            Self::Single(config) => config.lint.as_ref(),
+            Self::Multi { .. } => None,
+        }
+    }
+
+    /// Get extensions from the first/default project
+    /// For single-project configs, returns the project's extensions
+    /// For multi-project configs, returns None (each project has its own)
+    #[must_use]
+    pub const fn extensions(&self) -> Option<&HashMap<String, serde_json::Value>> {
+        match self {
+            Self::Single(config) => config.extensions.as_ref(),
+            Self::Multi { .. } => None,
         }
     }
 }
@@ -74,6 +96,10 @@ pub struct ProjectConfig {
     /// File patterns to exclude
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude: Option<Vec<String>>,
+
+    /// Lint configuration (applies to all tools by default)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lint: Option<serde_json::Value>,
 
     /// Tool-specific extensions
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -141,6 +167,7 @@ mod tests {
             documents: Some(DocumentsConfig::Pattern("**/*.graphql".to_string())),
             include: None,
             exclude: None,
+            lint: None,
             extensions: None,
         });
 
@@ -160,6 +187,7 @@ mod tests {
                 documents: Some(DocumentsConfig::Pattern("frontend/**/*.ts".to_string())),
                 include: None,
                 exclude: None,
+                lint: None,
                 extensions: None,
             },
         );
@@ -170,6 +198,7 @@ mod tests {
                 documents: Some(DocumentsConfig::Pattern("backend/**/*.graphql".to_string())),
                 include: None,
                 exclude: None,
+                lint: None,
                 extensions: None,
             },
         );

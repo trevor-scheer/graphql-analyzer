@@ -1,14 +1,15 @@
-use crate::{Diagnostic, DocumentIndex, Position, Range, SchemaIndex};
+use crate::context::ProjectContext;
 use apollo_compiler::schema::ExtendedType;
 use apollo_parser::cst;
+use graphql_project::{Diagnostic, DocumentIndex, Position, Range, SchemaIndex};
 use std::collections::{HashMap, HashSet};
 
-use super::ProjectLintRule;
+use super::ProjectRule;
 
 /// Lint rule that checks for schema fields that are never used in any operation or fragment
 pub struct UnusedFieldsRule;
 
-impl ProjectLintRule for UnusedFieldsRule {
+impl ProjectRule for UnusedFieldsRule {
     fn name(&self) -> &'static str {
         "unused_fields"
     }
@@ -17,12 +18,10 @@ impl ProjectLintRule for UnusedFieldsRule {
         "Reports schema fields that are never used in any operation or fragment"
     }
 
-    fn check_project(
-        &self,
-        document_index: &DocumentIndex,
-        schema_index: &SchemaIndex,
-    ) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    fn check(&self, ctx: &ProjectContext) -> HashMap<String, Vec<Diagnostic>> {
+        let document_index = ctx.documents;
+        let schema_index = ctx.schema;
+        let mut diagnostics_by_file: HashMap<String, Vec<Diagnostic>> = HashMap::new();
 
         // Collect all fields used across all documents in the project
         let used_fields = collect_all_used_fields(document_index, schema_index);
@@ -95,23 +94,22 @@ impl ProjectLintRule for UnusedFieldsRule {
                         )
                     };
 
-                    // For now, we store the file path in the diagnostic source
-                    // This is a workaround until we update ProjectLintRule to return (file_path, Diagnostic) tuples
-                    let source = file_path.map_or_else(
-                        || "graphql-linter".to_string(),
-                        |path| format!("graphql-linter:{path}"),
-                    );
-
-                    diagnostics.push(
-                        Diagnostic::warning(range, message)
+                    // Add diagnostic to the appropriate file
+                    if let Some(ref file_path) = file_path {
+                        let diag = Diagnostic::warning(range, message)
                             .with_code("unused_field")
-                            .with_source(source),
-                    );
+                            .with_source("graphql-linter");
+
+                        diagnostics_by_file
+                            .entry(file_path.clone())
+                            .or_default()
+                            .push(diag);
+                    }
                 }
             }
         }
 
-        diagnostics
+        diagnostics_by_file
     }
 }
 
@@ -384,7 +382,10 @@ fn is_root_type_in_schema(type_name: &str, schema_index: &SchemaIndex) -> bool {
 #[allow(clippy::needless_raw_string_hashes)]
 mod tests {
     use super::*;
+    use crate::context::ProjectContext;
     use apollo_parser::Parser;
+    use graphql_project::{DocumentIndex, SchemaIndex};
+    use graphql_project::{OperationInfo, OperationType};
 
     fn create_test_schema() -> SchemaIndex {
         SchemaIndex::from_schema(
@@ -440,19 +441,19 @@ mod tests {
                     .operation_type()
                     .is_some_and(|t| t.mutation_token().is_some())
                 {
-                    crate::OperationType::Mutation
+                    OperationType::Mutation
                 } else if op_def
                     .operation_type()
                     .is_some_and(|t| t.subscription_token().is_some())
                 {
-                    crate::OperationType::Subscription
+                    OperationType::Subscription
                 } else {
-                    crate::OperationType::Query
+                    OperationType::Query
                 };
 
                 let operation_name = op_def.name().map(|n| n.text().to_string());
 
-                let operation_info = crate::OperationInfo {
+                let operation_info = OperationInfo {
                     name: operation_name.clone(),
                     operation_type: op_type,
                     file_path: file_path.clone(),
@@ -501,7 +502,14 @@ mod tests {
             ),
         ]);
 
-        let diagnostics = rule.check_project(&document_index, &schema);
+        let diagnostics = {
+            let ctx = ProjectContext {
+                documents: &document_index,
+                schema: &schema,
+            };
+            let map = rule.check(&ctx);
+            map.values().flatten().cloned().collect::<Vec<_>>()
+        };
 
         // Should detect: User.age, User.unusedField, Post.content, Post.unusedPostField
         assert!(
@@ -553,7 +561,14 @@ mod tests {
             }"#,
         )]);
 
-        let diagnostics = rule.check_project(&document_index, &schema);
+        let diagnostics = {
+            let ctx = ProjectContext {
+                documents: &document_index,
+                schema: &schema,
+            };
+            let map = rule.check(&ctx);
+            map.values().flatten().cloned().collect::<Vec<_>>()
+        };
 
         assert_eq!(
             diagnostics.len(),
@@ -587,7 +602,14 @@ mod tests {
             }"#,
         )]);
 
-        let diagnostics = rule.check_project(&document_index, &schema);
+        let diagnostics = {
+            let ctx = ProjectContext {
+                documents: &document_index,
+                schema: &schema,
+            };
+            let map = rule.check(&ctx);
+            map.values().flatten().cloned().collect::<Vec<_>>()
+        };
 
         // Root operation fields (Query fields) should not be reported as unused
         assert_eq!(
@@ -615,7 +637,14 @@ mod tests {
             }"#,
         )]);
 
-        let diagnostics = rule.check_project(&document_index, &schema);
+        let diagnostics = {
+            let ctx = ProjectContext {
+                documents: &document_index,
+                schema: &schema,
+            };
+            let map = rule.check(&ctx);
+            map.values().flatten().cloned().collect::<Vec<_>>()
+        };
 
         let messages: Vec<_> = diagnostics.iter().map(|d| &d.message).collect();
 

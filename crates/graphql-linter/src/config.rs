@@ -105,6 +105,46 @@ impl LintConfig {
     pub fn recommended() -> Self {
         Self::Recommended("recommended".to_string())
     }
+
+    /// Merge another config into this one (tool-specific overrides)
+    #[must_use]
+    pub fn merge(&self, override_config: &Self) -> Self {
+        match (self, override_config) {
+            // If override is empty, just use base
+            (base, Self::Rules { rules }) if rules.is_empty() => base.clone(),
+
+            // If override is Recommended, use it
+            (_, Self::Recommended(s)) => Self::Recommended(s.clone()),
+
+            // Merge rules
+            (
+                Self::Rules { rules: base_rules },
+                Self::Rules {
+                    rules: override_rules,
+                },
+            ) => {
+                let mut merged = base_rules.clone();
+                merged.extend(override_rules.clone());
+                Self::Rules { rules: merged }
+            }
+
+            // Base is Recommended, override has rules - convert to rules and merge
+            (
+                Self::Recommended(_),
+                Self::Rules {
+                    rules: override_rules,
+                },
+            ) => {
+                let mut merged = HashMap::new();
+                merged.insert(
+                    "recommended".to_string(),
+                    LintRuleConfig::Severity(LintSeverity::Error),
+                );
+                merged.extend(override_rules.clone());
+                Self::Rules { rules: merged }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -162,6 +202,43 @@ mod tests {
         assert_eq!(
             config.get_severity("deprecated_field"),
             Some(LintSeverity::Warn)
+        );
+    }
+
+    #[test]
+    fn test_merge_override_rules() {
+        let base = LintConfig::recommended();
+        let override_yaml = "\nunused_fields: error\n";
+        let override_config: LintConfig = serde_yaml::from_str(override_yaml).unwrap();
+
+        let merged = base.merge(&override_config);
+
+        // Should have recommended rules
+        assert!(merged.is_enabled("unique_names"));
+        assert!(merged.is_enabled("deprecated_field"));
+        // Plus override
+        assert!(merged.is_enabled("unused_fields"));
+    }
+
+    #[test]
+    fn test_merge_override_severity() {
+        let base_yaml = "\nunique_names: error\ndeprecated_field: warn\n";
+        let base: LintConfig = serde_yaml::from_str(base_yaml).unwrap();
+
+        let override_yaml = "\ndeprecated_field: off\n";
+        let override_config: LintConfig = serde_yaml::from_str(override_yaml).unwrap();
+
+        let merged = base.merge(&override_config);
+
+        // unique_names unchanged
+        assert_eq!(
+            merged.get_severity("unique_names"),
+            Some(LintSeverity::Error)
+        );
+        // deprecated_field overridden
+        assert_eq!(
+            merged.get_severity("deprecated_field"),
+            Some(LintSeverity::Off)
         );
     }
 }

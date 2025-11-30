@@ -1,11 +1,13 @@
-use crate::{Diagnostic, DocumentIndex, Position, Range, SchemaIndex};
+use crate::context::ProjectContext;
+use graphql_project::{Diagnostic, Location, Position, Range, RelatedInfo};
+use std::collections::HashMap;
 
-use super::ProjectLintRule;
+use super::ProjectRule;
 
 /// Lint rule that checks for unique operation and fragment names across the entire project
 pub struct UniqueNamesRule;
 
-impl ProjectLintRule for UniqueNamesRule {
+impl ProjectRule for UniqueNamesRule {
     fn name(&self) -> &'static str {
         "unique_names"
     }
@@ -15,12 +17,9 @@ impl ProjectLintRule for UniqueNamesRule {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn check_project(
-        &self,
-        document_index: &DocumentIndex,
-        _schema_index: &SchemaIndex,
-    ) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    fn check(&self, ctx: &ProjectContext) -> HashMap<String, Vec<Diagnostic>> {
+        let document_index = ctx.documents;
+        let mut diagnostics_by_file: HashMap<String, Vec<Diagnostic>> = HashMap::new();
 
         // Check for duplicate operation names
         for (name, operations) in &document_index.operations {
@@ -53,7 +52,6 @@ impl ProjectLintRule for UniqueNamesRule {
                             || other_op.line != op.line
                             || other_op.column != op.column
                         {
-                            use crate::diagnostics::{Location, RelatedInfo};
                             let other_range = Range {
                                 start: Position {
                                     line: other_op.line,
@@ -75,7 +73,11 @@ impl ProjectLintRule for UniqueNamesRule {
                         }
                     }
 
-                    diagnostics.push(diag);
+                    // Add diagnostic to the file's list
+                    diagnostics_by_file
+                        .entry(op.file_path.clone())
+                        .or_default()
+                        .push(diag);
                 }
             }
         }
@@ -111,7 +113,6 @@ impl ProjectLintRule for UniqueNamesRule {
                             || other_frag.line != frag.line
                             || other_frag.column != frag.column
                         {
-                            use crate::diagnostics::{Location, RelatedInfo};
                             let other_range = Range {
                                 start: Position {
                                     line: other_frag.line,
@@ -133,12 +134,16 @@ impl ProjectLintRule for UniqueNamesRule {
                         }
                     }
 
-                    diagnostics.push(diag);
+                    // Add diagnostic to the file's list
+                    diagnostics_by_file
+                        .entry(frag.file_path.clone())
+                        .or_default()
+                        .push(diag);
                 }
             }
         }
 
-        diagnostics
+        diagnostics_by_file
     }
 }
 
@@ -147,6 +152,7 @@ impl ProjectLintRule for UniqueNamesRule {
 mod tests {
     use super::*;
     use apollo_parser::{cst, Parser};
+    use graphql_project::{DocumentIndex, FragmentInfo, OperationInfo, OperationType, SchemaIndex};
 
     fn create_test_document_index(files: Vec<(&str, &str)>) -> DocumentIndex {
         let mut index = DocumentIndex::new();
@@ -172,17 +178,17 @@ mod tests {
                                 .operation_type()
                                 .is_some_and(|t| t.mutation_token().is_some())
                             {
-                                crate::OperationType::Mutation
+                                OperationType::Mutation
                             } else if op_def
                                 .operation_type()
                                 .is_some_and(|t| t.subscription_token().is_some())
                             {
-                                crate::OperationType::Subscription
+                                OperationType::Subscription
                             } else {
-                                crate::OperationType::Query
+                                OperationType::Query
                             };
 
-                            let operation_info = crate::OperationInfo {
+                            let operation_info = OperationInfo {
                                 name: Some(name.clone()),
                                 operation_type: op_type,
                                 file_path: file_path.to_string(),
@@ -207,7 +213,7 @@ mod tests {
                                 .map(|n| n.text().to_string())
                                 .unwrap_or_default();
 
-                            let fragment_info = crate::FragmentInfo {
+                            let fragment_info = FragmentInfo {
                                 name: name.clone(),
                                 type_condition,
                                 file_path: file_path.to_string(),
@@ -236,7 +242,12 @@ mod tests {
             ("file2.graphql", r#"query GetUser { __typename }"#),
         ]);
 
-        let diagnostics = rule.check_project(&document_index, &schema);
+        let ctx = ProjectContext {
+            documents: &document_index,
+            schema: &schema,
+        };
+        let diagnostics_map = rule.check(&ctx);
+        let diagnostics: Vec<_> = diagnostics_map.values().flatten().cloned().collect();
 
         assert_eq!(
             diagnostics.len(),
@@ -257,7 +268,12 @@ mod tests {
             ("file2.graphql", r#"fragment UserFields on User { name }"#),
         ]);
 
-        let diagnostics = rule.check_project(&document_index, &schema);
+        let ctx = ProjectContext {
+            documents: &document_index,
+            schema: &schema,
+        };
+        let diagnostics_map = rule.check(&ctx);
+        let diagnostics: Vec<_> = diagnostics_map.values().flatten().cloned().collect();
 
         assert_eq!(
             diagnostics.len(),
@@ -284,10 +300,14 @@ mod tests {
             ),
         ]);
 
-        let diagnostics = rule.check_project(&document_index, &schema);
+        let ctx = ProjectContext {
+            documents: &document_index,
+            schema: &schema,
+        };
+        let diagnostics_map = rule.check(&ctx);
 
         assert_eq!(
-            diagnostics.len(),
+            diagnostics_map.values().flatten().count(),
             0,
             "Should have no errors for unique names"
         );
@@ -303,7 +323,12 @@ mod tests {
             ("file2.graphql", r#"query GetUser { __typename }"#),
         ]);
 
-        let diagnostics = rule.check_project(&document_index, &schema);
+        let ctx = ProjectContext {
+            documents: &document_index,
+            schema: &schema,
+        };
+        let diagnostics_map = rule.check(&ctx);
+        let diagnostics: Vec<_> = diagnostics_map.values().flatten().cloned().collect();
 
         assert_eq!(diagnostics.len(), 2);
         // Each diagnostic should have related info pointing to the other occurrence

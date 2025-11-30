@@ -26,17 +26,6 @@ fn get_extract_config(config: &ProjectConfig) -> ExtractConfig {
         .unwrap_or_default()
 }
 
-/// Extract `LintConfig` from `ProjectConfig` extensions
-fn get_lint_config(config: &ProjectConfig) -> crate::LintConfig {
-    config
-        .extensions
-        .as_ref()
-        .and_then(|ext| ext.get("project"))
-        .and_then(|value| value.get("lint"))
-        .and_then(|value| serde_json::from_value(value.clone()).ok())
-        .unwrap_or_default()
-}
-
 impl GraphQLProject {
     /// Create a new project from configuration
     #[must_use]
@@ -247,25 +236,6 @@ impl GraphQLProject {
         get_extract_config(&self.config)
     }
 
-    /// Get the lint configuration for this project
-    #[must_use]
-    pub fn get_lint_config(&self) -> crate::LintConfig {
-        get_lint_config(&self.config)
-    }
-
-    /// Run project-wide lint rules on all documents
-    ///
-    /// This runs lint rules that require analyzing the entire project, such as
-    /// detecting unused schema fields across all operations and fragments.
-    #[must_use]
-    pub fn lint_project(&self) -> Vec<Diagnostic> {
-        let linter = crate::Linter::new(self.get_lint_config());
-        let document_index = self.document_index.read().unwrap();
-        let schema_index = self.schema_index.read().unwrap();
-
-        linter.lint_project(&document_index, &schema_index)
-    }
-
     /// Update document index for a single file with in-memory content
     ///
     /// This removes all operations and fragments from the specified file path,
@@ -451,11 +421,7 @@ impl GraphQLProject {
             )
         };
 
-        // Add deprecation warnings
-        let validator = Validator::new();
-        let deprecation_warnings =
-            validator.check_deprecated_fields_custom(source, &schema_index, file_name);
-        diagnostics.extend(deprecation_warnings);
+        // Note: Deprecation warnings are now handled by graphql-linter, not here
 
         // Add unused fragment warnings for fragments defined in this file
         let unused_fragment_warnings =
@@ -604,18 +570,7 @@ impl GraphQLProject {
                 diags
             };
 
-            // Add deprecation warnings
-            // Note: We still need to manually adjust line offsets for deprecation warnings
-            // since check_deprecated_fields_custom uses apollo-parser directly without offset support
-            let validator = Validator::new();
-            let deprecation_warnings =
-                validator.check_deprecated_fields_custom(source, &schema_index, file_path);
-
-            for mut warning in deprecation_warnings {
-                warning.range.start.line += line_offset;
-                warning.range.end.line += line_offset;
-                diagnostics.push(warning);
-            }
+            // Note: Deprecation warnings are now handled by graphql-linter, not here
 
             // Add unused fragment warnings for fragments defined in this extracted block
             let unused_warnings =
@@ -1372,6 +1327,7 @@ mod tests {
             documents: Some(DocumentsConfig::Pattern("**/*.graphql".to_string())),
             include: None,
             exclude: None,
+            lint: None,
             extensions: None,
         };
 
@@ -1386,6 +1342,7 @@ mod tests {
             documents: None,
             include: None,
             exclude: None,
+            lint: None,
             extensions: None,
         });
 
@@ -1401,6 +1358,7 @@ mod tests {
             documents: None,
             include: None,
             exclude: None,
+            lint: None,
             extensions: None,
         };
         let extract_config = get_extract_config(&config);
@@ -1426,6 +1384,7 @@ mod tests {
             documents: None,
             include: None,
             exclude: None,
+            lint: None,
             extensions: Some(extensions),
         };
         let extract_config = get_extract_config(&config);
@@ -1449,6 +1408,7 @@ mod tests {
             documents: None,
             include: None,
             exclude: None,
+            lint: None,
             extensions: Some(extensions),
         };
         let extract_config = get_extract_config(&config);

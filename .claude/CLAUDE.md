@@ -6,8 +6,12 @@ This is a GraphQL Language Server Protocol (LSP) implementation written in Rust.
 
 ## Project Structure
 
+- `crates/graphql-config/` - Configuration parser and loader
+- `crates/graphql-extract/` - Extract GraphQL from source files
+- `crates/graphql-linter/` - Linting engine with custom rules
+- `crates/graphql-project/` - Core types, validation, and indexing
 - `crates/graphql-lsp/` - Main LSP implementation
-- `crates/graphql-language-service/` - Core language service functionality
+- `crates/graphql-cli/` - CLI tool for validation and linting
 - `editors/vscode/` - VSCode extension for the LSP
 - `tests/` - Test suites
 
@@ -98,6 +102,59 @@ This is a GraphQL Language Server Protocol (LSP) implementation written in Rust.
 - `cd editors/vscode && npm run format:check` - Check VSCode extension formatting
 - `cd editors/vscode && npm run lint` - Lint VSCode extension
 - `cd editors/vscode && npm run compile` - Build VSCode extension
+
+## Linting Architecture
+
+The linting system is implemented in the `graphql-linter` crate, which is used by both the LSP and CLI.
+
+### Separation of Concerns
+
+- **graphql-project**: Provides core types (Diagnostic, SchemaIndex, DocumentIndex) and project management. No linting logic.
+- **graphql-linter**: Implements all linting rules (document-level and project-wide). Depends on graphql-project for types.
+- **graphql-lsp** and **graphql-cli**: Use graphql-linter directly for all linting needs.
+
+### Linting Contexts
+
+The linter supports four distinct contexts:
+
+1. **Standalone Document**: Quick validation without schema (e.g., naming conventions)
+2. **Document Against Schema**: Real-time feedback (e.g., `deprecated_field`)
+3. **Standalone Schema**: Schema design validation
+4. **Project-Wide**: Comprehensive analysis across all documents (e.g., `unique_names`, `unused_fields`)
+
+### Configuration
+
+Linting is configured via top-level `lint` in `.graphqlrc.yaml` with optional tool-specific overrides:
+
+```yaml
+# Base configuration
+lint:
+  recommended: error
+
+# Tool-specific overrides
+extensions:
+  lsp:
+    lint:
+      rules:
+        unused_fields: off  # Expensive, keep off for LSP
+  cli:
+    lint:
+      rules:
+        unused_fields: error  # Enable in CLI/CI
+```
+
+### Current Rules
+
+- **deprecated_field** (DocumentSchemaRule): Warns when using @deprecated fields
+- **unique_names** (ProjectRule): Ensures operation/fragment names are unique
+- **unused_fields** (ProjectRule): Detects schema fields never used (opt-in, expensive)
+
+### Performance Considerations
+
+- **LSP**: Only runs fast document-level lints in real-time. Project-wide lints are opt-in only.
+- **CLI**: Runs all enabled lints including expensive project-wide analysis.
+
+See [graphql-linter/README.md](../crates/graphql-linter/README.md) for detailed documentation.
 
 ## Logging and Tracing Strategy
 

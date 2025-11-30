@@ -54,7 +54,6 @@ async fn create_test_project() -> (TempDir, GraphQLProject) {
         ])),
         include: None,
         exclude: None,
-        lint: None,
         extensions: None,
     };
 
