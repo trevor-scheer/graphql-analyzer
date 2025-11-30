@@ -1,15 +1,21 @@
 # yaml-language-server: $schema=../crates/graphql-config/schema/graphqlrc.schema.json
 schema: schema.graphql
-documents: "**/*.{graphql,gql,ts,tsx,js,jsx}"
+documents: "src/**/*.{graphql,gql,ts,tsx,js,jsx}"
+
+# Global lint configuration (applies to all tools by default)
+lint:
+  recommended: error # Use recommended preset with error severity
+  deprecated_field: warn # Warn when using deprecated fields
+
+# Tool-specific extensions
 extensions:
-  project:
+  # LSP-specific lint configuration
+  lsp:
     lint:
-      recommended: error
-      unique_names: error      # Project-wide unique operation/fragment names
-      unused_fields: warn      # Warn about schema fields never used
-      deprecated_field: warn   # Warn when using deprecated fields
-  extractConfig:
-    tagIdentifiers:
-      - gql
-      - graphql
-    requireImport: false
+      unique_names: error # Project-wide unique operation/fragment names
+      unused_fields: warn # Warn about schema fields never used (opt-in for LSP)
+
+  # CLI-specific lint configuration (can have different settings)
+  cli:
+    lint:
+      unused_fields: error # More strict in CLI

@@ -176,7 +176,7 @@ type TeamPokemon {
   nickname: String
   level: Int!
   experience: Int!
-  friendship: Int!
+  friendship: Int! @deprecated(reason: "use other")
   heldItem: Item
   moves: [Move!]!
   isShiny: Boolean!

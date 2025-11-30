@@ -22,6 +22,7 @@ const GET_TRAINER_PROFILE = gql`
       }
       team {
         nickname
+        friendship
         level
         isShiny
         pokemon {

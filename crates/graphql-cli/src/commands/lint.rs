@@ -2,7 +2,8 @@ use crate::OutputFormat;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use graphql_config::{find_config, load_config};
-use graphql_project::{GraphQLProject, Linter, Severity};
+use graphql_linter::{DocumentSchemaContext, LintConfig, Linter};
+use graphql_project::{GraphQLProject, Severity};
 use std::path::PathBuf;
 use std::process;
 
@@ -111,7 +112,30 @@ pub async fn run(
         }
 
         // Get lint config and create linter
-        let lint_config = project.get_lint_config();
+        // Load CLI-specific lint configuration (extensions.cli.lint overrides top-level lint)
+        let base_lint_config: LintConfig = config
+            .lint_config()
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .unwrap_or_default();
+
+        let cli_lint_config = config
+            .extensions()
+            .and_then(|ext| ext.get("cli"))
+            .and_then(|cli_ext| {
+                if let serde_json::Value::Object(map) = cli_ext {
+                    map.get("lint")
+                } else {
+                    None
+                }
+            })
+            .and_then(|value| serde_json::from_value::<LintConfig>(value.clone()).ok());
+
+        let lint_config = if let Some(cli_overrides) = cli_lint_config {
+            base_lint_config.merge(&cli_overrides)
+        } else {
+            base_lint_config
+        };
+
         let linter = Linter::new(lint_config);
 
         // Get extract config
@@ -163,7 +187,12 @@ pub async fn run(
 
             // Run lints on each extracted block
             for block in &extracted {
-                let diagnostics = linter.lint_document(&block.source, &schema_index, file_path);
+                let ctx = DocumentSchemaContext {
+                    document: &block.source,
+                    file_name: file_path,
+                    schema: &schema_index,
+                };
+                let diagnostics = linter.lint_document(&ctx);
 
                 // Convert diagnostics to output format
                 for diag in diagnostics {

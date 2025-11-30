@@ -18,6 +18,7 @@ path = "src/main.rs"
 graphql-project = { path = "../graphql-project" }
 graphql-config = { path = "../graphql-config" }
 graphql-extract = { path = "../graphql-extract" }
+graphql-linter = { path = "../graphql-linter" }
 
 # CLI
 clap = { workspace = true }
