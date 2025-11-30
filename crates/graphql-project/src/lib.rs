@@ -7,7 +7,6 @@ mod goto_definition;
 mod hover;
 mod index;
 mod line_index;
-mod lint;
 mod project;
 mod schema;
 mod validation;
@@ -25,7 +24,6 @@ pub use index::{
     OperationType, SchemaIndex, TypeInfo,
 };
 pub use line_index::LineIndex;
-pub use lint::{LintConfig, LintRuleConfig, LintSeverity, Linter};
 pub use project::GraphQLProject;
 pub use schema::SchemaLoader;
 pub use validation::Validator;
