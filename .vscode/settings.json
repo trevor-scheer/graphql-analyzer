@@ -1,0 +1,40 @@
+{
+  // Rust settings
+  "rust-analyzer.cargo.features": "all",
+
+  // Extension development
+  "files.associations": {
+    "*.graphql": "graphql",
+    "*.gql": "graphql"
+  },
+
+  // GraphQL configuration schema
+  "yaml.schemas": {
+    "./crates/graphql-config/schema/graphqlrc.schema.json": [
+      ".graphqlrc",
+      ".graphqlrc.yaml",
+      ".graphqlrc.yml",
+      "graphql.config.yaml",
+      "graphql.config.yml"
+    ]
+  },
+  "json.schemas": [
+    {
+      "fileMatch": [".graphqlrc.json", ".graphqlrc"],
+      "url": "./crates/graphql-config/schema/graphqlrc.schema.json"
+    }
+  ],
+
+  // Exclude build artifacts from search
+  "search.exclude": {
+    "**/target": true,
+    "**/node_modules": true,
+    "**/editors/vscode/out": true
+  },
+
+  // File watching exclusions for performance
+  "files.watcherExclude": {
+    "**/target/**": true,
+    "**/node_modules/**": true
+  }
+}
