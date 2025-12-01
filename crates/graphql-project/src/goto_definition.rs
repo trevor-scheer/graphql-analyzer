@@ -1068,6 +1068,12 @@ impl GotoDefinitionProvider {
                 // Find the type definition in the schema
                 let type_def = schema_index.find_type_definition(&type_name)?;
 
+                // Filter out builtin types (stored in built_in.graphql by apollo-compiler)
+                // These are language primitives and don't have user-accessible definitions
+                if type_def.file_path == "built_in.graphql" {
+                    return None;
+                }
+
                 let range = Range {
                     start: Position {
                         line: type_def.line,
@@ -2721,5 +2727,133 @@ query GetUsers {
         assert_eq!(locations[0].file_path, "schema.graphql");
         // "USER" enum value
         assert_eq!(locations[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn test_no_goto_for_builtin_scalar_types() {
+        let doc_index = DocumentIndex::new();
+        let schema_str = r"
+type Query {
+  user(id: ID!): User
+}
+
+type User {
+  id: ID!
+  name: String!
+  age: Int
+  active: Boolean
+  rating: Float
+}
+";
+        let schema = SchemaIndex::from_schema(schema_str);
+        let provider = GotoDefinitionProvider::new();
+
+        // Test ID builtin scalar
+        let document = r"
+query GetUser($userId: ID!) {
+    user(id: $userId) {
+        id
+    }
+}
+";
+
+        // Position on "ID" in variable definition (line 1, column 23)
+        let position = Position {
+            line: 1,
+            character: 23,
+        };
+
+        let locations = provider.goto_definition(
+            document,
+            position,
+            &doc_index,
+            &schema,
+            "file:///test.graphql",
+        );
+
+        // Should return None for builtin types (not try to open built_in.graphql)
+        assert!(
+            locations.is_none(),
+            "Goto definition should return None for builtin scalar ID"
+        );
+
+        // Test String builtin scalar in field definition
+        let schema_document = schema_str;
+
+        // Position on "String" in User.name field type (line 7, column 8)
+        let position = Position {
+            line: 7,
+            character: 8,
+        };
+
+        let locations = provider.goto_definition(
+            schema_document,
+            position,
+            &doc_index,
+            &schema,
+            "file:///schema.graphql",
+        );
+
+        assert!(
+            locations.is_none(),
+            "Goto definition should return None for builtin scalar String"
+        );
+
+        // Test Int builtin scalar
+        let position = Position {
+            line: 8,
+            character: 7,
+        };
+
+        let locations = provider.goto_definition(
+            schema_document,
+            position,
+            &doc_index,
+            &schema,
+            "file:///schema.graphql",
+        );
+
+        assert!(
+            locations.is_none(),
+            "Goto definition should return None for builtin scalar Int"
+        );
+
+        // Test Boolean builtin scalar
+        let position = Position {
+            line: 9,
+            character: 10,
+        };
+
+        let locations = provider.goto_definition(
+            schema_document,
+            position,
+            &doc_index,
+            &schema,
+            "file:///schema.graphql",
+        );
+
+        assert!(
+            locations.is_none(),
+            "Goto definition should return None for builtin scalar Boolean"
+        );
+
+        // Test Float builtin scalar
+        let position = Position {
+            line: 10,
+            character: 10,
+        };
+
+        let locations = provider.goto_definition(
+            schema_document,
+            position,
+            &doc_index,
+            &schema,
+            "file:///schema.graphql",
+        );
+
+        assert!(
+            locations.is_none(),
+            "Goto definition should return None for builtin scalar Float"
+        );
     }
 }
