@@ -1,31 +1,67 @@
 # graphql-config
 
-GraphQL configuration file parsing and discovery.
+A Rust library for parsing and discovering GraphQL configuration files, compatible with the standard `.graphqlrc` format used by popular GraphQL tools.
 
-## Purpose
+## Features
 
-This crate handles loading and parsing GraphQL configuration files. It:
-- Discovers configuration files in a project directory
-- Parses multiple configuration formats (YAML, JSON)
-- Provides a unified configuration API
-- Supports multi-project configurations
-- Resolves glob patterns for schema and document files
+- **Multiple Formats**: Supports YAML and JSON configuration files
+- **Auto-Discovery**: Walks up the directory tree to find configuration files
+- **Multi-Project Support**: Single or multiple GraphQL projects in one configuration
+- **Glob Patterns**: Resolves glob patterns for schema and document files
+- **Remote Schemas**: Detects URLs for remote schema introspection
+- **Standard Format**: Compatible with GraphQL Code Generator, GraphQL ESLint, and other tools
 
-## How it Fits
+## Installation
 
-This is a foundational crate used by all other components to understand project structure:
+Add to your `Cargo.toml`:
 
+```toml
+[dependencies]
+graphql-config = { path = "../graphql-config" }
 ```
-graphql-lsp -----> graphql-config
-graphql-cli -----> graphql-config
-graphql-project -> graphql-config
+
+## Getting Started
+
+### Load Configuration from a Directory
+
+```rust
+use graphql_config::load_config;
+
+// Discovers and loads the nearest .graphqlrc file
+let config = load_config("/path/to/project")?;
+
+// Access projects
+for (name, project) in &config.projects {
+    println!("Project: {}", name);
+    println!("  Schema: {:?}", project.schema);
+    println!("  Documents: {:?}", project.documents);
+}
 ```
 
-All GraphQL tooling starts by loading configuration through this crate.
+### Find Configuration File Path
+
+```rust
+use graphql_config::find_config;
+
+// Search for config file starting from a directory
+let config_path = find_config("/path/to/project")?;
+println!("Found config at: {}", config_path.display());
+```
+
+### Parse Configuration from String
+
+```rust
+use graphql_config::load_config_from_str;
+
+let yaml = r#"
+schema: schema.graphql
+documents: "**/*.graphql"
+"#;
+
+let config = load_config_from_str(yaml, "yaml")?;
+```
 
 ## Configuration Format
-
-The crate supports the standard GraphQL configuration format used by popular tools like GraphQL Code Generator and GraphQL ESLint.
 
 ### Single Project
 
@@ -54,78 +90,51 @@ projects:
 
 ### Schema Sources
 
-Schemas can be loaded from:
-- Local files: `schema.graphql`
-- Glob patterns: `schema/**/*.graphql`
-- HTTP/HTTPS endpoints: `https://api.example.com/graphql` (introspection query executed by `graphql-project`)
-- Multiple sources: `["schema.graphql", "extensions/*.graphql"]`
+Schemas can be loaded from multiple sources:
 
-**Note**: The `graphql-config` crate only parses and validates the configuration structure. Actual schema loading (including introspection for URLs) is handled by the `graphql-project` crate using the `graphql-introspect` crate.
+**Local files:**
+```yaml
+schema: schema.graphql
+```
+
+**Glob patterns:**
+```yaml
+schema: schema/**/*.graphql
+```
+
+**Multiple sources:**
+```yaml
+schema:
+  - schema.graphql
+  - extensions/*.graphql
+```
+
+**Remote URLs:**
+```yaml
+schema: https://api.example.com/graphql
+```
+
+Note: This library only parses and validates the configuration structure. Actual schema loading (including introspection for URLs) is handled by consumers of this library.
 
 ### Document Patterns
 
-Documents can include:
-- GraphQL files: `**/*.graphql`, `**/*.gql`
-- Embedded GraphQL in code: `**/*.tsx`, `**/*.ts`, `**/*.jsx`, `**/*.js`
+Documents can include GraphQL files and files with embedded GraphQL:
 
-## Usage
-
-### Loading Configuration
-
-```rust
-use graphql_config::{load_config, find_config};
-
-// Discover and load config from a directory
-let config = load_config("/path/to/project")?;
-
-// Get a specific project
-let project = config.projects.get("my-project").unwrap();
-
-println!("Schema: {:?}", project.schema);
-println!("Documents: {:?}", project.documents);
+```yaml
+documents:
+  - "**/*.graphql"
+  - "**/*.gql"
+  - "**/*.tsx"
+  - "**/*.ts"
 ```
 
-### Finding Config Files
+## API Reference
 
-```rust
-use graphql_config::find_config;
+### Core Types
 
-// Search for config file
-let config_path = find_config("/path/to/project")?;
-println!("Found config at: {}", config_path.display());
-```
+#### GraphQLConfig
 
-### Parsing from String
-
-```rust
-use graphql_config::load_config_from_str;
-
-let yaml = r#"
-schema: schema.graphql
-documents: "**/*.graphql"
-"#;
-
-let config = load_config_from_str(yaml, "yaml")?;
-```
-
-## Supported Configuration Files
-
-The crate searches for these files in order:
-1. `.graphqlrc` (YAML or JSON)
-2. `.graphqlrc.yml`
-3. `.graphqlrc.yaml`
-4. `.graphqlrc.json`
-5. `graphql.config.js` (future)
-6. `graphql.config.ts` (future)
-7. `graphql` section in `package.json` (future)
-
-Currently, only YAML and JSON formats are fully supported.
-
-## Key Types
-
-### GraphQLConfig
-
-The top-level configuration:
+The top-level configuration structure:
 
 ```rust
 pub struct GraphQLConfig {
@@ -135,7 +144,7 @@ pub struct GraphQLConfig {
 
 For single-project configs, there's an implicit "default" project.
 
-### ProjectConfig
+#### ProjectConfig
 
 Configuration for a single GraphQL project:
 
@@ -143,10 +152,11 @@ Configuration for a single GraphQL project:
 pub struct ProjectConfig {
     pub schema: SchemaConfig,
     pub documents: Option<DocumentsConfig>,
+    // ... other fields
 }
 ```
 
-### SchemaConfig
+#### SchemaConfig
 
 Schema source configuration:
 
@@ -158,7 +168,7 @@ pub enum SchemaConfig {
 }
 ```
 
-### DocumentsConfig
+#### DocumentsConfig
 
 Document pattern configuration:
 
@@ -168,32 +178,102 @@ pub struct DocumentsConfig {
 }
 ```
 
-## Technical Details
+### Key Functions
 
-### Glob Pattern Resolution
+#### `load_config(path: &Path) -> Result<GraphQLConfig>`
 
-The crate uses the `glob` crate to resolve file patterns. Patterns are resolved relative to the configuration file location.
+Discovers and loads configuration from a directory, searching up the tree for config files.
 
-### File Discovery
+#### `find_config(path: &Path) -> Result<PathBuf>`
 
-Uses `walkdir` to recursively search for configuration files starting from a given directory and walking up to parent directories.
+Finds the path to the nearest configuration file without loading it.
+
+#### `load_config_from_str(content: &str, format: &str) -> Result<GraphQLConfig>`
+
+Parses configuration from a string. Format should be "yaml" or "json".
+
+#### `has_remote_schema(config: &ProjectConfig) -> bool`
+
+Checks if a project configuration uses a remote URL for its schema.
+
+## Supported Configuration Files
+
+The library searches for these files in order:
+1. `.graphqlrc` (YAML or JSON)
+2. `.graphqlrc.yml`
+3. `.graphqlrc.yaml`
+4. `.graphqlrc.json`
+
+Future support planned for:
+- `graphql.config.js`
+- `graphql.config.ts`
+- `graphql` section in `package.json`
+
+## Examples
+
+### Working with Multi-Project Configs
+
+```rust
+use graphql_config::load_config;
+
+let config = load_config(".")?;
+
+// Get a specific project
+if let Some(api_project) = config.projects.get("api") {
+    println!("API schema: {:?}", api_project.schema);
+}
+
+// Iterate all projects
+for (name, project) in &config.projects {
+    println!("Project '{}' documents: {:?}", name, project.documents);
+}
+```
+
+### Checking for Remote Schemas
+
+```rust
+use graphql_config::{load_config, has_remote_schema};
+
+let config = load_config(".")?;
+
+for (name, project) in &config.projects {
+    if has_remote_schema(project) {
+        println!("Project '{}' uses a remote schema", name);
+    }
+}
+```
 
 ### Error Handling
 
-Provides detailed error messages for:
-- Missing configuration files
-- Invalid YAML/JSON syntax
-- Invalid configuration structure
+```rust
+use graphql_config::{load_config, ConfigError};
+
+match load_config(".") {
+    Ok(config) => println!("Loaded {} projects", config.projects.len()),
+    Err(ConfigError::NotFound) => eprintln!("No config file found"),
+    Err(ConfigError::ParseError(msg)) => eprintln!("Parse error: {}", msg),
+    Err(e) => eprintln!("Error: {}", e),
+}
+```
+
+## Implementation Details
+
+### File Discovery
+
+Uses `walkdir` to recursively search for configuration files, starting from the specified directory and walking up to parent directories until a config file is found or the root is reached.
+
+### Glob Pattern Resolution
+
+Uses the `glob` crate to resolve file patterns. Patterns are resolved relative to the configuration file location.
+
+### Error Handling
+
+Provides detailed error types for:
+- Missing configuration files (`ConfigError::NotFound`)
+- Invalid YAML/JSON syntax (`ConfigError::ParseError`)
+- Invalid configuration structure (`ConfigError::ValidationError`)
 - Missing required fields
 
-## Development
+## License
 
-Key files to understand:
-- [src/config.rs](src/config.rs) - Configuration data structures
-- [src/loader.rs](src/loader.rs) - Configuration loading and discovery
-- [src/error.rs](src/error.rs) - Error types
-
-When adding new features:
-1. Update the configuration structs in config.rs
-2. Add parsing logic in loader.rs
-3. Update this README with examples
+MIT OR Apache-2.0

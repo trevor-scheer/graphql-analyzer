@@ -1,79 +1,166 @@
 # graphql-cli
 
-Command-line interface for GraphQL validation and tooling.
+Command-line tool for validating and linting GraphQL projects.
 
-## Purpose
+## Features
 
-This crate provides a CLI tool for working with GraphQL projects from the command line. It enables:
-- Validating GraphQL schemas and documents
-- Checking for breaking changes between schema versions
-- Watch mode for continuous validation during development
-- Multiple output formats (human-readable, JSON, GitHub Actions)
-
-## How it Fits
-
-The CLI is a command-line alternative to the LSP server, sharing the same core functionality:
-
-```
-graphql-cli (CLI) -> graphql-project (core) -> GraphQL files
-                                            -> graphql-config
-                                            -> graphql-extract
-```
-
-Both `graphql-cli` and `graphql-lsp` depend on `graphql-project` for GraphQL processing.
+- **Validate Command**: Run Apollo compiler validation on schemas and documents
+- **Lint Command**: Execute custom lint rules with configurable severity
+- **Watch Mode**: Continuous validation during development
+- **Multiple Output Formats**: Human-readable, JSON, and GitHub Actions
+- **CI/CD Integration**: Exit codes and machine-readable output for automation
+- **Multi-Project Support**: Works with single and multi-project configurations
 
 ## Installation
 
-Build the CLI:
+### Via Installation Script (Recommended)
 
+**macOS and Linux:**
 ```bash
-cargo build --package graphql-cli --release
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/trevor-scheer/graphql-lsp/releases/latest/download/graphql-cli-installer.sh | sh
 ```
 
-The binary will be at `target/release/graphql`.
+**Windows (PowerShell):**
+```powershell
+irm https://github.com/trevor-scheer/graphql-lsp/releases/latest/download/graphql-cli-installer.ps1 | iex
+```
 
-## Usage
-
-### Validate Command
-
-Validate GraphQL documents against a schema:
+### Via Cargo
 
 ```bash
-# Validate with auto-discovered config
+cargo install --git https://github.com/trevor-scheer/graphql-lsp graphql-cli
+```
+
+### From Binary Release
+
+Download the appropriate binary for your platform from the [releases page](https://github.com/trevor-scheer/graphql-lsp/releases):
+
+- macOS (Intel): `graphql-cli-x86_64-apple-darwin.tar.xz`
+- macOS (Apple Silicon): `graphql-cli-aarch64-apple-darwin.tar.xz`
+- Linux (x86_64): `graphql-cli-x86_64-unknown-linux-gnu.tar.xz`
+- Linux (ARM64): `graphql-cli-aarch64-unknown-linux-gnu.tar.xz`
+- Windows: `graphql-cli-x86_64-pc-windows-msvc.zip`
+
+## Getting Started
+
+### Validate GraphQL
+
+Validate documents against your schema using Apollo compiler:
+
+```bash
+# Auto-discover and use .graphqlrc configuration
 graphql validate
 
-# Specify a config file
+# Specify config file
 graphql --config .graphqlrc.yml validate
 
-# Specify a project in a multi-project config
+# Specify project in multi-project config
 graphql --project my-api validate
-
-# JSON output
-graphql validate --format json
-
-# Watch mode - re-validate on file changes
-graphql validate --watch
 ```
 
-### Check Command
+### Lint GraphQL
 
-Check for breaking changes between schema versions:
+Run custom lint rules with configurable severity:
 
 ```bash
-# Compare schemas from two git refs
-graphql check --base main --head feature-branch
+# Run lints with configured rules
+graphql lint
+
+# Watch mode - re-lint on file changes
+graphql lint --watch
 ```
 
-This is useful in CI to prevent breaking changes from being merged.
+### Output Formats
+
+```bash
+# Human-readable (default, colorized)
+graphql validate
+
+# JSON output for CI/CD
+graphql validate --format json
+
+# GitHub Actions annotations
+graphql validate --format github
+```
+
+## Commands
+
+### validate
+
+Validates GraphQL documents against a schema using Apollo compiler validation.
+
+```bash
+graphql validate [OPTIONS]
+```
+
+**Options:**
+- `--format <FORMAT>` - Output format: `human` (default), `json`, `github`
+- `--watch` - Watch for file changes and re-validate
+- `--config <PATH>` - Path to config file (auto-discovered by default)
+- `--project <NAME>` - Project name for multi-project configs
+
+**Exit codes:**
+- `0` - No validation errors
+- `1` - Validation errors found
+
+**Examples:**
+
+```bash
+# Basic validation
+graphql validate
+
+# JSON output for CI
+graphql validate --format json
+
+# Watch mode for development
+graphql validate --watch
+
+# Specific project
+graphql --project backend validate
+```
+
+### lint
+
+Runs custom lint rules with configurable severity levels.
+
+```bash
+graphql lint [OPTIONS]
+```
+
+**Options:**
+- `--format <FORMAT>` - Output format: `human` (default), `json`, `github`
+- `--watch` - Watch for file changes and re-lint
+- `--config <PATH>` - Path to config file (auto-discovered by default)
+- `--project <NAME>` - Project name for multi-project configs
+
+**Exit codes:**
+- `0` - No lint errors
+- `1` - Lint errors found (warnings don't cause non-zero exit)
+
+**Examples:**
+
+```bash
+# Basic linting
+graphql lint
+
+# JSON output for CI
+graphql lint --format json
+
+# Watch mode for development
+graphql lint --watch
+
+# Specific project
+graphql --project frontend lint
+```
 
 ## Output Formats
 
-### Human (default)
+### Human (Default)
 
-Colorized, human-readable output:
+Colorized, human-readable output with context:
 
 ```
-✗ Query validation error in src/queries.graphql:5:3
+✗ Validation error in src/queries.graphql:5:3
   Cannot query field "invalidField" on type "User"
 
   3 |   user(id: $id) {
@@ -81,6 +168,8 @@ Colorized, human-readable output:
   5 |     invalidField
     |     ^^^^^^^^^^^^
   6 |   }
+
+✓ 12 files validated, 1 error found
 ```
 
 ### JSON
@@ -89,20 +178,19 @@ Machine-readable JSON output:
 
 ```json
 {
+  "success": false,
   "errors": [
     {
+      "file": "src/queries.graphql",
       "message": "Cannot query field \"invalidField\" on type \"User\"",
-      "location": {
-        "file": "src/queries.graphql",
-        "line": 5,
-        "column": 3
-      }
+      "severity": "error",
+      "line": 5,
+      "column": 3
     }
-  ]
+  ],
+  "warnings": []
 }
 ```
-
-Useful for integrating with other tools or scripts.
 
 ### GitHub
 
@@ -112,25 +200,23 @@ GitHub Actions annotation format:
 ::error file=src/queries.graphql,line=5,col=3::Cannot query field "invalidField" on type "User"
 ```
 
-Errors appear as annotations in GitHub pull requests.
+Errors and warnings appear as annotations in GitHub pull requests.
 
 ## Configuration
 
-The CLI uses the same configuration format as the LSP server. It searches for:
+The CLI uses `.graphqlrc` configuration files. It searches for:
 - `.graphqlrc` (YAML or JSON)
 - `.graphqlrc.yml` / `.graphqlrc.yaml`
 - `.graphqlrc.json`
-- `graphql.config.js` / `graphql.config.ts`
-- `graphql` section in `package.json`
 
-Example configuration:
+### Basic Configuration
 
 ```yaml
 schema: schema.graphql
 documents: src/**/*.graphql
 ```
 
-For multi-project configs:
+### Multi-Project Configuration
 
 ```yaml
 projects:
@@ -142,63 +228,256 @@ projects:
     documents: client/**/*.graphql
 ```
 
+### Lint Configuration
+
+```yaml
+# Top-level lint config
+lint:
+  recommended: error
+  rules:
+    deprecated_field: warn
+    unique_names: error
+
+# CLI-specific overrides
+extensions:
+  cli:
+    lint:
+      rules:
+        unused_fields: error  # Enable expensive rules in CLI/CI
+```
+
+See [graphql-linter](../graphql-linter/README.md) for available rules and configuration options.
+
 ## Use Cases
 
 ### CI/CD Integration
 
-Add validation to your CI pipeline:
+#### GitHub Actions
 
 ```yaml
-# GitHub Actions
-- name: Validate GraphQL
-  run: graphql validate --format github
+name: GraphQL Validation
+on: [pull_request]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install CLI
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/trevor-scheer/graphql-lsp/releases/latest/download/graphql-cli-installer.sh | sh
+      - name: Validate GraphQL
+        run: graphql validate --format github
+      - name: Lint GraphQL
+        run: graphql lint --format github
 ```
 
+#### GitLab CI
+
 ```yaml
-# GitLab CI
-validate-graphql:
+graphql-validate:
   script:
-    - graphql validate
+    - graphql validate --format json
+  artifacts:
+    reports:
+      junit: graphql-validation-report.json
+```
+
+#### Generic CI
+
+```bash
+# Install
+curl -LsSf https://github.com/trevor-scheer/graphql-lsp/releases/latest/download/graphql-cli-installer.sh | sh
+
+# Validate
+graphql validate --format json > results.json
+
+# Check exit code
+if [ $? -ne 0 ]; then
+  echo "GraphQL validation failed"
+  exit 1
+fi
 ```
 
 ### Pre-commit Hook
 
-Validate GraphQL before commits (using husky, lint-staged, or cargo-husky):
+Using [husky](https://github.com/typicode/husky):
+
+```json
+{
+  "husky": {
+    "hooks": {
+      "pre-commit": "graphql validate && graphql lint"
+    }
+  }
+}
+```
+
+Using [cargo-husky](https://github.com/rhysd/cargo-husky):
+
+```toml
+[dev-dependencies]
+cargo-husky = { version = "1", features = ["user-hooks"] }
+```
+
+Create `.cargo-husky/hooks/pre-commit`:
 
 ```bash
-graphql validate
+#!/bin/sh
+graphql validate && graphql lint
 ```
 
 ### Development Workflow
 
-Use watch mode during development:
+Watch mode for continuous validation:
 
 ```bash
+# Terminal 1: Run dev server
+npm run dev
+
+# Terminal 2: Watch GraphQL
 graphql validate --watch
+
+# Terminal 3: Watch lints
+graphql lint --watch
 ```
 
-This continuously validates as you edit GraphQL files.
+## Examples
 
-## Technical Details
+### Basic Validation
 
-### Commands Module
+```bash
+$ graphql validate
 
-[src/commands/](src/commands/) contains implementations for each command:
-- `validate.rs`: Document validation logic
-- `check.rs`: Schema breaking change detection (future)
+✓ Validating GraphQL project...
+✓ Schema loaded: schema.graphql
+✓ Found 15 documents
+✓ All files validated successfully
+```
 
-### Terminal UI
+### Validation with Errors
 
-Uses the `colored` crate for colorized output and `indicatif` for progress bars.
+```bash
+$ graphql validate
 
-## Development
+✗ Validation error in src/queries.graphql:5:3
+  Cannot query field "invalidField" on type "User"
 
-Key files to understand:
-- [src/main.rs](src/main.rs) - CLI argument parsing and command dispatch
-- [src/commands/validate.rs](src/commands/validate.rs) - Validation command implementation
+✓ 15 files validated, 1 error found
+```
 
-When adding new commands:
-1. Add the command variant to the `Commands` enum in main.rs
-2. Create a new file in src/commands/
-3. Implement the command logic using `graphql-project` APIs
-4. Update this README with usage examples
+### JSON Output
+
+```bash
+$ graphql validate --format json
+
+{
+  "success": false,
+  "files_validated": 15,
+  "errors": [
+    {
+      "file": "src/queries.graphql",
+      "message": "Cannot query field \"invalidField\" on type \"User\"",
+      "severity": "error",
+      "line": 5,
+      "column": 3
+    }
+  ]
+}
+```
+
+### Watch Mode
+
+```bash
+$ graphql validate --watch
+
+✓ Watching for changes...
+✓ Initial validation: 15 files, no errors
+
+[12:34:56] File changed: src/queries.graphql
+✓ Revalidating...
+✗ Validation error in src/queries.graphql:8:5
+  Unknown argument "invalidArg" on field "user"
+
+[12:35:30] File changed: src/queries.graphql
+✓ Revalidating...
+✓ All files validated successfully
+```
+
+### Multi-Project
+
+```bash
+$ graphql --project api validate
+
+✓ Validating project: api
+✓ Schema loaded: api/schema.graphql
+✓ Found 8 documents
+✓ All files validated successfully
+
+$ graphql --project client validate
+
+✓ Validating project: client
+✓ Schema loaded: client/schema.graphql
+✓ Found 12 documents
+✓ All files validated successfully
+```
+
+## Environment Variables
+
+- `GRAPHQL_CONFIG` - Override config file path
+- `RUST_LOG` - Set log level (`error`, `warn`, `info`, `debug`, `trace`)
+
+```bash
+RUST_LOG=debug graphql validate
+```
+
+## Differences from LSP
+
+The CLI and LSP share the same core validation and linting logic but are optimized for different use cases:
+
+### CLI (This Tool)
+
+- **Batch processing**: Validates all files at once
+- **CI/CD optimized**: Exit codes, JSON output, GitHub annotations
+- **Expensive rules enabled**: Project-wide lints like `unused_fields`
+- **No incremental updates**: Full project validation each run
+
+### LSP (Language Server)
+
+- **Real-time feedback**: Validates as you type
+- **Editor integration**: VSCode, Neovim, etc.
+- **Fast rules only**: Expensive project-wide lints disabled by default
+- **Incremental updates**: Only re-validates changed files
+
+Both can be configured independently via tool-specific config:
+
+```yaml
+extensions:
+  cli:
+    lint:
+      rules:
+        unused_fields: error  # Enable in CLI
+  lsp:
+    lint:
+      rules:
+        unused_fields: off    # Disable in LSP
+```
+
+## Building from Source
+
+```bash
+# Clone repository
+git clone https://github.com/trevor-scheer/graphql-lsp
+cd graphql-lsp
+
+# Build CLI
+cargo build --package graphql-cli --release
+
+# Binary at target/release/graphql
+./target/release/graphql validate
+```
+
+## License
+
+MIT OR Apache-2.0

@@ -1,188 +1,546 @@
 # graphql-project
 
-Core GraphQL project management, validation, and language service functionality.
+Core library for managing GraphQL projects with validation, indexing, and language service features.
 
-## Purpose
+## Features
 
-This crate provides the core logic for managing GraphQL projects, including:
-- Loading and managing GraphQL schemas and documents
-- Project-wide validation
-- Building indices of fragments, operations, and types
-- Providing goto definition and hover information
-- Supporting file watching for incremental updates
+- **Schema Loading**: From local files, glob patterns, or remote URLs (via introspection)
+- **Document Loading**: Pure GraphQL files and embedded GraphQL in TypeScript/JavaScript
+- **Project-Wide Validation**: Apollo compiler-based validation across all documents
+- **Indexing**: Fast lookup structures for fragments, operations, types, and fields
+- **Language Services**: Goto definition, find references, hover information
+- **Incremental Updates**: Efficient document updates and re-validation
+- **Concurrent Access**: Thread-safe operations using DashMap
 
-## How it Fits
+## Installation
 
-This is the heart of the GraphQL language tooling. It sits between the LSP server and the raw GraphQL files:
+Add to your `Cargo.toml`:
 
+```toml
+[dependencies]
+graphql-project = { path = "../graphql-project" }
 ```
-graphql-lsp (LSP server) -> graphql-project (this crate) -> GraphQL files
-                                                          -> graphql-config
-                                                          -> graphql-extract
+
+## Getting Started
+
+### Create and Load a Project
+
+```rust
+use graphql_project::GraphQLProject;
+use graphql_config::load_config;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load configuration
+    let config = load_config(".")?;
+    let project_config = config.projects.get("default").unwrap();
+
+    // Create project
+    let project = GraphQLProject::new(project_config, ".").await?;
+
+    // Validate all documents
+    let diagnostics = project.validate_all().await?;
+
+    for (file, diags) in diagnostics {
+        for diag in diags {
+            println!("{}: {}", file, diag.message);
+        }
+    }
+
+    Ok(())
+}
 ```
 
-Both the LSP server (`graphql-lsp`) and CLI (`graphql-cli`) depend on this crate for their core GraphQL functionality.
+### Validate a Single Document
 
-## Key Components
+```rust
+let diagnostics = project.validate_document("src/queries.graphql").await?;
+
+for diag in diagnostics {
+    println!("Line {}: {}", diag.location.line, diag.message);
+}
+```
+
+### Update a Document
+
+```rust
+let new_content = r#"
+    query GetUser($id: ID!) {
+        user(id: $id) {
+            id
+            name
+        }
+    }
+"#;
+
+project.update_document("src/queries.graphql", new_content).await?;
+
+// Re-validate after update
+let diagnostics = project.validate_document("src/queries.graphql").await?;
+```
+
+## Schema Loading
+
+### From Local Files
+
+```rust
+use graphql_project::SchemaLoader;
+
+// Single file
+let schema = SchemaLoader::load("schema.graphql").await?;
+
+// Multiple files (glob pattern)
+let schema = SchemaLoader::load("schema/**/*.graphql").await?;
+```
+
+### From Remote URL
+
+```rust
+// Automatically fetches via introspection
+let schema = SchemaLoader::load("https://api.example.com/graphql").await?;
+```
+
+### Schema Sources
+
+Supported schema sources:
+- **Local file**: `schema.graphql`
+- **Glob pattern**: `schema/**/*.graphql`
+- **Remote URL**: `https://api.example.com/graphql` (fetched via introspection)
+- **Multiple sources**: Automatically stitched together
+
+## Document Loading
+
+### Pure GraphQL Files
+
+```graphql
+# queries.graphql
+query GetUser($id: ID!) {
+    user(id: $id) {
+        id
+        name
+    }
+}
+```
+
+### Embedded in TypeScript/JavaScript
+
+```typescript
+import { gql } from 'graphql-tag';
+
+const query = gql`
+    query GetUser($id: ID!) {
+        user(id: $id) {
+            id
+            name
+        }
+    }
+`;
+```
+
+The library automatically:
+- Extracts GraphQL from tagged template literals
+- Tracks position mappings for accurate diagnostics
+- Adjusts positions for goto definition and hover
+
+## Indexing
+
+The library builds fast lookup structures for:
+
+### Document Index
+
+```rust
+use graphql_project::DocumentIndex;
+
+// Get fragment definition
+let fragment = document_index.get_fragment("UserFields")?;
+println!("Fragment at {}:{}", fragment.location.line, fragment.location.column);
+
+// Get operation definition
+let operation = document_index.get_operation("GetUser")?;
+println!("Operation at {}:{}", operation.location.line, operation.location.column);
+```
+
+### Schema Index
+
+```rust
+use graphql_project::SchemaIndex;
+
+// Get type definition
+let type_def = schema_index.get_type("User")?;
+println!("Type: {}", type_def.name);
+
+// Get field definition
+let field = schema_index.get_field("User", "name")?;
+println!("Field type: {}", field.type_name);
+
+// Get directive definition
+let directive = schema_index.get_directive("deprecated")?;
+println!("Directive: {}", directive.name);
+```
+
+## Language Services
+
+### Goto Definition
+
+Navigate to definitions for GraphQL elements:
+
+```rust
+let definition = project.goto_definition(
+    "src/queries.graphql",
+    5,  // line
+    10  // column
+).await?;
+
+if let Some(def) = definition {
+    println!("Definition at {}:{}:{}", def.uri, def.range.start.line, def.range.start.character);
+}
+```
+
+Supports:
+- Fragment spreads → fragment definitions
+- Operation names → operation definitions
+- Type references → type definitions
+- Field references → schema field definitions
+- Variable references → operation variable definitions
+- Argument names → schema argument definitions
+- Enum values → enum value definitions
+- Directive names and arguments
+
+### Find References
+
+Find all usages of GraphQL elements:
+
+```rust
+let references = project.find_references(
+    "src/schema.graphql",
+    10,  // line at fragment definition
+    5    // column
+).await?;
+
+for reference in references {
+    println!("Used at {}:{}:{}", reference.uri, reference.range.start.line, reference.range.start.character);
+}
+```
+
+Supports:
+- Fragment definitions → all fragment spreads
+- Type definitions → all usages in field types, union members, implements clauses
+
+### Hover Information
+
+Get type information and descriptions:
+
+```rust
+let hover = project.hover(
+    "src/queries.graphql",
+    5,  // line
+    10  // column
+).await?;
+
+if let Some(info) = hover {
+    println!("{}", info.contents);
+}
+```
+
+Shows:
+- Type information for fields
+- Descriptions from schema
+- Deprecation warnings
+
+## Validation
+
+### Apollo Compiler Validation
+
+The library uses apollo-compiler for GraphQL spec-compliant validation:
+
+```rust
+// Validate all documents
+let all_diagnostics = project.validate_all().await?;
+
+// Validate specific document
+let doc_diagnostics = project.validate_document("src/queries.graphql").await?;
+```
+
+Checks:
+- Schema validity
+- Document syntax
+- Type correctness
+- Field existence
+- Argument validity
+- Fragment usage
+- Variable definitions
+
+## API Reference
 
 ### GraphQLProject
 
-The main entry point ([src/project.rs](src/project.rs)):
-- Manages a GraphQL project based on configuration
-- Loads schemas and documents
-- Maintains indices of fragments, operations, and types
-- Provides validation and language service features
-- Supports incremental updates when files change
+```rust
+impl GraphQLProject {
+    pub async fn new(
+        config: &ProjectConfig,
+        root_path: &str
+    ) -> Result<Self>;
 
-### DocumentLoader
+    pub async fn validate_all(&self) -> Result<HashMap<String, Vec<Diagnostic>>>;
 
-Document management ([src/document.rs](src/document.rs)):
-- Loads GraphQL documents from files
-- Handles both pure `.graphql` files and embedded GraphQL in TypeScript/JavaScript
-- Manages document caching
+    pub async fn validate_document(
+        &self,
+        uri: &str
+    ) -> Result<Vec<Diagnostic>>;
+
+    pub async fn update_document(
+        &self,
+        uri: &str,
+        content: String
+    ) -> Result<()>;
+
+    pub async fn goto_definition(
+        &self,
+        uri: &str,
+        line: usize,
+        column: usize
+    ) -> Result<Option<Location>>;
+
+    pub async fn find_references(
+        &self,
+        uri: &str,
+        line: usize,
+        column: usize
+    ) -> Result<Vec<Location>>;
+
+    pub async fn hover(
+        &self,
+        uri: &str,
+        line: usize,
+        column: usize
+    ) -> Result<Option<HoverInfo>>;
+}
+```
 
 ### SchemaLoader
 
-Schema management ([src/schema.rs](src/schema.rs)):
-- Loads GraphQL schemas from local files or remote URLs
-- Supports glob patterns for multiple schema files
-- Remote schema loading via GraphQL introspection (uses `graphql-introspect`)
-- Builds schema using apollo-compiler
-- Supports schema stitching across multiple files
+```rust
+impl SchemaLoader {
+    pub async fn load(source: &str) -> Result<Schema>;
 
-Schema sources supported:
-- Local files: `schema.graphql`
-- Glob patterns: `schema/**/*.graphql`
-- Remote URLs: `https://api.example.com/graphql` (fetched via introspection)
+    pub async fn load_remote(url: &str) -> Result<String>;
 
-### Index
-
-Fast lookup structures ([src/index.rs](src/index.rs)):
-- `DocumentIndex`: Maps fragments and operations to their locations
-- `SchemaIndex`: Maps types, fields, and directives to schema locations
-- Enables goto definition and autocomplete
-
-### Validation
-
-GraphQL validation ([src/validation.rs](src/validation.rs)):
-- Validates documents against schema using apollo-compiler
-- Provides core GraphQL spec compliance checking
-- Converts apollo-compiler diagnostics to our format
-
-### Linting
-
-Configurable lint system ([src/lint/](src/lint/)):
-- **Linter** ([src/lint/linter.rs](src/lint/linter.rs)): Runs configured lint rules
-- **LintConfig** ([src/lint/config.rs](src/lint/config.rs)): Configuration for enabling/disabling rules with severity levels
-- **Rules** ([src/lint/rules/](src/lint/rules/)): Individual lint rule implementations
-  - `unique_names`: Ensures operation and fragment names are unique
-  - `deprecated_field`: Warns when using deprecated fields
-
-Linting is opt-in and configured via `.graphqlrc` or `graphql.config.yaml`:
-
-```yaml
-extensions:
-  project:
-    lint:
-      # Enable recommended preset
-      recommended: error
-      # Override specific rules
-      deprecated_field: warn
-      unique_names: off
+    pub async fn load_files(patterns: &[String]) -> Result<String>;
+}
 ```
 
-Available severity levels: `off`, `warn`, `error`
-
-### Language Features
-
-- **Goto Definition** ([src/goto_definition.rs](src/goto_definition.rs)): Comprehensive navigation support
-  - Fragment spreads and definitions
-  - Operation names
-  - Type references (fragments, inline fragments, implements, unions, fields, variables)
-  - Field references to schema definitions
-  - Variable references to operation variable definitions
-  - Argument names to schema argument definitions
-  - Enum values to their definitions
-  - Directive names and their arguments
-- **Hover** ([src/hover.rs](src/hover.rs)): Type information and documentation
-
-## Usage
-
-### Creating a Project
+### DocumentLoader
 
 ```rust
-use graphql_project::{GraphQLProject, GraphQLConfig};
+impl DocumentLoader {
+    pub fn load(path: &str) -> Result<Document>;
 
-// Load configuration
-let config = GraphQLConfig::load("path/to/project")?;
-let project_config = config.projects.get("my-project").unwrap();
-
-// Create project
-let project = GraphQLProject::new(project_config, "path/to/root").await?;
-
-// Validate all documents (Apollo compiler validation only)
-let diagnostics = project.validate_all().await?;
-
-// Run lints
-let lint_config = project.get_lint_config();
-let linter = graphql_project::Linter::new(lint_config);
-let lint_diagnostics = linter.lint_document(document, &schema_index, file_name);
+    pub fn load_all(patterns: &[String]) -> Result<Vec<Document>>;
+}
 ```
 
-### Getting Language Features
+### Core Types
+
+#### Diagnostic
 
 ```rust
-// Goto definition
-let definition = project.goto_definition("file:///path/to/file.graphql", line, col).await?;
+pub struct Diagnostic {
+    pub message: String,
+    pub severity: Severity,
+    pub location: Location,
+}
 
-// Hover information
-let hover_info = project.hover("file:///path/to/file.graphql", line, col).await?;
+pub struct Location {
+    pub uri: String,
+    pub range: Range,
+}
+
+pub struct Range {
+    pub start: Position,
+    pub end: Position,
+}
+
+pub struct Position {
+    pub line: usize,
+    pub character: usize,
+}
 ```
 
-### Watching for Changes
+#### DocumentIndex
 
 ```rust
-// Update a document
-project.update_document("file:///path/to/file.graphql", new_content).await?;
-
-// Re-validate
-let diagnostics = project.validate_document("file:///path/to/file.graphql").await?;
+pub struct DocumentIndex {
+    fragments: HashMap<String, FragmentDefinition>,
+    operations: HashMap<String, OperationDefinition>,
+}
 ```
 
-## Technical Details
+#### SchemaIndex
 
-### Parser Support
+```rust
+pub struct SchemaIndex {
+    types: HashMap<String, TypeDefinition>,
+    directives: HashMap<String, DirectiveDefinition>,
+}
+```
 
-The crate uses apollo-compiler as the primary GraphQL parser, which provides:
+## Examples
+
+### Watch Mode Implementation
+
+```rust
+use graphql_project::GraphQLProject;
+use notify::{Watcher, RecursiveMode};
+
+let project = GraphQLProject::new(&config, ".").await?;
+
+let mut watcher = notify::watcher(tx, Duration::from_secs(1))?;
+watcher.watch("src", RecursiveMode::Recursive)?;
+
+loop {
+    match rx.recv() {
+        Ok(event) => {
+            if let Some(path) = event.path {
+                let content = std::fs::read_to_string(&path)?;
+                project.update_document(path.to_str().unwrap(), content).await?;
+
+                let diagnostics = project.validate_document(path.to_str().unwrap()).await?;
+                for diag in diagnostics {
+                    println!("{}: {}", path.display(), diag.message);
+                }
+            }
+        }
+        Err(e) => println!("Watch error: {:?}", e),
+    }
+}
+```
+
+### Custom Validation Pipeline
+
+```rust
+use graphql_project::GraphQLProject;
+
+let project = GraphQLProject::new(&config, ".").await?;
+
+// Apollo compiler validation
+let apollo_diagnostics = project.validate_all().await?;
+
+// Custom validation (use graphql-linter)
+use graphql_linter::{Linter, ProjectContext};
+
+let linter = Linter::new(lint_config);
+let ctx = ProjectContext {
+    documents: &project.document_index,
+    schema: &project.schema_index,
+};
+
+let lint_diagnostics = linter.lint_project(&ctx);
+
+// Merge diagnostics
+for (file, diags) in apollo_diagnostics {
+    println!("{}:", file);
+    for diag in diags {
+        println!("  [apollo] {}", diag.message);
+    }
+}
+
+for (file, diags) in lint_diagnostics {
+    println!("{}:", file);
+    for diag in diags {
+        println!("  [lint] {}", diag.message);
+    }
+}
+```
+
+### Multi-Project Management
+
+```rust
+use graphql_project::GraphQLProject;
+use graphql_config::load_config;
+use std::collections::HashMap;
+
+let config = load_config(".")?;
+let mut projects = HashMap::new();
+
+for (name, project_config) in &config.projects {
+    let project = GraphQLProject::new(project_config, ".").await?;
+    projects.insert(name.clone(), project);
+}
+
+// Validate all projects
+for (name, project) in &projects {
+    println!("Validating project: {}", name);
+    let diagnostics = project.validate_all().await?;
+
+    for (file, diags) in diagnostics {
+        for diag in diags {
+            println!("  {}: {}", file, diag.message);
+        }
+    }
+}
+```
+
+## Implementation Details
+
+### Parser
+
+Uses [apollo-compiler](https://docs.rs/apollo-compiler/) for:
 - Accurate error messages
 - Full GraphQL spec compliance
 - Built-in validation rules
+- Schema stitching
 
 ### Position Mapping
 
-For TypeScript/JavaScript files with embedded GraphQL:
+For TypeScript/JavaScript files:
 1. Extract GraphQL using `graphql-extract`
 2. Track position mappings between extracted and original source
-3. Translate positions for accurate goto definition and diagnostics
+3. Translate positions for accurate diagnostics and goto definition
 
 ### Concurrency
 
-Uses DashMap for concurrent access to project data, allowing:
-- Multiple LSP requests to be handled in parallel
+Uses [DashMap](https://docs.rs/dashmap/) for concurrent access:
+- Multiple LSP requests handled in parallel
 - Safe updates from file watchers
+- Lock-free reads for common operations
 
-## Development
+### Caching
 
-Key files to understand:
-- [src/project.rs](src/project.rs) - Main GraphQLProject implementation
-- [src/index.rs](src/index.rs) - Indexing structures
-- [src/validation.rs](src/validation.rs) - Apollo compiler validation logic
-- [src/lint/](src/lint/) - Configurable linting system
-- [src/goto_definition.rs](src/goto_definition.rs) - Goto definition implementation
-- [src/hover.rs](src/hover.rs) - Hover information
+- Schema parsed and cached on load
+- Documents cached until updated
+- Indices rebuilt incrementally on document changes
 
-When adding new features:
-1. Consider if it needs indexing (add to `DocumentIndex` or `SchemaIndex`)
-2. Implement the feature on `GraphQLProject`
-3. Export public APIs in lib.rs
-4. Update LSP server to expose the feature
+## Performance Considerations
+
+### Document Updates
+
+Only affected documents are re-validated:
+
+```rust
+// Fast: Only validates the changed document
+project.update_document("queries.graphql", new_content).await?;
+let diags = project.validate_document("queries.graphql").await?;
+
+// Slower: Validates all documents
+let all_diags = project.validate_all().await?;
+```
+
+### Index Queries
+
+Index lookups are O(1) hash map operations:
+
+```rust
+// Fast: Direct lookup
+let fragment = document_index.get_fragment("UserFields")?;
+
+// Slow: Linear scan (avoid)
+for (name, fragment) in &document_index.fragments {
+    if name.starts_with("User") {
+        // ...
+    }
+}
+```
+
+## License
+
+MIT OR Apache-2.0
