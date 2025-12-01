@@ -1,0 +1,34 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "compile-extension",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "compile"],
+      "options": {
+        "cwd": "${workspaceFolder}/editors/vscode"
+      },
+      "presentation": {
+        "reveal": "silent"
+      },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "build-lsp",
+      "type": "cargo",
+      "command": "build",
+      "args": ["--package", "graphql-lsp"],
+      "problemMatcher": ["$rustc"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "build-all",
+      "dependsOn": ["build-lsp", "compile-extension"],
+      "problemMatcher": []
+    }
+  ]
+}

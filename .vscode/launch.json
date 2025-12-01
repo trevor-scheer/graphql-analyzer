@@ -1,0 +1,20 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/editors/vscode",
+        "--disable-extensions",
+        "${workspaceFolder}/test-workspace"
+      ],
+      "outFiles": ["${workspaceFolder}/editors/vscode/out/**/*.js"],
+      "preLaunchTask": "compile-extension",
+      "env": {
+        "GRAPHQL_LSP_PATH": "${workspaceFolder}/target/debug/graphql-lsp"
+      }
+    }
+  ]
+}
