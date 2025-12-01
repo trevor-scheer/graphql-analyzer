@@ -1065,14 +1065,17 @@ impl GotoDefinitionProvider {
                     })
             }
             ElementType::TypeReference { type_name } => {
-                // Find the type definition in the schema
-                let type_def = schema_index.find_type_definition(&type_name)?;
-
-                // Filter out builtin types (stored in built_in.graphql by apollo-compiler)
-                // These are language primitives and don't have user-accessible definitions
-                if type_def.file_path == "built_in.graphql" {
+                // Filter out GraphQL builtin scalar types
+                // These are language primitives defined by the spec and don't have user-accessible definitions
+                if matches!(
+                    type_name.as_str(),
+                    "String" | "Int" | "Float" | "Boolean" | "ID"
+                ) {
                     return None;
                 }
+
+                // Find the type definition in the schema
+                let type_def = schema_index.find_type_definition(&type_name)?;
 
                 let range = Range {
                     start: Position {
