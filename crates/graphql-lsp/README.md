@@ -1,83 +1,534 @@
 # graphql-lsp
 
-The main Language Server Protocol (LSP) implementation for GraphQL language support.
+Language Server Protocol (LSP) implementation providing IDE features for GraphQL.
 
-## Purpose
+## Features
 
-This crate implements a GraphQL language server that provides IDE features like diagnostics, validation, goto definition, find references, and hover information for GraphQL files. It communicates with editors via the LSP protocol using JSON-RPC over stdin/stdout.
+- **Real-Time Validation**: Instant feedback with project-wide diagnostics
+- **Goto Definition**: Navigate to fragments, types, fields, variables, directives, enum values, and arguments
+- **Find References**: Find all usages of fragments and type definitions across the project
+- **Hover Information**: Display type information and descriptions
+- **Embedded GraphQL**: Full support for TypeScript/JavaScript with position mapping
+- **Multi-Project**: Works with single and multi-project configurations
+- **Configurable Linting**: Custom lint rules with tool-specific configuration
+
+## Installation
+
+The LSP server is typically installed via editor extensions. For VSCode, see the [VSCode extension](../../editors/vscode/).
+
+### Via Cargo
+
+```bash
+cargo install graphql-lsp
+```
+
+### From Binary Release
+
+Download the appropriate binary from the [releases page](https://github.com/trevor-scheer/graphql-lsp/releases):
+
+- macOS (Intel): `graphql-lsp-x86_64-apple-darwin.tar.xz`
+- macOS (Apple Silicon): `graphql-lsp-aarch64-apple-darwin.tar.xz`
+- Linux (x86_64): `graphql-lsp-x86_64-unknown-linux-gnu.tar.xz`
+- Linux (ARM64): `graphql-lsp-aarch64-unknown-linux-gnu.tar.xz`
+- Windows: `graphql-lsp-x86_64-pc-windows-msvc.zip`
+
+### Custom Binary Path
+
+Set in your editor configuration:
+
+**VSCode** (`settings.json`):
+```json
+{
+  "graphql.server.path": "/path/to/graphql-lsp"
+}
+```
+
+**Neovim** (`init.lua`):
+```lua
+require('lspconfig').graphql.setup {
+  cmd = { '/path/to/graphql-lsp' }
+}
+```
+
+## Getting Started
+
+### VSCode
+
+1. Install the [GraphQL LSP extension](../../editors/vscode/)
+2. Create a `.graphqlrc.yml` in your project root:
+
+```yaml
+schema: schema.graphql
+documents: src/**/*.{graphql,ts,tsx}
+```
+
+3. Open a GraphQL file and start editing
+
+### Neovim
+
+Using [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig):
+
+```lua
+require('lspconfig').graphql.setup {
+  cmd = { 'graphql-lsp' },
+  filetypes = { 'graphql', 'typescriptreact', 'javascriptreact' },
+  root_dir = require('lspconfig.util').root_pattern('.graphqlrc*', 'graphql.config.*'),
+}
+```
+
+### Other Editors
+
+The LSP server communicates via stdin/stdout using the standard LSP protocol. Configure your editor's LSP client to:
+
+1. Launch `graphql-lsp` as the server command
+2. Associate it with GraphQL file types
+3. Set the root directory to where `.graphqlrc` is located
+
+## Configuration
+
+The LSP uses `.graphqlrc` configuration files. It searches for:
+- `.graphqlrc` (YAML or JSON)
+- `.graphqlrc.yml` / `.graphqlrc.yaml`
+- `.graphqlrc.json`
+
+### Basic Configuration
+
+```yaml
+schema: schema.graphql
+documents: src/**/*.graphql
+```
+
+### Multi-Project Configuration
+
+```yaml
+projects:
+  api:
+    schema: api/schema.graphql
+    documents: api/**/*.graphql
+  client:
+    schema: client/schema.graphql
+    documents: client/**/*.{graphql,tsx}
+```
+
+### Lint Configuration
+
+```yaml
+# Top-level lint config
+lint:
+  recommended: error
+  rules:
+    deprecated_field: warn
+    unique_names: error
+
+# LSP-specific overrides
+extensions:
+  lsp:
+    lint:
+      rules:
+        unused_fields: off  # Disable expensive rules for real-time
+```
+
+See [graphql-linter](../graphql-linter/README.md) for available rules.
+
+### Remote Schema Support
+
+Load schemas from GraphQL endpoints via introspection:
+
+```yaml
+schema: https://api.example.com/graphql
+documents: src/**/*.graphql
+```
+
+The LSP automatically fetches and caches the schema.
 
 ## Implemented Features
 
-- **Diagnostics**: Real-time validation with accurate error reporting
-- **Goto Definition**: Navigate to definitions for fragments, types, fields, variables, directives, enum values, and arguments
-- **Find References**: Find all usages of fragments and type definitions across the project
-- **Hover**: Display type information and descriptions
-- **TypeScript/JavaScript Support**: Extract and validate GraphQL from embedded code
+### Diagnostics
 
-## How it Fits
+Real-time validation with accurate error reporting:
 
-This is the entry point of the LSP server. It:
-- Implements the LSP server using `tower-lsp`
-- Manages the lifecycle of GraphQL projects
-- Handles LSP requests from editors (textDocument/didOpen, textDocument/hover, etc.)
-- Coordinates between the editor and the underlying GraphQL project infrastructure
-- Delegates GraphQL-specific functionality to `graphql-project`
+- **Apollo Compiler Validation**: Full GraphQL spec compliance
+- **Custom Linting**: Configurable rules with severity levels
+- **Project-Wide**: Errors shown across all open documents
+- **Position Accurate**: Correct line/column for embedded GraphQL
 
-## Architecture
+**Example:**
 
-```
-Editor <-> LSP Protocol <-> graphql-lsp <-> graphql-project <-> GraphQL files
-                                        \-> graphql-config
-                                        \-> graphql-extract
+```graphql
+query GetUser {
+  user {
+    unknownField  # Error: Cannot query field "unknownField" on type "User"
+  }
+}
 ```
 
-## Key Components
+### Goto Definition
 
-### server.rs
+Navigate to definitions by clicking or using keyboard shortcuts:
 
-The main LSP server implementation:
-- `GraphQLLanguageServer`: Implements the tower-lsp `LanguageServer` trait
-- Handles LSP lifecycle methods (initialize, initialized, shutdown)
-- Implements text document synchronization (didOpen, didChange, didClose)
-- Provides language features (hover, goto definition, diagnostics)
+**Supported:**
+- Fragment spreads → Fragment definitions
+- Operation names → Operation definitions
+- Type references → Type definitions (in fragments, inline fragments, implements, union members, field types, variable types)
+- Field references → Schema field definitions
+- Variable references → Operation variable definitions
+- Argument names → Schema argument definitions
+- Enum values → Enum value definitions
+- Directive names → Directive definitions
+- Directive arguments → Directive argument definitions
 
-### main.rs
+**Works in:**
+- Pure GraphQL files (`.graphql`, `.gql`)
+- Embedded GraphQL in TypeScript/JavaScript
+- Cross-file navigation
 
-Entry point that:
-- Sets up tracing/logging to stderr (LSP uses stdin/stdout for protocol)
-- Creates the LSP service and starts the server
+**Example:**
 
-## Usage
+```graphql
+fragment UserFields on User {
+  id
+  name
+}
 
-### Running the LSP Server
+query GetUser {
+  user {
+    ...UserFields  # Ctrl+Click → jumps to UserFields definition
+  }
+}
+```
 
-The LSP server is typically launched by an editor/IDE:
+### Find References
+
+Find all usages of GraphQL elements:
+
+**Supported:**
+- Fragment definitions → All fragment spreads
+- Type definitions → All usages in field types, union members, implements clauses, input fields, arguments
+
+**Respects:**
+- Include/exclude declaration context from client
+- List and NonNull type wrappers
+
+**Example:**
+
+Find all places where the `User` type is used:
+- Field types: `user: User`
+- Union members: `SearchResult = User | Post`
+- Implements clauses: `Admin implements User`
+
+### Hover Information
+
+Display type information and descriptions:
+
+**Shows:**
+- Type information for fields
+- Schema descriptions
+- Deprecation warnings
+- Argument types and defaults
+
+**Example:**
+
+```graphql
+query {
+  user {
+    name  # Hover: String! - The user's full name
+  }
+}
+```
+
+### Embedded GraphQL Support
+
+Full support for TypeScript/JavaScript with position mapping:
+
+**Supported patterns:**
+
+```typescript
+import { gql } from 'graphql-tag';
+
+const query = gql`
+  query GetUser($id: ID!) {
+    user(id: $id) {
+      id
+      name
+    }
+  }
+`;
+```
+
+**Features:**
+- Accurate diagnostics at correct positions
+- Goto definition from embedded GraphQL
+- Hover information in template literals
+- Find references across files
+
+## Running the LSP Server
+
+### Standard Mode
+
+The LSP communicates via stdin/stdout:
 
 ```bash
-cargo build --package graphql-lsp
-./target/debug/graphql-lsp
+graphql-lsp
 ```
 
-The server reads LSP requests from stdin and writes responses to stdout. All logging goes to stderr.
+### Debug Mode
 
-### Integration with Editors
+Enable logging to stderr:
 
-For VSCode, see the [editors/vscode](../../editors/vscode/) extension.
+```bash
+RUST_LOG=debug graphql-lsp 2> lsp.log
+```
 
-### Configuration
+Log levels: `error`, `warn`, `info`, `debug`, `trace`
 
-The LSP server discovers GraphQL configuration files (`.graphqlrc`, `graphql.config.js`) in the workspace and uses them to:
-- Locate GraphQL schema files
-- Find GraphQL documents
-- Configure validation rules
+### With OpenTelemetry Tracing
 
-## Development
+Build with the `otel` feature for performance analysis:
 
-Key files to understand:
-- [src/server.rs](src/server.rs) - Main LSP server implementation
-- [src/main.rs](src/main.rs) - Entry point
+```bash
+cargo build --features otel --release
+```
 
-When adding new LSP features:
-1. Add the handler method to `GraphQLLanguageServer` in server.rs
-2. Implement the feature using `graphql-project` APIs
-3. Update the VSCode extension if needed
+Run with tracing enabled:
+
+```bash
+# Start Jaeger
+docker run -d --name jaeger \
+  -p 4317:4317 \
+  -p 16686:16686 \
+  jaegertracing/all-in-one:latest
+
+# Run LSP with tracing
+OTEL_TRACES_ENABLED=1 ./target/release/graphql-lsp
+```
+
+View traces at [http://localhost:16686](http://localhost:16686)
+
+## LSP Protocol Implementation
+
+### Text Document Synchronization
+
+- `textDocument/didOpen` - Load and validate document
+- `textDocument/didChange` - Incremental updates and re-validation
+- `textDocument/didClose` - Clean up document state
+- `textDocument/didSave` - Re-validate on save
+
+### Language Features
+
+- `textDocument/definition` - Goto definition
+- `textDocument/references` - Find references
+- `textDocument/hover` - Hover information
+- `textDocument/publishDiagnostics` - Real-time validation errors
+
+### Workspace
+
+- `workspace/didChangeWatchedFiles` - React to file changes
+- `workspace/didChangeConfiguration` - Update settings
+
+## Performance Characteristics
+
+### Incremental Updates
+
+Only re-validates changed documents:
+
+```
+File opened    → Validate document
+File changed   → Re-validate document only
+File saved     → Re-validate document only
+Schema changed → Re-validate all documents
+```
+
+### Fast Rules Only
+
+Expensive project-wide lints disabled by default:
+
+```yaml
+extensions:
+  lsp:
+    lint:
+      rules:
+        unused_fields: off  # Too expensive for real-time
+```
+
+Enable expensive rules in the CLI for CI/CD:
+
+```yaml
+extensions:
+  cli:
+    lint:
+      rules:
+        unused_fields: error  # Run in CI only
+```
+
+### Concurrent Requests
+
+Multiple LSP requests handled in parallel using async Rust and concurrent data structures.
+
+## Configuration Examples
+
+### TypeScript Project with Remote Schema
+
+```yaml
+schema: https://api.example.com/graphql
+documents:
+  - "src/**/*.{ts,tsx}"
+  - "!src/**/*.test.ts"
+lint:
+  recommended: error
+extensions:
+  lsp:
+    lint:
+      rules:
+        deprecated_field: warn
+```
+
+### Monorepo with Multiple Projects
+
+```yaml
+projects:
+  web:
+    schema: packages/web/schema.graphql
+    documents: packages/web/src/**/*.{graphql,tsx}
+  mobile:
+    schema: packages/mobile/schema.graphql
+    documents: packages/mobile/src/**/*.{graphql,ts}
+  api:
+    schema: packages/api/schema/**/*.graphql
+    documents: packages/api/src/**/*.graphql
+
+lint:
+  recommended: error
+```
+
+### Custom Extract Configuration
+
+```yaml
+schema: schema.graphql
+documents: "src/**/*.tsx"
+extensions:
+  extractConfig:
+    tagIdentifiers: ["gql", "graphql", "query"]
+    modules: ["graphql-tag", "@apollo/client", "custom-gql"]
+    allowGlobalIdentifiers: true
+```
+
+## Environment Variables
+
+- `RUST_LOG` - Log level (`error`, `warn`, `info`, `debug`, `trace`)
+- `OTEL_TRACES_ENABLED` - Enable OpenTelemetry tracing (`1` or `true`)
+- `OTEL_EXPORTER_OTLP_ENDPOINT` - OTLP endpoint (default: `http://localhost:4317`)
+
+## Differences from CLI
+
+The LSP and CLI share core validation logic but are optimized differently:
+
+### LSP (This Server)
+
+- **Real-time feedback**: Validates as you type
+- **Incremental updates**: Only re-validates changed files
+- **Fast rules only**: Expensive lints disabled by default
+- **Editor integration**: VSCode, Neovim, etc.
+
+### CLI
+
+- **Batch processing**: Validates all files at once
+- **CI/CD optimized**: Exit codes, JSON output
+- **Expensive rules enabled**: Project-wide lints like `unused_fields`
+- **No incremental updates**: Full project validation each run
+
+Configure independently:
+
+```yaml
+extensions:
+  lsp:
+    lint:
+      rules:
+        unused_fields: off    # Disable in LSP
+  cli:
+    lint:
+      rules:
+        unused_fields: error  # Enable in CLI
+```
+
+## Troubleshooting
+
+### LSP Not Starting
+
+Check logs in your editor:
+
+**VSCode**: View → Output → GraphQL Language Server
+
+**Neovim**: `:LspLog`
+
+### Configuration Not Found
+
+Ensure `.graphqlrc.yml` is in your workspace root:
+
+```bash
+ls -la .graphqlrc.yml
+```
+
+### Schema Loading Errors
+
+Test schema loading manually:
+
+```bash
+RUST_LOG=debug graphql-lsp 2> lsp.log
+# Check lsp.log for schema loading errors
+```
+
+### No Diagnostics
+
+Verify documents match the pattern in config:
+
+```yaml
+documents: "src/**/*.graphql"  # Must match your file locations
+```
+
+### Embedded GraphQL Not Working
+
+Check import tracking:
+
+```typescript
+// ✓ Will work (gql from recognized module)
+import { gql } from 'graphql-tag';
+
+// ✗ Won't work (unknown module)
+import { gql } from 'custom-unknown-module';
+```
+
+Add custom modules:
+
+```yaml
+extensions:
+  extractConfig:
+    modules: ["graphql-tag", "custom-module"]
+```
+
+## Building from Source
+
+```bash
+# Clone repository
+git clone https://github.com/trevor-scheer/graphql-lsp
+cd graphql-lsp
+
+# Build LSP server
+cargo build --package graphql-lsp --release
+
+# Binary at target/release/graphql-lsp
+./target/release/graphql-lsp
+```
+
+### Development Mode
+
+```bash
+# Run with logging
+RUST_LOG=debug cargo run --package graphql-lsp 2> lsp.log
+
+# Build with OpenTelemetry
+cargo build --package graphql-lsp --features otel
+```
+
+## License
+
+MIT OR Apache-2.0

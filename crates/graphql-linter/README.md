@@ -1,107 +1,186 @@
 # graphql-linter
 
-A flexible GraphQL linting engine that provides different linting contexts for various use cases.
+A flexible GraphQL linting engine with support for document-level and project-wide analysis.
 
-## Overview
+## Features
 
-`graphql-linter` is a standalone crate that implements linting rules for GraphQL documents and schemas. It's designed to be used by both the LSP server (for real-time feedback) and the CLI tool (for comprehensive project analysis).
+- **Multiple Linting Contexts**: Document-level, schema-only, and project-wide analysis
+- **Configurable Rules**: Enable/disable rules with custom severity levels
+- **Tool-Specific Config**: Different rule sets for LSP vs CLI
+- **Extensible**: Easy to add new custom rules
+- **Performance-Aware**: Separate fast and expensive rule categories
 
-## Architecture
+## Installation
 
-The linter provides four distinct linting contexts, each with its own trait and rule set:
+Add to your `Cargo.toml`:
 
-### 1. Standalone Document Linting
+```toml
+[dependencies]
+graphql-linter = { path = "../graphql-linter" }
+```
 
-**Use case**: Quick validation of isolated queries without schema or project context.
+## Getting Started
+
+### Document Against Schema Linting
+
+Fast, real-time linting for single documents:
+
+```rust
+use graphql_linter::{Linter, DocumentSchemaContext, LintConfig};
+
+let config = LintConfig::recommended();
+let linter = Linter::new(config);
+
+let ctx = DocumentSchemaContext {
+    document: "query { user { oldField } }",
+    file_name: "query.graphql",
+    schema: &schema_index,
+};
+
+let diagnostics = linter.lint_document(&ctx);
+
+for diagnostic in diagnostics {
+    println!("{}: {}", diagnostic.severity, diagnostic.message);
+}
+```
+
+### Project-Wide Linting
+
+Comprehensive analysis across all documents:
+
+```rust
+use graphql_linter::{Linter, ProjectContext, LintConfig};
+
+let config = LintConfig::recommended();
+let linter = Linter::new(config);
+
+let ctx = ProjectContext {
+    documents: &document_index,
+    schema: &schema_index,
+};
+
+// Returns HashMap<file_path, Vec<Diagnostic>>
+let diagnostics_by_file = linter.lint_project(&ctx);
+
+for (file, diagnostics) in diagnostics_by_file {
+    println!("{}:", file);
+    for diagnostic in diagnostics {
+        println!("  {}", diagnostic.message);
+    }
+}
+```
+
+## Linting Contexts
+
+The linter provides four distinct contexts:
+
+### 1. Standalone Document
+
+Quick validation without schema or project context.
 
 ```rust
 use graphql_linter::{Linter, StandaloneDocumentContext};
 
-let linter = Linter::new(config);
 let ctx = StandaloneDocumentContext {
-    document: "query { user { id } }",
+    document: "query GetUser { user { id } }",
     file_name: "query.graphql",
 };
+
 let diagnostics = linter.lint_standalone_document(&ctx);
 ```
 
-**Current rules**: None (future rules: naming conventions, complexity limits)
+**Use case**: Basic syntax and naming checks without schema
+**Performance**: Very fast
+**Current rules**: None (reserved for future naming/complexity rules)
 
 ### 2. Document Against Schema
 
-**Use case**: Real-time feedback as users type in an editor.
+Validate a single document against a schema.
 
 ```rust
 use graphql_linter::{Linter, DocumentSchemaContext};
 
-let linter = Linter::new(config);
 let ctx = DocumentSchemaContext {
     document: "query { user { id name } }",
     file_name: "query.graphql",
     schema: &schema_index,
 };
+
 let diagnostics = linter.lint_document(&ctx);
 ```
 
-**Current rules**:
-- `deprecated_field`: Warns when using deprecated fields
-
+**Use case**: Real-time editor feedback
 **Performance**: Fast, runs per-document
+**Current rules**: `deprecated_field`
 
 ### 3. Standalone Schema
 
-**Use case**: Schema design validation without requiring documents.
+Schema design validation without documents.
 
 ```rust
 use graphql_linter::{Linter, StandaloneSchemaContext};
 
-let linter = Linter::new(config);
 let ctx = StandaloneSchemaContext {
     schema: &schema_index,
 };
+
 let diagnostics = linter.lint_standalone_schema(&ctx);
 ```
 
-**Current rules**: None (future rules: naming conventions, directive usage)
+**Use case**: Schema-only validation
+**Performance**: Fast
+**Current rules**: None (reserved for future schema design rules)
 
 ### 4. Project-Wide Analysis
 
-**Use case**: Comprehensive analysis across all documents and schema. Typically used in CI or on-demand.
+Comprehensive analysis across all documents and schema.
 
 ```rust
 use graphql_linter::{Linter, ProjectContext};
 
-let linter = Linter::new(config);
 let ctx = ProjectContext {
     documents: &document_index,
     schema: &schema_index,
 };
-// Returns HashMap<file_path, Vec<Diagnostic>>
+
 let diagnostics_by_file = linter.lint_project(&ctx);
 ```
 
-**Current rules**:
-- `unique_names`: Ensures operation and fragment names are unique across the project
-- `unused_fields`: Detects schema fields that are never used in any operation
-
+**Use case**: CI/CD, comprehensive project analysis
 **Performance**: Potentially expensive on large projects
+**Current rules**: `unique_names`, `unused_fields`
 
 ## Configuration
 
-Linting is configured in `.graphqlrc.yaml` with tool-specific overrides:
-
 ### Basic Configuration
 
+```rust
+use graphql_linter::LintConfig;
+
+// Use recommended defaults
+let config = LintConfig::recommended();
+
+// Custom configuration
+let mut config = LintConfig::default();
+config.set_rule_severity("deprecated_field", Severity::Warn);
+config.set_rule_severity("unique_names", Severity::Error);
+config.set_rule_severity("unused_fields", Severity::Off);
+```
+
+### YAML Configuration
+
+Configure in `.graphqlrc.yaml`:
+
 ```yaml
-# Top-level lint config (applies to all tools by default)
+# Basic configuration
 lint:
   recommended: error
 ```
 
-### Tool-Specific Overrides
+**Tool-specific overrides:**
 
 ```yaml
-# Top-level defaults
+# Base configuration
 lint:
   recommended: error
   rules:
@@ -125,20 +204,81 @@ extensions:
         unique_names: warn
 ```
 
-### Configuration Options
+### Severity Levels
 
-- **Severity levels**: `error`, `warn`, `off`
-- **Preset**: `recommended` sets default severities for all rules
-- **Per-rule config**: Override individual rules under `rules:`
+- `off` - Disable the rule
+- `warn` - Show as warning
+- `error` - Show as error
 
-## Implementing New Rules
+## Built-in Rules
+
+### deprecated_field
+
+**Type**: DocumentSchemaRule
+**Default**: `warn`
+**Performance**: Fast
+
+Warns when using fields marked as deprecated in the schema.
+
+```graphql
+# Schema
+type User {
+  id: ID!
+  name: String! @deprecated(reason: "Use fullName instead")
+  fullName: String!
+}
+
+# Query
+query {
+  user {
+    name  # ⚠️ Warning: Field 'name' is deprecated: Use fullName instead
+  }
+}
+```
+
+### unique_names
+
+**Type**: ProjectRule
+**Default**: `error`
+**Performance**: Fast (project-wide but efficient)
+
+Ensures operation and fragment names are unique across the project.
+
+```graphql
+# file1.graphql
+query GetUser { user { id } }
+
+# file2.graphql
+query GetUser { user { name } }  # ❌ Error: Duplicate operation name 'GetUser'
+```
+
+### unused_fields
+
+**Type**: ProjectRule
+**Default**: `off` (opt-in)
+**Performance**: Expensive on large schemas
+
+Detects schema fields that are never queried in any operation or fragment.
+
+```graphql
+# Schema
+type User {
+  id: ID!
+  email: String!  # ⚠️ Warning: Field 'email' is never used
+}
+
+# Operations only query 'id', never 'email'
+query { user { id } }
+```
+
+## Creating Custom Rules
 
 ### Document Schema Rules
 
 Rules that check a single document against a schema:
 
 ```rust
-use graphql_linter::{DocumentSchemaRule, DocumentSchemaContext, Diagnostic};
+use graphql_linter::{DocumentSchemaRule, DocumentSchemaContext, Diagnostic, Severity};
 
 pub struct MyRule;
 
@@ -156,7 +296,7 @@ impl DocumentSchemaRule for MyRule {
 
         // Parse and analyze the document
         // Check against schema in ctx.schema
-        // Return diagnostics
+        // Add diagnostics as needed
 
         diagnostics
     }
@@ -194,9 +334,9 @@ impl ProjectRule for MyProjectRule {
 }
 ```
 
-## Rule Registry
+### Registering Rules
 
-To enable a rule, add it to the appropriate registry in `rules/mod.rs`:
+Add rules to the registries in `rules/mod.rs`:
 
 ```rust
 pub fn all_document_schema_rules() -> Vec<Box<dyn DocumentSchemaRule>> {
@@ -215,73 +355,86 @@ pub fn all_project_rules() -> Vec<Box<dyn ProjectRule>> {
 }
 ```
 
-## Current Rules
+## API Reference
 
-### deprecated_field (DocumentSchemaRule)
+### Linter
 
-Warns when using fields marked as deprecated in the schema.
+```rust
+impl Linter {
+    pub fn new(config: LintConfig) -> Self;
 
-**Severity**: `warn` (configurable)
+    pub fn lint_standalone_document(
+        &self,
+        ctx: &StandaloneDocumentContext
+    ) -> Vec<Diagnostic>;
 
-**Example**:
-```graphql
-# Schema
-type User {
-  id: ID!
-  name: String! @deprecated(reason: "Use fullName instead")
-  fullName: String!
-}
+    pub fn lint_document(
+        &self,
+        ctx: &DocumentSchemaContext
+    ) -> Vec<Diagnostic>;
 
-# Query
-query {
-  user {
-    name  # ⚠️ Warning: Field 'name' is deprecated: Use fullName instead
-  }
+    pub fn lint_standalone_schema(
+        &self,
+        ctx: &StandaloneSchemaContext
+    ) -> Vec<Diagnostic>;
+
+    pub fn lint_project(
+        &self,
+        ctx: &ProjectContext
+    ) -> HashMap<String, Vec<Diagnostic>>;
 }
 ```
 
-### unique_names (ProjectRule)
+### LintConfig
 
-Ensures operation and fragment names are unique across the entire project.
+```rust
+impl LintConfig {
+    pub fn default() -> Self;
+    pub fn recommended() -> Self;
 
-**Severity**: `error` (configurable)
-
-**Example**:
-```graphql
-# file1.graphql
-query GetUser { user { id } }
-
-# file2.graphql
-query GetUser { user { name } }  # ❌ Error: Duplicate operation name 'GetUser'
+    pub fn set_rule_severity(&mut self, rule: &str, severity: Severity);
+    pub fn get_rule_severity(&self, rule: &str) -> Severity;
+}
 ```
 
-### unused_fields (ProjectRule)
+### Diagnostic
 
-Detects schema fields that are never queried in any operation or fragment.
-
-**Severity**: `off` by default (expensive, opt-in)
-
-**Example**:
-```graphql
-# Schema
-type User {
-  id: ID!
-  email: String!  # ⚠️ Warning: Field 'email' is never used
+```rust
+pub struct Diagnostic {
+    pub message: String,
+    pub severity: Severity,
+    pub location: Option<Location>,
+    pub rule: String,
 }
 
-# Operations only query 'id', never 'email'
-query { user { id } }
+pub struct Location {
+    pub line: usize,
+    pub column: usize,
+}
+
+pub enum Severity {
+    Error,
+    Warning,
+    Info,
+    Hint,
+}
 ```
 
 ## Performance Considerations
 
-### LSP Usage
+### For LSP Integration
 
-For real-time editor feedback, use lightweight rules:
-- ✅ `lint_document()` - Fast, runs on every change
-- ⚠️ `lint_project()` - Expensive, should be opt-in only
+Use lightweight rules for real-time feedback:
 
-Configure LSP to disable expensive rules by default:
+```rust
+// Good: Fast document-level linting
+let diagnostics = linter.lint_document(&ctx);
+
+// Avoid: Expensive project-wide linting in real-time
+// let diagnostics = linter.lint_project(&ctx);  // Too slow!
+```
+
+Configure LSP to disable expensive rules:
 
 ```yaml
 extensions:
@@ -291,9 +444,9 @@ extensions:
         unused_fields: off  # Too expensive for real-time
 ```
 
-### CLI Usage
+### For CLI Integration
 
-The CLI can run all rules including expensive project-wide analysis:
+Enable all rules including expensive project-wide analysis:
 
 ```yaml
 extensions:
@@ -303,13 +456,60 @@ extensions:
         unused_fields: error  # Enable in CI
 ```
 
-## Dependencies
+## Examples
 
-This crate depends on:
-- `graphql-project`: Core types (SchemaIndex, DocumentIndex, Diagnostic)
-- `apollo-parser`: CST-based GraphQL parsing
-- `apollo-compiler`: Validation and type information
-- `serde`/`serde_json`: Configuration deserialization
+### Custom Rule for Query Complexity
+
+```rust
+use graphql_linter::{DocumentSchemaRule, DocumentSchemaContext, Diagnostic, Severity};
+use apollo_parser::Parser;
+
+pub struct QueryComplexityRule {
+    max_depth: usize,
+}
+
+impl DocumentSchemaRule for QueryComplexityRule {
+    fn name(&self) -> &'static str {
+        "query_complexity"
+    }
+
+    fn description(&self) -> &'static str {
+        "Limits query nesting depth"
+    }
+
+    fn check(&self, ctx: &DocumentSchemaContext) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+        let parser = Parser::new(ctx.document);
+        let tree = parser.parse();
+
+        // Analyze depth and add diagnostics if too deep
+
+        diagnostics
+    }
+}
+```
+
+### Filtering Diagnostics by Severity
+
+```rust
+use graphql_linter::{Linter, ProjectContext, Severity};
+
+let diagnostics_by_file = linter.lint_project(&ctx);
+
+// Only show errors
+for (file, diagnostics) in diagnostics_by_file {
+    let errors: Vec<_> = diagnostics.into_iter()
+        .filter(|d| d.severity == Severity::Error)
+        .collect();
+
+    if !errors.is_empty() {
+        println!("{}:", file);
+        for error in errors {
+            println!("  {}", error.message);
+        }
+    }
+}
+```
 
 ## Testing
 
@@ -325,8 +525,6 @@ cargo test -p graphql-linter unique_names
 cargo test -p graphql-linter unused_fields
 ```
 
-## See Also
+## License
 
-- [graphql-project](../graphql-project): Core project management and types
-- [graphql-lsp](../graphql-lsp): LSP server integration
-- [graphql-cli](../graphql-cli): CLI tool integration
+MIT OR Apache-2.0
