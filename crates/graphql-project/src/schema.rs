@@ -110,13 +110,11 @@ impl SchemaLoader {
     }
 
     /// Load schema from remote endpoint via introspection
-    #[allow(clippy::unused_async)] // Will be async when implemented
     async fn load_remote(&self, url: &str) -> Result<String> {
-        // TODO: Implement GraphQL introspection query
-        // For now, return a placeholder error
-        Err(ProjectError::SchemaLoad(format!(
-            "Remote schema loading not yet implemented for URL: {url}"
-        )))
+        let sdl = graphql_introspect::introspect_url_to_sdl(url)
+            .await
+            .map_err(|e| ProjectError::SchemaLoad(format!("Failed to introspect {url}: {e}")))?;
+        Ok(sdl)
     }
 }
 

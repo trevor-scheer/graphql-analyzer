@@ -9,6 +9,7 @@ graphql-lsp/
 ├── crates/
 │   ├── graphql-config/       # .graphqlrc parser and loader
 │   ├── graphql-extract/      # Extract GraphQL from source files
+│   ├── graphql-introspect/   # GraphQL introspection and SDL conversion
 │   ├── graphql-linter/       # Linting engine with custom rules
 │   ├── graphql-project/      # Core: validation, indexing, diagnostics
 │   ├── graphql-lsp/          # LSP server implementation
@@ -40,6 +41,18 @@ Extracts GraphQL queries, mutations, and fragments from source files.
 - TypeScript/JavaScript (via SWC) - Coming soon
 - Template literals with `gql` tags
 - Magic comments (`/* GraphQL */`)
+
+### graphql-introspect
+
+Fetches GraphQL schemas from remote endpoints via introspection and converts them to SDL.
+
+**Features:**
+
+- Standard GraphQL introspection query execution
+- Type-safe deserialization of introspection responses
+- Conversion from introspection JSON to SDL strings
+- Support for all GraphQL schema types and directives
+- Automatic filtering of built-in types and directives
 
 ### graphql-linter
 

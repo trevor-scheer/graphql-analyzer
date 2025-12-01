@@ -801,6 +801,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "graphql-introspect"
+version = "0.1.1"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+]
+
+[[package]]
 name = "graphql-linter"
 version = "0.1.1"
 dependencies = [
@@ -850,6 +861,7 @@ dependencies = [
  "glob",
  "graphql-config",
  "graphql-extract",
+ "graphql-introspect",
  "insta",
  "notify",
  "reqwest",

@@ -57,8 +57,10 @@ projects:
 Schemas can be loaded from:
 - Local files: `schema.graphql`
 - Glob patterns: `schema/**/*.graphql`
-- HTTP endpoints: `https://api.example.com/graphql` (introspection)
+- HTTP/HTTPS endpoints: `https://api.example.com/graphql` (introspection query executed by `graphql-project`)
 - Multiple sources: `["schema.graphql", "extensions/*.graphql"]`
+
+**Note**: The `graphql-config` crate only parses and validates the configuration structure. Actual schema loading (including introspection for URLs) is handled by the `graphql-project` crate using the `graphql-introspect` crate.
 
 ### Document Patterns
 
