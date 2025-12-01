@@ -10,6 +10,7 @@ authors.workspace = true
 # Internal dependencies
 graphql-config = { path = "../graphql-config" }
 graphql-extract = { path = "../graphql-extract" }
+graphql-introspect = { path = "../graphql-introspect" }
 
 # GraphQL parsing
 apollo-parser = { workspace = true }

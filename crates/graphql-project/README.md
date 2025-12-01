@@ -44,9 +44,16 @@ Document management ([src/document.rs](src/document.rs)):
 ### SchemaLoader
 
 Schema management ([src/schema.rs](src/schema.rs)):
-- Loads GraphQL schemas from files or introspection endpoints
+- Loads GraphQL schemas from local files or remote URLs
+- Supports glob patterns for multiple schema files
+- Remote schema loading via GraphQL introspection (uses `graphql-introspect`)
 - Builds schema using apollo-compiler
 - Supports schema stitching across multiple files
+
+Schema sources supported:
+- Local files: `schema.graphql`
+- Glob patterns: `schema/**/*.graphql`
+- Remote URLs: `https://api.example.com/graphql` (fetched via introspection)
 
 ### Index
 

@@ -8,6 +8,7 @@ This is a GraphQL Language Server Protocol (LSP) implementation written in Rust.
 
 - `crates/graphql-config/` - Configuration parser and loader
 - `crates/graphql-extract/` - Extract GraphQL from source files
+- `crates/graphql-introspect/` - GraphQL introspection and SDL conversion
 - `crates/graphql-linter/` - Linting engine with custom rules
 - `crates/graphql-project/` - Core types, validation, and indexing
 - `crates/graphql-lsp/` - Main LSP implementation
@@ -155,6 +156,57 @@ extensions:
 - **CLI**: Runs all enabled lints including expensive project-wide analysis.
 
 See [graphql-linter/README.md](../crates/graphql-linter/README.md) for detailed documentation.
+
+## Schema Loading and Introspection
+
+The project supports loading GraphQL schemas from multiple sources:
+
+### Local File Sources
+
+- Single file: `schema: schema.graphql`
+- Multiple files: `schema: ["schema.graphql", "extensions.graphql"]`
+- Glob patterns: `schema: "schema/**/*.graphql"`
+
+### Remote URL Sources
+
+Schemas can be loaded from remote GraphQL endpoints via introspection:
+
+```yaml
+schema: https://api.example.com/graphql
+```
+
+When a URL is detected in the schema configuration:
+1. **graphql-config** detects the URL using `has_remote_schema()`
+2. **graphql-project**'s `SchemaLoader::load_remote()` is called
+3. **graphql-introspect** executes the standard introspection query
+4. The introspection JSON response is converted to SDL
+5. The SDL is used for validation and language features
+
+### graphql-introspect Crate
+
+Located at `crates/graphql-introspect/`, this crate provides:
+
+- **Introspection Query Execution**: Standard GraphQL introspection with 7 levels of type nesting
+- **Type-Safe Deserialization**: Complete type definitions for introspection responses
+- **SDL Conversion**: Clean, readable SDL generation that:
+  - Filters built-in scalars (Int, Float, String, Boolean, ID)
+  - Filters introspection types (types starting with `__`)
+  - Filters built-in directives (@skip, @include, @deprecated, @specifiedBy)
+  - Preserves descriptions, deprecation info, and custom directives
+  - Proper indentation and GraphQL syntax
+
+**Main API:**
+- `introspect_url_to_sdl(url)` - One-step convenience function
+- `execute_introspection(url)` - Execute query and get JSON response
+- `introspection_to_sdl(response)` - Convert JSON to SDL
+
+**Error Handling:**
+- Network errors (connection failures, timeouts)
+- HTTP errors (non-2xx status codes)
+- Parse errors (invalid JSON)
+- Invalid responses (malformed introspection data)
+
+See [graphql-introspect/README.md](../crates/graphql-introspect/README.md) for detailed documentation.
 
 ## Logging and Tracing Strategy
 
