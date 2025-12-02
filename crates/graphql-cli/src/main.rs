@@ -67,23 +67,38 @@ enum OutputFormat {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize tracing/logging based on RUST_LOG env var
+    #[cfg(feature = "otel")]
+    let otel_guard = init_telemetry();
+
+    #[cfg(not(feature = "otel"))]
     init_tracing();
 
     let cli = Cli::parse();
 
-    match cli.command {
+    let result = match cli.command {
         Commands::Validate { format, watch } => {
-            commands::validate::run(cli.config, cli.project, format, watch).await?;
+            commands::validate::run(cli.config, cli.project, format, watch).await
         }
         Commands::Lint { format, watch } => {
-            commands::lint::run(cli.config, cli.project, format, watch).await?;
+            commands::lint::run(cli.config, cli.project, format, watch).await
         }
         Commands::Check { base, head } => {
-            commands::check::run(cli.config, cli.project, base, head).await?;
+            commands::check::run(cli.config, cli.project, base, head).await
         }
+    };
+
+    // Ensure all traces are flushed before exiting
+    #[cfg(feature = "otel")]
+    if let Some(provider) = otel_guard {
+        eprintln!("Flushing OpenTelemetry traces...");
+        if let Err(e) = provider.shutdown() {
+            eprintln!("Failed to shutdown tracer provider: {e:?}");
+        }
+        // Give a moment for async operations to complete
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     }
 
-    Ok(())
+    result
 }
 
 /// Initialize basic tracing without OpenTelemetry
@@ -95,4 +110,65 @@ fn init_tracing() {
         )
         .with_writer(std::io::stderr)
         .init();
+}
+
+/// Initialize OpenTelemetry tracing with OTLP exporter
+#[cfg(feature = "otel")]
+#[allow(clippy::too_many_lines)]
+#[allow(unused_imports)]
+fn init_telemetry() -> Option<opentelemetry_sdk::trace::TracerProvider> {
+    use opentelemetry::trace::TracerProvider as _;
+    use opentelemetry_otlp::WithExportConfig;
+    use opentelemetry_sdk::trace::TracerProvider;
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    // Check if OpenTelemetry should be enabled
+    let otel_enabled = std::env::var("OTEL_TRACES_ENABLED")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false);
+
+    if !otel_enabled {
+        // Fall back to regular tracing
+        init_tracing();
+        return None;
+    }
+
+    // Get OTLP endpoint from env or use default
+    let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+        .unwrap_or_else(|_| "http://localhost:4317".to_string());
+
+    eprintln!("Initializing OpenTelemetry with endpoint: {endpoint}");
+
+    // Create OTLP exporter
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint(&endpoint)
+        .build()
+        .expect("Failed to create OTLP exporter");
+
+    // Create tracer provider
+    let provider = TracerProvider::builder()
+        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+        .build();
+
+    let tracer = provider.tracer("graphql-cli");
+
+    // Create telemetry layer
+    let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+
+    // Create env filter
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
+    // Initialize subscriber with both telemetry and logging
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(telemetry)
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+        .init();
+
+    eprintln!("OpenTelemetry initialized. Traces will be sent to {endpoint}");
+
+    Some(provider)
 }
