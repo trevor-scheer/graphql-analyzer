@@ -90,22 +90,14 @@ async fn main() -> anyhow::Result<()> {
     // Ensure all traces are flushed before exiting
     #[cfg(feature = "otel")]
     if let Some(provider) = otel_guard {
-        eprintln!("Flushing OpenTelemetry traces...");
-        // Force flush before shutdown to ensure spans are exported
-        let flush_results = provider.force_flush();
-        for result in flush_results {
-            if let Err(e) = result {
-                eprintln!("Failed to force flush traces: {e:?}");
-            }
-        }
-        // Give time for the flush to complete
-        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-
+        eprintln!("Shutting down OpenTelemetry...");
+        // Explicitly shutdown the provider to flush pending spans
         if let Err(e) = provider.shutdown() {
-            eprintln!("Failed to shutdown tracer provider: {e:?}");
+            eprintln!("Error shutting down tracer provider: {e:?}");
         }
-        // Give a moment for async operations to complete
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        // Also shutdown the global provider
+        opentelemetry::global::shutdown_tracer_provider();
+        eprintln!("OpenTelemetry shutdown complete");
     }
 
     result
@@ -166,11 +158,14 @@ fn init_telemetry() -> Option<opentelemetry_sdk::trace::TracerProvider> {
     )]);
 
     // Create tracer provider with resource
-    // Use batch exporter with short timeout for CLI responsiveness
+    // Use batch exporter for async, non-blocking trace export
     let provider = TracerProvider::builder()
         .with_resource(resource)
         .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
         .build();
+
+    // Set as global provider so shutdown_tracer_provider() works
+    opentelemetry::global::set_tracer_provider(provider.clone());
 
     let tracer = provider.tracer("graphql-cli");
 
