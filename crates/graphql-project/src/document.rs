@@ -35,18 +35,42 @@ impl DocumentLoader {
 
     /// Load all documents and build an index
     pub fn load(&self) -> Result<DocumentIndex> {
-        let mut index = DocumentIndex::new();
+        use std::time::Instant;
+        let start = Instant::now();
 
-        for pattern in self.config.patterns() {
+        let patterns: Vec<_> = self.config.patterns().into_iter().collect();
+        tracing::info!(pattern_count = patterns.len(), "Starting document loading");
+
+        let mut index = DocumentIndex::new();
+        let mut total_files_matched = 0;
+        let mut total_files_loaded = 0;
+        let mut total_files_failed = 0;
+
+        for pattern in patterns {
             let paths = self.find_files(pattern)?;
+            total_files_matched += paths.len();
 
             for path in paths {
                 if let Err(e) = self.load_file(&path, &mut index) {
                     // Log error but continue with other files
                     eprintln!("Warning: Failed to load {}: {}", path.display(), e);
+                    total_files_failed += 1;
+                } else {
+                    total_files_loaded += 1;
                 }
             }
         }
+
+        let duration = start.elapsed();
+        tracing::info!(
+            total_files_matched,
+            total_files_loaded,
+            total_files_failed,
+            operations = index.operations.len(),
+            fragments = index.fragments.len(),
+            duration_ms = duration.as_millis(),
+            "Document loading completed"
+        );
 
         Ok(index)
     }

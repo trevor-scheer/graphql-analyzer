@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::process;
 
 #[allow(clippy::too_many_lines)]
+#[tracing::instrument(skip(config_path, project_name, format), fields(project = ?project_name))]
 pub async fn run(
     config_path: Option<PathBuf>,
     project_name: Option<String>,
@@ -69,7 +70,8 @@ pub async fn run(
         }
 
         // Load schema
-        match project.load_schema().await {
+        let load_schema_span = tracing::info_span!("load_schema", project = %name);
+        match load_schema_span.in_scope(|| project.load_schema()).await {
             Ok(()) => {
                 if matches!(format, OutputFormat::Human) {
                     println!("{}", "✓ Schema loaded successfully".green());
@@ -86,7 +88,8 @@ pub async fn run(
         }
 
         // Load documents
-        match project.load_documents() {
+        let load_docs_span = tracing::info_span!("load_documents", project = %name);
+        match load_docs_span.in_scope(|| project.load_documents()) {
             Ok(()) => {
                 if matches!(format, OutputFormat::Human) {
                     let doc_index = project.get_document_index();
@@ -128,9 +131,25 @@ pub async fn run(
         }
 
         let mut all_errors = Vec::new();
+        let total_files = all_file_paths.len();
+
+        tracing::info!(total_files, "Starting validation of document files");
 
         // Validate each file using Apollo compiler only
+        let mut validated_count = 0;
         for file_path in all_file_paths {
+            validated_count += 1;
+
+            // Log progress every 50 files or at 1% increments (whichever is more frequent)
+            let log_interval = (total_files / 100).clamp(1, 50);
+            if validated_count % log_interval == 0 || validated_count == total_files {
+                tracing::info!(
+                    validated = validated_count,
+                    total = total_files,
+                    percent = (validated_count * 100) / total_files,
+                    "Validation progress"
+                );
+            }
             // Use graphql-extract to extract GraphQL from the file
             let extracted = match graphql_extract::extract_from_file(
                 std::path::Path::new(file_path),
@@ -175,6 +194,13 @@ pub async fn run(
                 }
             }
         }
+
+        tracing::info!(
+            total_files,
+            validated = validated_count,
+            errors_found = all_errors.len(),
+            "Validation completed"
+        );
 
         // Display errors
         total_errors = all_errors.len();
