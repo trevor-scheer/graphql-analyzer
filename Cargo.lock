@@ -861,6 +861,7 @@ dependencies = [
  "serde_yaml",
  "tempfile",
  "thiserror 2.0.17",
+ "tracing",
  "walkdir",
 ]
 
@@ -873,6 +874,7 @@ dependencies = [
  "swc_common",
  "swc_core",
  "thiserror 2.0.17",
+ "tracing",
  "walkdir",
 ]
 
@@ -885,6 +887,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -139,13 +139,16 @@ fragment TypeRef on __Type {
 /// # Ok(())
 /// # }
 /// ```
+#[tracing::instrument]
 pub async fn execute_introspection(url: &str) -> Result<IntrospectionResponse> {
+    tracing::debug!("Creating HTTP client");
     let client = reqwest::Client::new();
 
     let query_body = serde_json::json!({
         "query": INTROSPECTION_QUERY
     });
 
+    tracing::info!("Sending introspection query");
     let response = client
         .post(url)
         .header("Content-Type", "application/json")
@@ -154,17 +157,26 @@ pub async fn execute_introspection(url: &str) -> Result<IntrospectionResponse> {
         .await
         .map_err(|e| IntrospectionError::Network(e.to_string()))?;
 
-    if !response.status().is_success() {
-        return Err(IntrospectionError::Http(
-            response.status().as_u16(),
-            response.text().await.unwrap_or_default(),
-        ));
+    let status = response.status();
+    tracing::debug!(status = status.as_u16(), "Received response");
+
+    if !status.is_success() {
+        let error_body = response.text().await.unwrap_or_default();
+        tracing::error!(status = status.as_u16(), body = %error_body, "HTTP error response");
+        return Err(IntrospectionError::Http(status.as_u16(), error_body));
     }
 
-    let introspection: IntrospectionResponse = response
-        .json()
-        .await
-        .map_err(|e| IntrospectionError::Parse(e.to_string()))?;
+    tracing::debug!("Parsing introspection response");
+    let introspection: IntrospectionResponse = response.json().await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to parse introspection response");
+        IntrospectionError::Parse(e.to_string())
+    })?;
+
+    tracing::info!(
+        types = introspection.data.schema.types.len(),
+        directives = introspection.data.schema.directives.len(),
+        "Introspection successful"
+    );
 
     Ok(introspection)
 }

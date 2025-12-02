@@ -71,15 +71,20 @@ pub struct ExtractedGraphQL {
 }
 
 /// Extract GraphQL from a file
+#[tracing::instrument(skip(config), fields(path = %path.display()))]
 pub fn extract_from_file(path: &Path, config: &ExtractConfig) -> Result<Vec<ExtractedGraphQL>> {
     let language = Language::from_path(path)
         .ok_or_else(|| ExtractError::UnsupportedFileType(path.to_path_buf()))?;
+    tracing::trace!(language = ?language, "Detected language");
 
     let source = fs::read_to_string(path)?;
-    extract_from_source(&source, language, config)
+    let result = extract_from_source(&source, language, config)?;
+    tracing::debug!(blocks_extracted = result.len(), "Extraction complete");
+    Ok(result)
 }
 
 /// Extract GraphQL from source code string
+#[tracing::instrument(skip(source, config), fields(language = ?language, source_len = source.len()))]
 pub fn extract_from_source(
     source: &str,
     language: Language,
@@ -88,6 +93,7 @@ pub fn extract_from_source(
     match language {
         Language::GraphQL => {
             // Raw GraphQL file - return entire content
+            tracing::trace!("Returning full GraphQL file content");
             Ok(vec![ExtractedGraphQL {
                 source: source.to_string(),
                 location: SourceLocation::new(
@@ -111,6 +117,7 @@ pub fn extract_from_source(
 #[allow(dead_code)] // Will be used when TS/JS extraction is implemented
 #[allow(clippy::unnecessary_wraps)] // Will return errors when implemented
 #[allow(clippy::missing_const_for_fn)] // Will not be const when implemented
+#[tracing::instrument(skip(source, config), fields(language = ?language, source_len = source.len()), level = "debug")]
 fn extract_from_js_family(
     source: &str,
     language: Language,

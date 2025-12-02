@@ -166,10 +166,10 @@ fn init_telemetry() -> Option<opentelemetry_sdk::trace::TracerProvider> {
     )]);
 
     // Create tracer provider with resource
-    // Use simple exporter instead of batch for CLI to ensure immediate export
+    // Use batch exporter with short timeout for CLI responsiveness
     let provider = TracerProvider::builder()
         .with_resource(resource)
-        .with_simple_exporter(exporter)
+        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
         .build();
 
     let tracer = provider.tracer("graphql-cli");

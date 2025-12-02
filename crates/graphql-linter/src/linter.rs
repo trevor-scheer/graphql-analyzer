@@ -21,20 +21,27 @@ impl Linter {
     /// Lint a standalone document (no schema)
     /// Currently no rules exist for this scenario
     #[must_use]
+    #[tracing::instrument(skip(self, ctx), fields(file = ctx.file_name))]
     pub fn lint_standalone_document(&self, ctx: &StandaloneDocumentContext) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
 
         // Get all available standalone document rules
         let all_rules = rules::all_standalone_document_rules();
+        tracing::debug!(
+            rules_count = all_rules.len(),
+            "Running standalone document rules"
+        );
 
         for rule in all_rules {
             let rule_name = rule.name();
 
             // Skip if rule is not enabled (opt-in behavior)
             if !self.config.is_enabled(rule_name) {
+                tracing::trace!(rule = rule_name, "Rule not enabled, skipping");
                 continue;
             }
 
+            tracing::trace!(rule = rule_name, "Running rule");
             // Run the rule
             let mut rule_diagnostics = rule.check(ctx);
 
@@ -43,28 +50,47 @@ impl Linter {
                 apply_severity(&mut rule_diagnostics, severity);
             }
 
+            if !rule_diagnostics.is_empty() {
+                tracing::debug!(
+                    rule = rule_name,
+                    diagnostics = rule_diagnostics.len(),
+                    "Rule found issues"
+                );
+            }
+
             diagnostics.extend(rule_diagnostics);
         }
 
+        tracing::debug!(
+            total_diagnostics = diagnostics.len(),
+            "Standalone document linting complete"
+        );
         diagnostics
     }
 
     /// Lint a document against a schema
     #[must_use]
+    #[tracing::instrument(skip(self, ctx), fields(file = ctx.file_name))]
     pub fn lint_document(&self, ctx: &DocumentSchemaContext) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
 
         // Get all available document+schema rules
         let all_rules = rules::all_document_schema_rules();
+        tracing::debug!(
+            rules_count = all_rules.len(),
+            "Running document+schema rules"
+        );
 
         for rule in all_rules {
             let rule_name = rule.name();
 
             // Skip if rule is not enabled (opt-in behavior)
             if !self.config.is_enabled(rule_name) {
+                tracing::trace!(rule = rule_name, "Rule not enabled, skipping");
                 continue;
             }
 
+            tracing::trace!(rule = rule_name, "Running rule");
             // Run the rule
             let mut rule_diagnostics = rule.check(ctx);
 
@@ -73,9 +99,21 @@ impl Linter {
                 apply_severity(&mut rule_diagnostics, severity);
             }
 
+            if !rule_diagnostics.is_empty() {
+                tracing::debug!(
+                    rule = rule_name,
+                    diagnostics = rule_diagnostics.len(),
+                    "Rule found issues"
+                );
+            }
+
             diagnostics.extend(rule_diagnostics);
         }
 
+        tracing::debug!(
+            total_diagnostics = diagnostics.len(),
+            "Document linting complete"
+        );
         diagnostics
     }
 
@@ -113,22 +151,41 @@ impl Linter {
     /// Lint an entire project (expensive, project-wide)
     /// Returns diagnostics grouped by file path
     #[must_use]
+    #[tracing::instrument(skip(self, ctx))]
     pub fn lint_project(&self, ctx: &ProjectContext) -> HashMap<String, Vec<Diagnostic>> {
         let mut diagnostics_by_file: HashMap<String, Vec<Diagnostic>> = HashMap::new();
 
         // Get all available project-wide rules
         let all_project_rules = rules::all_project_rules();
+        tracing::info!(
+            rules_count = all_project_rules.len(),
+            "Running project-wide lint rules"
+        );
 
         for rule in all_project_rules {
             let rule_name = rule.name();
 
             // Skip if rule is not enabled (opt-in behavior)
             if !self.config.is_enabled(rule_name) {
+                tracing::debug!(rule = rule_name, "Project rule not enabled, skipping");
                 continue;
             }
 
+            tracing::info!(rule = rule_name, "Running project-wide rule");
             // Run the rule
             let rule_diagnostics = rule.check(ctx);
+
+            let files_with_issues = rule_diagnostics.len();
+            let total_issues: usize = rule_diagnostics.values().map(Vec::len).sum();
+
+            if total_issues > 0 {
+                tracing::info!(
+                    rule = rule_name,
+                    files = files_with_issues,
+                    issues = total_issues,
+                    "Project rule found issues"
+                );
+            }
 
             // Apply configured severity and merge into result
             if let Some(severity) = self.config.get_severity(rule_name) {
@@ -141,6 +198,14 @@ impl Linter {
                 }
             }
         }
+
+        let total_files_with_issues = diagnostics_by_file.len();
+        let total_issues: usize = diagnostics_by_file.values().map(Vec::len).sum();
+        tracing::info!(
+            files = total_files_with_issues,
+            issues = total_issues,
+            "Project linting complete"
+        );
 
         diagnostics_by_file
     }
