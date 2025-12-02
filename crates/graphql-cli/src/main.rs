@@ -91,6 +91,16 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "otel")]
     if let Some(provider) = otel_guard {
         eprintln!("Flushing OpenTelemetry traces...");
+        // Force flush before shutdown to ensure spans are exported
+        let flush_results = provider.force_flush();
+        for result in flush_results {
+            if let Err(e) = result {
+                eprintln!("Failed to force flush traces: {e:?}");
+            }
+        }
+        // Give time for the flush to complete
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
         if let Err(e) = provider.shutdown() {
             eprintln!("Failed to shutdown tracer provider: {e:?}");
         }
@@ -118,8 +128,10 @@ fn init_tracing() {
 #[allow(unused_imports)]
 fn init_telemetry() -> Option<opentelemetry_sdk::trace::TracerProvider> {
     use opentelemetry::trace::TracerProvider as _;
+    use opentelemetry::KeyValue;
     use opentelemetry_otlp::WithExportConfig;
     use opentelemetry_sdk::trace::TracerProvider;
+    use opentelemetry_sdk::Resource;
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
@@ -147,9 +159,17 @@ fn init_telemetry() -> Option<opentelemetry_sdk::trace::TracerProvider> {
         .build()
         .expect("Failed to create OTLP exporter");
 
-    // Create tracer provider
+    // Create resource with service name
+    let resource = Resource::new(vec![KeyValue::new(
+        opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+        "graphql-cli",
+    )]);
+
+    // Create tracer provider with resource
+    // Use simple exporter instead of batch for CLI to ensure immediate export
     let provider = TracerProvider::builder()
-        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+        .with_resource(resource)
+        .with_simple_exporter(exporter)
         .build();
 
     let tracer = provider.tracer("graphql-cli");

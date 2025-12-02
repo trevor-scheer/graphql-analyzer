@@ -5,6 +5,7 @@ use graphql_config::{find_config, load_config};
 use graphql_project::GraphQLProject;
 use std::path::PathBuf;
 use std::process;
+use tracing::Instrument;
 
 #[allow(clippy::too_many_lines)]
 #[tracing::instrument(skip(config_path, project_name, format), fields(project = ?project_name))]
@@ -71,7 +72,10 @@ pub async fn run(
 
         // Load schema
         let load_schema_span = tracing::info_span!("load_schema", project = %name);
-        match load_schema_span.in_scope(|| project.load_schema()).await {
+        let load_schema_result = async { project.load_schema().await }
+            .instrument(load_schema_span)
+            .await;
+        match load_schema_result {
             Ok(()) => {
                 if matches!(format, OutputFormat::Human) {
                     println!("{}", "✓ Schema loaded successfully".green());
@@ -89,7 +93,10 @@ pub async fn run(
 
         // Load documents
         let load_docs_span = tracing::info_span!("load_documents", project = %name);
-        match load_docs_span.in_scope(|| project.load_documents()) {
+        let load_docs_result = async { project.load_documents() }
+            .instrument(load_docs_span)
+            .await;
+        match load_docs_result {
             Ok(()) => {
                 if matches!(format, OutputFormat::Human) {
                     let doc_index = project.get_document_index();
@@ -137,6 +144,8 @@ pub async fn run(
 
         // Validate each file using Apollo compiler only
         let mut validated_count = 0;
+        let validate_files_span =
+            tracing::info_span!("validate_files", project = %name, total_files).entered();
         for file_path in all_file_paths {
             validated_count += 1;
 
@@ -150,22 +159,28 @@ pub async fn run(
                     "Validation progress"
                 );
             }
+
+            let _file_span = tracing::debug_span!("validate_file", file = %file_path).entered();
+
             // Use graphql-extract to extract GraphQL from the file
-            let extracted = match graphql_extract::extract_from_file(
-                std::path::Path::new(file_path),
-                &extract_config,
-            ) {
-                Ok(items) => items,
-                Err(e) => {
-                    if matches!(format, OutputFormat::Human) {
-                        eprintln!(
-                            "{} {}: {}",
-                            "✗ Failed to extract GraphQL from".red(),
-                            file_path,
-                            e
-                        );
+            let extracted = {
+                let _extract_span = tracing::debug_span!("extract_graphql").entered();
+                match graphql_extract::extract_from_file(
+                    std::path::Path::new(file_path),
+                    &extract_config,
+                ) {
+                    Ok(items) => items,
+                    Err(e) => {
+                        if matches!(format, OutputFormat::Human) {
+                            eprintln!(
+                                "{} {}: {}",
+                                "✗ Failed to extract GraphQL from".red(),
+                                file_path,
+                                e
+                            );
+                        }
+                        continue;
                     }
-                    continue;
                 }
             };
 
@@ -174,7 +189,12 @@ pub async fn run(
             }
 
             // Use Apollo compiler validation only
-            let diagnostics = project.validate_extracted_documents(&extracted, file_path);
+            let diagnostics = {
+                let _validate_span =
+                    tracing::debug_span!("validate_document", operations = extracted.len())
+                        .entered();
+                project.validate_extracted_documents(&extracted, file_path)
+            };
 
             // Convert diagnostics to CLI output format
             for diag in diagnostics {
@@ -194,6 +214,7 @@ pub async fn run(
                 }
             }
         }
+        drop(validate_files_span);
 
         tracing::info!(
             total_files,

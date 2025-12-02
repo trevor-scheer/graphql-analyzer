@@ -840,6 +840,7 @@ dependencies = [
  "indicatif",
  "opentelemetry 0.27.1",
  "opentelemetry-otlp 0.27.0",
+ "opentelemetry-semantic-conventions",
  "opentelemetry_sdk 0.27.1",
  "serde",
  "serde_json",
@@ -1790,6 +1791,12 @@ dependencies = [
  "tonic 0.14.2",
  "tonic-prost",
 ]
+
+[[package]]
+name = "opentelemetry-semantic-conventions"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc1b6902ff63b32ef6c489e8048c5e253e2e4a803ea3ea7e783914536eb15c52"
 
 [[package]]
 name = "opentelemetry_sdk"
