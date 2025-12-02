@@ -5,14 +5,23 @@
 # This file demonstrates all supported configuration options
 
 schema: schema.graphql
-documents: "**/*.{graphql,gql,ts,tsx,js,jsx}"
 
-# Optional: include/exclude patterns
-include:
-  - "src/**/*"
-exclude:
-  - "**/*.test.ts"
-  - "**/__tests__/**"
+# Document patterns support gitignore-style negation (patterns starting with !)
+# Patterns are processed in order, like .gitignore files
+documents:
+  - "**/*.{graphql,gql,ts,tsx,js,jsx}"
+  # Exclude test files using negation
+  - "!**/*.test.ts"
+  - "!**/*.test.tsx"
+  - "!**/__tests__/**"
+  - "!**/__mocks__/**"
+
+# Alternative: use include/exclude fields (legacy, less flexible)
+# include:
+#   - "src/**/*"
+# exclude:
+#   - "**/*.test.ts"
+#   - "**/__tests__/**"
 
 # Tool-specific extensions
 extensions:

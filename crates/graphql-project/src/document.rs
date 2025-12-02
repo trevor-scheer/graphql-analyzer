@@ -46,9 +46,11 @@ impl DocumentLoader {
         let mut total_files_loaded = 0;
         let mut total_files_failed = 0;
 
-        for pattern in patterns {
-            let paths = self.find_files(pattern)?;
-            total_files_matched += paths.len();
+        // If we have a base path, process all patterns together (supports negation)
+        // Otherwise, process patterns one by one (backward compatibility for tests)
+        if self.base_path.is_some() {
+            let paths = self.find_all_files(&patterns)?;
+            total_files_matched = paths.len();
 
             for path in paths {
                 if let Err(e) = self.load_file(&path, &mut index) {
@@ -57,6 +59,22 @@ impl DocumentLoader {
                     total_files_failed += 1;
                 } else {
                     total_files_loaded += 1;
+                }
+            }
+        } else {
+            // Fallback for tests and cases without base path
+            for pattern in &patterns {
+                let paths = self.find_files(pattern)?;
+                total_files_matched += paths.len();
+
+                for path in paths {
+                    if let Err(e) = self.load_file(&path, &mut index) {
+                        // Log error but continue with other files
+                        eprintln!("Warning: Failed to load {}: {}", path.display(), e);
+                        total_files_failed += 1;
+                    } else {
+                        total_files_loaded += 1;
+                    }
                 }
             }
         }
@@ -75,7 +93,7 @@ impl DocumentLoader {
         Ok(index)
     }
 
-    /// Find files matching a glob pattern
+    /// Find files matching a glob pattern (used when no base path is set)
     fn find_files(&self, pattern: &str) -> Result<Vec<PathBuf>> {
         // Expand brace patterns like {ts,tsx} since glob crate doesn't support them
         let expanded_patterns = Self::expand_braces(pattern);
@@ -108,6 +126,112 @@ impl DocumentLoader {
                 }
             }
         }
+
+        Ok(files)
+    }
+
+    /// Find files matching all patterns (supports gitignore-style negation)
+    fn find_all_files(&self, patterns: &[&str]) -> Result<Vec<PathBuf>> {
+        // Check if any patterns are negations (start with !)
+        let has_negations = patterns.iter().any(|p| p.trim().starts_with('!'));
+
+        if !has_negations {
+            // Fast path: use glob for non-negation patterns
+            let expanded: Vec<String> = patterns
+                .iter()
+                .flat_map(|p| Self::expand_braces(p))
+                .collect();
+            let base = self.base_path.as_ref().ok_or_else(|| {
+                ProjectError::DocumentLoad("Base path required for pattern matching".to_string())
+            })?;
+            return Self::find_files_with_glob(&expanded, base);
+        }
+
+        // Gitignore-style matching with negation support
+        let expanded: Vec<String> = patterns
+            .iter()
+            .flat_map(|p| Self::expand_braces(p))
+            .collect();
+        let base = self.base_path.as_ref().ok_or_else(|| {
+            ProjectError::DocumentLoad("Base path required for pattern matching".to_string())
+        })?;
+        Self::find_files_with_gitignore_style(&expanded, base)
+    }
+
+    /// Fast path for finding files without negation patterns
+    fn find_files_with_glob(patterns: &[String], base_path: &Path) -> Result<Vec<PathBuf>> {
+        let mut files = Vec::new();
+
+        for pattern in patterns {
+            let full_pattern = base_path.join(pattern).display().to_string();
+
+            for entry in glob::glob(&full_pattern)
+                .map_err(|e| ProjectError::DocumentLoad(format!("Invalid glob pattern: {e}")))?
+            {
+                match entry {
+                    Ok(path) if path.is_file() => {
+                        // Skip files in node_modules directories
+                        if path.components().any(|c| c.as_os_str() == "node_modules") {
+                            continue;
+                        }
+                        if !files.contains(&path) {
+                            files.push(path);
+                        }
+                    }
+                    Ok(_) => {} // Skip directories
+                    Err(e) => {
+                        return Err(ProjectError::DocumentLoad(format!("Glob error: {e}")));
+                    }
+                }
+            }
+        }
+
+        Ok(files)
+    }
+
+    /// Find files using gitignore-style pattern matching (supports negation)
+    fn find_files_with_gitignore_style(
+        patterns: &[String],
+        base_path: &Path,
+    ) -> Result<Vec<PathBuf>> {
+        use ignore::gitignore::GitignoreBuilder;
+
+        // Separate positive and negation patterns
+        let (positive_patterns, negation_patterns): (Vec<_>, Vec<_>) =
+            patterns.iter().partition(|p| !p.starts_with('!'));
+
+        // Convert Vec<&String> to Vec<String> for glob matching
+        let positive_owned: Vec<String> = positive_patterns.iter().map(|s| (*s).clone()).collect();
+
+        // First, use glob to match positive patterns
+        let mut files = Self::find_files_with_glob(&positive_owned, base_path)?;
+
+        if negation_patterns.is_empty() {
+            return Ok(files);
+        }
+
+        // Build gitignore matcher for negations
+        let mut builder = GitignoreBuilder::new(base_path);
+
+        // Add all patterns to the builder
+        for pattern in patterns {
+            builder.add_line(None, pattern).map_err(|e| {
+                ProjectError::DocumentLoad(format!("Invalid gitignore pattern: {e}"))
+            })?;
+        }
+
+        let gitignore = builder.build().map_err(|e| {
+            ProjectError::DocumentLoad(format!("Failed to build gitignore matcher: {e}"))
+        })?;
+
+        // Filter files using gitignore matcher
+        files.retain(|path| {
+            // Get relative path from base for matching
+            let relative_path = path.strip_prefix(base_path).unwrap_or(path);
+
+            // Check if file should be excluded
+            !gitignore.matched(relative_path, false).is_ignore()
+        });
 
         Ok(files)
     }
