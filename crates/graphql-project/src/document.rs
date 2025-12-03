@@ -34,12 +34,13 @@ impl DocumentLoader {
     }
 
     /// Load all documents and build an index
+    #[tracing::instrument(skip(self), fields(pattern_count = self.config.patterns().len()))]
     pub fn load(&self) -> Result<DocumentIndex> {
         use std::time::Instant;
         let start = Instant::now();
 
         let patterns: Vec<_> = self.config.patterns().into_iter().collect();
-        tracing::info!(pattern_count = patterns.len(), "Starting document loading");
+        tracing::info!("Starting document loading");
 
         let mut index = DocumentIndex::new();
         let mut total_files_matched = 0;
@@ -51,7 +52,10 @@ impl DocumentLoader {
         if self.base_path.is_some() {
             let paths = self.find_all_files(&patterns)?;
             total_files_matched = paths.len();
+            tracing::debug!(files_found = paths.len(), "Files matched patterns");
 
+            let _load_files_span =
+                tracing::debug_span!("load_files", file_count = paths.len()).entered();
             for path in paths {
                 if let Err(e) = self.load_file(&path, &mut index) {
                     // Log error but continue with other files
@@ -64,8 +68,11 @@ impl DocumentLoader {
         } else {
             // Fallback for tests and cases without base path
             for pattern in &patterns {
+                let _pattern_span =
+                    tracing::debug_span!("find_files_for_pattern", pattern = %pattern).entered();
                 let paths = self.find_files(pattern)?;
                 total_files_matched += paths.len();
+                tracing::debug!(files_found = paths.len(), "Files matched pattern");
 
                 for path in paths {
                     if let Err(e) = self.load_file(&path, &mut index) {
@@ -94,9 +101,14 @@ impl DocumentLoader {
     }
 
     /// Find files matching a glob pattern (used when no base path is set)
+    #[tracing::instrument(skip(self), fields(pattern = %pattern))]
     fn find_files(&self, pattern: &str) -> Result<Vec<PathBuf>> {
         // Expand brace patterns like {ts,tsx} since glob crate doesn't support them
         let expanded_patterns = Self::expand_braces(pattern);
+        tracing::debug!(
+            expanded_count = expanded_patterns.len(),
+            "Brace patterns expanded"
+        );
 
         let mut files = Vec::new();
 
@@ -106,6 +118,7 @@ impl DocumentLoader {
                 |base| base.join(&expanded_pattern).display().to_string(),
             );
 
+            let _glob_span = tracing::trace_span!("glob_match", pattern = %full_pattern).entered();
             for entry in glob::glob(&full_pattern)
                 .map_err(|e| ProjectError::DocumentLoad(format!("Invalid glob pattern: {e}")))?
             {
@@ -127,6 +140,7 @@ impl DocumentLoader {
             }
         }
 
+        tracing::debug!(files_found = files.len(), "Files found after glob matching");
         Ok(files)
     }
 
@@ -256,6 +270,7 @@ impl DocumentLoader {
     }
 
     /// Load a single file and add operations/fragments to the index
+    #[tracing::instrument(skip(self, index), fields(file = %path.display()), level = "debug")]
     fn load_file(&self, path: &Path, index: &mut DocumentIndex) -> Result<()> {
         use std::fs;
 

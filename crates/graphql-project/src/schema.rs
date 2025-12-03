@@ -24,7 +24,10 @@ impl SchemaLoader {
     }
 
     /// Load schema files with their paths for proper source tracking
+    #[tracing::instrument(skip(self), fields(paths = self.config.paths().len()))]
     pub async fn load_with_paths(&self) -> Result<Vec<(String, String)>> {
+        tracing::info!("Loading schema files");
+
         // Include Apollo Client built-in directives
         const APOLLO_CLIENT_BUILTINS: &str =
             include_str!("../../graphql-cli/src/apollo_client_builtins.graphql");
@@ -38,11 +41,14 @@ impl SchemaLoader {
         for path in self.config.paths() {
             if path.starts_with("http://") || path.starts_with("https://") {
                 // Remote schema via introspection
+                tracing::info!(url = path, "Loading remote schema");
                 let schema = self.load_remote(path).await?;
                 schema_files.push((path.to_string(), schema));
             } else {
                 // Local file(s) - may include globs
+                tracing::debug!(pattern = path, "Loading local schema file(s)");
                 let files = self.load_local_with_paths(path)?;
+                tracing::debug!(files_loaded = files.len(), "Local files loaded");
                 schema_files.extend(files);
             }
         }
@@ -53,6 +59,10 @@ impl SchemaLoader {
             ));
         }
 
+        tracing::info!(
+            total_files = schema_files.len(),
+            "Schema files loaded successfully"
+        );
         Ok(schema_files)
     }
 

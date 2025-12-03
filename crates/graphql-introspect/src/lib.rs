@@ -78,7 +78,12 @@ pub use types::*;
 /// # Ok(())
 /// # }
 /// ```
+#[tracing::instrument]
 pub async fn introspect_url_to_sdl(url: &str) -> Result<String> {
+    tracing::info!("Starting introspection");
     let introspection = execute_introspection(url).await?;
-    Ok(introspection_to_sdl(&introspection))
+    tracing::debug!("Converting introspection to SDL");
+    let sdl = introspection_to_sdl(&introspection);
+    tracing::info!(sdl_length = sdl.len(), "Introspection complete");
+    Ok(sdl)
 }

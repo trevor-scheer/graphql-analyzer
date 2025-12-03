@@ -36,7 +36,12 @@ const BUILTIN_SCALARS: &[&str] = &["Int", "Float", "String", "Boolean", "ID"];
 /// # }
 /// ```
 #[must_use]
+#[tracing::instrument(skip(introspection), fields(
+    types = introspection.data.schema.types.len(),
+    directives = introspection.data.schema.directives.len()
+))]
 pub fn introspection_to_sdl(introspection: &IntrospectionResponse) -> String {
+    tracing::debug!("Converting introspection to SDL");
     let mut sdl = String::new();
     let schema = &introspection.data.schema;
 
@@ -102,6 +107,7 @@ pub fn introspection_to_sdl(introspection: &IntrospectionResponse) -> String {
     }
 
     // Generate types
+    let mut types_written = 0;
     for type_def in &schema.types {
         // Skip built-in types and introspection types
         let name = type_name(type_def);
@@ -111,8 +117,14 @@ pub fn introspection_to_sdl(introspection: &IntrospectionResponse) -> String {
 
         write_type(&mut sdl, type_def);
         sdl.push_str("\n\n");
+        types_written += 1;
     }
 
+    tracing::debug!(
+        types_written,
+        sdl_length = sdl.len(),
+        "SDL generation complete"
+    );
     sdl.trim_end().to_string()
 }
 
