@@ -17,13 +17,16 @@ projects:
     schema:
       - client/schema.graphql
       - client/fragments/*.graphql
+    # Use gitignore-style negation patterns (recommended)
     documents:
-      - "client/**/*.ts"
-      - "client/**/*.tsx"
-    include:
-      - "client/src/**/*"
-    exclude:
-      - "client/**/*.test.ts"
+      - "client/**/*.{ts,tsx}"
+      - "!client/**/*.test.{ts,tsx}"
+      - "!client/**/__tests__/**"
+    # Alternative: use include/exclude (legacy approach)
+    # include:
+    #   - "client/src/**/*"
+    # exclude:
+    #   - "client/**/*.test.ts"
     extensions:
       extractConfig:
         tagIdentifiers: ["gql"]
