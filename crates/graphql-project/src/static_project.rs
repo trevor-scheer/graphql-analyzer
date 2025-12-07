@@ -1,6 +1,6 @@
 use crate::{
-    Diagnostic, DocumentIndex, DocumentLoader, ProjectConfig, Result, SchemaIndex, SchemaLoader,
-    Validator,
+    Diagnostic, DocumentIndex, DocumentLoader, GraphQLConfig, ProjectConfig, Result, SchemaIndex,
+    SchemaLoader, Validator,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -31,6 +31,29 @@ pub struct StaticGraphQLProject {
 }
 
 impl StaticGraphQLProject {
+    /// Create projects from GraphQL config with a base directory
+    ///
+    /// This is the main entry point for CLI tools. It loads all projects
+    /// defined in the config file.
+    pub async fn from_config_with_base(
+        config: &GraphQLConfig,
+        base_dir: &std::path::Path,
+    ) -> Result<Vec<(String, Self)>> {
+        // Collect project configs first to avoid Send issues with iterator
+        let project_configs: Vec<(String, ProjectConfig)> = config
+            .projects()
+            .map(|(name, cfg)| (name.to_string(), cfg.clone()))
+            .collect();
+
+        let mut projects = Vec::new();
+        for (name, project_config) in project_configs {
+            let project = Self::load(project_config, Some(base_dir.to_path_buf())).await?;
+            projects.push((name, project));
+        }
+
+        Ok(projects)
+    }
+
     /// Create and load a static project from config
     ///
     /// This loads the entire project from disk:
