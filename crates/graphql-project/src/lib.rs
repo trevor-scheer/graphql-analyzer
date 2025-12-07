@@ -1,6 +1,7 @@
 mod completion;
 mod diagnostics;
 mod document;
+mod dynamic_project;
 mod error;
 mod find_references;
 mod goto_definition;
@@ -9,12 +10,14 @@ mod index;
 mod line_index;
 mod project;
 mod schema;
+mod static_project;
 mod validation;
 
 // Export diagnostics types for LSP package to use when converting DiagnosticList
 pub use completion::{CompletionItem, CompletionItemKind, CompletionProvider};
 pub use diagnostics::{Diagnostic, Location, Position, Range, RelatedInfo, Severity};
 pub use document::DocumentLoader;
+pub use dynamic_project::{DependencyGraph, DiagnosticsMap, DynamicGraphQLProject, ValidationMode};
 pub use error::{ProjectError, Result};
 pub use find_references::{FindReferencesProvider, ReferenceLocation};
 pub use goto_definition::{DefinitionLocation, GotoDefinitionProvider};
@@ -26,6 +29,7 @@ pub use index::{
 pub use line_index::LineIndex;
 pub use project::GraphQLProject;
 pub use schema::SchemaLoader;
+pub use static_project::StaticGraphQLProject;
 pub use validation::Validator;
 
 // Re-export common types from dependencies
