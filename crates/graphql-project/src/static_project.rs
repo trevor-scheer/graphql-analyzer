@@ -1,5 +1,6 @@
 use crate::{
     Diagnostic, DocumentIndex, DocumentLoader, ProjectConfig, Result, SchemaIndex, SchemaLoader,
+    Validator,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -78,11 +79,42 @@ impl StaticGraphQLProject {
     /// No caching, no incrementality - just straightforward validation.
     #[must_use]
     pub fn validate_all(&self) -> DiagnosticsMap {
-        // TODO: Implement validation logic
-        // For now, return empty diagnostics
-        // This will be filled in as we continue the refactor
+        let all_diagnostics = HashMap::new();
+        let _validator = Validator::new();
 
-        HashMap::new()
+        // TODO: Implement validation logic
+        // This requires either:
+        // 1. Storing file contents in the DocumentIndex during load
+        // 2. Re-reading files from disk here
+        // 3. Using the parsed ASTs from DocumentIndex
+        //
+        // For now, return empty diagnostics.
+        // The validation integration will be completed in a follow-up.
+
+        all_diagnostics
+    }
+
+    /// Check if a file contains only fragment definitions (no operations)
+    #[allow(dead_code)] // Will be used when validation is fully implemented
+    fn is_fragment_only_file(&self, file_path: &std::path::Path) -> bool {
+        let file_path_str = file_path.to_string_lossy();
+
+        // Check if file has any operations
+        let has_operations = self
+            .document_index
+            .operations
+            .values()
+            .any(|ops| ops.iter().any(|op| op.file_path == file_path_str));
+
+        // Check if file has any fragments
+        let has_fragments = self
+            .document_index
+            .fragments
+            .values()
+            .any(|frags| frags.iter().any(|frag| frag.file_path == file_path_str));
+
+        // Fragment-only if it has fragments but no operations
+        has_fragments && !has_operations
     }
 
     /// Get all files in the project (for reporting purposes)

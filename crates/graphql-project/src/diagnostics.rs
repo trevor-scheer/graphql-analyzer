@@ -100,3 +100,61 @@ impl Diagnostic {
         self
     }
 }
+
+/// Convert apollo-compiler `DiagnosticList` to our `Diagnostic` type
+///
+/// This filters out fragment-related warnings for fragment-only documents.
+#[must_use]
+pub fn convert_apollo_diagnostics(
+    compiler_diags: &crate::DiagnosticList,
+    is_fragment_only: bool,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for diag in compiler_diags.iter() {
+        let message = diag.error.to_string();
+        let message_lower = message.to_lowercase();
+
+        // Skip "unused fragment" and "must be used" errors for fragment-only documents
+        if is_fragment_only
+            && (message_lower.contains("unused")
+                || message_lower.contains("never used")
+                || message_lower.contains("must be used"))
+        {
+            continue;
+        }
+
+        // Skip ALL "unused fragment" errors from apollo-compiler
+        // We handle unused fragment warnings separately via linting
+        if message_lower.contains("fragment")
+            && (message_lower.contains("unused")
+                || message_lower.contains("never used")
+                || message_lower.contains("must be used"))
+        {
+            continue;
+        }
+
+        if let Some(loc_range) = diag.line_column_range() {
+            diagnostics.push(Diagnostic {
+                range: Range {
+                    start: Position {
+                        // apollo-compiler uses 1-based, we use 0-based
+                        line: loc_range.start.line.saturating_sub(1),
+                        character: loc_range.start.column.saturating_sub(1),
+                    },
+                    end: Position {
+                        line: loc_range.end.line.saturating_sub(1),
+                        character: loc_range.end.column.saturating_sub(1),
+                    },
+                },
+                severity: Severity::Error,
+                code: None,
+                source: "graphql".to_string(),
+                message,
+                related_info: Vec::new(),
+            });
+        }
+    }
+
+    diagnostics
+}

@@ -15,7 +15,9 @@ mod validation;
 
 // Export diagnostics types for LSP package to use when converting DiagnosticList
 pub use completion::{CompletionItem, CompletionItemKind, CompletionProvider};
-pub use diagnostics::{Diagnostic, Location, Position, Range, RelatedInfo, Severity};
+pub use diagnostics::{
+    convert_apollo_diagnostics, Diagnostic, Location, Position, Range, RelatedInfo, Severity,
+};
 pub use document::DocumentLoader;
 pub use dynamic_project::{DependencyGraph, DiagnosticsMap, DynamicGraphQLProject, ValidationMode};
 pub use error::{ProjectError, Result};
