@@ -1,7 +1,8 @@
 use crate::{
-    Diagnostic, DocumentIndex, DocumentLoader, GraphQLConfig, ProjectConfig, Result, SchemaIndex,
-    SchemaLoader, Validator,
+    convert_apollo_diagnostics, Diagnostic, DocumentIndex, DocumentLoader, GraphQLConfig,
+    ProjectConfig, Result, SchemaIndex, SchemaLoader,
 };
+use graphql_extract::ExtractConfig;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -28,6 +29,9 @@ pub struct StaticGraphQLProject {
     base_dir: Option<PathBuf>,
     schema_index: SchemaIndex,
     document_index: DocumentIndex,
+    /// File contents for validation (`file_path` -> `content`)
+    /// Stored during `load()` for efficient validation without re-reading from disk
+    file_contents: HashMap<PathBuf, String>,
 }
 
 impl StaticGraphQLProject {
@@ -60,40 +64,91 @@ impl StaticGraphQLProject {
     /// - All schema files
     /// - All document files (matching glob patterns)
     /// - Builds indices
+    /// - Stores file contents for validation
     /// - Ready for validation
     pub async fn load(config: ProjectConfig, base_dir: Option<PathBuf>) -> Result<Self> {
+        let mut file_contents = HashMap::new();
+
         // Load schema
         let mut schema_loader = SchemaLoader::new(config.schema.clone());
         if let Some(ref base_path) = base_dir {
             schema_loader = schema_loader.with_base_path(base_path);
         }
         let schema_files = schema_loader.load_with_paths().await?;
+
+        // Store schema file contents
+        for (path, content) in &schema_files {
+            file_contents.insert(PathBuf::from(path), content.clone());
+        }
+
         let schema_index = SchemaIndex::from_schema_files(schema_files);
 
         // Load documents (if configured)
-        let document_index = if let Some(ref documents_config) = config.documents {
+        let (document_index, document_files) = if let Some(ref documents_config) = config.documents
+        {
             let mut document_loader = DocumentLoader::new(documents_config.clone());
             if let Some(ref base_path) = base_dir {
                 document_loader = document_loader.with_base_path(base_path);
             }
-            document_loader.load()?
+
+            // Use the new load_with_contents method to get both index and contents
+            let (index, files) = Self::load_documents_with_contents(&document_loader)?;
+            (index, files)
         } else {
-            DocumentIndex::new()
+            (DocumentIndex::new(), HashMap::new())
         };
+
+        // Merge document file contents
+        file_contents.extend(document_files);
 
         Ok(Self {
             config,
             base_dir,
             schema_index,
             document_index,
+            file_contents,
         })
+    }
+
+    /// Load documents with their file contents
+    ///
+    /// This is a helper method that loads documents and captures their file contents
+    /// for later validation.
+    fn load_documents_with_contents(
+        loader: &DocumentLoader,
+    ) -> Result<(DocumentIndex, HashMap<PathBuf, String>)> {
+        // Load the index first
+        let loaded_index = loader.load()?;
+        let mut file_contents = HashMap::new();
+
+        // Get all unique file paths from the loaded index
+        let mut file_paths = std::collections::HashSet::new();
+        for operations in loaded_index.operations.values() {
+            for op in operations {
+                file_paths.insert(PathBuf::from(&op.file_path));
+            }
+        }
+        for fragments in loaded_index.fragments.values() {
+            for frag in fragments {
+                file_paths.insert(PathBuf::from(&frag.file_path));
+            }
+        }
+
+        // Read the contents of each file
+        for file_path in file_paths {
+            if let Ok(content) = std::fs::read_to_string(&file_path) {
+                file_contents.insert(file_path, content);
+            }
+        }
+
+        Ok((loaded_index, file_contents))
     }
 
     /// Validate the entire project
     ///
     /// Returns diagnostics for all files in the project.
     /// This runs:
-    /// - Schema validation
+    /// - Schema validation (TODO)
     /// - Document validation (all documents)
     ///
     /// Note: Linting should be performed by the consumer (LSP/CLI) after calling this method.
@@ -102,19 +157,259 @@ impl StaticGraphQLProject {
     /// No caching, no incrementality - just straightforward validation.
     #[must_use]
     pub fn validate_all(&self) -> DiagnosticsMap {
-        let all_diagnostics = HashMap::new();
-        let _validator = Validator::new();
+        let mut all_diagnostics = HashMap::new();
 
-        // TODO: Implement validation logic
-        // This requires either:
-        // 1. Storing file contents in the DocumentIndex during load
-        // 2. Re-reading files from disk here
-        // 3. Using the parsed ASTs from DocumentIndex
-        //
-        // For now, return empty diagnostics.
-        // The validation integration will be completed in a follow-up.
+        // Validate each document file
+        for (file_path, content) in &self.file_contents {
+            let diagnostics = self.validate_file(file_path, content);
+            if !diagnostics.is_empty() {
+                all_diagnostics.insert(file_path.clone(), diagnostics);
+            }
+        }
 
         all_diagnostics
+    }
+
+    /// Validate a single file
+    fn validate_file(&self, file_path: &std::path::Path, content: &str) -> Vec<Diagnostic> {
+        use graphql_extract::{extract_from_source, Language};
+
+        // Determine language from file extension
+        let language =
+            file_path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map_or(Language::GraphQL, |ext| match ext.to_lowercase().as_str() {
+                    "ts" | "tsx" => Language::TypeScript,
+                    "js" | "jsx" => Language::JavaScript,
+                    _ => Language::GraphQL,
+                });
+
+        // Extract GraphQL from the content
+        let extract_config = self.get_extract_config();
+        let extracted = match extract_from_source(content, language, &extract_config) {
+            Ok(extracted) => extracted,
+            Err(e) => {
+                // If extraction fails, return an error diagnostic
+                return vec![Diagnostic::error(
+                    crate::Range {
+                        start: crate::Position {
+                            line: 0,
+                            character: 0,
+                        },
+                        end: crate::Position {
+                            line: 0,
+                            character: 0,
+                        },
+                    },
+                    format!("Failed to extract GraphQL: {e}"),
+                )
+                .with_source("graphql-extract")];
+            }
+        };
+
+        // Validate extracted documents
+        self.validate_extracted_documents(&extracted, &file_path.to_string_lossy())
+    }
+
+    /// Get extract configuration for this project
+    fn get_extract_config(&self) -> ExtractConfig {
+        self.config
+            .extensions
+            .as_ref()
+            .and_then(|ext| ext.get("extractConfig"))
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .unwrap_or_default()
+    }
+
+    /// Validate extracted GraphQL documents from a file
+    fn validate_extracted_documents(
+        &self,
+        extracted: &[graphql_extract::ExtractedGraphQL],
+        file_path: &str,
+    ) -> Vec<Diagnostic> {
+        use apollo_compiler::validation::Valid;
+        use apollo_compiler::{parser::Parser, ExecutableDocument};
+
+        if extracted.is_empty() {
+            return vec![];
+        }
+
+        let schema = self.schema_index.schema();
+        let valid_schema = Valid::assume_valid_ref(schema);
+        let mut all_diagnostics = Vec::new();
+
+        // Validate each extracted document
+        for item in extracted {
+            let line_offset = item.location.range.start.line;
+            let col_offset = item.location.range.start.column;
+            let source = &item.source;
+
+            let mut errors =
+                apollo_compiler::validation::DiagnosticList::new(std::sync::Arc::default());
+            let mut builder = ExecutableDocument::builder(Some(valid_schema), &mut errors);
+            let is_fragment_only = Self::is_fragment_only(source);
+
+            // Use source_offset for accurate error reporting
+            let offset = apollo_compiler::parser::SourceOffset {
+                line: line_offset + 1, // Convert to 1-indexed
+                column: col_offset + 1,
+            };
+
+            Parser::new()
+                .source_offset(offset)
+                .parse_into_executable_builder(source, file_path, &mut builder);
+
+            // Add referenced fragments if this document uses fragment spreads
+            if !is_fragment_only && source.contains("...") {
+                let referenced_fragments = Self::collect_referenced_fragments(source);
+                for fragment_name in referenced_fragments {
+                    if let Some(frag_info) = self.get_fragment(&fragment_name) {
+                        if let Some(fragment_source) =
+                            self.extract_fragment_source(&frag_info.file_path, &fragment_name)
+                        {
+                            Parser::new().parse_into_executable_builder(
+                                &fragment_source,
+                                &frag_info.file_path,
+                                &mut builder,
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Build and validate
+            let doc = builder.build();
+
+            let diagnostics = if errors.is_empty() {
+                match doc.validate(valid_schema) {
+                    Ok(_) => vec![],
+                    Err(with_errors) => {
+                        convert_apollo_diagnostics(&with_errors.errors, is_fragment_only)
+                    }
+                }
+            } else {
+                convert_apollo_diagnostics(&errors, is_fragment_only)
+            };
+
+            all_diagnostics.extend(diagnostics);
+        }
+
+        all_diagnostics
+    }
+
+    /// Check if source contains only fragment definitions
+    fn is_fragment_only(source: &str) -> bool {
+        use apollo_parser::cst;
+        use apollo_parser::Parser;
+
+        let parsed = Parser::new(source).parse();
+
+        let mut has_fragment = false;
+        let mut has_operation = false;
+
+        for def in parsed.document().definitions() {
+            match def {
+                cst::Definition::FragmentDefinition(_) => {
+                    has_fragment = true;
+                }
+                cst::Definition::OperationDefinition(_) => {
+                    has_operation = true;
+                }
+                _ => {}
+            }
+        }
+
+        has_fragment && !has_operation
+    }
+
+    /// Collect fragment names referenced in source (recursively)
+    fn collect_referenced_fragments(source: &str) -> Vec<String> {
+        use apollo_parser::cst;
+        use apollo_parser::Parser;
+
+        let parsed = Parser::new(source).parse();
+        let mut fragments = Vec::new();
+
+        for def in parsed.document().definitions() {
+            match def {
+                cst::Definition::OperationDefinition(op) => {
+                    if let Some(selection_set) = op.selection_set() {
+                        Self::collect_fragment_spreads(&selection_set, &mut fragments);
+                    }
+                }
+                cst::Definition::FragmentDefinition(frag) => {
+                    if let Some(selection_set) = frag.selection_set() {
+                        Self::collect_fragment_spreads(&selection_set, &mut fragments);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        fragments
+    }
+
+    /// Recursively collect fragment spread names from a selection set
+    fn collect_fragment_spreads(
+        selection_set: &apollo_parser::cst::SelectionSet,
+        fragments: &mut Vec<String>,
+    ) {
+        use apollo_parser::cst;
+
+        for selection in selection_set.selections() {
+            match selection {
+                cst::Selection::FragmentSpread(fragment_spread) => {
+                    if let Some(name) = fragment_spread.fragment_name() {
+                        if let Some(name_token) = name.name() {
+                            fragments.push(name_token.text().to_string());
+                        }
+                    }
+                }
+                cst::Selection::Field(field) => {
+                    if let Some(nested_set) = field.selection_set() {
+                        Self::collect_fragment_spreads(&nested_set, fragments);
+                    }
+                }
+                cst::Selection::InlineFragment(inline) => {
+                    if let Some(nested_set) = inline.selection_set() {
+                        Self::collect_fragment_spreads(&nested_set, fragments);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get fragment info by name
+    fn get_fragment(&self, name: &str) -> Option<&crate::FragmentInfo> {
+        self.document_index
+            .fragments
+            .get(name)
+            .and_then(|frags| frags.first())
+    }
+
+    /// Extract a specific fragment's source from a file
+    fn extract_fragment_source(&self, file_path: &str, fragment_name: &str) -> Option<String> {
+        use apollo_parser::cst;
+        use apollo_parser::cst::CstNode;
+        use apollo_parser::Parser;
+
+        let content = self.file_contents.get(&PathBuf::from(file_path))?;
+        let parsed = Parser::new(content).parse();
+
+        for def in parsed.document().definitions() {
+            if let cst::Definition::FragmentDefinition(frag) = def {
+                if let Some(name) = frag.fragment_name() {
+                    if let Some(name_token) = name.name() {
+                        if name_token.text() == fragment_name {
+                            return Some(frag.syntax().text().to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Check if a file contains only fragment definitions (no operations)
