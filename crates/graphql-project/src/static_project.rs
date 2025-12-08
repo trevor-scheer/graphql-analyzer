@@ -482,3 +482,240 @@ impl StaticGraphQLProject {
         &self.config
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn create_test_workspace() -> TempDir {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let base_path = temp_dir.path();
+
+        // Create a simple schema
+        let schema = r"
+type Query {
+    user(id: ID!): User
+    posts: [Post!]!
+}
+
+type User {
+    id: ID!
+    name: String!
+    email: String
+    posts: [Post!]!
+}
+
+type Post {
+    id: ID!
+    title: String!
+    content: String!
+    author: User!
+}
+";
+        fs::write(base_path.join("schema.graphql"), schema).unwrap();
+
+        // Create a fragment
+        let fragment_user = r"
+fragment UserFields on User {
+    id
+    name
+    email
+}
+";
+        fs::write(base_path.join("fragments.graphql"), fragment_user).unwrap();
+
+        // Create a valid query
+        let valid_query = r"
+query GetUser($id: ID!) {
+    user(id: $id) {
+        ...UserFields
+        posts {
+            id
+            title
+        }
+    }
+}
+";
+        fs::write(base_path.join("query.graphql"), valid_query).unwrap();
+
+        // Create an invalid query
+        let invalid_query = "
+query InvalidQuery {
+    user(id: \"1\") {
+        id
+        nonExistentField
+    }
+}
+";
+        fs::write(base_path.join("invalid.graphql"), invalid_query).unwrap();
+
+        temp_dir
+    }
+
+    #[tokio::test]
+    async fn test_loads_from_disk() {
+        let workspace = create_test_workspace();
+        let config = ProjectConfig {
+            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(graphql_config::DocumentsConfig::Pattern(
+                "*.graphql".to_string(),
+            )),
+            include: None,
+            exclude: None,
+            lint: None,
+            extensions: None,
+        };
+
+        let project = StaticGraphQLProject::load(config, Some(workspace.path().to_path_buf()))
+            .await
+            .expect("Failed to load project");
+
+        // Verify schema loaded
+        assert!(!project.schema_index().schema().types.is_empty());
+
+        // Verify documents loaded
+        assert!(!project.document_index().operations.is_empty());
+        assert!(!project.document_index().fragments.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_validates_all_files() {
+        let workspace = create_test_workspace();
+        let config = ProjectConfig {
+            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(graphql_config::DocumentsConfig::Pattern(
+                "*.graphql".to_string(),
+            )),
+            include: None,
+            exclude: None,
+            lint: None,
+            extensions: None,
+        };
+
+        let project = StaticGraphQLProject::load(config, Some(workspace.path().to_path_buf()))
+            .await
+            .expect("Failed to load project");
+
+        let diagnostics = project.validate_all();
+
+        // Should have diagnostics for invalid file
+        let has_invalid_diags = diagnostics
+            .iter()
+            .any(|(path, diags)| path.to_string_lossy().contains("invalid") && !diags.is_empty());
+
+        assert!(
+            has_invalid_diags,
+            "Expected diagnostics for invalid.graphql"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resolves_fragments() {
+        let workspace = create_test_workspace();
+        let config = ProjectConfig {
+            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(graphql_config::DocumentsConfig::Pattern(
+                "*.graphql".to_string(),
+            )),
+            include: None,
+            exclude: None,
+            lint: None,
+            extensions: None,
+        };
+
+        let project = StaticGraphQLProject::load(config, Some(workspace.path().to_path_buf()))
+            .await
+            .expect("Failed to load project");
+
+        let diagnostics = project.validate_all();
+
+        // query.graphql uses UserFields fragment - should not have "undefined" error
+        let query_diags = diagnostics
+            .iter()
+            .find(|(path, _)| path.to_string_lossy().contains("query.graphql"));
+
+        if let Some((_, diags)) = query_diags {
+            let has_undefined_error = diags
+                .iter()
+                .any(|d| d.message.to_lowercase().contains("undefined"));
+
+            assert!(
+                !has_undefined_error,
+                "Should resolve UserFields fragment, but got: {diags:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_reports_validation_errors() {
+        let workspace = create_test_workspace();
+        let config = ProjectConfig {
+            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(graphql_config::DocumentsConfig::Pattern(
+                "*.graphql".to_string(),
+            )),
+            include: None,
+            exclude: None,
+            lint: None,
+            extensions: None,
+        };
+
+        let project = StaticGraphQLProject::load(config, Some(workspace.path().to_path_buf()))
+            .await
+            .expect("Failed to load project");
+
+        let diagnostics = project.validate_all();
+
+        // invalid.graphql should have error about nonExistentField
+        let invalid_diags = diagnostics
+            .iter()
+            .find(|(path, _)| path.to_string_lossy().contains("invalid.graphql"));
+
+        assert!(
+            invalid_diags.is_some(),
+            "Expected diagnostics for invalid.graphql"
+        );
+
+        let (_, diags) = invalid_diags.unwrap();
+        let has_field_error = diags
+            .iter()
+            .any(|d| d.message.to_lowercase().contains("nonexistentfield"));
+
+        assert!(
+            has_field_error,
+            "Expected error about nonExistentField, got: {diags:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_from_config_with_base() {
+        let workspace = create_test_workspace();
+
+        // Create .graphqlrc.yaml
+        let graphql_config = "
+schema: schema.graphql
+documents: \"*.graphql\"
+";
+        fs::write(workspace.path().join(".graphqlrc.yaml"), graphql_config).unwrap();
+
+        let config_path = graphql_config::find_config(workspace.path())
+            .expect("Failed to find config")
+            .expect("No config found");
+
+        let config = graphql_config::load_config(&config_path).expect("Failed to load config");
+
+        let projects = StaticGraphQLProject::from_config_with_base(&config, workspace.path())
+            .await
+            .expect("Failed to create projects");
+
+        assert!(!projects.is_empty(), "Expected at least one project");
+
+        let (_name, project) = &projects[0];
+        let diagnostics = project.validate_all();
+
+        // Should validate files
+        assert!(!diagnostics.is_empty(), "Expected some validation results");
+    }
+}

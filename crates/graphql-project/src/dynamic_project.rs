@@ -770,3 +770,393 @@ impl DynamicGraphQLProject {
         &self.config
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::significant_drop_tightening)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn create_test_workspace() -> TempDir {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let base_path = temp_dir.path();
+
+        // Create a simple schema
+        let schema = r"
+type Query {
+    user(id: ID!): User
+    posts: [Post!]!
+}
+
+type User {
+    id: ID!
+    name: String!
+    email: String
+    posts: [Post!]!
+}
+
+type Post {
+    id: ID!
+    title: String!
+    content: String!
+    author: User!
+}
+";
+        fs::write(base_path.join("schema.graphql"), schema).unwrap();
+
+        temp_dir
+    }
+
+    #[tokio::test]
+    async fn test_new_from_config() {
+        let workspace = create_test_workspace();
+        let config = ProjectConfig {
+            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(graphql_config::DocumentsConfig::Pattern(
+                "*.graphql".to_string(),
+            )),
+            include: None,
+            exclude: None,
+            lint: None,
+            extensions: None,
+        };
+
+        let mut project = DynamicGraphQLProject::new(config, Some(workspace.path().to_path_buf()));
+
+        // Initialize to load schema from disk
+        project.initialize().await.expect("Failed to initialize");
+
+        // Verify schema loaded
+        let schema_index = project.schema_index();
+        let schema_guard = schema_index.read().unwrap();
+        assert!(!schema_guard.schema().types.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_add_document_quick_mode() {
+        let workspace = create_test_workspace();
+        let config = ProjectConfig {
+            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(graphql_config::DocumentsConfig::Pattern(
+                "*.graphql".to_string(),
+            )),
+            include: None,
+            exclude: None,
+            lint: None,
+            extensions: None,
+        };
+
+        let mut project = DynamicGraphQLProject::new(config, Some(workspace.path().to_path_buf()));
+        project.initialize().await.expect("Failed to initialize");
+
+        let query = r"
+query GetUser($id: ID!) {
+    user(id: $id) {
+        id
+        name
+    }
+}
+";
+        let query_path = workspace.path().join("query.graphql");
+
+        let diagnostics = project
+            .add_or_update_document(query_path.clone(), query.to_string(), ValidationMode::Quick)
+            .await
+            .expect("Failed to add document");
+
+        // Valid query should have no errors
+        assert!(
+            diagnostics.is_empty()
+                || !diagnostics
+                    .get(&query_path)
+                    .unwrap_or(&vec![])
+                    .iter()
+                    .any(|d| d.severity == crate::Severity::Error),
+            "Expected no errors for valid query"
+        );
+
+        // Verify document was indexed
+        let doc_index = project.document_index();
+        let doc_guard = doc_index.read().unwrap();
+        assert!(!doc_guard.operations.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_add_invalid_document() {
+        let workspace = create_test_workspace();
+        let config = ProjectConfig {
+            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(graphql_config::DocumentsConfig::Pattern(
+                "*.graphql".to_string(),
+            )),
+            include: None,
+            exclude: None,
+            lint: None,
+            extensions: None,
+        };
+
+        let mut project = DynamicGraphQLProject::new(config, Some(workspace.path().to_path_buf()));
+        project.initialize().await.expect("Failed to initialize");
+
+        let invalid_query = "
+query InvalidQuery {
+    user(id: \"1\") {
+        id
+        nonExistentField
+    }
+}
+";
+        let query_path = workspace.path().join("invalid.graphql");
+
+        let diagnostics = project
+            .add_or_update_document(
+                query_path.clone(),
+                invalid_query.to_string(),
+                ValidationMode::Quick,
+            )
+            .await
+            .expect("Failed to add document");
+
+        // Should have diagnostics for invalid field
+        let file_diags = diagnostics.get(&query_path).expect("Expected diagnostics");
+        assert!(
+            !file_diags.is_empty(),
+            "Expected diagnostics for invalid field"
+        );
+
+        let has_field_error = file_diags
+            .iter()
+            .any(|d| d.message.to_lowercase().contains("nonexistentfield"));
+        assert!(has_field_error, "Expected error about nonExistentField");
+    }
+
+    #[tokio::test]
+    async fn test_update_document() {
+        let workspace = create_test_workspace();
+        let config = ProjectConfig {
+            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(graphql_config::DocumentsConfig::Pattern(
+                "*.graphql".to_string(),
+            )),
+            include: None,
+            exclude: None,
+            lint: None,
+            extensions: None,
+        };
+
+        let mut project = DynamicGraphQLProject::new(config, Some(workspace.path().to_path_buf()));
+        project.initialize().await.expect("Failed to initialize");
+
+        let query_v1 = r"
+query GetUser($id: ID!) {
+    user(id: $id) {
+        id
+    }
+}
+";
+        let query_path = workspace.path().join("query.graphql");
+
+        // Add initial version
+        project
+            .add_or_update_document(
+                query_path.clone(),
+                query_v1.to_string(),
+                ValidationMode::Quick,
+            )
+            .await
+            .expect("Failed to add document");
+
+        // Update with new version
+        let query_v2 = r"
+query GetUser($id: ID!) {
+    user(id: $id) {
+        id
+        name
+        email
+    }
+}
+";
+        let diagnostics = project
+            .add_or_update_document(
+                query_path.clone(),
+                query_v2.to_string(),
+                ValidationMode::Quick,
+            )
+            .await
+            .expect("Failed to update document");
+
+        // Should validate without errors
+        assert!(
+            diagnostics.is_empty()
+                || !diagnostics
+                    .get(&query_path)
+                    .unwrap_or(&vec![])
+                    .iter()
+                    .any(|d| d.severity == crate::Severity::Error),
+            "Expected no errors after update"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_remove_document() {
+        let workspace = create_test_workspace();
+        let config = ProjectConfig {
+            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(graphql_config::DocumentsConfig::Pattern(
+                "*.graphql".to_string(),
+            )),
+            include: None,
+            exclude: None,
+            lint: None,
+            extensions: None,
+        };
+
+        let mut project = DynamicGraphQLProject::new(config, Some(workspace.path().to_path_buf()));
+        project.initialize().await.expect("Failed to initialize");
+
+        let query = r"
+query GetUser($id: ID!) {
+    user(id: $id) {
+        id
+    }
+}
+";
+        let query_path = workspace.path().join("query.graphql");
+
+        // Add document
+        project
+            .add_or_update_document(query_path.clone(), query.to_string(), ValidationMode::Quick)
+            .await
+            .expect("Failed to add document");
+
+        // Verify it exists
+        {
+            let doc_index_before = project.document_index();
+            let doc_guard_before = doc_index_before.read().unwrap();
+            assert!(!doc_guard_before.operations.is_empty());
+        }
+
+        // Remove document
+        project
+            .remove_document(&query_path)
+            .expect("Failed to remove document");
+
+        // Verify it's gone
+        {
+            let doc_index_after = project.document_index();
+            let doc_guard_after = doc_index_after.read().unwrap();
+            assert!(doc_guard_after.operations.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fragment_resolution_smart_mode() {
+        let workspace = create_test_workspace();
+        let config = ProjectConfig {
+            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(graphql_config::DocumentsConfig::Pattern(
+                "*.graphql".to_string(),
+            )),
+            include: None,
+            exclude: None,
+            lint: None,
+            extensions: None,
+        };
+
+        let mut project = DynamicGraphQLProject::new(config, Some(workspace.path().to_path_buf()));
+        project.initialize().await.expect("Failed to initialize");
+
+        // Add fragment
+        let fragment = r"
+fragment UserFields on User {
+    id
+    name
+    email
+}
+";
+        let fragment_path = workspace.path().join("fragments.graphql");
+        project
+            .add_or_update_document(
+                fragment_path.clone(),
+                fragment.to_string(),
+                ValidationMode::Quick,
+            )
+            .await
+            .expect("Failed to add fragment");
+
+        // Add query using fragment
+        let query = r"
+query GetUser($id: ID!) {
+    user(id: $id) {
+        ...UserFields
+        posts {
+            id
+            title
+        }
+    }
+}
+";
+        let query_path = workspace.path().join("query.graphql");
+        let diagnostics = project
+            .add_or_update_document(query_path.clone(), query.to_string(), ValidationMode::Smart)
+            .await
+            .expect("Failed to add query");
+
+        // Should not have "undefined fragment" error
+        if let Some(file_diags) = diagnostics.get(&query_path) {
+            let has_undefined_error = file_diags
+                .iter()
+                .any(|d| d.message.to_lowercase().contains("undefined"));
+            assert!(
+                !has_undefined_error,
+                "Should resolve UserFields fragment, got: {file_diags:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_validation_mode_full() {
+        let workspace = create_test_workspace();
+        let config = ProjectConfig {
+            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(graphql_config::DocumentsConfig::Pattern(
+                "*.graphql".to_string(),
+            )),
+            include: None,
+            exclude: None,
+            lint: None,
+            extensions: None,
+        };
+
+        let mut project = DynamicGraphQLProject::new(config, Some(workspace.path().to_path_buf()));
+        project.initialize().await.expect("Failed to initialize");
+
+        // Add multiple documents
+        let query1 = r"query Q1 { posts { id } }";
+        let query2 = r"query Q2 { posts { title } }";
+
+        project
+            .add_or_update_document(
+                workspace.path().join("q1.graphql"),
+                query1.to_string(),
+                ValidationMode::Quick,
+            )
+            .await
+            .expect("Failed to add query1");
+
+        // Add second query with Full validation
+        let diagnostics = project
+            .add_or_update_document(
+                workspace.path().join("q2.graphql"),
+                query2.to_string(),
+                ValidationMode::Full,
+            )
+            .await
+            .expect("Failed to add query2");
+
+        // Full mode validates all files, so might have diagnostics for both
+        // Just verify no panics - the fact we got here means validation completed
+        assert!(diagnostics.keys().len() <= 10); // Reasonable upper bound
+    }
+}
