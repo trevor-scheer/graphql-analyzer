@@ -379,20 +379,13 @@ impl DynamicGraphQLProject {
         Ok(HashMap::new())
     }
 
-    /// Check if a file is a schema file
-    #[allow(clippy::unused_self)]
-    fn is_schema_file(&self, file_path: &std::path::Path) -> bool {
-        // Check if file path matches schema patterns
-        let file_path_str = file_path.to_string_lossy();
-
-        // Simple heuristic: check if it's in schema_index
-        // A better approach would check against schema patterns from config
-        file_path_str.contains("schema")
-    }
-
     /// Update schema index with new content
     #[allow(clippy::significant_drop_tightening)]
-    async fn update_schema_index(&self, file_path: &std::path::Path, content: &str) -> Result<()> {
+    pub async fn update_schema_index(
+        &self,
+        file_path: &std::path::Path,
+        content: &str,
+    ) -> Result<()> {
         let mut schema_loader = SchemaLoader::new(self.config.schema.clone());
         if let Some(ref base_path) = self.base_dir {
             schema_loader = schema_loader.with_base_path(base_path);
@@ -426,7 +419,7 @@ impl DynamicGraphQLProject {
 
     /// Update document index with new content
     #[allow(clippy::significant_drop_tightening)]
-    fn update_document_index(&self, file_path: &std::path::Path, content: &str) -> Result<()> {
+    pub fn update_document_index(&self, file_path: &std::path::Path, content: &str) -> Result<()> {
         use apollo_parser::Parser;
         use graphql_extract::{extract_from_source, Language};
 
@@ -514,7 +507,8 @@ impl DynamicGraphQLProject {
     }
 
     /// Get extract configuration
-    fn get_extract_config(&self) -> ExtractConfig {
+    #[must_use]
+    pub fn get_extract_config(&self) -> ExtractConfig {
         self.config
             .extensions
             .as_ref()
@@ -571,8 +565,9 @@ impl DynamicGraphQLProject {
     }
 
     /// Validate extracted documents (shared validation logic)
+    #[must_use]
     #[allow(clippy::significant_drop_tightening)]
-    fn validate_extracted_documents(
+    pub fn validate_extracted_documents(
         &self,
         extracted: &[graphql_extract::ExtractedGraphQL],
         file_path: &str,
@@ -768,6 +763,730 @@ impl DynamicGraphQLProject {
     #[must_use]
     pub const fn config(&self) -> &ProjectConfig {
         &self.config
+    }
+
+    /// Create projects from GraphQL config with a base directory
+    ///
+    /// This is the main entry point for LSP initialization. It creates and initializes
+    /// all projects defined in the config file.
+    ///
+    /// Returns a list of (`project_name`, `initialized_project`) tuples.
+    pub async fn from_config_with_base(
+        config: &crate::GraphQLConfig,
+        base_dir: &std::path::Path,
+    ) -> Result<Vec<(String, Self)>> {
+        // Collect project configs first to avoid Send issues with iterator
+        let project_configs: Vec<(String, ProjectConfig)> = config
+            .projects()
+            .map(|(name, cfg)| (name.to_string(), cfg.clone()))
+            .collect();
+
+        let mut projects = Vec::new();
+        for (name, project_config) in project_configs {
+            let mut project = Self::new(project_config, Some(base_dir.to_path_buf()));
+
+            // Initialize the project (load schema + documents, build indices)
+            if let Err(e) = project.initialize().await {
+                tracing::error!(project = %name, error = %e, "Failed to initialize project");
+                return Err(e);
+            }
+
+            projects.push((name, project));
+        }
+
+        Ok(projects)
+    }
+
+    /// Check if a file path matches any schema pattern
+    #[must_use]
+    pub fn is_schema_file(&self, file_path: &std::path::Path) -> bool {
+        use glob::Pattern;
+
+        let schema_patterns = self.config.schema.paths();
+
+        // Get the file path as a string for matching
+        let Some(file_str) = file_path.to_str() else {
+            return false;
+        };
+
+        // Check if file matches any schema pattern
+        for pattern_str in schema_patterns {
+            // Resolve the pattern to an absolute path if we have a base_dir
+            if let Some(ref base) = self.base_dir {
+                // Normalize the pattern by stripping leading ./ if present
+                let normalized_pattern = pattern_str.strip_prefix("./").unwrap_or(pattern_str);
+
+                // Join with base directory to get absolute path
+                let full_path = base.join(normalized_pattern);
+
+                // Canonicalize both paths if possible for comparison
+                let file_canonical = file_path.canonicalize().ok();
+                let pattern_canonical = full_path.canonicalize().ok();
+
+                if let (Some(file_canon), Some(pattern_canon)) = (file_canonical, pattern_canonical)
+                {
+                    if file_canon == pattern_canon {
+                        return true;
+                    }
+                }
+
+                // Also try glob pattern matching against the file path
+                if let Ok(pattern) = Pattern::new(full_path.to_str().unwrap_or("")) {
+                    if pattern.matches(file_str) {
+                        return true;
+                    }
+                }
+            }
+
+            // Try pattern matching against the file path directly (relative paths)
+            if let Ok(pattern) = Pattern::new(pattern_str) {
+                if pattern.matches(file_str) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    // ========================================
+    // Helper Methods for Validation
+    // ========================================
+
+    /// Check if source contains only fragments (simple version)
+    fn is_fragment_only_simple(content: &str) -> bool {
+        let trimmed = content.trim();
+        trimmed.starts_with("fragment")
+            && !trimmed.contains("query")
+            && !trimmed.contains("mutation")
+            && !trimmed.contains("subscription")
+    }
+
+    /// Collect all fragment names that are actually used (via fragment spreads) across the project
+    fn collect_used_fragment_names(&self) -> std::collections::HashSet<String> {
+        use apollo_parser::cst;
+        use std::collections::HashSet;
+
+        let mut used_fragments = HashSet::new();
+
+        let document_index = self.document_index.read().unwrap();
+
+        // Scan each cached AST for fragment spreads
+        for ast in document_index.parsed_asts.values() {
+            for definition in ast.document().definitions() {
+                if let cst::Definition::OperationDefinition(operation) = definition {
+                    if let Some(selection_set) = operation.selection_set() {
+                        Self::collect_fragment_spreads_from_selection_set(
+                            &selection_set,
+                            &mut used_fragments,
+                        );
+                    }
+                }
+            }
+        }
+
+        // Also check extracted blocks for TypeScript/JavaScript files
+        for blocks in document_index.extracted_blocks.values() {
+            for block in blocks {
+                for definition in block.parsed.document().definitions() {
+                    if let cst::Definition::OperationDefinition(operation) = definition {
+                        if let Some(selection_set) = operation.selection_set() {
+                            Self::collect_fragment_spreads_from_selection_set(
+                                &selection_set,
+                                &mut used_fragments,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        drop(document_index);
+
+        used_fragments
+    }
+
+    /// Recursively collect fragment spread names from a selection set
+    fn collect_fragment_spreads_from_selection_set(
+        selection_set: &apollo_parser::cst::SelectionSet,
+        used_fragments: &mut std::collections::HashSet<String>,
+    ) {
+        use apollo_parser::cst;
+
+        for selection in selection_set.selections() {
+            match selection {
+                cst::Selection::Field(field) => {
+                    if let Some(nested_selection_set) = field.selection_set() {
+                        Self::collect_fragment_spreads_from_selection_set(
+                            &nested_selection_set,
+                            used_fragments,
+                        );
+                    }
+                }
+                cst::Selection::FragmentSpread(spread) => {
+                    if let Some(fragment_name) = spread.fragment_name() {
+                        if let Some(name) = fragment_name.name() {
+                            used_fragments.insert(name.text().to_string());
+                        }
+                    }
+                }
+                cst::Selection::InlineFragment(inline_fragment) => {
+                    if let Some(nested_selection_set) = inline_fragment.selection_set() {
+                        Self::collect_fragment_spreads_from_selection_set(
+                            &nested_selection_set,
+                            used_fragments,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Collect all fragment names referenced in a document (recursively)
+    fn collect_referenced_fragments_standalone(
+        source: &str,
+        project: &Self,
+    ) -> std::collections::HashSet<String> {
+        use apollo_parser::{cst, Parser};
+        use std::collections::{HashSet, VecDeque};
+
+        let mut referenced = HashSet::new();
+        let mut to_process = VecDeque::new();
+
+        // First, find all fragment spreads directly in this document
+        let parser = Parser::new(source);
+        let tree = parser.parse();
+
+        for definition in tree.document().definitions() {
+            if let cst::Definition::OperationDefinition(operation) = definition {
+                if let Some(selection_set) = operation.selection_set() {
+                    let mut direct_fragments = HashSet::new();
+                    Self::collect_fragment_spreads_from_selection_set(
+                        &selection_set,
+                        &mut direct_fragments,
+                    );
+                    for frag_name in direct_fragments {
+                        if !referenced.contains(&frag_name) {
+                            referenced.insert(frag_name.clone());
+                            to_process.push_back(frag_name);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Now recursively process fragment dependencies
+        while let Some(fragment_name) = to_process.pop_front() {
+            if let Some(frag_info) = project.get_fragment(&fragment_name) {
+                let extract_config = project.get_extract_config();
+                if let Ok(frag_extracted) = graphql_extract::extract_from_file(
+                    std::path::Path::new(&frag_info.file_path),
+                    &extract_config,
+                ) {
+                    for frag_item in frag_extracted {
+                        let frag_parser = Parser::new(&frag_item.source);
+                        let frag_tree = frag_parser.parse();
+
+                        for definition in frag_tree.document().definitions() {
+                            if let cst::Definition::FragmentDefinition(fragment) = definition {
+                                if let Some(selection_set) = fragment.selection_set() {
+                                    let mut nested_fragments = HashSet::new();
+                                    Self::collect_fragment_spreads_from_selection_set(
+                                        &selection_set,
+                                        &mut nested_fragments,
+                                    );
+                                    for nested_frag_name in nested_fragments {
+                                        if !referenced.contains(&nested_frag_name) {
+                                            referenced.insert(nested_frag_name.clone());
+                                            to_process.push_back(nested_frag_name);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        referenced
+    }
+
+    /// Get a fragment by name from the document index
+    fn get_fragment(&self, name: &str) -> Option<crate::FragmentInfo> {
+        let document_index = self.document_index.read().unwrap();
+        document_index
+            .fragments
+            .get(name)
+            .and_then(|infos| infos.first().cloned())
+    }
+
+    /// Extract a specific fragment definition from a file
+    fn extract_fragment_from_file(
+        &self,
+        file_path: &std::path::Path,
+        fragment_name: &str,
+    ) -> Option<String> {
+        use apollo_parser::{cst::CstNode, Parser};
+
+        let extract_config = self.get_extract_config();
+        let extracted = graphql_extract::extract_from_file(file_path, &extract_config).ok()?;
+
+        for item in extracted {
+            let parser = Parser::new(&item.source);
+            let tree = parser.parse();
+
+            for definition in tree.document().definitions() {
+                if let apollo_parser::cst::Definition::FragmentDefinition(fragment) = definition {
+                    if let Some(frag_name_node) = fragment.fragment_name() {
+                        if let Some(name_node) = frag_name_node.name() {
+                            if name_node.text() == fragment_name {
+                                let syntax_node = fragment.syntax();
+                                let start: usize = syntax_node.text_range().start().into();
+                                let end: usize = syntax_node.text_range().end().into();
+                                return Some(item.source[start..end].to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Convert apollo-compiler diagnostics to our diagnostic format
+    fn convert_compiler_diagnostics_standalone(
+        compiler_diags: &apollo_compiler::validation::DiagnosticList,
+        is_fragment_only: bool,
+        _used_fragments: &std::collections::HashSet<String>,
+        _file_name: &str,
+    ) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+
+        for diag in compiler_diags.iter() {
+            let message = diag.error.to_string();
+            let message_lower = message.to_lowercase();
+
+            // Skip "unused fragment" and "must be used" errors for fragment-only documents
+            if is_fragment_only
+                && (message_lower.contains("unused")
+                    || message_lower.contains("never used")
+                    || message_lower.contains("must be used"))
+            {
+                continue;
+            }
+
+            // Skip ALL "unused fragment" errors from apollo-compiler
+            if message_lower.contains("fragment")
+                && (message_lower.contains("unused")
+                    || message_lower.contains("never used")
+                    || message_lower.contains("must be used"))
+            {
+                continue;
+            }
+
+            if let Some(loc_range) = diag.line_column_range() {
+                diagnostics.push(Diagnostic {
+                    range: crate::Range {
+                        start: crate::Position {
+                            line: loc_range.start.line.saturating_sub(1),
+                            character: loc_range.start.column.saturating_sub(1),
+                        },
+                        end: crate::Position {
+                            line: loc_range.end.line.saturating_sub(1),
+                            character: loc_range.end.column.saturating_sub(1),
+                        },
+                    },
+                    severity: crate::Severity::Error,
+                    code: None,
+                    source: "graphql".to_string(),
+                    message,
+                    related_info: Vec::new(),
+                });
+            }
+        }
+
+        diagnostics
+    }
+
+    /// Check for unused fragments defined in this specific file/source
+    fn check_unused_fragments_in_file(
+        source: &str,
+        _file_name: &str,
+        used_fragments: &std::collections::HashSet<String>,
+    ) -> Vec<Diagnostic> {
+        use crate::{Diagnostic, Position, Range};
+        use apollo_parser::{cst::CstNode, Parser};
+
+        let mut warnings = Vec::new();
+        let parser = Parser::new(source);
+        let tree = parser.parse();
+
+        if tree.errors().len() > 0 {
+            return warnings;
+        }
+
+        for definition in tree.document().definitions() {
+            if let apollo_parser::cst::Definition::FragmentDefinition(fragment) = definition {
+                if let Some(fragment_name_node) = fragment.fragment_name() {
+                    if let Some(name_node) = fragment_name_node.name() {
+                        let fragment_name = name_node.text().to_string();
+
+                        if !used_fragments.contains(&fragment_name) {
+                            let syntax_node = name_node.syntax();
+                            let offset: usize = syntax_node.text_range().start().into();
+                            let (line, col) = Self::offset_to_line_col(source, offset);
+
+                            let range = Range {
+                                start: Position {
+                                    line,
+                                    character: col,
+                                },
+                                end: Position {
+                                    line,
+                                    character: col + fragment_name.len(),
+                                },
+                            };
+
+                            let message = format!(
+                                "Fragment '{fragment_name}' is defined but never used in any operation"
+                            );
+
+                            warnings.push(
+                                Diagnostic::warning(range, message)
+                                    .with_code("unused-fragment")
+                                    .with_source("graphql-validator"),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        warnings
+    }
+
+    /// Convert a byte offset to a line and column (0-indexed)
+    fn offset_to_line_col(source: &str, offset: usize) -> (usize, usize) {
+        let mut line = 0;
+        let mut col = 0;
+        let mut current_offset = 0;
+
+        for ch in source.chars() {
+            if current_offset >= offset {
+                break;
+            }
+
+            if ch == '\n' {
+                line += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+
+            current_offset += ch.len_utf8();
+        }
+
+        (line, col)
+    }
+
+    // ========================================
+    // Language Feature Methods
+    // ========================================
+
+    /// Get extracted GraphQL blocks from a file
+    #[must_use]
+    pub fn get_extracted_blocks(&self, file_path: &str) -> Option<Vec<crate::ExtractedBlock>> {
+        let index = self.document_index.read().unwrap();
+        index.get_extracted_blocks(file_path).cloned()
+    }
+
+    /// Get all schema file paths
+    #[must_use]
+    pub fn get_schema_file_paths(&self) -> Vec<String> {
+        let schema_patterns = self.config.schema.paths();
+        let mut schema_files = Vec::new();
+
+        for pattern_str in schema_patterns {
+            // Skip remote schemas (http/https URLs)
+            if pattern_str.starts_with("http://") || pattern_str.starts_with("https://") {
+                continue;
+            }
+
+            // Resolve pattern to absolute path if we have a base_dir
+            let pattern_to_glob = self.base_dir.as_ref().map_or_else(
+                || pattern_str.to_string(),
+                |base| {
+                    let normalized_pattern = pattern_str.strip_prefix("./").unwrap_or(pattern_str);
+                    base.join(normalized_pattern).display().to_string()
+                },
+            );
+
+            // Use glob to find matching files
+            if let Ok(paths) = glob::glob(&pattern_to_glob) {
+                for entry in paths.flatten() {
+                    schema_files.push(entry.display().to_string());
+                }
+            }
+        }
+
+        schema_files
+    }
+
+    /// Validate a GraphQL document source
+    #[must_use]
+    #[allow(clippy::significant_drop_tightening)]
+    pub fn validate_document_source(&self, source: &str, file_name: &str) -> Vec<Diagnostic> {
+        use apollo_compiler::validation::Valid;
+        use apollo_compiler::{parser::Parser, ExecutableDocument};
+
+        let schema_index = self.schema_index.read().unwrap();
+        let schema = schema_index.schema();
+        let valid_schema = Valid::assume_valid_ref(schema);
+
+        let mut errors =
+            apollo_compiler::validation::DiagnosticList::new(std::sync::Arc::default());
+        let mut builder = ExecutableDocument::builder(Some(valid_schema), &mut errors);
+        let is_fragment_only = Self::is_fragment_only_simple(source);
+
+        // Add the current document
+        Parser::new().parse_into_executable_builder(source, file_name, &mut builder);
+
+        // Only add referenced fragments (and their dependencies) if this document uses fragment spreads
+        if !is_fragment_only && source.contains("...") {
+            // Find all fragment names referenced in this document (recursively)
+            let referenced_fragments = Self::collect_referenced_fragments_standalone(source, self);
+
+            // Add each referenced fragment individually
+            for fragment_name in referenced_fragments {
+                if let Some(frag_info) = self.get_fragment(&fragment_name) {
+                    // Extract just this specific fragment from the file
+                    if let Some(fragment_source) = self.extract_fragment_from_file(
+                        std::path::Path::new(&frag_info.file_path),
+                        &fragment_name,
+                    ) {
+                        // Add this specific fragment to the builder
+                        Parser::new().parse_into_executable_builder(
+                            &fragment_source,
+                            &frag_info.file_path,
+                            &mut builder,
+                        );
+                    }
+                }
+            }
+        }
+
+        // Build and validate
+        let doc = builder.build();
+
+        // Collect fragment names used across the entire project
+        let used_fragments = self.collect_used_fragment_names();
+
+        let mut diagnostics = if errors.is_empty() {
+            match doc.validate(valid_schema) {
+                Ok(_) => vec![],
+                Err(with_errors) => Self::convert_compiler_diagnostics_standalone(
+                    &with_errors.errors,
+                    is_fragment_only,
+                    &used_fragments,
+                    file_name,
+                ),
+            }
+        } else {
+            Self::convert_compiler_diagnostics_standalone(
+                &errors,
+                is_fragment_only,
+                &used_fragments,
+                file_name,
+            )
+        };
+
+        // Add unused fragment warnings for fragments defined in this file
+        let unused_fragment_warnings =
+            Self::check_unused_fragments_in_file(source, file_name, &used_fragments);
+        diagnostics.extend(unused_fragment_warnings);
+
+        diagnostics
+    }
+
+    /// Get hover information at a position
+    #[must_use]
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
+    pub fn hover_info_at_position(
+        &self,
+        file_path: &str,
+        position: crate::Position,
+        full_content: &str,
+    ) -> Option<crate::HoverInfo> {
+        // Check if this is a TypeScript/JavaScript file
+        let is_ts_file = file_path.ends_with(".ts")
+            || file_path.ends_with(".tsx")
+            || file_path.ends_with(".js")
+            || file_path.ends_with(".jsx");
+
+        if is_ts_file {
+            tracing::debug!(
+                "Detected TypeScript/JavaScript file, looking for extracted blocks for: {}",
+                file_path
+            );
+
+            // Try to use cached extracted blocks
+            let cached_blocks = self.get_extracted_blocks(file_path)?;
+
+            tracing::debug!("Found {} extracted blocks", cached_blocks.len());
+
+            // Find which extracted GraphQL block contains the cursor position
+            for block in cached_blocks {
+                if position.line >= block.start_line && position.line <= block.end_line {
+                    // Adjust position relative to the extracted GraphQL
+                    let relative_position = crate::Position {
+                        line: position.line - block.start_line,
+                        character: if position.line == block.start_line {
+                            position.character.saturating_sub(block.start_column)
+                        } else {
+                            position.character
+                        },
+                    };
+
+                    tracing::debug!(
+                        "Adjusted position from {:?} to {:?} for extracted block",
+                        position,
+                        relative_position
+                    );
+
+                    // Get hover info using the extracted GraphQL content and its cached AST
+                    let hover_result = {
+                        let document_index = self.document_index.read().unwrap();
+                        let schema_index = self.schema_index.read().unwrap();
+                        let hover_provider = crate::HoverProvider::new();
+                        hover_provider.hover_with_ast(
+                            &block.content,
+                            relative_position,
+                            &schema_index,
+                            Some(&block.parsed),
+                            Some(&document_index),
+                            Some(file_path),
+                        )
+                    };
+
+                    if hover_result.is_none() {
+                        tracing::debug!(
+                            "hover_info returned None for extracted block at position {:?}. Block content:\n{}",
+                            relative_position,
+                            block.content
+                        );
+                    } else {
+                        tracing::debug!("hover_info succeeded for extracted block");
+                    }
+
+                    return hover_result;
+                }
+            }
+
+            // Cursor not in any GraphQL block
+            None
+        } else {
+            // For .graphql files, use the original logic
+            let cached_ast = {
+                let document_index = self.document_index.read().unwrap();
+                document_index.get_ast(file_path)
+            };
+
+            let schema_index = self.schema_index.read().unwrap();
+            let document_index = self.document_index.read().unwrap();
+            let hover_provider = crate::HoverProvider::new();
+
+            hover_provider.hover_with_ast(
+                full_content,
+                position,
+                &schema_index,
+                cached_ast.as_deref(),
+                Some(&document_index),
+                Some(file_path),
+            )
+        }
+    }
+
+    /// Get completion items at a position
+    #[must_use]
+    pub fn complete(
+        &self,
+        source: &str,
+        position: crate::Position,
+        file_path: &str,
+    ) -> Option<Vec<crate::CompletionItem>> {
+        let cached_ast = {
+            let document_index = self.document_index.read().unwrap();
+            document_index.get_ast(file_path)
+        };
+
+        let document_index = self.document_index.read().unwrap();
+        let schema_index = self.schema_index.read().unwrap();
+        let completion_provider = crate::CompletionProvider::new();
+
+        completion_provider.complete_with_ast(
+            source,
+            position,
+            &document_index,
+            &schema_index,
+            cached_ast.as_deref(),
+            Some(file_path),
+        )
+    }
+
+    /// Goto definition at a position
+    #[must_use]
+    pub fn goto_definition(
+        &self,
+        source: &str,
+        position: crate::Position,
+        file_path: &str,
+    ) -> Option<Vec<crate::DefinitionLocation>> {
+        let cached_ast = self.document_index.read().unwrap().get_ast(file_path);
+        let document_index = self.document_index.read().unwrap();
+        let schema_index = self.schema_index.read().unwrap();
+        let provider = crate::GotoDefinitionProvider::new();
+
+        provider.goto_definition_with_ast(
+            source,
+            position,
+            &document_index,
+            &schema_index,
+            file_path,
+            cached_ast.as_deref(),
+        )
+    }
+
+    /// Find references with pre-parsed ASTs
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub fn find_references_with_asts(
+        &self,
+        source: &str,
+        position: crate::Position,
+        all_documents: &[(String, String)],
+        include_declaration: bool,
+        source_file_path: Option<&str>,
+        document_asts: Option<&std::collections::HashMap<String, apollo_parser::SyntaxTree>>,
+    ) -> Option<Vec<crate::ReferenceLocation>> {
+        let document_index = self.document_index.read().unwrap();
+        let schema_index = self.schema_index.read().unwrap();
+        let provider = crate::FindReferencesProvider::new();
+
+        // Get source AST from cache if available
+        let source_ast = source_file_path.and_then(|path| document_index.get_ast(path));
+
+        provider.find_references_with_asts(
+            source,
+            position,
+            &document_index,
+            &schema_index,
+            all_documents,
+            include_declaration,
+            source_ast.as_deref(),
+            document_asts,
+            source_file_path,
+        )
     }
 }
 

@@ -1,13 +1,14 @@
 #![cfg(not(target_os = "windows"))]
 
-use graphql_config::{DocumentsConfig, ProjectConfig, SchemaConfig};
-use graphql_project::GraphQLProject;
+use graphql_config::{DocumentsConfig, GraphQLConfig, ProjectConfig, SchemaConfig};
+use graphql_project::StaticGraphQLProject;
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
 
 /// Helper to create a test project with schema and documents
-async fn create_test_project() -> (TempDir, GraphQLProject) {
+async fn create_test_project() -> (TempDir, StaticGraphQLProject) {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let base_path = temp_dir.path();
 
@@ -46,7 +47,7 @@ async fn create_test_project() -> (TempDir, GraphQLProject) {
     }
 
     // Create GraphQL config
-    let config = ProjectConfig {
+    let project_config = ProjectConfig {
         schema: SchemaConfig::Path(base_path.join("schema.graphql").display().to_string()),
         documents: Some(DocumentsConfig::Patterns(vec![
             "**/*.graphql".to_string(),
@@ -58,13 +59,17 @@ async fn create_test_project() -> (TempDir, GraphQLProject) {
         extensions: None,
     };
 
-    // Create and load the project
-    let project = GraphQLProject::new(config).with_base_dir(base_path.to_path_buf());
+    // Create a GraphQLConfig with a single default project
+    let mut projects = HashMap::new();
+    projects.insert("default".to_string(), project_config);
+    let config = GraphQLConfig::Multi { projects };
 
-    project.load_schema().await.expect("Failed to load schema");
+    // Create and load the project using StaticGraphQLProject (loads everything upfront)
+    let projects = StaticGraphQLProject::from_config_with_base(&config, base_path)
+        .await
+        .expect("Failed to create project");
 
-    // Load documents to index fragments
-    let _ = project.load_documents();
+    let (_name, project) = projects.into_iter().next().expect("No project found");
 
     (temp_dir, project)
 }

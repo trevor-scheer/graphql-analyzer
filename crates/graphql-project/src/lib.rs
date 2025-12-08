@@ -8,7 +8,6 @@ mod goto_definition;
 mod hover;
 mod index;
 mod line_index;
-mod project;
 mod schema;
 mod static_project;
 mod validation;
@@ -29,7 +28,6 @@ pub use index::{
     OperationType, SchemaIndex, TypeInfo,
 };
 pub use line_index::LineIndex;
-pub use project::GraphQLProject;
 pub use schema::SchemaLoader;
 pub use static_project::StaticGraphQLProject;
 pub use validation::Validator;
