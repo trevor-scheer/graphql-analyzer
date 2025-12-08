@@ -159,8 +159,13 @@ impl StaticGraphQLProject {
     pub fn validate_all(&self) -> DiagnosticsMap {
         let mut all_diagnostics = HashMap::new();
 
-        // Validate each document file
+        // Validate each document file (skip schema files)
         for (file_path, content) in &self.file_contents {
+            // Skip schema files - they're not executable documents
+            if self.is_schema_file(file_path) {
+                continue;
+            }
+
             let diagnostics = self.validate_file(file_path, content);
             if !diagnostics.is_empty() {
                 all_diagnostics.insert(file_path.clone(), diagnostics);
@@ -480,6 +485,58 @@ impl StaticGraphQLProject {
     #[must_use]
     pub const fn config(&self) -> &ProjectConfig {
         &self.config
+    }
+
+    /// Check if a file path matches any schema pattern
+    #[must_use]
+    pub fn is_schema_file(&self, file_path: &std::path::Path) -> bool {
+        use glob::Pattern;
+
+        let schema_patterns = self.config.schema.paths();
+
+        // Get the file path as a string for matching
+        let Some(file_str) = file_path.to_str() else {
+            return false;
+        };
+
+        // Check if file matches any schema pattern
+        for pattern_str in schema_patterns {
+            // Resolve the pattern to an absolute path if we have a base_dir
+            if let Some(ref base) = self.base_dir {
+                // Normalize the pattern by stripping leading ./ if present
+                let normalized_pattern = pattern_str.strip_prefix("./").unwrap_or(pattern_str);
+
+                // Join with base directory to get absolute path
+                let full_path = base.join(normalized_pattern);
+
+                // Canonicalize both paths if possible for comparison
+                let file_canonical = file_path.canonicalize().ok();
+                let pattern_canonical = full_path.canonicalize().ok();
+
+                if let (Some(file_canon), Some(pattern_canon)) = (file_canonical, pattern_canonical)
+                {
+                    if file_canon == pattern_canon {
+                        return true;
+                    }
+                }
+
+                // Also try glob pattern matching against the file path
+                if let Ok(pattern) = Pattern::new(full_path.to_str().unwrap_or("")) {
+                    if pattern.matches(file_str) {
+                        return true;
+                    }
+                }
+            }
+
+            // Try pattern matching against the file path directly (relative paths)
+            if let Ok(pattern) = Pattern::new(pattern_str) {
+                if pattern.matches(file_str) {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 }
 
