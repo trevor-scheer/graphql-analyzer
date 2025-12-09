@@ -1,7 +1,11 @@
+// Allow nursery clippy lints that are too pedantic for our use case
+#![allow(clippy::significant_drop_tightening)]
+#![allow(clippy::significant_drop_in_scrutinee)]
+
 use dashmap::DashMap;
 use graphql_config::{find_config, load_config, GraphQLConfig};
 use graphql_linter::{DocumentSchemaContext, LintConfig, Linter, ProjectContext};
-use graphql_project::GraphQLProject;
+use graphql_project::DynamicGraphQLProject;
 use lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
@@ -23,6 +27,12 @@ const VALIDATION_DEBOUNCE_MS: u64 = 200;
 
 /// Type alias for validation task handle
 type ValidationTask = Arc<Mutex<Option<JoinHandle<()>>>>;
+
+/// Type alias for a locked GraphQL project
+type LockedProject = Arc<tokio::sync::RwLock<DynamicGraphQLProject>>;
+
+/// Type alias for a list of projects in a workspace
+type WorkspaceProjects = Vec<(String, LockedProject)>;
 
 /// Load lint configuration with LSP-specific overrides
 ///
@@ -64,7 +74,7 @@ pub struct GraphQLLanguageServer {
     /// Workspace roots indexed by workspace folder URI string
     workspace_roots: Arc<DashMap<String, PathBuf>>,
     /// GraphQL projects by workspace URI -> Vec<(`project_name`, project)>
-    projects: Arc<DashMap<String, Vec<(String, GraphQLProject)>>>,
+    projects: Arc<DashMap<String, WorkspaceProjects>>,
     /// Linters by workspace URI (one linter per workspace with LSP-specific config)
     linters: Arc<DashMap<String, Linter>>,
     /// Document content cache indexed by URI string
@@ -100,52 +110,38 @@ impl GraphQLLanguageServer {
                 // Load the config
                 match load_config(&config_path) {
                     Ok(config) => {
-                        // Create projects from config
-                        match GraphQLProject::from_config_with_base(&config, workspace_path) {
+                        // Create and initialize projects from config
+                        match DynamicGraphQLProject::from_config_with_base(&config, workspace_path)
+                            .await
+                        {
                             Ok(projects) => {
-                                tracing::info!(count = projects.len(), "Loaded GraphQL projects");
+                                tracing::info!(
+                                    count = projects.len(),
+                                    "Initialized GraphQL projects"
+                                );
 
-                                // Load schemas and documents for all projects
+                                // Log project info
                                 for (name, project) in &projects {
-                                    if let Err(e) = project.load_schema().await {
-                                        tracing::error!(
-                                            project = %name,
-                                            error = %e,
-                                            "Failed to load schema"
-                                        );
-                                        self.client
-                                            .log_message(
-                                                MessageType::ERROR,
-                                                format!("Failed to load schema for project '{name}': {e}"),
-                                            )
-                                            .await;
-                                    } else {
-                                        tracing::info!(project = %name, "Loaded schema");
-                                    }
-
-                                    // Load documents to index all fragments
-                                    if let Err(e) = project.load_documents() {
-                                        tracing::error!(
-                                            project = %name,
-                                            error = %e,
-                                            "Failed to load documents"
-                                        );
-                                        self.client
-                                            .log_message(
-                                                MessageType::WARNING,
-                                                format!("Failed to load documents for project '{name}': {e}"),
-                                            )
-                                            .await;
-                                    } else {
-                                        let doc_index = project.get_document_index();
-                                        tracing::info!(
-                                            project = %name,
-                                            operations = doc_index.operations.len(),
-                                            fragments = doc_index.fragments.len(),
-                                            "Loaded documents"
-                                        );
-                                    }
+                                    let doc_index = project.document_index();
+                                    let doc_index_guard = doc_index.read().unwrap();
+                                    tracing::info!(
+                                        project = %name,
+                                        operations = doc_index_guard.operations.len(),
+                                        fragments = doc_index_guard.fragments.len(),
+                                        "Project ready"
+                                    );
                                 }
+
+                                // Wrap projects in Arc<RwLock> for thread-safe access
+                                let wrapped_projects: Vec<(
+                                    String,
+                                    Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
+                                )> = projects
+                                    .into_iter()
+                                    .map(|(name, proj)| {
+                                        (name, Arc::new(tokio::sync::RwLock::new(proj)))
+                                    })
+                                    .collect();
 
                                 // Load LSP-specific lint config and create linter
                                 let lint_config = load_lsp_lint_config(&config);
@@ -155,7 +151,8 @@ impl GraphQLLanguageServer {
                                 // Store workspace, projects, and linter
                                 self.workspace_roots
                                     .insert(workspace_uri.to_string(), workspace_path.clone());
-                                self.projects.insert(workspace_uri.to_string(), projects);
+                                self.projects
+                                    .insert(workspace_uri.to_string(), wrapped_projects);
                                 self.linters.insert(workspace_uri.to_string(), linter);
 
                                 self.client
@@ -166,7 +163,7 @@ impl GraphQLLanguageServer {
                                     .await;
                             }
                             Err(e) => {
-                                tracing::error!("Failed to create projects from config: {e}");
+                                tracing::error!("Failed to initialize projects: {e}");
                                 self.client
                                     .log_message(
                                         MessageType::ERROR,
@@ -250,7 +247,7 @@ impl GraphQLLanguageServer {
                     let mut is_schema = false;
                     for workspace_projects in self.projects.iter() {
                         for (_, project) in workspace_projects.value() {
-                            if project.is_schema_file(&path) {
+                            if project.read().await.is_schema_file(&path) {
                                 is_schema = true;
                                 break;
                             }
@@ -314,10 +311,12 @@ impl GraphQLLanguageServer {
                 return;
             };
 
-            let document_index = project.get_document_index();
+            let project_guard = project.read().await;
+            let document_index = project_guard.document_index();
+            let document_index_guard = document_index.read().unwrap();
             tracing::debug!("Got document index in {:?}", index_start.elapsed());
 
-            document_index
+            document_index_guard
                 .fragments
                 .values()
                 .flatten() // Flatten Vec<FragmentInfo> to iterate over each FragmentInfo
@@ -394,21 +393,26 @@ impl GraphQLLanguageServer {
 
         // Get all schema files from the project config
         let schema_files: Vec<String> = {
-            let Some(projects) = self.projects.get(&workspace_uri) else {
-                tracing::debug!("No projects loaded for workspace: {}", workspace_uri);
-                return;
+            let project = {
+                let Some(projects) = self.projects.get(&workspace_uri) else {
+                    tracing::debug!("No projects loaded for workspace: {}", workspace_uri);
+                    return;
+                };
+
+                let Some((_, project)) = projects.get(project_idx) else {
+                    tracing::debug!(
+                        "Project index {} not found in workspace {}",
+                        project_idx,
+                        workspace_uri
+                    );
+                    return;
+                };
+
+                project.clone()
             };
 
-            let Some((_, project)) = projects.get(project_idx) else {
-                tracing::debug!(
-                    "Project index {} not found in workspace {}",
-                    project_idx,
-                    workspace_uri
-                );
-                return;
-            };
-
-            project.get_schema_file_paths()
+            let schema_files = project.read().await.get_schema_file_paths();
+            schema_files
         };
 
         tracing::debug!(
@@ -468,32 +472,41 @@ impl GraphQLLanguageServer {
         // We do this in a narrow scope to minimize lock duration
         {
             // Get the project from the workspace (need mutable to update document index)
-            let Some(mut projects) = self.projects.get_mut(&workspace_uri) else {
-                tracing::warn!("No projects loaded for workspace: {workspace_uri}");
-                return;
-            };
+            let project = {
+                let Some(mut projects) = self.projects.get_mut(&workspace_uri) else {
+                    tracing::warn!("No projects loaded for workspace: {workspace_uri}");
+                    return;
+                };
 
-            let Some((_, project)) = projects.get_mut(project_idx) else {
-                tracing::warn!(
-                    "Project index {project_idx} not found in workspace {workspace_uri}"
-                );
-                return;
+                let Some((_, project)) = projects.get_mut(project_idx) else {
+                    tracing::warn!(
+                        "Project index {project_idx} not found in workspace {workspace_uri}"
+                    );
+                    return;
+                };
+
+                project.clone()
             };
 
             // Check if this is a schema file - schema files need special handling
-            let is_schema_file = file_path
-                .as_ref()
-                .is_some_and(|path| project.is_schema_file(path.as_ref()));
+            let is_schema_file = if let Some(path) = file_path.as_ref() {
+                project.read().await.is_schema_file(path.as_ref())
+            } else {
+                false
+            };
 
             if is_schema_file {
                 tracing::info!("Schema file changed, reloading schema");
 
                 // Update the schema index with the new content
-                let file_path_str = file_path.as_ref().unwrap().display().to_string();
-                if let Err(e) = project.update_schema_index(&file_path_str, content).await {
+                let file_path_buf = file_path.as_ref().unwrap().clone();
+                if let Err(e) = project
+                    .write()
+                    .await
+                    .update_schema_index(&file_path_buf, content)
+                    .await
+                {
                     tracing::error!("Failed to update schema: {}", e);
-                    // Drop the lock before async call
-                    drop(projects);
                     self.client
                         .log_message(MessageType::ERROR, format!("Failed to update schema: {e}"))
                         .await;
@@ -501,35 +514,36 @@ impl GraphQLLanguageServer {
                 }
 
                 tracing::info!("Schema reloaded successfully");
-                // Drop the mutable lock BEFORE calling revalidate_all_documents
-                // to avoid deadlock when it tries to acquire a read lock on projects
-                drop(projects);
 
                 // Publish project-wide lint diagnostics for the schema file
                 // This includes unused_fields warnings
-                let schema_diagnostics = {
+                let schema_diagnostics = async {
                     let Some(projects) = self.projects.get(&workspace_uri) else {
                         tracing::warn!("No projects loaded for workspace: {workspace_uri}");
-                        return;
+                        return Vec::new();
                     };
 
                     let Some((_, project)) = projects.get(project_idx) else {
                         tracing::warn!(
                             "Project index {project_idx} not found in workspace {workspace_uri}"
                         );
-                        return;
+                        return Vec::new();
                     };
 
                     let Some(linter) = self.linters.get(&workspace_uri) else {
                         tracing::warn!("No linter loaded for workspace: {workspace_uri}");
-                        return;
+                        return Vec::new();
                     };
 
-                    file_path.as_ref().map_or_else(Vec::new, |path| {
+                    if let Some(path) = file_path.as_ref() {
                         let file_path_str = path.display().to_string();
                         self.get_project_wide_diagnostics(&file_path_str, project, &linter)
-                    })
-                };
+                            .await
+                    } else {
+                        Vec::new()
+                    }
+                }
+                .await;
 
                 self.client
                     .publish_diagnostics(uri.clone(), schema_diagnostics, None)
@@ -548,11 +562,11 @@ impl GraphQLLanguageServer {
             // This is more efficient than reloading all documents from disk and
             // ensures we use the latest editor content even before it's saved
             if let Some(path) = &file_path {
-                let file_path_str = path.display().to_string();
-                if let Err(e) = project.update_document_index(&file_path_str, content) {
+                let update_result = project.write().await.update_document_index(path, content);
+                if let Err(e) = update_result {
                     tracing::warn!(
                         "Failed to update document index for {}: {}",
-                        file_path_str,
+                        path.display(),
                         e
                     );
                 }
@@ -591,8 +605,10 @@ impl GraphQLLanguageServer {
 
             if is_ts_js {
                 self.validate_typescript_document(&uri, content, project, &linter)
+                    .await
             } else {
                 self.validate_graphql_document(content, project, &linter)
+                    .await
             }
         }; // Drop the read lock here
 
@@ -619,6 +635,7 @@ impl GraphQLLanguageServer {
                 };
 
                 self.get_project_wide_diagnostics(&file_path_str, project, &linter)
+                    .await
             }; // Drop the read lock here
 
             diagnostics.extend(project_wide_diags);
@@ -660,19 +677,23 @@ impl GraphQLLanguageServer {
     }
 
     /// Get project-wide lint diagnostics for a specific file
-    fn get_project_wide_diagnostics(
+    async fn get_project_wide_diagnostics(
         &self,
         file_path: &str,
-        project: &GraphQLProject,
+        project: &Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
         linter: &Linter,
     ) -> Vec<Diagnostic> {
         // Run project-wide lint rules using graphql-linter
-        let document_index = project.get_document_index();
-        let schema_index = project.get_schema_index();
+        let project_guard = project.read().await;
+        let document_index = project_guard.document_index();
+        let schema_index = project_guard.schema_index();
+
+        let document_index_guard = document_index.read().unwrap();
+        let schema_index_guard = schema_index.read().unwrap();
 
         let ctx = ProjectContext {
-            documents: &document_index,
-            schema: &schema_index,
+            documents: &document_index_guard,
+            schema: &schema_index_guard,
         };
 
         let project_diagnostics_by_file = linter.lint_project(&ctx);
@@ -716,16 +737,21 @@ impl GraphQLLanguageServer {
         };
 
         // Run project-wide lints to get all affected files
-        let document_index = project.get_document_index();
-        let schema_index = project.get_schema_index();
-        let ctx = ProjectContext {
-            documents: &document_index,
-            schema: &schema_index,
-        };
-        let project_diagnostics_by_file = linter.lint_project(&ctx);
+        let affected_files: HashSet<String> = {
+            let project_guard = project.read().await;
+            let document_index = project_guard.document_index();
+            let schema_index = project_guard.schema_index();
+            let document_index_guard = document_index.read().unwrap();
+            let schema_index_guard = schema_index.read().unwrap();
+            let ctx = ProjectContext {
+                documents: &document_index_guard,
+                schema: &schema_index_guard,
+            };
+            let project_diagnostics_by_file = linter.lint_project(&ctx);
 
-        // Extract unique file paths that have project-wide diagnostics
-        let affected_files: HashSet<String> = project_diagnostics_by_file.keys().cloned().collect();
+            // Extract unique file paths that have project-wide diagnostics
+            project_diagnostics_by_file.keys().cloned().collect()
+        }; // Drop guards here
 
         let changed_file_path = changed_file_uri.to_file_path();
 
@@ -759,7 +785,10 @@ impl GraphQLLanguageServer {
             };
 
             // Check if this is a schema file
-            let is_schema_file = project.is_schema_file(std::path::Path::new(&file_path));
+            let is_schema_file = project
+                .read()
+                .await
+                .is_schema_file(std::path::Path::new(&file_path));
 
             // Get the linter for this workspace
             let Some(linter) = self.linters.get(workspace_uri) else {
@@ -772,6 +801,7 @@ impl GraphQLLanguageServer {
             let mut diagnostics = if is_schema_file {
                 // Schema files only get project-wide diagnostics
                 self.get_project_wide_diagnostics(&file_path, project, &linter)
+                    .await
             } else {
                 // Check if this is a TypeScript/JavaScript file
                 let is_ts_js = std::path::Path::new(&file_path)
@@ -782,13 +812,16 @@ impl GraphQLLanguageServer {
                 // Get document-specific diagnostics (type errors, etc.)
                 let mut diagnostics = if is_ts_js {
                     self.validate_typescript_document(&file_uri, &content, project, &linter)
+                        .await
                 } else {
                     self.validate_graphql_document(&content, project, &linter)
+                        .await
                 };
 
                 // Add project-wide diagnostics for this file
-                let project_wide_diags =
-                    self.get_project_wide_diagnostics(&file_path, project, &linter);
+                let project_wide_diags = self
+                    .get_project_wide_diagnostics(&file_path, project, &linter)
+                    .await;
                 diagnostics.extend(project_wide_diags);
                 diagnostics
             };
@@ -826,21 +859,24 @@ impl GraphQLLanguageServer {
     /// Validate a pure GraphQL document
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
-    fn validate_graphql_document(
+    async fn validate_graphql_document(
         &self,
         content: &str,
-        project: &GraphQLProject,
+        project: &Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
         linter: &Linter,
     ) -> Vec<Diagnostic> {
         // Use the centralized validation logic from graphql-project
-        let mut project_diagnostics = project.validate_document_source(content, "document.graphql");
+        let project_guard = project.read().await;
+        let mut project_diagnostics =
+            project_guard.validate_document_source(content, "document.graphql");
 
         // Run document-level lints using graphql-linter
-        let schema_index = project.get_schema_index();
+        let schema_index = project_guard.schema_index();
+        let schema_index_guard = schema_index.read().unwrap();
         let ctx = DocumentSchemaContext {
             document: content,
             file_name: "document.graphql",
-            schema: &schema_index,
+            schema: &schema_index_guard,
         };
         let lint_diagnostics = linter.lint_document(&ctx);
         project_diagnostics.extend(lint_diagnostics);
@@ -855,11 +891,11 @@ impl GraphQLLanguageServer {
     /// Validate GraphQL embedded in TypeScript/JavaScript
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
-    fn validate_typescript_document(
+    async fn validate_typescript_document(
         &self,
         uri: &Uri,
         content: &str,
-        project: &GraphQLProject,
+        project: &Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
         linter: &Linter,
     ) -> Vec<Diagnostic> {
         use std::io::Write;
@@ -888,7 +924,8 @@ impl GraphQLLanguageServer {
         };
 
         // Extract GraphQL from TypeScript/JavaScript
-        let extract_config = project.get_extract_config();
+        let project_guard = project.read().await;
+        let extract_config = project_guard.get_extract_config();
         let extracted = match graphql_extract::extract_from_file(temp_file.path(), &extract_config)
         {
             Ok(extracted) => extracted,
@@ -910,16 +947,18 @@ impl GraphQLLanguageServer {
 
         // Use the centralized validation logic from graphql-project (Apollo compiler)
         let file_path = uri.to_string();
-        let mut all_diagnostics = project.validate_extracted_documents(&extracted, &file_path);
+        let mut all_diagnostics =
+            project_guard.validate_extracted_documents(&extracted, &file_path);
 
         // Run document-level lints using graphql-linter
-        let schema_index = project.get_schema_index();
+        let schema_index = project_guard.schema_index();
+        let schema_index_guard = schema_index.read().unwrap();
 
         for block in &extracted {
             let ctx = DocumentSchemaContext {
                 document: &block.source,
                 file_name: &file_path,
-                schema: &schema_index,
+                schema: &schema_index_guard,
             };
             let lint_diagnostics = linter.lint_document(&ctx);
 
@@ -1183,9 +1222,11 @@ impl LanguageServer for GraphQLLanguageServer {
                 return;
             };
 
-            uri.to_file_path()
-                .as_ref()
-                .is_some_and(|path| project.is_schema_file(path.as_ref()))
+            if let Some(path) = uri.to_file_path().as_ref() {
+                project.read().await.is_schema_file(path.as_ref())
+            } else {
+                false
+            }
         };
 
         // Only revalidate schema files if this is NOT a schema file
@@ -1244,7 +1285,11 @@ impl LanguageServer for GraphQLLanguageServer {
         };
 
         let file_path = uri.to_string();
-        let Some(items) = project.complete(&content, position, &file_path) else {
+        let Some(items) = project
+            .read()
+            .await
+            .complete(&content, position, &file_path)
+        else {
             return Ok(None);
         };
 
@@ -1341,7 +1386,10 @@ impl LanguageServer for GraphQLLanguageServer {
             .to_file_path()
             .map_or_else(|| uri.to_string(), |path| path.display().to_string());
 
-        let Some(hover_info) = project.hover_info_at_position(&file_path, position, &content)
+        let Some(hover_info) = project
+            .read()
+            .await
+            .hover_info_at_position(&file_path, position, &content)
         else {
             return Ok(None);
         };
@@ -1425,7 +1473,8 @@ impl LanguageServer for GraphQLLanguageServer {
 
         if is_ts_file {
             // Try to use cached extracted blocks first (Phase 3 optimization)
-            let cached_blocks = project.get_extracted_blocks(&uri.to_string());
+            let project_guard = project.read().await;
+            let cached_blocks = project_guard.get_extracted_blocks(&uri.to_string());
 
             // Find which extracted GraphQL block contains the cursor position
             let cursor_line = lsp_position.line as usize;
@@ -1454,7 +1503,7 @@ impl LanguageServer for GraphQLLanguageServer {
                         );
 
                         // Get definition locations from the project using the cached GraphQL
-                        let Some(locations) = project.goto_definition(
+                        let Some(locations) = project_guard.goto_definition(
                             &block.content,
                             relative_position,
                             &uri.to_string(),
@@ -1550,7 +1599,7 @@ impl LanguageServer for GraphQLLanguageServer {
             } else {
                 // Fallback: Extract GraphQL from TypeScript file (cache miss)
                 tracing::debug!("Cache miss - extracting GraphQL from TypeScript file");
-                let extract_config = project.get_extract_config();
+                let extract_config = project_guard.get_extract_config();
                 let extracted =
                     match graphql_extract::extract_from_source(&content, language, &extract_config)
                     {
@@ -1590,7 +1639,7 @@ impl LanguageServer for GraphQLLanguageServer {
                         );
 
                         // Get definition locations from the project using the extracted GraphQL
-                        let Some(locations) = project.goto_definition(
+                        let Some(locations) = project_guard.goto_definition(
                             &item.source,
                             relative_position,
                             &uri.to_string(),
@@ -1699,7 +1748,12 @@ impl LanguageServer for GraphQLLanguageServer {
         tracing::info!("Content length: {} bytes", content.len());
 
         // Get definition locations from the project
-        let Some(locations) = project.goto_definition(&content, position, &uri.to_string()) else {
+        let Some(locations) =
+            project
+                .read()
+                .await
+                .goto_definition(&content, position, &uri.to_string())
+        else {
             tracing::info!(
                 "project.goto_definition returned None at position {:?}",
                 position
@@ -1849,7 +1903,7 @@ impl LanguageServer for GraphQLLanguageServer {
 
         // Find references with pre-parsed ASTs
         let find_start = std::time::Instant::now();
-        let Some(references) = project.find_references_with_asts(
+        let Some(references) = project.read().await.find_references_with_asts(
             &content,
             position,
             &all_documents,

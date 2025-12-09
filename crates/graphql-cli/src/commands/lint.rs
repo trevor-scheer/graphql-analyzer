@@ -3,7 +3,7 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use graphql_config::{find_config, load_config};
 use graphql_linter::{DocumentSchemaContext, LintConfig, Linter};
-use graphql_project::{GraphQLProject, Severity};
+use graphql_project::{Severity, StaticGraphQLProject};
 use std::path::PathBuf;
 use std::process;
 
@@ -45,7 +45,7 @@ pub async fn run(
         .to_path_buf();
 
     // Get projects with base directory
-    let projects = GraphQLProject::from_config_with_base(&config, &base_dir)?;
+    let projects = StaticGraphQLProject::from_config_with_base(&config, &base_dir).await?;
 
     // Filter by project name if specified
     let projects_to_lint: Vec<_> = if let Some(ref name) = project_name {
@@ -69,46 +69,18 @@ pub async fn run(
             println!("\n{}", format!("=== Project: {name} ===").bold().cyan());
         }
 
-        // Load schema
-        match project.load_schema().await {
-            Ok(()) => {
-                if matches!(format, OutputFormat::Human) {
-                    println!("{}", "✓ Schema loaded successfully".green());
-                }
-            }
-            Err(e) => {
-                if matches!(format, OutputFormat::Human) {
-                    eprintln!("{} {}", "✗ Schema error:".red(), e);
-                } else {
-                    eprintln!("{}", serde_json::json!({ "error": e.to_string() }));
-                }
-                process::exit(1);
-            }
-        }
-
-        // Load documents
-        match project.load_documents() {
-            Ok(()) => {
-                if matches!(format, OutputFormat::Human) {
-                    let doc_index = project.get_document_index();
-                    let op_count = doc_index.operations.len();
-                    let frag_count = doc_index.fragments.len();
-                    println!(
-                        "{} ({} operations, {} fragments)",
-                        "✓ Documents loaded successfully".green(),
-                        op_count,
-                        frag_count
-                    );
-                }
-            }
-            Err(e) => {
-                if matches!(format, OutputFormat::Human) {
-                    eprintln!("{} {}", "✗ Document error:".red(), e);
-                } else {
-                    eprintln!("{}", serde_json::json!({ "error": e.to_string() }));
-                }
-                process::exit(1);
-            }
+        // StaticGraphQLProject loads everything upfront, just show status
+        if matches!(format, OutputFormat::Human) {
+            let doc_index = project.get_document_index();
+            let op_count = doc_index.operations.len();
+            let frag_count = doc_index.fragments.len();
+            println!("{}", "✓ Schema loaded successfully".green());
+            println!(
+                "{} ({} operations, {} fragments)",
+                "✓ Documents loaded successfully".green(),
+                op_count,
+                frag_count
+            );
         }
 
         // Get lint config and create linter
@@ -190,7 +162,7 @@ pub async fn run(
                 let ctx = DocumentSchemaContext {
                     document: &block.source,
                     file_name: file_path,
-                    schema: &schema_index,
+                    schema: schema_index,
                 };
                 let diagnostics = linter.lint_document(&ctx);
 
@@ -244,8 +216,8 @@ pub async fn run(
         let document_index = project.get_document_index();
         let schema_index = project.get_schema_index();
         let ctx = graphql_linter::ProjectContext {
-            documents: &document_index,
-            schema: &schema_index,
+            documents: document_index,
+            schema: schema_index,
         };
         let project_diagnostics = linter.lint_project(&ctx);
 

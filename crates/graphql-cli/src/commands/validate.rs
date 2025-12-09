@@ -2,7 +2,7 @@ use crate::OutputFormat;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use graphql_config::{find_config, load_config};
-use graphql_project::GraphQLProject;
+use graphql_project::StaticGraphQLProject;
 use std::path::PathBuf;
 use std::process;
 use tracing::Instrument;
@@ -46,8 +46,24 @@ pub async fn run(
         .context("Failed to get config directory")?
         .to_path_buf();
 
-    // Get projects with base directory
-    let projects = GraphQLProject::from_config_with_base(&config, &base_dir)?;
+    // Load projects from config
+    let load_projects_span = tracing::info_span!("load_projects");
+    let projects_result =
+        async { StaticGraphQLProject::from_config_with_base(&config, &base_dir).await }
+            .instrument(load_projects_span)
+            .await;
+
+    let projects = match projects_result {
+        Ok(projects) => projects,
+        Err(e) => {
+            if matches!(format, OutputFormat::Human) {
+                eprintln!("{} {}", "✗ Failed to load projects:".red(), e);
+            } else {
+                eprintln!("{}", serde_json::json!({ "error": e.to_string() }));
+            }
+            process::exit(1);
+        }
+    };
 
     // Filter by project name if specified
     let projects_to_validate: Vec<_> = if let Some(ref name) = project_name {
@@ -70,140 +86,41 @@ pub async fn run(
             println!("\n{}", format!("=== Project: {name} ===").bold().cyan());
         }
 
-        // Load schema
-        let load_schema_span = tracing::info_span!("load_schema", project = %name);
-        let load_schema_result = async { project.load_schema().await }
-            .instrument(load_schema_span)
+        // Report project loaded successfully
+        if matches!(format, OutputFormat::Human) {
+            let doc_index = project.document_index();
+            let op_count = doc_index.operations.len();
+            let frag_count = doc_index.fragments.len();
+            println!("{}", "✓ Schema loaded successfully".green());
+            println!(
+                "{} ({} operations, {} fragments)",
+                "✓ Documents loaded successfully".green(),
+                op_count,
+                frag_count
+            );
+        }
+
+        // Validate all files
+        let validate_span = tracing::info_span!("validate_all", project = %name);
+        let all_diagnostics = async { project.validate_all() }
+            .instrument(validate_span)
             .await;
-        match load_schema_result {
-            Ok(()) => {
-                if matches!(format, OutputFormat::Human) {
-                    println!("{}", "✓ Schema loaded successfully".green());
-                }
-            }
-            Err(e) => {
-                if matches!(format, OutputFormat::Human) {
-                    eprintln!("{} {}", "✗ Schema error:".red(), e);
-                } else {
-                    eprintln!("{}", serde_json::json!({ "error": e.to_string() }));
-                }
-                process::exit(1);
-            }
-        }
 
-        // Load documents
-        let load_docs_span = tracing::info_span!("load_documents", project = %name);
-        let load_docs_result = async { project.load_documents() }
-            .instrument(load_docs_span)
-            .await;
-        match load_docs_result {
-            Ok(()) => {
-                if matches!(format, OutputFormat::Human) {
-                    let doc_index = project.get_document_index();
-                    let op_count = doc_index.operations.len();
-                    let frag_count = doc_index.fragments.len();
-                    println!(
-                        "{} ({} operations, {} fragments)",
-                        "✓ Documents loaded successfully".green(),
-                        op_count,
-                        frag_count
-                    );
-                }
-            }
-            Err(e) => {
-                if matches!(format, OutputFormat::Human) {
-                    eprintln!("{} {}", "✗ Document error:".red(), e);
-                } else {
-                    eprintln!("{}", serde_json::json!({ "error": e.to_string() }));
-                }
-                process::exit(1);
-            }
-        }
+        tracing::info!(
+            files_with_diagnostics = all_diagnostics.len(),
+            "Validation completed"
+        );
 
-        // Get extract config
-        let extract_config = project.get_extract_config();
-
-        // Collect unique file paths that contain operations or fragments
-        let document_index = project.get_document_index();
-        let mut all_file_paths = std::collections::HashSet::new();
-        for op_infos in document_index.operations.values() {
-            for op_info in op_infos {
-                all_file_paths.insert(&op_info.file_path);
-            }
-        }
-        for frag_infos in document_index.fragments.values() {
-            for frag_info in frag_infos {
-                all_file_paths.insert(&frag_info.file_path);
-            }
-        }
-
+        // Convert diagnostics to CLI output format
         let mut all_errors = Vec::new();
-        let total_files = all_file_paths.len();
-
-        tracing::info!(total_files, "Starting validation of document files");
-
-        // Validate each file using Apollo compiler only
-        let mut validated_count = 0;
-        let validate_files_span =
-            tracing::info_span!("validate_files", project = %name, total_files).entered();
-        for file_path in all_file_paths {
-            validated_count += 1;
-
-            // Log progress every 50 files or at 1% increments (whichever is more frequent)
-            let log_interval = (total_files / 100).clamp(1, 50);
-            if validated_count % log_interval == 0 || validated_count == total_files {
-                tracing::info!(
-                    validated = validated_count,
-                    total = total_files,
-                    percent = (validated_count * 100) / total_files,
-                    "Validation progress"
-                );
-            }
-
-            let _file_span = tracing::debug_span!("validate_file", file = %file_path).entered();
-
-            // Use graphql-extract to extract GraphQL from the file
-            let extracted = {
-                let _extract_span = tracing::debug_span!("extract_graphql").entered();
-                match graphql_extract::extract_from_file(
-                    std::path::Path::new(file_path),
-                    &extract_config,
-                ) {
-                    Ok(items) => items,
-                    Err(e) => {
-                        if matches!(format, OutputFormat::Human) {
-                            eprintln!(
-                                "{} {}: {}",
-                                "✗ Failed to extract GraphQL from".red(),
-                                file_path,
-                                e
-                            );
-                        }
-                        continue;
-                    }
-                }
-            };
-
-            if extracted.is_empty() {
-                continue;
-            }
-
-            // Use Apollo compiler validation only
-            let diagnostics = {
-                let _validate_span =
-                    tracing::debug_span!("validate_document", operations = extracted.len())
-                        .entered();
-                project.validate_extracted_documents(&extracted, file_path)
-            };
-
-            // Convert diagnostics to CLI output format
+        for (file_path, diagnostics) in all_diagnostics {
             for diag in diagnostics {
                 use graphql_project::Severity;
 
                 // Only process errors (Apollo compiler validation)
                 if diag.severity == Severity::Error {
                     let diag_output = DiagnosticOutput {
-                        file_path: file_path.clone(),
+                        file_path: file_path.to_string_lossy().to_string(),
                         // graphql-project uses 0-based, CLI output uses 1-based
                         line: diag.range.start.line + 1,
                         column: diag.range.start.character + 1,
@@ -214,14 +131,6 @@ pub async fn run(
                 }
             }
         }
-        drop(validate_files_span);
-
-        tracing::info!(
-            total_files,
-            validated = validated_count,
-            errors_found = all_errors.len(),
-            "Validation completed"
-        );
 
         // Display errors
         total_errors = all_errors.len();
