@@ -76,11 +76,8 @@ impl StaticGraphQLProject {
         }
         let schema_files = schema_loader.load_with_paths().await?;
 
-        // Store schema file contents
-        for (path, content) in &schema_files {
-            file_contents.insert(PathBuf::from(path), content.clone());
-        }
-
+        // Build schema index (schema files are not stored in file_contents as they're not
+        // validated as executable documents)
         let schema_index = SchemaIndex::from_schema_files(schema_files);
 
         // Load documents (if configured)
@@ -159,13 +156,9 @@ impl StaticGraphQLProject {
     pub fn validate_all(&self) -> DiagnosticsMap {
         let mut all_diagnostics = HashMap::new();
 
-        // Validate each document file (skip schema files)
+        // Validate each document file
+        // Note: file_contents only contains document files, not schema files
         for (file_path, content) in &self.file_contents {
-            // Skip schema files - they're not executable documents
-            if self.is_schema_file(file_path) {
-                continue;
-            }
-
             let diagnostics = self.validate_file(file_path, content);
             if !diagnostics.is_empty() {
                 all_diagnostics.insert(file_path.clone(), diagnostics);
@@ -273,13 +266,12 @@ impl StaticGraphQLProject {
                 // First, collect fragments already defined in this source
                 let fragments_in_source = Self::collect_fragment_definitions(source);
 
-                let referenced_fragments = Self::collect_referenced_fragments(source);
-                for fragment_name in referenced_fragments {
-                    // Skip if this fragment is already defined in the current source
-                    if fragments_in_source.contains(&fragment_name) {
-                        continue;
-                    }
+                // Collect all referenced fragments (including transitive dependencies)
+                let all_referenced =
+                    self.collect_all_fragment_dependencies(source, &fragments_in_source);
 
+                // Add each fragment to the builder (already deduplicated)
+                for fragment_name in all_referenced {
                     if let Some(frag_info) = self.get_fragment(&fragment_name) {
                         if let Some(fragment_source) =
                             self.extract_fragment_source(&frag_info.file_path, &fragment_name)
@@ -424,6 +416,56 @@ impl StaticGraphQLProject {
             .fragments
             .get(name)
             .and_then(|frags| frags.first())
+    }
+
+    /// Collect all fragment dependencies recursively (including transitive dependencies)
+    fn collect_all_fragment_dependencies(
+        &self,
+        source: &str,
+        fragments_in_source: &std::collections::HashSet<String>,
+    ) -> Vec<String> {
+        use std::collections::{HashSet, VecDeque};
+
+        let mut result = Vec::new();
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+
+        // Start with direct fragment references from the source
+        let direct_refs = Self::collect_referenced_fragments(source);
+        for frag_name in direct_refs {
+            // Skip if already defined in the current source
+            if fragments_in_source.contains(&frag_name) {
+                continue;
+            }
+            if visited.insert(frag_name.clone()) {
+                queue.push_back(frag_name);
+            }
+        }
+
+        // Process fragments recursively
+        while let Some(fragment_name) = queue.pop_front() {
+            result.push(fragment_name.clone());
+
+            // Get the fragment's source and check what fragments IT references
+            if let Some(frag_info) = self.get_fragment(&fragment_name) {
+                if let Some(fragment_source) =
+                    self.extract_fragment_source(&frag_info.file_path, &fragment_name)
+                {
+                    let nested_refs = Self::collect_referenced_fragments(&fragment_source);
+                    for nested_frag in nested_refs {
+                        // Skip if already in source or already visited
+                        if fragments_in_source.contains(&nested_frag) {
+                            continue;
+                        }
+                        if visited.insert(nested_frag.clone()) {
+                            queue.push_back(nested_frag);
+                        }
+                    }
+                }
+            }
+        }
+
+        result
     }
 
     /// Extract a specific fragment's source from a file
