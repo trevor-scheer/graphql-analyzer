@@ -29,8 +29,7 @@ impl SchemaLoader {
         tracing::info!("Loading schema files");
 
         // Include Apollo Client built-in directives
-        const APOLLO_CLIENT_BUILTINS: &str =
-            include_str!("../../graphql-cli/src/apollo_client_builtins.graphql");
+        const APOLLO_CLIENT_BUILTINS: &str = include_str!("apollo_client_builtins.graphql");
 
         let mut schema_files = Vec::new();
         schema_files.push((
