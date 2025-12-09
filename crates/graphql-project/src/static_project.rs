@@ -268,9 +268,18 @@ impl StaticGraphQLProject {
                 .parse_into_executable_builder(source, file_path, &mut builder);
 
             // Add referenced fragments if this document uses fragment spreads
+            // But skip fragments that are already defined in the current source document
             if !is_fragment_only && source.contains("...") {
+                // First, collect fragments already defined in this source
+                let fragments_in_source = Self::collect_fragment_definitions(source);
+
                 let referenced_fragments = Self::collect_referenced_fragments(source);
                 for fragment_name in referenced_fragments {
+                    // Skip if this fragment is already defined in the current source
+                    if fragments_in_source.contains(&fragment_name) {
+                        continue;
+                    }
+
                     if let Some(frag_info) = self.get_fragment(&fragment_name) {
                         if let Some(fragment_source) =
                             self.extract_fragment_source(&frag_info.file_path, &fragment_name)
@@ -328,6 +337,28 @@ impl StaticGraphQLProject {
         }
 
         has_fragment && !has_operation
+    }
+
+    /// Collect fragment definitions in the source (returns fragment names)
+    fn collect_fragment_definitions(source: &str) -> std::collections::HashSet<String> {
+        use apollo_parser::cst;
+        use apollo_parser::Parser;
+        use std::collections::HashSet;
+
+        let parsed = Parser::new(source).parse();
+        let mut fragment_names = HashSet::new();
+
+        for def in parsed.document().definitions() {
+            if let cst::Definition::FragmentDefinition(frag) = def {
+                if let Some(name) = frag.fragment_name() {
+                    if let Some(name_token) = name.name() {
+                        fragment_names.insert(name_token.text().to_string());
+                    }
+                }
+            }
+        }
+
+        fragment_names
     }
 
     /// Collect fragment names referenced in source (recursively)
@@ -801,87 +832,6 @@ impl StaticGraphQLProject {
         diagnostics
     }
 
-    /// Check for unused fragments defined in this specific file/source
-    fn check_unused_fragments_in_file(
-        source: &str,
-        _file_name: &str,
-        used_fragments: &std::collections::HashSet<String>,
-    ) -> Vec<Diagnostic> {
-        use crate::{Diagnostic, Position, Range};
-        use apollo_parser::{cst::CstNode, Parser};
-
-        let mut warnings = Vec::new();
-        let parser = Parser::new(source);
-        let tree = parser.parse();
-
-        if tree.errors().len() > 0 {
-            return warnings;
-        }
-
-        for definition in tree.document().definitions() {
-            if let apollo_parser::cst::Definition::FragmentDefinition(fragment) = definition {
-                if let Some(fragment_name_node) = fragment.fragment_name() {
-                    if let Some(name_node) = fragment_name_node.name() {
-                        let fragment_name = name_node.text().to_string();
-
-                        if !used_fragments.contains(&fragment_name) {
-                            let syntax_node = name_node.syntax();
-                            let offset: usize = syntax_node.text_range().start().into();
-                            let (line, col) = Self::offset_to_line_col(source, offset);
-
-                            let range = Range {
-                                start: Position {
-                                    line,
-                                    character: col,
-                                },
-                                end: Position {
-                                    line,
-                                    character: col + fragment_name.len(),
-                                },
-                            };
-
-                            let message = format!(
-                                "Fragment '{fragment_name}' is defined but never used in any operation"
-                            );
-
-                            warnings.push(
-                                Diagnostic::warning(range, message)
-                                    .with_code("unused-fragment")
-                                    .with_source("graphql-validator"),
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        warnings
-    }
-
-    /// Convert a byte offset to a line and column (0-indexed)
-    fn offset_to_line_col(source: &str, offset: usize) -> (usize, usize) {
-        let mut line = 0;
-        let mut col = 0;
-        let mut current_offset = 0;
-
-        for ch in source.chars() {
-            if current_offset >= offset {
-                break;
-            }
-
-            if ch == '\n' {
-                line += 1;
-                col = 0;
-            } else {
-                col += 1;
-            }
-
-            current_offset += ch.len_utf8();
-        }
-
-        (line, col)
-    }
-
     // ========================================
     // Language Feature Methods
     // ========================================
@@ -933,7 +883,10 @@ impl StaticGraphQLProject {
         // Collect fragment names used across the entire project
         let used_fragments = self.collect_used_fragment_names();
 
-        let mut diagnostics = if errors.is_empty() {
+        // Note: Unused fragment warnings are now handled by the UnusedFragmentsRule lint
+        // in the graphql-linter crate, which performs project-wide analysis
+
+        if errors.is_empty() {
             match doc.validate(valid_schema) {
                 Ok(_) => vec![],
                 Err(with_errors) => Self::convert_compiler_diagnostics_standalone(
@@ -950,14 +903,7 @@ impl StaticGraphQLProject {
                 &used_fragments,
                 file_name,
             )
-        };
-
-        // Add unused fragment warnings for fragments defined in this file
-        let unused_fragment_warnings =
-            Self::check_unused_fragments_in_file(source, file_name, &used_fragments);
-        diagnostics.extend(unused_fragment_warnings);
-
-        diagnostics
+        }
     }
 }
 
