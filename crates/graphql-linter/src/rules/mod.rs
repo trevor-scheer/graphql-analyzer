@@ -1,10 +1,12 @@
 mod deprecated;
 mod unique_names;
 mod unused_fields;
+mod unused_fragments;
 
 pub use deprecated::DeprecatedFieldRule;
 pub use unique_names::UniqueNamesRule;
 pub use unused_fields::UnusedFieldsRule;
+pub use unused_fragments::UnusedFragmentsRule;
 
 use crate::context::{
     DocumentSchemaContext, ProjectContext, StandaloneDocumentContext, StandaloneSchemaContext,
@@ -82,5 +84,9 @@ pub fn all_standalone_schema_rules() -> Vec<Box<dyn StandaloneSchemaRule>> {
 
 /// Get all available project-wide lint rules
 pub fn all_project_rules() -> Vec<Box<dyn ProjectRule>> {
-    vec![Box::new(UniqueNamesRule), Box::new(UnusedFieldsRule)]
+    vec![
+        Box::new(UniqueNamesRule),
+        Box::new(UnusedFieldsRule),
+        Box::new(UnusedFragmentsRule),
+    ]
 }

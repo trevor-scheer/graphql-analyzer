@@ -57,7 +57,6 @@ export const GET_POKEMON_EVOLUTIONS = gql`
         pokemon {
           id
           name
-          number
         }
         requirement {
           ... on LevelRequirement {
