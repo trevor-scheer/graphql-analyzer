@@ -1346,6 +1346,8 @@ impl DynamicGraphQLProject {
                     );
 
                     // Get hover info using the extracted GraphQL content and its cached AST
+                    // Note: We pass None for file_path because the source is the extracted GraphQL block,
+                    // not the full TypeScript file. The LineIndex lookup would be incorrect otherwise.
                     let hover_result = {
                         let document_index = self.document_index.read().unwrap();
                         let schema_index = self.schema_index.read().unwrap();
@@ -1356,7 +1358,7 @@ impl DynamicGraphQLProject {
                             &schema_index,
                             Some(&block.parsed),
                             Some(&document_index),
-                            Some(file_path),
+                            None, // Don't use LineIndex for extracted blocks
                         )
                     };
 
