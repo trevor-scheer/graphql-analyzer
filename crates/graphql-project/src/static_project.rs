@@ -88,6 +88,15 @@ impl StaticGraphQLProject {
                 document_loader = document_loader.with_base_path(base_path);
             }
 
+            // Apply extractConfig from project extensions
+            let extract_config = config
+                .extensions
+                .as_ref()
+                .and_then(|ext| ext.get("extractConfig"))
+                .and_then(|value| serde_json::from_value(value.clone()).ok())
+                .unwrap_or_default();
+            document_loader = document_loader.with_extract_config(extract_config);
+
             // Use the new load_with_contents method to get both index and contents
             let (index, files) = Self::load_documents_with_contents(&document_loader)?;
             (index, files)

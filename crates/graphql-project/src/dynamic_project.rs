@@ -235,6 +235,11 @@ impl DynamicGraphQLProject {
             if let Some(ref base_path) = self.base_dir {
                 document_loader = document_loader.with_base_path(base_path);
             }
+
+            // Apply extractConfig from project extensions
+            let extract_config = self.get_extract_config();
+            document_loader = document_loader.with_extract_config(extract_config);
+
             document_loader.load()?
         } else {
             DocumentIndex::new()
