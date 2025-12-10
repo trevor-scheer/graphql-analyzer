@@ -398,20 +398,43 @@ impl DynamicGraphQLProject {
 
         let mut schema_files = schema_loader.load_with_paths().await?;
 
+        // Canonicalize the file path for reliable comparison
+        // Use the original path as fallback if canonicalization fails
+        let canonical_file_path = file_path
+            .canonicalize()
+            .unwrap_or_else(|_| file_path.to_path_buf());
+        let canonical_file_path_str = canonical_file_path.display().to_string();
+
         // Replace the content of the specified file
-        let file_path_str = file_path.to_string_lossy().to_string();
         let mut found = false;
         for (path, file_content) in &mut schema_files {
-            if path == &file_path_str {
+            // Canonicalize the path from schema_files for comparison
+            // Clone the path string to avoid borrowing issues
+            let path_str = path.clone();
+            let canonical_schema_path = std::path::Path::new(&path_str)
+                .canonicalize()
+                .unwrap_or_else(|_| std::path::PathBuf::from(&path_str));
+            let canonical_schema_path_str = canonical_schema_path.display().to_string();
+
+            if canonical_schema_path_str == canonical_file_path_str {
                 *file_content = content.to_string();
                 found = true;
+                tracing::debug!(
+                    "Updated schema file in index: {} (matched with: {})",
+                    path_str,
+                    canonical_file_path_str
+                );
                 break;
             }
         }
 
         // If not found, add it
         if !found {
-            schema_files.push((file_path_str, content.to_string()));
+            tracing::warn!(
+                "Schema file not found in loaded schema files, adding it: {}",
+                canonical_file_path_str
+            );
+            schema_files.push((canonical_file_path_str, content.to_string()));
         }
 
         // Rebuild schema index
