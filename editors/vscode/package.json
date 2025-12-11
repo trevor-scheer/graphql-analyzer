@@ -18,6 +18,13 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "graphql-lsp.restartServer",
+        "title": "Restart GraphQL Language Server",
+        "category": "GraphQL"
+      }
+    ],
     "languages": [
       {
         "id": "graphql",
