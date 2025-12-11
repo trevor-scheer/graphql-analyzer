@@ -23,6 +23,60 @@ This is a GraphQL Language Server Protocol (LSP) implementation written in Rust.
 - **GraphQL Parsing**: apollo-compiler and graphql-parser
 - **Build System**: Cargo
 
+## GraphQL Document Model and Common Gotchas
+
+Understanding the GraphQL document model is critical for implementing LSP features correctly. Here are key nuances to consider:
+
+### Document Types
+
+A GraphQL "document" is ambiguous without context. Always use precise terminology:
+
+- **Schema Document**: Contains type definitions, directives, schema extensions
+- **Executable Document**: Contains operations and/or fragments that can be executed against a schema
+
+### Executable Document Structure
+
+Executable documents have flexible composition. A single document can contain:
+
+- **Zero or more operation definitions** (query, mutation, subscription)
+- **Zero or more fragment definitions**
+
+**Important**: An executable document might contain ONLY fragment definitions with no operations. This is valid and common in practice for organizing reusable fragments.
+
+### Fragment Scope and Cross-Document References
+
+Fragments have project-wide scope, not file scope:
+
+- **Global Fragment Registry**: All fragments are globally available across the entire project
+- **Cross-Document References**: Any operation or fragment can reference fragments defined in other documents
+- **Transitive Dependencies**: Fragment spreads can reference other fragments, creating deep dependency chains
+
+### Validation Implications
+
+When validating operations, you MUST:
+
+1. **Include Direct Fragment Dependencies**: Collect all fragments directly referenced by the operation
+2. **Recurse Through Fragment Dependencies**: Follow fragment spreads within fragments to build the complete dependency graph
+3. **Handle Circular References**: Detect and handle circular fragment dependencies (fragment A → fragment B → fragment A)
+4. **Validate Against Schema**: Ensure all fragments in the dependency chain are valid for their type conditions
+
+Failing to include transitive fragment dependencies will result in incorrect validation errors about unknown fragments or type mismatches.
+
+### Schema Document Nuances
+
+Schema documents also have important characteristics:
+
+- **Type Extensions**: Schema can be split across multiple documents using `extend type`, `extend interface`, etc.
+- **Directive Definitions**: Custom directives must be defined before use
+- **Scalar Definitions**: Custom scalars should be explicitly defined, though parsers may be lenient
+
+### Naming and Uniqueness
+
+- **Operation Names**: Must be unique across the entire project (when named)
+- **Fragment Names**: Must be unique across the entire project
+- **Type Names**: Must be unique within the schema (across all schema documents)
+- **Anonymous Operations**: Only allowed when a document contains a single operation
+
 ## Code Quality Standards
 
 - Run `cargo fmt` before committing
@@ -98,11 +152,54 @@ This is a GraphQL Language Server Protocol (LSP) implementation written in Rust.
 - `cargo clippy` - Lint checks
 - `cargo fmt` - Format code
 - `target/debug/graphql validate` - Run validation CLI
+- `target/debug/graphql lint` - Run linting CLI
 - `RUST_LOG=debug target/debug/graphql-lsp` - Run LSP with debug logging
 - `cd editors/vscode && npm run format` - Format VSCode extension code
 - `cd editors/vscode && npm run format:check` - Check VSCode extension formatting
 - `cd editors/vscode && npm run lint` - Lint VSCode extension
 - `cd editors/vscode && npm run compile` - Build VSCode extension
+
+## CLI Usage
+
+### Multi-Project Configurations
+
+The CLI commands (`validate`, `lint`, `check`) require the `--project` flag when using a multi-project configuration, unless a project named "default" exists.
+
+**Single-project config**: No `--project` flag needed
+```bash
+graphql validate
+graphql lint
+```
+
+**Multi-project config without "default"**: Requires `--project` flag
+```yaml
+# .graphqlrc.yaml
+projects:
+  frontend:
+    schema: frontend/schema.graphql
+  backend:
+    schema: backend/schema.graphql
+```
+```bash
+graphql validate --project frontend
+graphql lint --project backend
+```
+
+**Multi-project config with "default"**: Optional `--project` flag
+```yaml
+# .graphqlrc.yaml
+projects:
+  default:
+    schema: schema.graphql
+  experimental:
+    schema: experimental/schema.graphql
+```
+```bash
+graphql validate              # Uses "default" project
+graphql validate --project experimental  # Uses "experimental" project
+```
+
+If `--project` is omitted with a multi-project config (without "default"), the CLI shows an error listing available projects.
 
 ## Linting Architecture
 
