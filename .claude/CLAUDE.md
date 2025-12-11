@@ -98,11 +98,54 @@ This is a GraphQL Language Server Protocol (LSP) implementation written in Rust.
 - `cargo clippy` - Lint checks
 - `cargo fmt` - Format code
 - `target/debug/graphql validate` - Run validation CLI
+- `target/debug/graphql lint` - Run linting CLI
 - `RUST_LOG=debug target/debug/graphql-lsp` - Run LSP with debug logging
 - `cd editors/vscode && npm run format` - Format VSCode extension code
 - `cd editors/vscode && npm run format:check` - Check VSCode extension formatting
 - `cd editors/vscode && npm run lint` - Lint VSCode extension
 - `cd editors/vscode && npm run compile` - Build VSCode extension
+
+## CLI Usage
+
+### Multi-Project Configurations
+
+The CLI commands (`validate`, `lint`, `check`) require the `--project` flag when using a multi-project configuration, unless a project named "default" exists.
+
+**Single-project config**: No `--project` flag needed
+```bash
+graphql validate
+graphql lint
+```
+
+**Multi-project config without "default"**: Requires `--project` flag
+```yaml
+# .graphqlrc.yaml
+projects:
+  frontend:
+    schema: frontend/schema.graphql
+  backend:
+    schema: backend/schema.graphql
+```
+```bash
+graphql validate --project frontend
+graphql lint --project backend
+```
+
+**Multi-project config with "default"**: Optional `--project` flag
+```yaml
+# .graphqlrc.yaml
+projects:
+  default:
+    schema: schema.graphql
+  experimental:
+    schema: experimental/schema.graphql
+```
+```bash
+graphql validate              # Uses "default" project
+graphql validate --project experimental  # Uses "experimental" project
+```
+
+If `--project` is omitted with a multi-project config (without "default"), the CLI shows an error listing available projects.
 
 ## Linting Architecture
 

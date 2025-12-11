@@ -187,6 +187,8 @@ The extension will automatically use `target/debug/graphql-lsp` when running fro
 
 ### Using the CLI
 
+#### Basic Usage
+
 ```bash
 # Validate your GraphQL project (Apollo compiler validation)
 graphql validate
@@ -201,9 +203,73 @@ graphql --config .graphqlrc.yml validate
 graphql validate --format json
 graphql lint --format json
 
-# Watch mode for development
+# Watch mode for development (coming soon)
 graphql validate --watch
 graphql lint --watch
+```
+
+#### Multi-Project Configurations
+
+When using a multi-project configuration, you must specify which project to use with the `--project` flag, unless your config includes a project named `default`.
+
+**Single-project config** - No `--project` flag needed:
+```yaml
+# .graphqlrc.yml
+schema: "schema.graphql"
+documents: "src/**/*.graphql"
+```
+```bash
+graphql validate
+graphql lint
+```
+
+**Multi-project config** - Requires `--project` flag:
+```yaml
+# .graphqlrc.yml
+projects:
+  frontend:
+    schema: "frontend/schema.graphql"
+    documents: "frontend/**/*.ts"
+  backend:
+    schema: "backend/schema.graphql"
+    documents: "backend/**/*.graphql"
+```
+```bash
+# Must specify which project to validate/lint
+graphql validate --project frontend
+graphql lint --project backend
+```
+
+**Multi-project with "default"** - Optional `--project` flag:
+```yaml
+# .graphqlrc.yml
+projects:
+  default:
+    schema: "schema.graphql"
+    documents: "src/**/*.graphql"
+  experimental:
+    schema: "experimental/schema.graphql"
+    documents: "experimental/**/*.graphql"
+```
+```bash
+# Uses "default" project automatically
+graphql validate
+graphql lint
+
+# Or explicitly specify a project
+graphql validate --project experimental
+```
+
+If you omit `--project` with a multi-project config (without "default"), you'll see an error listing available projects:
+
+```
+Error: Multi-project configuration requires --project flag
+
+Available projects:
+  - frontend
+  - backend
+
+Usage: graphql --project <NAME> validate
 ```
 
 ### Development
