@@ -1,7 +1,7 @@
+use crate::commands::common::CommandContext;
 use crate::OutputFormat;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use colored::Colorize;
-use graphql_config::{find_config, load_config};
 use graphql_linter::{DocumentSchemaContext, LintConfig, Linter};
 use graphql_project::{Severity, StaticGraphQLProject};
 use std::path::PathBuf;
@@ -26,211 +26,148 @@ pub async fn run(
         rule: Option<String>,
     }
 
-    // Find and load config
-    let config_path = if let Some(path) = config_path {
-        path
-    } else {
-        let current_dir = std::env::current_dir()?;
-        find_config(&current_dir)
-            .context("Failed to search for config")?
-            .context("No GraphQL config file found")?
-    };
-
-    let config = load_config(&config_path).context("Failed to load config")?;
-
-    // Get the base directory from the config path
-    let base_dir = config_path
-        .parent()
-        .context("Failed to get config directory")?
-        .to_path_buf();
+    // Load config and validate project requirement
+    let ctx = CommandContext::load(config_path, project_name.as_ref(), "lint")?;
 
     // Get projects with base directory
-    let projects = StaticGraphQLProject::from_config_with_base(&config, &base_dir).await?;
+    let projects = StaticGraphQLProject::from_config_with_base(&ctx.config, &ctx.base_dir).await?;
 
-    // Filter by project name if specified
-    let projects_to_lint: Vec<_> = if let Some(ref name) = project_name {
-        projects.into_iter().filter(|(n, _)| n == name).collect()
+    // Select the project to lint (either specified or "default")
+    let project_name_to_use = project_name.as_deref().unwrap_or("default");
+    let (_project_name, project) = projects
+        .into_iter()
+        .find(|(n, _)| n == project_name_to_use)
+        .unwrap_or_else(|| {
+            eprintln!(
+                "{}",
+                format!("Project '{project_name_to_use}' not found").red()
+            );
+            process::exit(1);
+        });
+
+    // StaticGraphQLProject loads everything upfront, just show status
+    if matches!(format, OutputFormat::Human) {
+        let doc_index = project.get_document_index();
+        let op_count = doc_index.operations.len();
+        let frag_count = doc_index.fragments.len();
+        println!("{}", "✓ Schema loaded successfully".green());
+        println!(
+            "{} ({} operations, {} fragments)",
+            "✓ Documents loaded successfully".green(),
+            op_count,
+            frag_count
+        );
+    }
+
+    // Get lint config and create linter
+    // Load CLI-specific lint configuration (extensions.cli.lint overrides top-level lint)
+    let base_lint_config: LintConfig = ctx
+        .config
+        .lint_config()
+        .and_then(|value| serde_json::from_value(value.clone()).ok())
+        .unwrap_or_default();
+
+    let cli_lint_config = ctx
+        .config
+        .extensions()
+        .and_then(|ext| ext.get("cli"))
+        .and_then(|cli_ext| {
+            if let serde_json::Value::Object(map) = cli_ext {
+                map.get("lint")
+            } else {
+                None
+            }
+        })
+        .and_then(|value| serde_json::from_value::<LintConfig>(value.clone()).ok());
+
+    let lint_config = if let Some(cli_overrides) = cli_lint_config {
+        base_lint_config.merge(&cli_overrides)
     } else {
-        projects
+        base_lint_config
     };
 
-    if projects_to_lint.is_empty() {
-        if let Some(name) = project_name {
-            eprintln!("{}", format!("Project '{name}' not found").red());
-            process::exit(1);
+    let linter = Linter::new(lint_config);
+
+    // Get extract config
+    let extract_config = project.get_extract_config();
+
+    // Collect unique file paths that contain operations or fragments
+    let document_index = project.get_document_index();
+    let mut all_file_paths = std::collections::HashSet::new();
+    for op_infos in document_index.operations.values() {
+        for op_info in op_infos {
+            all_file_paths.insert(&op_info.file_path);
+        }
+    }
+    for frag_infos in document_index.fragments.values() {
+        for frag_info in frag_infos {
+            all_file_paths.insert(&frag_info.file_path);
         }
     }
 
-    let mut total_errors = 0;
-    let mut total_warnings = 0;
+    let mut all_warnings = Vec::new();
+    let mut all_errors = Vec::new();
 
-    for (name, project) in &projects_to_lint {
-        if projects_to_lint.len() > 1 {
-            println!("\n{}", format!("=== Project: {name} ===").bold().cyan());
-        }
-
-        // StaticGraphQLProject loads everything upfront, just show status
-        if matches!(format, OutputFormat::Human) {
-            let doc_index = project.get_document_index();
-            let op_count = doc_index.operations.len();
-            let frag_count = doc_index.fragments.len();
-            println!("{}", "✓ Schema loaded successfully".green());
-            println!(
-                "{} ({} operations, {} fragments)",
-                "✓ Documents loaded successfully".green(),
-                op_count,
-                frag_count
-            );
-        }
-
-        // Get lint config and create linter
-        // Load CLI-specific lint configuration (extensions.cli.lint overrides top-level lint)
-        let base_lint_config: LintConfig = config
-            .lint_config()
-            .and_then(|value| serde_json::from_value(value.clone()).ok())
-            .unwrap_or_default();
-
-        let cli_lint_config = config
-            .extensions()
-            .and_then(|ext| ext.get("cli"))
-            .and_then(|cli_ext| {
-                if let serde_json::Value::Object(map) = cli_ext {
-                    map.get("lint")
-                } else {
-                    None
+    // Run lints on each file
+    for file_path in all_file_paths {
+        // Use graphql-extract to extract GraphQL from the file
+        let extracted = match graphql_extract::extract_from_file(
+            std::path::Path::new(file_path),
+            &extract_config,
+        ) {
+            Ok(items) => items,
+            Err(e) => {
+                if matches!(format, OutputFormat::Human) {
+                    eprintln!(
+                        "{} {}: {}",
+                        "✗ Failed to extract GraphQL from".red(),
+                        file_path,
+                        e
+                    );
                 }
-            })
-            .and_then(|value| serde_json::from_value::<LintConfig>(value.clone()).ok());
-
-        let lint_config = if let Some(cli_overrides) = cli_lint_config {
-            base_lint_config.merge(&cli_overrides)
-        } else {
-            base_lint_config
-        };
-
-        let linter = Linter::new(lint_config);
-
-        // Get extract config
-        let extract_config = project.get_extract_config();
-
-        // Collect unique file paths that contain operations or fragments
-        let document_index = project.get_document_index();
-        let mut all_file_paths = std::collections::HashSet::new();
-        for op_infos in document_index.operations.values() {
-            for op_info in op_infos {
-                all_file_paths.insert(&op_info.file_path);
-            }
-        }
-        for frag_infos in document_index.fragments.values() {
-            for frag_info in frag_infos {
-                all_file_paths.insert(&frag_info.file_path);
-            }
-        }
-
-        let mut all_warnings = Vec::new();
-        let mut all_errors = Vec::new();
-
-        // Run lints on each file
-        for file_path in all_file_paths {
-            // Use graphql-extract to extract GraphQL from the file
-            let extracted = match graphql_extract::extract_from_file(
-                std::path::Path::new(file_path),
-                &extract_config,
-            ) {
-                Ok(items) => items,
-                Err(e) => {
-                    if matches!(format, OutputFormat::Human) {
-                        eprintln!(
-                            "{} {}: {}",
-                            "✗ Failed to extract GraphQL from".red(),
-                            file_path,
-                            e
-                        );
-                    }
-                    continue;
-                }
-            };
-
-            if extracted.is_empty() {
                 continue;
             }
+        };
 
-            let schema_index = project.get_schema_index();
-
-            // Run lints on each extracted block
-            for block in &extracted {
-                let ctx = DocumentSchemaContext {
-                    document: &block.source,
-                    file_name: file_path,
-                    schema: schema_index,
-                };
-                let diagnostics = linter.lint_document(&ctx);
-
-                // Convert diagnostics to output format
-                for diag in diagnostics {
-                    // Adjust positions for extracted blocks
-                    let adjusted_line = block.location.range.start.line + diag.range.start.line;
-                    let adjusted_col = if diag.range.start.line == 0 {
-                        block.location.range.start.column + diag.range.start.character
-                    } else {
-                        diag.range.start.character
-                    };
-
-                    let adjusted_end_line = block.location.range.start.line + diag.range.end.line;
-                    let adjusted_end_col = if diag.range.end.line == 0 {
-                        block.location.range.start.column + diag.range.end.character
-                    } else {
-                        diag.range.end.character
-                    };
-
-                    let diag_output = DiagnosticOutput {
-                        file_path: file_path.clone(),
-                        // Convert from 0-based to 1-based for display
-                        line: adjusted_line + 1,
-                        column: adjusted_col + 1,
-                        end_line: adjusted_end_line + 1,
-                        end_column: adjusted_end_col + 1,
-                        message: diag.message,
-                        severity: match diag.severity {
-                            Severity::Error => "error".to_string(),
-                            Severity::Warning => "warning".to_string(),
-                            Severity::Information => "info".to_string(),
-                            Severity::Hint => "hint".to_string(),
-                        },
-                        rule: diag.code.clone(),
-                    };
-
-                    match diag.severity {
-                        Severity::Warning | Severity::Information | Severity::Hint => {
-                            all_warnings.push(diag_output);
-                        }
-                        Severity::Error => {
-                            all_errors.push(diag_output);
-                        }
-                    }
-                }
-            }
+        if extracted.is_empty() {
+            continue;
         }
 
-        // Run project-wide lint rules (e.g., unused_fields, unique_names)
-        let document_index = project.get_document_index();
         let schema_index = project.get_schema_index();
-        let ctx = graphql_linter::ProjectContext {
-            documents: document_index,
-            schema: schema_index,
-        };
-        let project_diagnostics = linter.lint_project(&ctx);
 
-        // Flatten the HashMap<String, Vec<Diagnostic>> into Vec<Diagnostic>
-        for (file_path, diagnostics) in project_diagnostics {
+        // Run lints on each extracted block
+        for block in &extracted {
+            let ctx = DocumentSchemaContext {
+                document: &block.source,
+                file_name: file_path,
+                schema: schema_index,
+            };
+            let diagnostics = linter.lint_document(&ctx);
+
+            // Convert diagnostics to output format
             for diag in diagnostics {
+                // Adjust positions for extracted blocks
+                let adjusted_line = block.location.range.start.line + diag.range.start.line;
+                let adjusted_col = if diag.range.start.line == 0 {
+                    block.location.range.start.column + diag.range.start.character
+                } else {
+                    diag.range.start.character
+                };
+
+                let adjusted_end_line = block.location.range.start.line + diag.range.end.line;
+                let adjusted_end_col = if diag.range.end.line == 0 {
+                    block.location.range.start.column + diag.range.end.character
+                } else {
+                    diag.range.end.character
+                };
+
                 let diag_output = DiagnosticOutput {
                     file_path: file_path.clone(),
-                    // Convert from 0-indexed to 1-indexed for display
-                    line: diag.range.start.line + 1,
-                    column: diag.range.start.character + 1,
-                    end_line: diag.range.end.line + 1,
-                    end_column: diag.range.end.character + 1,
+                    // Convert from 0-based to 1-based for display
+                    line: adjusted_line + 1,
+                    column: adjusted_col + 1,
+                    end_line: adjusted_end_line + 1,
+                    end_column: adjusted_end_col + 1,
                     message: diag.message,
                     severity: match diag.severity {
                         Severity::Error => "error".to_string(),
@@ -251,88 +188,128 @@ pub async fn run(
                 }
             }
         }
+    }
 
-        // Display results
-        total_warnings = all_warnings.len();
-        total_errors = all_errors.len();
+    // Run project-wide lint rules (e.g., unused_fields, unique_names)
+    let document_index = project.get_document_index();
+    let schema_index = project.get_schema_index();
+    let ctx = graphql_linter::ProjectContext {
+        documents: document_index,
+        schema: schema_index,
+    };
+    let project_diagnostics = linter.lint_project(&ctx);
 
-        match format {
-            OutputFormat::Human => {
-                // Print all warnings
-                for warning in &all_warnings {
-                    println!(
-                        "\n{}:{}:{}: {} {}",
-                        warning.file_path,
-                        warning.line,
-                        warning.column,
-                        "warning:".yellow().bold(),
-                        warning.message.yellow()
-                    );
-                    if let Some(ref rule) = warning.rule {
-                        println!("  {}: {}", "rule".dimmed(), rule.dimmed());
-                    }
+    // Flatten the HashMap<String, Vec<Diagnostic>> into Vec<Diagnostic>
+    for (file_path, diagnostics) in project_diagnostics {
+        for diag in diagnostics {
+            let diag_output = DiagnosticOutput {
+                file_path: file_path.clone(),
+                // Convert from 0-indexed to 1-indexed for display
+                line: diag.range.start.line + 1,
+                column: diag.range.start.character + 1,
+                end_line: diag.range.end.line + 1,
+                end_column: diag.range.end.character + 1,
+                message: diag.message,
+                severity: match diag.severity {
+                    Severity::Error => "error".to_string(),
+                    Severity::Warning => "warning".to_string(),
+                    Severity::Information => "info".to_string(),
+                    Severity::Hint => "hint".to_string(),
+                },
+                rule: diag.code.clone(),
+            };
+
+            match diag.severity {
+                Severity::Warning | Severity::Information | Severity::Hint => {
+                    all_warnings.push(diag_output);
                 }
-
-                // Print all errors
-                for error in &all_errors {
-                    println!(
-                        "\n{}:{}:{}: {} {}",
-                        error.file_path,
-                        error.line,
-                        error.column,
-                        "error:".red().bold(),
-                        error.message.red()
-                    );
-                    if let Some(ref rule) = error.rule {
-                        println!("  {}: {}", "rule".dimmed(), rule.dimmed());
-                    }
+                Severity::Error => {
+                    all_errors.push(diag_output);
                 }
             }
-            OutputFormat::Json => {
-                // Print all diagnostics as JSON
-                for warning in &all_warnings {
-                    println!(
-                        "{}",
-                        serde_json::json!({
-                            "file": warning.file_path,
-                            "severity": warning.severity,
-                            "rule": warning.rule,
-                            "message": warning.message,
-                            "location": {
-                                "start": {
-                                    "line": warning.line,
-                                    "column": warning.column
-                                },
-                                "end": {
-                                    "line": warning.end_line,
-                                    "column": warning.end_column
-                                }
-                            }
-                        })
-                    );
-                }
+        }
+    }
 
-                for error in &all_errors {
-                    println!(
-                        "{}",
-                        serde_json::json!({
-                            "file": error.file_path,
-                            "severity": error.severity,
-                            "rule": error.rule,
-                            "message": error.message,
-                            "location": {
-                                "start": {
-                                    "line": error.line,
-                                    "column": error.column
-                                },
-                                "end": {
-                                    "line": error.end_line,
-                                    "column": error.end_column
-                                }
-                            }
-                        })
-                    );
+    // Display results
+    let total_warnings = all_warnings.len();
+    let total_errors = all_errors.len();
+
+    match format {
+        OutputFormat::Human => {
+            // Print all warnings
+            for warning in &all_warnings {
+                println!(
+                    "\n{}:{}:{}: {} {}",
+                    warning.file_path,
+                    warning.line,
+                    warning.column,
+                    "warning:".yellow().bold(),
+                    warning.message.yellow()
+                );
+                if let Some(ref rule) = warning.rule {
+                    println!("  {}: {}", "rule".dimmed(), rule.dimmed());
                 }
+            }
+
+            // Print all errors
+            for error in &all_errors {
+                println!(
+                    "\n{}:{}:{}: {} {}",
+                    error.file_path,
+                    error.line,
+                    error.column,
+                    "error:".red().bold(),
+                    error.message.red()
+                );
+                if let Some(ref rule) = error.rule {
+                    println!("  {}: {}", "rule".dimmed(), rule.dimmed());
+                }
+            }
+        }
+        OutputFormat::Json => {
+            // Print all diagnostics as JSON
+            for warning in &all_warnings {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "file": warning.file_path,
+                        "severity": warning.severity,
+                        "rule": warning.rule,
+                        "message": warning.message,
+                        "location": {
+                            "start": {
+                                "line": warning.line,
+                                "column": warning.column
+                            },
+                            "end": {
+                                "line": warning.end_line,
+                                "column": warning.end_column
+                            }
+                        }
+                    })
+                );
+            }
+
+            for error in &all_errors {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "file": error.file_path,
+                        "severity": error.severity,
+                        "rule": error.rule,
+                        "message": error.message,
+                        "location": {
+                            "start": {
+                                "line": error.line,
+                                "column": error.column
+                            },
+                            "end": {
+                                "line": error.end_line,
+                                "column": error.end_column
+                            }
+                        }
+                    })
+                );
             }
         }
     }

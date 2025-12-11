@@ -1,14 +1,22 @@
+use crate::commands::common::CommandContext;
 use anyhow::Result;
 use colored::Colorize;
 use std::path::PathBuf;
 
 #[allow(clippy::unused_async)] // Will be async when implemented
 pub async fn run(
-    _config_path: Option<PathBuf>,
-    _project_name: Option<String>,
+    config_path: Option<PathBuf>,
+    project_name: Option<String>,
     base: String,
     head: String,
 ) -> Result<()> {
+    // Load config and validate project requirement
+    let _ctx = CommandContext::load(
+        config_path,
+        project_name.as_ref(),
+        "check --base <BASE> --head <HEAD>",
+    )?;
+
     println!(
         "{}",
         format!("Breaking change detection not yet implemented (comparing {base} -> {head})")
