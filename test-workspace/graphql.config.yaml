@@ -5,7 +5,7 @@ documents: "src/**/*.{graphql,gql,ts,tsx}"
 # Global lint configuration (applies to all tools by default)
 lint:
   recommended: error # Use recommended preset with error severity
-  deprecated_field: error # Warn when using deprecated fields
+  deprecated_field: warn # Warn when using deprecated fields
 
 # Tool-specific extensions
 extensions:

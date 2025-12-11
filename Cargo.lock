@@ -957,7 +957,6 @@ dependencies = [
  "graphql-linter",
  "graphql-project",
  "lsp-types",
- "notify",
  "opentelemetry 0.31.0",
  "opentelemetry-otlp 0.31.0",
  "opentelemetry_sdk 0.31.0",

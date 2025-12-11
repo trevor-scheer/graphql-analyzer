@@ -1399,13 +1399,23 @@ impl LanguageServer for GraphQLLanguageServer {
             );
 
             // Create file system watchers for all config files
+            // Note: We use relative glob patterns from workspace root, not absolute file:// URIs
+            // VSCode file watchers work better with relative patterns
             let watchers: Vec<FileSystemWatcher> = config_paths
                 .iter()
                 .filter_map(|path| {
-                    let uri = Uri::from_file_path(path)?;
-                    tracing::info!("Watching config file: {} -> {:?}", path.display(), uri);
+                    // Get the filename for the glob pattern
+                    let filename = path.file_name()?.to_str()?;
+
+                    tracing::info!(
+                        "Creating watcher for config file: {} (pattern: **/{filename})",
+                        path.display()
+                    );
+
+                    // Use a glob pattern that matches this config file anywhere in the workspace
+                    // This works better than absolute URIs for workspace file watchers
                     Some(FileSystemWatcher {
-                        glob_pattern: lsp_types::GlobPattern::String(uri.to_string()),
+                        glob_pattern: lsp_types::GlobPattern::String(format!("**/{filename}")),
                         kind: Some(lsp_types::WatchKind::all()),
                     })
                 })
