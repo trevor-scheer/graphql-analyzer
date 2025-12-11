@@ -1388,72 +1388,59 @@ impl LanguageServer for GraphQLLanguageServer {
             .map(|entry| entry.value().clone())
             .collect();
 
-        tracing::info!("Config paths to watch: {:?}", config_paths);
-
         if config_paths.is_empty() {
-            tracing::warn!("No config paths found to watch!");
-        } else {
-            tracing::info!(
-                count = config_paths.len(),
-                "Registering config file watchers"
-            );
+            tracing::debug!("No config paths found to watch");
+            return;
+        }
 
-            // Create file system watchers for all config files
-            // Note: We use relative glob patterns from workspace root, not absolute file:// URIs
-            // VSCode file watchers work better with relative patterns
-            let watchers: Vec<FileSystemWatcher> = config_paths
-                .iter()
-                .filter_map(|path| {
-                    // Get the filename for the glob pattern
-                    let filename = path.file_name()?.to_str()?;
+        tracing::info!(
+            count = config_paths.len(),
+            "Registering config file watchers"
+        );
 
-                    tracing::info!(
-                        "Creating watcher for config file: {} (pattern: **/{filename})",
-                        path.display()
-                    );
+        // Create file system watchers for all config files
+        // Note: We use relative glob patterns from workspace root, not absolute file:// URIs
+        // VSCode file watchers work better with relative patterns
+        let watchers: Vec<FileSystemWatcher> = config_paths
+            .iter()
+            .filter_map(|path| {
+                // Get the filename for the glob pattern
+                let filename = path.file_name()?.to_str()?;
 
-                    // Use a glob pattern that matches this config file anywhere in the workspace
-                    // This works better than absolute URIs for workspace file watchers
-                    Some(FileSystemWatcher {
-                        glob_pattern: lsp_types::GlobPattern::String(format!("**/{filename}")),
-                        kind: Some(lsp_types::WatchKind::all()),
-                    })
+                tracing::debug!(
+                    "Watching config file: {} (pattern: **/{filename})",
+                    path.display()
+                );
+
+                // Use a glob pattern that matches this config file anywhere in the workspace
+                // This works better than absolute URIs for workspace file watchers
+                Some(FileSystemWatcher {
+                    glob_pattern: lsp_types::GlobPattern::String(format!("**/{filename}")),
+                    kind: Some(lsp_types::WatchKind::all()),
                 })
-                .collect();
+            })
+            .collect();
 
-            tracing::info!("Created {} file watchers", watchers.len());
+        // Register the watchers with the client
+        let registration = lsp_types::Registration {
+            id: "graphql-config-watcher".to_string(),
+            method: "workspace/didChangeWatchedFiles".to_string(),
+            register_options: Some(
+                serde_json::to_value(lsp_types::DidChangeWatchedFilesRegistrationOptions {
+                    watchers,
+                })
+                .unwrap(),
+            ),
+        };
 
-            // Register the watchers with the client
-            let registration = lsp_types::Registration {
-                id: "graphql-config-watcher".to_string(),
-                method: "workspace/didChangeWatchedFiles".to_string(),
-                register_options: Some(
-                    serde_json::to_value(lsp_types::DidChangeWatchedFilesRegistrationOptions {
-                        watchers: watchers.clone(),
-                    })
-                    .unwrap(),
-                ),
-            };
+        let result = self.client.register_capability(vec![registration]).await;
 
-            tracing::info!("Sending registration request to client...");
-            let result = self.client.register_capability(vec![registration]).await;
-
-            match result {
-                Ok(()) => {
-                    tracing::info!("✓ Successfully registered config file watchers");
-                    self.client
-                        .log_message(MessageType::INFO, "Config file watchers registered")
-                        .await;
-                }
-                Err(e) => {
-                    tracing::error!("✗ Failed to register config file watchers: {:?}", e);
-                    self.client
-                        .log_message(
-                            MessageType::ERROR,
-                            format!("Failed to register config watchers: {e:?}"),
-                        )
-                        .await;
-                }
+        match result {
+            Ok(()) => {
+                tracing::info!("Successfully registered config file watchers");
+            }
+            Err(e) => {
+                tracing::error!("Failed to register config file watchers: {:?}", e);
             }
         }
     }
@@ -1557,13 +1544,12 @@ impl LanguageServer for GraphQLLanguageServer {
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
-        tracing::info!("🔔 did_change_watched_files called!");
-        tracing::info!("Watched files changed: {} file(s)", params.changes.len());
+        tracing::debug!("Watched files changed: {} file(s)", params.changes.len());
 
         // Process each file change
         for change in params.changes {
             let uri = change.uri;
-            tracing::info!("Config file changed: {:?} (type: {:?})", uri, change.typ);
+            tracing::debug!("File changed: {:?} (type: {:?})", uri, change.typ);
 
             // Find which workspace this config belongs to
             let Some(config_path) = uri.to_file_path() else {
