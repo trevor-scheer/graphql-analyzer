@@ -3,14 +3,26 @@ use anyhow::Result;
 use colored::Colorize;
 use std::path::PathBuf;
 
-#[allow(clippy::unused_async)] // Will be async when implemented
+/// Breaking change detection command (not yet implemented).
+///
+/// Note: This function is async to maintain API consistency with other commands,
+/// even though the current implementation doesn't perform async operations.
+/// Once breaking change detection is implemented, this will load schemas from
+/// git refs asynchronously.
+#[allow(clippy::unused_async)]
 pub async fn run(
     config_path: Option<PathBuf>,
     project_name: Option<String>,
     base: String,
     head: String,
 ) -> Result<()> {
-    // Load config and validate project requirement
+    // Load config and validate project requirement.
+    // The loaded context is stored but not yet used since the feature is not implemented.
+    // When implemented, this will be used to:
+    // - Load the project configuration
+    // - Check out base and head refs
+    // - Load schemas from each ref
+    // - Compare for breaking changes
     let _ctx = CommandContext::load(
         config_path,
         project_name.as_ref(),
@@ -24,10 +36,11 @@ pub async fn run(
     );
 
     // TODO: Implement breaking change detection
-    // - Load schema from base ref
+    // - Use _ctx to load project
+    // - Load schema from base ref (git checkout or similar)
     // - Load schema from head ref
-    // - Compare schemas for breaking changes
-    // - Report breaking changes
+    // - Compare schemas for breaking changes using a schema diff library
+    // - Report breaking changes in both human and JSON formats
 
     Ok(())
 }

@@ -3,7 +3,7 @@ use crate::OutputFormat;
 use anyhow::Result;
 use colored::Colorize;
 use graphql_linter::{DocumentSchemaContext, LintConfig, Linter};
-use graphql_project::{Severity, StaticGraphQLProject};
+use graphql_project::Severity;
 use std::path::PathBuf;
 use std::process;
 
@@ -29,34 +29,12 @@ pub async fn run(
     // Load config and validate project requirement
     let ctx = CommandContext::load(config_path, project_name.as_ref(), "lint")?;
 
-    // Get projects with base directory
-    let projects = StaticGraphQLProject::from_config_with_base(&ctx.config, &ctx.base_dir).await?;
+    // Load and select project
+    let (_project_name, project) = ctx.load_project(project_name.as_deref()).await?;
 
-    // Select the project to lint (either specified or "default")
-    let project_name_to_use = project_name.as_deref().unwrap_or("default");
-    let (_project_name, project) = projects
-        .into_iter()
-        .find(|(n, _)| n == project_name_to_use)
-        .unwrap_or_else(|| {
-            eprintln!(
-                "{}",
-                format!("Project '{project_name_to_use}' not found").red()
-            );
-            process::exit(1);
-        });
-
-    // StaticGraphQLProject loads everything upfront, just show status
+    // Report project loaded successfully
     if matches!(format, OutputFormat::Human) {
-        let doc_index = project.get_document_index();
-        let op_count = doc_index.operations.len();
-        let frag_count = doc_index.fragments.len();
-        println!("{}", "✓ Schema loaded successfully".green());
-        println!(
-            "{} ({} operations, {} fragments)",
-            "✓ Documents loaded successfully".green(),
-            op_count,
-            frag_count
-        );
+        CommandContext::print_success_message(&project);
     }
 
     // Get lint config and create linter

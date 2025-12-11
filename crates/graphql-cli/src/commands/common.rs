@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
 use graphql_config::{find_config, load_config, GraphQLConfig};
+use graphql_project::StaticGraphQLProject;
 use std::path::PathBuf;
 use std::process;
 
@@ -12,7 +13,13 @@ pub struct CommandContext {
 
 impl CommandContext {
     /// Load and validate config for a command.
-    /// Enforces --project requirement for multi-project configs.
+    ///
+    /// Enforces --project requirement for multi-project configs, unless a project
+    /// named "default" exists. When a multi-project config has a "default" project,
+    /// that project will be automatically selected if --project is omitted.
+    ///
+    /// This allows users to have convenience defaults while still supporting
+    /// multiple projects in a single config file.
     pub fn load(
         config_path: Option<PathBuf>,
         project_name: Option<&String>,
@@ -30,8 +37,9 @@ impl CommandContext {
 
         let config = load_config(&config_path).context("Failed to load config")?;
 
-        // Validate project requirement for multi-project configs
-        // Allow omitting --project if there's a "default" project
+        // Validate project requirement for multi-project configs.
+        // Special case: Allow omitting --project if there's a "default" project,
+        // which will be automatically selected (see get_project_name).
         if config.is_multi_project() && project_name.is_none() {
             // Check if there's a "default" project
             let has_default = config.projects().any(|(name, _)| name == "default");
@@ -61,6 +69,59 @@ impl CommandContext {
             .to_path_buf();
 
         Ok(Self { config, base_dir })
+    }
+
+    /// Get the project name to use based on user input.
+    ///
+    /// Returns the requested project name if provided, otherwise returns "default".
+    /// This method should only be called after `load()` has validated that either:
+    /// - The config is single-project (in which case "default" is the only project)
+    /// - The config is multi-project with a "default" project
+    /// - The config is multi-project and a project name was explicitly provided
+    #[must_use]
+    pub fn get_project_name(requested: Option<&str>) -> &str {
+        requested.unwrap_or("default")
+    }
+
+    /// Select and load a project from the config.
+    ///
+    /// This combines project selection and loading into one operation to reduce
+    /// code duplication across commands.
+    pub async fn load_project(
+        &self,
+        project_name: Option<&str>,
+    ) -> Result<(String, StaticGraphQLProject)> {
+        let projects = StaticGraphQLProject::from_config_with_base(&self.config, &self.base_dir)
+            .await
+            .context("Failed to load projects")?;
+
+        let selected_name = Self::get_project_name(project_name);
+
+        // Find the requested project. This should always succeed because
+        // load() already validated the project requirement, but we handle
+        // the error case for robustness (e.g., if project was deleted between
+        // validation and loading).
+        projects
+            .into_iter()
+            .find(|(name, _)| name == selected_name)
+            .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found in configuration"))
+    }
+
+    /// Print success message showing project was loaded.
+    ///
+    /// Centralizes the "Schema loaded" and "Documents loaded" messages that
+    /// all commands display in human-readable format.
+    pub fn print_success_message(project: &StaticGraphQLProject) {
+        let doc_index = project.get_document_index();
+        let op_count = doc_index.operations.len();
+        let frag_count = doc_index.fragments.len();
+        println!("{}", "✓ Schema loaded successfully".green());
+        println!(
+            "{} ({} operations, {} fragments)",
+            "✓ Documents loaded successfully".green(),
+            op_count,
+            frag_count
+        );
     }
 }
 
