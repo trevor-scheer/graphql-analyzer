@@ -33,6 +33,9 @@ tokio = { workspace = true }
 # Concurrency
 dashmap = { workspace = true }
 
+# File system watching
+notify = { workspace = true }
+
 # Utilities
 serde = { workspace = true }
 serde_json = { workspace = true }

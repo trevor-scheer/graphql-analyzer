@@ -8,12 +8,14 @@ use graphql_linter::{DocumentSchemaContext, LintConfig, Linter, ProjectContext};
 use graphql_project::DynamicGraphQLProject;
 use lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
+    DocumentSymbolResponse, FileChangeType, FileSystemWatcher, GotoDefinitionParams,
     GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability, InitializeParams,
-    InitializeResult, InitializedParams, Location, MessageType, OneOf, Position, Range,
-    ReferenceParams, ServerCapabilities, ServerInfo, SymbolInformation, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Uri, WorkspaceSymbol, WorkspaceSymbolParams,
+    InitializeResult, InitializedParams, Location, MessageType, NumberOrString, OneOf, Position,
+    ProgressParams, ProgressParamsValue, Range, ReferenceParams, ServerCapabilities, ServerInfo,
+    SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Uri, WorkDoneProgress,
+    WorkDoneProgressBegin, WorkDoneProgressEnd, WorkspaceSymbol, WorkspaceSymbolParams,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -33,6 +35,9 @@ type LockedProject = Arc<tokio::sync::RwLock<DynamicGraphQLProject>>;
 
 /// Type alias for a list of projects in a workspace
 type WorkspaceProjects = Vec<(String, LockedProject)>;
+
+/// Type alias for config reload task handle
+type ReloadTask = Arc<Mutex<Option<JoinHandle<()>>>>;
 
 /// Load lint configuration with LSP-specific overrides
 ///
@@ -73,6 +78,8 @@ pub struct GraphQLLanguageServer {
     init_workspace_folders: Arc<DashMap<String, PathBuf>>,
     /// Workspace roots indexed by workspace folder URI string
     workspace_roots: Arc<DashMap<String, PathBuf>>,
+    /// Config file paths indexed by workspace URI string
+    config_paths: Arc<DashMap<String, PathBuf>>,
     /// GraphQL projects by workspace URI -> Vec<(`project_name`, project)>
     projects: Arc<DashMap<String, WorkspaceProjects>>,
     /// Linters by workspace URI (one linter per workspace with LSP-specific config)
@@ -82,6 +89,8 @@ pub struct GraphQLLanguageServer {
     /// Pending validation tasks (URI -> `JoinHandle`) for debouncing
     /// Each document can have at most one pending validation task
     validation_tasks: Arc<DashMap<String, ValidationTask>>,
+    /// Pending config reload tasks (workspace URI -> `JoinHandle`) for debouncing
+    reload_tasks: Arc<DashMap<String, ReloadTask>>,
 }
 
 impl GraphQLLanguageServer {
@@ -90,10 +99,12 @@ impl GraphQLLanguageServer {
             client,
             init_workspace_folders: Arc::new(DashMap::new()),
             workspace_roots: Arc::new(DashMap::new()),
+            config_paths: Arc::new(DashMap::new()),
             projects: Arc::new(DashMap::new()),
             linters: Arc::new(DashMap::new()),
             document_cache: Arc::new(DashMap::new()),
             validation_tasks: Arc::new(DashMap::new()),
+            reload_tasks: Arc::new(DashMap::new()),
         }
     }
 
@@ -106,6 +117,10 @@ impl GraphQLLanguageServer {
         match find_config(workspace_path) {
             Ok(Some(config_path)) => {
                 tracing::info!(config_path = ?config_path, "Found GraphQL config");
+
+                // Store the config path for watching
+                self.config_paths
+                    .insert(workspace_uri.to_string(), config_path.clone());
 
                 // Load the config
                 match load_config(&config_path) {
@@ -197,6 +212,216 @@ impl GraphQLLanguageServer {
                 tracing::error!("Error searching for config: {}", e);
             }
         }
+    }
+
+    /// Reload GraphQL config for a workspace
+    #[allow(clippy::too_many_lines)]
+    #[tracing::instrument(skip(self), fields(workspace_uri = %workspace_uri))]
+    async fn reload_workspace_config(&self, workspace_uri: &str) {
+        tracing::info!("Reloading GraphQL config");
+
+        // Get the config path
+        let Some(config_path) = self.config_paths.get(workspace_uri).map(|r| r.clone()) else {
+            tracing::warn!("No config path found for workspace");
+            return;
+        };
+
+        let Some(workspace_path) = self.workspace_roots.get(workspace_uri).map(|r| r.clone())
+        else {
+            tracing::warn!("No workspace path found");
+            return;
+        };
+
+        // Show progress notification with toast
+        let token = NumberOrString::String(format!("graphql-config-reload-{workspace_uri}"));
+        let create_progress = self
+            .client
+            .send_request::<lsp_types::request::WorkDoneProgressCreate>(
+                lsp_types::WorkDoneProgressCreateParams {
+                    token: token.clone(),
+                },
+            )
+            .await;
+
+        if create_progress.is_err() {
+            tracing::warn!("Failed to create progress token");
+        }
+
+        // Send begin progress
+        self.client
+            .send_notification::<lsp_types::notification::Progress>(ProgressParams {
+                token: token.clone(),
+                value: ProgressParamsValue::WorkDone(WorkDoneProgress::Begin(
+                    WorkDoneProgressBegin {
+                        title: "GraphQL".to_string(),
+                        message: Some("Config changed, reloading...".to_string()),
+                        cancellable: Some(false),
+                        percentage: None,
+                    },
+                )),
+            })
+            .await;
+
+        // Try to load the new config
+        match load_config(&config_path) {
+            Ok(config) => {
+                // Create and initialize projects from config
+                match DynamicGraphQLProject::from_config_with_base(&config, &workspace_path).await {
+                    Ok(projects) => {
+                        tracing::info!(count = projects.len(), "Re-initialized GraphQL projects");
+
+                        // Wrap projects in Arc<RwLock> for thread-safe access
+                        let wrapped_projects: Vec<(
+                            String,
+                            Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
+                        )> = projects
+                            .into_iter()
+                            .map(|(name, proj)| (name, Arc::new(tokio::sync::RwLock::new(proj))))
+                            .collect();
+
+                        // Load LSP-specific lint config and create linter
+                        let lint_config = load_lsp_lint_config(&config);
+                        let linter = Linter::new(lint_config);
+                        tracing::info!("Reloaded LSP lint configuration");
+
+                        // Replace projects and linter
+                        self.projects
+                            .insert(workspace_uri.to_string(), wrapped_projects);
+                        self.linters.insert(workspace_uri.to_string(), linter);
+
+                        // Send completion progress
+                        self.client
+                            .send_notification::<lsp_types::notification::Progress>(
+                                ProgressParams {
+                                    token: token.clone(),
+                                    value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(
+                                        WorkDoneProgressEnd {
+                                            message: Some(
+                                                "Config reloaded successfully".to_string(),
+                                            ),
+                                        },
+                                    )),
+                                },
+                            )
+                            .await;
+
+                        // Show success message as a toast
+                        self.client
+                            .show_message(MessageType::INFO, "GraphQL config reloaded successfully")
+                            .await;
+
+                        // Revalidate all open documents with the new config
+                        tracing::info!("Starting re-validation after config reload");
+                        self.revalidate_all_documents().await;
+                        tracing::info!("Completed re-validation after config reload");
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to initialize projects after reload: {e}");
+
+                        // Send error progress
+                        self.client
+                            .send_notification::<lsp_types::notification::Progress>(
+                                ProgressParams {
+                                    token: token.clone(),
+                                    value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(
+                                        WorkDoneProgressEnd {
+                                            message: Some(format!("Failed to reload: {e}")),
+                                        },
+                                    )),
+                                },
+                            )
+                            .await;
+
+                        self.client
+                            .show_message(
+                                MessageType::ERROR,
+                                format!("Failed to reload GraphQL config: {e}"),
+                            )
+                            .await;
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to load config after change: {e}");
+
+                // Send error progress
+                self.client
+                    .send_notification::<lsp_types::notification::Progress>(ProgressParams {
+                        token: token.clone(),
+                        value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(
+                            WorkDoneProgressEnd {
+                                message: Some(format!("Failed to reload: {e}")),
+                            },
+                        )),
+                    })
+                    .await;
+
+                self.client
+                    .show_message(
+                        MessageType::ERROR,
+                        format!("Failed to parse GraphQL config: {e}"),
+                    )
+                    .await;
+            }
+        }
+    }
+
+    /// Schedule a debounced config reload for a workspace
+    async fn schedule_config_reload(&self, workspace_uri: String) {
+        // Get or create the task slot for this workspace
+        let task_slot = self
+            .reload_tasks
+            .entry(workspace_uri.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(None)))
+            .clone();
+
+        // Cancel any existing pending reload for this workspace
+        {
+            let mut task_guard = task_slot.lock().await;
+            if let Some(existing_task) = task_guard.take() {
+                existing_task.abort();
+                tracing::debug!(workspace = %workspace_uri, "Cancelled previous reload task");
+            }
+        }
+
+        // Clone necessary data for the async task
+        let server = Self {
+            client: self.client.clone(),
+            init_workspace_folders: self.init_workspace_folders.clone(),
+            workspace_roots: self.workspace_roots.clone(),
+            config_paths: self.config_paths.clone(),
+            projects: self.projects.clone(),
+            linters: self.linters.clone(),
+            document_cache: self.document_cache.clone(),
+            validation_tasks: self.validation_tasks.clone(),
+            reload_tasks: self.reload_tasks.clone(),
+        };
+
+        let workspace_uri_for_task = workspace_uri.clone();
+
+        // Spawn a new debounced reload task (500ms delay to batch rapid changes)
+        let task = tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            tracing::debug!(workspace = %workspace_uri_for_task, "Debounce period elapsed, starting config reload");
+
+            server
+                .reload_workspace_config(&workspace_uri_for_task)
+                .await;
+
+            // Clear the task slot once reload completes
+            if let Some(slot) = server.reload_tasks.get(&workspace_uri_for_task) {
+                let mut task_guard = slot.lock().await;
+                *task_guard = None;
+            }
+        });
+
+        // Store the new task
+        {
+            let mut task_guard = task_slot.lock().await;
+            *task_guard = Some(task);
+        }
+
+        tracing::debug!(workspace = %workspace_uri, "Scheduled debounced config reload");
     }
 
     /// Find the workspace and project for a given document URI
@@ -1048,10 +1273,12 @@ impl GraphQLLanguageServer {
             client: self.client.clone(),
             init_workspace_folders: self.init_workspace_folders.clone(),
             workspace_roots: self.workspace_roots.clone(),
+            config_paths: self.config_paths.clone(),
             projects: self.projects.clone(),
             linters: self.linters.clone(),
             document_cache: self.document_cache.clone(),
             validation_tasks: self.validation_tasks.clone(),
+            reload_tasks: self.reload_tasks.clone(),
         };
 
         // Clone uri for the closure
@@ -1153,6 +1380,55 @@ impl LanguageServer for GraphQLLanguageServer {
         for (uri, path) in folders {
             self.load_workspace_config(&uri, &path).await;
         }
+
+        // Register file watchers for config files after loading
+        let config_paths: Vec<PathBuf> = self
+            .config_paths
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
+
+        if !config_paths.is_empty() {
+            tracing::info!(
+                count = config_paths.len(),
+                "Registering config file watchers"
+            );
+
+            // Create file system watchers for all config files
+            let watchers: Vec<FileSystemWatcher> = config_paths
+                .iter()
+                .filter_map(|path| {
+                    let uri = Uri::from_file_path(path)?;
+                    Some(FileSystemWatcher {
+                        glob_pattern: lsp_types::GlobPattern::String(uri.to_string()),
+                        kind: Some(lsp_types::WatchKind::all()),
+                    })
+                })
+                .collect();
+
+            // Register the watchers with the client
+            let registration = lsp_types::Registration {
+                id: "graphql-config-watcher".to_string(),
+                method: "workspace/didChangeWatchedFiles".to_string(),
+                register_options: Some(
+                    serde_json::to_value(lsp_types::DidChangeWatchedFilesRegistrationOptions {
+                        watchers,
+                    })
+                    .unwrap(),
+                ),
+            };
+
+            let result = self.client.register_capability(vec![registration]).await;
+
+            match result {
+                Ok(()) => {
+                    tracing::info!("Successfully registered config file watchers");
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to register config file watchers: {:?}", e);
+                }
+            }
+        }
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -1251,6 +1527,50 @@ impl LanguageServer for GraphQLLanguageServer {
         self.client
             .publish_diagnostics(params.text_document.uri, vec![], None)
             .await;
+    }
+
+    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+        tracing::info!("Watched files changed: {} file(s)", params.changes.len());
+
+        // Process each file change
+        for change in params.changes {
+            let uri = change.uri;
+            tracing::info!("Config file changed: {:?} (type: {:?})", uri, change.typ);
+
+            // Find which workspace this config belongs to
+            let Some(config_path) = uri.to_file_path() else {
+                tracing::warn!("Failed to convert URI to file path: {:?}", uri);
+                continue;
+            };
+
+            // Find the workspace for this config file
+            let workspace_uri = self
+                .config_paths
+                .iter()
+                .find(|entry| entry.value() == &config_path)
+                .map(|entry| entry.key().clone());
+
+            if let Some(workspace_uri) = workspace_uri {
+                match change.typ {
+                    FileChangeType::CREATED | FileChangeType::CHANGED => {
+                        tracing::info!("Scheduling config reload for workspace: {}", workspace_uri);
+                        self.schedule_config_reload(workspace_uri).await;
+                    }
+                    FileChangeType::DELETED => {
+                        tracing::warn!("Config file deleted for workspace: {}", workspace_uri);
+                        self.client
+                            .show_message(MessageType::WARNING, "GraphQL config file was deleted")
+                            .await;
+                    }
+                    _ => {}
+                }
+            } else {
+                tracing::debug!(
+                    "Changed file is not a tracked config file: {:?}",
+                    config_path
+                );
+            }
+        }
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
