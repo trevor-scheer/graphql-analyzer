@@ -1098,6 +1098,19 @@ impl GraphQLLanguageServer {
         // Run document-level lints using graphql-linter
         let schema_index = project_guard.schema_index();
         let schema_index_guard = schema_index.read().unwrap();
+        let document_index = project_guard.document_index();
+        let document_index_guard = document_index.read().unwrap();
+
+        // Run standalone document rules (don't need schema, but need fragments)
+        let standalone_ctx = graphql_linter::StandaloneDocumentContext {
+            document: content,
+            file_name: "document.graphql",
+            fragments: Some(&document_index_guard),
+        };
+        let standalone_diagnostics = linter.lint_standalone_document(&standalone_ctx);
+        project_diagnostics.extend(standalone_diagnostics);
+
+        // Run document+schema rules
         let ctx = DocumentSchemaContext {
             document: content,
             file_name: "document.graphql",
@@ -1178,8 +1191,34 @@ impl GraphQLLanguageServer {
         // Run document-level lints using graphql-linter
         let schema_index = project_guard.schema_index();
         let schema_index_guard = schema_index.read().unwrap();
+        let document_index = project_guard.document_index();
+        let document_index_guard = document_index.read().unwrap();
 
         for block in &extracted {
+            // Run standalone document rules (don't need schema, but need fragments)
+            let standalone_ctx = graphql_linter::StandaloneDocumentContext {
+                document: &block.source,
+                file_name: &file_path,
+                fragments: Some(&document_index_guard),
+            };
+            let mut standalone_diagnostics = linter.lint_standalone_document(&standalone_ctx);
+
+            // Adjust positions for extracted blocks
+            for diag in &mut standalone_diagnostics {
+                diag.range.start.line += block.location.range.start.line;
+                diag.range.end.line += block.location.range.start.line;
+
+                // Adjust column only for first line
+                if diag.range.start.line == block.location.range.start.line {
+                    diag.range.start.character += block.location.range.start.column;
+                }
+                if diag.range.end.line == block.location.range.start.line {
+                    diag.range.end.character += block.location.range.start.column;
+                }
+            }
+            all_diagnostics.extend(standalone_diagnostics);
+
+            // Run document+schema rules
             let ctx = DocumentSchemaContext {
                 document: &block.source,
                 file_name: &file_path,

@@ -212,6 +212,42 @@ extensions:
 
 ## Built-in Rules
 
+### redundant_fields
+
+**Type**: StandaloneDocumentRule
+**Default**: `off` (opt-in)
+**Performance**: Fast
+
+Detects fields in a selection set that are redundant because they are already included in a sibling fragment spread. This helps keep queries clean and maintainable by avoiding duplication.
+
+**Project-wide fragment resolution**: The rule has access to all fragments across the entire project, so it works correctly even when fragments are defined in different files. This is consistent with GraphQL's global fragment scope.
+
+The rule is alias-aware - it only considers a field redundant if it has the same alias (or no alias) as in the fragment. Differently aliased versions of the same field are not considered redundant.
+
+```graphql
+# Fragment definition
+fragment UserFields on User {
+  id
+  name
+}
+
+# Query with redundant fields
+query GetUser {
+  user {
+    ...UserFields
+    id    # ⚠️ Warning: Redundant - already in UserFields
+    name  # ⚠️ Warning: Redundant - already in UserFields
+    userId: id  # ✅ OK - Different alias
+  }
+}
+```
+
+The rule handles:
+- Direct redundancy (field in same selection set as fragment spread)
+- Transitive redundancy (field in fragment that includes other fragments)
+- Circular fragment references (prevents infinite loops)
+- Aliased fields (only same alias is considered redundant)
+
 ### deprecated_field
 
 **Type**: DocumentSchemaRule

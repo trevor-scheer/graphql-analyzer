@@ -1,9 +1,11 @@
 mod deprecated;
+mod redundant_fields;
 mod unique_names;
 mod unused_fields;
 mod unused_fragments;
 
 pub use deprecated::DeprecatedFieldRule;
+pub use redundant_fields::RedundantFieldsRule;
 pub use unique_names::UniqueNamesRule;
 pub use unused_fields::UnusedFieldsRule;
 pub use unused_fragments::UnusedFragmentsRule;
@@ -69,7 +71,7 @@ pub trait ProjectRule {
 
 /// Get all available standalone document lint rules
 pub fn all_standalone_document_rules() -> Vec<Box<dyn StandaloneDocumentRule>> {
-    vec![]
+    vec![Box::new(RedundantFieldsRule)]
 }
 
 /// Get all available document+schema lint rules

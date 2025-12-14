@@ -4,6 +4,8 @@ use graphql_project::{DocumentIndex, SchemaIndex};
 pub struct StandaloneDocumentContext<'a> {
     pub document: &'a str,
     pub file_name: &'a str,
+    /// Optional access to the global fragment index for cross-file fragment resolution
+    pub fragments: Option<&'a DocumentIndex>,
 }
 
 /// Context for linting a document against a schema
