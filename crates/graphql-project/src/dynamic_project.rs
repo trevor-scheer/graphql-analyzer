@@ -1,6 +1,6 @@
 use crate::{
-    convert_apollo_diagnostics, Diagnostic, DocumentIndex, DocumentLoader, ProjectConfig, Result,
-    SchemaIndex, SchemaLoader,
+    convert_apollo_diagnostics, validation_helpers, Diagnostic, DocumentIndex, DocumentLoader,
+    ProjectConfig, Result, SchemaIndex, SchemaLoader,
 };
 use graphql_extract::ExtractConfig;
 use std::collections::{HashMap, HashSet};
@@ -702,71 +702,12 @@ impl DynamicGraphQLProject {
 
     /// Check if source is fragment-only
     fn is_fragment_only(source: &str) -> bool {
-        use apollo_parser::cst;
-        use apollo_parser::Parser;
-
-        let parsed = Parser::new(source).parse();
-        let mut has_fragment = false;
-        let mut has_operation = false;
-
-        for def in parsed.document().definitions() {
-            match def {
-                cst::Definition::FragmentDefinition(_) => has_fragment = true,
-                cst::Definition::OperationDefinition(_) => has_operation = true,
-                _ => {}
-            }
-        }
-
-        has_fragment && !has_operation
+        validation_helpers::is_fragment_only(source)
     }
 
     /// Collect fragment definitions in the source (returns fragment names)
     fn collect_fragment_definitions(source: &str) -> std::collections::HashSet<String> {
-        use apollo_parser::cst;
-        use apollo_parser::Parser;
-        use std::collections::HashSet;
-
-        let parsed = Parser::new(source).parse();
-        let mut fragment_names = HashSet::new();
-
-        for def in parsed.document().definitions() {
-            if let cst::Definition::FragmentDefinition(frag) = def {
-                if let Some(name) = frag.fragment_name() {
-                    if let Some(name_token) = name.name() {
-                        fragment_names.insert(name_token.text().to_string());
-                    }
-                }
-            }
-        }
-
-        fragment_names
-    }
-
-    /// Collect referenced fragments (non-recursive, direct references only)
-    fn collect_referenced_fragments(source: &str) -> Vec<String> {
-        use apollo_parser::cst;
-        use apollo_parser::Parser;
-
-        let parsed = Parser::new(source).parse();
-        let mut fragments = Vec::new();
-
-        for def in parsed.document().definitions() {
-            match def {
-                cst::Definition::OperationDefinition(op) => {
-                    if let Some(selection_set) = op.selection_set() {
-                        Self::collect_fragment_spreads(&selection_set, &mut fragments);
-                    }
-                }
-                cst::Definition::FragmentDefinition(frag) => {
-                    if let Some(selection_set) = frag.selection_set() {
-                        Self::collect_fragment_spreads(&selection_set, &mut fragments);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        fragments
+        validation_helpers::collect_fragment_definitions(source)
     }
 
     /// Recursively collect all fragment dependencies using the document index
@@ -783,7 +724,7 @@ impl DynamicGraphQLProject {
         let mut to_process = VecDeque::new();
 
         // First, find all fragment spreads directly in this document
-        let direct_fragments = Self::collect_referenced_fragments(source);
+        let direct_fragments = validation_helpers::collect_referenced_fragments(source);
         for frag_name in direct_fragments {
             if !referenced.contains(&frag_name) {
                 referenced.insert(frag_name.clone());
@@ -807,7 +748,9 @@ impl DynamicGraphQLProject {
                                 ) {
                                     // Find fragments referenced by this fragment
                                     let nested_fragments =
-                                        Self::collect_referenced_fragments(&fragment_source);
+                                        validation_helpers::collect_referenced_fragments(
+                                            &fragment_source,
+                                        );
                                     for nested_frag_name in nested_fragments {
                                         if !referenced.contains(&nested_frag_name) {
                                             referenced.insert(nested_frag_name.clone());
@@ -824,36 +767,6 @@ impl DynamicGraphQLProject {
         }
 
         referenced.into_iter().collect()
-    }
-
-    /// Recursively collect fragment spreads
-    fn collect_fragment_spreads(
-        selection_set: &apollo_parser::cst::SelectionSet,
-        fragments: &mut Vec<String>,
-    ) {
-        use apollo_parser::cst;
-
-        for selection in selection_set.selections() {
-            match selection {
-                cst::Selection::FragmentSpread(fragment_spread) => {
-                    if let Some(name) = fragment_spread.fragment_name() {
-                        if let Some(name_token) = name.name() {
-                            fragments.push(name_token.text().to_string());
-                        }
-                    }
-                }
-                cst::Selection::Field(field) => {
-                    if let Some(nested_set) = field.selection_set() {
-                        Self::collect_fragment_spreads(&nested_set, fragments);
-                    }
-                }
-                cst::Selection::InlineFragment(inline) => {
-                    if let Some(nested_set) = inline.selection_set() {
-                        Self::collect_fragment_spreads(&nested_set, fragments);
-                    }
-                }
-            }
-        }
     }
 
     /// Get cached diagnostics for a file (if available)
@@ -980,11 +893,7 @@ impl DynamicGraphQLProject {
 
     /// Check if source contains only fragments (simple version)
     fn is_fragment_only_simple(content: &str) -> bool {
-        let trimmed = content.trim();
-        trimmed.starts_with("fragment")
-            && !trimmed.contains("query")
-            && !trimmed.contains("mutation")
-            && !trimmed.contains("subscription")
+        validation_helpers::is_fragment_only_simple(content)
     }
 
     /// Recursively collect fragment spread names from a selection set
@@ -992,35 +901,10 @@ impl DynamicGraphQLProject {
         selection_set: &apollo_parser::cst::SelectionSet,
         used_fragments: &mut std::collections::HashSet<String>,
     ) {
-        use apollo_parser::cst;
-
-        for selection in selection_set.selections() {
-            match selection {
-                cst::Selection::Field(field) => {
-                    if let Some(nested_selection_set) = field.selection_set() {
-                        Self::collect_fragment_spreads_from_selection_set(
-                            &nested_selection_set,
-                            used_fragments,
-                        );
-                    }
-                }
-                cst::Selection::FragmentSpread(spread) => {
-                    if let Some(fragment_name) = spread.fragment_name() {
-                        if let Some(name) = fragment_name.name() {
-                            used_fragments.insert(name.text().to_string());
-                        }
-                    }
-                }
-                cst::Selection::InlineFragment(inline_fragment) => {
-                    if let Some(nested_selection_set) = inline_fragment.selection_set() {
-                        Self::collect_fragment_spreads_from_selection_set(
-                            &nested_selection_set,
-                            used_fragments,
-                        );
-                    }
-                }
-            }
-        }
+        validation_helpers::collect_fragment_spreads_from_selection_set(
+            selection_set,
+            used_fragments,
+        );
     }
 
     /// Collect all fragment names referenced in a document (recursively)
@@ -1142,25 +1026,7 @@ impl DynamicGraphQLProject {
     /// This is similar to `extract_fragment_from_file` but operates on in-memory content.
     /// Returns None if the fragment is not found.
     fn extract_fragment_from_content(content: &str, fragment_name: &str) -> Option<String> {
-        use apollo_parser::cst;
-        use apollo_parser::cst::CstNode;
-        use apollo_parser::Parser;
-
-        let parsed = Parser::new(content).parse();
-
-        for def in parsed.document().definitions() {
-            if let cst::Definition::FragmentDefinition(frag) = def {
-                if let Some(name) = frag.fragment_name() {
-                    if let Some(name_token) = name.name() {
-                        if name_token.text() == fragment_name {
-                            return Some(frag.syntax().text().to_string());
-                        }
-                    }
-                }
-            }
-        }
-
-        None
+        validation_helpers::extract_fragment_from_content(content, fragment_name)
     }
 
     /// Convert apollo-compiler diagnostics to our diagnostic format

@@ -11,6 +11,7 @@ mod line_index;
 mod schema;
 mod static_project;
 mod validation;
+mod validation_helpers;
 
 // Export diagnostics types for LSP package to use when converting DiagnosticList
 pub use completion::{CompletionItem, CompletionItemKind, CompletionProvider};
