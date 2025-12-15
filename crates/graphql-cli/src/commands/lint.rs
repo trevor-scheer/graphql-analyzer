@@ -115,6 +115,60 @@ pub async fn run(
 
         // Run lints on each extracted block
         for block in &extracted {
+            // Run standalone document rules (don't need schema, but need fragments)
+            let standalone_ctx = graphql_linter::StandaloneDocumentContext {
+                document: &block.source,
+                file_name: file_path,
+                fragments: Some(document_index),
+            };
+            let standalone_diagnostics = linter.lint_standalone_document(&standalone_ctx);
+
+            // Convert standalone diagnostics to output format
+            for diag in standalone_diagnostics {
+                // Adjust positions for extracted blocks
+                let adjusted_line = block.location.range.start.line + diag.range.start.line;
+                let adjusted_col = if diag.range.start.line == 0 {
+                    block.location.range.start.column + diag.range.start.character
+                } else {
+                    diag.range.start.character
+                };
+
+                let adjusted_end_line = block.location.range.start.line + diag.range.end.line;
+                let adjusted_end_col = if diag.range.end.line == 0 {
+                    block.location.range.start.column + diag.range.end.character
+                } else {
+                    diag.range.end.character
+                };
+
+                let severity_string = match diag.severity {
+                    Severity::Error => "error",
+                    Severity::Warning => "warning",
+                    Severity::Information => "info",
+                    Severity::Hint => "hint",
+                }
+                .to_string();
+
+                let diag_output = DiagnosticOutput {
+                    file_path: file_path.clone(),
+                    // Convert from 0-based to 1-based for display
+                    line: adjusted_line + 1,
+                    column: adjusted_col + 1,
+                    end_line: adjusted_end_line + 1,
+                    end_column: adjusted_end_col + 1,
+                    message: diag.message.clone(),
+                    severity: severity_string.clone(),
+                    rule: diag.code.clone(),
+                };
+
+                match diag.severity {
+                    Severity::Warning | Severity::Information | Severity::Hint => {
+                        all_warnings.push(diag_output);
+                    }
+                    Severity::Error => all_errors.push(diag_output),
+                }
+            }
+
+            // Run document+schema rules
             let ctx = DocumentSchemaContext {
                 document: &block.source,
                 file_name: file_path,
