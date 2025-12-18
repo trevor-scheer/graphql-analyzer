@@ -27,10 +27,20 @@ pub async fn run(
         return Ok(());
     }
 
+    // Start timing
+    let start_time = std::time::Instant::now();
+
     // Load config and validate project requirement
     let ctx = CommandContext::load(config_path, project_name.as_ref(), "validate")?;
 
     // Load and select project
+    let spinner = if matches!(format, OutputFormat::Human) {
+        Some(crate::progress::spinner("Loading schema and documents..."))
+    } else {
+        None
+    };
+
+    let load_start = std::time::Instant::now();
     let load_projects_span = tracing::info_span!("load_projects");
     let (project_name, project) = async {
         ctx.load_project(project_name.as_deref())
@@ -48,16 +58,35 @@ pub async fn run(
     .instrument(load_projects_span)
     .await;
 
+    if let Some(pb) = spinner {
+        pb.finish_and_clear();
+    }
+
+    let load_duration = load_start.elapsed();
+
     // Report project loaded successfully
     if matches!(format, OutputFormat::Human) {
         CommandContext::print_success_message(&project);
     }
 
     // Validate all files
+    let spinner = if matches!(format, OutputFormat::Human) {
+        Some(crate::progress::spinner("Validating GraphQL documents..."))
+    } else {
+        None
+    };
+
+    let validate_start = std::time::Instant::now();
     let validate_span = tracing::info_span!("validate_all", project = %project_name);
     let all_diagnostics = async { project.validate_all() }
         .instrument(validate_span)
         .await;
+
+    if let Some(pb) = spinner {
+        pb.finish_and_clear();
+    }
+
+    let validate_duration = validate_start.elapsed();
 
     tracing::info!(
         files_with_diagnostics = all_diagnostics.len(),
@@ -92,10 +121,11 @@ pub async fn run(
         OutputFormat::Human => {
             // Print all errors
             for error in &all_errors {
+                let display_path = ctx.relative_path(&error.file_path);
                 if error.line > 0 {
                     println!(
                         "\n{}:{}:{}: {} {}",
-                        error.file_path,
+                        display_path,
                         error.line,
                         error.column,
                         "error:".red().bold(),
@@ -133,6 +163,7 @@ pub async fn run(
     }
 
     // Summary
+    let total_duration = start_time.elapsed();
     if matches!(format, OutputFormat::Human) {
         println!();
         if total_errors == 0 {
@@ -140,6 +171,13 @@ pub async fn run(
         } else {
             println!("{}", format!("✗ Found {total_errors} error(s)").red());
         }
+        println!(
+            "  {} load: {:.2}s, validation: {:.2}s, total: {:.2}s",
+            "⏱".dimmed(),
+            load_duration.as_secs_f64(),
+            validate_duration.as_secs_f64(),
+            total_duration.as_secs_f64()
+        );
     }
 
     if total_errors > 0 {

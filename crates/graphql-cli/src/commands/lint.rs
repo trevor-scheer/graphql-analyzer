@@ -26,11 +26,27 @@ pub async fn run(
         rule: Option<String>,
     }
 
+    // Start timing
+    let start_time = std::time::Instant::now();
+
     // Load config and validate project requirement
     let ctx = CommandContext::load(config_path, project_name.as_ref(), "lint")?;
 
     // Load and select project
+    let spinner = if matches!(format, OutputFormat::Human) {
+        Some(crate::progress::spinner("Loading schema and documents..."))
+    } else {
+        None
+    };
+
+    let load_start = std::time::Instant::now();
     let (_project_name, project) = ctx.load_project(project_name.as_deref()).await?;
+
+    if let Some(pb) = spinner {
+        pb.finish_and_clear();
+    }
+
+    let load_duration = load_start.elapsed();
 
     // Report project loaded successfully
     if matches!(format, OutputFormat::Human) {
@@ -85,8 +101,23 @@ pub async fn run(
     let mut all_warnings = Vec::new();
     let mut all_errors = Vec::new();
 
+    // Create progress bar for file processing
+    let progress = if matches!(format, OutputFormat::Human) {
+        Some(crate::progress::progress_bar(
+            all_file_paths.len() as u64,
+            "Linting files",
+        ))
+    } else {
+        None
+    };
+
+    let lint_start = std::time::Instant::now();
+
     // Run lints on each file
     for file_path in all_file_paths {
+        if let Some(ref pb) = progress {
+            pb.inc(1);
+        }
         // Use graphql-extract to extract GraphQL from the file
         let extracted = match graphql_extract::extract_from_file(
             std::path::Path::new(file_path),
@@ -221,14 +252,32 @@ pub async fn run(
         }
     }
 
+    if let Some(pb) = progress {
+        pb.finish_and_clear();
+    }
+
     // Run project-wide lint rules (e.g., unused_fields, unique_names)
+    let spinner = if matches!(format, OutputFormat::Human) {
+        Some(crate::progress::spinner(
+            "Running project-wide lint rules...",
+        ))
+    } else {
+        None
+    };
+
     let document_index = project.get_document_index();
     let schema_index = project.get_schema_index();
-    let ctx = graphql_linter::ProjectContext {
+    let lint_ctx = graphql_linter::ProjectContext {
         documents: document_index,
         schema: schema_index,
     };
-    let project_diagnostics = linter.lint_project(&ctx);
+    let project_diagnostics = linter.lint_project(&lint_ctx);
+
+    if let Some(pb) = spinner {
+        pb.finish_and_clear();
+    }
+
+    let lint_duration = lint_start.elapsed();
 
     // Flatten the HashMap<String, Vec<Diagnostic>> into Vec<Diagnostic>
     for (file_path, diagnostics) in project_diagnostics {
@@ -269,9 +318,10 @@ pub async fn run(
         OutputFormat::Human => {
             // Print all warnings
             for warning in &all_warnings {
+                let display_path = ctx.relative_path(&warning.file_path);
                 println!(
                     "\n{}:{}:{}: {} {}",
-                    warning.file_path,
+                    display_path,
                     warning.line,
                     warning.column,
                     "warning:".yellow().bold(),
@@ -284,9 +334,10 @@ pub async fn run(
 
             // Print all errors
             for error in &all_errors {
+                let display_path = ctx.relative_path(&error.file_path);
                 println!(
                     "\n{}:{}:{}: {} {}",
-                    error.file_path,
+                    display_path,
                     error.line,
                     error.column,
                     "error:".red().bold(),
@@ -346,6 +397,7 @@ pub async fn run(
     }
 
     // Summary
+    let total_duration = start_time.elapsed();
     if matches!(format, OutputFormat::Human) {
         println!();
         if total_errors == 0 && total_warnings == 0 {
@@ -365,6 +417,13 @@ pub async fn run(
                 format!("✗ Found {total_errors} error(s) and {total_warnings} warning(s)").red()
             );
         }
+        println!(
+            "  {} load: {:.2}s, linting: {:.2}s, total: {:.2}s",
+            "⏱".dimmed(),
+            load_duration.as_secs_f64(),
+            lint_duration.as_secs_f64(),
+            total_duration.as_secs_f64()
+        );
     }
 
     if total_errors > 0 {
