@@ -114,7 +114,6 @@ impl ProjectRule for UnusedFieldsRule {
 }
 
 /// Collect all fields used across all documents in the project
-#[allow(clippy::too_many_lines)]
 fn collect_all_used_fields(
     document_index: &DocumentIndex,
     schema_index: &SchemaIndex,
@@ -124,127 +123,84 @@ fn collect_all_used_fields(
     // Process all parsed ASTs from pure GraphQL files
     for tree in document_index.parsed_asts.values() {
         if tree.errors().next().is_none() {
-            let doc_cst = tree.document();
-            for definition in doc_cst.definitions() {
-                match definition {
-                    cst::Definition::OperationDefinition(op_def) => {
-                        // Get the root type name for this operation
-                        let root_type_name = match op_def.operation_type() {
-                            Some(op_type) if op_type.query_token().is_some() => {
-                                schema_index.schema().schema_definition.query.as_ref()
-                            }
-                            Some(op_type) if op_type.mutation_token().is_some() => {
-                                schema_index.schema().schema_definition.mutation.as_ref()
-                            }
-                            Some(op_type) if op_type.subscription_token().is_some() => schema_index
-                                .schema()
-                                .schema_definition
-                                .subscription
-                                .as_ref(),
-                            None => schema_index.schema().schema_definition.query.as_ref(),
-                            _ => None,
-                        };
-
-                        if let Some(root_type_name) = root_type_name {
-                            if let Some(selection_set) = op_def.selection_set() {
-                                collect_fields_from_selection_set(
-                                    &selection_set,
-                                    root_type_name.as_str(),
-                                    schema_index,
-                                    &mut used_fields,
-                                );
-                            }
-                        }
-                    }
-                    cst::Definition::FragmentDefinition(frag_def) => {
-                        if let Some(type_condition) = frag_def.type_condition() {
-                            if let Some(type_name) = type_condition
-                                .named_type()
-                                .and_then(|nt| nt.name())
-                                .map(|n| n.text().to_string())
-                            {
-                                if let Some(selection_set) = frag_def.selection_set() {
-                                    collect_fields_from_selection_set(
-                                        &selection_set,
-                                        &type_name,
-                                        schema_index,
-                                        &mut used_fields,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
+            process_document_definitions(&tree.document(), schema_index, &mut used_fields);
         }
     }
 
     // Process extracted GraphQL blocks from TypeScript/JavaScript files
     for blocks in document_index.extracted_blocks.values() {
         for block in blocks {
-            let tree = &block.parsed;
-            if tree.errors().next().is_none() {
-                let doc_cst = tree.document();
-                for definition in doc_cst.definitions() {
-                    match definition {
-                        cst::Definition::OperationDefinition(op_def) => {
-                            // Get the root type name for this operation
-                            let root_type_name = match op_def.operation_type() {
-                                Some(op_type) if op_type.query_token().is_some() => {
-                                    schema_index.schema().schema_definition.query.as_ref()
-                                }
-                                Some(op_type) if op_type.mutation_token().is_some() => {
-                                    schema_index.schema().schema_definition.mutation.as_ref()
-                                }
-                                Some(op_type) if op_type.subscription_token().is_some() => {
-                                    schema_index
-                                        .schema()
-                                        .schema_definition
-                                        .subscription
-                                        .as_ref()
-                                }
-                                None => schema_index.schema().schema_definition.query.as_ref(),
-                                _ => None,
-                            };
-
-                            if let Some(root_type_name) = root_type_name {
-                                if let Some(selection_set) = op_def.selection_set() {
-                                    collect_fields_from_selection_set(
-                                        &selection_set,
-                                        root_type_name.as_str(),
-                                        schema_index,
-                                        &mut used_fields,
-                                    );
-                                }
-                            }
-                        }
-                        cst::Definition::FragmentDefinition(frag_def) => {
-                            if let Some(type_condition) = frag_def.type_condition() {
-                                if let Some(type_name) = type_condition
-                                    .named_type()
-                                    .and_then(|nt| nt.name())
-                                    .map(|n| n.text().to_string())
-                                {
-                                    if let Some(selection_set) = frag_def.selection_set() {
-                                        collect_fields_from_selection_set(
-                                            &selection_set,
-                                            &type_name,
-                                            schema_index,
-                                            &mut used_fields,
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
+            if block.parsed.errors().next().is_none() {
+                process_document_definitions(
+                    &block.parsed.document(),
+                    schema_index,
+                    &mut used_fields,
+                );
             }
         }
     }
 
     used_fields
+}
+
+/// Process all definitions in a GraphQL document and collect used fields
+fn process_document_definitions(
+    doc_cst: &cst::Document,
+    schema_index: &SchemaIndex,
+    used_fields: &mut HashMap<String, HashSet<String>>,
+) {
+    for definition in doc_cst.definitions() {
+        match definition {
+            cst::Definition::OperationDefinition(op_def) => {
+                // Get the root type name for this operation
+                let root_type_name = match op_def.operation_type() {
+                    Some(op_type) if op_type.query_token().is_some() => {
+                        schema_index.schema().schema_definition.query.as_ref()
+                    }
+                    Some(op_type) if op_type.mutation_token().is_some() => {
+                        schema_index.schema().schema_definition.mutation.as_ref()
+                    }
+                    Some(op_type) if op_type.subscription_token().is_some() => schema_index
+                        .schema()
+                        .schema_definition
+                        .subscription
+                        .as_ref(),
+                    None => schema_index.schema().schema_definition.query.as_ref(),
+                    _ => None,
+                };
+
+                if let Some(root_type_name) = root_type_name {
+                    if let Some(selection_set) = op_def.selection_set() {
+                        collect_fields_from_selection_set(
+                            &selection_set,
+                            root_type_name.as_str(),
+                            schema_index,
+                            used_fields,
+                        );
+                    }
+                }
+            }
+            cst::Definition::FragmentDefinition(frag_def) => {
+                if let Some(type_condition) = frag_def.type_condition() {
+                    if let Some(type_name) = type_condition
+                        .named_type()
+                        .and_then(|nt| nt.name())
+                        .map(|n| n.text().to_string())
+                    {
+                        if let Some(selection_set) = frag_def.selection_set() {
+                            collect_fields_from_selection_set(
+                                &selection_set,
+                                &type_name,
+                                schema_index,
+                                used_fields,
+                            );
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Recursively collect fields from a selection set
