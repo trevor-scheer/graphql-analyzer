@@ -26,6 +26,9 @@ pub async fn run(
         rule: Option<String>,
     }
 
+    // Start timing
+    let start_time = std::time::Instant::now();
+
     // Load config and validate project requirement
     let ctx = CommandContext::load(config_path, project_name.as_ref(), "lint")?;
 
@@ -36,11 +39,14 @@ pub async fn run(
         None
     };
 
+    let load_start = std::time::Instant::now();
     let (_project_name, project) = ctx.load_project(project_name.as_deref()).await?;
 
     if let Some(pb) = spinner {
         pb.finish_and_clear();
     }
+
+    let load_duration = load_start.elapsed();
 
     // Report project loaded successfully
     if matches!(format, OutputFormat::Human) {
@@ -104,6 +110,8 @@ pub async fn run(
     } else {
         None
     };
+
+    let lint_start = std::time::Instant::now();
 
     // Run lints on each file
     for file_path in all_file_paths {
@@ -269,6 +277,8 @@ pub async fn run(
         pb.finish_and_clear();
     }
 
+    let lint_duration = lint_start.elapsed();
+
     // Flatten the HashMap<String, Vec<Diagnostic>> into Vec<Diagnostic>
     for (file_path, diagnostics) in project_diagnostics {
         for diag in diagnostics {
@@ -385,6 +395,7 @@ pub async fn run(
     }
 
     // Summary
+    let total_duration = start_time.elapsed();
     if matches!(format, OutputFormat::Human) {
         println!();
         if total_errors == 0 && total_warnings == 0 {
@@ -404,6 +415,13 @@ pub async fn run(
                 format!("✗ Found {total_errors} error(s) and {total_warnings} warning(s)").red()
             );
         }
+        println!(
+            "  {} load: {:.2}s, linting: {:.2}s, total: {:.2}s",
+            "⏱".dimmed(),
+            load_duration.as_secs_f64(),
+            lint_duration.as_secs_f64(),
+            total_duration.as_secs_f64()
+        );
     }
 
     if total_errors > 0 {
