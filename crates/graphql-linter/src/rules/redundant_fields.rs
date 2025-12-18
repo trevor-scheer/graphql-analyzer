@@ -1,6 +1,5 @@
 use crate::context::StandaloneDocumentContext;
 use apollo_parser::cst::{self, CstNode};
-use apollo_parser::Parser;
 use graphql_project::{Diagnostic, Position, Range};
 use std::collections::{HashMap, HashSet};
 
@@ -43,14 +42,8 @@ impl StandaloneDocumentRule for RedundantFieldsRule {
     fn check(&self, ctx: &StandaloneDocumentContext) -> Vec<Diagnostic> {
         let document = ctx.document;
         let mut diagnostics = Vec::new();
-        let parser = Parser::new(document);
-        let tree = parser.parse();
 
-        if tree.errors().len() > 0 {
-            return diagnostics;
-        }
-
-        let doc_cst = tree.document();
+        let doc_cst = ctx.parsed.document();
 
         // Collect fragment definitions - first from the document, then from the global index
         let mut fragments = FragmentRegistry::new();
@@ -366,10 +359,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let diagnostics = rule.check(&StandaloneDocumentContext {
             document,
             file_name: "test.graphql",
             fragments: None,
+            parsed: &parsed,
         });
 
         assert_eq!(diagnostics.len(), 2);
@@ -391,10 +386,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let diagnostics = rule.check(&StandaloneDocumentContext {
             document,
             file_name: "test.graphql",
             fragments: None,
+            parsed: &parsed,
         });
 
         assert_eq!(diagnostics.len(), 0);
@@ -418,10 +415,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let diagnostics = rule.check(&StandaloneDocumentContext {
             document,
             file_name: "test.graphql",
             fragments: None,
+            parsed: &parsed,
         });
 
         assert_eq!(diagnostics.len(), 0);
@@ -450,10 +449,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let diagnostics = rule.check(&StandaloneDocumentContext {
             document,
             file_name: "test.graphql",
             fragments: None,
+            parsed: &parsed,
         });
 
         assert_eq!(diagnostics.len(), 2);
@@ -481,10 +482,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let diagnostics = rule.check(&StandaloneDocumentContext {
             document,
             file_name: "test.graphql",
             fragments: None,
+            parsed: &parsed,
         });
 
         assert_eq!(diagnostics.len(), 1);
@@ -514,10 +517,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let diagnostics = rule.check(&StandaloneDocumentContext {
             document,
             file_name: "test.graphql",
             fragments: None,
+            parsed: &parsed,
         });
 
         assert_eq!(diagnostics.len(), 2);
@@ -551,10 +556,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let diagnostics = rule.check(&StandaloneDocumentContext {
             document,
             file_name: "test.graphql",
             fragments: None,
+            parsed: &parsed,
         });
 
         // Fragment A contains: id, ...B (which includes name and ...A recursively)
@@ -605,10 +612,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let diagnostics = rule.check(&StandaloneDocumentContext {
             document,
             file_name: "test.graphql",
             fragments: None,
+            parsed: &parsed,
         });
 
         assert_eq!(
@@ -635,10 +644,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let diagnostics = rule.check(&StandaloneDocumentContext {
             document,
             file_name: "test.graphql",
             fragments: None,
+            parsed: &parsed,
         });
 
         assert_eq!(diagnostics.len(), 1);

@@ -4,7 +4,7 @@
 
 use dashmap::DashMap;
 use graphql_config::{find_config, load_config, GraphQLConfig};
-use graphql_linter::{DocumentSchemaContext, LintConfig, Linter, ProjectContext};
+use graphql_linter::{LintConfig, Linter, ProjectContext};
 use graphql_project::DynamicGraphQLProject;
 use lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
@@ -1102,21 +1102,16 @@ impl GraphQLLanguageServer {
         let document_index_guard = document_index.read().unwrap();
 
         // Run standalone document rules (don't need schema, but need fragments)
-        let standalone_ctx = graphql_linter::StandaloneDocumentContext {
-            document: content,
-            file_name: "document.graphql",
-            fragments: Some(&document_index_guard),
-        };
-        let standalone_diagnostics = linter.lint_standalone_document(&standalone_ctx);
+        let standalone_diagnostics = linter.lint_standalone_document(
+            content,
+            "document.graphql",
+            Some(&document_index_guard),
+        );
         project_diagnostics.extend(standalone_diagnostics);
 
         // Run document+schema rules
-        let ctx = DocumentSchemaContext {
-            document: content,
-            file_name: "document.graphql",
-            schema: &schema_index_guard,
-        };
-        let lint_diagnostics = linter.lint_document(&ctx);
+        let lint_diagnostics =
+            linter.lint_document(content, "document.graphql", &schema_index_guard);
         project_diagnostics.extend(lint_diagnostics);
 
         // Convert graphql-project diagnostics to LSP diagnostics
@@ -1196,12 +1191,11 @@ impl GraphQLLanguageServer {
 
         for block in &extracted {
             // Run standalone document rules (don't need schema, but need fragments)
-            let standalone_ctx = graphql_linter::StandaloneDocumentContext {
-                document: &block.source,
-                file_name: &file_path,
-                fragments: Some(&document_index_guard),
-            };
-            let mut standalone_diagnostics = linter.lint_standalone_document(&standalone_ctx);
+            let mut standalone_diagnostics = linter.lint_standalone_document(
+                &block.source,
+                &file_path,
+                Some(&document_index_guard),
+            );
 
             // Adjust positions for extracted blocks
             for diag in &mut standalone_diagnostics {
@@ -1219,12 +1213,8 @@ impl GraphQLLanguageServer {
             all_diagnostics.extend(standalone_diagnostics);
 
             // Run document+schema rules
-            let ctx = DocumentSchemaContext {
-                document: &block.source,
-                file_name: &file_path,
-                schema: &schema_index_guard,
-            };
-            let lint_diagnostics = linter.lint_document(&ctx);
+            let lint_diagnostics =
+                linter.lint_document(&block.source, &file_path, &schema_index_guard);
 
             // Adjust positions for extracted blocks
             for mut diag in lint_diagnostics {

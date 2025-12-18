@@ -1,6 +1,5 @@
 use crate::context::DocumentSchemaContext;
 use apollo_parser::cst::{self, CstNode};
-use apollo_parser::Parser;
 use graphql_project::{Diagnostic, Position, Range, SchemaIndex};
 
 use super::DocumentSchemaRule;
@@ -21,15 +20,8 @@ impl DocumentSchemaRule for DeprecatedFieldRule {
         let document = ctx.document;
         let schema_index = ctx.schema;
         let mut warnings = Vec::new();
-        let parser = Parser::new(document);
-        let tree = parser.parse();
 
-        // If there are syntax errors, we can't reliably check for deprecated fields
-        if tree.errors().len() > 0 {
-            return warnings;
-        }
-
-        let doc_cst = tree.document();
+        let doc_cst = ctx.parsed.document();
 
         // Walk through all definitions in the document
         for definition in doc_cst.definitions() {
@@ -241,10 +233,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let warnings = rule.check(&DocumentSchemaContext {
             document,
             file_name: "test.graphql",
             schema: &schema,
+            parsed: &parsed,
         });
 
         assert_eq!(warnings.len(), 1, "Should have exactly one warning");
@@ -283,10 +277,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let warnings = rule.check(&DocumentSchemaContext {
             document,
             file_name: "test.graphql",
             schema: &schema,
+            parsed: &parsed,
         });
 
         assert_eq!(warnings.len(), 2, "Should have two warnings");
@@ -331,10 +327,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let warnings = rule.check(&DocumentSchemaContext {
             document,
             file_name: "test.graphql",
             schema: &schema,
+            parsed: &parsed,
         });
 
         assert_eq!(warnings.len(), 1, "Should have one warning");
@@ -370,10 +368,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let warnings = rule.check(&DocumentSchemaContext {
             document,
             file_name: "test.graphql",
             schema: &schema,
+            parsed: &parsed,
         });
 
         assert_eq!(warnings.len(), 0, "Should have no warnings");
@@ -406,10 +406,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let warnings = rule.check(&DocumentSchemaContext {
             document,
             file_name: "test.graphql",
             schema: &schema,
+            parsed: &parsed,
         });
 
         assert_eq!(

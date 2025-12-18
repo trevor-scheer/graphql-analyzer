@@ -21,9 +21,31 @@ impl Linter {
     /// Lint a standalone document (no schema)
     /// Currently no rules exist for this scenario
     #[must_use]
-    #[tracing::instrument(skip(self, ctx), fields(file = ctx.file_name))]
-    pub fn lint_standalone_document(&self, ctx: &StandaloneDocumentContext) -> Vec<Diagnostic> {
+    #[tracing::instrument(skip(self, document, fragments), fields(file = file_name))]
+    pub fn lint_standalone_document(
+        &self,
+        document: &str,
+        file_name: &str,
+        fragments: Option<&graphql_project::DocumentIndex>,
+    ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
+
+        // Parse the document once
+        let parsed = apollo_parser::Parser::new(document).parse();
+
+        // If there are parse errors, return early
+        if parsed.errors().len() > 0 {
+            tracing::debug!("Document has parse errors, skipping linting");
+            return diagnostics;
+        }
+
+        // Create context with pre-parsed tree
+        let ctx = StandaloneDocumentContext {
+            document,
+            file_name,
+            fragments,
+            parsed: &parsed,
+        };
 
         // Get all available standalone document rules
         let all_rules = rules::all_standalone_document_rules();
@@ -43,7 +65,7 @@ impl Linter {
 
             tracing::trace!(rule = rule_name, "Running rule");
             // Run the rule
-            let mut rule_diagnostics = rule.check(ctx);
+            let mut rule_diagnostics = rule.check(&ctx);
 
             // Apply configured severity
             if let Some(severity) = self.config.get_severity(rule_name) {
@@ -70,9 +92,31 @@ impl Linter {
 
     /// Lint a document against a schema
     #[must_use]
-    #[tracing::instrument(skip(self, ctx), fields(file = ctx.file_name))]
-    pub fn lint_document(&self, ctx: &DocumentSchemaContext) -> Vec<Diagnostic> {
+    #[tracing::instrument(skip(self, document, schema), fields(file = file_name))]
+    pub fn lint_document(
+        &self,
+        document: &str,
+        file_name: &str,
+        schema: &graphql_project::SchemaIndex,
+    ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
+
+        // Parse the document once
+        let parsed = apollo_parser::Parser::new(document).parse();
+
+        // If there are parse errors, return early
+        if parsed.errors().len() > 0 {
+            tracing::debug!("Document has parse errors, skipping linting");
+            return diagnostics;
+        }
+
+        // Create context with pre-parsed tree
+        let ctx = DocumentSchemaContext {
+            document,
+            file_name,
+            schema,
+            parsed: &parsed,
+        };
 
         // Get all available document+schema rules
         let all_rules = rules::all_document_schema_rules();
@@ -92,7 +136,7 @@ impl Linter {
 
             tracing::trace!(rule = rule_name, "Running rule");
             // Run the rule
-            let mut rule_diagnostics = rule.check(ctx);
+            let mut rule_diagnostics = rule.check(&ctx);
 
             // Apply configured severity
             if let Some(severity) = self.config.get_severity(rule_name) {
@@ -255,13 +299,7 @@ mod tests {
             query GetUser { user(id: "2") { name } }
         "#;
 
-        let ctx = DocumentSchemaContext {
-            document,
-            file_name: "test.graphql",
-            schema: &schema,
-        };
-
-        let diagnostics = linter.lint_document(&ctx);
+        let diagnostics = linter.lint_document(document, "test.graphql", &schema);
         assert_eq!(
             diagnostics.len(),
             0,
@@ -279,13 +317,7 @@ mod tests {
             query GetUser { user(id: "1") { id email } }
         "#;
 
-        let ctx = DocumentSchemaContext {
-            document,
-            file_name: "test.graphql",
-            schema: &schema,
-        };
-
-        let diagnostics = linter.lint_document(&ctx);
+        let diagnostics = linter.lint_document(document, "test.graphql", &schema);
 
         // Should have 1 warning for deprecated field
         let warning_count = diagnostics
@@ -309,13 +341,7 @@ mod tests {
             query GetUser { user(id: "1") { id email } }
         "#;
 
-        let ctx = DocumentSchemaContext {
-            document,
-            file_name: "test.graphql",
-            schema: &schema,
-        };
-
-        let diagnostics = linter.lint_document(&ctx);
+        let diagnostics = linter.lint_document(document, "test.graphql", &schema);
 
         // Deprecated field should be error (custom config)
         let deprecated_diags: Vec<_> = diagnostics
@@ -343,13 +369,7 @@ mod tests {
             query GetUser { user(id: "1") { id email } }
         "#;
 
-        let ctx = DocumentSchemaContext {
-            document,
-            file_name: "test.graphql",
-            schema: &schema,
-        };
-
-        let diagnostics = linter.lint_document(&ctx);
+        let diagnostics = linter.lint_document(document, "test.graphql", &schema);
 
         // Should have no diagnostics since deprecated_field is disabled
         assert_eq!(

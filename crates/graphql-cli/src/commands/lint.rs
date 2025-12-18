@@ -2,7 +2,7 @@ use crate::commands::common::CommandContext;
 use crate::OutputFormat;
 use anyhow::Result;
 use colored::Colorize;
-use graphql_linter::{DocumentSchemaContext, LintConfig, Linter};
+use graphql_linter::{LintConfig, Linter};
 use graphql_project::Severity;
 use std::path::PathBuf;
 use std::process;
@@ -146,12 +146,8 @@ pub async fn run(
         // Run lints on each extracted block
         for block in &extracted {
             // Run standalone document rules (don't need schema, but need fragments)
-            let standalone_ctx = graphql_linter::StandaloneDocumentContext {
-                document: &block.source,
-                file_name: file_path,
-                fragments: Some(document_index),
-            };
-            let standalone_diagnostics = linter.lint_standalone_document(&standalone_ctx);
+            let standalone_diagnostics =
+                linter.lint_standalone_document(&block.source, file_path, Some(document_index));
 
             // Convert standalone diagnostics to output format
             for diag in standalone_diagnostics {
@@ -199,12 +195,7 @@ pub async fn run(
             }
 
             // Run document+schema rules
-            let ctx = DocumentSchemaContext {
-                document: &block.source,
-                file_name: file_path,
-                schema: schema_index,
-            };
-            let diagnostics = linter.lint_document(&ctx);
+            let diagnostics = linter.lint_document(&block.source, file_path, schema_index);
 
             // Convert diagnostics to output format
             for diag in diagnostics {
