@@ -30,7 +30,17 @@ pub async fn run(
     let ctx = CommandContext::load(config_path, project_name.as_ref(), "lint")?;
 
     // Load and select project
+    let spinner = if matches!(format, OutputFormat::Human) {
+        Some(crate::progress::spinner("Loading schema and documents..."))
+    } else {
+        None
+    };
+
     let (_project_name, project) = ctx.load_project(project_name.as_deref()).await?;
+
+    if let Some(pb) = spinner {
+        pb.finish_and_clear();
+    }
 
     // Report project loaded successfully
     if matches!(format, OutputFormat::Human) {
@@ -85,8 +95,21 @@ pub async fn run(
     let mut all_warnings = Vec::new();
     let mut all_errors = Vec::new();
 
+    // Create progress bar for file processing
+    let progress = if matches!(format, OutputFormat::Human) {
+        Some(crate::progress::progress_bar(
+            all_file_paths.len() as u64,
+            "Linting files",
+        ))
+    } else {
+        None
+    };
+
     // Run lints on each file
     for file_path in all_file_paths {
+        if let Some(ref pb) = progress {
+            pb.inc(1);
+        }
         // Use graphql-extract to extract GraphQL from the file
         let extracted = match graphql_extract::extract_from_file(
             std::path::Path::new(file_path),
@@ -221,7 +244,19 @@ pub async fn run(
         }
     }
 
+    if let Some(pb) = progress {
+        pb.finish_and_clear();
+    }
+
     // Run project-wide lint rules (e.g., unused_fields, unique_names)
+    let spinner = if matches!(format, OutputFormat::Human) {
+        Some(crate::progress::spinner(
+            "Running project-wide lint rules...",
+        ))
+    } else {
+        None
+    };
+
     let document_index = project.get_document_index();
     let schema_index = project.get_schema_index();
     let ctx = graphql_linter::ProjectContext {
@@ -229,6 +264,10 @@ pub async fn run(
         schema: schema_index,
     };
     let project_diagnostics = linter.lint_project(&ctx);
+
+    if let Some(pb) = spinner {
+        pb.finish_and_clear();
+    }
 
     // Flatten the HashMap<String, Vec<Diagnostic>> into Vec<Diagnostic>
     for (file_path, diagnostics) in project_diagnostics {

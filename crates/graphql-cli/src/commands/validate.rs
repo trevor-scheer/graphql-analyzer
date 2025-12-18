@@ -31,6 +31,12 @@ pub async fn run(
     let ctx = CommandContext::load(config_path, project_name.as_ref(), "validate")?;
 
     // Load and select project
+    let spinner = if matches!(format, OutputFormat::Human) {
+        Some(crate::progress::spinner("Loading schema and documents..."))
+    } else {
+        None
+    };
+
     let load_projects_span = tracing::info_span!("load_projects");
     let (project_name, project) = async {
         ctx.load_project(project_name.as_deref())
@@ -48,16 +54,30 @@ pub async fn run(
     .instrument(load_projects_span)
     .await;
 
+    if let Some(pb) = spinner {
+        pb.finish_and_clear();
+    }
+
     // Report project loaded successfully
     if matches!(format, OutputFormat::Human) {
         CommandContext::print_success_message(&project);
     }
 
     // Validate all files
+    let spinner = if matches!(format, OutputFormat::Human) {
+        Some(crate::progress::spinner("Validating GraphQL documents..."))
+    } else {
+        None
+    };
+
     let validate_span = tracing::info_span!("validate_all", project = %project_name);
     let all_diagnostics = async { project.validate_all() }
         .instrument(validate_span)
         .await;
+
+    if let Some(pb) = spinner {
+        pb.finish_and_clear();
+    }
 
     tracing::info!(
         files_with_diagnostics = all_diagnostics.len(),
