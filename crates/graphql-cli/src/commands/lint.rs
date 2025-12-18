@@ -38,15 +38,14 @@ pub async fn run(
     }
 
     // Get lint config and create linter
-    // Load CLI-specific lint configuration (extensions.cli.lint overrides top-level lint)
-    let base_lint_config: LintConfig = ctx
-        .config
+    // For multi-project configs, use the selected project's lint config
+    // For single-project configs, use the top-level lint config
+    let base_lint_config: LintConfig = project
         .lint_config()
         .and_then(|value| serde_json::from_value(value.clone()).ok())
         .unwrap_or_default();
 
-    let cli_lint_config = ctx
-        .config
+    let cli_lint_config = project
         .extensions()
         .and_then(|ext| ext.get("cli"))
         .and_then(|cli_ext| {
