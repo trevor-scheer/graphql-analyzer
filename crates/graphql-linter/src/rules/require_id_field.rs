@@ -1,6 +1,5 @@
 use crate::context::DocumentSchemaContext;
 use apollo_parser::cst::{self, CstNode};
-use apollo_parser::Parser;
 use graphql_project::{Diagnostic, Position, Range, SchemaIndex};
 
 use super::DocumentSchemaRule;
@@ -21,14 +20,8 @@ impl DocumentSchemaRule for RequireIdFieldRule {
         let document = ctx.document;
         let schema_index = ctx.schema;
         let mut diagnostics = Vec::new();
-        let parser = Parser::new(document);
-        let tree = parser.parse();
 
-        if tree.errors().len() > 0 {
-            return diagnostics;
-        }
-
-        let doc_cst = tree.document();
+        let doc_cst = ctx.parsed.document();
 
         for definition in doc_cst.definitions() {
             match definition {
@@ -275,10 +268,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let diagnostics = rule.check(&DocumentSchemaContext {
             document,
             file_name: "test.graphql",
             schema: &schema,
+            parsed: &parsed,
         });
 
         assert_eq!(diagnostics.len(), 1, "Should have exactly one diagnostic");
@@ -315,10 +310,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let diagnostics = rule.check(&DocumentSchemaContext {
             document,
             file_name: "test.graphql",
             schema: &schema,
+            parsed: &parsed,
         });
 
         assert_eq!(diagnostics.len(), 0, "Should have no diagnostics");
@@ -350,10 +347,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let diagnostics = rule.check(&DocumentSchemaContext {
             document,
             file_name: "test.graphql",
             schema: &schema,
+            parsed: &parsed,
         });
 
         assert_eq!(
@@ -400,10 +399,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let diagnostics = rule.check(&DocumentSchemaContext {
             document,
             file_name: "test.graphql",
             schema: &schema,
+            parsed: &parsed,
         });
 
         assert_eq!(
@@ -439,10 +440,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let diagnostics = rule.check(&DocumentSchemaContext {
             document,
             file_name: "test.graphql",
             schema: &schema,
+            parsed: &parsed,
         });
 
         assert_eq!(
@@ -493,10 +496,12 @@ mod tests {
             }
         ";
 
+        let parsed = apollo_parser::Parser::new(document).parse();
         let diagnostics = rule.check(&DocumentSchemaContext {
             document,
             file_name: "test.graphql",
             schema: &schema,
+            parsed: &parsed,
         });
 
         assert_eq!(diagnostics.len(), 0, "Should have no diagnostics");
