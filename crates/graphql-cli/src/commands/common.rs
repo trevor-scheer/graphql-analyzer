@@ -12,6 +12,18 @@ pub struct CommandContext {
 }
 
 impl CommandContext {
+    /// Convert an absolute path to be relative to the base directory
+    /// Returns the original path if it can't be made relative
+    pub fn relative_path(&self, path: &str) -> String {
+        let path_buf = PathBuf::from(path);
+
+        // Try to strip the base directory prefix
+        path_buf.strip_prefix(&self.base_dir).map_or_else(
+            |_| path.to_string(),
+            |relative| relative.to_string_lossy().to_string(),
+        )
+    }
+
     /// Load and validate config for a command.
     ///
     /// Enforces --project requirement for multi-project configs, unless a project

@@ -267,11 +267,11 @@ pub async fn run(
 
     let document_index = project.get_document_index();
     let schema_index = project.get_schema_index();
-    let ctx = graphql_linter::ProjectContext {
+    let lint_ctx = graphql_linter::ProjectContext {
         documents: document_index,
         schema: schema_index,
     };
-    let project_diagnostics = linter.lint_project(&ctx);
+    let project_diagnostics = linter.lint_project(&lint_ctx);
 
     if let Some(pb) = spinner {
         pb.finish_and_clear();
@@ -318,9 +318,10 @@ pub async fn run(
         OutputFormat::Human => {
             // Print all warnings
             for warning in &all_warnings {
+                let display_path = ctx.relative_path(&warning.file_path);
                 println!(
                     "\n{}:{}:{}: {} {}",
-                    warning.file_path,
+                    display_path,
                     warning.line,
                     warning.column,
                     "warning:".yellow().bold(),
@@ -333,9 +334,10 @@ pub async fn run(
 
             // Print all errors
             for error in &all_errors {
+                let display_path = ctx.relative_path(&error.file_path);
                 println!(
                     "\n{}:{}:{}: {} {}",
-                    error.file_path,
+                    display_path,
                     error.line,
                     error.column,
                     "error:".red().bold(),
