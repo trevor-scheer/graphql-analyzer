@@ -1,0 +1,504 @@
+use crate::context::DocumentSchemaContext;
+use apollo_parser::cst::{self, CstNode};
+use apollo_parser::Parser;
+use graphql_project::{Diagnostic, Position, Range, SchemaIndex};
+
+use super::DocumentSchemaRule;
+
+/// Lint rule that checks if an `id` field is requested when available on a type
+pub struct RequireIdFieldRule;
+
+impl DocumentSchemaRule for RequireIdFieldRule {
+    fn name(&self) -> &'static str {
+        "require_id_field"
+    }
+
+    fn description(&self) -> &'static str {
+        "Requires that the 'id' field be requested in selection sets when available on a type"
+    }
+
+    fn check(&self, ctx: &DocumentSchemaContext) -> Vec<Diagnostic> {
+        let document = ctx.document;
+        let schema_index = ctx.schema;
+        let mut diagnostics = Vec::new();
+        let parser = Parser::new(document);
+        let tree = parser.parse();
+
+        if tree.errors().len() > 0 {
+            return diagnostics;
+        }
+
+        let doc_cst = tree.document();
+
+        for definition in doc_cst.definitions() {
+            match definition {
+                cst::Definition::OperationDefinition(operation) => {
+                    let root_type_name = match operation.operation_type() {
+                        Some(op_type) if op_type.query_token().is_some() => {
+                            schema_index.schema().schema_definition.query.as_ref()
+                        }
+                        Some(op_type) if op_type.mutation_token().is_some() => {
+                            schema_index.schema().schema_definition.mutation.as_ref()
+                        }
+                        Some(op_type) if op_type.subscription_token().is_some() => schema_index
+                            .schema()
+                            .schema_definition
+                            .subscription
+                            .as_ref(),
+                        None => schema_index.schema().schema_definition.query.as_ref(),
+                        _ => None,
+                    };
+
+                    if let Some(root_type_name) = root_type_name {
+                        if let Some(selection_set) = operation.selection_set() {
+                            check_selection_set_for_id(
+                                &selection_set,
+                                root_type_name.as_str(),
+                                schema_index,
+                                &mut diagnostics,
+                                document,
+                            );
+                        }
+                    }
+                }
+                cst::Definition::FragmentDefinition(fragment) => {
+                    if let Some(type_condition) = fragment.type_condition() {
+                        if let Some(named_type) = type_condition.named_type() {
+                            if let Some(type_name) = named_type.name() {
+                                let type_name_str = type_name.text();
+                                if let Some(selection_set) = fragment.selection_set() {
+                                    check_selection_set_for_id(
+                                        &selection_set,
+                                        type_name_str.as_ref(),
+                                        schema_index,
+                                        &mut diagnostics,
+                                        document,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        diagnostics
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn check_selection_set_for_id(
+    selection_set: &cst::SelectionSet,
+    parent_type_name: &str,
+    schema_index: &SchemaIndex,
+    diagnostics: &mut Vec<Diagnostic>,
+    document: &str,
+) {
+    let Some(fields) = schema_index.get_fields(parent_type_name) else {
+        return;
+    };
+
+    let has_id_field = fields.iter().any(|f| f.name == "id");
+    let mut has_id_in_selection = false;
+
+    // First, recurse into all nested selections
+    for selection in selection_set.selections() {
+        match selection {
+            cst::Selection::Field(field) => {
+                if let Some(field_name) = field.name() {
+                    let field_name_str = field_name.text();
+
+                    if field_name_str == "id" {
+                        has_id_in_selection = true;
+                    }
+
+                    if let Some(field_info) = fields.iter().find(|f| f.name == field_name_str) {
+                        if let Some(nested_selection_set) = field.selection_set() {
+                            let nested_type = field_info
+                                .type_name
+                                .trim_matches(|c| c == '[' || c == ']' || c == '!');
+
+                            check_selection_set_for_id(
+                                &nested_selection_set,
+                                nested_type,
+                                schema_index,
+                                diagnostics,
+                                document,
+                            );
+                        }
+                    }
+                }
+            }
+            cst::Selection::FragmentSpread(_) => {
+                // Fragment spreads might include the id field, but we can't check that here
+                // without resolving the fragment. For now, we'll assume fragments are responsible
+                // for their own id field requirements.
+            }
+            cst::Selection::InlineFragment(inline_fragment) => {
+                // For inline fragments, we recursively check nested fields but don't enforce
+                // the id requirement on the inline fragment itself since it's part of the parent's
+                // selection set and the parent may have already selected id
+                if let Some(nested_selection_set) = inline_fragment.selection_set() {
+                    // Still need to check nested object selections within the inline fragment
+                    for nested_selection in nested_selection_set.selections() {
+                        if let cst::Selection::Field(nested_field) = nested_selection {
+                            if let Some(field_name) = nested_field.name() {
+                                let field_name_str = field_name.text();
+
+                                // Determine the type context for this inline fragment
+                                let type_name_owned =
+                                    inline_fragment.type_condition().and_then(|type_condition| {
+                                        type_condition.named_type().and_then(|named_type| {
+                                            named_type.name().map(|name| name.text().to_string())
+                                        })
+                                    });
+                                let type_name_ref =
+                                    type_name_owned.as_deref().unwrap_or(parent_type_name);
+
+                                // Get fields for the inline fragment's type
+                                if let Some(inline_fields) = schema_index.get_fields(type_name_ref)
+                                {
+                                    if let Some(field_info) =
+                                        inline_fields.iter().find(|f| f.name == field_name_str)
+                                    {
+                                        if let Some(field_selection_set) =
+                                            nested_field.selection_set()
+                                        {
+                                            let nested_type = field_info
+                                                .type_name
+                                                .trim_matches(|c| c == '[' || c == ']' || c == '!');
+
+                                            check_selection_set_for_id(
+                                                &field_selection_set,
+                                                nested_type,
+                                                schema_index,
+                                                diagnostics,
+                                                document,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // After recursing, check if this type has an id field and if it's missing from the selection
+    if !has_id_field {
+        return;
+    }
+
+    if !has_id_in_selection {
+        let syntax_node = selection_set.syntax();
+        let offset: usize = syntax_node.text_range().start().into();
+        let line_col = offset_to_line_col(document, offset);
+
+        let range = Range {
+            start: Position {
+                line: line_col.0,
+                character: line_col.1,
+            },
+            end: Position {
+                line: line_col.0,
+                character: line_col.1 + 1,
+            },
+        };
+
+        let message =
+            format!("Selection set on type '{parent_type_name}' should include the 'id' field");
+
+        diagnostics.push(
+            Diagnostic::warning(range, message)
+                .with_code("require_id_field")
+                .with_source("graphql-linter"),
+        );
+    }
+}
+
+fn offset_to_line_col(document: &str, offset: usize) -> (usize, usize) {
+    let mut line = 0;
+    let mut col = 0;
+    let mut current_offset = 0;
+
+    for ch in document.chars() {
+        if current_offset >= offset {
+            break;
+        }
+
+        if ch == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+
+        current_offset += ch.len_utf8();
+    }
+
+    (line, col)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::DocumentSchemaContext;
+    use graphql_project::Severity;
+
+    #[test]
+    fn test_missing_id_field() {
+        let schema = SchemaIndex::from_schema(
+            r"
+            type Query {
+                user(id: ID!): User
+            }
+
+            type User {
+                id: ID!
+                name: String!
+                email: String!
+            }
+            ",
+        );
+
+        let rule = RequireIdFieldRule;
+
+        let document = r"
+            query GetUser($userId: ID!) {
+                user(id: $userId) {
+                    name
+                    email
+                }
+            }
+        ";
+
+        let diagnostics = rule.check(&DocumentSchemaContext {
+            document,
+            file_name: "test.graphql",
+            schema: &schema,
+        });
+
+        assert_eq!(diagnostics.len(), 1, "Should have exactly one diagnostic");
+        assert!(diagnostics[0].message.contains("id"));
+        assert!(diagnostics[0].message.contains("User"));
+        assert_eq!(diagnostics[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn test_with_id_field_present() {
+        let schema = SchemaIndex::from_schema(
+            r"
+            type Query {
+                user(id: ID!): User
+            }
+
+            type User {
+                id: ID!
+                name: String!
+                email: String!
+            }
+            ",
+        );
+
+        let rule = RequireIdFieldRule;
+
+        let document = r"
+            query GetUser($userId: ID!) {
+                user(id: $userId) {
+                    id
+                    name
+                    email
+                }
+            }
+        ";
+
+        let diagnostics = rule.check(&DocumentSchemaContext {
+            document,
+            file_name: "test.graphql",
+            schema: &schema,
+        });
+
+        assert_eq!(diagnostics.len(), 0, "Should have no diagnostics");
+    }
+
+    #[test]
+    fn test_type_without_id_field() {
+        let schema = SchemaIndex::from_schema(
+            r"
+            type Query {
+                settings: Settings
+            }
+
+            type Settings {
+                theme: String!
+                language: String!
+            }
+            ",
+        );
+
+        let rule = RequireIdFieldRule;
+
+        let document = r"
+            query GetSettings {
+                settings {
+                    theme
+                    language
+                }
+            }
+        ";
+
+        let diagnostics = rule.check(&DocumentSchemaContext {
+            document,
+            file_name: "test.graphql",
+            schema: &schema,
+        });
+
+        assert_eq!(
+            diagnostics.len(),
+            0,
+            "Should have no diagnostics when type has no id field"
+        );
+    }
+
+    #[test]
+    fn test_nested_selection_sets() {
+        let schema = SchemaIndex::from_schema(
+            r"
+            type Query {
+                user(id: ID!): User
+            }
+
+            type User {
+                id: ID!
+                name: String!
+                posts: [Post!]!
+            }
+
+            type Post {
+                id: ID!
+                title: String!
+                content: String!
+            }
+            ",
+        );
+
+        let rule = RequireIdFieldRule;
+
+        let document = r"
+            query GetUser($userId: ID!) {
+                user(id: $userId) {
+                    id
+                    name
+                    posts {
+                        title
+                        content
+                    }
+                }
+            }
+        ";
+
+        let diagnostics = rule.check(&DocumentSchemaContext {
+            document,
+            file_name: "test.graphql",
+            schema: &schema,
+        });
+
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Should have one diagnostic for missing id in Post"
+        );
+        assert!(diagnostics[0].message.contains("Post"));
+    }
+
+    #[test]
+    fn test_fragment_with_missing_id() {
+        let schema = SchemaIndex::from_schema(
+            r"
+            type Query {
+                user(id: ID!): User
+            }
+
+            type User {
+                id: ID!
+                name: String!
+                email: String!
+            }
+            ",
+        );
+
+        let rule = RequireIdFieldRule;
+
+        let document = r"
+            fragment UserInfo on User {
+                name
+                email
+            }
+        ";
+
+        let diagnostics = rule.check(&DocumentSchemaContext {
+            document,
+            file_name: "test.graphql",
+            schema: &schema,
+        });
+
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Should have one diagnostic for missing id in fragment"
+        );
+        assert!(diagnostics[0].message.contains("User"));
+    }
+
+    #[test]
+    fn test_inline_fragment() {
+        let schema = SchemaIndex::from_schema(
+            r"
+            type Query {
+                node(id: ID!): Node
+            }
+
+            interface Node {
+                id: ID!
+            }
+
+            type User implements Node {
+                id: ID!
+                name: String!
+            }
+
+            type Post implements Node {
+                id: ID!
+                title: String!
+            }
+            ",
+        );
+
+        let rule = RequireIdFieldRule;
+
+        let document = r"
+            query GetNode($nodeId: ID!) {
+                node(id: $nodeId) {
+                    id
+                    ... on User {
+                        name
+                    }
+                    ... on Post {
+                        title
+                    }
+                }
+            }
+        ";
+
+        let diagnostics = rule.check(&DocumentSchemaContext {
+            document,
+            file_name: "test.graphql",
+            schema: &schema,
+        });
+
+        assert_eq!(diagnostics.len(), 0, "Should have no diagnostics");
+    }
+}
