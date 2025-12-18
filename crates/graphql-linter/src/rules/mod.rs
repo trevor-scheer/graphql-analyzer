@@ -1,11 +1,13 @@
 mod deprecated;
 mod redundant_fields;
+mod require_id_field;
 mod unique_names;
 mod unused_fields;
 mod unused_fragments;
 
 pub use deprecated::DeprecatedFieldRule;
 pub use redundant_fields::RedundantFieldsRule;
+pub use require_id_field::RequireIdFieldRule;
 pub use unique_names::UniqueNamesRule;
 pub use unused_fields::UnusedFieldsRule;
 pub use unused_fragments::UnusedFragmentsRule;
@@ -76,7 +78,7 @@ pub fn all_standalone_document_rules() -> Vec<Box<dyn StandaloneDocumentRule>> {
 
 /// Get all available document+schema lint rules
 pub fn all_document_schema_rules() -> Vec<Box<dyn DocumentSchemaRule>> {
-    vec![Box::new(DeprecatedFieldRule)]
+    vec![Box::new(DeprecatedFieldRule), Box::new(RequireIdFieldRule)]
 }
 
 /// Get all available standalone schema lint rules
