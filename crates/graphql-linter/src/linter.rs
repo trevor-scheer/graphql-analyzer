@@ -20,18 +20,28 @@ impl Linter {
 
     /// Lint a standalone document (no schema)
     /// Currently no rules exist for this scenario
+    ///
+    /// If `parsed_ast` is provided, it will be used instead of re-parsing the document.
     #[must_use]
-    #[tracing::instrument(skip(self, document, fragments), fields(file = file_name))]
+    #[tracing::instrument(skip(self, document, fragments, parsed_ast), fields(file = file_name))]
     pub fn lint_standalone_document(
         &self,
         document: &str,
         file_name: &str,
         fragments: Option<&graphql_project::DocumentIndex>,
+        parsed_ast: Option<&apollo_parser::SyntaxTree>,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
 
-        // Parse the document once
-        let parsed = apollo_parser::Parser::new(document).parse();
+        // Use provided AST or parse the document
+        let owned_parsed;
+        #[allow(clippy::option_if_let_else)]
+        let parsed = if let Some(ast) = parsed_ast {
+            ast
+        } else {
+            owned_parsed = apollo_parser::Parser::new(document).parse();
+            &owned_parsed
+        };
 
         // If there are parse errors, return early
         if parsed.errors().len() > 0 {
@@ -44,7 +54,7 @@ impl Linter {
             document,
             file_name,
             fragments,
-            parsed: &parsed,
+            parsed,
         };
 
         // Get all available standalone document rules
@@ -91,18 +101,28 @@ impl Linter {
     }
 
     /// Lint a document against a schema
+    ///
+    /// If `parsed_ast` is provided, it will be used instead of re-parsing the document.
     #[must_use]
-    #[tracing::instrument(skip(self, document, schema), fields(file = file_name))]
+    #[tracing::instrument(skip(self, document, schema, parsed_ast), fields(file = file_name))]
     pub fn lint_document(
         &self,
         document: &str,
         file_name: &str,
         schema: &graphql_project::SchemaIndex,
+        parsed_ast: Option<&apollo_parser::SyntaxTree>,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
 
-        // Parse the document once
-        let parsed = apollo_parser::Parser::new(document).parse();
+        // Use provided AST or parse the document
+        let owned_parsed;
+        #[allow(clippy::option_if_let_else)]
+        let parsed = if let Some(ast) = parsed_ast {
+            ast
+        } else {
+            owned_parsed = apollo_parser::Parser::new(document).parse();
+            &owned_parsed
+        };
 
         // If there are parse errors, return early
         if parsed.errors().len() > 0 {
@@ -115,7 +135,7 @@ impl Linter {
             document,
             file_name,
             schema,
-            parsed: &parsed,
+            parsed,
         };
 
         // Get all available document+schema rules
@@ -299,7 +319,7 @@ mod tests {
             query GetUser { user(id: "2") { name } }
         "#;
 
-        let diagnostics = linter.lint_document(document, "test.graphql", &schema);
+        let diagnostics = linter.lint_document(document, "test.graphql", &schema, None);
         assert_eq!(
             diagnostics.len(),
             0,
@@ -317,7 +337,7 @@ mod tests {
             query GetUser { user(id: "1") { id email } }
         "#;
 
-        let diagnostics = linter.lint_document(document, "test.graphql", &schema);
+        let diagnostics = linter.lint_document(document, "test.graphql", &schema, None);
 
         // Should have 1 warning for deprecated field
         let warning_count = diagnostics
@@ -341,7 +361,7 @@ mod tests {
             query GetUser { user(id: "1") { id email } }
         "#;
 
-        let diagnostics = linter.lint_document(document, "test.graphql", &schema);
+        let diagnostics = linter.lint_document(document, "test.graphql", &schema, None);
 
         // Deprecated field should be error (custom config)
         let deprecated_diags: Vec<_> = diagnostics
@@ -369,7 +389,7 @@ mod tests {
             query GetUser { user(id: "1") { id email } }
         "#;
 
-        let diagnostics = linter.lint_document(document, "test.graphql", &schema);
+        let diagnostics = linter.lint_document(document, "test.graphql", &schema, None);
 
         // Should have no diagnostics since deprecated_field is disabled
         assert_eq!(
