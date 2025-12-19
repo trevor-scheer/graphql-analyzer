@@ -121,11 +121,10 @@ pub async fn run(
         OutputFormat::Human => {
             // Print all errors
             for error in &all_errors {
-                let display_path = ctx.relative_path(&error.file_path);
                 if error.line > 0 {
                     println!(
                         "\n{}:{}:{}: {} {}",
-                        display_path,
+                        error.file_path,
                         error.line,
                         error.column,
                         "error:".red().bold(),

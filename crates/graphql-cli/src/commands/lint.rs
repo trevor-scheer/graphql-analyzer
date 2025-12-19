@@ -391,10 +391,9 @@ pub async fn run(
         OutputFormat::Human => {
             // Print all warnings
             for warning in &all_warnings {
-                let display_path = ctx.relative_path(&warning.file_path);
                 println!(
                     "\n{}:{}:{}: {} {}",
-                    display_path,
+                    warning.file_path,
                     warning.line,
                     warning.column,
                     "warning:".yellow().bold(),
@@ -407,10 +406,9 @@ pub async fn run(
 
             // Print all errors
             for error in &all_errors {
-                let display_path = ctx.relative_path(&error.file_path);
                 println!(
                     "\n{}:{}:{}: {} {}",
-                    display_path,
+                    error.file_path,
                     error.line,
                     error.column,
                     "error:".red().bold(),
