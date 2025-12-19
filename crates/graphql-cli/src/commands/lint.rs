@@ -81,9 +81,6 @@ pub async fn run(
 
     let linter = Linter::new(lint_config);
 
-    // Get extract config
-    let extract_config = project.get_extract_config();
-
     // Collect unique file paths that contain operations or fragments
     let document_index = project.get_document_index();
     let mut all_file_paths = std::collections::HashSet::new();
@@ -113,76 +110,160 @@ pub async fn run(
 
     let lint_start = std::time::Instant::now();
 
-    // Run lints on each file
+    // Run lints on each file using cached parsed ASTs
     for file_path in all_file_paths {
         if let Some(ref pb) = progress {
             pb.inc(1);
         }
-        // Use graphql-extract to extract GraphQL from the file
-        let extracted = match graphql_extract::extract_from_file(
-            std::path::Path::new(file_path),
-            &extract_config,
-        ) {
-            Ok(items) => items,
-            Err(e) => {
-                if matches!(format, OutputFormat::Human) {
-                    eprintln!(
-                        "{} {}: {}",
-                        "✗ Failed to extract GraphQL from".red(),
-                        file_path,
-                        e
-                    );
-                }
-                continue;
-            }
-        };
-
-        if extracted.is_empty() {
-            continue;
-        }
 
         let schema_index = project.get_schema_index();
 
-        // Run lints on each extracted block
-        for block in &extracted {
-            // Run standalone document rules (don't need schema, but need fragments)
-            let standalone_diagnostics =
-                linter.lint_standalone_document(&block.source, file_path, Some(document_index));
+        // Check if we have cached extracted blocks (TypeScript/JavaScript files)
+        if let Some(cached_blocks) = document_index.extracted_blocks.get(file_path) {
+            // Use cached extracted blocks with their pre-parsed ASTs
+            for block in cached_blocks {
+                // Run standalone document rules with cached AST
+                let standalone_diagnostics = linter.lint_standalone_document(
+                    &block.content,
+                    file_path,
+                    Some(document_index),
+                    Some(&block.parsed),
+                );
+
+                // Convert standalone diagnostics to output format
+                for diag in standalone_diagnostics {
+                    // Adjust positions for extracted blocks
+                    let adjusted_line = block.start_line + diag.range.start.line;
+                    let adjusted_col = if diag.range.start.line == 0 {
+                        block.start_column + diag.range.start.character
+                    } else {
+                        diag.range.start.character
+                    };
+
+                    let adjusted_end_line = block.start_line + diag.range.end.line;
+                    let adjusted_end_col = if diag.range.end.line == 0 {
+                        block.start_column + diag.range.end.character
+                    } else {
+                        diag.range.end.character
+                    };
+
+                    let severity_string = match diag.severity {
+                        Severity::Error => "error",
+                        Severity::Warning => "warning",
+                        Severity::Information => "info",
+                        Severity::Hint => "hint",
+                    }
+                    .to_string();
+
+                    let diag_output = DiagnosticOutput {
+                        file_path: file_path.clone(),
+                        // Convert from 0-based to 1-based for display
+                        line: adjusted_line + 1,
+                        column: adjusted_col + 1,
+                        end_line: adjusted_end_line + 1,
+                        end_column: adjusted_end_col + 1,
+                        message: diag.message.clone(),
+                        severity: severity_string.clone(),
+                        rule: diag.code.clone(),
+                    };
+
+                    match diag.severity {
+                        Severity::Warning | Severity::Information | Severity::Hint => {
+                            all_warnings.push(diag_output);
+                        }
+                        Severity::Error => all_errors.push(diag_output),
+                    }
+                }
+
+                // Run document+schema rules with cached AST
+                let diagnostics = linter.lint_document(
+                    &block.content,
+                    file_path,
+                    schema_index,
+                    Some(&block.parsed),
+                );
+
+                // Convert diagnostics to output format
+                for diag in diagnostics {
+                    // Adjust positions for extracted blocks
+                    let adjusted_line = block.start_line + diag.range.start.line;
+                    let adjusted_col = if diag.range.start.line == 0 {
+                        block.start_column + diag.range.start.character
+                    } else {
+                        diag.range.start.character
+                    };
+
+                    let adjusted_end_line = block.start_line + diag.range.end.line;
+                    let adjusted_end_col = if diag.range.end.line == 0 {
+                        block.start_column + diag.range.end.character
+                    } else {
+                        diag.range.end.character
+                    };
+
+                    let diag_output = DiagnosticOutput {
+                        file_path: file_path.clone(),
+                        // Convert from 0-based to 1-based for display
+                        line: adjusted_line + 1,
+                        column: adjusted_col + 1,
+                        end_line: adjusted_end_line + 1,
+                        end_column: adjusted_end_col + 1,
+                        message: diag.message,
+                        severity: match diag.severity {
+                            Severity::Error => "error".to_string(),
+                            Severity::Warning => "warning".to_string(),
+                            Severity::Information => "info".to_string(),
+                            Severity::Hint => "hint".to_string(),
+                        },
+                        rule: diag.code.clone(),
+                    };
+
+                    match diag.severity {
+                        Severity::Warning | Severity::Information | Severity::Hint => {
+                            all_warnings.push(diag_output);
+                        }
+                        Severity::Error => {
+                            all_errors.push(diag_output);
+                        }
+                    }
+                }
+            }
+        } else if let Some(cached_ast) = document_index.parsed_asts.get(file_path) {
+            // Pure .graphql file - use cached parsed AST
+            // Read the file content (we still need the source text for linting)
+            let content = match std::fs::read_to_string(file_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    if matches!(format, OutputFormat::Human) {
+                        eprintln!("{} {}: {}", "✗ Failed to read file".red(), file_path, e);
+                    }
+                    continue;
+                }
+            };
+
+            // Run standalone document rules with cached AST
+            let standalone_diagnostics = linter.lint_standalone_document(
+                &content,
+                file_path,
+                Some(document_index),
+                Some(cached_ast),
+            );
 
             // Convert standalone diagnostics to output format
             for diag in standalone_diagnostics {
-                // Adjust positions for extracted blocks
-                let adjusted_line = block.location.range.start.line + diag.range.start.line;
-                let adjusted_col = if diag.range.start.line == 0 {
-                    block.location.range.start.column + diag.range.start.character
-                } else {
-                    diag.range.start.character
-                };
-
-                let adjusted_end_line = block.location.range.start.line + diag.range.end.line;
-                let adjusted_end_col = if diag.range.end.line == 0 {
-                    block.location.range.start.column + diag.range.end.character
-                } else {
-                    diag.range.end.character
-                };
-
-                let severity_string = match diag.severity {
-                    Severity::Error => "error",
-                    Severity::Warning => "warning",
-                    Severity::Information => "info",
-                    Severity::Hint => "hint",
-                }
-                .to_string();
-
                 let diag_output = DiagnosticOutput {
                     file_path: file_path.clone(),
                     // Convert from 0-based to 1-based for display
-                    line: adjusted_line + 1,
-                    column: adjusted_col + 1,
-                    end_line: adjusted_end_line + 1,
-                    end_column: adjusted_end_col + 1,
+                    line: diag.range.start.line + 1,
+                    column: diag.range.start.character + 1,
+                    end_line: diag.range.end.line + 1,
+                    end_column: diag.range.end.character + 1,
                     message: diag.message.clone(),
-                    severity: severity_string.clone(),
+                    severity: match diag.severity {
+                        Severity::Error => "error".to_string(),
+                        Severity::Warning => "warning".to_string(),
+                        Severity::Information => "info".to_string(),
+                        Severity::Hint => "hint".to_string(),
+                    },
                     rule: diag.code.clone(),
                 };
 
@@ -194,33 +275,19 @@ pub async fn run(
                 }
             }
 
-            // Run document+schema rules
-            let diagnostics = linter.lint_document(&block.source, file_path, schema_index);
+            // Run document+schema rules with cached AST
+            let diagnostics =
+                linter.lint_document(&content, file_path, schema_index, Some(cached_ast));
 
             // Convert diagnostics to output format
             for diag in diagnostics {
-                // Adjust positions for extracted blocks
-                let adjusted_line = block.location.range.start.line + diag.range.start.line;
-                let adjusted_col = if diag.range.start.line == 0 {
-                    block.location.range.start.column + diag.range.start.character
-                } else {
-                    diag.range.start.character
-                };
-
-                let adjusted_end_line = block.location.range.start.line + diag.range.end.line;
-                let adjusted_end_col = if diag.range.end.line == 0 {
-                    block.location.range.start.column + diag.range.end.character
-                } else {
-                    diag.range.end.character
-                };
-
                 let diag_output = DiagnosticOutput {
                     file_path: file_path.clone(),
                     // Convert from 0-based to 1-based for display
-                    line: adjusted_line + 1,
-                    column: adjusted_col + 1,
-                    end_line: adjusted_end_line + 1,
-                    end_column: adjusted_end_col + 1,
+                    line: diag.range.start.line + 1,
+                    column: diag.range.start.character + 1,
+                    end_line: diag.range.end.line + 1,
+                    end_column: diag.range.end.character + 1,
                     message: diag.message,
                     severity: match diag.severity {
                         Severity::Error => "error".to_string(),
@@ -239,6 +306,15 @@ pub async fn run(
                         all_errors.push(diag_output);
                     }
                 }
+            }
+        } else {
+            // Fallback: No cached data found (shouldn't happen in normal operation)
+            if matches!(format, OutputFormat::Human) {
+                eprintln!(
+                    "{} {}",
+                    "✗ Warning: No cached data found for".yellow(),
+                    file_path
+                );
             }
         }
     }
