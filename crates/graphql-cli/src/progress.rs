@@ -1,8 +1,24 @@
 use indicatif::{ProgressBar, ProgressStyle};
 
+/// Detect if we're running in a CI environment
+fn is_ci() -> bool {
+    std::env::var("CI").is_ok()
+        || std::env::var("GITHUB_ACTIONS").is_ok()
+        || std::env::var("GITLAB_CI").is_ok()
+        || std::env::var("CIRCLECI").is_ok()
+        || std::env::var("TRAVIS").is_ok()
+        || std::env::var("JENKINS_URL").is_ok()
+}
+
 /// Create a spinner with a message
+/// Returns a hidden spinner in CI environments
 pub fn spinner(message: &str) -> ProgressBar {
-    let pb = ProgressBar::new_spinner();
+    let pb = if is_ci() {
+        ProgressBar::hidden()
+    } else {
+        ProgressBar::new_spinner()
+    };
+
     pb.set_style(
         ProgressStyle::default_spinner()
             .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
@@ -15,8 +31,14 @@ pub fn spinner(message: &str) -> ProgressBar {
 }
 
 /// Create a progress bar for processing files
+/// Returns a hidden progress bar in CI environments
 pub fn progress_bar(total: u64, message: &str) -> ProgressBar {
-    let pb = ProgressBar::new(total);
+    let pb = if is_ci() {
+        ProgressBar::hidden()
+    } else {
+        ProgressBar::new(total)
+    };
+
     pb.set_style(
         ProgressStyle::default_bar()
             .template("{msg} [{bar:40.cyan/blue}] {pos}/{len} ({percent}%)")

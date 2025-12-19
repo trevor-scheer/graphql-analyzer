@@ -180,6 +180,7 @@ pub async fn run(
                     &block.content,
                     file_path,
                     schema_index,
+                    Some(document_index),
                     Some(&block.parsed),
                 );
 
@@ -276,8 +277,13 @@ pub async fn run(
             }
 
             // Run document+schema rules with cached AST
-            let diagnostics =
-                linter.lint_document(&content, file_path, schema_index, Some(cached_ast));
+            let diagnostics = linter.lint_document(
+                &content,
+                file_path,
+                schema_index,
+                Some(document_index),
+                Some(cached_ast),
+            );
 
             // Convert diagnostics to output format
             for diag in diagnostics {
