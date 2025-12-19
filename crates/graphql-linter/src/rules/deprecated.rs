@@ -238,6 +238,7 @@ mod tests {
             document,
             file_name: "test.graphql",
             schema: &schema,
+            fragments: None,
             parsed: &parsed,
         });
 
@@ -282,6 +283,7 @@ mod tests {
             document,
             file_name: "test.graphql",
             schema: &schema,
+            fragments: None,
             parsed: &parsed,
         });
 
@@ -332,6 +334,7 @@ mod tests {
             document,
             file_name: "test.graphql",
             schema: &schema,
+            fragments: None,
             parsed: &parsed,
         });
 
@@ -373,6 +376,7 @@ mod tests {
             document,
             file_name: "test.graphql",
             schema: &schema,
+            fragments: None,
             parsed: &parsed,
         });
 
@@ -411,6 +415,7 @@ mod tests {
             document,
             file_name: "test.graphql",
             schema: &schema,
+            fragments: None,
             parsed: &parsed,
         });
 

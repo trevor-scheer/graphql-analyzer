@@ -1111,8 +1111,13 @@ impl GraphQLLanguageServer {
         project_diagnostics.extend(standalone_diagnostics);
 
         // Run document+schema rules
-        let lint_diagnostics =
-            linter.lint_document(content, "document.graphql", &schema_index_guard, None);
+        let lint_diagnostics = linter.lint_document(
+            content,
+            "document.graphql",
+            &schema_index_guard,
+            Some(&document_index_guard),
+            None,
+        );
         project_diagnostics.extend(lint_diagnostics);
 
         // Convert graphql-project diagnostics to LSP diagnostics
@@ -1215,8 +1220,13 @@ impl GraphQLLanguageServer {
             all_diagnostics.extend(standalone_diagnostics);
 
             // Run document+schema rules
-            let lint_diagnostics =
-                linter.lint_document(&block.source, &file_path, &schema_index_guard, None);
+            let lint_diagnostics = linter.lint_document(
+                &block.source,
+                &file_path,
+                &schema_index_guard,
+                Some(&document_index_guard),
+                None,
+            );
 
             // Adjust positions for extracted blocks
             for mut diag in lint_diagnostics {

@@ -104,12 +104,13 @@ impl Linter {
     ///
     /// If `parsed_ast` is provided, it will be used instead of re-parsing the document.
     #[must_use]
-    #[tracing::instrument(skip(self, document, schema, parsed_ast), fields(file = file_name))]
+    #[tracing::instrument(skip(self, document, schema, fragments, parsed_ast), fields(file = file_name))]
     pub fn lint_document(
         &self,
         document: &str,
         file_name: &str,
         schema: &graphql_project::SchemaIndex,
+        fragments: Option<&graphql_project::DocumentIndex>,
         parsed_ast: Option<&apollo_parser::SyntaxTree>,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
@@ -135,6 +136,7 @@ impl Linter {
             document,
             file_name,
             schema,
+            fragments,
             parsed,
         };
 
@@ -319,7 +321,7 @@ mod tests {
             query GetUser { user(id: "2") { name } }
         "#;
 
-        let diagnostics = linter.lint_document(document, "test.graphql", &schema, None);
+        let diagnostics = linter.lint_document(document, "test.graphql", &schema, None, None);
         assert_eq!(
             diagnostics.len(),
             0,
@@ -337,7 +339,7 @@ mod tests {
             query GetUser { user(id: "1") { id email } }
         "#;
 
-        let diagnostics = linter.lint_document(document, "test.graphql", &schema, None);
+        let diagnostics = linter.lint_document(document, "test.graphql", &schema, None, None);
 
         // Should have 1 warning for deprecated field
         let warning_count = diagnostics
@@ -361,7 +363,7 @@ mod tests {
             query GetUser { user(id: "1") { id email } }
         "#;
 
-        let diagnostics = linter.lint_document(document, "test.graphql", &schema, None);
+        let diagnostics = linter.lint_document(document, "test.graphql", &schema, None, None);
 
         // Deprecated field should be error (custom config)
         let deprecated_diags: Vec<_> = diagnostics
@@ -389,7 +391,7 @@ mod tests {
             query GetUser { user(id: "1") { id email } }
         "#;
 
-        let diagnostics = linter.lint_document(document, "test.graphql", &schema, None);
+        let diagnostics = linter.lint_document(document, "test.graphql", &schema, None, None);
 
         // Should have no diagnostics since deprecated_field is disabled
         assert_eq!(

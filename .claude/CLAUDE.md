@@ -89,8 +89,9 @@ Schema documents also have important characteristics:
 
 ## PR Guidelines
 
-- Don't include notes about testing or linting passing in PR descriptions
 - Don't use excessive emoji in PR titles or descriptions
+- NEVER mention tests or linting passing in PR description
+- Call out new and updated tests
 
 ## Testing
 
@@ -215,10 +216,16 @@ The linting system is implemented in the `graphql-linter` crate, which is used b
 
 The linter supports four distinct contexts:
 
-1. **Standalone Document**: Quick validation without schema (e.g., naming conventions)
-2. **Document Against Schema**: Real-time feedback (e.g., `deprecated_field`)
+1. **Standalone Document**: Quick validation without schema (e.g., naming conventions). Has optional access to `DocumentIndex` for cross-file fragment resolution.
+2. **Document Against Schema**: Real-time feedback (e.g., `deprecated_field`, `require_id_field`). Has access to `SchemaIndex` and optional `DocumentIndex` for cross-file fragment resolution.
 3. **Standalone Schema**: Schema design validation
 4. **Project-Wide**: Comprehensive analysis across all documents (e.g., `unique_names`, `unused_fields`)
+
+**Fragment Resolution**: Both `StandaloneDocumentContext` and `DocumentSchemaContext` have an optional `fragments: Option<&DocumentIndex>` field. This enables lint rules to:
+- Resolve fragment spreads to their definitions across files
+- Follow transitive fragment dependencies (fragment → fragment → field)
+- Detect circular fragment references
+- Properly analyze operations that use fragments for completeness checks
 
 ### Configuration
 
@@ -243,9 +250,17 @@ extensions:
 
 ### Current Rules
 
+**Standalone Document Rules** (no schema required):
+- **redundant_fields** (StandaloneDocumentRule): Detects redundant field selections in operations and fragments
+
+**Document + Schema Rules**:
 - **deprecated_field** (DocumentSchemaRule): Warns when using @deprecated fields
-- **unique_names** (ProjectRule): Ensures operation/fragment names are unique
-- **unused_fields** (ProjectRule): Detects schema fields never used (opt-in, expensive)
+- **require_id_field** (DocumentSchemaRule): Warns when `id` field is not requested on types that have it. Recursively checks fragment spreads and their nested fragments to determine if `id` is included.
+
+**Project-Wide Rules**:
+- **unique_names** (ProjectRule): Ensures operation/fragment names are unique across the project
+- **unused_fields** (ProjectRule): Detects schema fields never used in any operation or fragment (opt-in, expensive)
+- **unused_fragments** (ProjectRule): Detects fragment definitions that are never used in any operation
 
 ### Performance Considerations
 
