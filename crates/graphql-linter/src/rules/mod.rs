@@ -1,4 +1,5 @@
 mod deprecated;
+mod no_anonymous_operations;
 mod redundant_fields;
 mod require_id_field;
 mod unique_names;
@@ -6,6 +7,7 @@ mod unused_fields;
 mod unused_fragments;
 
 pub use deprecated::DeprecatedFieldRule;
+pub use no_anonymous_operations::NoAnonymousOperationsRule;
 pub use redundant_fields::RedundantFieldsRule;
 pub use require_id_field::RequireIdFieldRule;
 pub use unique_names::UniqueNamesRule;
@@ -73,7 +75,10 @@ pub trait ProjectRule {
 
 /// Get all available standalone document lint rules
 pub fn all_standalone_document_rules() -> Vec<Box<dyn StandaloneDocumentRule>> {
-    vec![Box::new(RedundantFieldsRule)]
+    vec![
+        Box::new(NoAnonymousOperationsRule),
+        Box::new(RedundantFieldsRule),
+    ]
 }
 
 /// Get all available document+schema lint rules
