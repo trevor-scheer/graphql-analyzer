@@ -3,7 +3,7 @@
 #![allow(clippy::significant_drop_in_scrutinee)]
 
 use dashmap::DashMap;
-use graphql_config::{find_config, load_config, GraphQLConfig};
+use graphql_config::{find_config, load_config};
 use graphql_linter::{LintConfig, Linter, ProjectContext};
 use graphql_project::DynamicGraphQLProject;
 use lsp_types::{
@@ -35,25 +35,26 @@ type ValidationTask = Arc<Mutex<Option<JoinHandle<()>>>>;
 type LockedProject = Arc<tokio::sync::RwLock<DynamicGraphQLProject>>;
 
 /// Type alias for a list of projects in a workspace
-type WorkspaceProjects = Vec<(String, LockedProject)>;
+/// Each project has a name, the project instance, and its own linter
+type WorkspaceProjects = Vec<(String, LockedProject, Linter)>;
 
 /// Type alias for config reload task handle
 type ReloadTask = Arc<Mutex<Option<JoinHandle<()>>>>;
 
-/// Load lint configuration with LSP-specific overrides
+/// Load lint configuration for a specific project with LSP-specific overrides
 ///
 /// Priority (highest to lowest):
-/// 1. `extensions.lsp.lint` - LSP-specific overrides
-/// 2. Top-level `lint` - Global defaults
-fn load_lsp_lint_config(config: &GraphQLConfig) -> LintConfig {
-    // Get base lint config from top-level
-    let base_config: LintConfig = config
+/// 1. `extensions.lsp.lint` - LSP-specific overrides from project config
+/// 2. Project-level `lint` - Project-specific defaults
+fn load_lsp_lint_config_for_project(project: &DynamicGraphQLProject) -> LintConfig {
+    // Get base lint config from project
+    let base_config: LintConfig = project
         .lint_config()
         .and_then(|value| serde_json::from_value(value.clone()).ok())
         .unwrap_or_default();
 
     // Get LSP-specific overrides from extensions.lsp.lint
-    let lsp_overrides = config
+    let lsp_overrides = project
         .extensions()
         .and_then(|ext| ext.get("lsp"))
         .and_then(|lsp_ext| {
@@ -81,10 +82,9 @@ pub struct GraphQLLanguageServer {
     workspace_roots: Arc<DashMap<String, PathBuf>>,
     /// Config file paths indexed by workspace URI string
     config_paths: Arc<DashMap<String, PathBuf>>,
-    /// GraphQL projects by workspace URI -> Vec<(`project_name`, project)>
+    /// GraphQL projects by workspace URI -> Vec<(`project_name`, project, linter)>
+    /// Each project has its own linter configured from project-level lint config
     projects: Arc<DashMap<String, WorkspaceProjects>>,
-    /// Linters by workspace URI (one linter per workspace with LSP-specific config)
-    linters: Arc<DashMap<String, Linter>>,
     /// Document content cache indexed by URI string
     document_cache: Arc<DashMap<String, String>>,
     /// Pending validation tasks (URI -> `JoinHandle`) for debouncing
@@ -102,7 +102,6 @@ impl GraphQLLanguageServer {
             workspace_roots: Arc::new(DashMap::new()),
             config_paths: Arc::new(DashMap::new()),
             projects: Arc::new(DashMap::new()),
-            linters: Arc::new(DashMap::new()),
             document_cache: Arc::new(DashMap::new()),
             validation_tasks: Arc::new(DashMap::new()),
             reload_tasks: Arc::new(DashMap::new()),
@@ -158,28 +157,27 @@ impl GraphQLLanguageServer {
                                     };
                                 }
 
-                                // Wrap projects in Arc<RwLock> for thread-safe access
+                                // Wrap projects and create per-project linters
                                 let wrapped_projects: Vec<(
                                     String,
                                     Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
+                                    Linter,
                                 )> = projects
                                     .into_iter()
                                     .map(|(name, proj)| {
-                                        (name, Arc::new(tokio::sync::RwLock::new(proj)))
+                                        // Load lint config from project
+                                        let lint_config = load_lsp_lint_config_for_project(&proj);
+                                        let linter = Linter::new(lint_config);
+                                        tracing::info!(project = %name, "Loaded lint configuration for project");
+                                        (name, Arc::new(tokio::sync::RwLock::new(proj)), linter)
                                     })
                                     .collect();
 
-                                // Load LSP-specific lint config and create linter
-                                let lint_config = load_lsp_lint_config(&config);
-                                let linter = Linter::new(lint_config);
-                                tracing::info!("Loaded LSP lint configuration");
-
-                                // Store workspace, projects, and linter
+                                // Store workspace and projects
                                 self.workspace_roots
                                     .insert(workspace_uri.to_string(), workspace_path.clone());
                                 self.projects
                                     .insert(workspace_uri.to_string(), wrapped_projects);
-                                self.linters.insert(workspace_uri.to_string(), linter);
 
                                 self.client
                                     .log_message(
@@ -281,24 +279,25 @@ impl GraphQLLanguageServer {
                     Ok(projects) => {
                         tracing::info!(count = projects.len(), "Re-initialized GraphQL projects");
 
-                        // Wrap projects in Arc<RwLock> for thread-safe access
+                        // Wrap projects and create per-project linters
                         let wrapped_projects: Vec<(
                             String,
                             Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
+                            Linter,
                         )> = projects
                             .into_iter()
-                            .map(|(name, proj)| (name, Arc::new(tokio::sync::RwLock::new(proj))))
+                            .map(|(name, proj)| {
+                                // Load lint config from project
+                                let lint_config = load_lsp_lint_config_for_project(&proj);
+                                let linter = Linter::new(lint_config);
+                                tracing::info!(project = %name, "Reloaded lint configuration for project");
+                                (name, Arc::new(tokio::sync::RwLock::new(proj)), linter)
+                            })
                             .collect();
 
-                        // Load LSP-specific lint config and create linter
-                        let lint_config = load_lsp_lint_config(&config);
-                        let linter = Linter::new(lint_config);
-                        tracing::info!("Reloaded LSP lint configuration");
-
-                        // Replace projects and linter
+                        // Replace projects
                         self.projects
                             .insert(workspace_uri.to_string(), wrapped_projects);
-                        self.linters.insert(workspace_uri.to_string(), linter);
 
                         // Send completion progress
                         self.client
@@ -402,7 +401,6 @@ impl GraphQLLanguageServer {
             workspace_roots: self.workspace_roots.clone(),
             config_paths: self.config_paths.clone(),
             projects: self.projects.clone(),
-            linters: self.linters.clone(),
             document_cache: self.document_cache.clone(),
             validation_tasks: self.validation_tasks.clone(),
             reload_tasks: self.reload_tasks.clone(),
@@ -482,7 +480,7 @@ impl GraphQLLanguageServer {
                     // Check if this is a schema file by checking against all projects
                     let mut is_schema = false;
                     for workspace_projects in self.projects.iter() {
-                        for (_, project) in workspace_projects.value() {
+                        for (_, project, _) in workspace_projects.value() {
                             if project.read().await.is_schema_file(&path) {
                                 is_schema = true;
                                 break;
@@ -538,7 +536,7 @@ impl GraphQLLanguageServer {
                 return;
             };
 
-            let Some((_, project)) = projects.get(project_idx) else {
+            let Some((_, project, _)) = projects.get(project_idx) else {
                 tracing::debug!(
                     "Project index {} not found in workspace {}",
                     project_idx,
@@ -641,7 +639,7 @@ impl GraphQLLanguageServer {
                     return;
                 };
 
-                let Some((_, project)) = projects.get(project_idx) else {
+                let Some((_, project, _)) = projects.get(project_idx) else {
                     tracing::debug!(
                         "Project index {} not found in workspace {}",
                         project_idx,
@@ -720,7 +718,7 @@ impl GraphQLLanguageServer {
                     return;
                 };
 
-                let Some((_, project)) = projects.get_mut(project_idx) else {
+                let Some((_, project, _)) = projects.get_mut(project_idx) else {
                     tracing::warn!(
                         "Project index {project_idx} not found in workspace {workspace_uri}"
                     );
@@ -765,21 +763,16 @@ impl GraphQLLanguageServer {
                         return Vec::new();
                     };
 
-                    let Some((_, project)) = projects.get(project_idx) else {
+                    let Some((_, project, linter)) = projects.get(project_idx) else {
                         tracing::warn!(
                             "Project index {project_idx} not found in workspace {workspace_uri}"
                         );
                         return Vec::new();
                     };
 
-                    let Some(linter) = self.linters.get(&workspace_uri) else {
-                        tracing::warn!("No linter loaded for workspace: {workspace_uri}");
-                        return Vec::new();
-                    };
-
                     if let Some(path) = file_path.as_ref() {
                         let file_path_str = path.display().to_string();
-                        self.get_project_wide_diagnostics(&file_path_str, project, &linter)
+                        self.get_project_wide_diagnostics(&file_path_str, project, linter)
                             .await
                     } else {
                         Vec::new()
@@ -833,23 +826,18 @@ impl GraphQLLanguageServer {
                 return;
             };
 
-            let Some((_, project)) = projects.get(project_idx) else {
+            let Some((_, project, linter)) = projects.get(project_idx) else {
                 tracing::warn!(
                     "Project index {project_idx} not found in workspace {workspace_uri}"
                 );
                 return;
             };
 
-            let Some(linter) = self.linters.get(&workspace_uri) else {
-                tracing::warn!("No linter loaded for workspace: {workspace_uri}");
-                return;
-            };
-
             if is_ts_js {
-                self.validate_typescript_document(&uri, content, project, &linter)
+                self.validate_typescript_document(&uri, content, project, linter)
                     .await
             } else {
-                self.validate_graphql_document(content, project, &linter)
+                self.validate_graphql_document(content, project, linter)
                     .await
             }
         }; // Drop the read lock here
@@ -864,19 +852,14 @@ impl GraphQLLanguageServer {
                     return;
                 };
 
-                let Some((_, project)) = projects.get(project_idx) else {
+                let Some((_, project, linter)) = projects.get(project_idx) else {
                     tracing::warn!(
                         "Project index {project_idx} not found in workspace {workspace_uri}"
                     );
                     return;
                 };
 
-                let Some(linter) = self.linters.get(&workspace_uri) else {
-                    tracing::warn!("No linter loaded for workspace: {workspace_uri}");
-                    return;
-                };
-
-                self.get_project_wide_diagnostics(&file_path_str, project, &linter)
+                self.get_project_wide_diagnostics(&file_path_str, project, linter)
                     .await
             }; // Drop the read lock here
 
@@ -983,11 +966,7 @@ impl GraphQLLanguageServer {
             return;
         };
 
-        let Some((_, project)) = projects.get(project_idx) else {
-            return;
-        };
-
-        let Some(linter) = self.linters.get(workspace_uri) else {
+        let Some((_, project, linter)) = projects.get(project_idx) else {
             return;
         };
 
@@ -1057,17 +1036,11 @@ impl GraphQLLanguageServer {
                 .await
                 .is_schema_file(std::path::Path::new(&file_path));
 
-            // Get the linter for this workspace
-            let Some(linter) = self.linters.get(workspace_uri) else {
-                tracing::warn!("No linter loaded for workspace: {}", workspace_uri);
-                continue;
-            };
-
             // For schema files, only publish project-wide diagnostics (unused_fields)
             // Schema files should not be validated as executable documents
             let mut diagnostics = if is_schema_file {
                 // Schema files only get project-wide diagnostics
-                self.get_project_wide_diagnostics(&file_path, project, &linter)
+                self.get_project_wide_diagnostics(&file_path, project, linter)
                     .await
             } else {
                 // Check if this is a TypeScript/JavaScript file
@@ -1078,16 +1051,16 @@ impl GraphQLLanguageServer {
 
                 // Get document-specific diagnostics (type errors, etc.)
                 let mut diagnostics = if is_ts_js {
-                    self.validate_typescript_document(&file_uri, &content, project, &linter)
+                    self.validate_typescript_document(&file_uri, &content, project, linter)
                         .await
                 } else {
-                    self.validate_graphql_document(&content, project, &linter)
+                    self.validate_graphql_document(&content, project, linter)
                         .await
                 };
 
                 // Add project-wide diagnostics for this file
                 let project_wide_diags = self
-                    .get_project_wide_diagnostics(&file_path, project, &linter)
+                    .get_project_wide_diagnostics(&file_path, project, linter)
                     .await;
                 diagnostics.extend(project_wide_diags);
                 diagnostics
@@ -1395,7 +1368,6 @@ impl GraphQLLanguageServer {
             workspace_roots: self.workspace_roots.clone(),
             config_paths: self.config_paths.clone(),
             projects: self.projects.clone(),
-            linters: self.linters.clone(),
             document_cache: self.document_cache.clone(),
             validation_tasks: self.validation_tasks.clone(),
             reload_tasks: self.reload_tasks.clone(),
@@ -1649,7 +1621,7 @@ impl LanguageServer for GraphQLLanguageServer {
                 return;
             };
 
-            let Some((_, project)) = projects.get(project_idx) else {
+            let Some((_, project, _)) = projects.get(project_idx) else {
                 return;
             };
 
@@ -1749,7 +1721,7 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         };
 
-        let Some((_, project)) = projects.get(project_idx) else {
+        let Some((_, project, _)) = projects.get(project_idx) else {
             tracing::warn!("Project index {project_idx} not found in workspace {workspace_uri}");
             return Ok(None);
         };
@@ -1844,7 +1816,7 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         };
 
-        let Some((_, project)) = projects.get(project_idx) else {
+        let Some((_, project, _)) = projects.get(project_idx) else {
             tracing::warn!("Project index {project_idx} not found in workspace {workspace_uri}");
             return Ok(None);
         };
@@ -1925,7 +1897,7 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         };
 
-        let Some((_, project)) = projects.get(project_idx) else {
+        let Some((_, project, _)) = projects.get(project_idx) else {
             tracing::warn!("Project index {project_idx} not found in workspace {workspace_uri}");
             return Ok(None);
         };
@@ -2340,7 +2312,7 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         };
 
-        let Some((_, project)) = projects.get(project_idx) else {
+        let Some((_, project, _)) = projects.get(project_idx) else {
             tracing::warn!("Project index {project_idx} not found in workspace {workspace_uri}");
             return Ok(None);
         };
@@ -2488,7 +2460,7 @@ impl LanguageServer for GraphQLLanguageServer {
 
                 // Get projects for this workspace
                 if let Some(projects) = self.projects.get(workspace_uri) {
-                    for (project_name, project) in projects.iter() {
+                    for (project_name, project, _) in projects.iter() {
                         let project_guard = project.read().await;
 
                         // Schema information

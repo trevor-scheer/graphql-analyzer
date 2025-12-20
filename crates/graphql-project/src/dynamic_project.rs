@@ -803,6 +803,20 @@ impl DynamicGraphQLProject {
         &self.config
     }
 
+    /// Get lint configuration for this project
+    #[must_use]
+    pub const fn lint_config(&self) -> Option<&serde_json::Value> {
+        self.config.lint.as_ref()
+    }
+
+    /// Get extensions configuration for this project
+    #[must_use]
+    pub const fn extensions(
+        &self,
+    ) -> Option<&std::collections::HashMap<String, serde_json::Value>> {
+        self.config.extensions.as_ref()
+    }
+
     /// Create projects from GraphQL config with a base directory
     ///
     /// This is the main entry point for LSP initialization. It creates and initializes
