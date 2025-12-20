@@ -1,6 +1,7 @@
 mod deprecated;
 mod enum_values_should_be_screaming_snake_case;
 mod field_names_should_be_camel_case;
+mod input_type_suffix;
 mod no_anonymous_operations;
 mod operation_name_suffix;
 mod redundant_fields;
@@ -13,6 +14,7 @@ mod unused_fragments;
 pub use deprecated::DeprecatedFieldRule;
 pub use enum_values_should_be_screaming_snake_case::EnumValuesShouldBeScreamingSnakeCaseRule;
 pub use field_names_should_be_camel_case::FieldNamesShouldBeCamelCaseRule;
+pub use input_type_suffix::InputTypeSuffixRule;
 pub use no_anonymous_operations::NoAnonymousOperationsRule;
 pub use operation_name_suffix::OperationNameSuffixRule;
 pub use redundant_fields::RedundantFieldsRule;
@@ -99,6 +101,7 @@ pub fn all_document_schema_rules() -> Vec<Box<dyn DocumentSchemaRule>> {
 pub fn all_standalone_schema_rules() -> Vec<Box<dyn StandaloneSchemaRule>> {
     vec![
         Box::new(FieldNamesShouldBeCamelCaseRule),
+        Box::new(InputTypeSuffixRule),
         Box::new(TypeNamesShouldBePascalCaseRule),
         Box::new(EnumValuesShouldBeScreamingSnakeCaseRule),
     ]
