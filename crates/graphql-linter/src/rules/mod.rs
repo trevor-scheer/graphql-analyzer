@@ -1,3 +1,4 @@
+mod avoid_operation_name_prefix;
 mod deprecated;
 mod enum_values_should_be_screaming_snake_case;
 mod field_names_should_be_camel_case;
@@ -11,6 +12,7 @@ mod unique_names;
 mod unused_fields;
 mod unused_fragments;
 
+pub use avoid_operation_name_prefix::AvoidOperationNamePrefixRule;
 pub use deprecated::DeprecatedFieldRule;
 pub use enum_values_should_be_screaming_snake_case::EnumValuesShouldBeScreamingSnakeCaseRule;
 pub use field_names_should_be_camel_case::FieldNamesShouldBeCamelCaseRule;
@@ -86,6 +88,7 @@ pub trait ProjectRule {
 /// Get all available standalone document lint rules
 pub fn all_standalone_document_rules() -> Vec<Box<dyn StandaloneDocumentRule>> {
     vec![
+        Box::new(AvoidOperationNamePrefixRule),
         Box::new(NoAnonymousOperationsRule),
         Box::new(OperationNameSuffixRule),
         Box::new(RedundantFieldsRule),
