@@ -50,6 +50,9 @@ opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic"], optional = t
 # Temp files for TypeScript extraction
 tempfile = "3.0"
 
+[build-dependencies]
+vergen-git2 = { version = "1.0", features = ["build", "cargo"] }
+
 [features]
 default = []
 otel = ["tracing-opentelemetry", "opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp"]

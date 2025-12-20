@@ -1406,9 +1406,26 @@ impl LanguageServer for GraphQLLanguageServer {
     }
 
     async fn initialized(&self, _params: InitializedParams) {
-        tracing::info!("GraphQL Language Server initialized");
+        let version = env!("CARGO_PKG_VERSION");
+        let git_sha = option_env!("VERGEN_GIT_SHA").unwrap_or("unknown");
+        let git_dirty = option_env!("VERGEN_GIT_DIRTY").unwrap_or("false");
+        let binary_path = std::env::current_exe()
+            .map_or_else(|_| "unknown".to_string(), |p| p.display().to_string());
+
+        let dirty_suffix = if git_dirty == "true" { "-dirty" } else { "" };
+
+        tracing::info!(
+            version = version,
+            git_sha = format!("{git_sha}{dirty_suffix}"),
+            binary_path = binary_path,
+            "GraphQL Language Server initialized"
+        );
+
         self.client
-            .log_message(MessageType::INFO, "GraphQL LSP initialized")
+            .log_message(
+                MessageType::INFO,
+                format!("GraphQL LSP initialized (v{version} @ {git_sha}{dirty_suffix}"),
+            )
             .await;
 
         // Load GraphQL config from workspace folders we stored during initialize
