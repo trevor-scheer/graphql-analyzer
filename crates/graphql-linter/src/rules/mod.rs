@@ -1,4 +1,5 @@
 mod deprecated;
+mod field_names_should_be_camel_case;
 mod no_anonymous_operations;
 mod redundant_fields;
 mod require_id_field;
@@ -7,6 +8,7 @@ mod unused_fields;
 mod unused_fragments;
 
 pub use deprecated::DeprecatedFieldRule;
+pub use field_names_should_be_camel_case::FieldNamesShouldBeCamelCaseRule;
 pub use no_anonymous_operations::NoAnonymousOperationsRule;
 pub use redundant_fields::RedundantFieldsRule;
 pub use require_id_field::RequireIdFieldRule;
@@ -88,7 +90,7 @@ pub fn all_document_schema_rules() -> Vec<Box<dyn DocumentSchemaRule>> {
 
 /// Get all available standalone schema lint rules
 pub fn all_standalone_schema_rules() -> Vec<Box<dyn StandaloneSchemaRule>> {
-    vec![]
+    vec![Box::new(FieldNamesShouldBeCamelCaseRule)]
 }
 
 /// Get all available project-wide lint rules

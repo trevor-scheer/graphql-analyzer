@@ -94,8 +94,8 @@ impl LintConfig {
     /// Get recommended severity for a rule
     fn recommended_severity(rule_name: &str) -> Option<LintSeverity> {
         match rule_name {
-            "deprecated_field" => Some(LintSeverity::Warn),
             "unique_names" | "no_anonymous_operations" => Some(LintSeverity::Error),
+            "deprecated_field" | "field_names_should_be_camel_case" => Some(LintSeverity::Warn),
             _ => None,
         }
     }
