@@ -1,17 +1,21 @@
 mod deprecated;
+mod enum_values_should_be_screaming_snake_case;
 mod field_names_should_be_camel_case;
 mod no_anonymous_operations;
 mod redundant_fields;
 mod require_id_field;
+mod type_names_should_be_pascal_case;
 mod unique_names;
 mod unused_fields;
 mod unused_fragments;
 
 pub use deprecated::DeprecatedFieldRule;
+pub use enum_values_should_be_screaming_snake_case::EnumValuesShouldBeScreamingSnakeCaseRule;
 pub use field_names_should_be_camel_case::FieldNamesShouldBeCamelCaseRule;
 pub use no_anonymous_operations::NoAnonymousOperationsRule;
 pub use redundant_fields::RedundantFieldsRule;
 pub use require_id_field::RequireIdFieldRule;
+pub use type_names_should_be_pascal_case::TypeNamesShouldBePascalCaseRule;
 pub use unique_names::UniqueNamesRule;
 pub use unused_fields::UnusedFieldsRule;
 pub use unused_fragments::UnusedFragmentsRule;
@@ -90,7 +94,11 @@ pub fn all_document_schema_rules() -> Vec<Box<dyn DocumentSchemaRule>> {
 
 /// Get all available standalone schema lint rules
 pub fn all_standalone_schema_rules() -> Vec<Box<dyn StandaloneSchemaRule>> {
-    vec![Box::new(FieldNamesShouldBeCamelCaseRule)]
+    vec![
+        Box::new(FieldNamesShouldBeCamelCaseRule),
+        Box::new(TypeNamesShouldBePascalCaseRule),
+        Box::new(EnumValuesShouldBeScreamingSnakeCaseRule),
+    ]
 }
 
 /// Get all available project-wide lint rules
