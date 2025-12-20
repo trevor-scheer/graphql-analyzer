@@ -138,13 +138,23 @@ impl GraphQLLanguageServer {
                                 // Log project info
                                 for (name, project) in &projects {
                                     let doc_index = project.document_index();
-                                    let doc_index_guard = doc_index.read().unwrap();
-                                    tracing::info!(
-                                        project = %name,
-                                        operations = doc_index_guard.operations.len(),
-                                        fragments = doc_index_guard.fragments.len(),
-                                        "Project ready"
-                                    );
+                                    match doc_index.read() {
+                                        Ok(doc_index_guard) => {
+                                            tracing::info!(
+                                                project = %name,
+                                                operations = doc_index_guard.operations.len(),
+                                                fragments = doc_index_guard.fragments.len(),
+                                                "Project ready"
+                                            );
+                                        }
+                                        Err(e) => {
+                                            tracing::error!(
+                                                project = %name,
+                                                "Failed to acquire document index lock: {}",
+                                                e
+                                            );
+                                        }
+                                    }
                                 }
 
                                 // Wrap projects in Arc<RwLock> for thread-safe access
@@ -538,7 +548,13 @@ impl GraphQLLanguageServer {
 
             let project_guard = project.read().await;
             let document_index = project_guard.document_index();
-            let document_index_guard = document_index.read().unwrap();
+            let document_index_guard = match document_index.read() {
+                Ok(guard) => guard,
+                Err(e) => {
+                    tracing::error!("Failed to acquire document index lock: {}", e);
+                    return;
+                }
+            };
             tracing::debug!("Got document index in {:?}", index_start.elapsed());
 
             document_index_guard
@@ -913,8 +929,20 @@ impl GraphQLLanguageServer {
         let document_index = project_guard.document_index();
         let schema_index = project_guard.schema_index();
 
-        let document_index_guard = document_index.read().unwrap();
-        let schema_index_guard = schema_index.read().unwrap();
+        let document_index_guard = match document_index.read() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("Failed to acquire document index lock: {}", e);
+                return Vec::new();
+            }
+        };
+        let schema_index_guard = match schema_index.read() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("Failed to acquire schema index lock: {}", e);
+                return Vec::new();
+            }
+        };
 
         let ctx = ProjectContext {
             documents: &document_index_guard,
@@ -966,8 +994,20 @@ impl GraphQLLanguageServer {
             let project_guard = project.read().await;
             let document_index = project_guard.document_index();
             let schema_index = project_guard.schema_index();
-            let document_index_guard = document_index.read().unwrap();
-            let schema_index_guard = schema_index.read().unwrap();
+            let document_index_guard = match document_index.read() {
+                Ok(guard) => guard,
+                Err(e) => {
+                    tracing::error!("Failed to acquire document index lock: {}", e);
+                    return;
+                }
+            };
+            let schema_index_guard = match schema_index.read() {
+                Ok(guard) => guard,
+                Err(e) => {
+                    tracing::error!("Failed to acquire schema index lock: {}", e);
+                    return;
+                }
+            };
             let ctx = ProjectContext {
                 documents: &document_index_guard,
                 schema: &schema_index_guard,
@@ -1097,9 +1137,21 @@ impl GraphQLLanguageServer {
 
         // Run document-level lints using graphql-linter
         let schema_index = project_guard.schema_index();
-        let schema_index_guard = schema_index.read().unwrap();
+        let schema_index_guard = match schema_index.read() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("Failed to acquire schema index lock: {}", e);
+                return project_diagnostics;
+            }
+        };
         let document_index = project_guard.document_index();
-        let document_index_guard = document_index.read().unwrap();
+        let document_index_guard = match document_index.read() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("Failed to acquire document index lock: {}", e);
+                return project_diagnostics;
+            }
+        };
 
         // Run standalone document rules (don't need schema, but need fragments)
         let standalone_diagnostics = linter.lint_standalone_document(
@@ -1191,9 +1243,21 @@ impl GraphQLLanguageServer {
 
         // Run document-level lints using graphql-linter
         let schema_index = project_guard.schema_index();
-        let schema_index_guard = schema_index.read().unwrap();
+        let schema_index_guard = match schema_index.read() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("Failed to acquire schema index lock: {}", e);
+                return all_diagnostics;
+            }
+        };
         let document_index = project_guard.document_index();
-        let document_index_guard = document_index.read().unwrap();
+        let document_index_guard = match document_index.read() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("Failed to acquire document index lock: {}", e);
+                return all_diagnostics;
+            }
+        };
 
         for block in &extracted {
             // Run standalone document rules (don't need schema, but need fragments)
