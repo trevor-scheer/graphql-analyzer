@@ -166,7 +166,7 @@ impl Validator {
                         let name_str = name.text().to_string();
                         let syntax_node = name.syntax();
                         let offset: usize = syntax_node.text_range().start().into();
-                        let line_col = Self::offset_to_line_col(document, offset);
+                        let line_col = crate::offset_to_line_col(document, offset);
 
                         operation_names.entry(name_str).or_default().push(line_col);
                     }
@@ -176,7 +176,7 @@ impl Validator {
                         let name_str = name.text().to_string();
                         let syntax_node = name.syntax();
                         let offset: usize = syntax_node.text_range().start().into();
-                        let line_col = Self::offset_to_line_col(document, offset);
+                        let line_col = crate::offset_to_line_col(document, offset);
 
                         fragment_names.entry(name_str).or_default().push(line_col);
                     }
@@ -331,52 +331,50 @@ impl Validator {
                         let field_name_str = field_name.text();
 
                         // Check if this field is deprecated
-                        if let Some(fields) = schema_index.get_fields(parent_type_name) {
-                            if let Some(field_info) =
-                                fields.iter().find(|f| f.name == field_name_str)
-                            {
-                                if let Some(ref reason) = field_info.deprecated {
-                                    // Get the source location of the field
-                                    let syntax_node = field_name.syntax();
-                                    let offset: usize = syntax_node.text_range().start().into();
-                                    let line_col = Self::offset_to_line_col(document, offset);
+                        if let Some(field_info) =
+                            schema_index.get_field(parent_type_name, &field_name_str)
+                        {
+                            if let Some(ref reason) = field_info.deprecated {
+                                // Get the source location of the field
+                                let syntax_node = field_name.syntax();
+                                let offset: usize = syntax_node.text_range().start().into();
+                                let line_col = crate::offset_to_line_col(document, offset);
 
-                                    let range = Range {
-                                        start: Position {
-                                            line: line_col.0,
-                                            character: line_col.1,
-                                        },
-                                        end: Position {
-                                            line: line_col.0,
-                                            character: line_col.1 + field_name_str.len(),
-                                        },
-                                    };
+                                let range = Range {
+                                    start: Position {
+                                        line: line_col.0,
+                                        character: line_col.1,
+                                    },
+                                    end: Position {
+                                        line: line_col.0,
+                                        character: line_col.1 + field_name_str.len(),
+                                    },
+                                };
 
-                                    let message =
-                                        format!("Field '{field_name_str}' is deprecated. {reason}");
+                                let message =
+                                    format!("Field '{field_name_str}' is deprecated. {reason}");
 
-                                    warnings.push(
-                                        Diagnostic::warning(range, message)
-                                            .with_code("deprecated-field")
-                                            .with_source("graphql-validator"),
-                                    );
-                                }
+                                warnings.push(
+                                    Diagnostic::warning(range, message)
+                                        .with_code("deprecated-field")
+                                        .with_source("graphql-validator"),
+                                );
+                            }
 
-                                // Recursively check nested selections
-                                if let Some(nested_selection_set) = field.selection_set() {
-                                    // Extract the base type name from the field type
-                                    let nested_type = field_info
-                                        .type_name
-                                        .trim_matches(|c| c == '[' || c == ']' || c == '!');
+                            // Recursively check nested selections
+                            if let Some(nested_selection_set) = field.selection_set() {
+                                // Extract the base type name from the field type
+                                let nested_type = field_info
+                                    .type_name
+                                    .trim_matches(|c| c == '[' || c == ']' || c == '!');
 
-                                    Self::check_selection_set_cst(
-                                        &nested_selection_set,
-                                        nested_type,
-                                        schema_index,
-                                        warnings,
-                                        document,
-                                    );
-                                }
+                                Self::check_selection_set_cst(
+                                    &nested_selection_set,
+                                    nested_type,
+                                    schema_index,
+                                    warnings,
+                                    document,
+                                );
                             }
                         }
                     }
@@ -408,30 +406,6 @@ impl Validator {
                 }
             }
         }
-    }
-
-    /// Convert a byte offset to a line and column (0-indexed)
-    fn offset_to_line_col(document: &str, offset: usize) -> (usize, usize) {
-        let mut line = 0;
-        let mut col = 0;
-        let mut current_offset = 0;
-
-        for ch in document.chars() {
-            if current_offset >= offset {
-                break;
-            }
-
-            if ch == '\n' {
-                line += 1;
-                col = 0;
-            } else {
-                col += 1;
-            }
-
-            current_offset += ch.len_utf8();
-        }
-
-        (line, col)
     }
 
     /// Check if a document contains only fragment definitions (no operations)

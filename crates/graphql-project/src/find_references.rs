@@ -108,8 +108,8 @@ impl FindReferencesProvider {
         // Fall back to O(N) character iteration if not available
         let byte_offset = file_path
             .and_then(|path| document_index.get_line_index(path))
-            .and_then(|line_index| Self::position_to_offset_with_index(&line_index, position))
-            .or_else(|| Self::position_to_offset(source, position))?;
+            .and_then(|line_index| crate::position_to_offset_with_index(&line_index, position))
+            .or_else(|| crate::position_to_offset(source, position))?;
         let element_type = Self::find_element_at_position(&doc, byte_offset, source, schema_index)?;
 
         tracing::debug!(element_type = ?element_type, "Finding references for element");
@@ -127,68 +127,8 @@ impl FindReferencesProvider {
         Some(references)
     }
 
-    /// Convert a line/column position to a byte offset using a cached `LineIndex`
-    ///
-    /// This is the fast path with O(1) complexity instead of O(N) character iteration.
-    fn position_to_offset_with_index(
-        line_index: &crate::LineIndex,
-        position: Position,
-    ) -> Option<usize> {
-        line_index.position_to_offset(position)
-    }
-
-    /// Convert a line/column position to a byte offset (fallback O(N) implementation)
-    ///
-    /// This is the slow path used when no cached `LineIndex` is available.
-    /// Prefers `position_to_offset_with_index` when possible.
-    fn position_to_offset(source: &str, position: Position) -> Option<usize> {
-        let mut current_line = 0;
-        let mut current_col = 0;
-        let mut offset = 0;
-
-        for ch in source.chars() {
-            if current_line == position.line && current_col == position.character {
-                return Some(offset);
-            }
-
-            if ch == '\n' {
-                current_line += 1;
-                current_col = 0;
-            } else {
-                current_col += 1;
-            }
-
-            offset += ch.len_utf8();
-        }
-
-        if current_line == position.line && current_col == position.character {
-            Some(offset)
-        } else {
-            None
-        }
-    }
-
     fn offset_to_position(source: &str, offset: usize) -> (usize, usize) {
-        let mut line = 0;
-        let mut column = 0;
-        let mut current_offset = 0;
-
-        for ch in source.chars() {
-            if current_offset >= offset {
-                break;
-            }
-
-            if ch == '\n' {
-                line += 1;
-                column = 0;
-            } else {
-                column += 1;
-            }
-
-            current_offset += ch.len_utf8();
-        }
-
-        (line, column)
+        crate::offset_to_line_col(source, offset)
     }
 
     fn find_element_at_position(
