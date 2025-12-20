@@ -154,7 +154,7 @@ impl GraphQLLanguageServer {
                                                 e
                                             );
                                         }
-                                    }
+                                    };
                                 }
 
                                 // Wrap projects in Arc<RwLock> for thread-safe access
@@ -968,6 +968,7 @@ impl GraphQLLanguageServer {
     /// When a file is edited and introduces or removes issues detected by project-wide
     /// lints (like duplicate names or unused fields), other files that are affected
     /// need to have their diagnostics refreshed.
+    #[allow(clippy::too_many_lines)]
     async fn refresh_affected_files_diagnostics(
         &self,
         workspace_uri: &str,
@@ -1141,7 +1142,10 @@ impl GraphQLLanguageServer {
             Ok(guard) => guard,
             Err(e) => {
                 tracing::error!("Failed to acquire schema index lock: {}", e);
-                return project_diagnostics;
+                return project_diagnostics
+                    .into_iter()
+                    .map(|d| self.convert_project_diagnostic(d))
+                    .collect();
             }
         };
         let document_index = project_guard.document_index();
@@ -1149,7 +1153,10 @@ impl GraphQLLanguageServer {
             Ok(guard) => guard,
             Err(e) => {
                 tracing::error!("Failed to acquire document index lock: {}", e);
-                return project_diagnostics;
+                return project_diagnostics
+                    .into_iter()
+                    .map(|d| self.convert_project_diagnostic(d))
+                    .collect();
             }
         };
 
@@ -1182,6 +1189,7 @@ impl GraphQLLanguageServer {
     /// Validate GraphQL embedded in TypeScript/JavaScript
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::too_many_lines)]
     async fn validate_typescript_document(
         &self,
         uri: &Uri,
@@ -1247,7 +1255,10 @@ impl GraphQLLanguageServer {
             Ok(guard) => guard,
             Err(e) => {
                 tracing::error!("Failed to acquire schema index lock: {}", e);
-                return all_diagnostics;
+                return all_diagnostics
+                    .into_iter()
+                    .map(|d| self.convert_project_diagnostic(d))
+                    .collect();
             }
         };
         let document_index = project_guard.document_index();
@@ -1255,7 +1266,10 @@ impl GraphQLLanguageServer {
             Ok(guard) => guard,
             Err(e) => {
                 tracing::error!("Failed to acquire document index lock: {}", e);
-                return all_diagnostics;
+                return all_diagnostics
+                    .into_iter()
+                    .map(|d| self.convert_project_diagnostic(d))
+                    .collect();
             }
         };
 
