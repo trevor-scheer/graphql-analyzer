@@ -131,6 +131,39 @@ impl SchemaIndex {
         }
     }
 
+    /// Get a specific field from a type by name - O(1) lookup
+    ///
+    /// This is more efficient than `get_fields().iter().find()` when you only need
+    /// a single field, as it avoids allocating and iterating through all fields.
+    #[must_use]
+    pub fn get_field(&self, type_name: &str, field_name: &str) -> Option<FieldInfo> {
+        let ext_type = self.schema.types.get(type_name)?;
+
+        match ext_type {
+            ExtendedType::Object(obj) => obj
+                .fields
+                .get(field_name)
+                .map(|field| FieldInfo::from_field_definition(&field.node)),
+            ExtendedType::Interface(iface) => iface
+                .fields
+                .get(field_name)
+                .map(|field| FieldInfo::from_field_definition(&field.node)),
+            ExtendedType::InputObject(input) => input.fields.get(field_name).map(|input_field| {
+                FieldInfo {
+                    name: input_field.name.to_string(),
+                    type_name: input_field.ty.to_string(),
+                    description: input_field
+                        .description
+                        .as_ref()
+                        .map(std::string::ToString::to_string),
+                    deprecated: None, // Input fields don't have deprecation
+                    arguments: Vec::new(),
+                }
+            }),
+            _ => None,
+        }
+    }
+
     /// Get a directive by name
     #[must_use]
     pub fn get_directive(&self, name: &str) -> Option<DirectiveInfo> {

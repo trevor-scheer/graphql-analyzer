@@ -225,22 +225,20 @@ fn collect_fields_from_selection_set(
                     // Recursively process nested selections
                     if let Some(nested_selection_set) = field.selection_set() {
                         // Get the field's return type from schema
-                        if let Some(fields) = schema_index.get_fields(parent_type_name) {
-                            if let Some(field_info) =
-                                fields.iter().find(|f| f.name == field_name_str)
-                            {
-                                // Extract the base type name (remove List/NonNull wrappers)
-                                let nested_type = field_info
-                                    .type_name
-                                    .trim_matches(|c| c == '[' || c == ']' || c == '!');
+                        if let Some(field_info) =
+                            schema_index.get_field(parent_type_name, &field_name_str)
+                        {
+                            // Extract the base type name (remove List/NonNull wrappers)
+                            let nested_type = field_info
+                                .type_name
+                                .trim_matches(|c| c == '[' || c == ']' || c == '!');
 
-                                collect_fields_from_selection_set(
-                                    &nested_selection_set,
-                                    nested_type,
-                                    schema_index,
-                                    used_fields,
-                                );
-                            }
+                            collect_fields_from_selection_set(
+                                &nested_selection_set,
+                                nested_type,
+                                schema_index,
+                                used_fields,
+                            );
                         }
                     }
                 }

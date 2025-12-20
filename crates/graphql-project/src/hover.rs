@@ -463,21 +463,15 @@ impl HoverProvider {
                             .name()
                             .map(|n| n.text().to_string())
                             .unwrap_or_default();
-                        let nested_type =
-                            if let Some(fields) = schema_index.get_fields(&parent_type) {
-                                fields
-                                    .iter()
-                                    .find(|f| f.name == field_name)
-                                    .map(|f| {
-                                        // Extract base type name (strip [], !)
-                                        f.type_name
-                                            .trim_matches(|c| c == '[' || c == ']' || c == '!')
-                                            .to_string()
-                                    })
-                                    .unwrap_or_default()
-                            } else {
-                                String::new()
-                            };
+                        let nested_type = schema_index
+                            .get_field(&parent_type, &field_name)
+                            .map(|f| {
+                                // Extract base type name (strip [], !)
+                                f.type_name
+                                    .trim_matches(|c| c == '[' || c == ']' || c == '!')
+                                    .to_string()
+                            })
+                            .unwrap_or_default();
 
                         if !nested_type.is_empty() {
                             if let Some(element) = Self::check_selection_set(
@@ -980,8 +974,7 @@ impl HoverProvider {
         parent_type: &str,
         schema_index: &SchemaIndex,
     ) -> Option<HoverInfo> {
-        let fields = schema_index.get_fields(parent_type)?;
-        let field_info = fields.iter().find(|f| f.name == field_name)?;
+        let field_info = schema_index.get_field(parent_type, field_name)?;
 
         let mut content = format!("### Field: `{field_name}`\n");
         content.push_str(&format!("**Type:** `{}`\n\n", field_info.type_name));
@@ -1065,8 +1058,7 @@ impl HoverProvider {
         parent_type: &str,
         schema_index: &SchemaIndex,
     ) -> Option<HoverInfo> {
-        let fields = schema_index.get_fields(parent_type)?;
-        let field_info = fields.iter().find(|f| f.name == field_name)?;
+        let field_info = schema_index.get_field(parent_type, field_name)?;
         let arg_info = field_info.arguments.iter().find(|a| a.name == arg_name)?;
 
         let mut content = format!("### Argument: `{arg_name}`\n");

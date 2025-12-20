@@ -8,6 +8,7 @@ mod goto_definition;
 mod hover;
 mod index;
 mod line_index;
+mod position;
 mod schema;
 mod static_project;
 mod validation;
@@ -29,6 +30,7 @@ pub use index::{
     OperationType, SchemaIndex, TypeInfo,
 };
 pub use line_index::LineIndex;
+pub use position::{offset_to_line_col, position_to_offset, position_to_offset_with_index};
 pub use schema::SchemaLoader;
 pub use static_project::StaticGraphQLProject;
 pub use validation::Validator;
