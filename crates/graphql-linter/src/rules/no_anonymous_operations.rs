@@ -87,32 +87,8 @@ impl StandaloneDocumentRule for NoAnonymousOperationsRule {
 
 /// Helper function to convert byte offset to Position
 fn offset_to_position(document: &str, offset: usize) -> Position {
-    let (line, character) = offset_to_line_col(document, offset);
+    let (line, character) = graphql_project::offset_to_line_col(document, offset);
     Position { line, character }
-}
-
-/// Convert a byte offset to a line and column (0-indexed)
-fn offset_to_line_col(document: &str, offset: usize) -> (usize, usize) {
-    let mut line = 0;
-    let mut col = 0;
-    let mut current_offset = 0;
-
-    for ch in document.chars() {
-        if current_offset >= offset {
-            break;
-        }
-
-        if ch == '\n' {
-            line += 1;
-            col = 0;
-        } else {
-            col += 1;
-        }
-
-        current_offset += ch.len_utf8();
-    }
-
-    (line, col)
 }
 
 #[cfg(test)]
