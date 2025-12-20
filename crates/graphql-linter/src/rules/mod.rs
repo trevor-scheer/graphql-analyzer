@@ -2,6 +2,7 @@ mod deprecated;
 mod enum_values_should_be_screaming_snake_case;
 mod field_names_should_be_camel_case;
 mod no_anonymous_operations;
+mod operation_name_suffix;
 mod redundant_fields;
 mod require_id_field;
 mod type_names_should_be_pascal_case;
@@ -13,6 +14,7 @@ pub use deprecated::DeprecatedFieldRule;
 pub use enum_values_should_be_screaming_snake_case::EnumValuesShouldBeScreamingSnakeCaseRule;
 pub use field_names_should_be_camel_case::FieldNamesShouldBeCamelCaseRule;
 pub use no_anonymous_operations::NoAnonymousOperationsRule;
+pub use operation_name_suffix::OperationNameSuffixRule;
 pub use redundant_fields::RedundantFieldsRule;
 pub use require_id_field::RequireIdFieldRule;
 pub use type_names_should_be_pascal_case::TypeNamesShouldBePascalCaseRule;
@@ -83,6 +85,7 @@ pub trait ProjectRule {
 pub fn all_standalone_document_rules() -> Vec<Box<dyn StandaloneDocumentRule>> {
     vec![
         Box::new(NoAnonymousOperationsRule),
+        Box::new(OperationNameSuffixRule),
         Box::new(RedundantFieldsRule),
     ]
 }
