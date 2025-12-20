@@ -10,12 +10,13 @@ use lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
-    DocumentSymbolResponse, FileChangeType, FileSystemWatcher, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability, InitializeParams,
-    InitializeResult, InitializedParams, Location, MessageType, NumberOrString, OneOf, Position,
-    ProgressParams, ProgressParamsValue, Range, ReferenceParams, ServerCapabilities, ServerInfo,
-    SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Uri, WorkDoneProgress,
-    WorkDoneProgressBegin, WorkDoneProgressEnd, WorkspaceSymbol, WorkspaceSymbolParams,
+    DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, FileChangeType,
+    FileSystemWatcher, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
+    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
+    MessageType, NumberOrString, OneOf, Position, ProgressParams, ProgressParamsValue, Range,
+    ReferenceParams, ServerCapabilities, ServerInfo, SymbolInformation, TextDocumentSyncCapability,
+    TextDocumentSyncKind, Uri, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
+    WorkDoneProgressOptions, WorkspaceSymbol, WorkspaceSymbolParams,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -1474,6 +1475,10 @@ impl LanguageServer for GraphQLLanguageServer {
                 references_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
+                execute_command_provider: Some(ExecuteCommandOptions {
+                    commands: vec!["graphql.checkStatus".to_string()],
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
+                }),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -2445,5 +2450,135 @@ impl LanguageServer for GraphQLLanguageServer {
         tracing::debug!("Workspace symbols requested: {}", params.query);
         // TODO: Implement workspace symbols
         Ok(None)
+    }
+
+    #[allow(
+        clippy::uninlined_format_args,
+        clippy::single_match_else,
+        clippy::option_if_let_else,
+        clippy::manual_string_new,
+        clippy::manual_map
+    )]
+    async fn execute_command(
+        &self,
+        params: ExecuteCommandParams,
+    ) -> Result<Option<serde_json::Value>> {
+        tracing::info!("Execute command requested: {}", params.command);
+
+        if params.command.as_str() == "graphql.checkStatus" {
+            let mut status_lines = Vec::new();
+
+            // Collect status information
+            for workspace_entry in self.workspace_roots.iter() {
+                let workspace_uri = workspace_entry.key();
+                let workspace_path = workspace_entry.value();
+
+                status_lines.push(format!("Workspace: {}", workspace_path.display()));
+
+                // Get config path
+                if let Some(config_path) = self.config_paths.get(workspace_uri) {
+                    status_lines.push(format!(
+                        "  Config: {}",
+                        config_path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("unknown")
+                    ));
+                }
+
+                // Get projects for this workspace
+                if let Some(projects) = self.projects.get(workspace_uri) {
+                    for (project_name, project) in projects.iter() {
+                        let project_guard = project.read().await;
+
+                        // Schema information
+                        let schema_index = project_guard.schema_index();
+                        if let Ok(schema_guard) = schema_index.read() {
+                            let schema = schema_guard.schema();
+                            let type_count = schema.types.len();
+
+                            // Count fields from object and interface types
+                            let field_count: usize = schema
+                                .types
+                                .values()
+                                .filter_map(|type_def| {
+                                    if let Some(obj) = type_def.as_object() {
+                                        Some(obj.fields.len())
+                                    } else if let Some(iface) = type_def.as_interface() {
+                                        Some(iface.fields.len())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .sum();
+
+                            status_lines.push(format!(
+                                "  Project '{}': {} types, {} fields",
+                                project_name, type_count, field_count
+                            ));
+                        } else {
+                            status_lines.push(format!(
+                                "  Project '{}': ⚠️ Schema not loaded",
+                                project_name
+                            ));
+                        }
+
+                        // Document information
+                        {
+                            let document_index = project_guard.document_index();
+                            if let Ok(doc_guard) = document_index.read() {
+                                let operation_count = doc_guard.operations.len();
+                                let fragment_count = doc_guard.fragments.len();
+
+                                status_lines.push(format!(
+                                    "    {} operations, {} fragments",
+                                    operation_count, fragment_count
+                                ));
+                            } else {
+                                status_lines.push("    ⚠️ Documents not loaded".to_string());
+                            };
+                        }
+                    }
+                } else {
+                    status_lines.push("  ⚠️ No projects loaded".to_string());
+                }
+            }
+
+            // Open documents
+            status_lines.push("".to_string());
+            status_lines.push(format!(
+                "{} files open in editor",
+                self.document_cache.len()
+            ));
+
+            let status_report = status_lines.join("\n");
+
+            // Log detailed status to both tracing and LSP output
+            let full_report = format!("\n=== GraphQL LSP Status ===\n{}\n", status_report);
+            tracing::info!("{}", full_report);
+
+            self.client
+                .log_message(MessageType::INFO, full_report)
+                .await;
+
+            // Show a simple notification
+            let summary = if self.workspace_roots.is_empty() {
+                "No workspaces loaded".to_string()
+            } else {
+                let workspace_count = self.workspace_roots.len();
+                let project_count: usize = self.projects.iter().map(|p| p.value().len()).sum();
+                format!(
+                    "{} workspace(s), {} project(s) - Check output for details",
+                    workspace_count, project_count
+                )
+            };
+
+            self.client.show_message(MessageType::INFO, summary).await;
+
+            Ok(Some(serde_json::json!({ "success": true })))
+        } else {
+            tracing::warn!("Unknown command: {}", params.command);
+            Ok(None)
+        }
     }
 }

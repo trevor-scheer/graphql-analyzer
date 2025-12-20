@@ -23,6 +23,11 @@
         "command": "graphql-lsp.restartServer",
         "title": "Restart GraphQL Language Server",
         "category": "GraphQL"
+      },
+      {
+        "command": "graphql-lsp.checkStatus",
+        "title": "Check Status",
+        "category": "GraphQL"
       }
     ],
     "languages": [

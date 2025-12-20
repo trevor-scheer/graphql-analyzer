@@ -128,7 +128,30 @@ export async function activate(context: ExtensionContext) {
       }
     });
 
-    context.subscriptions.push(reloadCommand);
+    const checkStatusCommand = commands.registerCommand("graphql-lsp.checkStatus", async () => {
+      outputChannel.appendLine("=== Checking GraphQL LSP Status ===");
+
+      try {
+        if (!client) {
+          window.showWarningMessage("GraphQL LSP is not running");
+          return;
+        }
+
+        // Show the output channel so users can see the detailed status
+        outputChannel.show(true);
+
+        await client.sendRequest("workspace/executeCommand", {
+          command: "graphql.checkStatus",
+          arguments: [],
+        });
+      } catch (error) {
+        const errorMessage = `Failed to check status: ${error}`;
+        outputChannel.appendLine(errorMessage);
+        window.showErrorMessage(errorMessage);
+      }
+    });
+
+    context.subscriptions.push(reloadCommand, checkStatusCommand);
   } catch (error) {
     const errorMessage = `Failed to start GraphQL LSP: ${error}`;
     outputChannel.appendLine(errorMessage);
