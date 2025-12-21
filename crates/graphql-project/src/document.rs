@@ -111,6 +111,8 @@ impl DocumentLoader {
         );
 
         let mut files = Vec::new();
+        let mut seen_normalized: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
         for expanded_pattern in expanded_patterns {
             let full_pattern = self.base_path.as_ref().map_or_else(
@@ -128,7 +130,11 @@ impl DocumentLoader {
                         if path.components().any(|c| c.as_os_str() == "node_modules") {
                             continue;
                         }
-                        if !files.contains(&path) {
+
+                        // Normalize path to detect duplicates with different formats
+                        // (e.g., "./src/file.graphql" vs "src/file.graphql")
+                        let normalized = Self::normalize_path(&path);
+                        if seen_normalized.insert(normalized) {
                             files.push(path);
                         }
                     }
@@ -175,6 +181,8 @@ impl DocumentLoader {
     /// Fast path for finding files without negation patterns
     fn find_files_with_glob(patterns: &[String], base_path: &Path) -> Result<Vec<PathBuf>> {
         let mut files = Vec::new();
+        let mut seen_normalized: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
         for pattern in patterns {
             let full_pattern = base_path.join(pattern).display().to_string();
@@ -188,7 +196,11 @@ impl DocumentLoader {
                         if path.components().any(|c| c.as_os_str() == "node_modules") {
                             continue;
                         }
-                        if !files.contains(&path) {
+
+                        // Normalize path to detect duplicates with different formats
+                        // (e.g., "./src/file.graphql" vs "src/file.graphql")
+                        let normalized = Self::normalize_path(&path);
+                        if seen_normalized.insert(normalized) {
                             files.push(path);
                         }
                     }
@@ -269,6 +281,27 @@ impl DocumentLoader {
         vec![pattern.to_string()]
     }
 
+    /// Normalize a file path by removing "./" components
+    ///
+    /// This ensures that files matched by different glob patterns
+    /// (e.g., "./src/file.graphql" vs "src/file.graphql") are treated
+    /// as the same file and not indexed twice.
+    ///
+    /// For example:
+    /// - "./src/file.graphql" -> "src/file.graphql"
+    /// - "/tmp/./src/file.graphql" -> "/tmp/src/file.graphql"
+    fn normalize_path(path: &Path) -> String {
+        // Normalize path components to remove "." references
+        let components: Vec<_> = path
+            .components()
+            .filter(|c| !matches!(c, std::path::Component::CurDir))
+            .collect();
+
+        // Reconstruct path from components
+        let normalized = components.iter().collect::<PathBuf>();
+        normalized.display().to_string()
+    }
+
     /// Load a single file and add operations/fragments to the index
     #[tracing::instrument(skip(self, index), fields(file = %path.display()), level = "debug")]
     fn load_file(&self, path: &Path, index: &mut DocumentIndex) -> Result<()> {
@@ -286,7 +319,7 @@ impl DocumentLoader {
         let extracted = extract_from_file(path, &self.extract_config)
             .map_err(|e| ProjectError::DocumentLoad(format!("Extract error: {e}")))?;
 
-        let file_path = path.display().to_string();
+        let file_path = Self::normalize_path(path);
 
         // Cache the parsed AST for pure GraphQL files
         index.cache_ast(file_path.clone(), parsed_arc);
@@ -637,5 +670,79 @@ mod tests {
         // Should only have the regular query, not the one from node_modules
         assert!(index.get_operation("RegularQuery").is_some());
         assert!(index.get_operation("NodeModulesQuery").is_none());
+    }
+
+    #[test]
+    fn test_normalize_path() {
+        // Test stripping "./" prefix
+        let path = Path::new("./src/queries.graphql");
+        assert_eq!(DocumentLoader::normalize_path(path), "src/queries.graphql");
+
+        // Test path without "./" prefix remains unchanged
+        let path = Path::new("src/queries.graphql");
+        assert_eq!(DocumentLoader::normalize_path(path), "src/queries.graphql");
+
+        // Test absolute paths remain unchanged
+        let path = Path::new("/absolute/path/to/file.graphql");
+        assert_eq!(
+            DocumentLoader::normalize_path(path),
+            "/absolute/path/to/file.graphql"
+        );
+
+        // Test nested "./" components are removed
+        let path = Path::new("./src/./nested/file.graphql");
+        assert_eq!(
+            DocumentLoader::normalize_path(path),
+            "src/nested/file.graphql"
+        );
+
+        // Test absolute path with embedded "./" components
+        let path = Path::new("/tmp/./src/file.graphql");
+        assert_eq!(
+            DocumentLoader::normalize_path(path),
+            "/tmp/src/file.graphql"
+        );
+    }
+
+    #[test]
+    fn test_no_duplicate_indexing_with_different_path_formats() {
+        let temp_dir = tempdir().unwrap();
+        let src_dir = temp_dir.path().join("src");
+        fs::create_dir(&src_dir).unwrap();
+
+        // Create a single GraphQL file with a fragment
+        let fragment_file = src_dir.join("fragments.graphql");
+        fs::write(
+            &fragment_file,
+            r"
+            fragment UserFields on User {
+                id
+                name
+            }
+        ",
+        )
+        .unwrap();
+
+        // Use multiple patterns that should match the same file
+        // but with different path formats (with and without "./" prefix)
+        let patterns = vec![
+            "./src/**/*.graphql".to_string(),
+            "src/**/*.graphql".to_string(),
+        ];
+        let config = DocumentsConfig::Patterns(patterns);
+        let loader = DocumentLoader::new(config).with_base_path(temp_dir.path());
+        let index = loader.load().unwrap();
+
+        // The fragment should only be indexed once, not twice
+        let fragments = index.get_fragments_by_name("UserFields");
+        assert!(fragments.is_some(), "Fragment should be indexed");
+        let fragments = fragments.unwrap();
+        assert_eq!(
+            fragments.len(),
+            1,
+            "Fragment should only be indexed once, not {} times. Paths: {:?}",
+            fragments.len(),
+            fragments.iter().map(|f| &f.file_path).collect::<Vec<_>>()
+        );
     }
 }
