@@ -511,107 +511,6 @@ impl GraphQLLanguageServer {
         );
     }
 
-    /// Re-validate all fragment definition files in the project
-    /// This is called after document changes to update unused fragment warnings
-    async fn revalidate_fragment_files(&self, changed_uri: &Uri) {
-        let start = std::time::Instant::now();
-        tracing::info!(
-            "Starting re-validation of fragment files for: {:?}",
-            changed_uri
-        );
-
-        // Find the workspace and project for the changed document
-        let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(changed_uri)
-        else {
-            tracing::debug!("No workspace found for URI: {:?}", changed_uri);
-            return;
-        };
-
-        // Get all fragment files from the document index
-        // We need to collect the file paths and then drop the borrow before validating
-        let index_start = std::time::Instant::now();
-        let fragment_files: std::collections::HashSet<String> = {
-            let Some(projects) = self.projects.get(&workspace_uri) else {
-                tracing::debug!("No projects loaded for workspace: {}", workspace_uri);
-                return;
-            };
-
-            let Some((_, project, _)) = projects.get(project_idx) else {
-                tracing::debug!(
-                    "Project index {} not found in workspace {}",
-                    project_idx,
-                    workspace_uri
-                );
-                return;
-            };
-
-            let project_guard = project.read().await;
-            let document_index = project_guard.document_index();
-            let document_index_guard = match document_index.read() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    tracing::error!("Failed to acquire document index lock: {}", e);
-                    return;
-                }
-            };
-            tracing::debug!("Got document index in {:?}", index_start.elapsed());
-
-            document_index_guard
-                .fragments
-                .values()
-                .flatten() // Flatten Vec<FragmentInfo> to iterate over each FragmentInfo
-                .map(|frag_info| frag_info.file_path.clone())
-                .collect()
-        }; // Drop the borrow here before we start validating
-
-        tracing::info!(
-            "Re-validating {} fragment files after document change",
-            fragment_files.len()
-        );
-
-        // Re-validate each fragment file
-        for file_path in fragment_files {
-            let file_start = std::time::Instant::now();
-            tracing::debug!("Re-validating fragment file: {}", file_path);
-
-            // Convert file path to URI
-            let Some(fragment_uri) = Uri::from_file_path(&file_path) else {
-                tracing::warn!("Failed to convert file path to URI: {}", file_path);
-                continue;
-            };
-
-            // Get content from cache or read from disk
-            let content =
-                if let Some(cached_content) = self.document_cache.get(&fragment_uri.to_string()) {
-                    tracing::debug!("Using cached content for: {}", file_path);
-                    cached_content.clone()
-                } else {
-                    // Fragment file not open in editor, read from disk
-                    tracing::debug!("Reading fragment file from disk: {}", file_path);
-                    match std::fs::read_to_string(&file_path) {
-                        Ok(content) => content,
-                        Err(e) => {
-                            tracing::warn!("Failed to read fragment file {}: {}", file_path, e);
-                            continue;
-                        }
-                    }
-                };
-
-            // Validate the fragment file
-            self.validate_document(fragment_uri, &content).await;
-            tracing::debug!(
-                "Validated fragment file {} in {:?}",
-                file_path,
-                file_start.elapsed()
-            );
-        }
-
-        tracing::info!(
-            "Completed re-validation of fragment files in {:?}",
-            start.elapsed()
-        );
-    }
-
     /// Re-validate schema files when field usage changes in a document
     ///
     /// When operations or fragments change, the set of used fields changes,
@@ -690,7 +589,7 @@ impl GraphQLLanguageServer {
 
     /// Validate a document and publish diagnostics
     #[allow(clippy::too_many_lines)]
-    #[tracing::instrument(skip(self, content), fields(uri = ?uri))]
+    #[tracing::instrument(skip(self, content, uri), fields(path = ?uri.to_file_path().unwrap()))]
     async fn validate_document(&self, uri: Uri, content: &str) {
         self.validate_document_impl(uri, content, true).await;
     }
@@ -1387,18 +1286,7 @@ impl GraphQLLanguageServer {
             server
                 .validate_document(uri_for_task.clone(), &content)
                 .await;
-            tracing::debug!(uri = ?uri_for_task, elapsed_ms = validate_start.elapsed().as_millis(), "Main validation completed");
-
-            // Re-validate all fragment definition files to update unused fragment warnings
-            // This ensures that when fragment usage changes in one file, warnings in
-            // fragment files are immediately updated
-            let revalidate_start = std::time::Instant::now();
-            server.revalidate_fragment_files(&uri_for_task).await;
-            tracing::debug!(
-                uri = ?uri_for_task,
-                elapsed_ms = revalidate_start.elapsed().as_millis(),
-                "Fragment revalidation completed"
-            );
+            tracing::debug!(uri = ?uri_for_task, elapsed_ms = validate_start.elapsed().as_millis(), "Validation completed");
 
             // Clear the task slot once validation completes
             if let Some(slot) = server.validation_tasks.get(&uri_for_task.to_string()) {
@@ -1563,7 +1451,7 @@ impl LanguageServer for GraphQLLanguageServer {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, params), fields(uri = ?params.text_document.uri))]
+    #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
         let content = params.text_document.text;
@@ -1575,7 +1463,7 @@ impl LanguageServer for GraphQLLanguageServer {
         self.validate_document(uri, &content).await;
     }
 
-    #[tracing::instrument(skip(self, params), fields(uri = ?params.text_document.uri))]
+    #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
         let start = std::time::Instant::now();
@@ -1598,7 +1486,7 @@ impl LanguageServer for GraphQLLanguageServer {
         );
     }
 
-    #[tracing::instrument(skip(self, params), fields(uri = ?params.text_document.uri))]
+    #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         tracing::info!("Document saved");
 
