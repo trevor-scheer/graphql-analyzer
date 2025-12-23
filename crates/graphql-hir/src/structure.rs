@@ -15,6 +15,7 @@ pub struct TypeDef {
     pub union_members: Vec<Arc<str>>,
     pub enum_values: Vec<Arc<str>>,
     pub description: Option<Arc<str>>,
+    pub file_id: FileId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -161,22 +162,22 @@ fn extract_from_document(
                 fragments.push(extract_fragment_structure(frag, file_id));
             }
             ast::Definition::ObjectTypeDefinition(obj) => {
-                type_defs.push(extract_object_type(obj));
+                type_defs.push(extract_object_type(obj, file_id));
             }
             ast::Definition::InterfaceTypeDefinition(iface) => {
-                type_defs.push(extract_interface_type(iface));
+                type_defs.push(extract_interface_type(iface, file_id));
             }
             ast::Definition::UnionTypeDefinition(union) => {
-                type_defs.push(extract_union_type(union));
+                type_defs.push(extract_union_type(union, file_id));
             }
             ast::Definition::EnumTypeDefinition(enum_def) => {
-                type_defs.push(extract_enum_type(enum_def));
+                type_defs.push(extract_enum_type(enum_def, file_id));
             }
             ast::Definition::ScalarTypeDefinition(scalar) => {
-                type_defs.push(extract_scalar_type(scalar));
+                type_defs.push(extract_scalar_type(scalar, file_id));
             }
             ast::Definition::InputObjectTypeDefinition(input) => {
-                type_defs.push(extract_input_object_type(input));
+                type_defs.push(extract_input_object_type(input, file_id));
             }
             _ => {}
         }
@@ -240,7 +241,7 @@ fn extract_variable_signature(var: &ast::VariableDefinition) -> VariableSignatur
     }
 }
 
-fn extract_object_type(obj: &ast::ObjectTypeDefinition) -> TypeDef {
+fn extract_object_type(obj: &ast::ObjectTypeDefinition, file_id: FileId) -> TypeDef {
     let name = Arc::from(obj.name.as_str());
     let description = obj.description.as_ref().map(|d| Arc::from(d.as_str()));
 
@@ -264,10 +265,11 @@ fn extract_object_type(obj: &ast::ObjectTypeDefinition) -> TypeDef {
         union_members: Vec::new(),
         enum_values: Vec::new(),
         description,
+        file_id,
     }
 }
 
-fn extract_interface_type(iface: &ast::InterfaceTypeDefinition) -> TypeDef {
+fn extract_interface_type(iface: &ast::InterfaceTypeDefinition, file_id: FileId) -> TypeDef {
     let name = Arc::from(iface.name.as_str());
     let description = iface.description.as_ref().map(|d| Arc::from(d.as_str()));
 
@@ -291,10 +293,11 @@ fn extract_interface_type(iface: &ast::InterfaceTypeDefinition) -> TypeDef {
         union_members: Vec::new(),
         enum_values: Vec::new(),
         description,
+        file_id,
     }
 }
 
-fn extract_union_type(union: &ast::UnionTypeDefinition) -> TypeDef {
+fn extract_union_type(union: &ast::UnionTypeDefinition, file_id: FileId) -> TypeDef {
     let name = Arc::from(union.name.as_str());
     let description = union.description.as_ref().map(|d| Arc::from(d.as_str()));
 
@@ -312,10 +315,11 @@ fn extract_union_type(union: &ast::UnionTypeDefinition) -> TypeDef {
         union_members,
         enum_values: Vec::new(),
         description,
+        file_id,
     }
 }
 
-fn extract_enum_type(enum_def: &ast::EnumTypeDefinition) -> TypeDef {
+fn extract_enum_type(enum_def: &ast::EnumTypeDefinition, file_id: FileId) -> TypeDef {
     let name = Arc::from(enum_def.name.as_str());
     let description = enum_def.description.as_ref().map(|d| Arc::from(d.as_str()));
 
@@ -333,10 +337,11 @@ fn extract_enum_type(enum_def: &ast::EnumTypeDefinition) -> TypeDef {
         union_members: Vec::new(),
         enum_values,
         description,
+        file_id,
     }
 }
 
-fn extract_scalar_type(scalar: &ast::ScalarTypeDefinition) -> TypeDef {
+fn extract_scalar_type(scalar: &ast::ScalarTypeDefinition, file_id: FileId) -> TypeDef {
     let name = Arc::from(scalar.name.as_str());
     let description = scalar.description.as_ref().map(|d| Arc::from(d.as_str()));
 
@@ -348,10 +353,11 @@ fn extract_scalar_type(scalar: &ast::ScalarTypeDefinition) -> TypeDef {
         union_members: Vec::new(),
         enum_values: Vec::new(),
         description,
+        file_id,
     }
 }
 
-fn extract_input_object_type(input: &ast::InputObjectTypeDefinition) -> TypeDef {
+fn extract_input_object_type(input: &ast::InputObjectTypeDefinition, file_id: FileId) -> TypeDef {
     let name = Arc::from(input.name.as_str());
     let description = input.description.as_ref().map(|d| Arc::from(d.as_str()));
 
@@ -369,6 +375,7 @@ fn extract_input_object_type(input: &ast::InputObjectTypeDefinition) -> TypeDef 
         union_members: Vec::new(),
         enum_values: Vec::new(),
         description,
+        file_id,
     }
 }
 
