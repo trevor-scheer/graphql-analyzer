@@ -8,6 +8,9 @@ description = "IDE features for GraphQL Language Server"
 # Salsa for database access
 salsa = { workspace = true }
 
+# Apollo parser for CST traversal
+apollo-parser = { workspace = true }
+
 # Internal crates (query-based layers)
 graphql-db = { path = "../graphql-db" }
 graphql-syntax = { path = "../graphql-syntax" }

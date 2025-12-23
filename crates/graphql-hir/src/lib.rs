@@ -113,10 +113,33 @@ pub trait GraphQLHirDatabase: graphql_syntax::GraphQLSyntaxDatabase {
 
 // Implement the trait for RootDatabase
 // This makes RootDatabase usable with all HIR queries
+// Note: The default implementation of `project_files()` returns None
+// The IDE layer (graphql-ide) is responsible for creating and managing ProjectFiles
+// through the FileRegistry and passing it to the database
 #[salsa::db]
 impl GraphQLHirDatabase for graphql_db::RootDatabase {}
 
-/// Get all types in the schema
+/// Get all types in the schema with explicit project files
+/// This query depends on all schema file structures
+#[salsa::tracked]
+pub fn schema_types_with_project(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, TypeDef>> {
+    let schema_files = project_files.schema_files(db);
+    let mut types = HashMap::new();
+
+    for (file_id, content, metadata) in schema_files.iter() {
+        let structure = file_structure(db, *file_id, *content, *metadata);
+        for type_def in &structure.type_defs {
+            types.insert(type_def.name.clone(), type_def.clone());
+        }
+    }
+
+    Arc::new(types)
+}
+
+/// Get all types in the schema (legacy method using trait)
 /// This query depends on all schema file structures
 #[salsa::tracked]
 pub fn schema_types(db: &dyn GraphQLHirDatabase) -> Arc<HashMap<Arc<str>, TypeDef>> {
@@ -134,6 +157,26 @@ pub fn schema_types(db: &dyn GraphQLHirDatabase) -> Arc<HashMap<Arc<str>, TypeDe
 }
 
 /// Get all fragments in the project
+/// This query depends on all document file structures
+#[salsa::tracked]
+pub fn all_fragments_with_project(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, FragmentStructure>> {
+    let document_files = project_files.document_files(db);
+    let mut fragments = HashMap::new();
+
+    for (file_id, content, metadata) in document_files.iter() {
+        let structure = file_structure(db, *file_id, *content, *metadata);
+        for fragment in &structure.fragments {
+            fragments.insert(fragment.name.clone(), fragment.clone());
+        }
+    }
+
+    Arc::new(fragments)
+}
+
+/// Get all fragments in the project (legacy method using trait)
 /// This query depends on all document file structures
 #[salsa::tracked]
 pub fn all_fragments(db: &dyn GraphQLHirDatabase) -> Arc<HashMap<Arc<str>, FragmentStructure>> {
