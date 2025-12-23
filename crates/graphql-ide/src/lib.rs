@@ -371,14 +371,44 @@ impl Analysis {
     /// Get hover information at a position
     ///
     /// Returns documentation, type information, etc.
-    pub const fn hover(&self, _file: &FilePath, _position: Position) -> Option<HoverResult> {
-        // TODO: Implement hover logic
-        // 1. Parse the file
-        // 2. Find token at position
-        // 3. Identify symbol
-        // 4. Query HIR for symbol data
-        // 5. Format as markdown
-        None
+    pub fn hover(&self, file: &FilePath, position: Position) -> Option<HoverResult> {
+        let (content, metadata) = {
+            let registry = self.registry.read().unwrap();
+
+            // Look up FileId from FilePath
+            let file_id = registry.get_file_id(file)?;
+
+            // Get FileContent and FileMetadata
+            let content = registry.get_content(file_id)?;
+            let metadata = registry.get_metadata(file_id)?;
+            drop(registry);
+
+            (content, metadata)
+        };
+
+        // Parse the file
+        let parse = graphql_syntax::parse(&self.db, content, metadata);
+
+        // Get line index for position conversion
+        let line_index = graphql_syntax::line_index(&self.db, content);
+
+        // Convert position to byte offset
+        let offset = position_to_offset(&line_index, position)?;
+
+        // For now, return a simple hover based on the parse tree
+        // TODO: Implement full hover logic with symbol identification
+        if !parse.errors.is_empty() {
+            return Some(HoverResult::new(format!(
+                "**Syntax Errors**\n\n{}",
+                parse.errors.join("\n")
+            )));
+        }
+
+        // Basic hover showing file type
+        Some(HoverResult::new(format!(
+            "GraphQL Document\n\nPosition: line {}, character {}\nOffset: {}",
+            position.line, position.character, offset
+        )))
     }
 
     /// Get goto definition locations for the symbol at a position
@@ -418,6 +448,12 @@ impl Analysis {
 }
 
 // Conversion functions from analysis types to IDE types
+
+/// Convert IDE position to byte offset using `LineIndex`
+fn position_to_offset(line_index: &graphql_syntax::LineIndex, position: Position) -> Option<usize> {
+    let line_start = line_index.line_start(position.line as usize)?;
+    Some(line_start + position.character as usize)
+}
 
 /// Convert analysis Position to IDE Position
 const fn convert_position(pos: graphql_analysis::Position) -> Position {
@@ -647,5 +683,86 @@ mod tests {
         assert_eq!(ide_diag.range.start.character, 0);
         assert_eq!(ide_diag.range.end.line, 2);
         assert_eq!(ide_diag.range.end.character, 10);
+    }
+
+    #[test]
+    fn test_hover_on_valid_file() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema file
+        let path = FilePath::new("file:///schema.graphql");
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
+
+        // Get hover at a position
+        let snapshot = host.snapshot();
+        let hover = snapshot.hover(&path, Position::new(0, 5));
+
+        // Should return hover information
+        assert!(hover.is_some());
+        let hover = hover.unwrap();
+        assert!(!hover.contents.is_empty());
+    }
+
+    #[test]
+    fn test_hover_on_nonexistent_file() {
+        let host = AnalysisHost::new();
+        let snapshot = host.snapshot();
+
+        // Try to get hover for a file that doesn't exist
+        let path = FilePath::new("file:///nonexistent.graphql");
+        let hover = snapshot.hover(&path, Position::new(0, 0));
+
+        // Should return None for nonexistent file
+        assert!(hover.is_none());
+    }
+
+    #[test]
+    fn test_hover_shows_syntax_errors() {
+        let mut host = AnalysisHost::new();
+
+        // Add a file with syntax errors
+        let path = FilePath::new("file:///invalid.graphql");
+        host.add_file(&path, "type Query {", FileKind::Schema);
+
+        // Get hover
+        let snapshot = host.snapshot();
+        let hover = snapshot.hover(&path, Position::new(0, 5));
+
+        // Should return hover with error information
+        assert!(hover.is_some());
+        let hover = hover.unwrap();
+        assert!(hover.contents.contains("Syntax Errors"));
+    }
+
+    #[test]
+    fn test_position_to_offset_helper() {
+        let text = "line 1\nline 2\nline 3";
+        let line_index = graphql_syntax::LineIndex::new(text);
+
+        // First line
+        assert_eq!(
+            position_to_offset(&line_index, Position::new(0, 0)),
+            Some(0)
+        );
+        assert_eq!(
+            position_to_offset(&line_index, Position::new(0, 5)),
+            Some(5)
+        );
+
+        // Second line
+        assert_eq!(
+            position_to_offset(&line_index, Position::new(1, 0)),
+            Some(7)
+        );
+        assert_eq!(
+            position_to_offset(&line_index, Position::new(1, 3)),
+            Some(10)
+        );
+
+        // Third line
+        assert_eq!(
+            position_to_offset(&line_index, Position::new(2, 0)),
+            Some(14)
+        );
     }
 }
