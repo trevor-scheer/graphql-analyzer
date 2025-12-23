@@ -211,14 +211,14 @@ pub fn line_index(db: &dyn GraphQLSyntaxDatabase, content: FileContent) -> Arc<L
 #[salsa::db]
 pub trait GraphQLSyntaxDatabase: salsa::Database {}
 
+// Implement the trait for RootDatabase
+// This makes RootDatabase usable with all syntax queries
+#[salsa::db]
+impl GraphQLSyntaxDatabase for graphql_db::RootDatabase {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::RootDatabase;
-
-    // Extend RootDatabase to implement GraphQLSyntaxDatabase
-    #[salsa::db]
-    impl GraphQLSyntaxDatabase for RootDatabase {}
 
     #[test]
     fn test_line_index_new() {
