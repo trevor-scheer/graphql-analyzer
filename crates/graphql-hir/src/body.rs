@@ -1,7 +1,7 @@
 // Body extraction - extracts selection sets and field selections
 // These are computed lazily and only when needed for validation
 
-use apollo_parser::cst::{self, CstNode};
+use apollo_compiler::executable;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -26,76 +26,67 @@ pub enum Selection {
 /// Extract selections from a selection set
 #[must_use]
 pub fn extract_selections(
-    selection_set: &cst::SelectionSet,
+    selection_set: &executable::SelectionSet,
 ) -> (Vec<Selection>, HashSet<Arc<str>>) {
     let mut selections = Vec::new();
     let mut fragment_spreads = HashSet::new();
 
-    for selection in selection_set.selections() {
-        if let Some(sel) = extract_selection(selection, &mut fragment_spreads) {
-            selections.push(sel);
-        }
+    for selection in &selection_set.selections {
+        extract_selection(selection, &mut selections, &mut fragment_spreads);
     }
 
     (selections, fragment_spreads)
 }
 
 fn extract_selection(
-    selection: cst::Selection,
+    selection: &executable::Selection,
+    selections: &mut Vec<Selection>,
     fragment_spreads: &mut HashSet<Arc<str>>,
-) -> Option<Selection> {
+) {
     match selection {
-        cst::Selection::Field(field) => {
-            let name = Arc::from(field.name()?.text().as_str());
-            let alias = field
-                .alias()
-                .and_then(|a| a.name())
-                .map(|n| Arc::from(n.text().as_str()));
+        executable::Selection::Field(field_node) => {
+            let field = &**field_node;
+            let name = Arc::from(field.name.as_str());
+            let alias = field.alias.as_ref().map(|a| Arc::from(a.as_str()));
 
             let arguments = field
-                .arguments()
-                .into_iter()
-                .flat_map(|args| args.arguments())
-                .filter_map(|arg| {
-                    let arg_name = Arc::from(arg.name()?.text().as_str());
-                    let value = Arc::from(arg.value()?.syntax().text().to_string().as_str());
-                    Some((arg_name, value))
+                .arguments
+                .iter()
+                .map(|arg| {
+                    let arg_name = Arc::from(arg.name.as_str());
+                    let value = Arc::from(arg.value.to_string().as_str());
+                    (arg_name, value)
                 })
                 .collect();
 
-            let selection_set = field
-                .selection_set()
-                .map(|ss| extract_selections(&ss).0)
-                .unwrap_or_default();
+            let selection_set = extract_selections(&field.selection_set).0;
 
-            Some(Selection::Field {
+            selections.push(Selection::Field {
                 name,
                 alias,
                 arguments,
                 selection_set,
-            })
+            });
         }
-        cst::Selection::FragmentSpread(spread) => {
-            let name: Arc<str> = Arc::from(spread.fragment_name()?.name()?.text().as_str());
+        executable::Selection::FragmentSpread(spread_node) => {
+            let spread = &**spread_node;
+            let name: Arc<str> = Arc::from(spread.fragment_name.as_str());
             fragment_spreads.insert(name.clone());
-            Some(Selection::FragmentSpread { name })
+            selections.push(Selection::FragmentSpread { name });
         }
-        cst::Selection::InlineFragment(inline) => {
+        executable::Selection::InlineFragment(inline_node) => {
+            let inline = &**inline_node;
             let type_condition = inline
-                .type_condition()
-                .and_then(|tc| tc.named_type())
-                .and_then(|nt| nt.name())
-                .map(|n| Arc::from(n.text().as_str()));
+                .type_condition
+                .as_ref()
+                .map(|tc| Arc::from(tc.as_str()));
 
-            let selection_set = inline
-                .selection_set()
-                .map(|ss| extract_selections(&ss).0)
-                .unwrap_or_default();
+            let selection_set = extract_selections(&inline.selection_set).0;
 
-            Some(Selection::InlineFragment {
+            selections.push(Selection::InlineFragment {
                 type_condition,
                 selection_set,
-            })
+            });
         }
     }
 }

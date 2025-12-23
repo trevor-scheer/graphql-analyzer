@@ -1,7 +1,7 @@
 // Structure extraction - extracts names and signatures, not bodies
 // This is the foundation of the golden invariant: structure is stable across body edits
 
-use apollo_parser::cst::{self, CstNode};
+use apollo_compiler::ast;
 use graphql_db::FileId;
 use std::sync::Arc;
 
@@ -112,9 +112,9 @@ pub fn file_structure(
     let mut operations = Vec::new();
     let mut fragments = Vec::new();
 
-    // Extract from main tree
-    extract_from_tree(
-        &parse.tree,
+    // Extract from main AST
+    extract_from_document(
+        &parse.ast,
         file_id,
         &mut type_defs,
         &mut operations,
@@ -123,8 +123,8 @@ pub fn file_structure(
 
     // Extract from extracted blocks (TypeScript/JavaScript)
     for (block_idx, block) in parse.blocks.iter().enumerate() {
-        extract_from_tree(
-            &block.tree,
+        extract_from_document(
+            &block.ast,
             file_id,
             &mut type_defs,
             &mut operations,
@@ -145,54 +145,38 @@ pub fn file_structure(
     })
 }
 
-fn extract_from_tree(
-    tree: &apollo_parser::SyntaxTree,
+fn extract_from_document(
+    document: &ast::Document,
     file_id: FileId,
     type_defs: &mut Vec<TypeDef>,
     operations: &mut Vec<OperationStructure>,
     fragments: &mut Vec<FragmentStructure>,
 ) {
-    let document = tree.document();
-
-    for definition in document.definitions() {
+    for definition in &document.definitions {
         match definition {
-            cst::Definition::OperationDefinition(op) => {
-                operations.push(extract_operation_structure(&op, file_id, operations.len()));
+            ast::Definition::OperationDefinition(op) => {
+                operations.push(extract_operation_structure(op, file_id, operations.len()));
             }
-            cst::Definition::FragmentDefinition(frag) => {
-                if let Some(fragment_struct) = extract_fragment_structure(&frag, file_id) {
-                    fragments.push(fragment_struct);
-                }
+            ast::Definition::FragmentDefinition(frag) => {
+                fragments.push(extract_fragment_structure(frag, file_id));
             }
-            cst::Definition::ObjectTypeDefinition(obj) => {
-                if let Some(type_def) = extract_object_type(&obj) {
-                    type_defs.push(type_def);
-                }
+            ast::Definition::ObjectTypeDefinition(obj) => {
+                type_defs.push(extract_object_type(obj));
             }
-            cst::Definition::InterfaceTypeDefinition(iface) => {
-                if let Some(type_def) = extract_interface_type(&iface) {
-                    type_defs.push(type_def);
-                }
+            ast::Definition::InterfaceTypeDefinition(iface) => {
+                type_defs.push(extract_interface_type(iface));
             }
-            cst::Definition::UnionTypeDefinition(union) => {
-                if let Some(type_def) = extract_union_type(&union) {
-                    type_defs.push(type_def);
-                }
+            ast::Definition::UnionTypeDefinition(union) => {
+                type_defs.push(extract_union_type(union));
             }
-            cst::Definition::EnumTypeDefinition(enum_def) => {
-                if let Some(type_def) = extract_enum_type(&enum_def) {
-                    type_defs.push(type_def);
-                }
+            ast::Definition::EnumTypeDefinition(enum_def) => {
+                type_defs.push(extract_enum_type(enum_def));
             }
-            cst::Definition::ScalarTypeDefinition(scalar) => {
-                if let Some(type_def) = extract_scalar_type(&scalar) {
-                    type_defs.push(type_def);
-                }
+            ast::Definition::ScalarTypeDefinition(scalar) => {
+                type_defs.push(extract_scalar_type(scalar));
             }
-            cst::Definition::InputObjectTypeDefinition(input) => {
-                if let Some(type_def) = extract_input_object_type(&input) {
-                    type_defs.push(type_def);
-                }
+            ast::Definition::InputObjectTypeDefinition(input) => {
+                type_defs.push(extract_input_object_type(input));
             }
             _ => {}
         }
@@ -200,29 +184,22 @@ fn extract_from_tree(
 }
 
 fn extract_operation_structure(
-    op: &cst::OperationDefinition,
+    op: &ast::OperationDefinition,
     file_id: FileId,
     index: usize,
 ) -> OperationStructure {
-    let name = op.name().map(|n| Arc::from(n.text().as_str()));
+    let name = op.name.as_ref().map(|n| Arc::from(n.as_str()));
 
-    let operation_type = op.operation_type().map_or(OperationType::Query, |op_type| {
-        if op_type.query_token().is_some() {
-            OperationType::Query
-        } else if op_type.mutation_token().is_some() {
-            OperationType::Mutation
-        } else if op_type.subscription_token().is_some() {
-            OperationType::Subscription
-        } else {
-            OperationType::Query
-        }
-    });
+    let operation_type = match op.operation_type {
+        ast::OperationType::Query => OperationType::Query,
+        ast::OperationType::Mutation => OperationType::Mutation,
+        ast::OperationType::Subscription => OperationType::Subscription,
+    };
 
     let variables = op
-        .variable_definitions()
-        .into_iter()
-        .flat_map(|vars| vars.variable_definitions())
-        .filter_map(|var| extract_variable_signature(&var))
+        .variables
+        .iter()
+        .map(|v| extract_variable_signature(v))
         .collect();
 
     OperationStructure {
@@ -235,54 +212,51 @@ fn extract_operation_structure(
 }
 
 fn extract_fragment_structure(
-    frag: &cst::FragmentDefinition,
+    frag: &ast::FragmentDefinition,
     file_id: FileId,
-) -> Option<FragmentStructure> {
-    let name = Arc::from(frag.fragment_name()?.name()?.text().as_str());
-    let type_condition = Arc::from(frag.type_condition()?.named_type()?.name()?.text().as_str());
+) -> FragmentStructure {
+    let name = Arc::from(frag.name.as_str());
+    let type_condition = Arc::from(frag.type_condition.as_str());
 
-    Some(FragmentStructure {
+    FragmentStructure {
         name,
         type_condition,
         file_id,
-    })
+    }
 }
 
-fn extract_variable_signature(var: &cst::VariableDefinition) -> Option<VariableSignature> {
-    let name = Arc::from(var.variable()?.name()?.text().as_str());
-    let type_ref = extract_type_ref(&var.ty()?)?;
-    let default_value = var.default_value().and_then(|v| {
-        v.value()
-            .map(|val| Arc::from(val.syntax().text().to_string()))
-    });
+fn extract_variable_signature(var: &ast::VariableDefinition) -> VariableSignature {
+    let name = Arc::from(var.name.as_str());
+    let type_ref = extract_type_ref(&var.ty);
+    let default_value = var
+        .default_value
+        .as_ref()
+        .map(|v| Arc::from(v.to_string().as_str()));
 
-    Some(VariableSignature {
+    VariableSignature {
         name,
         type_ref,
         default_value,
-    })
+    }
 }
 
-fn extract_object_type(obj: &cst::ObjectTypeDefinition) -> Option<TypeDef> {
-    let name = Arc::from(obj.name()?.text().as_str());
-    let description = obj
-        .description()
-        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
+fn extract_object_type(obj: &ast::ObjectTypeDefinition) -> TypeDef {
+    let name = Arc::from(obj.name.as_str());
+    let description = obj.description.as_ref().map(|d| Arc::from(d.as_str()));
 
     let fields = obj
-        .fields_definition()?
-        .field_definitions()
-        .filter_map(|f| extract_field_signature(&f))
+        .fields
+        .iter()
+        .map(|f| extract_field_signature(f))
         .collect();
 
     let implements = obj
-        .implements_interfaces()
-        .into_iter()
-        .flat_map(|impls| impls.named_types())
-        .filter_map(|t| t.name().map(|n| Arc::from(n.text().as_str())))
+        .implements_interfaces
+        .iter()
+        .map(|t| Arc::from(t.as_str()))
         .collect();
 
-    Some(TypeDef {
+    TypeDef {
         name,
         kind: TypeDefKind::Object,
         fields,
@@ -290,29 +264,26 @@ fn extract_object_type(obj: &cst::ObjectTypeDefinition) -> Option<TypeDef> {
         union_members: Vec::new(),
         enum_values: Vec::new(),
         description,
-    })
+    }
 }
 
-fn extract_interface_type(iface: &cst::InterfaceTypeDefinition) -> Option<TypeDef> {
-    let name = Arc::from(iface.name()?.text().as_str());
-    let description = iface
-        .description()
-        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
+fn extract_interface_type(iface: &ast::InterfaceTypeDefinition) -> TypeDef {
+    let name = Arc::from(iface.name.as_str());
+    let description = iface.description.as_ref().map(|d| Arc::from(d.as_str()));
 
     let fields = iface
-        .fields_definition()?
-        .field_definitions()
-        .filter_map(|f| extract_field_signature(&f))
+        .fields
+        .iter()
+        .map(|f| extract_field_signature(f))
         .collect();
 
     let implements = iface
-        .implements_interfaces()
-        .into_iter()
-        .flat_map(|impls| impls.named_types())
-        .filter_map(|t| t.name().map(|n| Arc::from(n.text().as_str())))
+        .implements_interfaces
+        .iter()
+        .map(|t| Arc::from(t.as_str()))
         .collect();
 
-    Some(TypeDef {
+    TypeDef {
         name,
         kind: TypeDefKind::Interface,
         fields,
@@ -320,22 +291,20 @@ fn extract_interface_type(iface: &cst::InterfaceTypeDefinition) -> Option<TypeDe
         union_members: Vec::new(),
         enum_values: Vec::new(),
         description,
-    })
+    }
 }
 
-fn extract_union_type(union: &cst::UnionTypeDefinition) -> Option<TypeDef> {
-    let name = Arc::from(union.name()?.text().as_str());
-    let description = union
-        .description()
-        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
+fn extract_union_type(union: &ast::UnionTypeDefinition) -> TypeDef {
+    let name = Arc::from(union.name.as_str());
+    let description = union.description.as_ref().map(|d| Arc::from(d.as_str()));
 
     let union_members = union
-        .union_member_types()?
-        .named_types()
-        .filter_map(|t| t.name().map(|n| Arc::from(n.text().as_str())))
+        .members
+        .iter()
+        .map(|t| Arc::from(t.as_str()))
         .collect();
 
-    Some(TypeDef {
+    TypeDef {
         name,
         kind: TypeDefKind::Union,
         fields: Vec::new(),
@@ -343,26 +312,20 @@ fn extract_union_type(union: &cst::UnionTypeDefinition) -> Option<TypeDef> {
         union_members,
         enum_values: Vec::new(),
         description,
-    })
+    }
 }
 
-fn extract_enum_type(enum_def: &cst::EnumTypeDefinition) -> Option<TypeDef> {
-    let name = Arc::from(enum_def.name()?.text().as_str());
-    let description = enum_def
-        .description()
-        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
+fn extract_enum_type(enum_def: &ast::EnumTypeDefinition) -> TypeDef {
+    let name = Arc::from(enum_def.name.as_str());
+    let description = enum_def.description.as_ref().map(|d| Arc::from(d.as_str()));
 
     let enum_values = enum_def
-        .enum_values_definition()?
-        .enum_value_definitions()
-        .filter_map(|v| {
-            v.enum_value()
-                .and_then(|e| e.name())
-                .map(|n| Arc::from(n.text().as_str()))
-        })
+        .values
+        .iter()
+        .map(|v| Arc::from(v.value.as_str()))
         .collect();
 
-    Some(TypeDef {
+    TypeDef {
         name,
         kind: TypeDefKind::Enum,
         fields: Vec::new(),
@@ -370,16 +333,14 @@ fn extract_enum_type(enum_def: &cst::EnumTypeDefinition) -> Option<TypeDef> {
         union_members: Vec::new(),
         enum_values,
         description,
-    })
+    }
 }
 
-fn extract_scalar_type(scalar: &cst::ScalarTypeDefinition) -> Option<TypeDef> {
-    let name = Arc::from(scalar.name()?.text().as_str());
-    let description = scalar
-        .description()
-        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
+fn extract_scalar_type(scalar: &ast::ScalarTypeDefinition) -> TypeDef {
+    let name = Arc::from(scalar.name.as_str());
+    let description = scalar.description.as_ref().map(|d| Arc::from(d.as_str()));
 
-    Some(TypeDef {
+    TypeDef {
         name,
         kind: TypeDefKind::Scalar,
         fields: Vec::new(),
@@ -387,22 +348,20 @@ fn extract_scalar_type(scalar: &cst::ScalarTypeDefinition) -> Option<TypeDef> {
         union_members: Vec::new(),
         enum_values: Vec::new(),
         description,
-    })
+    }
 }
 
-fn extract_input_object_type(input: &cst::InputObjectTypeDefinition) -> Option<TypeDef> {
-    let name = Arc::from(input.name()?.text().as_str());
-    let description = input
-        .description()
-        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
+fn extract_input_object_type(input: &ast::InputObjectTypeDefinition) -> TypeDef {
+    let name = Arc::from(input.name.as_str());
+    let description = input.description.as_ref().map(|d| Arc::from(d.as_str()));
 
     let fields = input
-        .input_fields_definition()?
-        .input_value_definitions()
-        .filter_map(|f| extract_input_field_signature(&f))
+        .fields
+        .iter()
+        .map(|f| extract_input_field_signature(f))
         .collect();
 
-    Some(TypeDef {
+    TypeDef {
         name,
         kind: TypeDefKind::InputObject,
         fields,
@@ -410,148 +369,97 @@ fn extract_input_object_type(input: &cst::InputObjectTypeDefinition) -> Option<T
         union_members: Vec::new(),
         enum_values: Vec::new(),
         description,
-    })
+    }
 }
 
-fn extract_field_signature(field: &cst::FieldDefinition) -> Option<FieldSignature> {
-    let name = Arc::from(field.name()?.text().as_str());
-    let type_ref = extract_type_ref(&field.ty()?)?;
-    let description = field
-        .description()
-        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
+fn extract_field_signature(field: &ast::FieldDefinition) -> FieldSignature {
+    let name = Arc::from(field.name.as_str());
+    let type_ref = extract_type_ref(&field.ty);
+    let description = field.description.as_ref().map(|d| Arc::from(d.as_str()));
 
     let arguments = field
-        .arguments_definition()
-        .into_iter()
-        .flat_map(|args| args.input_value_definitions())
-        .filter_map(|a| extract_argument_def(&a))
+        .arguments
+        .iter()
+        .map(|a| extract_argument_def(a))
         .collect();
 
-    Some(FieldSignature {
+    FieldSignature {
         name,
         type_ref,
         arguments,
         description,
-    })
+    }
 }
 
-fn extract_input_field_signature(field: &cst::InputValueDefinition) -> Option<FieldSignature> {
-    let name = Arc::from(field.name()?.text().as_str());
-    let type_ref = extract_type_ref(&field.ty()?)?;
-    let description = field
-        .description()
-        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
+fn extract_input_field_signature(field: &ast::InputValueDefinition) -> FieldSignature {
+    let name = Arc::from(field.name.as_str());
+    let type_ref = extract_type_ref(&field.ty);
+    let description = field.description.as_ref().map(|d| Arc::from(d.as_str()));
 
-    Some(FieldSignature {
+    FieldSignature {
         name,
         type_ref,
         arguments: Vec::new(),
         description,
-    })
+    }
 }
 
-fn extract_argument_def(arg: &cst::InputValueDefinition) -> Option<ArgumentDef> {
-    let name = Arc::from(arg.name()?.text().as_str());
-    let type_ref = extract_type_ref(&arg.ty()?)?;
-    let default_value = arg.default_value().and_then(|v| {
-        v.value()
-            .map(|val| Arc::from(val.syntax().text().to_string()))
-    });
-    let description = arg
-        .description()
-        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
+fn extract_argument_def(arg: &ast::InputValueDefinition) -> ArgumentDef {
+    let name = Arc::from(arg.name.as_str());
+    let type_ref = extract_type_ref(&arg.ty);
+    let default_value = arg
+        .default_value
+        .as_ref()
+        .map(|v| Arc::from(v.to_string().as_str()));
+    let description = arg.description.as_ref().map(|d| Arc::from(d.as_str()));
 
-    Some(ArgumentDef {
+    ArgumentDef {
         name,
         type_ref,
         default_value,
         description,
-    })
+    }
 }
 
-fn extract_type_ref(ty: &cst::Type) -> Option<TypeRef> {
-    match ty {
-        cst::Type::NamedType(named) => {
-            let name = Arc::from(named.name()?.text().as_str());
-            Some(TypeRef {
-                name,
-                is_list: false,
-                is_non_null: false,
-                inner_non_null: false,
-            })
-        }
-        cst::Type::NonNullType(non_null) => {
-            // NonNullType can contain either NamedType or ListType
-            if let Some(named) = non_null.named_type() {
-                // Type! case
-                let name = Arc::from(named.name()?.text().as_str());
-                Some(TypeRef {
-                    name,
-                    is_list: false,
-                    is_non_null: true,
-                    inner_non_null: false,
-                })
-            } else if let Some(list) = non_null.list_type() {
-                // [Type]! or [Type!]! case
-                let inner_type = list.ty()?;
-                if let cst::Type::NamedType(named) = inner_type {
-                    // [Type]! case
-                    let name = Arc::from(named.name()?.text().as_str());
-                    Some(TypeRef {
+fn extract_type_ref(ty: &ast::Type) -> TypeRef {
+    let is_non_null = ty.is_non_null();
+    let is_list = ty.is_list();
+
+    // Get the innermost named type
+    let name = Arc::from(ty.inner_named_type().as_str());
+
+    // Check if inner type (inside list) is non-null
+    // For [Type!]! we need to check if the type inside the list is non-null
+    let inner_non_null = if is_list {
+        // Strip outer non-null wrapper if present
+        let inner = if is_non_null {
+            // For [Type]! or [Type!]!, get the inner type after unwrapping outer non-null
+            match ty {
+                ast::Type::NonNullNamed(_) => {
+                    return TypeRef {
                         name,
-                        is_list: true,
+                        is_list: false,
                         is_non_null: true,
                         inner_non_null: false,
-                    })
-                } else if let cst::Type::NonNullType(inner_non_null) = inner_type {
-                    // [Type!]! case
-                    if let Some(named) = inner_non_null.named_type() {
-                        let name = Arc::from(named.name()?.text().as_str());
-                        Some(TypeRef {
-                            name,
-                            is_list: true,
-                            is_non_null: true,
-                            inner_non_null: true,
-                        })
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        }
-        cst::Type::ListType(list) => {
-            let inner = list.ty()?;
-            match inner {
-                cst::Type::NamedType(named) => {
-                    // [Type] case
-                    let name = Arc::from(named.name()?.text().as_str());
-                    Some(TypeRef {
-                        name,
-                        is_list: true,
-                        is_non_null: false,
-                        inner_non_null: false,
-                    })
-                }
-                cst::Type::NonNullType(non_null) => {
-                    // [Type!] case
-                    if let Some(named) = non_null.named_type() {
-                        let name = Arc::from(named.name()?.text().as_str());
-                        Some(TypeRef {
-                            name,
-                            is_list: true,
-                            is_non_null: false,
-                            inner_non_null: true,
-                        })
-                    } else {
-                        None
                     }
                 }
-                cst::Type::ListType(_) => None,
+                ast::Type::NonNullList(inner) | ast::Type::List(inner) => inner.as_ref(),
+                ast::Type::Named(_) => ty,
             }
-        }
+        } else {
+            ty
+        };
+
+        // Now check if it's a list with non-null inner type
+        matches!(inner, ast::Type::List(list) if matches!(list.as_ref(), ast::Type::NonNullNamed(_)))
+    } else {
+        false
+    };
+
+    TypeRef {
+        name,
+        is_list,
+        is_non_null,
+        inner_non_null,
     }
 }

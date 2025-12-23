@@ -11,3 +11,4 @@ graphql-db = { path = "../graphql-db" }
 graphql-syntax = { path = "../graphql-syntax" }
 salsa = { workspace = true }
 apollo-parser = { workspace = true }
+apollo-compiler = { workspace = true }
