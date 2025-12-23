@@ -914,6 +914,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "graphql-analysis"
+version = "0.1.1"
+dependencies = [
+ "apollo-compiler",
+ "graphql-db",
+ "graphql-hir",
+ "graphql-linter",
+ "graphql-project",
+ "graphql-syntax",
+ "salsa",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "graphql-cli"
 version = "0.1.1"
 dependencies = [
