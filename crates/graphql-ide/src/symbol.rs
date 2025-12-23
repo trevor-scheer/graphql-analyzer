@@ -169,6 +169,56 @@ fn is_within_range<T: CstNode>(node: &T, byte_offset: usize) -> bool {
     byte_offset >= start && byte_offset < end
 }
 
+/// Find the byte offset range of a fragment definition by name
+pub fn find_fragment_definition_range(
+    tree: &apollo_parser::SyntaxTree,
+    fragment_name: &str,
+) -> Option<(usize, usize)> {
+    let doc = tree.document();
+
+    for definition in doc.definitions() {
+        if let cst::Definition::FragmentDefinition(frag) = definition {
+            if let Some(name) = frag.fragment_name().and_then(|n| n.name()) {
+                if name.text() == fragment_name {
+                    let range = name.syntax().text_range();
+                    return Some((range.start().into(), range.end().into()));
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Find the byte offset range of a type definition by name
+pub fn find_type_definition_range(
+    tree: &apollo_parser::SyntaxTree,
+    type_name: &str,
+) -> Option<(usize, usize)> {
+    let doc = tree.document();
+
+    for definition in doc.definitions() {
+        let name_node = match definition {
+            cst::Definition::ObjectTypeDefinition(obj) => obj.name(),
+            cst::Definition::InterfaceTypeDefinition(iface) => iface.name(),
+            cst::Definition::UnionTypeDefinition(union) => union.name(),
+            cst::Definition::EnumTypeDefinition(enum_def) => enum_def.name(),
+            cst::Definition::ScalarTypeDefinition(scalar) => scalar.name(),
+            cst::Definition::InputObjectTypeDefinition(input) => input.name(),
+            _ => None,
+        };
+
+        if let Some(name) = name_node {
+            if name.text() == type_name {
+                let range = name.syntax().text_range();
+                return Some((range.start().into(), range.end().into()));
+            }
+        }
+    }
+
+    None
+}
+
 /// Find all fragment spreads with a specific name in a syntax tree
 pub fn find_fragment_spreads(
     tree: &apollo_parser::SyntaxTree,
