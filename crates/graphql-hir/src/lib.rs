@@ -2,9 +2,8 @@
 // This crate provides semantic queries on top of syntax.
 // It implements the "golden invariant": editing a document's body never invalidates global schema knowledge.
 
-use apollo_parser::ast;
 use graphql_db::FileId;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 mod body;
@@ -78,12 +77,12 @@ impl OperationId {
 }
 
 /// The salsa database trait for HIR queries
-/// Note: In Phase 2, these return empty sets. FileRegistry will be added in a future phase.
+/// Note: In Phase 2, these return empty sets. `FileRegistry` will be added in a future phase.
 #[salsa::db]
 pub trait GraphQLHirDatabase: graphql_syntax::GraphQLSyntaxDatabase {
     /// Get all schema files in the project
-    /// Returns tuples of (FileId, FileContent, FileMetadata)
-    /// TODO: Will be properly implemented with FileRegistry in Phase 3
+    /// Returns tuples of (`FileId`, `FileContent`, `FileMetadata`)
+    /// TODO: Will be properly implemented with `FileRegistry` in Phase 3
     fn schema_files(
         &self,
     ) -> Arc<Vec<(FileId, graphql_db::FileContent, graphql_db::FileMetadata)>> {
@@ -91,27 +90,13 @@ pub trait GraphQLHirDatabase: graphql_syntax::GraphQLSyntaxDatabase {
     }
 
     /// Get all document files in the project
-    /// Returns tuples of (FileId, FileContent, FileMetadata)
-    /// TODO: Will be properly implemented with FileRegistry in Phase 3
+    /// Returns tuples of (`FileId`, `FileContent`, `FileMetadata`)
+    /// TODO: Will be properly implemented with `FileRegistry` in Phase 3
     fn document_files(
         &self,
     ) -> Arc<Vec<(FileId, graphql_db::FileContent, graphql_db::FileMetadata)>> {
         Arc::new(Vec::new())
     }
-}
-
-/// Summary of a file's structure (stable across body edits)
-/// This is the key to the golden invariant - we only extract names and signatures,
-/// not selection sets or field selections.
-#[salsa::tracked]
-pub struct FileStructure {
-    pub file_id: FileId,
-    #[return_ref]
-    pub type_defs: Vec<TypeDef>,
-    #[return_ref]
-    pub operations: Vec<OperationStructure>,
-    #[return_ref]
-    pub fragments: Vec<FragmentStructure>,
 }
 
 /// Get all types in the schema
@@ -123,7 +108,7 @@ pub fn schema_types(db: &dyn GraphQLHirDatabase) -> Arc<HashMap<Arc<str>, TypeDe
 
     for (file_id, content, metadata) in schema_files.iter() {
         let structure = file_structure(db, *file_id, *content, *metadata);
-        for type_def in structure.type_defs(db) {
+        for type_def in &structure.type_defs {
             types.insert(type_def.name.clone(), type_def.clone());
         }
     }
@@ -140,7 +125,7 @@ pub fn all_fragments(db: &dyn GraphQLHirDatabase) -> Arc<HashMap<Arc<str>, Fragm
 
     for (file_id, content, metadata) in document_files.iter() {
         let structure = file_structure(db, *file_id, *content, *metadata);
-        for fragment in structure.fragments(db) {
+        for fragment in &structure.fragments {
             fragments.insert(fragment.name.clone(), fragment.clone());
         }
     }
@@ -157,34 +142,50 @@ pub fn all_operations(db: &dyn GraphQLHirDatabase) -> Arc<Vec<OperationStructure
 
     for (file_id, content, metadata) in document_files.iter() {
         let structure = file_structure(db, *file_id, *content, *metadata);
-        operations.extend(structure.operations(db).clone());
+        operations.extend(structure.operations.clone());
     }
 
     Arc::new(operations)
 }
 
-/// Get fragments referenced by an operation (lazily computed)
-/// This performs transitive resolution: if operation references fragment A,
-/// and fragment A references fragment B, both A and B are returned.
-///
-/// Note: This is a simplified implementation for Phase 2. Full implementation
-/// requires FileRegistry to look up fragment files.
-#[salsa::tracked]
-pub fn operation_fragment_deps(
-    db: &dyn GraphQLHirDatabase,
-    operation_id: OperationId,
-) -> Arc<HashSet<Arc<str>>> {
-    // Get the operation body
-    let body = operation_body(db, operation_id);
-
-    // For Phase 2, just return the direct fragment spreads
-    // Full transitive resolution will be implemented with FileRegistry
-    Arc::new(body.fragment_spreads(db).clone())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use graphql_db::{FileContent, FileKind, FileMetadata, FileUri};
 
-    // Tests will be implemented alongside the structure and body modules
+    // Test database that implements all required traits
+    #[salsa::db]
+    #[derive(Clone, Default)]
+    struct TestDatabase {
+        storage: salsa::Storage<Self>,
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDatabase {}
+
+    #[salsa::db]
+    impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {}
+
+    #[salsa::db]
+    impl GraphQLHirDatabase for TestDatabase {}
+
+    #[test]
+    fn test_schema_types_empty() {
+        let db = TestDatabase::default();
+        let types = schema_types(&db);
+        assert_eq!(types.len(), 0);
+    }
+
+    #[test]
+    fn test_file_structure_basic() {
+        let db = TestDatabase::default();
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from("type User { id: ID! }"));
+        let metadata =
+            FileMetadata::new(&db, file_id, FileUri::new("test.graphql"), FileKind::Schema);
+
+        let structure = file_structure(&db, file_id, content, metadata);
+        assert_eq!(structure.type_defs.len(), 1);
+        assert_eq!(structure.type_defs[0].name.as_ref(), "User");
+    }
 }

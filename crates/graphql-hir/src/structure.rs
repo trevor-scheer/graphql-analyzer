@@ -1,7 +1,7 @@
 // Structure extraction - extracts names and signatures, not bodies
 // This is the foundation of the golden invariant: structure is stable across body edits
 
-use apollo_parser::ast::{self, AstNode};
+use apollo_parser::cst::{self, CstNode};
 use graphql_db::FileId;
 use std::sync::Arc;
 
@@ -87,11 +87,26 @@ pub struct FragmentStructure {
     pub file_id: FileId,
 }
 
+/// Summary of a file's structure (stable across body edits)
+/// Contains extracted names and signatures, but not bodies
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FileStructureData {
+    pub file_id: FileId,
+    pub type_defs: Vec<TypeDef>,
+    pub operations: Vec<OperationStructure>,
+    pub fragments: Vec<FragmentStructure>,
+}
+
 /// Extract the file structure from a parsed syntax tree
 /// This only extracts structural information (names, signatures), not bodies
 #[salsa::tracked]
-pub fn file_structure(db: &dyn crate::GraphQLHirDatabase, file_id: FileId) -> crate::FileStructure {
-    let parse = graphql_syntax::parse(db, file_id);
+pub fn file_structure(
+    db: &dyn crate::GraphQLHirDatabase,
+    file_id: FileId,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+) -> Arc<FileStructureData> {
+    let parse = graphql_syntax::parse(db, content, metadata);
 
     let mut type_defs = Vec::new();
     let mut operations = Vec::new();
@@ -116,15 +131,18 @@ pub fn file_structure(db: &dyn crate::GraphQLHirDatabase, file_id: FileId) -> cr
             &mut fragments,
         );
         // Update operation indices to be unique per block
-        for op in operations
-            .iter_mut()
-            .skip(operations.len().saturating_sub(1))
-        {
+        let ops_len = operations.len();
+        for op in operations.iter_mut().skip(ops_len.saturating_sub(1)) {
             op.index += block_idx * 1000; // Simple offset to make unique
         }
     }
 
-    crate::FileStructure::new(db, file_id, type_defs, operations, fragments)
+    Arc::new(FileStructureData {
+        file_id,
+        type_defs,
+        operations,
+        fragments,
+    })
 }
 
 fn extract_from_tree(
@@ -138,51 +156,73 @@ fn extract_from_tree(
 
     for definition in document.definitions() {
         match definition {
-            ast::Definition::OperationDefinition(op) => {
-                operations.push(extract_operation_structure(op, file_id, operations.len()));
+            cst::Definition::OperationDefinition(op) => {
+                operations.push(extract_operation_structure(&op, file_id, operations.len()));
             }
-            ast::Definition::FragmentDefinition(frag) => {
-                if let Some(fragment_struct) = extract_fragment_structure(frag, file_id) {
+            cst::Definition::FragmentDefinition(frag) => {
+                if let Some(fragment_struct) = extract_fragment_structure(&frag, file_id) {
                     fragments.push(fragment_struct);
                 }
             }
-            ast::Definition::SchemaDefinition(_) => {
-                // Schema definition doesn't add types, just configures root types
-            }
-            ast::Definition::SchemaExtension(_) => {
-                // Schema extension doesn't add types
-            }
-            ast::Definition::DirectiveDefinition(_) => {
-                // Directive definitions not yet supported
-            }
-            _ => {
-                // Type definitions
-                if let Some(type_def) = extract_type_def(definition) {
+            cst::Definition::ObjectTypeDefinition(obj) => {
+                if let Some(type_def) = extract_object_type(&obj) {
                     type_defs.push(type_def);
                 }
             }
+            cst::Definition::InterfaceTypeDefinition(iface) => {
+                if let Some(type_def) = extract_interface_type(&iface) {
+                    type_defs.push(type_def);
+                }
+            }
+            cst::Definition::UnionTypeDefinition(union) => {
+                if let Some(type_def) = extract_union_type(&union) {
+                    type_defs.push(type_def);
+                }
+            }
+            cst::Definition::EnumTypeDefinition(enum_def) => {
+                if let Some(type_def) = extract_enum_type(&enum_def) {
+                    type_defs.push(type_def);
+                }
+            }
+            cst::Definition::ScalarTypeDefinition(scalar) => {
+                if let Some(type_def) = extract_scalar_type(&scalar) {
+                    type_defs.push(type_def);
+                }
+            }
+            cst::Definition::InputObjectTypeDefinition(input) => {
+                if let Some(type_def) = extract_input_object_type(&input) {
+                    type_defs.push(type_def);
+                }
+            }
+            _ => {}
         }
     }
 }
 
 fn extract_operation_structure(
-    op: ast::OperationDefinition,
+    op: &cst::OperationDefinition,
     file_id: FileId,
     index: usize,
 ) -> OperationStructure {
     let name = op.name().map(|n| Arc::from(n.text().as_str()));
 
-    let operation_type = match op.operation_type() {
-        Some(ast::OperationType::Query) | None => OperationType::Query,
-        Some(ast::OperationType::Mutation) => OperationType::Mutation,
-        Some(ast::OperationType::Subscription) => OperationType::Subscription,
-    };
+    let operation_type = op.operation_type().map_or(OperationType::Query, |op_type| {
+        if op_type.query_token().is_some() {
+            OperationType::Query
+        } else if op_type.mutation_token().is_some() {
+            OperationType::Mutation
+        } else if op_type.subscription_token().is_some() {
+            OperationType::Subscription
+        } else {
+            OperationType::Query
+        }
+    });
 
     let variables = op
         .variable_definitions()
         .into_iter()
         .flat_map(|vars| vars.variable_definitions())
-        .filter_map(extract_variable_signature)
+        .filter_map(|var| extract_variable_signature(&var))
         .collect();
 
     OperationStructure {
@@ -195,7 +235,7 @@ fn extract_operation_structure(
 }
 
 fn extract_fragment_structure(
-    frag: ast::FragmentDefinition,
+    frag: &cst::FragmentDefinition,
     file_id: FileId,
 ) -> Option<FragmentStructure> {
     let name = Arc::from(frag.fragment_name()?.name()?.text().as_str());
@@ -208,12 +248,13 @@ fn extract_fragment_structure(
     })
 }
 
-fn extract_variable_signature(var: ast::VariableDefinition) -> Option<VariableSignature> {
+fn extract_variable_signature(var: &cst::VariableDefinition) -> Option<VariableSignature> {
     let name = Arc::from(var.variable()?.name()?.text().as_str());
     let type_ref = extract_type_ref(&var.ty()?)?;
-    let default_value = var
-        .default_value()
-        .map(|v| Arc::from(v.value()?.to_string().as_str()));
+    let default_value = var.default_value().and_then(|v| {
+        v.value()
+            .map(|val| Arc::from(val.syntax().text().to_string()))
+    });
 
     Some(VariableSignature {
         name,
@@ -222,36 +263,16 @@ fn extract_variable_signature(var: ast::VariableDefinition) -> Option<VariableSi
     })
 }
 
-fn extract_type_def(definition: ast::Definition) -> Option<TypeDef> {
-    match definition {
-        ast::Definition::ObjectTypeDefinition(obj) => extract_object_type(obj),
-        ast::Definition::ObjectTypeExtension(obj) => extract_object_type_extension(obj),
-        ast::Definition::InterfaceTypeDefinition(iface) => extract_interface_type(iface),
-        ast::Definition::InterfaceTypeExtension(iface) => extract_interface_type_extension(iface),
-        ast::Definition::UnionTypeDefinition(union) => extract_union_type(union),
-        ast::Definition::UnionTypeExtension(union) => extract_union_type_extension(union),
-        ast::Definition::EnumTypeDefinition(enum_def) => extract_enum_type(enum_def),
-        ast::Definition::EnumTypeExtension(enum_def) => extract_enum_type_extension(enum_def),
-        ast::Definition::ScalarTypeDefinition(scalar) => extract_scalar_type(scalar),
-        ast::Definition::ScalarTypeExtension(scalar) => extract_scalar_type_extension(scalar),
-        ast::Definition::InputObjectTypeDefinition(input) => extract_input_object_type(input),
-        ast::Definition::InputObjectTypeExtension(input) => {
-            extract_input_object_type_extension(input)
-        }
-        _ => None,
-    }
-}
-
-fn extract_object_type(obj: ast::ObjectTypeDefinition) -> Option<TypeDef> {
+fn extract_object_type(obj: &cst::ObjectTypeDefinition) -> Option<TypeDef> {
     let name = Arc::from(obj.name()?.text().as_str());
     let description = obj
         .description()
-        .map(|d| Arc::from(d.to_string().trim_matches('"').as_str()));
+        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
 
     let fields = obj
         .fields_definition()?
         .field_definitions()
-        .filter_map(extract_field_signature)
+        .filter_map(|f| extract_field_signature(&f))
         .collect();
 
     let implements = obj
@@ -272,44 +293,16 @@ fn extract_object_type(obj: ast::ObjectTypeDefinition) -> Option<TypeDef> {
     })
 }
 
-fn extract_object_type_extension(obj: ast::ObjectTypeExtension) -> Option<TypeDef> {
-    let name = Arc::from(obj.name()?.text().as_str());
-
-    let fields = obj
-        .fields_definition()
-        .into_iter()
-        .flat_map(|f| f.field_definitions())
-        .filter_map(extract_field_signature)
-        .collect();
-
-    let implements = obj
-        .implements_interfaces()
-        .into_iter()
-        .flat_map(|impls| impls.named_types())
-        .filter_map(|t| t.name().map(|n| Arc::from(n.text().as_str())))
-        .collect();
-
-    Some(TypeDef {
-        name,
-        kind: TypeDefKind::Object,
-        fields,
-        implements,
-        union_members: Vec::new(),
-        enum_values: Vec::new(),
-        description: None,
-    })
-}
-
-fn extract_interface_type(iface: ast::InterfaceTypeDefinition) -> Option<TypeDef> {
+fn extract_interface_type(iface: &cst::InterfaceTypeDefinition) -> Option<TypeDef> {
     let name = Arc::from(iface.name()?.text().as_str());
     let description = iface
         .description()
-        .map(|d| Arc::from(d.to_string().trim_matches('"').as_str()));
+        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
 
     let fields = iface
         .fields_definition()?
         .field_definitions()
-        .filter_map(extract_field_signature)
+        .filter_map(|f| extract_field_signature(&f))
         .collect();
 
     let implements = iface
@@ -330,39 +323,11 @@ fn extract_interface_type(iface: ast::InterfaceTypeDefinition) -> Option<TypeDef
     })
 }
 
-fn extract_interface_type_extension(iface: ast::InterfaceTypeExtension) -> Option<TypeDef> {
-    let name = Arc::from(iface.name()?.text().as_str());
-
-    let fields = iface
-        .fields_definition()
-        .into_iter()
-        .flat_map(|f| f.field_definitions())
-        .filter_map(extract_field_signature)
-        .collect();
-
-    let implements = iface
-        .implements_interfaces()
-        .into_iter()
-        .flat_map(|impls| impls.named_types())
-        .filter_map(|t| t.name().map(|n| Arc::from(n.text().as_str())))
-        .collect();
-
-    Some(TypeDef {
-        name,
-        kind: TypeDefKind::Interface,
-        fields,
-        implements,
-        union_members: Vec::new(),
-        enum_values: Vec::new(),
-        description: None,
-    })
-}
-
-fn extract_union_type(union: ast::UnionTypeDefinition) -> Option<TypeDef> {
+fn extract_union_type(union: &cst::UnionTypeDefinition) -> Option<TypeDef> {
     let name = Arc::from(union.name()?.text().as_str());
     let description = union
         .description()
-        .map(|d| Arc::from(d.to_string().trim_matches('"').as_str()));
+        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
 
     let union_members = union
         .union_member_types()?
@@ -381,32 +346,11 @@ fn extract_union_type(union: ast::UnionTypeDefinition) -> Option<TypeDef> {
     })
 }
 
-fn extract_union_type_extension(union: ast::UnionTypeExtension) -> Option<TypeDef> {
-    let name = Arc::from(union.name()?.text().as_str());
-
-    let union_members = union
-        .union_member_types()
-        .into_iter()
-        .flat_map(|m| m.named_types())
-        .filter_map(|t| t.name().map(|n| Arc::from(n.text().as_str())))
-        .collect();
-
-    Some(TypeDef {
-        name,
-        kind: TypeDefKind::Union,
-        fields: Vec::new(),
-        implements: Vec::new(),
-        union_members,
-        enum_values: Vec::new(),
-        description: None,
-    })
-}
-
-fn extract_enum_type(enum_def: ast::EnumTypeDefinition) -> Option<TypeDef> {
+fn extract_enum_type(enum_def: &cst::EnumTypeDefinition) -> Option<TypeDef> {
     let name = Arc::from(enum_def.name()?.text().as_str());
     let description = enum_def
         .description()
-        .map(|d| Arc::from(d.to_string().trim_matches('"').as_str()));
+        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
 
     let enum_values = enum_def
         .enum_values_definition()?
@@ -429,36 +373,11 @@ fn extract_enum_type(enum_def: ast::EnumTypeDefinition) -> Option<TypeDef> {
     })
 }
 
-fn extract_enum_type_extension(enum_def: ast::EnumTypeExtension) -> Option<TypeDef> {
-    let name = Arc::from(enum_def.name()?.text().as_str());
-
-    let enum_values = enum_def
-        .enum_values_definition()
-        .into_iter()
-        .flat_map(|e| e.enum_value_definitions())
-        .filter_map(|v| {
-            v.enum_value()
-                .and_then(|e| e.name())
-                .map(|n| Arc::from(n.text().as_str()))
-        })
-        .collect();
-
-    Some(TypeDef {
-        name,
-        kind: TypeDefKind::Enum,
-        fields: Vec::new(),
-        implements: Vec::new(),
-        union_members: Vec::new(),
-        enum_values,
-        description: None,
-    })
-}
-
-fn extract_scalar_type(scalar: ast::ScalarTypeDefinition) -> Option<TypeDef> {
+fn extract_scalar_type(scalar: &cst::ScalarTypeDefinition) -> Option<TypeDef> {
     let name = Arc::from(scalar.name()?.text().as_str());
     let description = scalar
         .description()
-        .map(|d| Arc::from(d.to_string().trim_matches('"').as_str()));
+        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
 
     Some(TypeDef {
         name,
@@ -471,30 +390,16 @@ fn extract_scalar_type(scalar: ast::ScalarTypeDefinition) -> Option<TypeDef> {
     })
 }
 
-fn extract_scalar_type_extension(scalar: ast::ScalarTypeExtension) -> Option<TypeDef> {
-    let name = Arc::from(scalar.name()?.text().as_str());
-
-    Some(TypeDef {
-        name,
-        kind: TypeDefKind::Scalar,
-        fields: Vec::new(),
-        implements: Vec::new(),
-        union_members: Vec::new(),
-        enum_values: Vec::new(),
-        description: None,
-    })
-}
-
-fn extract_input_object_type(input: ast::InputObjectTypeDefinition) -> Option<TypeDef> {
+fn extract_input_object_type(input: &cst::InputObjectTypeDefinition) -> Option<TypeDef> {
     let name = Arc::from(input.name()?.text().as_str());
     let description = input
         .description()
-        .map(|d| Arc::from(d.to_string().trim_matches('"').as_str()));
+        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
 
     let fields = input
         .input_fields_definition()?
         .input_value_definitions()
-        .filter_map(extract_input_field_signature)
+        .filter_map(|f| extract_input_field_signature(&f))
         .collect();
 
     Some(TypeDef {
@@ -508,39 +413,18 @@ fn extract_input_object_type(input: ast::InputObjectTypeDefinition) -> Option<Ty
     })
 }
 
-fn extract_input_object_type_extension(input: ast::InputObjectTypeExtension) -> Option<TypeDef> {
-    let name = Arc::from(input.name()?.text().as_str());
-
-    let fields = input
-        .input_fields_definition()
-        .into_iter()
-        .flat_map(|f| f.input_value_definitions())
-        .filter_map(extract_input_field_signature)
-        .collect();
-
-    Some(TypeDef {
-        name,
-        kind: TypeDefKind::InputObject,
-        fields,
-        implements: Vec::new(),
-        union_members: Vec::new(),
-        enum_values: Vec::new(),
-        description: None,
-    })
-}
-
-fn extract_field_signature(field: ast::FieldDefinition) -> Option<FieldSignature> {
+fn extract_field_signature(field: &cst::FieldDefinition) -> Option<FieldSignature> {
     let name = Arc::from(field.name()?.text().as_str());
     let type_ref = extract_type_ref(&field.ty()?)?;
     let description = field
         .description()
-        .map(|d| Arc::from(d.to_string().trim_matches('"').as_str()));
+        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
 
     let arguments = field
         .arguments_definition()
         .into_iter()
         .flat_map(|args| args.input_value_definitions())
-        .filter_map(extract_argument_def)
+        .filter_map(|a| extract_argument_def(&a))
         .collect();
 
     Some(FieldSignature {
@@ -551,12 +435,12 @@ fn extract_field_signature(field: ast::FieldDefinition) -> Option<FieldSignature
     })
 }
 
-fn extract_input_field_signature(field: ast::InputValueDefinition) -> Option<FieldSignature> {
+fn extract_input_field_signature(field: &cst::InputValueDefinition) -> Option<FieldSignature> {
     let name = Arc::from(field.name()?.text().as_str());
     let type_ref = extract_type_ref(&field.ty()?)?;
     let description = field
         .description()
-        .map(|d| Arc::from(d.to_string().trim_matches('"').as_str()));
+        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
 
     Some(FieldSignature {
         name,
@@ -566,15 +450,16 @@ fn extract_input_field_signature(field: ast::InputValueDefinition) -> Option<Fie
     })
 }
 
-fn extract_argument_def(arg: ast::InputValueDefinition) -> Option<ArgumentDef> {
+fn extract_argument_def(arg: &cst::InputValueDefinition) -> Option<ArgumentDef> {
     let name = Arc::from(arg.name()?.text().as_str());
     let type_ref = extract_type_ref(&arg.ty()?)?;
-    let default_value = arg
-        .default_value()
-        .map(|v| Arc::from(v.value()?.to_string().as_str()));
+    let default_value = arg.default_value().and_then(|v| {
+        v.value()
+            .map(|val| Arc::from(val.syntax().text().to_string()))
+    });
     let description = arg
         .description()
-        .map(|d| Arc::from(d.to_string().trim_matches('"').as_str()));
+        .map(|d| Arc::from(d.syntax().text().to_string().trim_matches('"')));
 
     Some(ArgumentDef {
         name,
@@ -584,9 +469,9 @@ fn extract_argument_def(arg: ast::InputValueDefinition) -> Option<ArgumentDef> {
     })
 }
 
-fn extract_type_ref(ty: &ast::Type) -> Option<TypeRef> {
+fn extract_type_ref(ty: &cst::Type) -> Option<TypeRef> {
     match ty {
-        ast::Type::NamedType(named) => {
+        cst::Type::NamedType(named) => {
             let name = Arc::from(named.name()?.text().as_str());
             Some(TypeRef {
                 name,
@@ -595,51 +480,54 @@ fn extract_type_ref(ty: &ast::Type) -> Option<TypeRef> {
                 inner_non_null: false,
             })
         }
-        ast::Type::NonNullType(non_null) => {
-            let inner = non_null.ty()?;
-            match inner {
-                ast::Type::NamedType(named) => {
+        cst::Type::NonNullType(non_null) => {
+            // NonNullType can contain either NamedType or ListType
+            if let Some(named) = non_null.named_type() {
+                // Type! case
+                let name = Arc::from(named.name()?.text().as_str());
+                Some(TypeRef {
+                    name,
+                    is_list: false,
+                    is_non_null: true,
+                    inner_non_null: false,
+                })
+            } else if let Some(list) = non_null.list_type() {
+                // [Type]! or [Type!]! case
+                let inner_type = list.ty()?;
+                if let cst::Type::NamedType(named) = inner_type {
+                    // [Type]! case
                     let name = Arc::from(named.name()?.text().as_str());
                     Some(TypeRef {
                         name,
-                        is_list: false,
+                        is_list: true,
                         is_non_null: true,
                         inner_non_null: false,
                     })
-                }
-                ast::Type::ListType(list) => {
-                    let inner_type = list.ty()?;
-                    if let ast::Type::NamedType(named) = inner_type {
+                } else if let cst::Type::NonNullType(inner_non_null) = inner_type {
+                    // [Type!]! case
+                    if let Some(named) = inner_non_null.named_type() {
                         let name = Arc::from(named.name()?.text().as_str());
                         Some(TypeRef {
                             name,
                             is_list: true,
                             is_non_null: true,
-                            inner_non_null: false,
+                            inner_non_null: true,
                         })
-                    } else if let ast::Type::NonNullType(inner_non_null) = inner_type {
-                        if let Some(ast::Type::NamedType(named)) = inner_non_null.ty() {
-                            let name = Arc::from(named.name()?.text().as_str());
-                            Some(TypeRef {
-                                name,
-                                is_list: true,
-                                is_non_null: true,
-                                inner_non_null: true,
-                            })
-                        } else {
-                            None
-                        }
                     } else {
                         None
                     }
+                } else {
+                    None
                 }
-                _ => None,
+            } else {
+                None
             }
         }
-        ast::Type::ListType(list) => {
+        cst::Type::ListType(list) => {
             let inner = list.ty()?;
             match inner {
-                ast::Type::NamedType(named) => {
+                cst::Type::NamedType(named) => {
+                    // [Type] case
                     let name = Arc::from(named.name()?.text().as_str());
                     Some(TypeRef {
                         name,
@@ -648,8 +536,9 @@ fn extract_type_ref(ty: &ast::Type) -> Option<TypeRef> {
                         inner_non_null: false,
                     })
                 }
-                ast::Type::NonNullType(non_null) => {
-                    if let Some(ast::Type::NamedType(named)) = non_null.ty() {
+                cst::Type::NonNullType(non_null) => {
+                    // [Type!] case
+                    if let Some(named) = non_null.named_type() {
                         let name = Arc::from(named.name()?.text().as_str());
                         Some(TypeRef {
                             name,
@@ -661,7 +550,7 @@ fn extract_type_ref(ty: &ast::Type) -> Option<TypeRef> {
                         None
                     }
                 }
-                _ => None,
+                cst::Type::ListType(_) => None,
             }
         }
     }

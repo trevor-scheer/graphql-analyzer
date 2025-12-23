@@ -9,11 +9,8 @@ members = [
     ".husky", "crates/graphql-linter",
     "crates/graphql-db",
     "crates/graphql-syntax",
+    "crates/graphql-hir",
 ]
-
-# Excluded: graphql-hir needs apollo-parser CST API migration before it can compile
-# See .claude/notes/active/lsp-rearchitecture/PHASE2-STATUS.md for details
-exclude = ["crates/graphql-hir"]
 
 [workspace.package]
 version = "0.1.1"
