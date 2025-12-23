@@ -1043,6 +1043,7 @@ dependencies = [
  "dashmap",
  "graphql-config",
  "graphql-extract",
+ "graphql-ide",
  "graphql-linter",
  "graphql-project",
  "lsp-types",

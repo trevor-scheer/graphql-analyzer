@@ -4,6 +4,7 @@
 
 use dashmap::DashMap;
 use graphql_config::{find_config, load_config};
+use graphql_ide::AnalysisHost;
 use graphql_linter::{LintConfig, Linter, ProjectContext};
 use graphql_project::DynamicGraphQLProject;
 use lsp_types::{
@@ -40,6 +41,101 @@ type WorkspaceProjects = Vec<(String, LockedProject, Linter)>;
 
 /// Type alias for config reload task handle
 type ReloadTask = Arc<Mutex<Option<JoinHandle<()>>>>;
+
+// ============================================================================
+// Type Conversion Functions (LSP ↔ graphql-ide)
+// ============================================================================
+
+// Allow dead code temporarily - these will be used as we migrate handlers
+#[allow(dead_code)]
+/// Convert LSP Position to graphql-ide Position
+const fn convert_lsp_position(pos: Position) -> graphql_ide::Position {
+    graphql_ide::Position::new(pos.line, pos.character)
+}
+
+#[allow(dead_code)]
+/// Convert graphql-ide Position to LSP Position
+const fn convert_ide_position(pos: graphql_ide::Position) -> Position {
+    Position {
+        line: pos.line,
+        character: pos.character,
+    }
+}
+
+#[allow(dead_code)]
+/// Convert graphql-ide Range to LSP Range
+const fn convert_ide_range(range: graphql_ide::Range) -> Range {
+    Range {
+        start: convert_ide_position(range.start),
+        end: convert_ide_position(range.end),
+    }
+}
+
+#[allow(dead_code)]
+/// Convert graphql-ide Location to LSP Location
+fn convert_ide_location(loc: &graphql_ide::Location) -> Location {
+    Location {
+        uri: loc.file.as_str().parse().expect("Invalid URI"),
+        range: convert_ide_range(loc.range),
+    }
+}
+
+#[allow(dead_code)]
+/// Convert graphql-ide Diagnostic to LSP Diagnostic
+fn convert_ide_diagnostic(diag: graphql_ide::Diagnostic) -> Diagnostic {
+    Diagnostic {
+        range: convert_ide_range(diag.range),
+        severity: Some(match diag.severity {
+            graphql_ide::DiagnosticSeverity::Error => DiagnosticSeverity::ERROR,
+            graphql_ide::DiagnosticSeverity::Warning => DiagnosticSeverity::WARNING,
+            graphql_ide::DiagnosticSeverity::Information => DiagnosticSeverity::INFORMATION,
+            graphql_ide::DiagnosticSeverity::Hint => DiagnosticSeverity::HINT,
+        }),
+        code: diag.code.map(NumberOrString::String),
+        source: Some(diag.source),
+        message: diag.message,
+        ..Default::default()
+    }
+}
+
+#[allow(dead_code)]
+/// Convert graphql-ide `CompletionItem` to LSP `CompletionItem`
+fn convert_ide_completion_item(item: graphql_ide::CompletionItem) -> lsp_types::CompletionItem {
+    lsp_types::CompletionItem {
+        label: item.label,
+        kind: Some(match item.kind {
+            graphql_ide::CompletionKind::Field => lsp_types::CompletionItemKind::FIELD,
+            graphql_ide::CompletionKind::Type => lsp_types::CompletionItemKind::CLASS,
+            graphql_ide::CompletionKind::Fragment => lsp_types::CompletionItemKind::SNIPPET,
+            graphql_ide::CompletionKind::Directive => lsp_types::CompletionItemKind::KEYWORD,
+            graphql_ide::CompletionKind::EnumValue => lsp_types::CompletionItemKind::ENUM_MEMBER,
+            graphql_ide::CompletionKind::Argument => lsp_types::CompletionItemKind::PROPERTY,
+            graphql_ide::CompletionKind::Variable => lsp_types::CompletionItemKind::VARIABLE,
+        }),
+        detail: item.detail,
+        documentation: item.documentation.map(|doc| {
+            lsp_types::Documentation::MarkupContent(lsp_types::MarkupContent {
+                kind: lsp_types::MarkupKind::Markdown,
+                value: doc,
+            })
+        }),
+        deprecated: Some(item.deprecated),
+        insert_text: item.insert_text,
+        ..Default::default()
+    }
+}
+
+#[allow(dead_code)]
+/// Convert graphql-ide `HoverResult` to LSP Hover
+fn convert_ide_hover(hover: graphql_ide::HoverResult) -> Hover {
+    Hover {
+        contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
+            kind: lsp_types::MarkupKind::Markdown,
+            value: hover.contents,
+        }),
+        range: hover.range.map(convert_ide_range),
+    }
+}
 
 /// Load lint configuration for a specific project with LSP-specific overrides
 ///
@@ -84,7 +180,11 @@ pub struct GraphQLLanguageServer {
     config_paths: Arc<DashMap<String, PathBuf>>,
     /// GraphQL projects by workspace URI -> Vec<(`project_name`, project, linter)>
     /// Each project has its own linter configured from project-level lint config
+    /// **DEPRECATED**: Will be removed in favor of `hosts`
     projects: Arc<DashMap<String, WorkspaceProjects>>,
+    /// New architecture: `AnalysisHost` per workspace (workspace URI -> `AnalysisHost`)
+    /// This will eventually replace `projects`
+    hosts: Arc<DashMap<String, Arc<Mutex<AnalysisHost>>>>,
     /// Document content cache indexed by URI string
     document_cache: Arc<DashMap<String, String>>,
     /// Pending validation tasks (URI -> `JoinHandle`) for debouncing
@@ -102,9 +202,42 @@ impl GraphQLLanguageServer {
             workspace_roots: Arc::new(DashMap::new()),
             config_paths: Arc::new(DashMap::new()),
             projects: Arc::new(DashMap::new()),
+            hosts: Arc::new(DashMap::new()),
             document_cache: Arc::new(DashMap::new()),
             validation_tasks: Arc::new(DashMap::new()),
             reload_tasks: Arc::new(DashMap::new()),
+        }
+    }
+
+    /// Get or create an `AnalysisHost` for a workspace
+    fn get_or_create_host(&self, workspace_uri: &str) -> Arc<Mutex<AnalysisHost>> {
+        self.hosts
+            .entry(workspace_uri.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(AnalysisHost::new())))
+            .clone()
+    }
+
+    /// Add or update a file in the `AnalysisHost` for a workspace
+    async fn add_file_to_host(
+        &self,
+        workspace_uri: &str,
+        file_uri: &Uri,
+        content: &str,
+        file_kind: graphql_ide::FileKind,
+    ) {
+        let host = self.get_or_create_host(workspace_uri);
+        let file_path = graphql_ide::FilePath::new(file_uri.to_string());
+
+        let mut host_guard = host.lock().await;
+        host_guard.add_file(&file_path, content, file_kind);
+    }
+
+    /// Remove a file from the `AnalysisHost` for a workspace
+    async fn remove_file_from_host(&self, workspace_uri: &str, file_uri: &Uri) {
+        if let Some(host) = self.hosts.get(workspace_uri) {
+            let file_path = graphql_ide::FilePath::new(file_uri.to_string());
+            let mut host_guard = host.lock().await;
+            host_guard.remove_file(&file_path);
         }
     }
 
@@ -401,6 +534,7 @@ impl GraphQLLanguageServer {
             workspace_roots: self.workspace_roots.clone(),
             config_paths: self.config_paths.clone(),
             projects: self.projects.clone(),
+            hosts: self.hosts.clone(),
             document_cache: self.document_cache.clone(),
             validation_tasks: self.validation_tasks.clone(),
             reload_tasks: self.reload_tasks.clone(),
@@ -1267,6 +1401,7 @@ impl GraphQLLanguageServer {
             workspace_roots: self.workspace_roots.clone(),
             config_paths: self.config_paths.clone(),
             projects: self.projects.clone(),
+            hosts: self.hosts.clone(),
             document_cache: self.document_cache.clone(),
             validation_tasks: self.validation_tasks.clone(),
             reload_tasks: self.reload_tasks.clone(),
@@ -1460,6 +1595,38 @@ impl LanguageServer for GraphQLLanguageServer {
         // Cache the document content
         self.document_cache.insert(uri.to_string(), content.clone());
 
+        // Add to AnalysisHost (new architecture)
+        if let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) {
+            let file_path = uri.to_file_path();
+
+            // Determine file kind by checking if it's a schema file
+            #[allow(clippy::option_if_let_else)]
+            let file_kind = if let Some(path) = file_path.as_ref() {
+                // Get the project to check if this is a schema file
+                let project = self
+                    .projects
+                    .get(&workspace_uri)
+                    .and_then(|projects| projects.get(project_idx).map(|(_, p, _)| p.clone()));
+
+                if let Some(project) = project {
+                    let project_guard = project.blocking_read();
+                    if project_guard.is_schema_file(path.as_ref()) {
+                        graphql_ide::FileKind::Schema
+                    } else {
+                        graphql_ide::FileKind::ExecutableGraphQL
+                    }
+                } else {
+                    graphql_ide::FileKind::ExecutableGraphQL
+                }
+            } else {
+                // Default to executable if we can't determine file path
+                graphql_ide::FileKind::ExecutableGraphQL
+            };
+
+            self.add_file_to_host(&workspace_uri, &uri, &content, file_kind)
+                .await;
+        }
+
         self.validate_document(uri, &content).await;
     }
 
@@ -1474,6 +1641,36 @@ impl LanguageServer for GraphQLLanguageServer {
             // Update the document cache
             self.document_cache
                 .insert(uri.to_string(), change.text.clone());
+
+            // Update AnalysisHost (new architecture)
+            if let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) {
+                let file_path = uri.to_file_path();
+
+                // Determine file kind by checking if it's a schema file
+                #[allow(clippy::option_if_let_else)]
+                let file_kind = if let Some(path) = file_path.as_ref() {
+                    let project = self
+                        .projects
+                        .get(&workspace_uri)
+                        .and_then(|projects| projects.get(project_idx).map(|(_, p, _)| p.clone()));
+
+                    if let Some(project) = project {
+                        let project_guard = project.blocking_read();
+                        if project_guard.is_schema_file(path.as_ref()) {
+                            graphql_ide::FileKind::Schema
+                        } else {
+                            graphql_ide::FileKind::ExecutableGraphQL
+                        }
+                    } else {
+                        graphql_ide::FileKind::ExecutableGraphQL
+                    }
+                } else {
+                    graphql_ide::FileKind::ExecutableGraphQL
+                };
+
+                self.add_file_to_host(&workspace_uri, &uri, &change.text, file_kind)
+                    .await;
+            }
 
             // Schedule debounced validation instead of immediate validation
             self.schedule_debounced_validation(uri.clone(), change.text.clone())
@@ -1538,6 +1735,13 @@ impl LanguageServer for GraphQLLanguageServer {
         self.document_cache
             .remove(&params.text_document.uri.to_string());
 
+        // Remove from AnalysisHost (new architecture)
+        if let Some((workspace_uri, _)) = self.find_workspace_and_project(&params.text_document.uri)
+        {
+            self.remove_file_from_host(&workspace_uri, &params.text_document.uri)
+                .await;
+        }
+
         // Clear diagnostics
         self.client
             .publish_diagnostics(params.text_document.uri, vec![], None)
@@ -1594,88 +1798,31 @@ impl LanguageServer for GraphQLLanguageServer {
 
         tracing::debug!("Completion requested: {:?} at {:?}", uri, lsp_position);
 
-        let Some(content) = self.document_cache.get(&uri.to_string()) else {
-            tracing::warn!("No cached content for document: {:?}", uri);
-            return Ok(None);
-        };
-
-        let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) else {
+        // Find workspace for this document
+        let Some((workspace_uri, _)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
-        let Some(projects) = self.projects.get(&workspace_uri) else {
-            tracing::warn!("No projects loaded for workspace: {workspace_uri}");
+        // Get AnalysisHost and create snapshot (new architecture)
+        let host = self.get_or_create_host(&workspace_uri);
+        let analysis = {
+            let host_guard = host.lock().await;
+            host_guard.snapshot()
+        };
+
+        // Convert LSP position to graphql-ide position
+        let position = convert_lsp_position(lsp_position);
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
+
+        // Get completions from Analysis
+        let Some(items) = analysis.completions(&file_path, position) else {
             return Ok(None);
         };
 
-        let Some((_, project, _)) = projects.get(project_idx) else {
-            tracing::warn!("Project index {project_idx} not found in workspace {workspace_uri}");
-            return Ok(None);
-        };
-
-        let position = graphql_project::Position {
-            line: lsp_position.line as usize,
-            character: lsp_position.character as usize,
-        };
-
-        let file_path = uri.to_string();
-        let Some(items) = project
-            .read()
-            .await
-            .complete(&content, position, &file_path)
-        else {
-            return Ok(None);
-        };
-
-        let lsp_items: Vec<lsp_types::CompletionItem> = items
-            .into_iter()
-            .map(|item| {
-                let kind = match item.kind {
-                    graphql_project::CompletionItemKind::Field => {
-                        Some(lsp_types::CompletionItemKind::FIELD)
-                    }
-                    graphql_project::CompletionItemKind::Type => {
-                        Some(lsp_types::CompletionItemKind::CLASS)
-                    }
-                    graphql_project::CompletionItemKind::Fragment => {
-                        Some(lsp_types::CompletionItemKind::SNIPPET)
-                    }
-                    graphql_project::CompletionItemKind::Operation => {
-                        Some(lsp_types::CompletionItemKind::FUNCTION)
-                    }
-                    graphql_project::CompletionItemKind::Directive => {
-                        Some(lsp_types::CompletionItemKind::KEYWORD)
-                    }
-                    graphql_project::CompletionItemKind::EnumValue => {
-                        Some(lsp_types::CompletionItemKind::ENUM_MEMBER)
-                    }
-                    graphql_project::CompletionItemKind::Argument => {
-                        Some(lsp_types::CompletionItemKind::PROPERTY)
-                    }
-                    graphql_project::CompletionItemKind::Variable => {
-                        Some(lsp_types::CompletionItemKind::VARIABLE)
-                    }
-                };
-
-                let documentation = item.documentation.map(|doc| {
-                    lsp_types::Documentation::MarkupContent(lsp_types::MarkupContent {
-                        kind: lsp_types::MarkupKind::Markdown,
-                        value: doc,
-                    })
-                });
-
-                lsp_types::CompletionItem {
-                    label: item.label,
-                    kind,
-                    detail: item.detail,
-                    documentation,
-                    deprecated: Some(item.deprecated),
-                    insert_text: item.insert_text,
-                    ..Default::default()
-                }
-            })
-            .collect();
+        // Convert graphql-ide completion items to LSP completion items
+        let lsp_items: Vec<lsp_types::CompletionItem> =
+            items.into_iter().map(convert_ide_completion_item).collect();
 
         Ok(Some(CompletionResponse::Array(lsp_items)))
     }
@@ -1686,72 +1833,34 @@ impl LanguageServer for GraphQLLanguageServer {
 
         tracing::debug!("Hover requested: {:?} at {:?}", uri, lsp_position);
 
-        // Get the cached document content
-        let Some(content) = self.document_cache.get(&uri.to_string()) else {
-            tracing::warn!("No cached content for document: {:?}", uri);
-            return Ok(None);
-        };
-
-        // Find the workspace and project for this document
-        let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) else {
+        // Find workspace for this document
+        let Some((workspace_uri, _)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
-        // Get the project
-        let Some(projects) = self.projects.get(&workspace_uri) else {
-            tracing::warn!("No projects loaded for workspace: {workspace_uri}");
+        // Get AnalysisHost and create snapshot (new architecture)
+        let host = self.get_or_create_host(&workspace_uri);
+        let analysis = {
+            let host_guard = host.lock().await;
+            host_guard.snapshot()
+        };
+
+        // Convert LSP position to graphql-ide position
+        let position = convert_lsp_position(lsp_position);
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
+
+        // Get hover from Analysis
+        let Some(hover_result) = analysis.hover(&file_path, position) else {
             return Ok(None);
         };
 
-        let Some((_, project, _)) = projects.get(project_idx) else {
-            tracing::warn!("Project index {project_idx} not found in workspace {workspace_uri}");
-            return Ok(None);
-        };
-
-        // Convert LSP position to graphql-project Position
-        let position = graphql_project::Position {
-            line: lsp_position.line as usize,
-            character: lsp_position.character as usize,
-        };
-
-        // Get hover info from the project (handles TypeScript extraction internally)
-        // Convert URI to file path for cache lookup consistency
-        let file_path = uri
-            .to_file_path()
-            .map_or_else(|| uri.to_string(), |path| path.display().to_string());
-
-        let Some(hover_info) = project
-            .read()
-            .await
-            .hover_info_at_position(&file_path, position, &content)
-        else {
-            return Ok(None);
-        };
-
-        // Convert to LSP Hover
-        #[allow(clippy::cast_possible_truncation)]
-        let hover = Hover {
-            contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
-                kind: lsp_types::MarkupKind::Markdown,
-                value: hover_info.contents,
-            }),
-            range: hover_info.range.map(|r| Range {
-                start: Position {
-                    line: r.start.line as u32,
-                    character: r.start.character as u32,
-                },
-                end: Position {
-                    line: r.end.line as u32,
-                    character: r.end.character as u32,
-                },
-            }),
-        };
+        // Convert graphql-ide HoverResult to LSP Hover
+        let hover = convert_ide_hover(hover_result);
 
         Ok(Some(hover))
     }
 
-    #[allow(clippy::too_many_lines)]
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
@@ -1767,392 +1876,36 @@ impl LanguageServer for GraphQLLanguageServer {
             lsp_position.character
         );
 
-        // Get the cached document content
-        let Some(content) = self.document_cache.get(&uri.to_string()) else {
-            tracing::warn!("No cached content for document: {:?}", uri);
-            return Ok(None);
-        };
-
-        // Find the workspace and project for this document
-        let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) else {
+        // Find workspace for this document
+        let Some((workspace_uri, _)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
-        // Get the project
-        let Some(projects) = self.projects.get(&workspace_uri) else {
-            tracing::warn!("No projects loaded for workspace: {workspace_uri}");
-            return Ok(None);
+        // Get AnalysisHost and create snapshot (new architecture)
+        let host = self.get_or_create_host(&workspace_uri);
+        let analysis = {
+            let host_guard = host.lock().await;
+            host_guard.snapshot()
         };
 
-        let Some((_, project, _)) = projects.get(project_idx) else {
-            tracing::warn!("Project index {project_idx} not found in workspace {workspace_uri}");
-            return Ok(None);
-        };
+        // Convert LSP position to graphql-ide position
+        let position = convert_lsp_position(lsp_position);
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
 
-        // Check if this is a TypeScript/JavaScript file that needs GraphQL extraction
-        let file_path = uri.to_file_path();
-        let (is_ts_file, language) =
-            file_path
-                .as_ref()
-                .map_or((false, graphql_extract::Language::GraphQL), |path| {
-                    path.extension().and_then(|e| e.to_str()).map_or(
-                        (false, graphql_extract::Language::GraphQL),
-                        |ext| match ext {
-                            "ts" | "tsx" => (true, graphql_extract::Language::TypeScript),
-                            "js" | "jsx" => (true, graphql_extract::Language::JavaScript),
-                            _ => (false, graphql_extract::Language::GraphQL),
-                        },
-                    )
-                });
-
-        if is_ts_file {
-            // Try to use cached extracted blocks first (Phase 3 optimization)
-            let project_guard = project.read().await;
-            let cached_blocks = project_guard.get_extracted_blocks(&uri.to_string());
-
-            // Find which extracted GraphQL block contains the cursor position
-            let cursor_line = lsp_position.line as usize;
-
-            if let Some(blocks) = cached_blocks {
-                // Use cached blocks - no extraction or parsing needed!
-                for block in blocks {
-                    if cursor_line >= block.start_line && cursor_line <= block.end_line {
-                        // Adjust position relative to the extracted GraphQL
-                        #[allow(clippy::cast_possible_truncation)]
-                        let relative_position = graphql_project::Position {
-                            line: cursor_line - block.start_line,
-                            character: if cursor_line == block.start_line {
-                                lsp_position
-                                    .character
-                                    .saturating_sub(block.start_column as u32)
-                                    as usize
-                            } else {
-                                lsp_position.character as usize
-                            },
-                        };
-
-                        tracing::debug!(
-                            "Using cached extracted block at position {:?}",
-                            relative_position
-                        );
-
-                        // Get definition locations from the project using the cached GraphQL
-                        let Some(locations) = project_guard.goto_definition(
-                            &block.content,
-                            relative_position,
-                            &uri.to_string(),
-                        ) else {
-                            tracing::debug!(
-                                "No definition found at position {:?}",
-                                relative_position
-                            );
-                            continue;
-                        };
-
-                        tracing::debug!("Found {} definition location(s)", locations.len());
-
-                        // Convert to LSP Locations (adjust positions back to original file coordinates)
-                        #[allow(clippy::cast_possible_truncation)]
-                        let lsp_locations: Vec<Location> = locations
-                            .iter()
-                            .filter_map(|loc| {
-                                // Check if the file_path is already a URI
-                                let file_uri = if loc.file_path.starts_with("file://") {
-                                    // Already a URI, parse it directly
-                                    loc.file_path.parse::<Uri>().ok()?
-                                } else {
-                                    // Resolve the file path relative to the workspace if it's not absolute
-                                    let file_path = if std::path::Path::new(&loc.file_path)
-                                        .is_absolute()
-                                    {
-                                        std::path::PathBuf::from(&loc.file_path)
-                                    } else {
-                                        // Resolve relative to workspace root
-                                        let workspace_path: Uri = workspace_uri.parse().ok()?;
-                                        let workspace_file_path = workspace_path.to_file_path()?;
-                                        workspace_file_path.join(&loc.file_path)
-                                    };
-
-                                    Uri::from_file_path(file_path)?
-                                };
-
-                                // If the location is in the same file, adjust positions back to original file coordinates
-                                let (start_line, start_char, end_line, end_char) = if file_uri
-                                    == uri
-                                {
-                                    // Adjust positions back from extracted GraphQL to original file
-                                    let adjusted_start_line =
-                                        loc.range.start.line + block.start_line;
-                                    let adjusted_start_char = if loc.range.start.line == 0 {
-                                        loc.range.start.character + block.start_column
-                                    } else {
-                                        loc.range.start.character
-                                    };
-                                    let adjusted_end_line = loc.range.end.line + block.start_line;
-                                    let adjusted_end_char = if loc.range.end.line == 0 {
-                                        loc.range.end.character + block.start_column
-                                    } else {
-                                        loc.range.end.character
-                                    };
-                                    (
-                                        adjusted_start_line as u32,
-                                        adjusted_start_char as u32,
-                                        adjusted_end_line as u32,
-                                        adjusted_end_char as u32,
-                                    )
-                                } else {
-                                    (
-                                        loc.range.start.line as u32,
-                                        loc.range.start.character as u32,
-                                        loc.range.end.line as u32,
-                                        loc.range.end.character as u32,
-                                    )
-                                };
-
-                                Some(Location {
-                                    uri: file_uri,
-                                    range: Range {
-                                        start: Position {
-                                            line: start_line,
-                                            character: start_char,
-                                        },
-                                        end: Position {
-                                            line: end_line,
-                                            character: end_char,
-                                        },
-                                    },
-                                })
-                            })
-                            .collect();
-
-                        if !lsp_locations.is_empty() {
-                            return Ok(Some(GotoDefinitionResponse::Array(lsp_locations)));
-                        }
-                    }
-                }
-            } else {
-                // Fallback: Extract GraphQL from TypeScript file (cache miss)
-                tracing::debug!("Cache miss - extracting GraphQL from TypeScript file");
-                let extract_config = project_guard.get_extract_config();
-                let extracted =
-                    match graphql_extract::extract_from_source(&content, language, &extract_config)
-                    {
-                        Ok(extracted) => extracted,
-                        Err(e) => {
-                            tracing::debug!(
-                                "Failed to extract GraphQL from TypeScript file: {}",
-                                e
-                            );
-                            return Ok(None);
-                        }
-                    };
-
-                for item in extracted {
-                    let start_line = item.location.range.start.line;
-                    let end_line = item.location.range.end.line;
-
-                    if cursor_line >= start_line && cursor_line <= end_line {
-                        // Adjust position relative to the extracted GraphQL
-                        #[allow(clippy::cast_possible_truncation)]
-                        let relative_position = graphql_project::Position {
-                            line: cursor_line - start_line,
-                            character: if cursor_line == start_line {
-                                lsp_position
-                                    .character
-                                    .saturating_sub(item.location.range.start.column as u32)
-                                    as usize
-                            } else {
-                                lsp_position.character as usize
-                            },
-                        };
-
-                        tracing::debug!(
-                            "Adjusted position from {:?} to {:?} for extracted GraphQL",
-                            lsp_position,
-                            relative_position
-                        );
-
-                        // Get definition locations from the project using the extracted GraphQL
-                        let Some(locations) = project_guard.goto_definition(
-                            &item.source,
-                            relative_position,
-                            &uri.to_string(),
-                        ) else {
-                            tracing::debug!(
-                                "No definition found at position {:?}",
-                                relative_position
-                            );
-                            continue;
-                        };
-
-                        tracing::debug!("Found {} definition location(s)", locations.len());
-
-                        // Convert to LSP Locations
-                        #[allow(clippy::cast_possible_truncation)]
-                        let lsp_locations: Vec<Location> = locations
-                            .iter()
-                            .filter_map(|loc| {
-                                // Check if the file_path is already a URI
-                                let file_uri = if loc.file_path.starts_with("file://") {
-                                    // Already a URI, parse it directly
-                                    loc.file_path.parse::<Uri>().ok()?
-                                } else {
-                                    // Resolve the file path relative to the workspace if it's not absolute
-                                    let file_path = if std::path::Path::new(&loc.file_path)
-                                        .is_absolute()
-                                    {
-                                        std::path::PathBuf::from(&loc.file_path)
-                                    } else {
-                                        // Resolve relative to workspace root
-                                        let workspace_path: Uri = workspace_uri.parse().ok()?;
-                                        let workspace_file_path = workspace_path.to_file_path()?;
-                                        workspace_file_path.join(&loc.file_path)
-                                    };
-                                    Uri::from_file_path(file_path)?
-                                };
-
-                                // If the location is in the same file, adjust positions back to original file coordinates
-                                let (start_line, start_char, end_line, end_char) = if file_uri
-                                    == uri
-                                {
-                                    // Adjust positions back from extracted GraphQL to original file
-                                    let adjusted_start_line = loc.range.start.line + start_line;
-                                    let adjusted_start_char = if loc.range.start.line == 0 {
-                                        loc.range.start.character + item.location.range.start.column
-                                    } else {
-                                        loc.range.start.character
-                                    };
-                                    let adjusted_end_line = loc.range.end.line + start_line;
-                                    let adjusted_end_char = if loc.range.end.line == 0 {
-                                        loc.range.end.character + item.location.range.start.column
-                                    } else {
-                                        loc.range.end.character
-                                    };
-                                    (
-                                        adjusted_start_line as u32,
-                                        adjusted_start_char as u32,
-                                        adjusted_end_line as u32,
-                                        adjusted_end_char as u32,
-                                    )
-                                } else {
-                                    (
-                                        loc.range.start.line as u32,
-                                        loc.range.start.character as u32,
-                                        loc.range.end.line as u32,
-                                        loc.range.end.character as u32,
-                                    )
-                                };
-
-                                Some(Location {
-                                    uri: file_uri,
-                                    range: Range {
-                                        start: Position {
-                                            line: start_line,
-                                            character: start_char,
-                                        },
-                                        end: Position {
-                                            line: end_line,
-                                            character: end_char,
-                                        },
-                                    },
-                                })
-                            })
-                            .collect();
-
-                        if !lsp_locations.is_empty() {
-                            return Ok(Some(GotoDefinitionResponse::Array(lsp_locations)));
-                        }
-                    }
-                }
-            }
-
-            return Ok(None);
-        }
-
-        // For pure GraphQL files, use the content as-is
-        let position = graphql_project::Position {
-            line: lsp_position.line as usize,
-            character: lsp_position.character as usize,
-        };
-
-        tracing::info!(
-            "Calling project.goto_definition with position: {:?}",
-            position
-        );
-        tracing::info!("Content length: {} bytes", content.len());
-
-        // Get definition locations from the project
-        let Some(locations) =
-            project
-                .read()
-                .await
-                .goto_definition(&content, position, &uri.to_string())
-        else {
+        // Get goto definition from Analysis
+        let Some(locations) = analysis.goto_definition(&file_path, position) else {
             tracing::info!(
-                "project.goto_definition returned None at position {:?}",
-                position
+                "Goto definition completed in {:?}, returning 0 locations",
+                start.elapsed()
             );
             return Ok(None);
         };
 
-        tracing::info!("Found {} definition location(s)", locations.len());
-        for (idx, loc) in locations.iter().enumerate() {
-            tracing::info!(
-                "Location {}: file={}, line={}, col={}",
-                idx,
-                loc.file_path,
-                loc.range.start.line,
-                loc.range.start.character
-            );
-        }
-
-        // Convert to LSP Locations
-        #[allow(clippy::cast_possible_truncation)]
+        // Convert graphql-ide Locations to LSP Locations
         let lsp_locations: Vec<Location> = locations
-            .iter()
-            .filter_map(|loc| {
-                // Check if the file_path is already a URI
-                let file_uri = if loc.file_path.starts_with("file://") {
-                    // Already a URI, parse it directly
-                    loc.file_path.parse::<Uri>().ok()?
-                } else {
-                    // Resolve the file path relative to the workspace if it's not absolute
-                    let file_path = if std::path::Path::new(&loc.file_path).is_absolute() {
-                        std::path::PathBuf::from(&loc.file_path)
-                    } else {
-                        // Resolve relative to workspace root
-                        let workspace_path: Uri = workspace_uri.parse().ok()?;
-                        let workspace_file_path = workspace_path.to_file_path()?;
-                        workspace_file_path.join(&loc.file_path)
-                    };
-
-                    tracing::info!("Resolved file path: {:?}", file_path);
-                    Uri::from_file_path(&file_path)?
-                };
-
-                tracing::info!("Created URI: {:?}", file_uri);
-
-                let lsp_loc = Location {
-                    uri: file_uri,
-                    range: Range {
-                        start: Position {
-                            line: loc.range.start.line as u32,
-                            character: loc.range.start.character as u32,
-                        },
-                        end: Position {
-                            line: loc.range.end.line as u32,
-                            character: loc.range.end.character as u32,
-                        },
-                    },
-                };
-                tracing::info!(
-                    "LSP Location: uri={:?}, range={:?}",
-                    lsp_loc.uri,
-                    lsp_loc.range
-                );
-                Some(lsp_loc)
-            })
+            .into_iter()
+            .map(|loc| convert_ide_location(&loc))
             .collect();
 
         tracing::info!(
@@ -2182,103 +1935,34 @@ impl LanguageServer for GraphQLLanguageServer {
             include_declaration
         );
 
-        // Get the cached document content
-        let Some(content) = self.document_cache.get(&uri.to_string()) else {
-            tracing::warn!("No cached content for document: {:?}", uri);
-            return Ok(None);
-        };
-
-        // Find the workspace and project for this document
-        let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) else {
+        // Find workspace for this document
+        let Some((workspace_uri, _)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
-        // Get the project
-        let Some(projects) = self.projects.get(&workspace_uri) else {
-            tracing::warn!("No projects loaded for workspace: {workspace_uri}");
-            return Ok(None);
+        // Get AnalysisHost and create snapshot (new architecture)
+        let host = self.get_or_create_host(&workspace_uri);
+        let analysis = {
+            let host_guard = host.lock().await;
+            host_guard.snapshot()
         };
 
-        let Some((_, project, _)) = projects.get(project_idx) else {
-            tracing::warn!("Project index {project_idx} not found in workspace {workspace_uri}");
-            return Ok(None);
-        };
+        // Convert LSP position to graphql-ide position
+        let position = convert_lsp_position(lsp_position);
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
 
-        // Collect all documents from the cache
-        let collect_start = std::time::Instant::now();
-        let all_documents: Vec<(String, String)> = self
-            .document_cache
-            .iter()
-            .map(|entry| {
-                let uri_string = entry.key().clone();
-                let content = entry.value().clone();
-                (uri_string, content)
-            })
-            .collect();
-
-        tracing::info!(
-            "Collected {} documents for reference search in {:?}",
-            all_documents.len(),
-            collect_start.elapsed()
-        );
-
-        // For find_references optimization, we would parse all documents once here
-        // However, since the documents are already cached in document_index via did_open/did_change,
-        // the actual optimization happens by reusing those cached ASTs.
-        // We pass None here as the ASTs will be retrieved from document_index internally.
-        let document_asts: Option<&std::collections::HashMap<String, graphql_project::SyntaxTree>> =
-            None;
-
-        // For pure GraphQL files (TypeScript extraction not implemented yet for find references)
-        let position = graphql_project::Position {
-            line: lsp_position.line as usize,
-            character: lsp_position.character as usize,
-        };
-
-        // Find references with pre-parsed ASTs
-        let find_start = std::time::Instant::now();
-        let Some(references) = project.read().await.find_references_with_asts(
-            &content,
-            position,
-            &all_documents,
-            include_declaration,
-            Some(&uri.to_string()),
-            document_asts,
-        ) else {
+        // Find references from Analysis
+        let Some(locations) = analysis.find_references(&file_path, position, include_declaration)
+        else {
             tracing::info!("No references found at position {:?}", position);
             return Ok(None);
         };
 
-        tracing::info!(
-            "Found {} reference(s) in {:?}",
-            references.len(),
-            find_start.elapsed()
-        );
-
-        // Convert to LSP Locations
-        #[allow(clippy::cast_possible_truncation)]
-        let lsp_locations: Vec<Location> = references
-            .iter()
-            .filter_map(|reference_loc| {
-                // The file_path in reference_loc is the URI string from the document cache
-                // Parse it as a URI
-                let file_uri: Uri = reference_loc.file_path.parse().ok()?;
-
-                Some(Location {
-                    uri: file_uri,
-                    range: Range {
-                        start: Position {
-                            line: reference_loc.range.start.line as u32,
-                            character: reference_loc.range.start.character as u32,
-                        },
-                        end: Position {
-                            line: reference_loc.range.end.line as u32,
-                            character: reference_loc.range.end.character as u32,
-                        },
-                    },
-                })
-            })
+        // Convert graphql-ide Locations to LSP Locations
+        let lsp_locations: Vec<Location> = locations
+            .into_iter()
+            .map(|loc| convert_ide_location(&loc))
             .collect();
 
         tracing::info!(
