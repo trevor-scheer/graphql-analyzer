@@ -44,8 +44,37 @@ fn check_definition(definition: &cst::Definition, byte_offset: usize) -> Option<
     match definition {
         cst::Definition::OperationDefinition(op) => check_operation(op, byte_offset),
         cst::Definition::FragmentDefinition(frag) => check_fragment_definition(frag, byte_offset),
+        cst::Definition::ObjectTypeDefinition(obj) => {
+            check_type_definition_name(obj.name(), byte_offset)
+        }
+        cst::Definition::InterfaceTypeDefinition(iface) => {
+            check_type_definition_name(iface.name(), byte_offset)
+        }
+        cst::Definition::UnionTypeDefinition(union) => {
+            check_type_definition_name(union.name(), byte_offset)
+        }
+        cst::Definition::EnumTypeDefinition(enum_def) => {
+            check_type_definition_name(enum_def.name(), byte_offset)
+        }
+        cst::Definition::ScalarTypeDefinition(scalar) => {
+            check_type_definition_name(scalar.name(), byte_offset)
+        }
+        cst::Definition::InputObjectTypeDefinition(input) => {
+            check_type_definition_name(input.name(), byte_offset)
+        }
         _ => None,
     }
+}
+
+fn check_type_definition_name(name: Option<cst::Name>, byte_offset: usize) -> Option<Symbol> {
+    if let Some(name) = name {
+        if is_within_range(&name, byte_offset) {
+            return Some(Symbol::TypeName {
+                name: name.text().to_string(),
+            });
+        }
+    }
+    None
 }
 
 fn check_operation(op: &cst::OperationDefinition, byte_offset: usize) -> Option<Symbol> {
@@ -69,6 +98,17 @@ fn check_operation(op: &cst::OperationDefinition, byte_offset: usize) -> Option<
 }
 
 fn check_fragment_definition(frag: &cst::FragmentDefinition, byte_offset: usize) -> Option<Symbol> {
+    // Check fragment name (the definition itself)
+    if let Some(frag_name) = frag.fragment_name() {
+        if let Some(name) = frag_name.name() {
+            if is_within_range(&name, byte_offset) {
+                return Some(Symbol::FragmentSpread {
+                    name: name.text().to_string(),
+                });
+            }
+        }
+    }
+
     // Check type condition
     if let Some(type_cond) = frag.type_condition() {
         if let Some(named_type) = type_cond.named_type() {

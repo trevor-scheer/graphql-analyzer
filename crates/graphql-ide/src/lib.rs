@@ -35,7 +35,6 @@
 //! - Feature types: [`CompletionItem`], [`HoverResult`], [`Diagnostic`]
 
 use graphql_db::RootDatabase;
-use graphql_hir::GraphQLHirDatabase;
 use std::sync::{Arc, RwLock};
 
 mod file_registry;
@@ -678,13 +677,27 @@ impl Analysis {
         if include_declaration {
             if let Some(fragment) = fragments.get(fragment_name) {
                 let registry = self.registry.read().unwrap();
-                if let Some(file_path) = registry.get_path(fragment.file_id) {
-                    locations.push(Location::new(
-                        file_path,
-                        Range::new(Position::new(0, 0), Position::new(0, 0)),
-                    ));
-                }
+                let file_path = registry.get_path(fragment.file_id);
+                let def_content = registry.get_content(fragment.file_id);
+                let def_metadata = registry.get_metadata(fragment.file_id);
                 drop(registry);
+
+                if let (Some(file_path), Some(def_content), Some(def_metadata)) =
+                    (file_path, def_content, def_metadata)
+                {
+                    // Parse the definition file to find exact position
+                    let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
+
+                    if let Some((start_offset, end_offset)) =
+                        find_fragment_definition_range(&def_parse.tree, fragment_name)
+                    {
+                        // Convert byte offsets to line/column positions
+                        let def_line_index = graphql_syntax::line_index(&self.db, def_content);
+                        let range =
+                            offset_range_to_range(&def_line_index, start_offset, end_offset);
+                        locations.push(Location::new(file_path, range));
+                    }
+                }
             }
         }
 
@@ -696,19 +709,25 @@ impl Analysis {
             let parse = graphql_syntax::parse(&self.db, *content, *metadata);
 
             // Search for fragment spreads in the parse tree
-            if let Some(spread_locations) = find_fragment_spreads(&parse.tree, fragment_name) {
+            if let Some(spread_offsets) = find_fragment_spreads(&parse.tree, fragment_name) {
                 let registry = self.registry.read().unwrap();
-                if let Some(file_path) = registry.get_path(*file_id) {
-                    for _spread_offset in spread_locations {
-                        // TODO: Convert offset to position using line index
-                        // For now, use placeholder
-                        locations.push(Location::new(
-                            file_path.clone(),
-                            Range::new(Position::new(0, 0), Position::new(0, 0)),
-                        ));
+                let file_path = registry.get_path(*file_id);
+                drop(registry);
+
+                if let Some(file_path) = file_path {
+                    // Get line index for position conversion
+                    let line_index = graphql_syntax::line_index(&self.db, *content);
+
+                    // Convert each offset to a position range
+                    for spread_offset in spread_offsets {
+                        // For spreads, we want to highlight just the fragment name
+                        // The offset points to the start of the name
+                        // We'll create a range spanning the fragment name
+                        let end_offset = spread_offset + fragment_name.len();
+                        let range = offset_range_to_range(&line_index, spread_offset, end_offset);
+                        locations.push(Location::new(file_path.clone(), range));
                     }
                 }
-                drop(registry);
             }
         }
 
@@ -731,37 +750,57 @@ impl Analysis {
         if include_declaration {
             if let Some(type_def) = types.get(type_name) {
                 let registry = self.registry.read().unwrap();
-                if let Some(file_path) = registry.get_path(type_def.file_id) {
-                    locations.push(Location::new(
-                        file_path,
-                        Range::new(Position::new(0, 0), Position::new(0, 0)),
-                    ));
-                }
+                let file_path = registry.get_path(type_def.file_id);
+                let def_content = registry.get_content(type_def.file_id);
+                let def_metadata = registry.get_metadata(type_def.file_id);
                 drop(registry);
+
+                if let (Some(file_path), Some(def_content), Some(def_metadata)) =
+                    (file_path, def_content, def_metadata)
+                {
+                    // Parse the definition file to find exact position
+                    let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
+
+                    if let Some((start_offset, end_offset)) =
+                        find_type_definition_range(&def_parse.tree, type_name)
+                    {
+                        // Convert byte offsets to line/column positions
+                        let def_line_index = graphql_syntax::line_index(&self.db, def_content);
+                        let range =
+                            offset_range_to_range(&def_line_index, start_offset, end_offset);
+                        locations.push(Location::new(file_path, range));
+                    }
+                }
             }
         }
 
         // Search through all schema files for type references
-        let schema_files = self.db.schema_files();
+        let schema_files = project_files.schema_files(&self.db);
 
         for (file_id, content, metadata) in schema_files.iter() {
             // Parse the schema file
             let parse = graphql_syntax::parse(&self.db, *content, *metadata);
 
             // Search for type references in the parse tree
-            if let Some(type_locations) = find_type_references_in_tree(&parse.tree, type_name) {
+            if let Some(type_offsets) = find_type_references_in_tree(&parse.tree, type_name) {
                 let registry = self.registry.read().unwrap();
-                if let Some(file_path) = registry.get_path(*file_id) {
-                    for _type_offset in type_locations {
-                        // TODO: Convert offset to position using line index
-                        // For now, use placeholder
-                        locations.push(Location::new(
-                            file_path.clone(),
-                            Range::new(Position::new(0, 0), Position::new(0, 0)),
-                        ));
+                let file_path = registry.get_path(*file_id);
+                drop(registry);
+
+                if let Some(file_path) = file_path {
+                    // Get line index for position conversion
+                    let line_index = graphql_syntax::line_index(&self.db, *content);
+
+                    // Convert each offset to a position range
+                    for type_offset in type_offsets {
+                        // For type references, we want to highlight just the type name
+                        // The offset points to the start of the name
+                        // We'll create a range spanning the type name
+                        let end_offset = type_offset + type_name.len();
+                        let range = offset_range_to_range(&line_index, type_offset, end_offset);
+                        locations.push(Location::new(file_path.clone(), range));
                     }
                 }
-                drop(registry);
             }
         }
 
@@ -1272,7 +1311,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "TODO: Fix symbol position matching"]
     fn test_find_references_fragment() {
         let mut host = AnalysisHost::new();
 
@@ -1303,7 +1341,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "TODO: Fix symbol position matching"]
     fn test_find_references_fragment_with_declaration() {
         let mut host = AnalysisHost::new();
 
@@ -1331,7 +1368,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "TODO: Fix symbol position matching"]
     fn test_find_references_type() {
         let mut host = AnalysisHost::new();
 
@@ -1363,7 +1399,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "TODO: Fix symbol position matching"]
     fn test_find_references_type_with_declaration() {
         let mut host = AnalysisHost::new();
 
