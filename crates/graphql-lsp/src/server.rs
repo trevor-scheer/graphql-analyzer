@@ -1609,7 +1609,7 @@ impl LanguageServer for GraphQLLanguageServer {
                     .and_then(|projects| projects.get(project_idx).map(|(_, p, _)| p.clone()));
 
                 if let Some(project) = project {
-                    let project_guard = project.blocking_read();
+                    let project_guard = project.read().await;
                     if project_guard.is_schema_file(path.as_ref()) {
                         graphql_ide::FileKind::Schema
                     } else {
