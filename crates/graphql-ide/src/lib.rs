@@ -354,18 +354,38 @@ impl Analysis {
     /// Get completions at a position
     ///
     /// Returns a list of completion items appropriate for the context.
-    pub const fn completions(
-        &self,
-        _file: &FilePath,
-        _position: Position,
-    ) -> Option<Vec<CompletionItem>> {
-        // TODO: Implement completion logic
-        // 1. Parse the file
-        // 2. Find token at position
-        // 3. Determine completion context
-        // 4. Query HIR for available items
-        // 5. Convert to CompletionItems
-        None
+    pub fn completions(&self, file: &FilePath, position: Position) -> Option<Vec<CompletionItem>> {
+        let (content, metadata) = {
+            let registry = self.registry.read().unwrap();
+
+            // Look up FileId from FilePath
+            let file_id = registry.get_file_id(file)?;
+
+            // Get FileContent and FileMetadata
+            let content = registry.get_content(file_id)?;
+            let metadata = registry.get_metadata(file_id)?;
+            drop(registry);
+
+            (content, metadata)
+        };
+
+        // Parse the file
+        let parse = graphql_syntax::parse(&self.db, content, metadata);
+
+        // Get line index for position conversion
+        let line_index = graphql_syntax::line_index(&self.db, content);
+
+        // Convert position to byte offset
+        let _offset = position_to_offset(&line_index, position)?;
+
+        // For now, return empty completions if there are syntax errors
+        if !parse.errors.is_empty() {
+            return Some(Vec::new());
+        }
+
+        // TODO: Implement full completion logic with context detection
+        // For now, return empty list (but Some to indicate file exists)
+        Some(Vec::new())
     }
 
     /// Get hover information at a position
@@ -414,18 +434,39 @@ impl Analysis {
     /// Get goto definition locations for the symbol at a position
     ///
     /// Returns the definition location(s) for types, fields, fragments, etc.
-    pub const fn goto_definition(
-        &self,
-        _file: &FilePath,
-        _position: Position,
-    ) -> Option<Vec<Location>> {
-        // TODO: Implement goto definition
-        // 1. Parse the file
-        // 2. Find token at position
-        // 3. Identify symbol type
-        // 4. Look up definition in HIR
-        // 5. Convert to Location
-        None
+    pub fn goto_definition(&self, file: &FilePath, position: Position) -> Option<Vec<Location>> {
+        let (content, metadata) = {
+            let registry = self.registry.read().unwrap();
+
+            // Look up FileId from FilePath
+            let file_id = registry.get_file_id(file)?;
+
+            // Get FileContent and FileMetadata
+            let content = registry.get_content(file_id)?;
+            let metadata = registry.get_metadata(file_id)?;
+            drop(registry);
+
+            (content, metadata)
+        };
+
+        // Parse the file
+        let _parse = graphql_syntax::parse(&self.db, content, metadata);
+
+        // Get line index for position conversion
+        let line_index = graphql_syntax::line_index(&self.db, content);
+
+        // Convert position to byte offset
+        let _offset = position_to_offset(&line_index, position)?;
+
+        // TODO: Implement full goto definition logic
+        // Need to:
+        // 1. Find the token/symbol at the offset
+        // 2. Identify what kind of symbol it is
+        // 3. Look up its definition in the HIR
+        // 4. Convert to Location
+
+        // For now, return empty list (but Some to indicate file exists)
+        Some(Vec::new())
     }
 
     /// Find all references to the symbol at a position
@@ -764,5 +805,80 @@ mod tests {
             position_to_offset(&line_index, Position::new(2, 0)),
             Some(14)
         );
+    }
+
+    #[test]
+    fn test_completions_on_valid_file() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema file
+        let path = FilePath::new("file:///schema.graphql");
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
+
+        // Get completions at a position
+        let snapshot = host.snapshot();
+        let completions = snapshot.completions(&path, Position::new(0, 10));
+
+        // Should return Some (file exists) even if empty
+        assert!(completions.is_some());
+    }
+
+    #[test]
+    fn test_completions_on_nonexistent_file() {
+        let host = AnalysisHost::new();
+        let snapshot = host.snapshot();
+
+        // Try to get completions for a file that doesn't exist
+        let path = FilePath::new("file:///nonexistent.graphql");
+        let completions = snapshot.completions(&path, Position::new(0, 0));
+
+        // Should return None for nonexistent file
+        assert!(completions.is_none());
+    }
+
+    #[test]
+    fn test_completions_with_syntax_errors() {
+        let mut host = AnalysisHost::new();
+
+        // Add a file with syntax errors
+        let path = FilePath::new("file:///invalid.graphql");
+        host.add_file(&path, "type Query {", FileKind::Schema);
+
+        // Get completions
+        let snapshot = host.snapshot();
+        let completions = snapshot.completions(&path, Position::new(0, 10));
+
+        // Should return empty list for files with syntax errors
+        assert!(completions.is_some());
+        assert_eq!(completions.unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_goto_definition_on_valid_file() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema file
+        let path = FilePath::new("file:///schema.graphql");
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
+
+        // Get goto definition at a position
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&path, Position::new(0, 10));
+
+        // Should return Some (file exists) even if empty
+        assert!(locations.is_some());
+    }
+
+    #[test]
+    fn test_goto_definition_on_nonexistent_file() {
+        let host = AnalysisHost::new();
+        let snapshot = host.snapshot();
+
+        // Try to get goto definition for a file that doesn't exist
+        let path = FilePath::new("file:///nonexistent.graphql");
+        let locations = snapshot.goto_definition(&path, Position::new(0, 0));
+
+        // Should return None for nonexistent file
+        assert!(locations.is_none());
     }
 }
