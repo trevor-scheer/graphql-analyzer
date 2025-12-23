@@ -241,7 +241,35 @@ impl GraphQLLanguageServer {
         }
     }
 
+    /// Load schema files from a project into the `AnalysisHost`
+    async fn load_schema_into_host(&self, workspace_uri: &str, project: &DynamicGraphQLProject) {
+        let schema_files = project.get_schema_file_paths();
+        tracing::debug!(
+            count = schema_files.len(),
+            "Loading schema files into AnalysisHost"
+        );
+
+        let host = self.get_or_create_host(workspace_uri);
+        let mut host_guard = host.lock().await;
+
+        for schema_file in schema_files {
+            if let Ok(content) = tokio::fs::read_to_string(&schema_file).await {
+                // Convert file path string to URI
+                let path = std::path::Path::new(&schema_file);
+                let uri_string = Uri::from_file_path(path)
+                    .map_or_else(|| format!("file://{schema_file}"), |uri| uri.to_string());
+                let file_path = graphql_ide::FilePath::new(uri_string);
+
+                tracing::debug!(path = ?schema_file, "Adding schema file to AnalysisHost");
+                host_guard.add_file(&file_path, &content, graphql_ide::FileKind::Schema);
+            } else {
+                tracing::warn!(path = ?schema_file, "Failed to read schema file");
+            }
+        }
+    }
+
     /// Load GraphQL config from a workspace folder
+    #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self), fields(workspace_uri = %workspace_uri))]
     async fn load_workspace_config(&self, workspace_uri: &str, workspace_path: &PathBuf) {
         tracing::info!(path = ?workspace_path, "Loading GraphQL config");
@@ -305,6 +333,14 @@ impl GraphQLLanguageServer {
                                         (name, Arc::new(tokio::sync::RwLock::new(proj)), linter)
                                     })
                                     .collect();
+
+                                // Load schema files into AnalysisHost for the new architecture (before storing)
+                                for (name, project, _) in &wrapped_projects {
+                                    let project_guard = project.read().await;
+                                    tracing::info!(project = %name, "Loading schema into AnalysisHost");
+                                    self.load_schema_into_host(workspace_uri, &project_guard)
+                                        .await;
+                                }
 
                                 // Store workspace and projects
                                 self.workspace_roots
