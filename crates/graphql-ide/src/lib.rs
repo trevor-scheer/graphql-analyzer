@@ -43,7 +43,7 @@ pub use file_registry::FileRegistry;
 mod symbol;
 use symbol::{
     find_fragment_definition_range, find_fragment_spreads, find_symbol_at_offset,
-    find_type_definition_range, find_type_references_in_tree, Symbol,
+    find_type_definition_range, find_type_references_in_tree, is_in_selection_set, Symbol,
 };
 
 // Re-export database types that IDE layer needs
@@ -416,9 +416,8 @@ impl Analysis {
 
         // Determine completion context and provide appropriate completions
         match symbol {
-            Some(Symbol::FragmentSpread { .. }) | None => {
-                // Complete fragment names
-                // If we have project files, use the new method; otherwise return empty
+            Some(Symbol::FragmentSpread { .. }) => {
+                // Complete fragment names when on a fragment spread
                 let Some(project_files) = self.project_files else {
                     return Some(Vec::new());
                 };
@@ -430,6 +429,47 @@ impl Analysis {
                     .collect();
 
                 Some(items)
+            }
+            None => {
+                // No specific symbol - check if we're in a selection set
+                let Some(project_files) = self.project_files else {
+                    return Some(Vec::new());
+                };
+
+                if is_in_selection_set(&parse.tree, offset) {
+                    // We're in a selection set - show field completions
+                    let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+
+                    types.get("Query").map_or_else(
+                        || Some(Vec::new()),
+                        |query_type| {
+                            let items: Vec<CompletionItem> = query_type
+                                .fields
+                                .iter()
+                                .map(|field| {
+                                    CompletionItem::new(
+                                        field.name.to_string(),
+                                        CompletionKind::Field,
+                                    )
+                                    .with_detail(format_type_ref(&field.type_ref))
+                                })
+                                .collect();
+
+                            Some(items)
+                        },
+                    )
+                } else {
+                    // Not in a selection set - show fragment completions
+                    let fragments =
+                        graphql_hir::all_fragments_with_project(&self.db, project_files);
+
+                    let items: Vec<CompletionItem> = fragments
+                        .keys()
+                        .map(|name| CompletionItem::new(name.to_string(), CompletionKind::Fragment))
+                        .collect();
+
+                    Some(items)
+                }
             }
             Some(Symbol::FieldName { .. }) => {
                 // For field completions, we'd need to determine the parent type

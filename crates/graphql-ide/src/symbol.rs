@@ -40,6 +40,64 @@ pub fn find_symbol_at_offset(
     None
 }
 
+/// Check if the byte offset is within a selection set (for field completions)
+pub fn is_in_selection_set(tree: &apollo_parser::SyntaxTree, byte_offset: usize) -> bool {
+    let doc = tree.document();
+
+    // Check all definitions
+    for definition in doc.definitions() {
+        match definition {
+            cst::Definition::OperationDefinition(op) => {
+                if let Some(selection_set) = op.selection_set() {
+                    if is_offset_in_selection_set(&selection_set, byte_offset) {
+                        return true;
+                    }
+                }
+            }
+            cst::Definition::FragmentDefinition(frag) => {
+                if let Some(selection_set) = frag.selection_set() {
+                    if is_offset_in_selection_set(&selection_set, byte_offset) {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    false
+}
+
+fn is_offset_in_selection_set(selection_set: &cst::SelectionSet, byte_offset: usize) -> bool {
+    // Check if offset is within the selection set's range
+    let start = selection_set.syntax().text_range().start().into();
+    let end = selection_set.syntax().text_range().end().into();
+
+    if byte_offset < start || byte_offset > end {
+        return false;
+    }
+
+    // We're within the selection set's range, but check if we're in a nested selection set
+    for selection in selection_set.selections() {
+        if let cst::Selection::Field(field) = selection {
+            if let Some(nested) = field.selection_set() {
+                if is_offset_in_selection_set(&nested, byte_offset) {
+                    return true;
+                }
+            }
+        } else if let cst::Selection::InlineFragment(inline_frag) = selection {
+            if let Some(nested) = inline_frag.selection_set() {
+                if is_offset_in_selection_set(&nested, byte_offset) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // We're in this selection set (not in a nested one)
+    true
+}
+
 fn check_definition(definition: &cst::Definition, byte_offset: usize) -> Option<Symbol> {
     match definition {
         cst::Definition::OperationDefinition(op) => check_operation(op, byte_offset),
