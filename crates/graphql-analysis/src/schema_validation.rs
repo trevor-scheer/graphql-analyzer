@@ -258,3 +258,243 @@ fn format_type_ref(type_ref: &graphql_hir::TypeRef) -> String {
 
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use graphql_db::{FileContent, FileKind, FileMetadata, FileUri};
+
+    #[salsa::db]
+    #[derive(Clone, Default)]
+    struct TestDatabase {
+        storage: salsa::Storage<Self>,
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDatabase {}
+
+    #[salsa::db]
+    impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {}
+
+    #[salsa::db]
+    impl graphql_hir::GraphQLHirDatabase for TestDatabase {}
+
+    #[salsa::db]
+    impl crate::GraphQLAnalysisDatabase for TestDatabase {}
+
+    #[test]
+    fn test_unknown_field_type() {
+        let db = TestDatabase::default();
+        let file_id = graphql_db::FileId::new(0);
+
+        let schema_content = "type User { profile: Profile }";
+        let content = FileContent::new(&db, Arc::from(schema_content));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let diagnostics = validate_schema_file(&db, content, metadata);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("Unknown type: Profile"));
+    }
+
+    #[test]
+    #[ignore = "Requires multi-file HIR setup for cross-type validation"]
+    fn test_interface_implementation_missing_field() {
+        let db = TestDatabase::default();
+        let file_id = graphql_db::FileId::new(0);
+
+        let schema_content = r"
+            interface Node { id: ID! name: String! }
+            type User implements Node { id: ID! }
+        ";
+        let content = FileContent::new(&db, Arc::from(schema_content));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let diagnostics = validate_schema_file(&db, content, metadata);
+
+        let missing_field_error = diagnostics
+            .iter()
+            .find(|d| d.message.contains("does not implement field 'name'"));
+        assert!(
+            missing_field_error.is_some(),
+            "Expected error about missing 'name' field"
+        );
+    }
+
+    #[test]
+    #[ignore = "Requires multi-file HIR setup for cross-type validation"]
+    fn test_interface_implementation_wrong_type() {
+        let db = TestDatabase::default();
+        let file_id = graphql_db::FileId::new(0);
+
+        let schema_content = r"
+            interface Node { id: ID! }
+            type User implements Node { id: String! }
+        ";
+        let content = FileContent::new(&db, Arc::from(schema_content));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let diagnostics = validate_schema_file(&db, content, metadata);
+
+        let wrong_type_error = diagnostics.iter().find(|d| {
+            d.message.contains("has type 'String!'")
+                && d.message.contains("but interface 'Node' requires 'ID!'")
+        });
+        assert!(
+            wrong_type_error.is_some(),
+            "Expected error about wrong field type"
+        );
+    }
+
+    #[test]
+    #[ignore = "Requires multi-file HIR setup for cross-type validation"]
+    fn test_union_non_object_member() {
+        let db = TestDatabase::default();
+        let file_id = graphql_db::FileId::new(0);
+
+        let schema_content = r"
+            interface Node { id: ID! }
+            union SearchResult = Node
+        ";
+        let content = FileContent::new(&db, Arc::from(schema_content));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let diagnostics = validate_schema_file(&db, content, metadata);
+
+        let non_object_error = diagnostics
+            .iter()
+            .find(|d| d.message.contains("is not an object type"));
+        assert!(
+            non_object_error.is_some(),
+            "Expected error about non-object union member"
+        );
+    }
+
+    #[test]
+    fn test_union_unknown_member() {
+        let db = TestDatabase::default();
+        let file_id = graphql_db::FileId::new(0);
+
+        let schema_content = "union SearchResult = User | Post";
+        let content = FileContent::new(&db, Arc::from(schema_content));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let diagnostics = validate_schema_file(&db, content, metadata);
+
+        assert!(diagnostics.len() >= 2);
+        assert!(diagnostics
+            .iter()
+            .any(|d| d.message.contains("includes unknown type 'User'")));
+        assert!(diagnostics
+            .iter()
+            .any(|d| d.message.contains("includes unknown type 'Post'")));
+    }
+
+    #[test]
+    #[ignore = "Requires multi-file HIR setup for cross-type validation"]
+    fn test_input_object_invalid_field_type() {
+        let db = TestDatabase::default();
+        let file_id = graphql_db::FileId::new(0);
+
+        let schema_content = r"
+            type User { id: ID! }
+            input CreateUserInput { user: User! }
+        ";
+        let content = FileContent::new(&db, Arc::from(schema_content));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let diagnostics = validate_schema_file(&db, content, metadata);
+
+        let invalid_input_error = diagnostics
+            .iter()
+            .find(|d| d.message.contains("is not a valid input type"));
+        assert!(
+            invalid_input_error.is_some(),
+            "Expected error about invalid input type"
+        );
+    }
+
+    #[test]
+    #[ignore = "Requires multi-file HIR setup"]
+    fn test_valid_schema() {
+        let db = TestDatabase::default();
+        let file_id = graphql_db::FileId::new(0);
+
+        let schema_content = r"
+            interface Node { id: ID! }
+            type User implements Node { id: ID! name: String! }
+            type Post { id: ID! author: User! }
+            union SearchResult = User | Post
+            input CreateUserInput { name: String! }
+        ";
+        let content = FileContent::new(&db, Arc::from(schema_content));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let diagnostics = validate_schema_file(&db, content, metadata);
+
+        assert_eq!(diagnostics.len(), 0, "Expected no validation errors");
+    }
+
+    #[test]
+    fn test_duplicate_type_name() {
+        let db = TestDatabase::default();
+        let file_id = graphql_db::FileId::new(0);
+
+        let schema_content = r"
+            type User { id: ID! }
+            type User { name: String! }
+        ";
+        let content = FileContent::new(&db, Arc::from(schema_content));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let diagnostics = validate_schema_file(&db, content, metadata);
+
+        let duplicate_error = diagnostics
+            .iter()
+            .find(|d| d.message.contains("Duplicate type name: User"));
+        assert!(
+            duplicate_error.is_some(),
+            "Expected error about duplicate type name"
+        );
+    }
+}
