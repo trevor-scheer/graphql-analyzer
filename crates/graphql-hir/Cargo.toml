@@ -1,0 +1,13 @@
+[package]
+name = "graphql-hir"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+graphql-db = { path = "../graphql-db" }
+graphql-syntax = { path = "../graphql-syntax" }
+salsa = { workspace = true }
+apollo-parser = { workspace = true }
