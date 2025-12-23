@@ -35,18 +35,31 @@ file_diagnostics()
    - File-local, cached by Salsa
 
 2. **Schema Validation** (`schema_validation.rs`)
-   - Duplicate type names within a file
-   - Conflicts with types in other files
-   - Field type existence
-   - Interface implementations
-   - Union member validity
+   - ✅ Duplicate type names within a file
+   - ✅ Field type existence checking
+   - ✅ Interface implementation validation:
+     - Interface is actually an interface type
+     - All interface fields are implemented
+     - Field types match interface requirements
+     - Required arguments are present
+   - ✅ Union member validation:
+     - Members exist in schema
+     - Members are object types
+   - ✅ Input type validation:
+     - Input object fields use valid input types
+   - ✅ Argument type validation
 
 3. **Document Validation** (`document_validation.rs`)
-   - Operation name uniqueness (project-wide)
-   - Fragment name uniqueness (project-wide)
-   - Fragment type condition validity
-   - Field selections against schema (TODO)
-   - Variable type validity (TODO)
+   - ✅ Operation name uniqueness (project-wide)
+   - ✅ Fragment name uniqueness (project-wide)
+   - ✅ Fragment type condition validation:
+     - Type exists in schema
+     - Type is object, interface, or union
+   - ✅ Variable type validation:
+     - Types exist in schema
+     - Types are valid input types
+   - ✅ Root type checking (Query/Mutation/Subscription)
+   - ⏳ Field selections against schema (deferred to apollo-compiler integration)
 
 4. **Lint Integration** (`lint_integration.rs`)
    - Integration with `graphql-linter` crate
