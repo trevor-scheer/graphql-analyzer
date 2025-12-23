@@ -1,0 +1,17 @@
+[package]
+name = "graphql-ide"
+version = "0.1.0"
+edition = "2021"
+description = "IDE features for GraphQL Language Server"
+
+[dependencies]
+# Salsa for database access
+salsa = { workspace = true }
+
+# Internal crates (query-based layers)
+graphql-db = { path = "../graphql-db" }
+graphql-syntax = { path = "../graphql-syntax" }
+graphql-hir = { path = "../graphql-hir" }
+graphql-analysis = { path = "../graphql-analysis" }
+
+[dev-dependencies]

@@ -998,6 +998,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "graphql-ide"
+version = "0.1.0"
+dependencies = [
+ "graphql-analysis",
+ "graphql-db",
+ "graphql-hir",
+ "graphql-syntax",
+ "salsa",
+]
+
+[[package]]
 name = "graphql-introspect"
 version = "0.1.1"
 dependencies = [

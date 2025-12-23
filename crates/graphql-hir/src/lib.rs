@@ -99,6 +99,11 @@ pub trait GraphQLHirDatabase: graphql_syntax::GraphQLSyntaxDatabase {
     }
 }
 
+// Implement the trait for RootDatabase
+// This makes RootDatabase usable with all HIR queries
+#[salsa::db]
+impl GraphQLHirDatabase for graphql_db::RootDatabase {}
+
 /// Get all types in the schema
 /// This query depends on all schema file structures
 #[salsa::tracked]

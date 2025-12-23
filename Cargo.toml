@@ -11,6 +11,7 @@ members = [
     "crates/graphql-syntax",
     "crates/graphql-hir",
     "crates/graphql-analysis",
+    "crates/graphql-ide",
 ]
 
 [workspace.package]
