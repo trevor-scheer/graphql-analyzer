@@ -72,6 +72,17 @@ pub struct FileMetadata {
     pub kind: FileKind,
 }
 
+/// Input: Project file lists
+/// Tracks which files are in the project, categorized by kind
+/// This is updated by the IDE layer when files are added/removed
+#[salsa::input]
+pub struct ProjectFiles {
+    /// List of schema files with their content and metadata
+    pub schema_files: Arc<Vec<(FileId, FileContent, FileMetadata)>>,
+    /// List of document files with their content and metadata
+    pub document_files: Arc<Vec<(FileId, FileContent, FileMetadata)>>,
+}
+
 /// The root salsa database
 /// This is the main entry point for all queries
 #[salsa::db]

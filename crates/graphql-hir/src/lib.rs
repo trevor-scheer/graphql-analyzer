@@ -77,25 +77,37 @@ impl OperationId {
 }
 
 /// The salsa database trait for HIR queries
-/// Note: In Phase 2, these return empty sets. `FileRegistry` will be added in a future phase.
 #[salsa::db]
 pub trait GraphQLHirDatabase: graphql_syntax::GraphQLSyntaxDatabase {
+    /// Get the project files input
+    /// Returns None if no project files have been set yet
+    /// This should be overridden by implementations that track project files
+    fn project_files(&self) -> Option<graphql_db::ProjectFiles> {
+        None
+    }
+
     /// Get all schema files in the project
     /// Returns tuples of (`FileId`, `FileContent`, `FileMetadata`)
-    /// TODO: Will be properly implemented with `FileRegistry` in Phase 3
     fn schema_files(
         &self,
     ) -> Arc<Vec<(FileId, graphql_db::FileContent, graphql_db::FileMetadata)>> {
-        Arc::new(Vec::new())
+        let Some(project_files) = self.project_files() else {
+            return Arc::new(Vec::new());
+        };
+
+        project_files.schema_files(self)
     }
 
     /// Get all document files in the project
     /// Returns tuples of (`FileId`, `FileContent`, `FileMetadata`)
-    /// TODO: Will be properly implemented with `FileRegistry` in Phase 3
     fn document_files(
         &self,
     ) -> Arc<Vec<(FileId, graphql_db::FileContent, graphql_db::FileMetadata)>> {
-        Arc::new(Vec::new())
+        let Some(project_files) = self.project_files() else {
+            return Arc::new(Vec::new());
+        };
+
+        project_files.document_files(self)
     }
 }
 
