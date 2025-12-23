@@ -8,6 +8,8 @@ members = [
     "crates/graphql-cli",
     ".husky", "crates/graphql-linter",
     "crates/graphql-db",
+    "crates/graphql-syntax",
+    "crates/graphql-hir",
 ]
 
 [workspace.package]
