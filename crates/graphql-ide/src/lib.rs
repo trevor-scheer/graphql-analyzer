@@ -312,9 +312,7 @@ impl Default for AnalysisHost {
 /// All IDE feature queries go through this.
 #[derive(Clone)]
 pub struct Analysis {
-    #[allow(dead_code)]
     db: RootDatabase,
-    #[allow(dead_code)]
     registry: Arc<RwLock<FileRegistry>>,
 }
 
@@ -322,12 +320,35 @@ impl Analysis {
     /// Get diagnostics for a file
     ///
     /// Returns syntax errors, validation errors, and lint warnings.
-    pub const fn diagnostics(&self, _file: &FilePath) -> Vec<Diagnostic> {
-        // TODO: Implement diagnostic collection
-        // 1. Look up FileId from FilePath
-        // 2. Call graphql_analysis::file_diagnostics
-        // 3. Convert to IDE Diagnostic format
-        Vec::new()
+    pub fn diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
+        let (content, metadata) = {
+            let registry = self.registry.read().unwrap();
+
+            // Look up FileId from FilePath
+            let Some(file_id) = registry.get_file_id(file) else {
+                return Vec::new();
+            };
+
+            // Get FileContent and FileMetadata
+            let Some(content) = registry.get_content(file_id) else {
+                return Vec::new();
+            };
+            let Some(metadata) = registry.get_metadata(file_id) else {
+                return Vec::new();
+            };
+            drop(registry);
+
+            (content, metadata)
+        };
+
+        // Get diagnostics from analysis layer
+        let analysis_diagnostics = graphql_analysis::file_diagnostics(&self.db, content, metadata);
+
+        // Convert to IDE diagnostic format
+        analysis_diagnostics
+            .iter()
+            .map(convert_diagnostic)
+            .collect()
     }
 
     /// Get completions at a position
@@ -393,6 +414,44 @@ impl Analysis {
         // 4. Search for all usages in HIR
         // 5. Convert to Locations
         None
+    }
+}
+
+// Conversion functions from analysis types to IDE types
+
+/// Convert analysis Position to IDE Position
+const fn convert_position(pos: graphql_analysis::Position) -> Position {
+    Position {
+        line: pos.line,
+        character: pos.character,
+    }
+}
+
+/// Convert analysis `DiagnosticRange` to IDE Range
+const fn convert_range(range: graphql_analysis::DiagnosticRange) -> Range {
+    Range {
+        start: convert_position(range.start),
+        end: convert_position(range.end),
+    }
+}
+
+/// Convert analysis Severity to IDE `DiagnosticSeverity`
+const fn convert_severity(severity: graphql_analysis::Severity) -> DiagnosticSeverity {
+    match severity {
+        graphql_analysis::Severity::Error => DiagnosticSeverity::Error,
+        graphql_analysis::Severity::Warning => DiagnosticSeverity::Warning,
+        graphql_analysis::Severity::Info => DiagnosticSeverity::Information,
+    }
+}
+
+/// Convert analysis Diagnostic to IDE Diagnostic
+fn convert_diagnostic(diag: &graphql_analysis::Diagnostic) -> Diagnostic {
+    Diagnostic {
+        range: convert_range(diag.range),
+        severity: convert_severity(diag.severity),
+        message: diag.message.to_string(),
+        code: diag.code.as_ref().map(ToString::to_string),
+        source: diag.source.to_string(),
     }
 }
 
@@ -464,5 +523,129 @@ mod tests {
         assert_eq!(diag.severity, DiagnosticSeverity::Error);
         assert_eq!(diag.message, "Unknown type: User");
         assert_eq!(diag.code, Some("unknown-type".to_string()));
+    }
+
+    #[test]
+    fn test_diagnostics_for_valid_file() {
+        let mut host = AnalysisHost::new();
+
+        // Add a valid schema file
+        let path = FilePath::new("file:///schema.graphql");
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
+
+        // Get diagnostics
+        let snapshot = host.snapshot();
+        let diagnostics = snapshot.diagnostics(&path);
+
+        // Valid file should have no diagnostics (or only non-error diagnostics)
+        // Note: There might be some diagnostics depending on validation rules
+        assert!(diagnostics
+            .iter()
+            .all(|d| d.severity != DiagnosticSeverity::Error));
+    }
+
+    #[test]
+    fn test_diagnostics_for_nonexistent_file() {
+        let host = AnalysisHost::new();
+        let snapshot = host.snapshot();
+
+        // Try to get diagnostics for a file that doesn't exist
+        let path = FilePath::new("file:///nonexistent.graphql");
+        let diagnostics = snapshot.diagnostics(&path);
+
+        // Should return empty vector for nonexistent file
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_diagnostics_after_file_update() {
+        let mut host = AnalysisHost::new();
+
+        // Add a file
+        let path = FilePath::new("file:///schema.graphql");
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
+
+        // Get initial diagnostics
+        let snapshot1 = host.snapshot();
+        let diagnostics1 = snapshot1.diagnostics(&path);
+
+        // Update the file
+        host.add_file(&path, "type Query { world: Int }", FileKind::Schema);
+
+        // Get new diagnostics
+        let snapshot2 = host.snapshot();
+        let diagnostics2 = snapshot2.diagnostics(&path);
+
+        // Both should be valid (no errors)
+        assert!(diagnostics1
+            .iter()
+            .all(|d| d.severity != DiagnosticSeverity::Error));
+        assert!(diagnostics2
+            .iter()
+            .all(|d| d.severity != DiagnosticSeverity::Error));
+    }
+
+    #[test]
+    fn test_conversion_position() {
+        let analysis_pos = graphql_analysis::Position::new(10, 20);
+        let ide_pos = convert_position(analysis_pos);
+
+        assert_eq!(ide_pos.line, 10);
+        assert_eq!(ide_pos.character, 20);
+    }
+
+    #[test]
+    fn test_conversion_range() {
+        let analysis_range = graphql_analysis::DiagnosticRange::new(
+            graphql_analysis::Position::new(1, 5),
+            graphql_analysis::Position::new(1, 10),
+        );
+        let ide_range = convert_range(analysis_range);
+
+        assert_eq!(ide_range.start.line, 1);
+        assert_eq!(ide_range.start.character, 5);
+        assert_eq!(ide_range.end.line, 1);
+        assert_eq!(ide_range.end.character, 10);
+    }
+
+    #[test]
+    fn test_conversion_severity() {
+        assert_eq!(
+            convert_severity(graphql_analysis::Severity::Error),
+            DiagnosticSeverity::Error
+        );
+        assert_eq!(
+            convert_severity(graphql_analysis::Severity::Warning),
+            DiagnosticSeverity::Warning
+        );
+        assert_eq!(
+            convert_severity(graphql_analysis::Severity::Info),
+            DiagnosticSeverity::Information
+        );
+    }
+
+    #[test]
+    fn test_conversion_diagnostic() {
+        let analysis_diag = graphql_analysis::Diagnostic::with_source_and_code(
+            graphql_analysis::Severity::Warning,
+            "Test warning message",
+            graphql_analysis::DiagnosticRange::new(
+                graphql_analysis::Position::new(2, 0),
+                graphql_analysis::Position::new(2, 10),
+            ),
+            "test-source",
+            "TEST001",
+        );
+
+        let ide_diag = convert_diagnostic(&analysis_diag);
+
+        assert_eq!(ide_diag.severity, DiagnosticSeverity::Warning);
+        assert_eq!(ide_diag.message, "Test warning message");
+        assert_eq!(ide_diag.source, "test-source");
+        assert_eq!(ide_diag.code, Some("TEST001".to_string()));
+        assert_eq!(ide_diag.range.start.line, 2);
+        assert_eq!(ide_diag.range.start.character, 0);
+        assert_eq!(ide_diag.range.end.line, 2);
+        assert_eq!(ide_diag.range.end.character, 10);
     }
 }
