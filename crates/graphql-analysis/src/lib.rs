@@ -6,16 +6,16 @@ use graphql_db::FileId;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-mod apollo_validation;
 mod diagnostics;
 mod document_validation;
 mod lint_integration;
 pub mod merged_schema;
 mod project_lints;
 mod schema_validation;
+pub mod validation;
 
-pub use apollo_validation::*;
 pub use diagnostics::*;
+pub use validation::validate_document;
 
 /// The salsa database trait for analysis queries
 #[salsa::db]
@@ -115,7 +115,7 @@ pub fn file_diagnostics(
             FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
                 // Use apollo-compiler validation for documents
                 diagnostics.extend(
-                    apollo_validation::validate_document(db, content, metadata, project_files)
+                    validation::validate_document(db, content, metadata, project_files)
                         .iter()
                         .cloned(),
                 );
