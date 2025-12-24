@@ -42,8 +42,9 @@ pub use file_registry::FileRegistry;
 
 mod symbol;
 use symbol::{
-    find_fragment_definition_range, find_fragment_spreads, find_symbol_at_offset,
-    find_type_definition_range, find_type_references_in_tree, is_in_selection_set, Symbol,
+    find_fragment_definition_range, find_fragment_spreads, find_parent_type_at_offset,
+    find_symbol_at_offset, find_type_definition_range, find_type_references_in_tree,
+    is_in_selection_set, Symbol,
 };
 
 // Re-export database types that IDE layer needs
@@ -379,6 +380,23 @@ impl Analysis {
             .collect()
     }
 
+    /// Resolve a field name in a parent type to get its return type name.
+    /// Handles unwrapping List and `NonNull` types to get the base type.
+    fn resolve_field_type(
+        parent_type_name: &str,
+        field_name: &str,
+        types: &std::collections::HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
+    ) -> Option<String> {
+        let parent_type = types.get(parent_type_name)?;
+        let field = parent_type
+            .fields
+            .iter()
+            .find(|f| f.name.as_ref() == field_name)?;
+
+        // Unwrap the type to get the base type name
+        Some(unwrap_type_to_name(&field.type_ref))
+    }
+
     /// Get completions at a position
     ///
     /// Returns a list of completion items appropriate for the context.
@@ -437,13 +455,27 @@ impl Analysis {
                 };
 
                 if is_in_selection_set(&parse.tree, offset) {
-                    // We're in a selection set - show field completions
+                    // We're in a selection set - determine the parent type
                     let types = graphql_hir::schema_types_with_project(&self.db, project_files);
 
-                    types.get("Query").map_or_else(
+                    // Find what type's fields we should complete
+                    let parent_type_or_field = find_parent_type_at_offset(&parse.tree, offset)?;
+
+                    // If it looks like a field name (starts with lowercase), resolve it to a type
+                    let parent_type_name = if parent_type_or_field.chars().next()?.is_lowercase() {
+                        // This is a field name - need to walk up to find its type
+                        // For now, try to resolve it assuming it's in Query
+                        // TODO: Handle nested resolution properly
+                        Self::resolve_field_type("Query", &parent_type_or_field, &types)?
+                    } else {
+                        // This is already a type name (Query, Mutation, or a schema type)
+                        parent_type_or_field
+                    };
+
+                    types.get(parent_type_name.as_str()).map_or_else(
                         || Some(Vec::new()),
-                        |query_type| {
-                            let items: Vec<CompletionItem> = query_type
+                        |parent_type| {
+                            let items: Vec<CompletionItem> = parent_type
                                 .fields
                                 .iter()
                                 .map(|field| {
@@ -472,18 +504,26 @@ impl Analysis {
                 }
             }
             Some(Symbol::FieldName { .. }) => {
-                // For field completions, we'd need to determine the parent type
-                // TODO: Implement proper type tracking through selection sets
-                // For now, return Query type fields as a basic implementation
+                // User is on an existing field name - show fields from parent type
                 let Some(project_files) = self.project_files else {
                     return Some(Vec::new());
                 };
                 let types = graphql_hir::schema_types_with_project(&self.db, project_files);
 
-                types.get("Query").map_or_else(
+                // Find what type's fields we should complete
+                let parent_type_or_field = find_parent_type_at_offset(&parse.tree, offset)?;
+
+                // If it looks like a field name (starts with lowercase), resolve it to a type
+                let parent_type_name = if parent_type_or_field.chars().next()?.is_lowercase() {
+                    Self::resolve_field_type("Query", &parent_type_or_field, &types)?
+                } else {
+                    parent_type_or_field
+                };
+
+                types.get(parent_type_name.as_str()).map_or_else(
                     || Some(Vec::new()),
-                    |query_type| {
-                        let items: Vec<CompletionItem> = query_type
+                    |parent_type| {
+                        let items: Vec<CompletionItem> = parent_type
                             .fields
                             .iter()
                             .map(|field| {
@@ -913,6 +953,11 @@ fn convert_diagnostic(diag: &graphql_analysis::Diagnostic) -> Diagnostic {
 }
 
 /// Format a type reference for display (e.g., "[String!]!")
+/// Unwrap a `TypeRef` to get just the base type name (without List or `NonNull` wrappers)
+fn unwrap_type_to_name(type_ref: &graphql_hir::TypeRef) -> String {
+    type_ref.name.to_string()
+}
+
 fn format_type_ref(type_ref: &graphql_hir::TypeRef) -> String {
     let mut result = type_ref.name.to_string();
 
