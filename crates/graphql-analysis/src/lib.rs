@@ -104,8 +104,7 @@ pub fn file_diagnostics(
         use graphql_db::FileKind;
         match metadata.kind(db) {
             FileKind::Schema => {
-                // Schema validation is still using the basic structural validation
-                // TODO: Implement full apollo-compiler schema validation in a future step
+                // Full apollo-compiler schema validation with spec-compliant error checking
                 diagnostics.extend(
                     schema_validation::validate_schema_file(db, content, metadata)
                         .iter()

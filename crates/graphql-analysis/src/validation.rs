@@ -97,6 +97,9 @@ pub fn validate_document(
             // Only include diagnostics for the current file
             let error_list = &with_errors.errors;
 
+            // Get line offset for TypeScript/JavaScript extraction
+            let line_offset = metadata.line_offset(db);
+
             // Iterate over the diagnostic list and filter to current file
             // Note: Since we combined documents, all diagnostics will be relative to the doc_uri
             // Apollo-compiler tracks sources correctly when parsing, so diagnostics will have proper locations
@@ -108,11 +111,12 @@ pub fn validate_document(
                         start: Position {
                             // apollo-compiler uses 1-indexed, we use 0-indexed
                             // Casting usize to u32 is safe for line/column numbers in practice
-                            line: loc_range.start.line.saturating_sub(1) as u32,
+                            // Add line_offset to adjust for TypeScript/JavaScript extraction
+                            line: loc_range.start.line.saturating_sub(1) as u32 + line_offset,
                             character: loc_range.start.column.saturating_sub(1) as u32,
                         },
                         end: Position {
-                            line: loc_range.end.line.saturating_sub(1) as u32,
+                            line: loc_range.end.line.saturating_sub(1) as u32 + line_offset,
                             character: loc_range.end.column.saturating_sub(1) as u32,
                         },
                     }
@@ -357,6 +361,7 @@ fn file_defines_any_fragment(
 mod tests {
     use super::*;
     use graphql_db::{FileId, FileKind, FileUri, ProjectFiles};
+    use salsa::Setter;
 
     #[salsa::db]
     #[derive(Clone, Default)]
@@ -678,5 +683,49 @@ mod tests {
             0,
             "Expected no diagnostics when fragment is defined in another file. Got: {diagnostics:?}"
         );
+    }
+
+    #[test]
+    fn test_line_offset_adjustment() {
+        let mut db = TestDatabase::default();
+
+        // Create schema
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        // Create document with invalid query and line_offset of 10
+        // This simulates extracted GraphQL from TypeScript/JavaScript at line 10
+        let doc_id = FileId::new(1);
+        let doc_content = FileContent::new(&db, Arc::from("query { invalidField }"));
+        let doc_metadata =
+            FileMetadata::new(&db, doc_id, FileUri::new("query.ts"), FileKind::TypeScript);
+        // Set line offset to simulate extraction from line 10 in TypeScript file
+        doc_metadata.set_line_offset(&mut db).to(10);
+
+        let project_files = ProjectFiles::new(
+            &db,
+            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
+            Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
+        );
+
+        let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
+        assert!(!diagnostics.is_empty(), "Expected validation errors");
+
+        // Verify that line numbers are adjusted by the line offset
+        for diag in diagnostics.iter() {
+            // The error should be at line 10 or later (accounting for the offset)
+            // The GraphQL error is at line 0 in the extracted text, but should be reported at line 10
+            assert!(
+                diag.range.start.line >= 10,
+                "Expected diagnostic line to be adjusted by offset. Got line: {}",
+                diag.range.start.line
+            );
+        }
     }
 }
