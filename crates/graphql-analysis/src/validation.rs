@@ -144,6 +144,12 @@ pub fn validate_document(
                 // Get message - apollo_diag.error is a GraphQLError which can be converted to string
                 let message: Arc<str> = Arc::from(apollo_diag.error.to_string());
 
+                // Filter out false positives: fragments are allowed to be standalone
+                // and don't need to be used in operations (they may be used in other files)
+                if message.contains("must be used in an operation") {
+                    continue;
+                }
+
                 diagnostics.push(Diagnostic {
                     severity: Severity::Error,
                     message,
