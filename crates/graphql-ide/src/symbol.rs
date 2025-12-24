@@ -122,7 +122,10 @@ pub fn find_parent_type_at_offset(
 
 /// Find the parent field's type name within a selection set
 /// Returns a vector of field names from outermost to innermost (e.g., `["pokemon", "evolution"]`)
-fn find_parent_field_path(selection_set: &cst::SelectionSet, byte_offset: usize) -> Option<Vec<String>> {
+fn find_parent_field_path(
+    selection_set: &cst::SelectionSet,
+    byte_offset: usize,
+) -> Option<Vec<String>> {
     for selection in selection_set.selections() {
         if let cst::Selection::Field(field) = selection {
             // Check if this field has a nested selection set that contains our offset
@@ -159,7 +162,9 @@ fn find_parent_field_path(selection_set: &cst::SelectionSet, byte_offset: usize)
                                 let _type_name = name.text().to_string();
 
                                 // Recursively check for deeper nesting
-                                if let Some(deeper_path) = find_parent_field_path(&nested, byte_offset) {
+                                if let Some(deeper_path) =
+                                    find_parent_field_path(&nested, byte_offset)
+                                {
                                     return Some(deeper_path);
                                 }
 
@@ -179,13 +184,15 @@ fn find_parent_field_path(selection_set: &cst::SelectionSet, byte_offset: usize)
 
 /// Find the parent field's type name within a selection set (legacy wrapper)
 fn find_parent_field_type(selection_set: &cst::SelectionSet, byte_offset: usize) -> Option<String> {
-    find_parent_field_path(selection_set, byte_offset)
-        .and_then(|path| path.last().cloned())
+    find_parent_field_path(selection_set, byte_offset).and_then(|path| path.last().cloned())
 }
 
 /// Public wrapper to get the full field path for a position
 /// Returns a vector of field names from outermost to innermost
-pub fn get_parent_field_path(tree: &apollo_parser::SyntaxTree, byte_offset: usize) -> Option<Vec<String>> {
+pub fn get_parent_field_path(
+    tree: &apollo_parser::SyntaxTree,
+    byte_offset: usize,
+) -> Option<Vec<String>> {
     let doc = tree.document();
 
     // Check all definitions

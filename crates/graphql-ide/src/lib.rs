@@ -454,7 +454,11 @@ impl Analysis {
 
         // Convert position to byte offset
         let offset = position_to_offset(&line_index, adjusted_position)?;
-        tracing::debug!("Completions: position {:?} -> offset {}", adjusted_position, offset);
+        tracing::debug!(
+            "Completions: position {:?} -> offset {}",
+            adjusted_position,
+            offset
+        );
 
         // Find what symbol we're completing (or near)
         let symbol = find_symbol_at_offset(&parse.tree, offset);
@@ -1115,7 +1119,10 @@ const fn adjust_position_for_line_offset(position: Position, line_offset: u32) -
         return None;
     }
 
-    Some(Position::new(position.line - line_offset, position.character))
+    Some(Position::new(
+        position.line - line_offset,
+        position.character,
+    ))
 }
 
 /// Convert IDE position to byte offset using `LineIndex`
