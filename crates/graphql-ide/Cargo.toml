@@ -11,6 +11,9 @@ salsa = { workspace = true }
 # Apollo parser for CST traversal
 apollo-parser = { workspace = true }
 
+# Logging
+tracing = { workspace = true }
+
 # Internal crates (query-based layers)
 graphql-db = { path = "../graphql-db" }
 graphql-syntax = { path = "../graphql-syntax" }

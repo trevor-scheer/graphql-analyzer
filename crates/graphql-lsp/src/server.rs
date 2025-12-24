@@ -347,7 +347,9 @@ impl GraphQLLanguageServer {
                     tracing::info!("Loading {} schema files", schema_files.len());
                     for (path, content) in schema_files {
                         let file_kind = Self::determine_file_kind(&content);
-                        let uri = format!("file://{path}");
+                        // Strip leading '/' from absolute paths to avoid file:////
+                        let path_str = path.trim_start_matches('/');
+                        let uri = format!("file:///{path_str}");
                         let file_path = graphql_ide::FilePath::new(uri);
 
                         let mut host_guard = host.lock().await;
@@ -408,7 +410,10 @@ impl GraphQLLanguageServer {
                                                 Ok(content) => {
                                                     let file_kind =
                                                         Self::determine_file_kind(&content);
-                                                    let uri = format!("file://{}", path.display());
+                                                    // Strip leading '/' from absolute paths to avoid file:////
+                                                    let path_str = path.display().to_string();
+                                                    let path_str = path_str.trim_start_matches('/');
+                                                    let uri = format!("file:///{path_str}");
                                                     let file_path = graphql_ide::FilePath::new(uri);
 
                                                     let mut host_guard = host.lock().await;
@@ -980,8 +985,18 @@ impl LanguageServer for GraphQLLanguageServer {
 
         // Convert graphql-ide Locations to LSP Locations
         let lsp_locations: Vec<Location> = locations
-            .into_iter()
-            .map(|loc| convert_ide_location(&loc))
+            .iter()
+            .map(|loc| {
+                tracing::info!(
+                    "Returning location: file={}, range={}:{} to {}:{}",
+                    loc.file.as_str(),
+                    loc.range.start.line,
+                    loc.range.start.character,
+                    loc.range.end.line,
+                    loc.range.end.character
+                );
+                convert_ide_location(loc)
+            })
             .collect();
 
         tracing::info!(

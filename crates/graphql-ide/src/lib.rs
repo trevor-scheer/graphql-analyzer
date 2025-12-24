@@ -710,7 +710,24 @@ impl Analysis {
 
                 // Get the file content, metadata, and path for this fragment
                 let registry = self.registry.read().unwrap();
-                let file_path = registry.get_path(fragment.file_id)?;
+
+                tracing::debug!(
+                    "Looking up path for fragment '{}' with FileId {:?}",
+                    name,
+                    fragment.file_id
+                );
+                let all_ids = registry.all_file_ids();
+                tracing::debug!("Registry has {} files", all_ids.len());
+                tracing::debug!("Registry FileIds: {:?}", all_ids);
+
+                let Some(file_path) = registry.get_path(fragment.file_id) else {
+                    tracing::error!(
+                        "FileId {:?} not found in registry for fragment '{}'",
+                        fragment.file_id,
+                        name
+                    );
+                    return None;
+                };
                 let def_content = registry.get_content(fragment.file_id)?;
                 let def_metadata = registry.get_metadata(fragment.file_id)?;
                 drop(registry);
