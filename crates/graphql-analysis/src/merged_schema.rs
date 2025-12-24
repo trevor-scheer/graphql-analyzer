@@ -3,6 +3,7 @@
 // into a single apollo_compiler::Schema for validation purposes.
 
 use crate::GraphQLAnalysisDatabase;
+use apollo_compiler::parser::Parser;
 use std::sync::Arc;
 
 /// Get the merged apollo-compiler Schema for validation
@@ -26,6 +27,7 @@ pub fn merged_schema(
 
     // Use apollo-compiler's builder pattern to parse multiple schema files
     let mut builder = apollo_compiler::schema::SchemaBuilder::new();
+    let mut parser = Parser::new();
 
     // Parse each schema file separately so apollo-compiler tracks sources correctly
     for (_file_id, content, metadata) in schema_files.iter() {
@@ -35,7 +37,7 @@ pub fn merged_schema(
         tracing::debug!(uri = ?uri, "Adding schema file to merge");
 
         // Parse and add to builder
-        builder = builder.parse(text.as_ref(), uri.as_str());
+        parser.parse_into_schema_builder(text.as_ref(), uri.as_str(), &mut builder);
     }
 
     // Build and validate the schema
