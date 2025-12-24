@@ -6,12 +6,15 @@ use graphql_db::FileId;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+mod apollo_validation;
 mod diagnostics;
 mod document_validation;
 mod lint_integration;
+pub mod merged_schema;
 mod project_lints;
 mod schema_validation;
 
+pub use apollo_validation::*;
 pub use diagnostics::*;
 
 /// The salsa database trait for analysis queries
@@ -95,25 +98,30 @@ pub fn file_diagnostics(
         });
     }
 
-    // Semantic validation is disabled for now - it requires project-wide schema
-    // aggregation which isn't implemented in the new architecture yet.
-    // TODO: Re-enable once we have proper project-wide schema loading
-    // match metadata.kind(db) {
-    //     FileKind::Schema => {
-    //         diagnostics.extend(
-    //             schema_validation::validate_schema_file(db, content, metadata)
-    //                 .iter()
-    //                 .cloned(),
-    //         );
-    //     }
-    //     FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
-    //         diagnostics.extend(
-    //             document_validation::validate_document_file(db, content, metadata)
-    //                 .iter()
-    //                 .cloned(),
-    //         );
-    //     }
-    // }
+    // Apollo-compiler validation (using merged schema)
+    // Only run if we have project files available
+    if let Some(project_files) = db.project_files() {
+        use graphql_db::FileKind;
+        match metadata.kind(db) {
+            FileKind::Schema => {
+                // Schema validation is still using the basic structural validation
+                // TODO: Implement full apollo-compiler schema validation in a future step
+                diagnostics.extend(
+                    schema_validation::validate_schema_file(db, content, metadata)
+                        .iter()
+                        .cloned(),
+                );
+            }
+            FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
+                // Use apollo-compiler validation for documents
+                diagnostics.extend(
+                    apollo_validation::validate_document(db, content, metadata, project_files)
+                        .iter()
+                        .cloned(),
+                );
+            }
+        }
+    }
 
     // Lint diagnostics (from graphql-linter integration)
     diagnostics.extend(
