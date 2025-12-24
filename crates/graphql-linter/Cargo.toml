@@ -7,12 +7,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-# Internal dependencies - NEW ARCHITECTURE
-graphql-db = { path = "../graphql-db" }
-graphql-syntax = { path = "../graphql-syntax" }
-graphql-hir = { path = "../graphql-hir" }
-
-# OLD architecture - keep temporarily for compatibility during migration
+# Internal dependencies
 graphql-project = { path = "../graphql-project" }
 
 # GraphQL parsing

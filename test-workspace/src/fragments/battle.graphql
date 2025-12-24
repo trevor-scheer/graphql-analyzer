@@ -63,7 +63,7 @@ fragment BattleDetailed on Battle {
     ...TrainerWithTeam
   }
   winner {
-    
+    ...TrainerBasic
   }
   turns {
     ...BattleTurnInfo

@@ -37,37 +37,7 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  # Check if we should run CI based on commit message
-  check-commit:
-    name: Check Commit Message
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.check.outputs.result }}
-    steps:
-      - name: Check for CI=true in commit message
-        id: check
-        run: |
-          # Always run on schedule or manual dispatch
-          if [[ "${{ github.event_name }}" == "schedule" ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "result=true" >> $GITHUB_OUTPUT
-            echo "Running CI (triggered by schedule or workflow_dispatch)"
-            exit 0
-          fi
-
-          # Check commit message for CI=true
-          COMMIT_MSG="${{ github.event.head_commit.message }}"
-          if [[ "$COMMIT_MSG" == *"CI=true"* ]]; then
-            echo "result=true" >> $GITHUB_OUTPUT
-            echo "Running CI (CI=true found in commit message)"
-          else
-            echo "result=false" >> $GITHUB_OUTPUT
-            echo "Skipping CI (CI=true not found in commit message)"
-            echo "To run CI, include 'CI=true' in your commit message"
-          fi
-
   test:
-    needs: check-commit
-    if: needs.check-commit.outputs.should_run == 'true'
     name: Test
     runs-on: ${{ matrix.os }}
     strategy:
@@ -94,8 +64,6 @@ jobs:
         run: cargo nextest run --workspace --all-features
 
   lint:
-    needs: check-commit
-    if: needs.check-commit.outputs.should_run == 'true'
     name: Lint
     runs-on: ubuntu-latest
     steps:
@@ -118,8 +86,6 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features
 
   build:
-    needs: check-commit
-    if: needs.check-commit.outputs.should_run == 'true'
     name: Build
     runs-on: ${{ matrix.os }}
     strategy:
@@ -143,8 +109,6 @@ jobs:
         run: cargo build --workspace --all-features --verbose
 
   check:
-    needs: check-commit
-    if: needs.check-commit.outputs.should_run == 'true'
     name: Check
     runs-on: ubuntu-latest
     steps:
@@ -162,8 +126,6 @@ jobs:
         run: cargo check --workspace --all-features --verbose
 
   vscode-extension:
-    needs: check-commit
-    if: needs.check-commit.outputs.should_run == 'true'
     name: VSCode Extension
     runs-on: ubuntu-latest
     steps:
@@ -200,7 +162,7 @@ jobs:
     name: CI Success
     runs-on: ubuntu-latest
     if: always()
-    needs: [check-commit, test, lint, build, check, vscode-extension]
+    needs: [test, lint, build, check, vscode-extension]
     steps:
       - name: Check all jobs
         run: |
