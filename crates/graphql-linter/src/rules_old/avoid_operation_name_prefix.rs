@@ -1,5 +1,5 @@
 use crate::context::StandaloneDocumentContext;
-use crate::rules::StandaloneDocumentRule;
+use crate::rules_old::StandaloneDocumentRule;
 use apollo_parser::cst::{self, CstNode};
 use graphql_project::{Diagnostic, Position, Range, Severity};
 

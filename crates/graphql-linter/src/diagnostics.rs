@@ -9,7 +9,7 @@ pub struct LintDiagnostic {
     /// Human-readable message
     pub message: String,
     /// Rule identifier (e.g., `"deprecated_field"`)
-    pub rule: &'static str,
+    pub rule: String,
 }
 
 impl LintDiagnostic {
@@ -19,7 +19,7 @@ impl LintDiagnostic {
         offset_range: OffsetRange,
         severity: LintSeverity,
         message: String,
-        rule: &'static str,
+        rule: String,
     ) -> Self {
         Self {
             offset_range,
@@ -35,35 +35,45 @@ impl LintDiagnostic {
         start: usize,
         end: usize,
         message: impl Into<String>,
-        rule: &'static str,
+        rule: impl Into<String>,
     ) -> Self {
         Self {
             offset_range: OffsetRange::new(start, end),
             severity: LintSeverity::Warning,
             message: message.into(),
-            rule,
+            rule: rule.into(),
         }
     }
 
     /// Create an error diagnostic
     #[must_use]
-    pub fn error(start: usize, end: usize, message: impl Into<String>, rule: &'static str) -> Self {
+    pub fn error(
+        start: usize,
+        end: usize,
+        message: impl Into<String>,
+        rule: impl Into<String>,
+    ) -> Self {
         Self {
             offset_range: OffsetRange::new(start, end),
             severity: LintSeverity::Error,
             message: message.into(),
-            rule,
+            rule: rule.into(),
         }
     }
 
     /// Create an info diagnostic
     #[must_use]
-    pub fn info(start: usize, end: usize, message: impl Into<String>, rule: &'static str) -> Self {
+    pub fn info(
+        start: usize,
+        end: usize,
+        message: impl Into<String>,
+        rule: impl Into<String>,
+    ) -> Self {
         Self {
             offset_range: OffsetRange::new(start, end),
             severity: LintSeverity::Info,
             message: message.into(),
-            rule,
+            rule: rule.into(),
         }
     }
 }

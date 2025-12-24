@@ -2,7 +2,7 @@ use crate::config::{LintConfig, LintSeverity};
 use crate::context::{
     DocumentSchemaContext, ProjectContext, StandaloneDocumentContext, StandaloneSchemaContext,
 };
-use crate::rules;
+use crate::rules_old;
 use graphql_project::{Diagnostic, Severity};
 use std::collections::HashMap;
 
@@ -58,7 +58,7 @@ impl Linter {
         };
 
         // Get all available standalone document rules
-        let all_rules = rules::all_standalone_document_rules();
+        let all_rules = rules_old::all_standalone_document_rules();
         tracing::debug!(
             rules_count = all_rules.len(),
             "Running standalone document rules"
@@ -141,7 +141,7 @@ impl Linter {
         };
 
         // Get all available document+schema rules
-        let all_rules = rules::all_document_schema_rules();
+        let all_rules = rules_old::all_document_schema_rules();
         tracing::debug!(
             rules_count = all_rules.len(),
             "Running document+schema rules"
@@ -190,7 +190,7 @@ impl Linter {
         let mut diagnostics = Vec::new();
 
         // Get all available standalone schema rules
-        let all_rules = rules::all_standalone_schema_rules();
+        let all_rules = rules_old::all_standalone_schema_rules();
 
         for rule in all_rules {
             let rule_name = rule.name();
@@ -222,7 +222,7 @@ impl Linter {
         let mut diagnostics_by_file: HashMap<String, Vec<Diagnostic>> = HashMap::new();
 
         // Get all available project-wide rules
-        let all_project_rules = rules::all_project_rules();
+        let all_project_rules = rules_old::all_project_rules();
         tracing::info!(
             rules_count = all_project_rules.len(),
             "Running project-wide lint rules"
