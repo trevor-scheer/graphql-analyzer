@@ -1,5 +1,5 @@
 use crate::context::StandaloneSchemaContext;
-use crate::rules::StandaloneSchemaRule;
+use crate::rules_old::StandaloneSchemaRule;
 use apollo_compiler::schema::ExtendedType;
 use graphql_project::{Diagnostic, Position, Range, Severity};
 

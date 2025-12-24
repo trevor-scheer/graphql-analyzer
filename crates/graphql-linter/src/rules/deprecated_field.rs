@@ -2,16 +2,16 @@ use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::traits::{DocumentSchemaLintRule, LintRule};
 use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 
-/// Trait implementation for `require_id_field` rule
-pub struct RequireIdFieldRuleImpl;
+/// Trait implementation for `deprecated_field` rule
+pub struct DeprecatedFieldRuleImpl;
 
-impl LintRule for RequireIdFieldRuleImpl {
+impl LintRule for DeprecatedFieldRuleImpl {
     fn name(&self) -> &'static str {
-        "require_id_field"
+        "deprecated_field"
     }
 
     fn description(&self) -> &'static str {
-        "Warns when the `id` field is not requested on types that have it"
+        "Warns when using fields marked as deprecated in the schema"
     }
 
     fn default_severity(&self) -> LintSeverity {
@@ -19,7 +19,7 @@ impl LintRule for RequireIdFieldRuleImpl {
     }
 }
 
-impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
+impl DocumentSchemaLintRule for DeprecatedFieldRuleImpl {
     fn check(
         &self,
         db: &dyn graphql_hir::GraphQLHirDatabase,
@@ -34,7 +34,8 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
         }
 
         // TODO: Get SchemaIndex from HIR
-        tracing::trace!("require_id_field rule not yet fully integrated with HIR");
+        // For now, return empty diagnostics until we have HIR support
+        tracing::trace!("deprecated_field rule not yet fully integrated with HIR");
         Vec::new()
     }
 }

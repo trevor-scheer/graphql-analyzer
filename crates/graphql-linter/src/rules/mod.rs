@@ -1,120 +1,47 @@
-mod avoid_operation_name_prefix;
-mod deprecated;
-mod enum_values_should_be_screaming_snake_case;
-mod field_names_should_be_camel_case;
-mod input_type_suffix;
-mod no_anonymous_operations;
+/// Lint rule implementations using the new Salsa-based architecture
+///
+/// Each rule is implemented in its own file and implements one of the trait types:
+/// - `StandaloneDocumentLintRule` - Rules that don't need schema access
+/// - `DocumentSchemaLintRule` - Rules that need schema access
+/// - `ProjectLintRule` - Rules that analyze the entire project
+mod deprecated_field;
 mod operation_name_suffix;
 mod redundant_fields;
 mod require_id_field;
-mod type_names_should_be_pascal_case;
 mod unique_names;
 mod unused_fields;
 mod unused_fragments;
 
-pub use avoid_operation_name_prefix::AvoidOperationNamePrefixRule;
-pub use deprecated::DeprecatedFieldRule;
-pub use enum_values_should_be_screaming_snake_case::EnumValuesShouldBeScreamingSnakeCaseRule;
-pub use field_names_should_be_camel_case::FieldNamesShouldBeCamelCaseRule;
-pub use input_type_suffix::InputTypeSuffixRule;
-pub use no_anonymous_operations::NoAnonymousOperationsRule;
-pub use operation_name_suffix::OperationNameSuffixRule;
-pub use redundant_fields::RedundantFieldsRule;
-pub use require_id_field::RequireIdFieldRule;
-pub use type_names_should_be_pascal_case::TypeNamesShouldBePascalCaseRule;
-pub use unique_names::UniqueNamesRule;
-pub use unused_fields::UnusedFieldsRule;
-pub use unused_fragments::UnusedFragmentsRule;
+pub use deprecated_field::DeprecatedFieldRuleImpl;
+pub use operation_name_suffix::OperationNameSuffixRuleImpl;
+pub use redundant_fields::RedundantFieldsRuleImpl;
+pub use require_id_field::RequireIdFieldRuleImpl;
+pub use unique_names::UniqueNamesRuleImpl;
+pub use unused_fields::UnusedFieldsRuleImpl;
+pub use unused_fragments::UnusedFragmentsRuleImpl;
 
-use crate::context::{
-    DocumentSchemaContext, ProjectContext, StandaloneDocumentContext, StandaloneSchemaContext,
-};
-use graphql_project::Diagnostic;
-use std::collections::HashMap;
+// Helper to convert graphql_project::Diagnostic to LintDiagnostic
+use crate::diagnostics::{LintDiagnostic, LintSeverity, OffsetRange};
 
-/// Trait for implementing standalone document lint rules (no schema)
-pub trait StandaloneDocumentRule {
-    /// Unique identifier for this rule (e.g., "operation-naming-convention")
-    fn name(&self) -> &'static str;
+pub fn convert_diagnostic(diag: &graphql_project::Diagnostic) -> LintDiagnostic {
+    // Convert line/column back to byte offsets
+    // This is a temporary bridge - eventually rules will emit byte offsets directly
+    let start_offset = diag.range.start.line * 1000 + diag.range.start.character;
+    let end_offset = diag.range.end.line * 1000 + diag.range.end.character;
 
-    /// Human-readable description
-    #[allow(dead_code)]
-    fn description(&self) -> &'static str;
-
-    /// Run the lint check on a standalone document
-    fn check(&self, ctx: &StandaloneDocumentContext) -> Vec<Diagnostic>;
-}
-
-/// Trait for implementing document+schema lint rules
-pub trait DocumentSchemaRule {
-    /// Unique identifier for this rule (e.g., "deprecated-field")
-    fn name(&self) -> &'static str;
-
-    /// Human-readable description
-    #[allow(dead_code)]
-    fn description(&self) -> &'static str;
-
-    /// Run the lint check on a document with schema access
-    fn check(&self, ctx: &DocumentSchemaContext) -> Vec<Diagnostic>;
-}
-
-/// Trait for implementing standalone schema lint rules
-pub trait StandaloneSchemaRule {
-    /// Unique identifier for this rule (e.g., "schema-naming-convention")
-    fn name(&self) -> &'static str;
-
-    /// Human-readable description
-    #[allow(dead_code)]
-    fn description(&self) -> &'static str;
-
-    /// Run the lint check on a schema
-    fn check(&self, ctx: &StandaloneSchemaContext) -> Vec<Diagnostic>;
-}
-
-/// Trait for implementing project-wide lint rules that need access to all documents
-pub trait ProjectRule {
-    /// Unique identifier for this rule (e.g., "unused-fields")
-    fn name(&self) -> &'static str;
-
-    /// Human-readable description
-    #[allow(dead_code)]
-    fn description(&self) -> &'static str;
-
-    /// Run the lint check across the entire project
-    /// Returns a `HashMap` where keys are file paths and values are diagnostics for that file
-    fn check(&self, ctx: &ProjectContext) -> HashMap<String, Vec<Diagnostic>>;
-}
-
-/// Get all available standalone document lint rules
-pub fn all_standalone_document_rules() -> Vec<Box<dyn StandaloneDocumentRule>> {
-    vec![
-        Box::new(AvoidOperationNamePrefixRule),
-        Box::new(NoAnonymousOperationsRule),
-        Box::new(OperationNameSuffixRule),
-        Box::new(RedundantFieldsRule),
-    ]
-}
-
-/// Get all available document+schema lint rules
-pub fn all_document_schema_rules() -> Vec<Box<dyn DocumentSchemaRule>> {
-    vec![Box::new(DeprecatedFieldRule), Box::new(RequireIdFieldRule)]
-}
-
-/// Get all available standalone schema lint rules
-pub fn all_standalone_schema_rules() -> Vec<Box<dyn StandaloneSchemaRule>> {
-    vec![
-        Box::new(FieldNamesShouldBeCamelCaseRule),
-        Box::new(InputTypeSuffixRule),
-        Box::new(TypeNamesShouldBePascalCaseRule),
-        Box::new(EnumValuesShouldBeScreamingSnakeCaseRule),
-    ]
-}
-
-/// Get all available project-wide lint rules
-pub fn all_project_rules() -> Vec<Box<dyn ProjectRule>> {
-    vec![
-        Box::new(UniqueNamesRule),
-        Box::new(UnusedFieldsRule),
-        Box::new(UnusedFragmentsRule),
-    ]
+    LintDiagnostic {
+        offset_range: OffsetRange::new(start_offset, end_offset),
+        severity: match diag.severity {
+            graphql_project::Severity::Error => LintSeverity::Error,
+            graphql_project::Severity::Warning => LintSeverity::Warning,
+            graphql_project::Severity::Information | graphql_project::Severity::Hint => {
+                LintSeverity::Info
+            }
+        },
+        message: diag.message.clone(),
+        rule: diag
+            .code
+            .as_ref()
+            .map_or_else(|| "unknown".to_string(), std::clone::Clone::clone),
+    }
 }
