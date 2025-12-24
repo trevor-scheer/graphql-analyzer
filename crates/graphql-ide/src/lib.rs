@@ -577,16 +577,20 @@ impl Analysis {
         // Convert position to byte offset
         let offset = position_to_offset(&line_index, position)?;
 
-        // Show syntax errors if present
-        if !parse.errors.is_empty() {
+        // Try to find the symbol at the offset even if there are parse errors
+        // This allows hover to work on valid parts of a file with syntax errors elsewhere
+        let symbol = find_symbol_at_offset(&parse.tree, offset);
+
+        // If we couldn't find a symbol and there are parse errors, show the errors
+        if symbol.is_none() && !parse.errors.is_empty() {
             return Some(HoverResult::new(format!(
                 "**Syntax Errors**\n\n{}",
                 parse.errors.join("\n")
             )));
         }
 
-        // Find the symbol at the offset
-        let symbol = find_symbol_at_offset(&parse.tree, offset)?;
+        // If we couldn't find a symbol, return None
+        let symbol = symbol?;
 
         // Get project files for schema lookups
         let project_files = self.project_files?;
