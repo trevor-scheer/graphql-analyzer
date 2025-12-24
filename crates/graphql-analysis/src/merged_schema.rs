@@ -24,27 +24,23 @@ pub fn merged_schema(
         return None;
     }
 
-    // Collect all schema SDL content
-    let mut schema_sdls = Vec::new();
+    // Use apollo-compiler's builder pattern to parse multiple schema files
+    let mut builder = apollo_compiler::schema::SchemaBuilder::new();
+
+    // Parse each schema file separately so apollo-compiler tracks sources correctly
     for (_file_id, content, metadata) in schema_files.iter() {
         let text = content.text(db);
         let uri = metadata.uri(db);
 
         tracing::debug!(uri = ?uri, "Adding schema file to merge");
-        schema_sdls.push(text);
+
+        // Parse and add to builder
+        builder = builder.parse(text.as_ref(), uri.as_str());
     }
 
-    // Concatenate all schema files with newlines
-    let merged_sdl = schema_sdls
-        .iter()
-        .map(std::convert::AsRef::as_ref)
-        .collect::<Vec<&str>>()
-        .join("\n\n");
-
-    // Parse and validate with apollo-compiler
-    match apollo_compiler::Schema::parse_and_validate(&merged_sdl, "merged_schema.graphql") {
-        Ok(valid_schema) => {
-            let schema = valid_schema.into_inner();
+    // Build and validate the schema
+    match builder.build() {
+        Ok(schema) => {
             tracing::debug!(
                 type_count = schema.types.len(),
                 "Successfully merged schema"
@@ -266,10 +262,10 @@ mod tests {
         let db = TestDatabase::default();
         let file_id = FileId::new(0);
 
-        // Valid syntax but invalid semantics (implements non-existent interface)
+        // Valid syntax but invalid semantics (duplicate type definition)
         let content = FileContent::new(
             &db,
-            Arc::from("type Query implements NonExistent { hello: String }"),
+            Arc::from("type Query { hello: String }\ntype Query { world: String }"),
         );
         let metadata = FileMetadata::new(
             &db,
