@@ -322,6 +322,7 @@ impl GraphQLLanguageServer {
 
             match schema_loader.load_with_paths().await {
                 Ok(schema_files) => {
+                    tracing::info!("Loading {} schema files", schema_files.len());
                     for (path, content) in schema_files {
                         let file_kind = Self::determine_file_kind(&content);
                         let uri = format!("file://{path}");
@@ -329,7 +330,7 @@ impl GraphQLLanguageServer {
 
                         let mut host_guard = host.lock().await;
                         host_guard.add_file(&file_path, &content, file_kind);
-                        tracing::debug!("Loaded schema file: {}", path);
+                        tracing::info!("Loaded schema file: {}", path);
                     }
                 }
                 Err(e) => {
@@ -346,11 +347,16 @@ impl GraphQLLanguageServer {
                     .map(std::string::ToString::to_string)
                     .collect();
 
+                tracing::info!("Loading document files with {} patterns", patterns.len());
+
                 for pattern in patterns {
                     // Skip negation patterns (starting with !)
                     if pattern.trim().starts_with('!') {
+                        tracing::info!("Skipping negation pattern: {}", pattern);
                         continue;
                     }
+
+                    tracing::info!("Processing pattern: {}", pattern);
 
                     // Resolve pattern relative to workspace
                     let full_pattern = workspace_path.join(&pattern);
@@ -378,7 +384,7 @@ impl GraphQLLanguageServer {
                                                 let mut host_guard = host.lock().await;
                                                 host_guard
                                                     .add_file(&file_path, &content, file_kind);
-                                                tracing::debug!(
+                                                tracing::info!(
                                                     "Loaded document file: {}",
                                                     path.display()
                                                 );
