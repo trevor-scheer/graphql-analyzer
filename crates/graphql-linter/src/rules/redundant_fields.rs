@@ -220,6 +220,7 @@ impl FragmentRegistry {
 }
 
 /// Check a selection set for redundant fields
+#[allow(clippy::too_many_lines)]
 fn check_selection_set_for_redundancy(
     selection_set: &cst::SelectionSet,
     fragments: &FragmentRegistry,
@@ -247,11 +248,49 @@ fn check_selection_set_for_redundancy(
         }
     }
 
+    // Track fields we've seen directly in this selection set to detect duplicates
+    let mut seen_fields: HashMap<FieldKey, &cst::Field> = HashMap::new();
+
     // Now check each field to see if it's redundant
     for selection in &selections {
         if let cst::Selection::Field(field) = selection {
             if let Some(field_key) = FieldKey::from_field(field) {
-                if fields_from_fragments.contains(&field_key) {
+                // Check if this field is a duplicate of a field we've already seen
+                if let Some(_first_field) = seen_fields.get(&field_key) {
+                    // This is a duplicate field in the same selection set
+                    let field_name_node = field.name().unwrap();
+                    let syntax_node = field_name_node.syntax();
+                    let offset: usize = syntax_node.text_range().start().into();
+                    let line_col = offset_to_line_col(document, offset);
+
+                    let range = Range {
+                        start: Position {
+                            line: line_col.0,
+                            character: line_col.1,
+                        },
+                        end: Position {
+                            line: line_col.0,
+                            character: line_col.1 + field_name_node.text().len(),
+                        },
+                    };
+
+                    let field_desc = if let Some(alias) = &field_key.alias {
+                        format!("'{}: {}'", alias, field_key.field_name)
+                    } else {
+                        format!("'{}'", field_key.field_name)
+                    };
+
+                    let message = format!(
+                        "Field {field_desc} is redundant - already selected in this selection set"
+                    );
+
+                    diagnostics.push(
+                        Diagnostic::warning(range, message)
+                            .with_code("redundant_field")
+                            .with_source("graphql-linter"),
+                    );
+                } else if fields_from_fragments.contains(&field_key) {
+                    // This field is redundant because it's already in a fragment spread
                     let field_name = field.name().unwrap();
                     let syntax_node = field_name.syntax();
                     let offset: usize = syntax_node.text_range().start().into();
@@ -296,6 +335,9 @@ fn check_selection_set_for_redundancy(
                             .with_code("redundant_field")
                             .with_source("graphql-linter"),
                     );
+                } else {
+                    // Not redundant - track it for duplicate detection
+                    seen_fields.insert(field_key, field);
                 }
             }
 
@@ -654,5 +696,43 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("'userId: id'"));
+    }
+
+    #[test]
+    fn test_duplicate_fields_in_same_selection_set() {
+        let rule = RedundantFieldsRule;
+
+        let document = r"
+            mutation PerformAttack($battleId: ID!) {
+                performBattleAction(battleId: $battleId) {
+                    id
+                    id
+                }
+            }
+        ";
+
+        let parsed = apollo_parser::Parser::new(document).parse();
+        let diagnostics = rule.check(&StandaloneDocumentContext {
+            document,
+            file_name: "test.graphql",
+            fragments: None,
+            parsed: &parsed,
+        });
+
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Should detect one duplicate 'id' field"
+        );
+        assert!(
+            diagnostics[0].message.contains("'id'"),
+            "Message should mention the 'id' field"
+        );
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("already selected in this selection set"),
+            "Message should indicate it's a duplicate in the same selection set"
+        );
     }
 }

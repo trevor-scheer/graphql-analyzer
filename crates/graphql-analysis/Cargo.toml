@@ -1,5 +1,5 @@
 [package]
-name = "graphql-linter"
+name = "graphql-analysis"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,24 +7,12 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-# Internal dependencies - NEW ARCHITECTURE
 graphql-db = { path = "../graphql-db" }
 graphql-syntax = { path = "../graphql-syntax" }
 graphql-hir = { path = "../graphql-hir" }
-
-# OLD architecture - keep temporarily for compatibility during migration
+graphql-linter = { path = "../graphql-linter" }
 graphql-project = { path = "../graphql-project" }
-
-# GraphQL parsing
-apollo-parser = { workspace = true }
+salsa = { workspace = true }
 apollo-compiler = { workspace = true }
-
-# Core utilities
-serde = { workspace = true }
-serde_json = { workspace = true }
-
-# Logging
-tracing = "0.1"
-
-[dev-dependencies]
-serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

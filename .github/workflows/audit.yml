@@ -18,7 +18,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Check if we should run audit based on commit message
+  check-commit:
+    name: Check Commit Message
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.result }}
+    steps:
+      - name: Check for CI=true in commit message
+        id: check
+        run: |
+          # Always run on schedule or manual dispatch
+          if [[ "${{ github.event_name }}" == "schedule" ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "result=true" >> $GITHUB_OUTPUT
+            echo "Running audit (triggered by schedule or workflow_dispatch)"
+            exit 0
+          fi
+
+          # Check commit message for CI=true
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          if [[ "$COMMIT_MSG" == *"CI=true"* ]]; then
+            echo "result=true" >> $GITHUB_OUTPUT
+            echo "Running audit (CI=true found in commit message)"
+          else
+            echo "result=false" >> $GITHUB_OUTPUT
+            echo "Skipping audit (CI=true not found in commit message)"
+            echo "To run audit, include 'CI=true' in your commit message"
+          fi
+
   audit:
+    needs: check-commit
+    if: needs.check-commit.outputs.should_run == 'true'
     name: Cargo Audit
     runs-on: ubuntu-latest
     steps:
