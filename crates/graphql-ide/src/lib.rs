@@ -35,6 +35,7 @@
 //! - Feature types: [`CompletionItem`], [`HoverResult`], [`Diagnostic`]
 
 use graphql_db::RootDatabase;
+use std::fmt::Write as _;
 use std::sync::{Arc, RwLock};
 
 mod file_registry;
@@ -567,8 +568,7 @@ impl Analysis {
         // Convert position to byte offset
         let offset = position_to_offset(&line_index, position)?;
 
-        // For now, return a simple hover based on the parse tree
-        // TODO: Implement full hover logic with symbol identification
+        // Show syntax errors if present
         if !parse.errors.is_empty() {
             return Some(HoverResult::new(format!(
                 "**Syntax Errors**\n\n{}",
@@ -576,11 +576,80 @@ impl Analysis {
             )));
         }
 
-        // Basic hover showing file type
-        Some(HoverResult::new(format!(
-            "GraphQL Document\n\nPosition: line {}, character {}\nOffset: {}",
-            position.line, position.character, offset
-        )))
+        // Find the symbol at the offset
+        let symbol = find_symbol_at_offset(&parse.tree, offset)?;
+
+        // Get project files for schema lookups
+        let project_files = self.project_files?;
+
+        // Return hover info based on symbol type
+        match symbol {
+            Symbol::FieldName { name } => {
+                // Get the parent type to look up the field
+                let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+                let parent_type_or_field = find_parent_type_at_offset(&parse.tree, offset)?;
+
+                // Resolve to type name if it's a field
+                let parent_type_name = if parent_type_or_field.chars().next()?.is_lowercase() {
+                    Self::resolve_field_type("Query", &parent_type_or_field, &types)?
+                } else {
+                    parent_type_or_field
+                };
+
+                // Look up the field in the parent type
+                let parent_type = types.get(parent_type_name.as_str())?;
+                let field = parent_type
+                    .fields
+                    .iter()
+                    .find(|f| f.name.as_ref() == name)?;
+
+                let mut hover_text = format!("**Field:** `{name}`\n\n");
+                let field_type = format_type_ref(&field.type_ref);
+                write!(hover_text, "**Type:** `{field_type}`\n\n").ok();
+
+                if let Some(desc) = &field.description {
+                    write!(hover_text, "---\n\n{desc}\n\n").ok();
+                }
+
+                Some(HoverResult::new(hover_text))
+            }
+            Symbol::TypeName { name } => {
+                let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+                let type_def = types.get(name.as_str())?;
+
+                let mut hover_text = format!("**Type:** `{name}`\n\n");
+                let kind_str = match type_def.kind {
+                    graphql_hir::TypeDefKind::Object => "Object",
+                    graphql_hir::TypeDefKind::Interface => "Interface",
+                    graphql_hir::TypeDefKind::Union => "Union",
+                    graphql_hir::TypeDefKind::Enum => "Enum",
+                    graphql_hir::TypeDefKind::Scalar => "Scalar",
+                    graphql_hir::TypeDefKind::InputObject => "Input Object",
+                };
+                write!(hover_text, "**Kind:** {kind_str}\n\n").ok();
+
+                if let Some(desc) = &type_def.description {
+                    write!(hover_text, "---\n\n{desc}\n\n").ok();
+                }
+
+                Some(HoverResult::new(hover_text))
+            }
+            Symbol::FragmentSpread { name } => {
+                let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
+                let fragment = fragments.get(name.as_str())?;
+
+                let hover_text = format!(
+                    "**Fragment:** `{}`\n\n**On Type:** `{}`\n\n",
+                    name, fragment.type_condition
+                );
+
+                Some(HoverResult::new(hover_text))
+            }
+            _ => {
+                // For other symbols, show basic info
+                Some(HoverResult::new(format!("Symbol: {symbol:?}")))
+            }
+        }
     }
 
     /// Get goto definition locations for the symbol at a position
