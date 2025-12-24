@@ -2,7 +2,7 @@
 // This crate provides validation and linting on top of the HIR layer.
 // All validation is query-based for automatic incrementality via Salsa.
 
-use graphql_db::{FileId, FileKind};
+use graphql_db::FileId;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -30,12 +30,27 @@ pub trait GraphQLAnalysisDatabase: graphql_hir::GraphQLHirDatabase {
 impl GraphQLAnalysisDatabase for graphql_db::RootDatabase {}
 
 /// Lint configuration (simplified for Phase 3)
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct LintConfig {
     /// Whether project-wide lints are enabled
     pub project_wide_enabled: bool,
     /// Enabled lint rules
     pub enabled_rules: HashMap<String, Severity>,
+}
+
+impl Default for LintConfig {
+    fn default() -> Self {
+        let mut enabled_rules = HashMap::new();
+        // Enable some default rules for testing
+        enabled_rules.insert("redundant_fields".to_string(), Severity::Error);
+        enabled_rules.insert("deprecated_field".to_string(), Severity::Warning);
+        enabled_rules.insert("require_id_field".to_string(), Severity::Warning);
+
+        Self {
+            project_wide_enabled: false,
+            enabled_rules,
+        }
+    }
 }
 
 impl LintConfig {
@@ -80,23 +95,25 @@ pub fn file_diagnostics(
         });
     }
 
-    // Semantic errors (depends on file kind)
-    match metadata.kind(db) {
-        FileKind::Schema => {
-            diagnostics.extend(
-                schema_validation::validate_schema_file(db, content, metadata)
-                    .iter()
-                    .cloned(),
-            );
-        }
-        FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
-            diagnostics.extend(
-                document_validation::validate_document_file(db, content, metadata)
-                    .iter()
-                    .cloned(),
-            );
-        }
-    }
+    // Semantic validation is disabled for now - it requires project-wide schema
+    // aggregation which isn't implemented in the new architecture yet.
+    // TODO: Re-enable once we have proper project-wide schema loading
+    // match metadata.kind(db) {
+    //     FileKind::Schema => {
+    //         diagnostics.extend(
+    //             schema_validation::validate_schema_file(db, content, metadata)
+    //                 .iter()
+    //                 .cloned(),
+    //         );
+    //     }
+    //     FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
+    //         diagnostics.extend(
+    //             document_validation::validate_document_file(db, content, metadata)
+    //                 .iter()
+    //                 .cloned(),
+    //         );
+    //     }
+    // }
 
     // Lint diagnostics (from graphql-linter integration)
     diagnostics.extend(
@@ -154,7 +171,7 @@ pub fn project_wide_diagnostics(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::{FileContent, FileMetadata, FileUri};
+    use graphql_db::{FileContent, FileKind, FileMetadata, FileUri};
 
     // Test database wrapper
     #[salsa::db]

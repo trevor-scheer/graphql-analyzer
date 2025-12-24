@@ -422,6 +422,10 @@ impl Analysis {
 
         // Return empty if there are syntax errors
         if !parse.errors.is_empty() {
+            tracing::debug!(
+                "Completions: file has syntax errors, returning empty list. Errors: {:?}",
+                parse.errors
+            );
             return Some(Vec::new());
         }
 
@@ -430,9 +434,11 @@ impl Analysis {
 
         // Convert position to byte offset
         let offset = position_to_offset(&line_index, position)?;
+        tracing::debug!("Completions: position {:?} -> offset {}", position, offset);
 
         // Find what symbol we're completing (or near)
         let symbol = find_symbol_at_offset(&parse.tree, offset);
+        tracing::debug!("Completions: symbol at offset = {:?}", symbol);
 
         // Determine completion context and provide appropriate completions
         match symbol {
@@ -453,32 +459,58 @@ impl Analysis {
             None => {
                 // No specific symbol - check if we're in a selection set
                 let Some(project_files) = self.project_files else {
+                    tracing::debug!("Completions: no project files available");
                     return Some(Vec::new());
                 };
 
-                if is_in_selection_set(&parse.tree, offset) {
+                let in_selection_set = is_in_selection_set(&parse.tree, offset);
+                tracing::debug!("Completions: in_selection_set = {}", in_selection_set);
+
+                if in_selection_set {
                     // We're in a selection set - determine the parent type
                     let types = graphql_hir::schema_types_with_project(&self.db, project_files);
 
                     // Find what type's fields we should complete
-                    let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
+                    let parent_ctx = find_parent_type_at_offset(&parse.tree, offset);
+                    tracing::debug!("Completions: parent_ctx = {:?}", parent_ctx);
+
+                    let parent_ctx = parent_ctx?;
 
                     // If immediate_parent looks like a field name, resolve it using root_type
                     let parent_type_name =
                         if parent_ctx.immediate_parent.chars().next()?.is_lowercase() {
                             // This is a field name - resolve it using the root type
-                            Self::resolve_field_type(
+                            let resolved = Self::resolve_field_type(
                                 &parent_ctx.root_type,
                                 &parent_ctx.immediate_parent,
                                 &types,
-                            )?
+                            );
+                            tracing::debug!(
+                                "Completions: resolving field '{}' on '{}' -> {:?}",
+                                parent_ctx.immediate_parent,
+                                parent_ctx.root_type,
+                                resolved
+                            );
+                            resolved?
                         } else {
                             // This is already a type name
+                            tracing::debug!(
+                                "Completions: immediate_parent '{}' is already a type name",
+                                parent_ctx.immediate_parent
+                            );
                             parent_ctx.immediate_parent
                         };
 
+                    tracing::debug!("Completions: final parent_type_name = {}", parent_type_name);
+
                     types.get(parent_type_name.as_str()).map_or_else(
-                        || Some(Vec::new()),
+                        || {
+                            tracing::debug!(
+                                "Completions: parent type '{}' not found in schema",
+                                parent_type_name
+                            );
+                            Some(Vec::new())
+                        },
                         |parent_type| {
                             let items: Vec<CompletionItem> = parent_type
                                 .fields
@@ -492,6 +524,11 @@ impl Analysis {
                                 })
                                 .collect();
 
+                            tracing::debug!(
+                                "Completions: returning {} fields for type '{}'",
+                                items.len(),
+                                parent_type_name
+                            );
                             Some(items)
                         },
                     )
@@ -1706,5 +1743,129 @@ mod tests {
                 "Fragment names should not appear outside selection sets, but found 'UserFields'. Got: {labels:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_completions_after_fragment_spread_in_mutation() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Mutation { forfeitBattle(battleId: ID!, trainerId: ID!): Battle } type Battle { id: ID! status: String winner: String }",
+            FileKind::Schema,
+        );
+
+        // Add a fragment definition
+        let fragment_file = FilePath::new("file:///fragments.graphql");
+        host.add_file(
+            &fragment_file,
+            "fragment BattleDetailed on Battle { id status }",
+            FileKind::ExecutableGraphQL,
+        );
+
+        // Add a mutation with cursor after fragment spread
+        let mutation_file = FilePath::new("file:///mutation.graphql");
+        let mutation_text = r"mutation ForfeitBattle($battleId: ID!, $trainerId: ID!) {
+  forfeitBattle(battleId: $battleId, trainerId: $trainerId) {
+    ...BattleDetailed
+
+  }
+}";
+        host.add_file(&mutation_file, mutation_text, FileKind::ExecutableGraphQL);
+
+        // Get completions after the fragment spread (line 3, position 4 - after newline)
+        let snapshot = host.snapshot();
+        let completions = snapshot.completions(&mutation_file, Position::new(3, 4));
+
+        // Should return field completions for Battle type
+        assert!(completions.is_some(), "Expected completions to be Some");
+        let items = completions.unwrap();
+
+        let field_names: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
+        dbg!(&field_names);
+
+        assert!(
+            field_names.contains(&"id"),
+            "Expected 'id' field in completions, got: {field_names:?}"
+        );
+        assert!(
+            field_names.contains(&"status"),
+            "Expected 'status' field in completions, got: {field_names:?}"
+        );
+        assert!(
+            field_names.contains(&"winner"),
+            "Expected 'winner' field in completions, got: {field_names:?}"
+        );
+    }
+
+    #[test]
+    fn test_completions_with_multiple_mutations_in_same_file() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Mutation { forfeitBattle(battleId: ID!, trainerId: ID!): Battle startBattle(trainerId: ID!): Battle } type Battle { id: ID! status: String winner: String }",
+            FileKind::Schema,
+        );
+
+        // Add a fragment definition
+        let fragment_file = FilePath::new("file:///fragments.graphql");
+        host.add_file(
+            &fragment_file,
+            "fragment BattleDetailed on Battle { id status }",
+            FileKind::ExecutableGraphQL,
+        );
+
+        // Add multiple mutations in the same file
+        let mutation_file = FilePath::new("file:///mutations.graphql");
+        let mutation_text = r"mutation StartBattle($trainerId: ID!) {
+  startBattle(trainerId: $trainerId) {
+    ...BattleDetailed
+  }
+}
+
+# Forfeit a battle
+mutation ForfeitBattle($battleId: ID!, $trainerId: ID!) {
+  forfeitBattle(battleId: $battleId, trainerId: $trainerId) {
+    ...BattleDetailed
+
+  }
+}";
+        host.add_file(&mutation_file, mutation_text, FileKind::ExecutableGraphQL);
+
+        // Get completions in the second mutation after the fragment spread (line 10, position 4)
+        let snapshot = host.snapshot();
+        let completions = snapshot.completions(&mutation_file, Position::new(10, 4));
+
+        // Should return field completions for Battle type
+        assert!(
+            completions.is_some(),
+            "Expected completions to be Some, but got None"
+        );
+        let items = completions.unwrap();
+
+        let field_names: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
+        dbg!(&field_names);
+
+        assert!(
+            !field_names.is_empty(),
+            "Expected non-empty completions, got: {field_names:?}"
+        );
+        assert!(
+            field_names.contains(&"id"),
+            "Expected 'id' field in completions, got: {field_names:?}"
+        );
+        assert!(
+            field_names.contains(&"status"),
+            "Expected 'status' field in completions, got: {field_names:?}"
+        );
+        assert!(
+            field_names.contains(&"winner"),
+            "Expected 'winner' field in completions, got: {field_names:?}"
+        );
     }
 }
