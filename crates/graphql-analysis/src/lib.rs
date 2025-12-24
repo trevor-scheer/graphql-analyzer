@@ -100,24 +100,42 @@ pub fn file_diagnostics(
 
     // Apollo-compiler validation (using merged schema)
     // Only run if we have project files available
-    if let Some(project_files) = db.project_files() {
+    let project_files_opt = db.project_files();
+    tracing::debug!(
+        has_project_files = project_files_opt.is_some(),
+        "Checking for project files"
+    );
+    if let Some(project_files) = project_files_opt {
         use graphql_db::FileKind;
-        match metadata.kind(db) {
+        let file_kind = metadata.kind(db);
+        tracing::info!(
+            uri = ?metadata.uri(db),
+            ?file_kind,
+            "Determining validation path for file"
+        );
+
+        match file_kind {
             FileKind::Schema => {
+                tracing::info!("Running schema validation");
                 // Full apollo-compiler schema validation with spec-compliant error checking
-                diagnostics.extend(
-                    schema_validation::validate_schema_file(db, content, metadata)
-                        .iter()
-                        .cloned(),
+                let schema_diagnostics =
+                    schema_validation::validate_schema_file(db, content, metadata);
+                tracing::info!(
+                    schema_diagnostic_count = schema_diagnostics.len(),
+                    "Schema validation completed"
                 );
+                diagnostics.extend(schema_diagnostics.iter().cloned());
             }
             FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
+                tracing::info!("Running document validation");
                 // Use apollo-compiler validation for documents
-                diagnostics.extend(
-                    validation::validate_document(db, content, metadata, project_files)
-                        .iter()
-                        .cloned(),
+                let doc_diagnostics =
+                    validation::validate_document(db, content, metadata, project_files);
+                tracing::info!(
+                    document_diagnostic_count = doc_diagnostics.len(),
+                    "Document validation completed"
                 );
+                diagnostics.extend(doc_diagnostics.iter().cloned());
             }
         }
     }

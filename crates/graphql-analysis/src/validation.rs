@@ -22,24 +22,33 @@ pub fn validate_document(
     metadata: FileMetadata,
     project_files: graphql_db::ProjectFiles,
 ) -> Arc<Vec<Diagnostic>> {
+    tracing::info!("validate_document: Starting validation");
     let mut diagnostics = Vec::new();
 
     // Get the merged schema
     let Some(schema) = crate::merged_schema::merged_schema(db, project_files) else {
-        tracing::debug!("No schema available for document validation");
+        tracing::info!("No schema available for document validation - cannot validate");
         // Without a schema, we can't validate documents
         // Return empty diagnostics (syntax errors are handled elsewhere)
         return Arc::new(diagnostics);
     };
+    tracing::info!("Merged schema obtained successfully");
 
     // Get the document text
     let doc_text = content.text(db);
     let doc_uri = metadata.uri(db);
+    tracing::info!(
+        uri = ?doc_uri,
+        doc_length = doc_text.len(),
+        "Document info"
+    );
 
     // Check if this is a fragment-only document
     // Fragment-only documents should not be validated as executable documents
-    if is_fragment_only_document(&doc_text) {
-        tracing::debug!("Skipping validation for fragment-only document");
+    let is_fragment_only = is_fragment_only_document(&doc_text);
+    tracing::info!(is_fragment_only, "Checked if document is fragment-only");
+    if is_fragment_only {
+        tracing::info!("Skipping validation for fragment-only document");
         return Arc::new(diagnostics);
     }
 
@@ -82,6 +91,10 @@ pub fn validate_document(
 
     // Parse and validate the combined document with apollo-compiler
     // Wrap the schema in Valid since we got it from merged_schema which validates it
+    tracing::info!(
+        combined_doc_length = combined_doc.len(),
+        "About to call apollo-compiler validation"
+    );
     let valid_schema = apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
     match apollo_compiler::ExecutableDocument::parse_and_validate(
         valid_schema,
@@ -90,12 +103,16 @@ pub fn validate_document(
     ) {
         Ok(_valid_document) => {
             // Document is valid
-            tracing::debug!("Document validated successfully");
+            tracing::info!("Document validated successfully - no errors");
         }
         Err(with_errors) => {
             // Convert apollo-compiler diagnostics to our format
             // Only include diagnostics for the current file
             let error_list = &with_errors.errors;
+            tracing::info!(
+                error_count = error_list.len(),
+                "Apollo-compiler found validation errors"
+            );
 
             // Get line offset for TypeScript/JavaScript extraction
             let line_offset = metadata.line_offset(db);

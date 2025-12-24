@@ -18,10 +18,12 @@ pub fn merged_schema(
     db: &dyn GraphQLAnalysisDatabase,
     project_files: graphql_db::ProjectFiles,
 ) -> Option<Arc<apollo_compiler::Schema>> {
+    tracing::info!("merged_schema: Starting schema merge");
     let schema_files = project_files.schema_files(db);
+    tracing::info!(schema_file_count = schema_files.len(), "Found schema files");
 
     if schema_files.is_empty() {
-        tracing::debug!("No schema files found in project");
+        tracing::info!("No schema files found in project - returning None");
         return None;
     }
 

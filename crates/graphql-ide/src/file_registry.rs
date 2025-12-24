@@ -6,6 +6,7 @@
 use graphql_db::{
     FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles, RootDatabase,
 };
+use salsa::Setter;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -35,10 +36,11 @@ impl FileRegistry {
     /// Add or update a file in the registry
     pub fn add_file(
         &mut self,
-        db: &RootDatabase,
+        db: &mut RootDatabase,
         path: &FilePath,
         content: &str,
         kind: FileKind,
+        line_offset: u32,
     ) -> (FileId, FileContent, FileMetadata) {
         let uri_str = path.as_str();
 
@@ -58,9 +60,12 @@ impl FileRegistry {
         let file_content = FileContent::new(db, content_arc);
         self.id_to_content.insert(file_id, file_content);
 
-        // Create or update FileMetadata
+        // Create or update FileMetadata with line offset
         let uri = FileUri::new(uri_str);
         let metadata = FileMetadata::new(db, file_id, uri, kind);
+        if line_offset > 0 {
+            metadata.set_line_offset(db).to(line_offset);
+        }
         self.id_to_metadata.insert(file_id, metadata);
 
         (file_id, file_content, metadata)
@@ -168,12 +173,17 @@ mod tests {
 
     #[test]
     fn test_file_registry_add_and_lookup() {
-        let db = RootDatabase::new();
+        let mut db = RootDatabase::new();
         let mut registry = FileRegistry::new();
 
         let path = FilePath::new("file:///test.graphql");
-        let (file_id, _content, _metadata) =
-            registry.add_file(&db, &path, "type Query { hello: String }", FileKind::Schema);
+        let (file_id, _content, _metadata) = registry.add_file(
+            &mut db,
+            &path,
+            "type Query { hello: String }",
+            FileKind::Schema,
+            0,
+        );
 
         // Should be able to look up by path
         assert_eq!(registry.get_file_id(&path), Some(file_id));
@@ -188,18 +198,28 @@ mod tests {
 
     #[test]
     fn test_file_registry_update_existing() {
-        let db = RootDatabase::new();
+        let mut db = RootDatabase::new();
         let mut registry = FileRegistry::new();
 
         let path = FilePath::new("file:///test.graphql");
 
         // Add file
-        let (file_id1, _, _) =
-            registry.add_file(&db, &path, "type Query { hello: String }", FileKind::Schema);
+        let (file_id1, _, _) = registry.add_file(
+            &mut db,
+            &path,
+            "type Query { hello: String }",
+            FileKind::Schema,
+            0,
+        );
 
         // Update same file
-        let (file_id2, _content2, _) =
-            registry.add_file(&db, &path, "type Query { world: String }", FileKind::Schema);
+        let (file_id2, _content2, _) = registry.add_file(
+            &mut db,
+            &path,
+            "type Query { world: String }",
+            FileKind::Schema,
+            0,
+        );
 
         // Should reuse the same file ID
         assert_eq!(file_id1, file_id2);
@@ -214,12 +234,17 @@ mod tests {
 
     #[test]
     fn test_file_registry_remove() {
-        let db = RootDatabase::new();
+        let mut db = RootDatabase::new();
         let mut registry = FileRegistry::new();
 
         let path = FilePath::new("file:///test.graphql");
-        let (file_id, _, _) =
-            registry.add_file(&db, &path, "type Query { hello: String }", FileKind::Schema);
+        let (file_id, _, _) = registry.add_file(
+            &mut db,
+            &path,
+            "type Query { hello: String }",
+            FileKind::Schema,
+            0,
+        );
 
         // Remove the file
         registry.remove_file(file_id);
@@ -231,23 +256,25 @@ mod tests {
 
     #[test]
     fn test_file_registry_all_files() {
-        let db = RootDatabase::new();
+        let mut db = RootDatabase::new();
         let mut registry = FileRegistry::new();
 
         let path1 = FilePath::new("file:///test1.graphql");
         let path2 = FilePath::new("file:///test2.graphql");
 
         let (file_id1, _, _) = registry.add_file(
-            &db,
+            &mut db,
             &path1,
             "type Query { hello: String }",
             FileKind::Schema,
+            0,
         );
         let (file_id2, _, _) = registry.add_file(
-            &db,
+            &mut db,
             &path2,
             "type Mutation { update: Boolean }",
             FileKind::Schema,
+            0,
         );
 
         let all_ids = registry.all_file_ids();
