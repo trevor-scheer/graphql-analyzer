@@ -1029,7 +1029,10 @@ version = "0.1.1"
 dependencies = [
  "apollo-compiler",
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "graphql-db",
+ "graphql-hir",
  "graphql-project",
+ "graphql-syntax",
  "serde",
  "serde_json",
  "serde_yaml",
