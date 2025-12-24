@@ -248,7 +248,7 @@ impl GraphQLLanguageServer {
 
     #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self), fields(workspace_uri = %workspace_uri))]
-    /// Load GraphQL config from a workspace folder
+    /// Load GraphQL config from a workspace folder and load all project files
     async fn load_workspace_config(&self, workspace_uri: &str, workspace_path: &PathBuf) {
         tracing::info!(path = ?workspace_path, "Loading GraphQL config");
 
@@ -256,14 +256,36 @@ impl GraphQLLanguageServer {
         self.workspace_roots
             .insert(workspace_uri.to_string(), workspace_path.clone());
 
-        // Find and store config path for watching
+        // Find and load config
         match find_config(workspace_path) {
             Ok(Some(config_path)) => {
                 self.config_paths
-                    .insert(workspace_uri.to_string(), config_path);
-                self.client
-                    .log_message(MessageType::INFO, "GraphQL config found")
-                    .await;
+                    .insert(workspace_uri.to_string(), config_path.clone());
+
+                // Parse the config to load all files
+                match graphql_config::load_config(&config_path) {
+                    Ok(config) => {
+                        self.client
+                            .log_message(
+                                MessageType::INFO,
+                                "GraphQL config found, loading files...",
+                            )
+                            .await;
+
+                        // Load all files from all projects into AnalysisHost
+                        self.load_all_project_files(workspace_uri, workspace_path, &config)
+                            .await;
+                    }
+                    Err(e) => {
+                        tracing::error!("Error loading config: {}", e);
+                        self.client
+                            .log_message(
+                                MessageType::ERROR,
+                                &format!("Failed to load GraphQL config: {e}"),
+                            )
+                            .await;
+                    }
+                }
             }
             Ok(None) => {
                 self.client
@@ -277,6 +299,115 @@ impl GraphQLLanguageServer {
                 tracing::error!("Error searching for config: {}", e);
             }
         }
+    }
+
+    /// Load all GraphQL files from the config into `AnalysisHost`
+    async fn load_all_project_files(
+        &self,
+        workspace_uri: &str,
+        workspace_path: &PathBuf,
+        config: &graphql_config::GraphQLConfig,
+    ) {
+        use graphql_project::SchemaLoader;
+
+        let host = self.get_or_create_host(workspace_uri);
+
+        // Collect projects into a Vec to avoid holding iterator across await
+        let projects: Vec<_> = config.projects().collect();
+
+        for (_project_name, project_config) in projects {
+            // Load schema files using SchemaLoader
+            let mut schema_loader = SchemaLoader::new(project_config.schema.clone());
+            schema_loader = schema_loader.with_base_path(workspace_path);
+
+            match schema_loader.load_with_paths().await {
+                Ok(schema_files) => {
+                    for (path, content) in schema_files {
+                        let file_kind = Self::determine_file_kind(&content);
+                        let uri = format!("file://{path}");
+                        let file_path = graphql_ide::FilePath::new(uri);
+
+                        let mut host_guard = host.lock().await;
+                        host_guard.add_file(&file_path, &content, file_kind);
+                        tracing::debug!("Loaded schema file: {}", path);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Error loading schema files: {}", e);
+                }
+            }
+
+            // Load document files (operations and fragments)
+            if let Some(documents_config) = &project_config.documents {
+                // Get document patterns from config
+                let patterns: Vec<String> = documents_config
+                    .patterns()
+                    .into_iter()
+                    .map(std::string::ToString::to_string)
+                    .collect();
+
+                for pattern in patterns {
+                    // Skip negation patterns (starting with !)
+                    if pattern.trim().starts_with('!') {
+                        continue;
+                    }
+
+                    // Resolve pattern relative to workspace
+                    let full_pattern = workspace_path.join(&pattern);
+
+                    match glob::glob(&full_pattern.display().to_string()) {
+                        Ok(paths) => {
+                            for entry in paths {
+                                match entry {
+                                    Ok(path) if path.is_file() => {
+                                        // Skip node_modules
+                                        if path
+                                            .components()
+                                            .any(|c| c.as_os_str() == "node_modules")
+                                        {
+                                            continue;
+                                        }
+
+                                        // Read file content
+                                        match std::fs::read_to_string(&path) {
+                                            Ok(content) => {
+                                                let file_kind = Self::determine_file_kind(&content);
+                                                let uri = format!("file://{}", path.display());
+                                                let file_path = graphql_ide::FilePath::new(uri);
+
+                                                let mut host_guard = host.lock().await;
+                                                host_guard
+                                                    .add_file(&file_path, &content, file_kind);
+                                                tracing::debug!(
+                                                    "Loaded document file: {}",
+                                                    path.display()
+                                                );
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!(
+                                                    "Failed to read file {}: {}",
+                                                    path.display(),
+                                                    e
+                                                );
+                                            }
+                                        }
+                                    }
+                                    Ok(_) => {} // Skip directories
+                                    Err(e) => {
+                                        tracing::warn!("Glob entry error: {}", e);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("Invalid glob pattern '{}': {}", pattern, e);
+                        }
+                    }
+                }
+            }
+        }
+
+        tracing::info!("Finished loading all project files into AnalysisHost");
     }
 
     /// Reload GraphQL config for a workspace
