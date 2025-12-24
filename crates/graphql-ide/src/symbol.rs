@@ -40,13 +40,21 @@ pub fn find_symbol_at_offset(
     None
 }
 
+/// Context about the parent type at a position
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParentTypeContext {
+    /// The root type (Query, Mutation, Subscription, or fragment's type condition)
+    pub root_type: String,
+    /// The immediate parent (field name or type name at the cursor position)
+    pub immediate_parent: String,
+}
+
 /// Find the parent type name at a given position in a selection set.
-/// Returns the operation type ("Query", "Mutation", "Subscription") for top-level,
-/// or the parent field's type name for nested selection sets.
+/// Returns both the root type and the immediate parent context.
 pub fn find_parent_type_at_offset(
     tree: &apollo_parser::SyntaxTree,
     byte_offset: usize,
-) -> Option<String> {
+) -> Option<ParentTypeContext> {
     let doc = tree.document();
 
     // Check all definitions
@@ -69,8 +77,13 @@ pub fn find_parent_type_at_offset(
                         };
 
                         // Try to find a nested parent field
-                        return find_parent_field_type(&selection_set, byte_offset)
-                            .or_else(|| Some(root_type.to_string()));
+                        let immediate_parent = find_parent_field_type(&selection_set, byte_offset)
+                            .unwrap_or_else(|| root_type.to_string());
+
+                        return Some(ParentTypeContext {
+                            root_type: root_type.to_string(),
+                            immediate_parent,
+                        });
                     }
                 }
             }
@@ -84,9 +97,16 @@ pub fn find_parent_type_at_offset(
                         if let Some(type_cond) = frag.type_condition() {
                             if let Some(named_type) = type_cond.named_type() {
                                 if let Some(name) = named_type.name() {
+                                    let root_type = name.text().to_string();
                                     // Try to find nested parent, otherwise use fragment's type
-                                    return find_parent_field_type(&selection_set, byte_offset)
-                                        .or_else(|| Some(name.text().to_string()));
+                                    let immediate_parent =
+                                        find_parent_field_type(&selection_set, byte_offset)
+                                            .unwrap_or_else(|| root_type.clone());
+
+                                    return Some(ParentTypeContext {
+                                        root_type,
+                                        immediate_parent,
+                                    });
                                 }
                             }
                         }

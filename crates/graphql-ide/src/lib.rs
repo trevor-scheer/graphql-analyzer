@@ -401,6 +401,7 @@ impl Analysis {
     /// Get completions at a position
     ///
     /// Returns a list of completion items appropriate for the context.
+    #[allow(clippy::too_many_lines)]
     pub fn completions(&self, file: &FilePath, position: Position) -> Option<Vec<CompletionItem>> {
         let (content, metadata) = {
             let registry = self.registry.read().unwrap();
@@ -460,18 +461,21 @@ impl Analysis {
                     let types = graphql_hir::schema_types_with_project(&self.db, project_files);
 
                     // Find what type's fields we should complete
-                    let parent_type_or_field = find_parent_type_at_offset(&parse.tree, offset)?;
+                    let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
 
-                    // If it looks like a field name (starts with lowercase), resolve it to a type
-                    let parent_type_name = if parent_type_or_field.chars().next()?.is_lowercase() {
-                        // This is a field name - need to walk up to find its type
-                        // For now, try to resolve it assuming it's in Query
-                        // TODO: Handle nested resolution properly
-                        Self::resolve_field_type("Query", &parent_type_or_field, &types)?
-                    } else {
-                        // This is already a type name (Query, Mutation, or a schema type)
-                        parent_type_or_field
-                    };
+                    // If immediate_parent looks like a field name, resolve it using root_type
+                    let parent_type_name =
+                        if parent_ctx.immediate_parent.chars().next()?.is_lowercase() {
+                            // This is a field name - resolve it using the root type
+                            Self::resolve_field_type(
+                                &parent_ctx.root_type,
+                                &parent_ctx.immediate_parent,
+                                &types,
+                            )?
+                        } else {
+                            // This is already a type name
+                            parent_ctx.immediate_parent
+                        };
 
                     types.get(parent_type_name.as_str()).map_or_else(
                         || Some(Vec::new()),
@@ -512,13 +516,18 @@ impl Analysis {
                 let types = graphql_hir::schema_types_with_project(&self.db, project_files);
 
                 // Find what type's fields we should complete
-                let parent_type_or_field = find_parent_type_at_offset(&parse.tree, offset)?;
+                let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
 
-                // If it looks like a field name (starts with lowercase), resolve it to a type
-                let parent_type_name = if parent_type_or_field.chars().next()?.is_lowercase() {
-                    Self::resolve_field_type("Query", &parent_type_or_field, &types)?
+                // If immediate_parent looks like a field name, resolve it using root_type
+                let parent_type_name = if parent_ctx.immediate_parent.chars().next()?.is_lowercase()
+                {
+                    Self::resolve_field_type(
+                        &parent_ctx.root_type,
+                        &parent_ctx.immediate_parent,
+                        &types,
+                    )?
                 } else {
-                    parent_type_or_field
+                    parent_ctx.immediate_parent
                 };
 
                 types.get(parent_type_name.as_str()).map_or_else(
@@ -587,13 +596,18 @@ impl Analysis {
             Symbol::FieldName { name } => {
                 // Get the parent type to look up the field
                 let types = graphql_hir::schema_types_with_project(&self.db, project_files);
-                let parent_type_or_field = find_parent_type_at_offset(&parse.tree, offset)?;
+                let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
 
                 // Resolve to type name if it's a field
-                let parent_type_name = if parent_type_or_field.chars().next()?.is_lowercase() {
-                    Self::resolve_field_type("Query", &parent_type_or_field, &types)?
+                let parent_type_name = if parent_ctx.immediate_parent.chars().next()?.is_lowercase()
+                {
+                    Self::resolve_field_type(
+                        &parent_ctx.root_type,
+                        &parent_ctx.immediate_parent,
+                        &types,
+                    )?
                 } else {
-                    parent_type_or_field
+                    parent_ctx.immediate_parent
                 };
 
                 // Look up the field in the parent type
