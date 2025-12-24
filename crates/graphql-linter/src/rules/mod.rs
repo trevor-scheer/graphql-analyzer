@@ -4,7 +4,7 @@
 /// - `StandaloneDocumentLintRule` - Rules that don't need schema access
 /// - `DocumentSchemaLintRule` - Rules that need schema access
 /// - `ProjectLintRule` - Rules that analyze the entire project
-mod deprecated_field;
+mod no_deprecated;
 mod operation_name_suffix;
 mod redundant_fields;
 mod require_id_field;
@@ -12,7 +12,7 @@ mod unique_names;
 mod unused_fields;
 mod unused_fragments;
 
-pub use deprecated_field::DeprecatedFieldRuleImpl;
+pub use no_deprecated::NoDeprecatedRuleImpl;
 pub use operation_name_suffix::OperationNameSuffixRuleImpl;
 pub use redundant_fields::RedundantFieldsRuleImpl;
 pub use require_id_field::RequireIdFieldRuleImpl;
