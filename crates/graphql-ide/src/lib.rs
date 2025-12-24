@@ -496,16 +496,10 @@ impl Analysis {
                         },
                     )
                 } else {
-                    // Not in a selection set - show fragment completions
-                    let fragments =
-                        graphql_hir::all_fragments_with_project(&self.db, project_files);
-
-                    let items: Vec<CompletionItem> = fragments
-                        .keys()
-                        .map(|name| CompletionItem::new(name.to_string(), CompletionKind::Fragment))
-                        .collect();
-
-                    Some(items)
+                    // Not in a selection set - we're at document level
+                    // Don't show fragment names here; user would type keywords like "query", "mutation", "fragment"
+                    // TODO: In the future, consider showing operation/fragment definition keywords
+                    Some(Vec::new())
                 }
             }
             Some(Symbol::FieldName { .. }) => {
@@ -1608,5 +1602,109 @@ mod tests {
         assert!(locations.is_some());
         let locations = locations.unwrap();
         assert_eq!(locations.len(), 2);
+    }
+
+    #[test]
+    fn test_completions_in_selection_set_should_not_show_fragments() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User } type User { id: ID! name: String }",
+            FileKind::Schema,
+        );
+
+        // Add a fragment definition
+        let fragment_file = FilePath::new("file:///fragments.graphql");
+        host.add_file(
+            &fragment_file,
+            "fragment UserFields on User { id name }",
+            FileKind::ExecutableGraphQL,
+        );
+
+        // Add a query with cursor in selection set
+        let query_file = FilePath::new("file:///query.graphql");
+        let query_text = "query { user { id } }";
+        //                                 ^ cursor here at position 15 (right after { before id)
+        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL);
+
+        // Get completions inside the selection set (simulating user about to type)
+        let snapshot = host.snapshot();
+        let completions = snapshot.completions(&query_file, Position::new(0, 15));
+
+        // Should return field completions only (id, name), NOT fragment names
+        assert!(completions.is_some());
+        let items = completions.unwrap();
+
+        // Check that we got field completions
+        let field_names: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
+        assert!(
+            field_names.contains(&"id"),
+            "Expected 'id' field in completions, got: {field_names:?}"
+        );
+        assert!(
+            field_names.contains(&"name"),
+            "Expected 'name' field in completions, got: {field_names:?}"
+        );
+
+        // Check that we did NOT get fragment completions
+        assert!(
+            !field_names.contains(&"UserFields"),
+            "Fragment names should not appear in field completions, but found 'UserFields'"
+        );
+
+        // All completions should be fields, not fragments
+        for item in &items {
+            assert_eq!(
+                item.kind,
+                CompletionKind::Field,
+                "Expected only Field completions, but found {:?} for '{}'",
+                item.kind,
+                item.label
+            );
+        }
+    }
+
+    #[test]
+    fn test_completions_outside_selection_set_should_not_show_fragments() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User } type User { id: ID! name: String }",
+            FileKind::Schema,
+        );
+
+        // Add a fragment definition
+        let fragment_file = FilePath::new("file:///fragments.graphql");
+        host.add_file(
+            &fragment_file,
+            "fragment UserFields on User { id name }",
+            FileKind::ExecutableGraphQL,
+        );
+
+        // Add a query with cursor OUTSIDE any selection set (at document level)
+        let query_file = FilePath::new("file:///query.graphql");
+        let query_text = "query { user { id } }\n";
+        //                                       ^ cursor at end (position 22 on line 0)
+        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL);
+
+        // Get completions at document level (NOT in a selection set)
+        let snapshot = host.snapshot();
+        let completions = snapshot.completions(&query_file, Position::new(0, 22));
+
+        // At document level, we shouldn't show fragment names either
+        // (user would want to type "query", "mutation", "fragment", etc.)
+        if let Some(items) = completions {
+            let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
+            assert!(
+                !labels.contains(&"UserFields"),
+                "Fragment names should not appear outside selection sets, but found 'UserFields'. Got: {labels:?}"
+            );
+        }
     }
 }
