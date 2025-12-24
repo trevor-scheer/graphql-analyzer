@@ -35,6 +35,7 @@
 //! - Feature types: [`CompletionItem`], [`HoverResult`], [`Diagnostic`]
 
 use graphql_db::RootDatabase;
+use std::fmt::Write as _;
 use std::sync::{Arc, RwLock};
 
 mod file_registry;
@@ -42,8 +43,9 @@ pub use file_registry::FileRegistry;
 
 mod symbol;
 use symbol::{
-    find_fragment_definition_range, find_fragment_spreads, find_symbol_at_offset,
-    find_type_definition_range, find_type_references_in_tree, Symbol,
+    find_fragment_definition_range, find_fragment_spreads, find_parent_type_at_offset,
+    find_symbol_at_offset, find_type_definition_range, find_type_references_in_tree,
+    is_in_selection_set, Symbol,
 };
 
 // Re-export database types that IDE layer needs
@@ -379,9 +381,27 @@ impl Analysis {
             .collect()
     }
 
+    /// Resolve a field name in a parent type to get its return type name.
+    /// Handles unwrapping List and `NonNull` types to get the base type.
+    fn resolve_field_type(
+        parent_type_name: &str,
+        field_name: &str,
+        types: &std::collections::HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
+    ) -> Option<String> {
+        let parent_type = types.get(parent_type_name)?;
+        let field = parent_type
+            .fields
+            .iter()
+            .find(|f| f.name.as_ref() == field_name)?;
+
+        // Unwrap the type to get the base type name
+        Some(unwrap_type_to_name(&field.type_ref))
+    }
+
     /// Get completions at a position
     ///
     /// Returns a list of completion items appropriate for the context.
+    #[allow(clippy::too_many_lines)]
     pub fn completions(&self, file: &FilePath, position: Position) -> Option<Vec<CompletionItem>> {
         let (content, metadata) = {
             let registry = self.registry.read().unwrap();
@@ -416,9 +436,8 @@ impl Analysis {
 
         // Determine completion context and provide appropriate completions
         match symbol {
-            Some(Symbol::FragmentSpread { .. }) | None => {
-                // Complete fragment names
-                // If we have project files, use the new method; otherwise return empty
+            Some(Symbol::FragmentSpread { .. }) => {
+                // Complete fragment names when on a fragment spread
                 let Some(project_files) = self.project_files else {
                     return Some(Vec::new());
                 };
@@ -431,19 +450,90 @@ impl Analysis {
 
                 Some(items)
             }
+            None => {
+                // No specific symbol - check if we're in a selection set
+                let Some(project_files) = self.project_files else {
+                    return Some(Vec::new());
+                };
+
+                if is_in_selection_set(&parse.tree, offset) {
+                    // We're in a selection set - determine the parent type
+                    let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+
+                    // Find what type's fields we should complete
+                    let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
+
+                    // If immediate_parent looks like a field name, resolve it using root_type
+                    let parent_type_name =
+                        if parent_ctx.immediate_parent.chars().next()?.is_lowercase() {
+                            // This is a field name - resolve it using the root type
+                            Self::resolve_field_type(
+                                &parent_ctx.root_type,
+                                &parent_ctx.immediate_parent,
+                                &types,
+                            )?
+                        } else {
+                            // This is already a type name
+                            parent_ctx.immediate_parent
+                        };
+
+                    types.get(parent_type_name.as_str()).map_or_else(
+                        || Some(Vec::new()),
+                        |parent_type| {
+                            let items: Vec<CompletionItem> = parent_type
+                                .fields
+                                .iter()
+                                .map(|field| {
+                                    CompletionItem::new(
+                                        field.name.to_string(),
+                                        CompletionKind::Field,
+                                    )
+                                    .with_detail(format_type_ref(&field.type_ref))
+                                })
+                                .collect();
+
+                            Some(items)
+                        },
+                    )
+                } else {
+                    // Not in a selection set - show fragment completions
+                    let fragments =
+                        graphql_hir::all_fragments_with_project(&self.db, project_files);
+
+                    let items: Vec<CompletionItem> = fragments
+                        .keys()
+                        .map(|name| CompletionItem::new(name.to_string(), CompletionKind::Fragment))
+                        .collect();
+
+                    Some(items)
+                }
+            }
             Some(Symbol::FieldName { .. }) => {
-                // For field completions, we'd need to determine the parent type
-                // TODO: Implement proper type tracking through selection sets
-                // For now, return Query type fields as a basic implementation
+                // User is on an existing field name - show fields from parent type
                 let Some(project_files) = self.project_files else {
                     return Some(Vec::new());
                 };
                 let types = graphql_hir::schema_types_with_project(&self.db, project_files);
 
-                types.get("Query").map_or_else(
+                // Find what type's fields we should complete
+                let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
+
+                // If immediate_parent looks like a field name, resolve it using root_type
+                let parent_type_name = if parent_ctx.immediate_parent.chars().next()?.is_lowercase()
+                {
+                    Self::resolve_field_type(
+                        &parent_ctx.root_type,
+                        &parent_ctx.immediate_parent,
+                        &types,
+                    )?
+                } else {
+                    parent_ctx.immediate_parent
+                };
+
+                types.get(parent_type_name.as_str()).map_or_else(
                     || Some(Vec::new()),
-                    |query_type| {
-                        let items: Vec<CompletionItem> = query_type
+                    |parent_type| {
+                        let items: Vec<CompletionItem> = parent_type
                             .fields
                             .iter()
                             .map(|field| {
@@ -487,8 +577,7 @@ impl Analysis {
         // Convert position to byte offset
         let offset = position_to_offset(&line_index, position)?;
 
-        // For now, return a simple hover based on the parse tree
-        // TODO: Implement full hover logic with symbol identification
+        // Show syntax errors if present
         if !parse.errors.is_empty() {
             return Some(HoverResult::new(format!(
                 "**Syntax Errors**\n\n{}",
@@ -496,11 +585,85 @@ impl Analysis {
             )));
         }
 
-        // Basic hover showing file type
-        Some(HoverResult::new(format!(
-            "GraphQL Document\n\nPosition: line {}, character {}\nOffset: {}",
-            position.line, position.character, offset
-        )))
+        // Find the symbol at the offset
+        let symbol = find_symbol_at_offset(&parse.tree, offset)?;
+
+        // Get project files for schema lookups
+        let project_files = self.project_files?;
+
+        // Return hover info based on symbol type
+        match symbol {
+            Symbol::FieldName { name } => {
+                // Get the parent type to look up the field
+                let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+                let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
+
+                // Resolve to type name if it's a field
+                let parent_type_name = if parent_ctx.immediate_parent.chars().next()?.is_lowercase()
+                {
+                    Self::resolve_field_type(
+                        &parent_ctx.root_type,
+                        &parent_ctx.immediate_parent,
+                        &types,
+                    )?
+                } else {
+                    parent_ctx.immediate_parent
+                };
+
+                // Look up the field in the parent type
+                let parent_type = types.get(parent_type_name.as_str())?;
+                let field = parent_type
+                    .fields
+                    .iter()
+                    .find(|f| f.name.as_ref() == name)?;
+
+                let mut hover_text = format!("**Field:** `{name}`\n\n");
+                let field_type = format_type_ref(&field.type_ref);
+                write!(hover_text, "**Type:** `{field_type}`\n\n").ok();
+
+                if let Some(desc) = &field.description {
+                    write!(hover_text, "---\n\n{desc}\n\n").ok();
+                }
+
+                Some(HoverResult::new(hover_text))
+            }
+            Symbol::TypeName { name } => {
+                let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+                let type_def = types.get(name.as_str())?;
+
+                let mut hover_text = format!("**Type:** `{name}`\n\n");
+                let kind_str = match type_def.kind {
+                    graphql_hir::TypeDefKind::Object => "Object",
+                    graphql_hir::TypeDefKind::Interface => "Interface",
+                    graphql_hir::TypeDefKind::Union => "Union",
+                    graphql_hir::TypeDefKind::Enum => "Enum",
+                    graphql_hir::TypeDefKind::Scalar => "Scalar",
+                    graphql_hir::TypeDefKind::InputObject => "Input Object",
+                };
+                write!(hover_text, "**Kind:** {kind_str}\n\n").ok();
+
+                if let Some(desc) = &type_def.description {
+                    write!(hover_text, "---\n\n{desc}\n\n").ok();
+                }
+
+                Some(HoverResult::new(hover_text))
+            }
+            Symbol::FragmentSpread { name } => {
+                let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
+                let fragment = fragments.get(name.as_str())?;
+
+                let hover_text = format!(
+                    "**Fragment:** `{}`\n\n**On Type:** `{}`\n\n",
+                    name, fragment.type_condition
+                );
+
+                Some(HoverResult::new(hover_text))
+            }
+            _ => {
+                // For other symbols, show basic info
+                Some(HoverResult::new(format!("Symbol: {symbol:?}")))
+            }
+        }
     }
 
     /// Get goto definition locations for the symbol at a position
@@ -873,6 +1036,11 @@ fn convert_diagnostic(diag: &graphql_analysis::Diagnostic) -> Diagnostic {
 }
 
 /// Format a type reference for display (e.g., "[String!]!")
+/// Unwrap a `TypeRef` to get just the base type name (without List or `NonNull` wrappers)
+fn unwrap_type_to_name(type_ref: &graphql_hir::TypeRef) -> String {
+    type_ref.name.to_string()
+}
+
 fn format_type_ref(type_ref: &graphql_hir::TypeRef) -> String {
     let mut result = type_ref.name.to_string();
 

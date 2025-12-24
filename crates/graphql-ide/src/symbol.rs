@@ -40,6 +40,192 @@ pub fn find_symbol_at_offset(
     None
 }
 
+/// Context about the parent type at a position
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParentTypeContext {
+    /// The root type (Query, Mutation, Subscription, or fragment's type condition)
+    pub root_type: String,
+    /// The immediate parent (field name or type name at the cursor position)
+    pub immediate_parent: String,
+}
+
+/// Find the parent type name at a given position in a selection set.
+/// Returns both the root type and the immediate parent context.
+pub fn find_parent_type_at_offset(
+    tree: &apollo_parser::SyntaxTree,
+    byte_offset: usize,
+) -> Option<ParentTypeContext> {
+    let doc = tree.document();
+
+    // Check all definitions
+    for definition in doc.definitions() {
+        match definition {
+            cst::Definition::OperationDefinition(op) => {
+                if let Some(selection_set) = op.selection_set() {
+                    // Check if we're in this operation's selection set
+                    let start: usize = selection_set.syntax().text_range().start().into();
+                    let end: usize = selection_set.syntax().text_range().end().into();
+
+                    if byte_offset >= start && byte_offset <= end {
+                        // Determine the root type based on operation type
+                        let root_type = match op.operation_type() {
+                            Some(op_type) if op_type.mutation_token().is_some() => "Mutation",
+                            Some(op_type) if op_type.subscription_token().is_some() => {
+                                "Subscription"
+                            }
+                            _ => "Query", // Default to Query for explicit query or shorthand
+                        };
+
+                        // Try to find a nested parent field
+                        let immediate_parent = find_parent_field_type(&selection_set, byte_offset)
+                            .unwrap_or_else(|| root_type.to_string());
+
+                        return Some(ParentTypeContext {
+                            root_type: root_type.to_string(),
+                            immediate_parent,
+                        });
+                    }
+                }
+            }
+            cst::Definition::FragmentDefinition(frag) => {
+                if let Some(selection_set) = frag.selection_set() {
+                    let start: usize = selection_set.syntax().text_range().start().into();
+                    let end: usize = selection_set.syntax().text_range().end().into();
+
+                    if byte_offset >= start && byte_offset <= end {
+                        // For fragments, the parent type is the type condition
+                        if let Some(type_cond) = frag.type_condition() {
+                            if let Some(named_type) = type_cond.named_type() {
+                                if let Some(name) = named_type.name() {
+                                    let root_type = name.text().to_string();
+                                    // Try to find nested parent, otherwise use fragment's type
+                                    let immediate_parent =
+                                        find_parent_field_type(&selection_set, byte_offset)
+                                            .unwrap_or_else(|| root_type.clone());
+
+                                    return Some(ParentTypeContext {
+                                        root_type,
+                                        immediate_parent,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+/// Find the parent field's type name within a selection set
+fn find_parent_field_type(selection_set: &cst::SelectionSet, byte_offset: usize) -> Option<String> {
+    for selection in selection_set.selections() {
+        if let cst::Selection::Field(field) = selection {
+            // Check if this field has a nested selection set that contains our offset
+            if let Some(nested) = field.selection_set() {
+                let start: usize = nested.syntax().text_range().start().into();
+                let end: usize = nested.syntax().text_range().end().into();
+
+                if byte_offset >= start && byte_offset <= end {
+                    // Recursively check for deeper nesting
+                    if let Some(deeper) = find_parent_field_type(&nested, byte_offset) {
+                        return Some(deeper);
+                    }
+
+                    // We're directly in this field's selection set - return this field's name
+                    // Note: The caller will need to resolve the field name to a type
+                    if let Some(name) = field.name() {
+                        return Some(name.text().to_string());
+                    }
+                }
+            }
+        } else if let cst::Selection::InlineFragment(inline_frag) = selection {
+            if let Some(nested) = inline_frag.selection_set() {
+                let start: usize = nested.syntax().text_range().start().into();
+                let end: usize = nested.syntax().text_range().end().into();
+
+                if byte_offset >= start && byte_offset <= end {
+                    // For inline fragments, check type condition
+                    if let Some(type_cond) = inline_frag.type_condition() {
+                        if let Some(named_type) = type_cond.named_type() {
+                            if let Some(name) = named_type.name() {
+                                // Recursively check for deeper nesting
+                                if let Some(deeper) = find_parent_field_type(&nested, byte_offset) {
+                                    return Some(deeper);
+                                }
+                                return Some(name.text().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Check if the byte offset is within a selection set (for field completions)
+pub fn is_in_selection_set(tree: &apollo_parser::SyntaxTree, byte_offset: usize) -> bool {
+    let doc = tree.document();
+
+    // Check all definitions
+    for definition in doc.definitions() {
+        match definition {
+            cst::Definition::OperationDefinition(op) => {
+                if let Some(selection_set) = op.selection_set() {
+                    if is_offset_in_selection_set(&selection_set, byte_offset) {
+                        return true;
+                    }
+                }
+            }
+            cst::Definition::FragmentDefinition(frag) => {
+                if let Some(selection_set) = frag.selection_set() {
+                    if is_offset_in_selection_set(&selection_set, byte_offset) {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    false
+}
+
+fn is_offset_in_selection_set(selection_set: &cst::SelectionSet, byte_offset: usize) -> bool {
+    // Check if offset is within the selection set's range
+    let start = selection_set.syntax().text_range().start().into();
+    let end = selection_set.syntax().text_range().end().into();
+
+    if byte_offset < start || byte_offset > end {
+        return false;
+    }
+
+    // We're within the selection set's range, but check if we're in a nested selection set
+    for selection in selection_set.selections() {
+        if let cst::Selection::Field(field) = selection {
+            if let Some(nested) = field.selection_set() {
+                if is_offset_in_selection_set(&nested, byte_offset) {
+                    return true;
+                }
+            }
+        } else if let cst::Selection::InlineFragment(inline_frag) = selection {
+            if let Some(nested) = inline_frag.selection_set() {
+                if is_offset_in_selection_set(&nested, byte_offset) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // We're in this selection set (not in a nested one)
+    true
+}
+
 fn check_definition(definition: &cst::Definition, byte_offset: usize) -> Option<Symbol> {
     match definition {
         cst::Definition::OperationDefinition(op) => check_operation(op, byte_offset),
