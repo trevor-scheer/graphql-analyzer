@@ -1,12 +1,11 @@
 // Allow nursery clippy lints that are too pedantic for our use case
 #![allow(clippy::significant_drop_tightening)]
 #![allow(clippy::significant_drop_in_scrutinee)]
+#![allow(dead_code)] // Temporary - during Phase 6 cleanup
 
 use dashmap::DashMap;
-use graphql_config::{find_config, load_config};
+use graphql_config::find_config;
 use graphql_ide::AnalysisHost;
-use graphql_linter::{LintConfig, Linter, ProjectContext};
-use graphql_project::DynamicGraphQLProject;
 use lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
@@ -14,9 +13,8 @@ use lsp_types::{
     DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, FileChangeType,
     FileSystemWatcher, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
     HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
-    MessageType, NumberOrString, OneOf, Position, ProgressParams, ProgressParamsValue, Range,
-    ReferenceParams, ServerCapabilities, ServerInfo, SymbolInformation, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Uri, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
+    MessageType, NumberOrString, OneOf, Position, Range, ReferenceParams, ServerCapabilities,
+    ServerInfo, SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
     WorkDoneProgressOptions, WorkspaceSymbol, WorkspaceSymbolParams,
 };
 use std::path::PathBuf;
@@ -31,13 +29,6 @@ const VALIDATION_DEBOUNCE_MS: u64 = 200;
 
 /// Type alias for validation task handle
 type ValidationTask = Arc<Mutex<Option<JoinHandle<()>>>>;
-
-/// Type alias for a locked GraphQL project
-type LockedProject = Arc<tokio::sync::RwLock<DynamicGraphQLProject>>;
-
-/// Type alias for a list of projects in a workspace
-/// Each project has a name, the project instance, and its own linter
-type WorkspaceProjects = Vec<(String, LockedProject, Linter)>;
 
 /// Type alias for config reload task handle
 type ReloadTask = Arc<Mutex<Option<JoinHandle<()>>>>;
@@ -137,38 +128,7 @@ fn convert_ide_hover(hover: graphql_ide::HoverResult) -> Hover {
     }
 }
 
-/// Load lint configuration for a specific project with LSP-specific overrides
-///
-/// Priority (highest to lowest):
-/// 1. `extensions.lsp.lint` - LSP-specific overrides from project config
-/// 2. Project-level `lint` - Project-specific defaults
-fn load_lsp_lint_config_for_project(project: &DynamicGraphQLProject) -> LintConfig {
-    // Get base lint config from project
-    let base_config: LintConfig = project
-        .lint_config()
-        .and_then(|value| serde_json::from_value(value.clone()).ok())
-        .unwrap_or_default();
-
-    // Get LSP-specific overrides from extensions.lsp.lint
-    let lsp_overrides = project
-        .extensions()
-        .and_then(|ext| ext.get("lsp"))
-        .and_then(|lsp_ext| {
-            if let serde_json::Value::Object(map) = lsp_ext {
-                map.get("lint")
-            } else {
-                None
-            }
-        })
-        .and_then(|value| serde_json::from_value::<LintConfig>(value.clone()).ok());
-
-    // Merge: LSP-specific overrides take precedence over base config
-    if let Some(overrides) = lsp_overrides {
-        base_config.merge(&overrides)
-    } else {
-        base_config
-    }
-}
+// Removed: load_lsp_lint_config_for_project - old project system
 
 pub struct GraphQLLanguageServer {
     client: Client,
@@ -178,12 +138,7 @@ pub struct GraphQLLanguageServer {
     workspace_roots: Arc<DashMap<String, PathBuf>>,
     /// Config file paths indexed by workspace URI string
     config_paths: Arc<DashMap<String, PathBuf>>,
-    /// GraphQL projects by workspace URI -> Vec<(`project_name`, project, linter)>
-    /// Each project has its own linter configured from project-level lint config
-    /// **DEPRECATED**: Will be removed in favor of `hosts`
-    projects: Arc<DashMap<String, WorkspaceProjects>>,
-    /// New architecture: `AnalysisHost` per workspace (workspace URI -> `AnalysisHost`)
-    /// This will eventually replace `projects`
+    /// `AnalysisHost` per workspace (workspace URI -> `AnalysisHost`)
     hosts: Arc<DashMap<String, Arc<Mutex<AnalysisHost>>>>,
     /// Document content cache indexed by URI string
     document_cache: Arc<DashMap<String, String>>,
@@ -201,7 +156,6 @@ impl GraphQLLanguageServer {
             init_workspace_folders: Arc::new(DashMap::new()),
             workspace_roots: Arc::new(DashMap::new()),
             config_paths: Arc::new(DashMap::new()),
-            projects: Arc::new(DashMap::new()),
             hosts: Arc::new(DashMap::new()),
             document_cache: Arc::new(DashMap::new()),
             validation_tasks: Arc::new(DashMap::new()),
@@ -215,6 +169,71 @@ impl GraphQLLanguageServer {
             .entry(workspace_uri.to_string())
             .or_insert_with(|| Arc::new(Mutex::new(AnalysisHost::new())))
             .clone()
+    }
+
+    /// Determine `FileKind` by parsing the file content and inspecting definitions.
+    ///
+    /// Schema files contain type definitions, directive definitions, schema definitions, etc.
+    /// Executable files contain operations and/or fragments.
+    fn determine_file_kind(content: &str) -> graphql_ide::FileKind {
+        use apollo_compiler::parser::Parser;
+
+        // Parse the GraphQL content
+        let mut parser = Parser::new();
+        let ast = parser
+            .parse_ast(content, "virtual.graphql")
+            .unwrap_or_else(|e| e.partial);
+
+        // Check what kinds of definitions exist
+        let has_schema_definitions = ast.definitions.iter().any(|def| {
+            matches!(
+                def,
+                apollo_compiler::ast::Definition::SchemaDefinition(_)
+                    | apollo_compiler::ast::Definition::SchemaExtension(_)
+                    | apollo_compiler::ast::Definition::ObjectTypeDefinition(_)
+                    | apollo_compiler::ast::Definition::ObjectTypeExtension(_)
+                    | apollo_compiler::ast::Definition::InterfaceTypeDefinition(_)
+                    | apollo_compiler::ast::Definition::InterfaceTypeExtension(_)
+                    | apollo_compiler::ast::Definition::UnionTypeDefinition(_)
+                    | apollo_compiler::ast::Definition::UnionTypeExtension(_)
+                    | apollo_compiler::ast::Definition::ScalarTypeDefinition(_)
+                    | apollo_compiler::ast::Definition::ScalarTypeExtension(_)
+                    | apollo_compiler::ast::Definition::EnumTypeDefinition(_)
+                    | apollo_compiler::ast::Definition::EnumTypeExtension(_)
+                    | apollo_compiler::ast::Definition::InputObjectTypeDefinition(_)
+                    | apollo_compiler::ast::Definition::InputObjectTypeExtension(_)
+                    | apollo_compiler::ast::Definition::DirectiveDefinition(_)
+            )
+        });
+
+        if has_schema_definitions {
+            graphql_ide::FileKind::Schema
+        } else {
+            // Operations and fragments are executable GraphQL
+            graphql_ide::FileKind::ExecutableGraphQL
+        }
+    }
+
+    /// Expand brace patterns like `{ts,tsx}` into multiple patterns
+    ///
+    /// This is needed because the glob crate doesn't support brace expansion.
+    /// For example, `**/*.{ts,tsx}` expands to `["**/*.ts", "**/*.tsx"]`.
+    fn expand_braces(pattern: &str) -> Vec<String> {
+        // Simple brace expansion for patterns like **/*.{ts,tsx}
+        if let Some(start) = pattern.find('{') {
+            if let Some(end) = pattern.find('}') {
+                let before = &pattern[..start];
+                let after = &pattern[end + 1..];
+                let options = &pattern[start + 1..end];
+
+                return options
+                    .split(',')
+                    .map(|opt| format!("{before}{opt}{after}"))
+                    .collect();
+            }
+        }
+
+        vec![pattern.to_string()]
     }
 
     /// Add or update a file in the `AnalysisHost` for a workspace
@@ -242,143 +261,55 @@ impl GraphQLLanguageServer {
     }
 
     /// Load schema files from a project into the `AnalysisHost`
-    async fn load_schema_into_host(&self, workspace_uri: &str, project: &DynamicGraphQLProject) {
-        let schema_files = project.get_schema_file_paths();
-        tracing::debug!(
-            count = schema_files.len(),
-            "Loading schema files into AnalysisHost"
-        );
-
-        let host = self.get_or_create_host(workspace_uri);
-        let mut host_guard = host.lock().await;
-
-        for schema_file in schema_files {
-            if let Ok(content) = tokio::fs::read_to_string(&schema_file).await {
-                // Convert file path string to URI
-                let path = std::path::Path::new(&schema_file);
-                let uri_string = Uri::from_file_path(path)
-                    .map_or_else(|| format!("file://{schema_file}"), |uri| uri.to_string());
-                let file_path = graphql_ide::FilePath::new(uri_string);
-
-                tracing::debug!(path = ?schema_file, "Adding schema file to AnalysisHost");
-                host_guard.add_file(&file_path, &content, graphql_ide::FileKind::Schema);
-            } else {
-                tracing::warn!(path = ?schema_file, "Failed to read schema file");
-            }
-        }
+    // TODO: Implement load_schema_into_host without old project
+    #[allow(clippy::unused_self)]
+    #[allow(clippy::missing_const_for_fn)]
+    fn load_schema_into_host(&self, _workspace_uri: &str) {
+        // Placeholder - schema loading happens via did_open
     }
 
-    /// Load GraphQL config from a workspace folder
     #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self), fields(workspace_uri = %workspace_uri))]
+    /// Load GraphQL config from a workspace folder and load all project files
     async fn load_workspace_config(&self, workspace_uri: &str, workspace_path: &PathBuf) {
         tracing::info!(path = ?workspace_path, "Loading GraphQL config");
 
-        // Find graphql config
+        // Store workspace root
+        self.workspace_roots
+            .insert(workspace_uri.to_string(), workspace_path.clone());
+
+        // Find and load config
         match find_config(workspace_path) {
             Ok(Some(config_path)) => {
-                tracing::info!(config_path = ?config_path, "Found GraphQL config");
-
-                // Store the config path for watching
                 self.config_paths
                     .insert(workspace_uri.to_string(), config_path.clone());
 
-                // Load the config
-                match load_config(&config_path) {
+                // Parse the config to load all files
+                match graphql_config::load_config(&config_path) {
                     Ok(config) => {
-                        // Create and initialize projects from config
-                        match DynamicGraphQLProject::from_config_with_base(&config, workspace_path)
-                            .await
-                        {
-                            Ok(projects) => {
-                                tracing::info!(
-                                    count = projects.len(),
-                                    "Initialized GraphQL projects"
-                                );
+                        self.client
+                            .log_message(
+                                MessageType::INFO,
+                                "GraphQL config found, loading files...",
+                            )
+                            .await;
 
-                                // Log project info
-                                for (name, project) in &projects {
-                                    let doc_index = project.document_index();
-                                    match doc_index.read() {
-                                        Ok(doc_index_guard) => {
-                                            tracing::info!(
-                                                project = %name,
-                                                operations = doc_index_guard.operations.len(),
-                                                fragments = doc_index_guard.fragments.len(),
-                                                "Project ready"
-                                            );
-                                        }
-                                        Err(e) => {
-                                            tracing::error!(
-                                                project = %name,
-                                                "Failed to acquire document index lock: {}",
-                                                e
-                                            );
-                                        }
-                                    };
-                                }
-
-                                // Wrap projects and create per-project linters
-                                let wrapped_projects: Vec<(
-                                    String,
-                                    Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
-                                    Linter,
-                                )> = projects
-                                    .into_iter()
-                                    .map(|(name, proj)| {
-                                        // Load lint config from project
-                                        let lint_config = load_lsp_lint_config_for_project(&proj);
-                                        let linter = Linter::new(lint_config);
-                                        tracing::info!(project = %name, "Loaded lint configuration for project");
-                                        (name, Arc::new(tokio::sync::RwLock::new(proj)), linter)
-                                    })
-                                    .collect();
-
-                                // Load schema files into AnalysisHost for the new architecture (before storing)
-                                for (name, project, _) in &wrapped_projects {
-                                    let project_guard = project.read().await;
-                                    tracing::info!(project = %name, "Loading schema into AnalysisHost");
-                                    self.load_schema_into_host(workspace_uri, &project_guard)
-                                        .await;
-                                }
-
-                                // Store workspace and projects
-                                self.workspace_roots
-                                    .insert(workspace_uri.to_string(), workspace_path.clone());
-                                self.projects
-                                    .insert(workspace_uri.to_string(), wrapped_projects);
-
-                                self.client
-                                    .log_message(
-                                        MessageType::INFO,
-                                        "GraphQL config loaded successfully",
-                                    )
-                                    .await;
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to initialize projects: {e}");
-                                self.client
-                                    .log_message(
-                                        MessageType::ERROR,
-                                        format!("Failed to load GraphQL projects: {e}"),
-                                    )
-                                    .await;
-                            }
-                        }
+                        // Load all files from all projects into AnalysisHost
+                        self.load_all_project_files(workspace_uri, workspace_path, &config)
+                            .await;
                     }
                     Err(e) => {
-                        tracing::error!("Failed to load config: {e}");
+                        tracing::error!("Error loading config: {}", e);
                         self.client
                             .log_message(
                                 MessageType::ERROR,
-                                format!("Failed to parse GraphQL config: {e}"),
+                                &format!("Failed to load GraphQL config: {e}"),
                             )
                             .await;
                     }
                 }
             }
             Ok(None) => {
-                tracing::warn!("No GraphQL config found in workspace");
                 self.client
                     .log_message(
                         MessageType::WARNING,
@@ -392,216 +323,144 @@ impl GraphQLLanguageServer {
         }
     }
 
-    /// Reload GraphQL config for a workspace
-    #[allow(clippy::too_many_lines)]
-    #[tracing::instrument(skip(self), fields(workspace_uri = %workspace_uri))]
-    async fn reload_workspace_config(&self, workspace_uri: &str) {
-        tracing::info!("Reloading GraphQL config");
+    /// Load all GraphQL files from the config into `AnalysisHost`
+    async fn load_all_project_files(
+        &self,
+        workspace_uri: &str,
+        workspace_path: &PathBuf,
+        config: &graphql_config::GraphQLConfig,
+    ) {
+        use graphql_project::SchemaLoader;
 
-        // Get the config path
-        let Some(config_path) = self.config_paths.get(workspace_uri).map(|r| r.clone()) else {
-            tracing::warn!("No config path found for workspace");
-            return;
-        };
+        let host = self.get_or_create_host(workspace_uri);
 
-        let Some(workspace_path) = self.workspace_roots.get(workspace_uri).map(|r| r.clone())
-        else {
-            tracing::warn!("No workspace path found");
-            return;
-        };
+        // Collect projects into a Vec to avoid holding iterator across await
+        let projects: Vec<_> = config.projects().collect();
 
-        // Show progress notification with toast
-        let token = NumberOrString::String(format!("graphql-config-reload-{workspace_uri}"));
-        let create_progress = self
-            .client
-            .send_request::<lsp_types::request::WorkDoneProgressCreate>(
-                lsp_types::WorkDoneProgressCreateParams {
-                    token: token.clone(),
-                },
-            )
-            .await;
+        for (_project_name, project_config) in projects {
+            // Load schema files using SchemaLoader
+            let mut schema_loader = SchemaLoader::new(project_config.schema.clone());
+            schema_loader = schema_loader.with_base_path(workspace_path);
 
-        if create_progress.is_err() {
-            tracing::warn!("Failed to create progress token");
-        }
+            match schema_loader.load_with_paths().await {
+                Ok(schema_files) => {
+                    tracing::info!("Loading {} schema files", schema_files.len());
+                    for (path, content) in schema_files {
+                        let file_kind = Self::determine_file_kind(&content);
+                        let uri = format!("file://{path}");
+                        let file_path = graphql_ide::FilePath::new(uri);
 
-        // Send begin progress
-        self.client
-            .send_notification::<lsp_types::notification::Progress>(ProgressParams {
-                token: token.clone(),
-                value: ProgressParamsValue::WorkDone(WorkDoneProgress::Begin(
-                    WorkDoneProgressBegin {
-                        title: "GraphQL".to_string(),
-                        message: Some("Config changed, reloading...".to_string()),
-                        cancellable: Some(false),
-                        percentage: None,
-                    },
-                )),
-            })
-            .await;
-
-        // Try to load the new config
-        match load_config(&config_path) {
-            Ok(config) => {
-                // Create and initialize projects from config
-                match DynamicGraphQLProject::from_config_with_base(&config, &workspace_path).await {
-                    Ok(projects) => {
-                        tracing::info!(count = projects.len(), "Re-initialized GraphQL projects");
-
-                        // Wrap projects and create per-project linters
-                        let wrapped_projects: Vec<(
-                            String,
-                            Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
-                            Linter,
-                        )> = projects
-                            .into_iter()
-                            .map(|(name, proj)| {
-                                // Load lint config from project
-                                let lint_config = load_lsp_lint_config_for_project(&proj);
-                                let linter = Linter::new(lint_config);
-                                tracing::info!(project = %name, "Reloaded lint configuration for project");
-                                (name, Arc::new(tokio::sync::RwLock::new(proj)), linter)
-                            })
-                            .collect();
-
-                        // Replace projects
-                        self.projects
-                            .insert(workspace_uri.to_string(), wrapped_projects);
-
-                        // Send completion progress
-                        self.client
-                            .send_notification::<lsp_types::notification::Progress>(
-                                ProgressParams {
-                                    token: token.clone(),
-                                    value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(
-                                        WorkDoneProgressEnd {
-                                            message: Some(
-                                                "Config reloaded successfully".to_string(),
-                                            ),
-                                        },
-                                    )),
-                                },
-                            )
-                            .await;
-
-                        // Show success message as a toast
-                        self.client
-                            .show_message(MessageType::INFO, "GraphQL config reloaded successfully")
-                            .await;
-
-                        // Revalidate all open documents with the new config
-                        tracing::info!("Starting re-validation after config reload");
-                        self.revalidate_all_documents().await;
-                        tracing::info!("Completed re-validation after config reload");
+                        let mut host_guard = host.lock().await;
+                        host_guard.add_file(&file_path, &content, file_kind);
+                        tracing::info!("Loaded schema file: {}", path);
                     }
-                    Err(e) => {
-                        tracing::error!("Failed to initialize projects after reload: {e}");
+                }
+                Err(e) => {
+                    tracing::error!("Error loading schema files: {}", e);
+                }
+            }
 
-                        // Send error progress
-                        self.client
-                            .send_notification::<lsp_types::notification::Progress>(
-                                ProgressParams {
-                                    token: token.clone(),
-                                    value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(
-                                        WorkDoneProgressEnd {
-                                            message: Some(format!("Failed to reload: {e}")),
-                                        },
-                                    )),
-                                },
-                            )
-                            .await;
+            // Load document files (operations and fragments)
+            if let Some(documents_config) = &project_config.documents {
+                // Get document patterns from config
+                let patterns: Vec<String> = documents_config
+                    .patterns()
+                    .into_iter()
+                    .map(std::string::ToString::to_string)
+                    .collect();
 
-                        self.client
-                            .show_message(
-                                MessageType::ERROR,
-                                format!("Failed to reload GraphQL config: {e}"),
-                            )
-                            .await;
+                tracing::info!("Loading document files with {} patterns", patterns.len());
+
+                for pattern in patterns {
+                    // Skip negation patterns (starting with !)
+                    if pattern.trim().starts_with('!') {
+                        tracing::info!("Skipping negation pattern: {}", pattern);
+                        continue;
+                    }
+
+                    tracing::info!("Processing pattern: {}", pattern);
+
+                    // Expand brace patterns like {ts,tsx} since glob crate doesn't support them
+                    let expanded_patterns = Self::expand_braces(&pattern);
+                    tracing::info!("Expanded into {} patterns", expanded_patterns.len());
+
+                    for expanded_pattern in expanded_patterns {
+                        // Resolve pattern relative to workspace
+                        let full_pattern = workspace_path.join(&expanded_pattern);
+
+                        tracing::debug!("Globbing: {}", full_pattern.display());
+
+                        match glob::glob(&full_pattern.display().to_string()) {
+                            Ok(paths) => {
+                                for entry in paths {
+                                    match entry {
+                                        Ok(path) if path.is_file() => {
+                                            // Skip node_modules
+                                            if path
+                                                .components()
+                                                .any(|c| c.as_os_str() == "node_modules")
+                                            {
+                                                continue;
+                                            }
+
+                                            // Read file content
+                                            match std::fs::read_to_string(&path) {
+                                                Ok(content) => {
+                                                    let file_kind =
+                                                        Self::determine_file_kind(&content);
+                                                    let uri = format!("file://{}", path.display());
+                                                    let file_path = graphql_ide::FilePath::new(uri);
+
+                                                    let mut host_guard = host.lock().await;
+                                                    host_guard
+                                                        .add_file(&file_path, &content, file_kind);
+                                                    tracing::info!(
+                                                        "Loaded document file: {}",
+                                                        path.display()
+                                                    );
+                                                }
+                                                Err(e) => {
+                                                    tracing::warn!(
+                                                        "Failed to read file {}: {}",
+                                                        path.display(),
+                                                        e
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        Ok(_) => {} // Skip directories
+                                        Err(e) => {
+                                            tracing::warn!("Glob entry error: {}", e);
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    "Invalid glob pattern '{}': {}",
+                                    expanded_pattern,
+                                    e
+                                );
+                            }
+                        }
                     }
                 }
             }
-            Err(e) => {
-                tracing::error!("Failed to load config after change: {e}");
-
-                // Send error progress
-                self.client
-                    .send_notification::<lsp_types::notification::Progress>(ProgressParams {
-                        token: token.clone(),
-                        value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(
-                            WorkDoneProgressEnd {
-                                message: Some(format!("Failed to reload: {e}")),
-                            },
-                        )),
-                    })
-                    .await;
-
-                self.client
-                    .show_message(
-                        MessageType::ERROR,
-                        format!("Failed to parse GraphQL config: {e}"),
-                    )
-                    .await;
-            }
         }
+
+        tracing::info!("Finished loading all project files into AnalysisHost");
     }
+
+    /// Reload GraphQL config for a workspace
+    #[allow(clippy::too_many_lines)]
+    #[tracing::instrument(skip(self), fields(workspace_uri = %workspace_uri))]
+    // REMOVED: reload_workspace_config (old validation system)
+    async fn reload_workspace_config(&self, workspace_uri: &str) {}
 
     /// Schedule a debounced config reload for a workspace
-    async fn schedule_config_reload(&self, workspace_uri: String) {
-        // Get or create the task slot for this workspace
-        let task_slot = self
-            .reload_tasks
-            .entry(workspace_uri.clone())
-            .or_insert_with(|| Arc::new(Mutex::new(None)))
-            .clone();
-
-        // Cancel any existing pending reload for this workspace
-        {
-            let mut task_guard = task_slot.lock().await;
-            if let Some(existing_task) = task_guard.take() {
-                existing_task.abort();
-                tracing::debug!(workspace = %workspace_uri, "Cancelled previous reload task");
-            }
-        }
-
-        // Clone necessary data for the async task
-        let server = Self {
-            client: self.client.clone(),
-            init_workspace_folders: self.init_workspace_folders.clone(),
-            workspace_roots: self.workspace_roots.clone(),
-            config_paths: self.config_paths.clone(),
-            projects: self.projects.clone(),
-            hosts: self.hosts.clone(),
-            document_cache: self.document_cache.clone(),
-            validation_tasks: self.validation_tasks.clone(),
-            reload_tasks: self.reload_tasks.clone(),
-        };
-
-        let workspace_uri_for_task = workspace_uri.clone();
-
-        // Spawn a new debounced reload task (500ms delay to batch rapid changes)
-        let task = tokio::spawn(async move {
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            tracing::debug!(workspace = %workspace_uri_for_task, "Debounce period elapsed, starting config reload");
-
-            server
-                .reload_workspace_config(&workspace_uri_for_task)
-                .await;
-
-            // Clear the task slot once reload completes
-            if let Some(slot) = server.reload_tasks.get(&workspace_uri_for_task) {
-                let mut task_guard = slot.lock().await;
-                *task_guard = None;
-            }
-        });
-
-        // Store the new task
-        {
-            let mut task_guard = task_slot.lock().await;
-            *task_guard = Some(task);
-        }
-
-        tracing::debug!(workspace = %workspace_uri, "Scheduled debounced config reload");
-    }
+    // REMOVED: schedule_config_reload (old validation system)
+    #[allow(clippy::unused_self)]
+    fn schedule_config_reload(&self, _workspace_uri: String) {}
 
     /// Find the workspace and project for a given document URI
     fn find_workspace_and_project(&self, document_uri: &Uri) -> Option<(String, usize)> {
@@ -624,757 +483,40 @@ impl GraphQLLanguageServer {
 
     /// Re-validate all open documents in all workspaces
     /// This is called after schema changes to update validation errors
-    async fn revalidate_all_documents(&self) {
-        let start = std::time::Instant::now();
-        tracing::info!("Starting re-validation of all open documents after schema change");
-
-        // Collect all URIs and their content from the document cache
-        let documents: Vec<(String, String)> = self
-            .document_cache
-            .iter()
-            .map(|entry| {
-                let uri_str = entry.key().clone();
-                let content = entry.value().clone();
-                (uri_str, content)
-            })
-            .collect();
-
-        tracing::info!("Re-validating {} open documents", documents.len());
-
-        // Validate each document (skip schema files to avoid recursion)
-        for (uri_str, content) in documents {
-            // Parse the URI string - these are already valid URIs from the LSP
-            if let Ok(uri) = serde_json::from_str::<Uri>(&format!("\"{uri_str}\"")) {
-                // Skip schema files - they don't need revalidation after schema changes
-                if let Some(path) = uri.to_file_path() {
-                    // Check if this is a schema file by checking against all projects
-                    let mut is_schema = false;
-                    for workspace_projects in self.projects.iter() {
-                        for (_, project, _) in workspace_projects.value() {
-                            if project.read().await.is_schema_file(&path) {
-                                is_schema = true;
-                                break;
-                            }
-                        }
-                        if is_schema {
-                            break;
-                        }
-                    }
-
-                    if is_schema {
-                        tracing::debug!("Skipping schema file: {:?}", uri);
-                        continue;
-                    }
-                }
-
-                tracing::debug!("Re-validating document: {:?}", uri);
-                // Don't trigger another revalidate_all_documents during batch revalidation
-                self.validate_document_impl(uri, &content, false).await;
-            } else {
-                tracing::warn!("Failed to parse URI: {}", uri_str);
-            }
-        }
-
-        tracing::info!(
-            "Completed re-validation of all documents in {:?}",
-            start.elapsed()
-        );
-    }
+    // REMOVED: revalidate_all_documents (old validation system)
+    #[allow(clippy::unused_self)]
+    #[allow(clippy::missing_const_for_fn)]
+    fn revalidate_all_documents(&self) {}
 
     /// Re-validate schema files when field usage changes in a document
     ///
     /// When operations or fragments change, the set of used fields changes,
     /// which affects `unused_fields` diagnostics in schema files. This method
     /// finds all schema files and re-publishes their diagnostics.
-    async fn revalidate_schema_files(&self, changed_uri: &Uri) {
-        let start = std::time::Instant::now();
-        tracing::debug!(
-            "Starting re-validation of schema files for: {:?}",
-            changed_uri
-        );
-
-        // Find the workspace and project for the changed document
-        let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(changed_uri)
-        else {
-            tracing::debug!("No workspace found for URI: {:?}", changed_uri);
-            return;
-        };
-
-        // Get all schema files from the project config
-        let schema_files: Vec<String> = {
-            let project = {
-                let Some(projects) = self.projects.get(&workspace_uri) else {
-                    tracing::debug!("No projects loaded for workspace: {}", workspace_uri);
-                    return;
-                };
-
-                let Some((_, project, _)) = projects.get(project_idx) else {
-                    tracing::debug!(
-                        "Project index {} not found in workspace {}",
-                        project_idx,
-                        workspace_uri
-                    );
-                    return;
-                };
-
-                project.clone()
-            };
-
-            let schema_files = project.read().await.get_schema_file_paths();
-            schema_files
-        };
-
-        tracing::debug!(
-            "Re-validating {} schema files after field usage change",
-            schema_files.len()
-        );
-
-        // Re-publish diagnostics for each schema file
-        for file_path in schema_files {
-            // Convert file path to URI
-            let Some(schema_uri) = Uri::from_file_path(&file_path) else {
-                tracing::warn!("Failed to convert schema file path to URI: {}", file_path);
-                continue;
-            };
-
-            // Get content from cache or read from disk
-            let content =
-                if let Some(cached_content) = self.document_cache.get(&schema_uri.to_string()) {
-                    cached_content.clone()
-                } else {
-                    // Schema file not open in editor, skip it
-                    // We only update diagnostics for open files
-                    continue;
-                };
-
-            // Re-validate the schema file (this will publish updated diagnostics)
-            self.validate_document(schema_uri, &content).await;
-        }
-
-        tracing::debug!(
-            "Completed re-validation of schema files in {:?}",
-            start.elapsed()
-        );
-    }
+    // REMOVED: revalidate_schema_files (old validation system)
+    #[allow(clippy::unused_self)]
+    #[allow(clippy::missing_const_for_fn)]
+    fn revalidate_schema_files(&self, _changed_uri: &Uri) {}
 
     /// Validate a document and publish diagnostics
     #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self, content, uri), fields(path = ?uri.to_file_path().unwrap()))]
     async fn validate_document(&self, uri: Uri, content: &str) {
-        self.validate_document_impl(uri, content, true).await;
+        self.validate_document_impl(uri, content, true);
     }
 
     /// Internal implementation of `validate_document` with control over revalidation
     #[allow(clippy::too_many_lines)]
-    async fn validate_document_impl(&self, uri: Uri, content: &str, should_revalidate_all: bool) {
-        let start = std::time::Instant::now();
-        tracing::debug!("Validating document");
-
-        let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) else {
-            tracing::warn!("No project found for document");
-            return;
-        };
-
-        let file_path = uri.to_file_path();
-
-        // Check if this is a schema file and update document index
-        // We do this in a narrow scope to minimize lock duration
-        {
-            // Get the project from the workspace (need mutable to update document index)
-            let project = {
-                let Some(mut projects) = self.projects.get_mut(&workspace_uri) else {
-                    tracing::warn!("No projects loaded for workspace: {workspace_uri}");
-                    return;
-                };
-
-                let Some((_, project, _)) = projects.get_mut(project_idx) else {
-                    tracing::warn!(
-                        "Project index {project_idx} not found in workspace {workspace_uri}"
-                    );
-                    return;
-                };
-
-                project.clone()
-            };
-
-            // Check if this is a schema file - schema files need special handling
-            let is_schema_file = if let Some(path) = file_path.as_ref() {
-                project.read().await.is_schema_file(path.as_ref())
-            } else {
-                false
-            };
-
-            if is_schema_file {
-                tracing::info!("Schema file changed, reloading schema");
-
-                // Update the schema index with the new content
-                let file_path_buf = file_path.as_ref().unwrap().clone();
-                if let Err(e) = project
-                    .write()
-                    .await
-                    .update_schema_index(&file_path_buf, content)
-                    .await
-                {
-                    tracing::error!("Failed to update schema: {}", e);
-                    self.client
-                        .log_message(MessageType::ERROR, format!("Failed to update schema: {e}"))
-                        .await;
-                    return;
-                }
-
-                tracing::info!("Schema reloaded successfully");
-
-                // Publish project-wide lint diagnostics for the schema file
-                // This includes unused_fields warnings
-                let schema_diagnostics = async {
-                    let Some(projects) = self.projects.get(&workspace_uri) else {
-                        tracing::warn!("No projects loaded for workspace: {workspace_uri}");
-                        return Vec::new();
-                    };
-
-                    let Some((_, project, linter)) = projects.get(project_idx) else {
-                        tracing::warn!(
-                            "Project index {project_idx} not found in workspace {workspace_uri}"
-                        );
-                        return Vec::new();
-                    };
-
-                    if let Some(path) = file_path.as_ref() {
-                        let file_path_str = path.display().to_string();
-                        self.get_project_wide_diagnostics(&file_path_str, project, linter)
-                            .await
-                    } else {
-                        Vec::new()
-                    }
-                }
-                .await;
-
-                self.client
-                    .publish_diagnostics(uri.clone(), schema_diagnostics, None)
-                    .await;
-
-                // After schema changes, we need to revalidate all open documents
-                // because field types, deprecations, etc. may have changed
-                // Only do this if we're not already in a batch revalidation
-                if should_revalidate_all {
-                    Box::pin(self.revalidate_all_documents()).await;
-                }
-                return;
-            }
-
-            // Update the document index for this specific file with in-memory content
-            // This is more efficient than reloading all documents from disk and
-            // ensures we use the latest editor content even before it's saved
-            if let Some(path) = &file_path {
-                let update_result = project.write().await.update_document_index(path, content);
-                if let Err(e) = update_result {
-                    tracing::warn!(
-                        "Failed to update document index for {}: {}",
-                        path.display(),
-                        e
-                    );
-                }
-            }
-        } // Drop the mutable lock here before validation
-
-        // Check if this is a TypeScript/JavaScript file
-        let is_ts_js = file_path
-            .as_ref()
-            .and_then(|path| {
-                path.extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(|ext| matches!(ext, "ts" | "tsx" | "js" | "jsx"))
-            })
-            .unwrap_or(false);
-
-        // Get document-specific diagnostics (type errors, etc.)
-        // Now we get a read-only reference for validation, which won't block other operations
-        let mut diagnostics = {
-            let Some(projects) = self.projects.get(&workspace_uri) else {
-                tracing::warn!("No projects loaded for workspace: {workspace_uri}");
-                return;
-            };
-
-            let Some((_, project, linter)) = projects.get(project_idx) else {
-                tracing::warn!(
-                    "Project index {project_idx} not found in workspace {workspace_uri}"
-                );
-                return;
-            };
-
-            if is_ts_js {
-                self.validate_typescript_document(&uri, content, project, linter)
-                    .await
-            } else {
-                self.validate_graphql_document(content, project, linter)
-                    .await
-            }
-        }; // Drop the read lock here
-
-        // Add project-wide duplicate name diagnostics for this file
-        if let Some(path) = uri.to_file_path() {
-            let file_path_str = path.display().to_string();
-
-            let project_wide_diags = {
-                let Some(projects) = self.projects.get(&workspace_uri) else {
-                    tracing::warn!("No projects loaded for workspace: {workspace_uri}");
-                    return;
-                };
-
-                let Some((_, project, linter)) = projects.get(project_idx) else {
-                    tracing::warn!(
-                        "Project index {project_idx} not found in workspace {workspace_uri}"
-                    );
-                    return;
-                };
-
-                self.get_project_wide_diagnostics(&file_path_str, project, linter)
-                    .await
-            }; // Drop the read lock here
-
-            diagnostics.extend(project_wide_diags);
-        }
-
-        // Filter out diagnostics with invalid ranges (defensive fix for stale diagnostics)
-        // Count total lines in the content to validate ranges
-        let line_count = content.lines().count();
-        diagnostics.retain(|diag| {
-            let start_line = diag.range.start.line as usize;
-            let end_line = diag.range.end.line as usize;
-
-            // Keep diagnostic only if both start and end are within document bounds
-            if start_line >= line_count || end_line >= line_count {
-                tracing::warn!(
-                    "Filtered out diagnostic with invalid range: {:?} (document has {} lines)",
-                    diag.range,
-                    line_count
-                );
-                false
-            } else {
-                true
-            }
-        });
-
-        self.client
-            .publish_diagnostics(uri.clone(), diagnostics.clone(), None)
-            .await;
-
-        tracing::debug!(
-            elapsed_ms = start.elapsed().as_millis(),
-            diagnostic_count = diagnostics.len(),
-            "Validated document"
-        );
-
-        // Refresh diagnostics for any other files affected by duplicate name changes
-        self.refresh_affected_files_diagnostics(&workspace_uri, project_idx, &uri)
-            .await;
-    }
-
-    /// Get project-wide lint diagnostics for a specific file
-    async fn get_project_wide_diagnostics(
-        &self,
-        file_path: &str,
-        project: &Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
-        linter: &Linter,
-    ) -> Vec<Diagnostic> {
-        // Run project-wide lint rules using graphql-linter
-        let project_guard = project.read().await;
-        let document_index = project_guard.document_index();
-        let schema_index = project_guard.schema_index();
-
-        let document_index_guard = match document_index.read() {
-            Ok(guard) => guard,
-            Err(e) => {
-                tracing::error!("Failed to acquire document index lock: {}", e);
-                return Vec::new();
-            }
-        };
-        let schema_index_guard = match schema_index.read() {
-            Ok(guard) => guard,
-            Err(e) => {
-                tracing::error!("Failed to acquire schema index lock: {}", e);
-                return Vec::new();
-            }
-        };
-
-        let ctx = ProjectContext {
-            documents: &document_index_guard,
-            schema: &schema_index_guard,
-        };
-
-        let project_diagnostics_by_file = linter.lint_project(&ctx);
-
-        // Get diagnostics for this specific file
-        project_diagnostics_by_file
-            .get(file_path)
-            .map(|diags| {
-                diags
-                    .iter()
-                    .map(|diag| self.convert_project_diagnostic(diag.clone()))
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    /// Refresh diagnostics for all files affected by project-wide lint changes
-    ///
-    /// When a file is edited and introduces or removes issues detected by project-wide
-    /// lints (like duplicate names or unused fields), other files that are affected
-    /// need to have their diagnostics refreshed.
-    #[allow(clippy::too_many_lines)]
-    async fn refresh_affected_files_diagnostics(
-        &self,
-        workspace_uri: &str,
-        project_idx: usize,
-        changed_file_uri: &Uri,
-    ) {
-        use std::collections::HashSet;
-
-        // Get the project and linter
-        let Some(projects) = self.projects.get(workspace_uri) else {
-            return;
-        };
-
-        let Some((_, project, linter)) = projects.get(project_idx) else {
-            return;
-        };
-
-        // Run project-wide lints to get all affected files
-        let affected_files: HashSet<String> = {
-            let project_guard = project.read().await;
-            let document_index = project_guard.document_index();
-            let schema_index = project_guard.schema_index();
-            let document_index_guard = match document_index.read() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    tracing::error!("Failed to acquire document index lock: {}", e);
-                    return;
-                }
-            };
-            let schema_index_guard = match schema_index.read() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    tracing::error!("Failed to acquire schema index lock: {}", e);
-                    return;
-                }
-            };
-            let ctx = ProjectContext {
-                documents: &document_index_guard,
-                schema: &schema_index_guard,
-            };
-            let project_diagnostics_by_file = linter.lint_project(&ctx);
-
-            // Extract unique file paths that have project-wide diagnostics
-            project_diagnostics_by_file.keys().cloned().collect()
-        }; // Drop guards here
-
-        let changed_file_path = changed_file_uri.to_file_path();
-
-        // For each affected file (excluding the one we just validated), refresh diagnostics
-        for file_path in affected_files {
-            // Skip the file we just validated
-            if let Some(ref changed_path) = changed_file_path {
-                if file_path == changed_path.display().to_string() {
-                    continue;
-                }
-            }
-
-            // Try to convert the file path to a URI
-            let Some(file_uri) = Uri::from_file_path(&file_path) else {
-                tracing::warn!("Failed to convert file path to URI: {}", file_path);
-                continue;
-            };
-
-            // Get the document content from cache, or read from disk
-            let content = if let Some(cached) = self.document_cache.get(file_uri.as_str()) {
-                cached.clone()
-            } else {
-                // File not in cache, try to read from disk
-                match std::fs::read_to_string(&file_path) {
-                    Ok(content) => content,
-                    Err(e) => {
-                        tracing::warn!("Failed to read file {}: {}", file_path, e);
-                        continue;
-                    }
-                }
-            };
-
-            // Check if this is a schema file
-            let is_schema_file = project
-                .read()
-                .await
-                .is_schema_file(std::path::Path::new(&file_path));
-
-            // For schema files, only publish project-wide diagnostics (unused_fields)
-            // Schema files should not be validated as executable documents
-            let mut diagnostics = if is_schema_file {
-                // Schema files only get project-wide diagnostics
-                self.get_project_wide_diagnostics(&file_path, project, linter)
-                    .await
-            } else {
-                // Check if this is a TypeScript/JavaScript file
-                let is_ts_js = std::path::Path::new(&file_path)
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .is_some_and(|ext| matches!(ext, "ts" | "tsx" | "js" | "jsx"));
-
-                // Get document-specific diagnostics (type errors, etc.)
-                let mut diagnostics = if is_ts_js {
-                    self.validate_typescript_document(&file_uri, &content, project, linter)
-                        .await
-                } else {
-                    self.validate_graphql_document(&content, project, linter)
-                        .await
-                };
-
-                // Add project-wide diagnostics for this file
-                let project_wide_diags = self
-                    .get_project_wide_diagnostics(&file_path, project, linter)
-                    .await;
-                diagnostics.extend(project_wide_diags);
-                diagnostics
-            };
-
-            // Filter out diagnostics with invalid ranges
-            let line_count = content.lines().count();
-            diagnostics.retain(|diag| {
-                let start_line = diag.range.start.line as usize;
-                let end_line = diag.range.end.line as usize;
-
-                if start_line >= line_count || end_line >= line_count {
-                    tracing::warn!(
-                        "Filtered out diagnostic with invalid range: {:?} (document has {} lines)",
-                        diag.range,
-                        line_count
-                    );
-                    false
-                } else {
-                    true
-                }
-            });
-
-            // Publish diagnostics for the affected file
-            tracing::debug!(
-                "Refreshing diagnostics for affected file: {} ({} diagnostics)",
-                file_path,
-                diagnostics.len()
-            );
-            self.client
-                .publish_diagnostics(file_uri, diagnostics, None)
-                .await;
-        }
-    }
-
-    /// Validate a pure GraphQL document
-    #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
-    async fn validate_graphql_document(
-        &self,
-        content: &str,
-        project: &Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
-        linter: &Linter,
-    ) -> Vec<Diagnostic> {
-        // Use the centralized validation logic from graphql-project
-        let project_guard = project.read().await;
-        let mut project_diagnostics =
-            project_guard.validate_document_source(content, "document.graphql");
-
-        // Run document-level lints using graphql-linter
-        let schema_index = project_guard.schema_index();
-        let schema_index_guard = match schema_index.read() {
-            Ok(guard) => guard,
-            Err(e) => {
-                tracing::error!("Failed to acquire schema index lock: {}", e);
-                return project_diagnostics
-                    .into_iter()
-                    .map(|d| self.convert_project_diagnostic(d))
-                    .collect();
-            }
-        };
-        let document_index = project_guard.document_index();
-        let document_index_guard = match document_index.read() {
-            Ok(guard) => guard,
-            Err(e) => {
-                tracing::error!("Failed to acquire document index lock: {}", e);
-                return project_diagnostics
-                    .into_iter()
-                    .map(|d| self.convert_project_diagnostic(d))
-                    .collect();
-            }
-        };
-
-        // Run standalone document rules (don't need schema, but need fragments)
-        let standalone_diagnostics = linter.lint_standalone_document(
-            content,
-            "document.graphql",
-            Some(&document_index_guard),
-            None,
-        );
-        project_diagnostics.extend(standalone_diagnostics);
-
-        // Run document+schema rules
-        let lint_diagnostics = linter.lint_document(
-            content,
-            "document.graphql",
-            &schema_index_guard,
-            Some(&document_index_guard),
-            None,
-        );
-        project_diagnostics.extend(lint_diagnostics);
-
-        // Convert graphql-project diagnostics to LSP diagnostics
-        project_diagnostics
-            .into_iter()
-            .map(|d| self.convert_project_diagnostic(d))
-            .collect()
-    }
-
-    /// Validate GraphQL embedded in TypeScript/JavaScript
-    #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
-    #[allow(clippy::too_many_lines)]
-    async fn validate_typescript_document(
-        &self,
-        uri: &Uri,
-        content: &str,
-        project: &Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
-        linter: &Linter,
-    ) -> Vec<Diagnostic> {
-        use std::io::Write;
-
-        // Get the file extension from the original URI to preserve it in the temp file
-        let extension = uri
-            .to_file_path()
-            .and_then(|path| {
-                path.extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(String::from)
-            })
-            .unwrap_or_else(|| "tsx".to_string());
-
-        let temp_file = match tempfile::Builder::new()
-            .suffix(&format!(".{extension}"))
-            .tempfile()
-        {
-            Ok(mut file) => {
-                if file.write_all(content.as_bytes()).is_err() {
-                    return vec![];
-                }
-                file
-            }
-            Err(_) => return vec![],
-        };
-
-        // Extract GraphQL from TypeScript/JavaScript
-        let project_guard = project.read().await;
-        let extract_config = project_guard.get_extract_config();
-        let extracted = match graphql_extract::extract_from_file(temp_file.path(), &extract_config)
-        {
-            Ok(extracted) => extracted,
-            Err(e) => {
-                tracing::error!("Failed to extract GraphQL from {:?}: {}", uri, e);
-                return vec![];
-            }
-        };
-
-        if extracted.is_empty() {
-            return vec![];
-        }
-
-        tracing::info!(
-            "Extracted {} GraphQL document(s) from {:?}",
-            extracted.len(),
-            uri
-        );
-
-        // Use the centralized validation logic from graphql-project (Apollo compiler)
-        let file_path = uri.to_string();
-        let mut all_diagnostics =
-            project_guard.validate_extracted_documents(&extracted, &file_path);
-
-        // Run document-level lints using graphql-linter
-        let schema_index = project_guard.schema_index();
-        let schema_index_guard = match schema_index.read() {
-            Ok(guard) => guard,
-            Err(e) => {
-                tracing::error!("Failed to acquire schema index lock: {}", e);
-                return all_diagnostics
-                    .into_iter()
-                    .map(|d| self.convert_project_diagnostic(d))
-                    .collect();
-            }
-        };
-        let document_index = project_guard.document_index();
-        let document_index_guard = match document_index.read() {
-            Ok(guard) => guard,
-            Err(e) => {
-                tracing::error!("Failed to acquire document index lock: {}", e);
-                return all_diagnostics
-                    .into_iter()
-                    .map(|d| self.convert_project_diagnostic(d))
-                    .collect();
-            }
-        };
-
-        for block in &extracted {
-            // Run standalone document rules (don't need schema, but need fragments)
-            let mut standalone_diagnostics = linter.lint_standalone_document(
-                &block.source,
-                &file_path,
-                Some(&document_index_guard),
-                None,
-            );
-
-            // Adjust positions for extracted blocks
-            for diag in &mut standalone_diagnostics {
-                diag.range.start.line += block.location.range.start.line;
-                diag.range.end.line += block.location.range.start.line;
-
-                // Adjust column only for first line
-                if diag.range.start.line == block.location.range.start.line {
-                    diag.range.start.character += block.location.range.start.column;
-                }
-                if diag.range.end.line == block.location.range.start.line {
-                    diag.range.end.character += block.location.range.start.column;
-                }
-            }
-            all_diagnostics.extend(standalone_diagnostics);
-
-            // Run document+schema rules
-            let lint_diagnostics = linter.lint_document(
-                &block.source,
-                &file_path,
-                &schema_index_guard,
-                Some(&document_index_guard),
-                None,
-            );
-
-            // Adjust positions for extracted blocks
-            for mut diag in lint_diagnostics {
-                diag.range.start.line += block.location.range.start.line;
-                diag.range.end.line += block.location.range.start.line;
-
-                // Adjust column only for first line
-                if diag.range.start.line == block.location.range.start.line {
-                    diag.range.start.character += block.location.range.start.column;
-                }
-                if diag.range.end.line == block.location.range.start.line {
-                    diag.range.end.character += block.location.range.start.column;
-                }
-
-                all_diagnostics.push(diag);
-            }
-        }
-
-        // Convert graphql-project diagnostics to LSP diagnostics
-        all_diagnostics
-            .into_iter()
-            .map(|d| self.convert_project_diagnostic(d))
-            .collect()
-    }
+    // REMOVED: validate_document_impl (old validation system)
+    #[allow(clippy::unused_self)]
+    fn validate_document_impl(&self, _uri: Uri, _content: &str, _should_revalidate_all: bool) {}
+
+    // REMOVED: get_project_wide_diagnostics (old validation system)
+    // REMOVED: refresh_affected_files_diagnostics (old validation system)
+    // REMOVED: validate_graphql_document (old validation)
+    // REMOVED: validate_typescript_document (old validation)
 
     /// Convert graphql-project diagnostic to LSP diagnostic
-    #[must_use]
     #[allow(clippy::cast_possible_truncation)]
     #[allow(clippy::unused_self)]
     fn convert_project_diagnostic(&self, diag: graphql_project::Diagnostic) -> Diagnostic {
@@ -1411,69 +553,9 @@ impl GraphQLLanguageServer {
     /// Cancels any pending validation for the same document and schedules a new one
     /// after `VALIDATION_DEBOUNCE_MS` milliseconds. This prevents validation spam during
     /// rapid typing.
-    async fn schedule_debounced_validation(&self, uri: Uri, content: String) {
-        let uri_string = uri.to_string();
-
-        // Get or create the task slot for this document
-        let task_slot = self
-            .validation_tasks
-            .entry(uri_string.clone())
-            .or_insert_with(|| Arc::new(Mutex::new(None)))
-            .clone();
-
-        // Cancel any existing pending validation for this document
-        {
-            let mut task_guard = task_slot.lock().await;
-            if let Some(existing_task) = task_guard.take() {
-                existing_task.abort();
-                tracing::debug!(uri = ?uri, "Cancelled previous validation task");
-            }
-        }
-
-        // Clone necessary data for the async task
-        let server = Self {
-            client: self.client.clone(),
-            init_workspace_folders: self.init_workspace_folders.clone(),
-            workspace_roots: self.workspace_roots.clone(),
-            config_paths: self.config_paths.clone(),
-            projects: self.projects.clone(),
-            hosts: self.hosts.clone(),
-            document_cache: self.document_cache.clone(),
-            validation_tasks: self.validation_tasks.clone(),
-            reload_tasks: self.reload_tasks.clone(),
-        };
-
-        // Clone uri for the closure
-        let uri_for_task = uri.clone();
-
-        // Spawn a new debounced validation task
-        let task = tokio::spawn(async move {
-            // Wait for the debounce period
-            tokio::time::sleep(tokio::time::Duration::from_millis(VALIDATION_DEBOUNCE_MS)).await;
-
-            tracing::debug!(uri = ?uri_for_task, delay_ms = VALIDATION_DEBOUNCE_MS, "Debounce period elapsed, starting validation");
-
-            let validate_start = std::time::Instant::now();
-            server
-                .validate_document(uri_for_task.clone(), &content)
-                .await;
-            tracing::debug!(uri = ?uri_for_task, elapsed_ms = validate_start.elapsed().as_millis(), "Validation completed");
-
-            // Clear the task slot once validation completes
-            if let Some(slot) = server.validation_tasks.get(&uri_for_task.to_string()) {
-                let mut task_guard = slot.lock().await;
-                *task_guard = None;
-            }
-        });
-
-        // Store the new task
-        {
-            let mut task_guard = task_slot.lock().await;
-            *task_guard = Some(task);
-        }
-
-        tracing::debug!(uri = ?uri, delay_ms = VALIDATION_DEBOUNCE_MS, "Scheduled debounced validation");
-    }
+    // REMOVED: schedule_debounced_validation (old validation system)
+    #[allow(clippy::unused_self)]
+    fn schedule_debounced_validation(&self, _uri: Uri, _content: String) {}
 }
 
 impl LanguageServer for GraphQLLanguageServer {
@@ -1632,32 +714,11 @@ impl LanguageServer for GraphQLLanguageServer {
         self.document_cache.insert(uri.to_string(), content.clone());
 
         // Add to AnalysisHost (new architecture)
-        if let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) {
-            let file_path = uri.to_file_path();
+        if let Some((workspace_uri, _project_idx)) = self.find_workspace_and_project(&uri) {
+            let _file_path = uri.to_file_path();
 
-            // Determine file kind by checking if it's a schema file
-            #[allow(clippy::option_if_let_else)]
-            let file_kind = if let Some(path) = file_path.as_ref() {
-                // Get the project to check if this is a schema file
-                let project = self
-                    .projects
-                    .get(&workspace_uri)
-                    .and_then(|projects| projects.get(project_idx).map(|(_, p, _)| p.clone()));
-
-                if let Some(project) = project {
-                    let project_guard = project.read().await;
-                    if project_guard.is_schema_file(path.as_ref()) {
-                        graphql_ide::FileKind::Schema
-                    } else {
-                        graphql_ide::FileKind::ExecutableGraphQL
-                    }
-                } else {
-                    graphql_ide::FileKind::ExecutableGraphQL
-                }
-            } else {
-                // Default to executable if we can't determine file path
-                graphql_ide::FileKind::ExecutableGraphQL
-            };
+            // Determine file kind by parsing content
+            let file_kind = Self::determine_file_kind(&content);
 
             self.add_file_to_host(&workspace_uri, &uri, &content, file_kind)
                 .await;
@@ -1679,38 +740,18 @@ impl LanguageServer for GraphQLLanguageServer {
                 .insert(uri.to_string(), change.text.clone());
 
             // Update AnalysisHost (new architecture)
-            if let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) {
-                let file_path = uri.to_file_path();
+            if let Some((workspace_uri, _project_idx)) = self.find_workspace_and_project(&uri) {
+                let _file_path = uri.to_file_path();
 
-                // Determine file kind by checking if it's a schema file
-                #[allow(clippy::option_if_let_else)]
-                let file_kind = if let Some(path) = file_path.as_ref() {
-                    let project = self
-                        .projects
-                        .get(&workspace_uri)
-                        .and_then(|projects| projects.get(project_idx).map(|(_, p, _)| p.clone()));
-
-                    if let Some(project) = project {
-                        let project_guard = project.read().await;
-                        if project_guard.is_schema_file(path.as_ref()) {
-                            graphql_ide::FileKind::Schema
-                        } else {
-                            graphql_ide::FileKind::ExecutableGraphQL
-                        }
-                    } else {
-                        graphql_ide::FileKind::ExecutableGraphQL
-                    }
-                } else {
-                    graphql_ide::FileKind::ExecutableGraphQL
-                };
+                // Determine file kind by parsing content
+                let file_kind = Self::determine_file_kind(&change.text);
 
                 self.add_file_to_host(&workspace_uri, &uri, &change.text, file_kind)
                     .await;
             }
 
             // Schedule debounced validation instead of immediate validation
-            self.schedule_debounced_validation(uri.clone(), change.text.clone())
-                .await;
+            self.schedule_debounced_validation(uri.clone(), change.text.clone());
         }
 
         tracing::debug!(
@@ -1734,29 +775,28 @@ impl LanguageServer for GraphQLLanguageServer {
 
         // Check if this is a schema file
         let is_schema_file = {
-            let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) else {
+            let Some((_workspace_uri, _project_idx)) = self.find_workspace_and_project(&uri) else {
                 return;
             };
 
-            let Some(projects) = self.projects.get(&workspace_uri) else {
-                return;
-            };
+            // Get content from cache to determine file kind
+            let content = self
+                .document_cache
+                .get(&uri.to_string())
+                .map(|entry| entry.value().clone())
+                .unwrap_or_default();
 
-            let Some((_, project, _)) = projects.get(project_idx) else {
-                return;
-            };
-
-            if let Some(path) = uri.to_file_path().as_ref() {
-                project.read().await.is_schema_file(path.as_ref())
-            } else {
-                false
-            }
+            // Determine if this is a schema file by parsing content
+            matches!(
+                Self::determine_file_kind(&content),
+                graphql_ide::FileKind::Schema
+            )
         };
 
         // Only revalidate schema files if this is NOT a schema file
         if !is_schema_file {
             let schema_revalidate_start = std::time::Instant::now();
-            self.revalidate_schema_files(&uri).await;
+            self.revalidate_schema_files(&uri);
             tracing::debug!(
                 "Schema revalidation took {:?}",
                 schema_revalidate_start.elapsed()
@@ -1809,7 +849,7 @@ impl LanguageServer for GraphQLLanguageServer {
                 match change.typ {
                     FileChangeType::CREATED | FileChangeType::CHANGED => {
                         tracing::info!("Scheduling config reload for workspace: {}", workspace_uri);
-                        self.schedule_config_reload(workspace_uri).await;
+                        self.schedule_config_reload(workspace_uri);
                     }
                     FileChangeType::DELETED => {
                         tracing::warn!("Config file deleted for workspace: {}", workspace_uri);
@@ -2066,62 +1106,7 @@ impl LanguageServer for GraphQLLanguageServer {
                     ));
                 }
 
-                // Get projects for this workspace
-                if let Some(projects) = self.projects.get(workspace_uri) {
-                    for (project_name, project, _) in projects.iter() {
-                        let project_guard = project.read().await;
-
-                        // Schema information
-                        let schema_index = project_guard.schema_index();
-                        if let Ok(schema_guard) = schema_index.read() {
-                            let schema = schema_guard.schema();
-                            let type_count = schema.types.len();
-
-                            // Count fields from object and interface types
-                            let field_count: usize = schema
-                                .types
-                                .values()
-                                .filter_map(|type_def| {
-                                    if let Some(obj) = type_def.as_object() {
-                                        Some(obj.fields.len())
-                                    } else if let Some(iface) = type_def.as_interface() {
-                                        Some(iface.fields.len())
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .sum();
-
-                            status_lines.push(format!(
-                                "  Project '{}': {} types, {} fields",
-                                project_name, type_count, field_count
-                            ));
-                        } else {
-                            status_lines.push(format!(
-                                "  Project '{}': ⚠️ Schema not loaded",
-                                project_name
-                            ));
-                        }
-
-                        // Document information
-                        {
-                            let document_index = project_guard.document_index();
-                            if let Ok(doc_guard) = document_index.read() {
-                                let operation_count = doc_guard.operations.len();
-                                let fragment_count = doc_guard.fragments.len();
-
-                                status_lines.push(format!(
-                                    "    {} operations, {} fragments",
-                                    operation_count, fragment_count
-                                ));
-                            } else {
-                                status_lines.push("    ⚠️ Documents not loaded".to_string());
-                            };
-                        }
-                    }
-                } else {
-                    status_lines.push("  ⚠️ No projects loaded".to_string());
-                }
+                // Project information removed (old system)
             }
 
             // Open documents
@@ -2146,10 +1131,9 @@ impl LanguageServer for GraphQLLanguageServer {
                 "No workspaces loaded".to_string()
             } else {
                 let workspace_count = self.workspace_roots.len();
-                let project_count: usize = self.projects.iter().map(|p| p.value().len()).sum();
                 format!(
-                    "{} workspace(s), {} project(s) - Check output for details",
-                    workspace_count, project_count
+                    "{} workspace(s) - Check output for details",
+                    workspace_count
                 )
             };
 

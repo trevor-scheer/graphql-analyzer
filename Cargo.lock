@@ -1041,6 +1041,7 @@ dependencies = [
  "anyhow",
  "apollo-compiler",
  "dashmap",
+ "glob",
  "graphql-config",
  "graphql-extract",
  "graphql-ide",
