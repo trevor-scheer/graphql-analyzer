@@ -1,7 +1,7 @@
 //! Shared validation and fragment resolution helpers
 //!
-//! This module contains pure helper functions used by `StaticGraphQLProject`
-//! for common GraphQL validation tasks.
+//! This module contains pure helper functions used by both `StaticGraphQLProject`
+//! and `DynamicGraphQLProject` for common GraphQL validation tasks.
 
 use std::collections::HashSet;
 
@@ -166,6 +166,32 @@ pub fn collect_fragment_spreads_from_selection_set(
     }
 }
 
+/// Extract a specific fragment definition from GraphQL source by name
+///
+/// Parses the content and returns only the text of the named fragment definition.
+/// Returns None if the fragment is not found.
+pub fn extract_fragment_from_content(content: &str, fragment_name: &str) -> Option<String> {
+    use apollo_parser::cst;
+    use apollo_parser::cst::CstNode;
+    use apollo_parser::Parser;
+
+    let parsed = Parser::new(content).parse();
+
+    for def in parsed.document().definitions() {
+        if let cst::Definition::FragmentDefinition(frag) = def {
+            if let Some(name) = frag.fragment_name() {
+                if let Some(name_token) = name.name() {
+                    if name_token.text() == fragment_name {
+                        return Some(frag.syntax().text().to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,5 +233,16 @@ mod tests {
         assert_eq!(refs.len(), 2);
         assert!(refs.contains(&"UserFields".to_string()));
         assert!(refs.contains(&"PostFields".to_string()));
+    }
+
+    #[test]
+    fn test_extract_fragment_from_content() {
+        let source = "fragment A on User { id } fragment B on Post { title }";
+        let extracted = extract_fragment_from_content(source, "A");
+        assert!(extracted.is_some());
+        assert!(extracted.unwrap().contains("fragment A on User"));
+
+        let not_found = extract_fragment_from_content(source, "C");
+        assert!(not_found.is_none());
     }
 }

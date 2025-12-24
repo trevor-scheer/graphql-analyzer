@@ -14,7 +14,6 @@ mutation PerformAttack($battleId: ID!, $trainerId: ID!, $moveId: ID!) {
     action: { type: ATTACK, moveId: $moveId }
   ) {
     ...BattleDetailed
-    endedAt
   }
 }
 

@@ -1,6 +1,7 @@
 mod completion;
 mod diagnostics;
 mod document;
+mod dynamic_project;
 mod error;
 mod find_references;
 mod goto_definition;
@@ -19,6 +20,7 @@ pub use diagnostics::{
     convert_apollo_diagnostics, Diagnostic, Location, Position, Range, RelatedInfo, Severity,
 };
 pub use document::DocumentLoader;
+pub use dynamic_project::{DependencyGraph, DiagnosticsMap, DynamicGraphQLProject, ValidationMode};
 pub use error::{ProjectError, Result};
 pub use find_references::{FindReferencesProvider, ReferenceLocation};
 pub use goto_definition::{DefinitionLocation, GotoDefinitionProvider};

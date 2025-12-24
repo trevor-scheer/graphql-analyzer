@@ -7,11 +7,6 @@ members = [
     "crates/graphql-lsp",
     "crates/graphql-cli",
     ".husky", "crates/graphql-linter",
-    "crates/graphql-db",
-    "crates/graphql-syntax",
-    "crates/graphql-hir",
-    "crates/graphql-analysis",
-    "crates/graphql-ide",
 ]
 
 [workspace.package]
@@ -58,13 +53,6 @@ swc_common = "18.0"
 # Utilities
 dashmap = "6.1"
 once_cell = "1.21"
-
-# Logging and Tracing
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-# Incremental computation
-salsa = "0.25"
 
 # The profile that 'dist' will build with
 [profile.dist]
