@@ -636,20 +636,39 @@ impl StaticGraphQLProject {
         let tree = parser.parse();
 
         for definition in tree.document().definitions() {
-            if let cst::Definition::OperationDefinition(operation) = definition {
-                if let Some(selection_set) = operation.selection_set() {
-                    let mut direct_fragments = HashSet::new();
-                    Self::collect_fragment_spreads_from_selection_set(
-                        &selection_set,
-                        &mut direct_fragments,
-                    );
-                    for frag_name in direct_fragments {
-                        if !referenced.contains(&frag_name) {
-                            referenced.insert(frag_name.clone());
-                            to_process.push_back(frag_name);
+            match definition {
+                cst::Definition::OperationDefinition(operation) => {
+                    if let Some(selection_set) = operation.selection_set() {
+                        let mut direct_fragments = HashSet::new();
+                        Self::collect_fragment_spreads_from_selection_set(
+                            &selection_set,
+                            &mut direct_fragments,
+                        );
+                        for frag_name in direct_fragments {
+                            if !referenced.contains(&frag_name) {
+                                referenced.insert(frag_name.clone());
+                                to_process.push_back(frag_name);
+                            }
                         }
                     }
                 }
+                cst::Definition::FragmentDefinition(fragment) => {
+                    // Also check fragments defined in this document for fragment spreads
+                    if let Some(selection_set) = fragment.selection_set() {
+                        let mut direct_fragments = HashSet::new();
+                        Self::collect_fragment_spreads_from_selection_set(
+                            &selection_set,
+                            &mut direct_fragments,
+                        );
+                        for frag_name in direct_fragments {
+                            if !referenced.contains(&frag_name) {
+                                referenced.insert(frag_name.clone());
+                                to_process.push_back(frag_name);
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -667,6 +686,15 @@ impl StaticGraphQLProject {
 
                         for definition in frag_tree.document().definitions() {
                             if let cst::Definition::FragmentDefinition(fragment) = definition {
+                                // Only process the specific fragment we're looking for
+                                if let Some(name) = fragment.fragment_name() {
+                                    if let Some(name_token) = name.name() {
+                                        if name_token.text() != fragment_name {
+                                            continue;
+                                        }
+                                    }
+                                }
+
                                 if let Some(selection_set) = fragment.selection_set() {
                                     let mut nested_fragments = HashSet::new();
                                     Self::collect_fragment_spreads_from_selection_set(
