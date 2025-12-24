@@ -1,3 +1,4 @@
+mod analysis;
 mod commands;
 mod progress;
 

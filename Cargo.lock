@@ -938,6 +938,7 @@ dependencies = [
  "colored",
  "graphql-config",
  "graphql-extract",
+ "graphql-ide",
  "graphql-linter",
  "graphql-project",
  "indicatif",

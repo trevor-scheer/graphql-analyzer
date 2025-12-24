@@ -13,7 +13,6 @@ use std::sync::Arc;
 /// - The file metadata changes
 /// - The lint configuration changes
 #[salsa::tracked]
-#[tracing::instrument(skip(db, content, metadata), fields(file = %metadata.uri(db).as_str()))]
 pub fn lint_file(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
@@ -26,10 +25,7 @@ pub fn lint_file(
 
     // Skip linting if there are parse errors
     if !parse.errors.is_empty() {
-        tracing::debug!(
-            errors = parse.errors.len(),
-            "Skipping linting due to parse errors"
-        );
+        tracing::debug!("Skipping linting due to parse errors");
         return Arc::new(diagnostics);
     }
 
