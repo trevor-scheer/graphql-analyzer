@@ -214,6 +214,28 @@ impl GraphQLLanguageServer {
         }
     }
 
+    /// Expand brace patterns like `{ts,tsx}` into multiple patterns
+    ///
+    /// This is needed because the glob crate doesn't support brace expansion.
+    /// For example, `**/*.{ts,tsx}` expands to `["**/*.ts", "**/*.tsx"]`.
+    fn expand_braces(pattern: &str) -> Vec<String> {
+        // Simple brace expansion for patterns like **/*.{ts,tsx}
+        if let Some(start) = pattern.find('{') {
+            if let Some(end) = pattern.find('}') {
+                let before = &pattern[..start];
+                let after = &pattern[end + 1..];
+                let options = &pattern[start + 1..end];
+
+                return options
+                    .split(',')
+                    .map(|opt| format!("{before}{opt}{after}"))
+                    .collect();
+            }
+        }
+
+        vec![pattern.to_string()]
+    }
+
     /// Add or update a file in the `AnalysisHost` for a workspace
     async fn add_file_to_host(
         &self,
@@ -358,55 +380,68 @@ impl GraphQLLanguageServer {
 
                     tracing::info!("Processing pattern: {}", pattern);
 
-                    // Resolve pattern relative to workspace
-                    let full_pattern = workspace_path.join(&pattern);
+                    // Expand brace patterns like {ts,tsx} since glob crate doesn't support them
+                    let expanded_patterns = Self::expand_braces(&pattern);
+                    tracing::info!("Expanded into {} patterns", expanded_patterns.len());
 
-                    match glob::glob(&full_pattern.display().to_string()) {
-                        Ok(paths) => {
-                            for entry in paths {
-                                match entry {
-                                    Ok(path) if path.is_file() => {
-                                        // Skip node_modules
-                                        if path
-                                            .components()
-                                            .any(|c| c.as_os_str() == "node_modules")
-                                        {
-                                            continue;
-                                        }
+                    for expanded_pattern in expanded_patterns {
+                        // Resolve pattern relative to workspace
+                        let full_pattern = workspace_path.join(&expanded_pattern);
 
-                                        // Read file content
-                                        match std::fs::read_to_string(&path) {
-                                            Ok(content) => {
-                                                let file_kind = Self::determine_file_kind(&content);
-                                                let uri = format!("file://{}", path.display());
-                                                let file_path = graphql_ide::FilePath::new(uri);
+                        tracing::debug!("Globbing: {}", full_pattern.display());
 
-                                                let mut host_guard = host.lock().await;
-                                                host_guard
-                                                    .add_file(&file_path, &content, file_kind);
-                                                tracing::info!(
-                                                    "Loaded document file: {}",
-                                                    path.display()
-                                                );
+                        match glob::glob(&full_pattern.display().to_string()) {
+                            Ok(paths) => {
+                                for entry in paths {
+                                    match entry {
+                                        Ok(path) if path.is_file() => {
+                                            // Skip node_modules
+                                            if path
+                                                .components()
+                                                .any(|c| c.as_os_str() == "node_modules")
+                                            {
+                                                continue;
                                             }
-                                            Err(e) => {
-                                                tracing::warn!(
-                                                    "Failed to read file {}: {}",
-                                                    path.display(),
-                                                    e
-                                                );
+
+                                            // Read file content
+                                            match std::fs::read_to_string(&path) {
+                                                Ok(content) => {
+                                                    let file_kind =
+                                                        Self::determine_file_kind(&content);
+                                                    let uri = format!("file://{}", path.display());
+                                                    let file_path = graphql_ide::FilePath::new(uri);
+
+                                                    let mut host_guard = host.lock().await;
+                                                    host_guard
+                                                        .add_file(&file_path, &content, file_kind);
+                                                    tracing::info!(
+                                                        "Loaded document file: {}",
+                                                        path.display()
+                                                    );
+                                                }
+                                                Err(e) => {
+                                                    tracing::warn!(
+                                                        "Failed to read file {}: {}",
+                                                        path.display(),
+                                                        e
+                                                    );
+                                                }
                                             }
                                         }
-                                    }
-                                    Ok(_) => {} // Skip directories
-                                    Err(e) => {
-                                        tracing::warn!("Glob entry error: {}", e);
+                                        Ok(_) => {} // Skip directories
+                                        Err(e) => {
+                                            tracing::warn!("Glob entry error: {}", e);
+                                        }
                                     }
                                 }
                             }
-                        }
-                        Err(e) => {
-                            tracing::error!("Invalid glob pattern '{}': {}", pattern, e);
+                            Err(e) => {
+                                tracing::error!(
+                                    "Invalid glob pattern '{}': {}",
+                                    expanded_pattern,
+                                    e
+                                );
+                            }
                         }
                     }
                 }
