@@ -70,6 +70,10 @@ pub struct FileMetadata {
     pub file_id: FileId,
     pub uri: FileUri,
     pub kind: FileKind,
+    /// Line offset for extracted GraphQL (0 for pure GraphQL files)
+    /// For TypeScript/JavaScript files, this is the line number where the GraphQL starts
+    #[default]
+    pub line_offset: u32,
 }
 
 /// Input: Project file lists
@@ -86,9 +90,21 @@ pub struct ProjectFiles {
 /// The root salsa database
 /// This is the main entry point for all queries
 #[salsa::db]
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct RootDatabase {
     storage: salsa::Storage<Self>,
+    /// Current project files (stored with interior mutability for access from queries)
+    /// This is set by the IDE layer when files are added/removed
+    project_files: std::cell::Cell<Option<ProjectFiles>>,
+}
+
+impl Default for RootDatabase {
+    fn default() -> Self {
+        Self {
+            storage: salsa::Storage::default(),
+            project_files: std::cell::Cell::new(None),
+        }
+    }
 }
 
 // Implement the Database trait
@@ -100,6 +116,18 @@ impl RootDatabase {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Get the current project files
+    #[must_use]
+    pub const fn project_files(&self) -> Option<ProjectFiles> {
+        self.project_files.get()
+    }
+
+    /// Set the current project files
+    /// This should be called by the IDE layer when files are added/removed
+    pub fn set_project_files(&self, project_files: Option<ProjectFiles>) {
+        self.project_files.set(project_files);
     }
 }
 

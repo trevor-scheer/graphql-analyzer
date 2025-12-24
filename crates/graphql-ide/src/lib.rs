@@ -270,10 +270,20 @@ impl AnalysisHost {
     /// Add or update a file in the host
     ///
     /// This is a convenience method for adding files to the registry and database.
-    pub fn add_file(&mut self, path: &FilePath, content: &str, kind: FileKind) {
+    /// The `line_offset` parameter is used for TypeScript/JavaScript files where GraphQL
+    /// is extracted - it indicates the line number in the original source where the GraphQL starts.
+    pub fn add_file(&mut self, path: &FilePath, content: &str, kind: FileKind, line_offset: u32) {
+        tracing::info!(
+            "AnalysisHost::add_file: path={}, content_len={}, kind={:?}, line_offset={}, first_100={:?}",
+            path.as_str(),
+            content.len(),
+            kind,
+            line_offset,
+            &content[..100.min(content.len())]
+        );
         {
             let mut registry = self.registry.write().unwrap();
-            registry.add_file(&self.db, path, content, kind);
+            registry.add_file(&mut self.db, path, content, kind, line_offset);
         } // Drop lock before rebuilding ProjectFiles
         let mut registry = self.registry.write().unwrap();
         registry.rebuild_project_files(&mut self.db);
@@ -1186,7 +1196,7 @@ mod tests {
 
         // Add a valid schema file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
 
         // Get diagnostics
         let snapshot = host.snapshot();
@@ -1219,14 +1229,14 @@ mod tests {
 
         // Add a file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
 
         // Get initial diagnostics
         let snapshot1 = host.snapshot();
         let diagnostics1 = snapshot1.diagnostics(&path);
 
         // Update the file
-        host.add_file(&path, "type Query { world: Int }", FileKind::Schema);
+        host.add_file(&path, "type Query { world: Int }", FileKind::Schema, 0);
 
         // Get new diagnostics
         let snapshot2 = host.snapshot();
@@ -1311,7 +1321,7 @@ mod tests {
 
         // Add a schema file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
 
         // Get hover at a position
         let snapshot = host.snapshot();
@@ -1337,21 +1347,23 @@ mod tests {
     }
 
     #[test]
-    fn test_hover_shows_syntax_errors() {
+    fn test_hover_with_syntax_errors_shows_valid_symbols() {
         let mut host = AnalysisHost::new();
 
-        // Add a file with syntax errors
+        // Add a file with syntax errors (missing closing brace)
         let path = FilePath::new("file:///invalid.graphql");
-        host.add_file(&path, "type Query {", FileKind::Schema);
+        host.add_file(&path, "type Query {", FileKind::Schema, 0);
 
-        // Get hover
+        // Get hover on the Query type name (position 5 is in "Query")
         let snapshot = host.snapshot();
         let hover = snapshot.hover(&path, Position::new(0, 5));
 
-        // Should return hover with error information
+        // Should return hover info for the Query type even with syntax errors
+        // This tests that hover works on valid parts of a file with syntax errors
         assert!(hover.is_some());
         let hover = hover.unwrap();
-        assert!(hover.contents.contains("Syntax Errors"));
+        assert!(hover.contents.contains("Query"));
+        assert!(hover.contents.contains("Type"));
     }
 
     #[test]
@@ -1392,7 +1404,7 @@ mod tests {
 
         // Add a schema file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
 
         // Get completions at a position
         let snapshot = host.snapshot();
@@ -1421,7 +1433,7 @@ mod tests {
 
         // Add a file with syntax errors
         let path = FilePath::new("file:///invalid.graphql");
-        host.add_file(&path, "type Query {", FileKind::Schema);
+        host.add_file(&path, "type Query {", FileKind::Schema, 0);
 
         // Get completions
         let snapshot = host.snapshot();
@@ -1438,7 +1450,7 @@ mod tests {
 
         // Add a schema file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
 
         // Get goto definition at a position (may not find anything, but shouldn't crash)
         let snapshot = host.snapshot();
@@ -1470,6 +1482,7 @@ mod tests {
             &schema_file,
             "type User { id: ID! name: String }",
             FileKind::Schema,
+            0,
         );
 
         // Add a fragment definition
@@ -1478,12 +1491,13 @@ mod tests {
             &fragment_file,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
+            0,
         );
 
         // Add a query that uses the fragment
         let query_file = FilePath::new("file:///query.graphql");
         let query_text = "query { ...UserFields }";
-        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL);
+        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL, 0);
 
         // Get goto definition for the fragment spread (position at "UserFields")
         // Position should be at the start of "UserFields" after "..."
@@ -1511,12 +1525,17 @@ mod tests {
 
         // Add a type definition
         let schema_file = FilePath::new("file:///schema.graphql");
-        host.add_file(&schema_file, "type User { id: ID }", FileKind::Schema);
+        host.add_file(&schema_file, "type User { id: ID }", FileKind::Schema, 0);
 
         // Add a fragment that references User
         let fragment_file = FilePath::new("file:///fragment.graphql");
         let fragment_text = "fragment F on User { id }";
-        host.add_file(&fragment_file, fragment_text, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &fragment_file,
+            fragment_text,
+            FileKind::ExecutableGraphQL,
+            0,
+        );
 
         // Get goto definition for the type reference (position at "User" in fragment)
         // "fragment F on " = 14 characters, so "User" starts at position 14
@@ -1540,14 +1559,25 @@ mod tests {
             &fragment_file,
             "fragment F on User { id }",
             FileKind::ExecutableGraphQL,
+            0,
         );
 
         // Add queries that use the fragment
         let query1_file = FilePath::new("file:///query1.graphql");
-        host.add_file(&query1_file, "query { ...F }", FileKind::ExecutableGraphQL);
+        host.add_file(
+            &query1_file,
+            "query { ...F }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
 
         let query2_file = FilePath::new("file:///query2.graphql");
-        host.add_file(&query2_file, "query { ...F }", FileKind::ExecutableGraphQL);
+        host.add_file(
+            &query2_file,
+            "query { ...F }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
 
         // Find references to the fragment (position at "F" in fragment definition)
         // "fragment " = 9 characters, so "F" starts at position 9
@@ -1570,11 +1600,17 @@ mod tests {
             &fragment_file,
             "fragment F on User { id }",
             FileKind::ExecutableGraphQL,
+            0,
         );
 
         // Add a query that uses the fragment
         let query_file = FilePath::new("file:///query.graphql");
-        host.add_file(&query_file, "query { ...F }", FileKind::ExecutableGraphQL);
+        host.add_file(
+            &query_file,
+            "query { ...F }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
 
         // Find references including declaration
         // "fragment " = 9 characters, so "F" starts at position 9
@@ -1593,17 +1629,23 @@ mod tests {
 
         // Add a type definition
         let user_file = FilePath::new("file:///user.graphql");
-        host.add_file(&user_file, "type User { id: ID }", FileKind::Schema);
+        host.add_file(&user_file, "type User { id: ID }", FileKind::Schema, 0);
 
         // Add types that reference User
         let query_file = FilePath::new("file:///query.graphql");
-        host.add_file(&query_file, "type Query { user: User }", FileKind::Schema);
+        host.add_file(
+            &query_file,
+            "type Query { user: User }",
+            FileKind::Schema,
+            0,
+        );
 
         let mutation_file = FilePath::new("file:///mutation.graphql");
         host.add_file(
             &mutation_file,
             "type Mutation { u: User }",
             FileKind::Schema,
+            0,
         );
 
         // Find references to the User type
@@ -1624,11 +1666,16 @@ mod tests {
 
         // Add a type definition
         let user_file = FilePath::new("file:///user.graphql");
-        host.add_file(&user_file, "type User { id: ID }", FileKind::Schema);
+        host.add_file(&user_file, "type User { id: ID }", FileKind::Schema, 0);
 
         // Add a type that references User
         let query_file = FilePath::new("file:///query.graphql");
-        host.add_file(&query_file, "type Query { user: User }", FileKind::Schema);
+        host.add_file(
+            &query_file,
+            "type Query { user: User }",
+            FileKind::Schema,
+            0,
+        );
 
         // Find references including declaration
         // "type " = 5 characters, so "User" starts at position 5
@@ -1651,6 +1698,7 @@ mod tests {
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
             FileKind::Schema,
+            0,
         );
 
         // Add a fragment definition
@@ -1659,13 +1707,14 @@ mod tests {
             &fragment_file,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
+            0,
         );
 
         // Add a query with cursor in selection set
         let query_file = FilePath::new("file:///query.graphql");
         let query_text = "query { user { id } }";
         //                                 ^ cursor here at position 15 (right after { before id)
-        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL);
+        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL, 0);
 
         // Get completions inside the selection set (simulating user about to type)
         let snapshot = host.snapshot();
@@ -1714,6 +1763,7 @@ mod tests {
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
             FileKind::Schema,
+            0,
         );
 
         // Add a fragment definition
@@ -1722,13 +1772,14 @@ mod tests {
             &fragment_file,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
+            0,
         );
 
         // Add a query with cursor OUTSIDE any selection set (at document level)
         let query_file = FilePath::new("file:///query.graphql");
         let query_text = "query { user { id } }\n";
         //                                       ^ cursor at end (position 22 on line 0)
-        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL);
+        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL, 0);
 
         // Get completions at document level (NOT in a selection set)
         let snapshot = host.snapshot();
@@ -1755,6 +1806,7 @@ mod tests {
             &schema_file,
             "type Mutation { forfeitBattle(battleId: ID!, trainerId: ID!): Battle } type Battle { id: ID! status: String winner: String }",
             FileKind::Schema,
+            0,
         );
 
         // Add a fragment definition
@@ -1763,6 +1815,7 @@ mod tests {
             &fragment_file,
             "fragment BattleDetailed on Battle { id status }",
             FileKind::ExecutableGraphQL,
+            0,
         );
 
         // Add a mutation with cursor after fragment spread
@@ -1773,7 +1826,12 @@ mod tests {
 
   }
 }";
-        host.add_file(&mutation_file, mutation_text, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &mutation_file,
+            mutation_text,
+            FileKind::ExecutableGraphQL,
+            0,
+        );
 
         // Get completions after the fragment spread (line 3, position 4 - after newline)
         let snapshot = host.snapshot();
@@ -1810,6 +1868,7 @@ mod tests {
             &schema_file,
             "type Mutation { forfeitBattle(battleId: ID!, trainerId: ID!): Battle startBattle(trainerId: ID!): Battle } type Battle { id: ID! status: String winner: String }",
             FileKind::Schema,
+            0,
         );
 
         // Add a fragment definition
@@ -1818,6 +1877,7 @@ mod tests {
             &fragment_file,
             "fragment BattleDetailed on Battle { id status }",
             FileKind::ExecutableGraphQL,
+            0,
         );
 
         // Add multiple mutations in the same file
@@ -1835,7 +1895,12 @@ mutation ForfeitBattle($battleId: ID!, $trainerId: ID!) {
 
   }
 }";
-        host.add_file(&mutation_file, mutation_text, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &mutation_file,
+            mutation_text,
+            FileKind::ExecutableGraphQL,
+            0,
+        );
 
         // Get completions in the second mutation after the fragment spread (line 10, position 4)
         let snapshot = host.snapshot();
@@ -1866,6 +1931,49 @@ mutation ForfeitBattle($battleId: ID!, $trainerId: ID!) {
         assert!(
             field_names.contains(&"winner"),
             "Expected 'winner' field in completions, got: {field_names:?}"
+        );
+    }
+
+    #[test]
+    fn test_typescript_graphql_extraction() {
+        use graphql_extract::{extract_from_source, ExtractConfig, Language};
+
+        // Test that TypeScript files with GraphQL are correctly extracted
+        // and don't produce TypeScript syntax errors like "Unexpected <EOF>" on "import"
+
+        let typescript_source = r"import { gql } from '@apollo/client';
+
+export const GET_POKEMON = gql`
+  query GetPokemon {
+    pokemon {
+      id
+      name
+    }
+  }
+`;
+";
+
+        // Test extraction works
+        let config = ExtractConfig::default();
+        let result = extract_from_source(typescript_source, Language::TypeScript, &config);
+
+        assert!(result.is_ok(), "Extraction should succeed");
+        let blocks = result.unwrap();
+        assert!(
+            !blocks.is_empty(),
+            "Should extract at least one GraphQL block"
+        );
+
+        // Verify extracted content
+        let graphql = &blocks[0].source;
+        assert!(graphql.contains("GetPokemon"), "Should contain query name");
+        assert!(
+            !graphql.contains("import"),
+            "Should NOT contain TypeScript import statement"
+        );
+        assert!(
+            graphql.contains("pokemon"),
+            "Should contain field selections"
         );
     }
 }

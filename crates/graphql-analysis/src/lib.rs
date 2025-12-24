@@ -9,10 +9,13 @@ use std::sync::Arc;
 mod diagnostics;
 mod document_validation;
 mod lint_integration;
+pub mod merged_schema;
 mod project_lints;
 mod schema_validation;
+pub mod validation;
 
 pub use diagnostics::*;
+pub use validation::validate_document;
 
 /// The salsa database trait for analysis queries
 #[salsa::db]
@@ -95,25 +98,47 @@ pub fn file_diagnostics(
         });
     }
 
-    // Semantic validation is disabled for now - it requires project-wide schema
-    // aggregation which isn't implemented in the new architecture yet.
-    // TODO: Re-enable once we have proper project-wide schema loading
-    // match metadata.kind(db) {
-    //     FileKind::Schema => {
-    //         diagnostics.extend(
-    //             schema_validation::validate_schema_file(db, content, metadata)
-    //                 .iter()
-    //                 .cloned(),
-    //         );
-    //     }
-    //     FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
-    //         diagnostics.extend(
-    //             document_validation::validate_document_file(db, content, metadata)
-    //                 .iter()
-    //                 .cloned(),
-    //         );
-    //     }
-    // }
+    // Apollo-compiler validation (using merged schema)
+    // Only run if we have project files available
+    let project_files_opt = db.project_files();
+    tracing::debug!(
+        has_project_files = project_files_opt.is_some(),
+        "Checking for project files"
+    );
+    if let Some(project_files) = project_files_opt {
+        use graphql_db::FileKind;
+        let file_kind = metadata.kind(db);
+        tracing::info!(
+            uri = ?metadata.uri(db),
+            ?file_kind,
+            "Determining validation path for file"
+        );
+
+        match file_kind {
+            FileKind::Schema => {
+                tracing::info!("Running schema validation");
+                // Full apollo-compiler schema validation with spec-compliant error checking
+                let schema_diagnostics =
+                    schema_validation::validate_schema_file(db, content, metadata);
+                tracing::info!(
+                    schema_diagnostic_count = schema_diagnostics.len(),
+                    "Schema validation completed"
+                );
+                diagnostics.extend(schema_diagnostics.iter().cloned());
+            }
+            FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
+                tracing::info!("Running document validation");
+                // Use apollo-compiler validation for documents
+                let doc_diagnostics =
+                    validation::validate_document(db, content, metadata, project_files);
+                tracing::info!(
+                    document_diagnostic_count = doc_diagnostics.len(),
+                    "Document validation completed"
+                );
+                diagnostics.extend(doc_diagnostics.iter().cloned());
+            }
+        }
+    }
 
     // Lint diagnostics (from graphql-linter integration)
     diagnostics.extend(

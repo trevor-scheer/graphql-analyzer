@@ -136,21 +136,41 @@ impl GraphQLLanguageServer {
             .clone()
     }
 
-    /// Determine `FileKind` by parsing the file content and inspecting definitions.
+    /// Determine `FileKind` for a document file based on its path.
     ///
-    /// Schema files contain type definitions, directive definitions, schema definitions, etc.
-    /// Executable files contain operations and/or fragments.
-    fn determine_file_kind(content: &str) -> graphql_ide::FileKind {
+    /// This is used for files loaded from the `documents` configuration.
+    /// - `.ts`/`.tsx` files → TypeScript
+    /// - `.js`/`.jsx` files → JavaScript
+    /// - `.graphql`/`.gql` files → `ExecutableGraphQL`
+    ///
+    /// Note: Files from the `schema` configuration are always `FileKind::Schema`,
+    /// regardless of their extension.
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
+    fn determine_file_kind(path: &str, _content: &str) -> graphql_ide::FileKind {
+        // Determine kind based on file extension
+        if path.ends_with(".ts") || path.ends_with(".tsx") {
+            graphql_ide::FileKind::TypeScript
+        } else if path.ends_with(".js") || path.ends_with(".jsx") {
+            graphql_ide::FileKind::JavaScript
+        } else {
+            // .graphql, .gql, or other files from documents pattern
+            graphql_ide::FileKind::ExecutableGraphQL
+        }
+    }
+
+    /// Determine if a file contains schema definitions by inspecting its content.
+    ///
+    /// Used for files opened/changed in the editor where we don't have config context.
+    /// Returns true if the content contains schema type definitions.
+    fn content_has_schema_definitions(content: &str) -> bool {
         use apollo_compiler::parser::Parser;
 
-        // Parse the GraphQL content
         let mut parser = Parser::new();
         let ast = parser
             .parse_ast(content, "virtual.graphql")
             .unwrap_or_else(|e| e.partial);
 
-        // Check what kinds of definitions exist
-        let has_schema_definitions = ast.definitions.iter().any(|def| {
+        ast.definitions.iter().any(|def| {
             matches!(
                 def,
                 apollo_compiler::ast::Definition::SchemaDefinition(_)
@@ -169,13 +189,87 @@ impl GraphQLLanguageServer {
                     | apollo_compiler::ast::Definition::InputObjectTypeExtension(_)
                     | apollo_compiler::ast::Definition::DirectiveDefinition(_)
             )
-        });
+        })
+    }
 
-        if has_schema_definitions {
+    /// Determine `FileKind` for files opened/changed in the editor.
+    ///
+    /// For TypeScript/JavaScript files, we can't easily distinguish between schema
+    /// and documents without config context, so we check the extracted GraphQL content.
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
+    fn determine_file_kind_from_content(path: &str, content: &str) -> graphql_ide::FileKind {
+        // For TypeScript/JavaScript, check if content has schema definitions
+        if path.ends_with(".ts") || path.ends_with(".tsx") {
+            return graphql_ide::FileKind::TypeScript;
+        }
+        if path.ends_with(".js") || path.ends_with(".jsx") {
+            return graphql_ide::FileKind::JavaScript;
+        }
+
+        // For .graphql/.gql files, check content to determine Schema vs ExecutableGraphQL
+        if Self::content_has_schema_definitions(content) {
             graphql_ide::FileKind::Schema
         } else {
-            // Operations and fragments are executable GraphQL
             graphql_ide::FileKind::ExecutableGraphQL
+        }
+    }
+
+    /// Extract GraphQL from TypeScript/JavaScript source code.
+    ///
+    /// Returns `(extracted_graphql, line_offset)` tuple.
+    /// For TS/JS files: Returns extracted GraphQL or empty string if none found.
+    /// For other files: Returns source as-is.
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
+    fn extract_graphql_from_source(path: &str, source: &str) -> (String, u32) {
+        use graphql_extract::{extract_from_source, ExtractConfig, Language};
+
+        // Determine language from file extension
+        let language = if path.ends_with(".ts") || path.ends_with(".tsx") {
+            Language::TypeScript
+        } else if path.ends_with(".js") || path.ends_with(".jsx") {
+            Language::JavaScript
+        } else {
+            // Not a TS/JS file, return as-is (for .graphql files)
+            return (source.to_string(), 0);
+        };
+
+        // Extract GraphQL from TS/JS
+        let config = ExtractConfig::default();
+        tracing::info!("Attempting to extract GraphQL from TS/JS file: {}", path);
+        match extract_from_source(source, language, &config) {
+            Ok(extracted) if !extracted.is_empty() => {
+                // Concatenate all extracted GraphQL blocks
+                let combined_graphql: Vec<String> =
+                    extracted.iter().map(|e| e.source.clone()).collect();
+
+                // Use the line offset from the first block
+                #[allow(clippy::cast_possible_truncation)]
+                let line_offset = extracted[0].location.range.start.line.saturating_sub(1) as u32;
+
+                let result = combined_graphql.join("\n\n");
+                tracing::info!(
+                    "Successfully extracted GraphQL from {}: {} blocks, {} chars, line_offset={}",
+                    path,
+                    extracted.len(),
+                    result.len(),
+                    line_offset
+                );
+                (result, line_offset)
+            }
+            Ok(extracted) => {
+                // No GraphQL found in TS/JS file - return empty string
+                tracing::warn!(
+                    "No GraphQL found in TypeScript/JavaScript file: {} (extracted {} blocks)",
+                    path,
+                    extracted.len()
+                );
+                (String::new(), 0)
+            }
+            Err(e) => {
+                // Extraction failed - return empty string
+                tracing::error!("Failed to extract GraphQL from {}: {}", path, e);
+                (String::new(), 0)
+            }
         }
     }
 
@@ -208,12 +302,13 @@ impl GraphQLLanguageServer {
         file_uri: &Uri,
         content: &str,
         file_kind: graphql_ide::FileKind,
+        line_offset: u32,
     ) {
         let host = self.get_or_create_host(workspace_uri);
         let file_path = graphql_ide::FilePath::new(file_uri.to_string());
 
         let mut host_guard = host.lock().await;
-        host_guard.add_file(&file_path, content, file_kind);
+        host_guard.add_file(&file_path, content, file_kind, line_offset);
     }
 
     /// Remove a file from the `AnalysisHost` for a workspace
@@ -289,6 +384,7 @@ impl GraphQLLanguageServer {
     }
 
     /// Load all GraphQL files from the config into `AnalysisHost`
+    #[allow(clippy::too_many_lines)]
     async fn load_all_project_files(
         &self,
         workspace_uri: &str,
@@ -311,14 +407,20 @@ impl GraphQLLanguageServer {
                 Ok(schema_files) => {
                     tracing::info!("Loading {} schema files", schema_files.len());
                     for (path, content) in schema_files {
-                        let file_kind = Self::determine_file_kind(&content);
+                        // Files from the schema path are always Schema files
+                        let file_kind = graphql_ide::FileKind::Schema;
+
+                        // Extract GraphQL from TypeScript/JavaScript schema files
+                        let (final_content, line_offset) =
+                            Self::extract_graphql_from_source(&path, &content);
+
                         // Strip leading '/' from absolute paths to avoid file:////
                         let path_str = path.trim_start_matches('/');
                         let uri = format!("file:///{path_str}");
                         let file_path = graphql_ide::FilePath::new(uri);
 
                         let mut host_guard = host.lock().await;
-                        host_guard.add_file(&file_path, &content, file_kind);
+                        host_guard.add_file(&file_path, &final_content, file_kind, line_offset);
                         tracing::info!("Loaded schema file: {}", path);
                     }
                 }
@@ -373,17 +475,40 @@ impl GraphQLLanguageServer {
                                             // Read file content
                                             match std::fs::read_to_string(&path) {
                                                 Ok(content) => {
-                                                    let file_kind =
-                                                        Self::determine_file_kind(&content);
-                                                    // Strip leading '/' from absolute paths to avoid file:////
                                                     let path_str = path.display().to_string();
+                                                    let file_kind = Self::determine_file_kind(
+                                                        &path_str, &content,
+                                                    );
+
+                                                    // Extract GraphQL from TypeScript/JavaScript files
+                                                    let (final_content, line_offset) =
+                                                        Self::extract_graphql_from_source(
+                                                            &path_str, &content,
+                                                        );
+
+                                                    // IMPORTANT: After extraction, change TypeScript/JavaScript to ExecutableGraphQL
+                                                    let final_kind = match file_kind {
+                                                        graphql_ide::FileKind::TypeScript
+                                                        | graphql_ide::FileKind::JavaScript
+                                                            if !final_content.is_empty() =>
+                                                        {
+                                                            graphql_ide::FileKind::ExecutableGraphQL
+                                                        }
+                                                        _ => file_kind,
+                                                    };
+
+                                                    // Strip leading '/' from absolute paths to avoid file:////
                                                     let path_str = path_str.trim_start_matches('/');
                                                     let uri = format!("file:///{path_str}");
                                                     let file_path = graphql_ide::FilePath::new(uri);
 
                                                     let mut host_guard = host.lock().await;
-                                                    host_guard
-                                                        .add_file(&file_path, &content, file_kind);
+                                                    host_guard.add_file(
+                                                        &file_path,
+                                                        &final_content,
+                                                        final_kind,
+                                                        line_offset,
+                                                    );
                                                     tracing::info!(
                                                         "Loaded document file: {}",
                                                         path.display()
@@ -725,7 +850,11 @@ impl LanguageServer for GraphQLLanguageServer {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
         let content = params.text_document.text;
-        tracing::info!("Document opened");
+        tracing::info!(
+            content_len = content.len(),
+            first_100 = ?&content[..100.min(content.len())],
+            "Document opened"
+        );
 
         // Cache the document content
         self.document_cache.insert(uri.to_string(), content.clone());
@@ -734,11 +863,42 @@ impl LanguageServer for GraphQLLanguageServer {
         if let Some((workspace_uri, _project_idx)) = self.find_workspace_and_project(&uri) {
             let _file_path = uri.to_file_path();
 
-            // Determine file kind by parsing content
-            let file_kind = Self::determine_file_kind(&content);
+            // Determine file kind by inspecting path and content
+            let file_kind = Self::determine_file_kind_from_content(uri.path().as_str(), &content);
+            tracing::info!("Determined file_kind: {:?}", file_kind);
 
-            self.add_file_to_host(&workspace_uri, &uri, &content, file_kind)
-                .await;
+            // Extract GraphQL from TypeScript/JavaScript files
+            tracing::info!("About to extract GraphQL, path={}", uri.path().as_str());
+            let (final_content, line_offset) =
+                Self::extract_graphql_from_source(uri.path().as_str(), &content);
+            tracing::info!(
+                extracted_len = final_content.len(),
+                line_offset = line_offset,
+                first_100 = ?&final_content[..100.min(final_content.len())],
+                "Extracted GraphQL content"
+            );
+
+            // IMPORTANT: After extraction, the content is pure GraphQL, so change the kind to ExecutableGraphQL
+            // This prevents the syntax layer from trying to extract again
+            let final_kind = match file_kind {
+                graphql_ide::FileKind::TypeScript | graphql_ide::FileKind::JavaScript
+                    if !final_content.is_empty() =>
+                {
+                    graphql_ide::FileKind::ExecutableGraphQL
+                }
+                _ => file_kind,
+            };
+
+            tracing::info!("Adding to host: workspace={}, uri={:?}, content_len={}, file_kind={:?}, line_offset={}",
+                workspace_uri, uri, final_content.len(), final_kind, line_offset);
+            self.add_file_to_host(
+                &workspace_uri,
+                &uri,
+                &final_content,
+                final_kind,
+                line_offset,
+            )
+            .await;
         }
 
         self.validate_document(uri).await;
@@ -752,6 +912,12 @@ impl LanguageServer for GraphQLLanguageServer {
 
         // Get the latest content from changes (full sync mode)
         for change in params.content_changes {
+            tracing::info!(
+                change_len = change.text.len(),
+                first_100 = ?&change.text[..100.min(change.text.len())],
+                "Processing content change"
+            );
+
             // Update the document cache
             self.document_cache
                 .insert(uri.to_string(), change.text.clone());
@@ -760,11 +926,43 @@ impl LanguageServer for GraphQLLanguageServer {
             if let Some((workspace_uri, _project_idx)) = self.find_workspace_and_project(&uri) {
                 let _file_path = uri.to_file_path();
 
-                // Determine file kind by parsing content
-                let file_kind = Self::determine_file_kind(&change.text);
+                // Determine file kind by inspecting path and content
+                let file_kind =
+                    Self::determine_file_kind_from_content(uri.path().as_str(), &change.text);
+                tracing::info!("did_change determined file_kind: {:?}", file_kind);
 
-                self.add_file_to_host(&workspace_uri, &uri, &change.text, file_kind)
-                    .await;
+                // Extract GraphQL from TypeScript/JavaScript files
+                tracing::info!(
+                    "did_change about to extract GraphQL, path={}",
+                    uri.path().as_str()
+                );
+                let (final_content, line_offset) =
+                    Self::extract_graphql_from_source(uri.path().as_str(), &change.text);
+                tracing::info!(
+                    extracted_len = final_content.len(),
+                    line_offset = line_offset,
+                    first_100 = ?&final_content[..100.min(final_content.len())],
+                    "did_change extracted GraphQL content"
+                );
+
+                // IMPORTANT: After extraction, the content is pure GraphQL, so change the kind to ExecutableGraphQL
+                let final_kind = match file_kind {
+                    graphql_ide::FileKind::TypeScript | graphql_ide::FileKind::JavaScript
+                        if !final_content.is_empty() =>
+                    {
+                        graphql_ide::FileKind::ExecutableGraphQL
+                    }
+                    _ => file_kind,
+                };
+
+                self.add_file_to_host(
+                    &workspace_uri,
+                    &uri,
+                    &final_content,
+                    final_kind,
+                    line_offset,
+                )
+                .await;
             }
 
             // Validate immediately - Salsa's incremental computation makes this fast
@@ -803,11 +1001,8 @@ impl LanguageServer for GraphQLLanguageServer {
                 .map(|entry| entry.value().clone())
                 .unwrap_or_default();
 
-            // Determine if this is a schema file by parsing content
-            matches!(
-                Self::determine_file_kind(&content),
-                graphql_ide::FileKind::Schema
-            )
+            // Determine if this is a schema file by inspecting content
+            Self::content_has_schema_definitions(&content)
         };
 
         // Only revalidate schema files if this is NOT a schema file

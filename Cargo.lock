@@ -918,6 +918,7 @@ name = "graphql-analysis"
 version = "0.1.1"
 dependencies = [
  "apollo-compiler",
+ "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "graphql-db",
  "graphql-hir",
  "graphql-linter",
@@ -1005,6 +1006,7 @@ dependencies = [
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "graphql-analysis",
  "graphql-db",
+ "graphql-extract",
  "graphql-hir",
  "graphql-syntax",
  "salsa",

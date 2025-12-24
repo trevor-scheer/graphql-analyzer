@@ -21,3 +21,4 @@ graphql-hir = { path = "../graphql-hir" }
 graphql-analysis = { path = "../graphql-analysis" }
 
 [dev-dependencies]
+graphql-extract = { path = "../graphql-extract" }

@@ -14,5 +14,6 @@ graphql-linter = { path = "../graphql-linter" }
 graphql-project = { path = "../graphql-project" }
 salsa = { workspace = true }
 apollo-compiler = { workspace = true }
+apollo-parser = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
