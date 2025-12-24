@@ -15,6 +15,7 @@ use std::sync::Arc;
 /// - Variable usage and type validation
 /// - Circular fragment detection
 /// - Type coercion validation
+#[allow(clippy::too_many_lines)]
 #[salsa::tracked]
 pub fn validate_document(
     db: &dyn GraphQLAnalysisDatabase,
@@ -57,58 +58,90 @@ pub fn validate_document(
     let referenced_fragments =
         collect_referenced_fragments_transitive(&doc_text, &doc_uri, &document_files, db);
 
-    tracing::debug!(
+    tracing::info!(
         fragment_count = referenced_fragments.len(),
+        fragments = ?referenced_fragments,
         "Found referenced fragments (transitive)"
     );
 
-    // Build a combined document with the current document + referenced fragments
-    let combined_doc = if referenced_fragments.is_empty() {
-        // No external fragments referenced, just use the current document
-        doc_text.to_string()
-    } else {
-        // Collect fragment definitions from other files
-        let mut combined = String::from(doc_text.as_ref());
+    // Use builder pattern to construct the executable document
+    // This allows us to add fragments individually with proper source tracking
+    let valid_schema = apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
+    let mut errors = apollo_compiler::validation::DiagnosticList::new(Arc::default());
+    let mut builder = apollo_compiler::ExecutableDocument::builder(Some(valid_schema), &mut errors);
 
+    // Add the current document
+    let line_offset_val = metadata.line_offset(db);
+    let offset = apollo_compiler::parser::SourceOffset {
+        line: (line_offset_val + 1) as usize, // Convert to 1-indexed
+        column: 1,
+    };
+
+    apollo_compiler::parser::Parser::new()
+        .source_offset(offset)
+        .parse_into_executable_builder(doc_text.as_ref(), doc_uri.as_str(), &mut builder);
+
+    tracing::debug!("Added current document to builder");
+
+    // Add referenced fragments
+    if referenced_fragments.is_empty() {
+        tracing::info!("No referenced fragments to add");
+    } else {
+        tracing::info!(
+            document_file_count = document_files.len(),
+            "Adding {} referenced fragments",
+            referenced_fragments.len()
+        );
         for (_file_id, file_content, file_metadata) in document_files.iter() {
             let text = file_content.text(db);
             let uri = file_metadata.uri(db);
 
+            tracing::debug!(
+                file = ?uri,
+                text_length = text.len(),
+                "Checking file for fragments"
+            );
+
             // Skip the current document (already included)
             if uri.as_str() == doc_uri.as_str() {
+                tracing::debug!(file = ?uri, "Skipping current document");
                 continue;
             }
 
             // Check if this file defines any referenced fragments
             if file_defines_any_fragment(&text, &referenced_fragments) {
-                combined.push_str("\n\n");
-                combined.push_str(&text);
+                // Extract and add only the specific fragments we need
+                tracing::info!(file = ?uri, "Adding file with fragments to builder");
+                apollo_compiler::parser::Parser::new().parse_into_executable_builder(
+                    text.as_ref(),
+                    uri.as_str(),
+                    &mut builder,
+                );
+                tracing::info!(file = ?uri, "Successfully added fragments from file");
+            } else {
+                tracing::debug!(file = ?uri, "File does not define any referenced fragments, skipping");
             }
         }
+    }
 
-        combined
-    };
+    // Build and validate
+    let doc = builder.build();
+    tracing::info!("Document built, running validation");
 
-    // Parse and validate the combined document with apollo-compiler
-    // Wrap the schema in Valid since we got it from merged_schema which validates it
-    tracing::info!(
-        combined_doc_length = combined_doc.len(),
-        "About to call apollo-compiler validation"
-    );
-    let valid_schema = apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
-    match apollo_compiler::ExecutableDocument::parse_and_validate(
-        valid_schema,
-        combined_doc,
-        doc_uri.as_str(),
-    ) {
+    match if errors.is_empty() {
+        doc.validate(valid_schema)
+            .map(|_| ())
+            .map_err(|with_errors| with_errors.errors)
+    } else {
+        Err(errors)
+    } {
         Ok(_valid_document) => {
             // Document is valid
             tracing::info!("Document validated successfully - no errors");
         }
-        Err(with_errors) => {
+        Err(error_list) => {
             // Convert apollo-compiler diagnostics to our format
             // Only include diagnostics for the current file
-            let error_list = &with_errors.errors;
             tracing::info!(
                 error_count = error_list.len(),
                 "Apollo-compiler found validation errors"
@@ -118,8 +151,7 @@ pub fn validate_document(
             let line_offset = metadata.line_offset(db);
 
             // Iterate over the diagnostic list and filter to current file
-            // Note: Since we combined documents, all diagnostics will be relative to the doc_uri
-            // Apollo-compiler tracks sources correctly when parsing, so diagnostics will have proper locations
+            // Note: Since we used builder pattern, diagnostics will have proper source tracking
             #[allow(clippy::cast_possible_truncation, clippy::option_if_let_else)]
             for apollo_diag in error_list.iter() {
                 // Get location information if available
@@ -360,16 +392,25 @@ fn file_defines_any_fragment(
 
     if tree.errors().next().is_some() {
         // If there are parse errors, skip this file
+        tracing::debug!("Skipping file with parse errors");
         return false;
     }
 
     let document = tree.document();
+    let mut found_fragments = Vec::new();
 
     for definition in document.definitions() {
         if let apollo_parser::cst::Definition::FragmentDefinition(frag) = definition {
             if let Some(name) = frag.fragment_name() {
                 if let Some(name_node) = name.name() {
-                    if fragment_names.contains(name_node.text().as_str()) {
+                    let frag_name = name_node.text();
+                    let frag_name_str = frag_name.as_str();
+                    found_fragments.push(frag_name_str.to_string());
+                    if fragment_names.contains(frag_name_str) {
+                        tracing::info!(
+                            fragment = frag_name_str,
+                            "Found matching fragment definition"
+                        );
                         return true;
                     }
                 }
@@ -377,6 +418,11 @@ fn file_defines_any_fragment(
         }
     }
 
+    tracing::debug!(
+        found_fragments = ?found_fragments,
+        looking_for = ?fragment_names,
+        "No matching fragments found in file"
+    );
     false
 }
 

@@ -23,6 +23,7 @@ graphql-ide = { path = "../graphql-ide" }
 
 # GraphQL
 apollo-compiler = { workspace = true }
+apollo-parser = { workspace = true }
 
 # LSP
 tower-lsp-server = { workspace = true }

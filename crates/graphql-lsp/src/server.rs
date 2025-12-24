@@ -295,6 +295,99 @@ impl GraphQLLanguageServer {
         vec![pattern.to_string()]
     }
 
+    /// Extract fragment names defined in GraphQL content
+    fn extract_fragment_names_from_content(content: &str) -> std::collections::HashSet<String> {
+        use apollo_parser::{cst, Parser};
+        use std::collections::HashSet;
+
+        let mut fragment_names = HashSet::new();
+        let parser = Parser::new(content);
+        let tree = parser.parse();
+
+        for definition in tree.document().definitions() {
+            if let cst::Definition::FragmentDefinition(fragment) = definition {
+                if let Some(name) = fragment.fragment_name() {
+                    if let Some(name_token) = name.name() {
+                        fragment_names.insert(name_token.text().to_string());
+                    }
+                }
+            }
+        }
+
+        fragment_names
+    }
+
+    /// Check if a document references any of the given fragments (transitively)
+    fn document_references_fragments(
+        content: &str,
+        fragment_names: &std::collections::HashSet<String>,
+    ) -> bool {
+        use apollo_parser::{cst, Parser};
+        use std::collections::VecDeque;
+
+        let parser = Parser::new(content);
+        let tree = parser.parse();
+
+        // Collect all directly referenced fragments from operations and fragment definitions
+        let mut to_process = VecDeque::new();
+
+        for definition in tree.document().definitions() {
+            match definition {
+                cst::Definition::OperationDefinition(operation) => {
+                    if let Some(selection_set) = operation.selection_set() {
+                        Self::collect_fragment_spreads_recursive(&selection_set, &mut to_process);
+                    }
+                }
+                cst::Definition::FragmentDefinition(fragment) => {
+                    if let Some(selection_set) = fragment.selection_set() {
+                        Self::collect_fragment_spreads_recursive(&selection_set, &mut to_process);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Check if any of the referenced fragments match the changed fragments
+        while let Some(frag_name) = to_process.pop_front() {
+            if fragment_names.contains(&frag_name) {
+                return true;
+            }
+        }
+
+        // TODO: Could also check transitive references by looking up fragments
+        // in the document index, but direct references are sufficient for now
+
+        false
+    }
+
+    /// Recursively collect fragment spread names from a selection set
+    fn collect_fragment_spreads_recursive(
+        selection_set: &apollo_parser::cst::SelectionSet,
+        result: &mut std::collections::VecDeque<String>,
+    ) {
+        for selection in selection_set.selections() {
+            match selection {
+                apollo_parser::cst::Selection::FragmentSpread(spread) => {
+                    if let Some(name) = spread.fragment_name() {
+                        if let Some(name_token) = name.name() {
+                            result.push_back(name_token.text().to_string());
+                        }
+                    }
+                }
+                apollo_parser::cst::Selection::Field(field) => {
+                    if let Some(nested_selection_set) = field.selection_set() {
+                        Self::collect_fragment_spreads_recursive(&nested_selection_set, result);
+                    }
+                }
+                apollo_parser::cst::Selection::InlineFragment(inline) => {
+                    if let Some(nested_selection_set) = inline.selection_set() {
+                        Self::collect_fragment_spreads_recursive(&nested_selection_set, result);
+                    }
+                }
+            }
+        }
+    }
+
     /// Add or update a file in the `AnalysisHost` for a workspace
     async fn add_file_to_host(
         &self,
@@ -967,6 +1060,52 @@ impl LanguageServer for GraphQLLanguageServer {
 
             // Validate immediately - Salsa's incremental computation makes this fast
             self.validate_document(uri.clone()).await;
+
+            // If this file contains fragment definitions, re-validate only documents that use them
+            let changed_fragments = Self::extract_fragment_names_from_content(&change.text);
+
+            if !changed_fragments.is_empty() {
+                tracing::info!(
+                    fragment_count = changed_fragments.len(),
+                    fragments = ?changed_fragments,
+                    "File with fragments changed, checking which documents need revalidation"
+                );
+
+                // Collect open documents and their content
+                let open_docs: Vec<(String, String)> = self
+                    .document_cache
+                    .iter()
+                    .filter(|entry| entry.key() != &uri.to_string())
+                    .map(|entry| (entry.key().clone(), entry.value().clone()))
+                    .collect();
+
+                // Only re-validate documents that reference the changed fragments
+                for (doc_uri_str, doc_content) in open_docs {
+                    let references_changed_fragment =
+                        Self::document_references_fragments(&doc_content, &changed_fragments);
+
+                    if references_changed_fragment {
+                        tracing::info!(
+                            doc_uri = %doc_uri_str,
+                            "Document uses changed fragments, re-validating"
+                        );
+
+                        match doc_uri_str.parse::<Uri>() {
+                            Ok(doc_uri) => {
+                                self.validate_document(doc_uri).await;
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to parse URI '{}': {}", doc_uri_str, e);
+                            }
+                        }
+                    } else {
+                        tracing::debug!(
+                            doc_uri = %doc_uri_str,
+                            "Document does not use changed fragments, skipping revalidation"
+                        );
+                    }
+                }
+            }
         }
 
         tracing::debug!(
@@ -1366,5 +1505,148 @@ impl LanguageServer for GraphQLLanguageServer {
             tracing::warn!("Unknown command: {}", params.command);
             Ok(None)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GraphQLLanguageServer;
+
+    #[test]
+    fn test_extract_fragment_names_from_content() {
+        // Test with multiple fragments
+        let content = r"
+            fragment UserBasic on User {
+                id
+                name
+            }
+
+            fragment UserDetailed on User {
+                ...UserBasic
+                email
+                posts {
+                    ...PostBasic
+                }
+            }
+
+            query GetUser {
+                user {
+                    ...UserDetailed
+                }
+            }
+        ";
+
+        let fragments = GraphQLLanguageServer::extract_fragment_names_from_content(content);
+        assert_eq!(fragments.len(), 2);
+        assert!(fragments.contains("UserBasic"));
+        assert!(fragments.contains("UserDetailed"));
+        assert!(!fragments.contains("PostBasic")); // Referenced but not defined
+
+        // Test with no fragments
+        let content_no_fragments = r"
+            query GetUser {
+                user {
+                    id
+                    name
+                }
+            }
+        ";
+
+        let fragments =
+            GraphQLLanguageServer::extract_fragment_names_from_content(content_no_fragments);
+        assert_eq!(fragments.len(), 0);
+    }
+
+    #[test]
+    fn test_document_references_fragments() {
+        // Document that references BattleDetailed
+        let content_with_reference = r"
+            mutation StartBattle($trainer1Id: ID!, $trainer2Id: ID!) {
+                startBattle(trainer1Id: $trainer1Id, trainer2Id: $trainer2Id) {
+                    ...BattleDetailed
+                }
+            }
+        ";
+
+        let mut changed_fragments = std::collections::HashSet::new();
+        changed_fragments.insert("BattleDetailed".to_string());
+
+        assert!(
+            GraphQLLanguageServer::document_references_fragments(
+                content_with_reference,
+                &changed_fragments
+            ),
+            "Document should reference BattleDetailed fragment"
+        );
+
+        // Document that doesn't reference BattleDetailed
+        let content_without_reference = r"
+            query GetPokemon($id: ID!) {
+                pokemon(id: $id) {
+                    id
+                    name
+                }
+            }
+        ";
+
+        assert!(
+            !GraphQLLanguageServer::document_references_fragments(
+                content_without_reference,
+                &changed_fragments
+            ),
+            "Document should not reference BattleDetailed fragment"
+        );
+
+        // Document with nested fragment spreads
+        let content_nested = r"
+            fragment TrainerWithBattles on Trainer {
+                id
+                name
+                battles {
+                    ...BattleDetailed
+                }
+            }
+        ";
+
+        assert!(
+            GraphQLLanguageServer::document_references_fragments(
+                content_nested,
+                &changed_fragments
+            ),
+            "Fragment definition should reference BattleDetailed fragment"
+        );
+
+        // Multiple fragments, only one matches
+        let mut multiple_fragments = std::collections::HashSet::new();
+        multiple_fragments.insert("BattleDetailed".to_string());
+        multiple_fragments.insert("PokemonInfo".to_string());
+
+        assert!(
+            GraphQLLanguageServer::document_references_fragments(
+                content_with_reference,
+                &multiple_fragments
+            ),
+            "Document should reference at least one of the changed fragments"
+        );
+    }
+
+    #[test]
+    fn test_document_references_fragments_no_match() {
+        let content = r"
+            query GetPokemon {
+                pokemon {
+                    id
+                    ...PokemonBasic
+                }
+            }
+        ";
+
+        let mut changed_fragments = std::collections::HashSet::new();
+        changed_fragments.insert("BattleDetailed".to_string());
+
+        assert!(
+            !GraphQLLanguageServer::document_references_fragments(content, &changed_fragments),
+            "Document uses PokemonBasic but not BattleDetailed"
+        );
     }
 }
