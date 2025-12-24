@@ -18,7 +18,7 @@ pub use context::{
 pub use linter::Linter;
 
 // New architecture exports
-pub use diagnostics::{LintDiagnostic, OffsetRange};
+pub use diagnostics::{LintDiagnostic, LintSeverity as DiagnosticSeverity, OffsetRange};
 pub use registry::{document_schema_rules, project_rules, standalone_document_rules};
 pub use traits::{
     DocumentSchemaLintRule, LintRule, ProjectLintRule, StandaloneDocumentLintRule,
