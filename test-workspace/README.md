@@ -64,7 +64,7 @@ The workspace is configured with the new project-wide lint rules:
   - Analyzes all operations and fragments project-wide
   - Helps identify dead code in your schema
 
-- **`deprecated_field: warn`** - Warns when using deprecated fields
+- **`no_deprecated: warn`** - Warns when using deprecated fields
   - Per-document check for deprecated field usage
 
 ### Validation
@@ -97,7 +97,7 @@ extensions:
       recommended: error
       unique_names: error      # Project-wide unique names
       unused_fields: warn      # Detect unused schema fields
-      deprecated_field: warn   # Warn on deprecated field usage
+      no_deprecated: warn   # Warn on deprecated field usage
   extractConfig:
     tagIdentifiers:
       - gql

@@ -217,7 +217,7 @@ The linting system is implemented in the `graphql-linter` crate, which is used b
 The linter supports four distinct contexts:
 
 1. **Standalone Document**: Quick validation without schema (e.g., naming conventions). Has optional access to `DocumentIndex` for cross-file fragment resolution.
-2. **Document Against Schema**: Real-time feedback (e.g., `deprecated_field`, `require_id_field`). Has access to `SchemaIndex` and optional `DocumentIndex` for cross-file fragment resolution.
+2. **Document Against Schema**: Real-time feedback (e.g., `no_deprecated`, `require_id_field`). Has access to `SchemaIndex` and optional `DocumentIndex` for cross-file fragment resolution.
 3. **Standalone Schema**: Schema design validation
 4. **Project-Wide**: Comprehensive analysis across all documents (e.g., `unique_names`, `unused_fields`)
 
@@ -254,7 +254,7 @@ extensions:
 - **redundant_fields** (StandaloneDocumentRule): Detects redundant field selections in operations and fragments
 
 **Document + Schema Rules**:
-- **deprecated_field** (DocumentSchemaRule): Warns when using @deprecated fields
+- **no_deprecated** (DocumentSchemaRule): Warns when using @deprecated fields
 - **require_id_field** (DocumentSchemaRule): Warns when `id` field is not requested on types that have it. Recursively checks fragment spreads and their nested fragments to determine if `id` is included.
 
 **Project-Wide Rules**:

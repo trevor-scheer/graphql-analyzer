@@ -42,5 +42,5 @@ extensions:
     # Or use custom rules:
     # lint:
     #   recommended: error
-    #   deprecated_field: warn
+    #   no_deprecated: warn
     #   unique_names: error

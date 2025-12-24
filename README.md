@@ -68,7 +68,7 @@ Flexible linting engine with support for different linting contexts.
 
 **Current rules:**
 
-- `deprecated_field` - Warns when using @deprecated fields
+- `no_deprecated` - Warns when using @deprecated fields
 - `unique_names` - Ensures operation/fragment names are unique
 - `unused_fields` - Detects schema fields never used in operations (opt-in)
 
@@ -339,7 +339,7 @@ lint:
   recommended: error
   rules:
     # Override specific rules
-    deprecated_field: warn
+    no_deprecated: warn
     unique_names: off
 ```
 
@@ -365,7 +365,7 @@ Linting is configured via top-level `lint` with optional tool-specific overrides
 
 **Available rules:**
 
-- `deprecated_field` - Warns when using fields marked with @deprecated (recommended: warn)
+- `no_deprecated` - Warns when using fields marked with @deprecated (recommended: warn)
 - `unique_names` - Ensures operation and fragment names are unique (recommended: error)
 - `unused_fields` - Detects schema fields never used (off by default, expensive)
 
@@ -417,7 +417,7 @@ projects:
     lint:
       recommended: error
       rules:
-        deprecated_field: off  # Project-specific override
+        no_deprecated: off  # Project-specific override
 ```
 
 ## License

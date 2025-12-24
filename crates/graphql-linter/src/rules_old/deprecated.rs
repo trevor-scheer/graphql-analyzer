@@ -9,7 +9,7 @@ pub struct DeprecatedFieldRule;
 
 impl DocumentSchemaRule for DeprecatedFieldRule {
     fn name(&self) -> &'static str {
-        "deprecated_field"
+        "no_deprecated"
     }
 
     fn description(&self) -> &'static str {
@@ -122,7 +122,7 @@ fn check_selection_set_cst(
 
                                 warnings.push(
                                     Diagnostic::warning(range, message)
-                                        .with_code("deprecated_field")
+                                        .with_code("no_deprecated")
                                         .with_source("graphql-linter"),
                                 );
                             }

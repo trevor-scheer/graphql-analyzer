@@ -11,7 +11,7 @@ projects:
       project:
         lint:
           recommended: error
-          deprecated_field: off
+          no_deprecated: off
 
   client:
     schema:
@@ -34,7 +34,7 @@ projects:
       project:
         lint:
           unique_names: error
-          deprecated_field: warn
+          no_deprecated: warn
 
   admin:
     schema: "https://admin-api.example.com/graphql"

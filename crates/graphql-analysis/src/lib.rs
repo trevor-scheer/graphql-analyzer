@@ -43,7 +43,7 @@ impl Default for LintConfig {
         let mut enabled_rules = HashMap::new();
         // Enable some default rules for testing
         enabled_rules.insert("redundant_fields".to_string(), Severity::Error);
-        enabled_rules.insert("deprecated_field".to_string(), Severity::Warning);
+        enabled_rules.insert("no_deprecated".to_string(), Severity::Warning);
         enabled_rules.insert("require_id_field".to_string(), Severity::Warning);
 
         Self {

@@ -235,7 +235,7 @@ projects:
 lint:
   recommended: error
   rules:
-    deprecated_field: warn
+    no_deprecated: warn
     unique_names: error
 
 # CLI-specific overrides
