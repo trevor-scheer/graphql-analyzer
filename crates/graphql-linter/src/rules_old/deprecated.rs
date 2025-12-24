@@ -1,3 +1,7 @@
+// DEPRECATED: This old rule implementation will be removed in a future phase.
+// The new implementation is in crates/graphql-linter/src/rules/no_deprecated.rs
+// which uses the Salsa-based architecture with HIR.
+
 use crate::context::DocumentSchemaContext;
 use apollo_parser::cst::{self, CstNode};
 use graphql_project::{Diagnostic, Position, Range, SchemaIndex};
@@ -5,11 +9,14 @@ use graphql_project::{Diagnostic, Position, Range, SchemaIndex};
 use super::DocumentSchemaRule;
 
 /// Lint rule that checks for usage of deprecated fields
+///
+/// NOTE: This is the old implementation. The new Salsa-based implementation
+/// is in `crates/graphql-linter/src/rules/no_deprecated.rs`.
 pub struct DeprecatedFieldRule;
 
 impl DocumentSchemaRule for DeprecatedFieldRule {
     fn name(&self) -> &'static str {
-        "deprecated_field"
+        "no_deprecated"
     }
 
     fn description(&self) -> &'static str {
@@ -122,7 +129,7 @@ fn check_selection_set_cst(
 
                                 warnings.push(
                                     Diagnostic::warning(range, message)
-                                        .with_code("deprecated_field")
+                                        .with_code("no_deprecated")
                                         .with_source("graphql-linter"),
                                 );
                             }

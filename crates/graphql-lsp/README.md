@@ -117,7 +117,7 @@ projects:
 lint:
   recommended: error
   rules:
-    deprecated_field: warn
+    no_deprecated: warn
     unique_names: error
 
 # LSP-specific overrides
@@ -379,7 +379,7 @@ extensions:
   lsp:
     lint:
       rules:
-        deprecated_field: warn
+        no_deprecated: warn
 ```
 
 ### Monorepo with Multiple Projects

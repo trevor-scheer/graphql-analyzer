@@ -13,7 +13,7 @@ pub struct TypeDef {
     pub fields: Vec<FieldSignature>,
     pub implements: Vec<Arc<str>>,
     pub union_members: Vec<Arc<str>>,
-    pub enum_values: Vec<Arc<str>>,
+    pub enum_values: Vec<EnumValue>,
     pub description: Option<Arc<str>>,
     pub file_id: FileId,
 }
@@ -35,6 +35,8 @@ pub struct FieldSignature {
     pub type_ref: TypeRef,
     pub arguments: Vec<ArgumentDef>,
     pub description: Option<Arc<str>>,
+    pub is_deprecated: bool,
+    pub deprecation_reason: Option<Arc<str>>,
 }
 
 /// Reference to a type (with list/non-null wrappers)
@@ -53,6 +55,17 @@ pub struct ArgumentDef {
     pub type_ref: TypeRef,
     pub default_value: Option<Arc<str>>,
     pub description: Option<Arc<str>>,
+    pub is_deprecated: bool,
+    pub deprecation_reason: Option<Arc<str>>,
+}
+
+/// Enum value definition
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EnumValue {
+    pub name: Arc<str>,
+    pub description: Option<Arc<str>>,
+    pub is_deprecated: bool,
+    pub deprecation_reason: Option<Arc<str>>,
 }
 
 /// Operation structure (name and variables, no selection set details)
@@ -326,7 +339,15 @@ fn extract_enum_type(enum_def: &ast::EnumTypeDefinition, file_id: FileId) -> Typ
     let enum_values = enum_def
         .values
         .iter()
-        .map(|v| Arc::from(v.value.as_str()))
+        .map(|v| {
+            let (is_deprecated, deprecation_reason) = extract_deprecation(&v.directives);
+            EnumValue {
+                name: Arc::from(v.value.as_str()),
+                description: v.description.as_ref().map(|d| Arc::from(d.as_str())),
+                is_deprecated,
+                deprecation_reason,
+            }
+        })
         .collect();
 
     TypeDef {
@@ -390,11 +411,15 @@ fn extract_field_signature(field: &ast::FieldDefinition) -> FieldSignature {
         .map(|a| extract_argument_def(a))
         .collect();
 
+    let (is_deprecated, deprecation_reason) = extract_deprecation(&field.directives);
+
     FieldSignature {
         name,
         type_ref,
         arguments,
         description,
+        is_deprecated,
+        deprecation_reason,
     }
 }
 
@@ -403,11 +428,15 @@ fn extract_input_field_signature(field: &ast::InputValueDefinition) -> FieldSign
     let type_ref = extract_type_ref(&field.ty);
     let description = field.description.as_ref().map(|d| Arc::from(d.as_str()));
 
+    let (is_deprecated, deprecation_reason) = extract_deprecation(&field.directives);
+
     FieldSignature {
         name,
         type_ref,
         arguments: Vec::new(),
         description,
+        is_deprecated,
+        deprecation_reason,
     }
 }
 
@@ -420,12 +449,41 @@ fn extract_argument_def(arg: &ast::InputValueDefinition) -> ArgumentDef {
         .map(|v| Arc::from(v.to_string().as_str()));
     let description = arg.description.as_ref().map(|d| Arc::from(d.as_str()));
 
+    let (is_deprecated, deprecation_reason) = extract_deprecation(&arg.directives);
+
     ArgumentDef {
         name,
         type_ref,
         default_value,
         description,
+        is_deprecated,
+        deprecation_reason,
     }
+}
+
+/// Extract deprecation information from directives
+fn extract_deprecation(
+    directives: &apollo_compiler::ast::DirectiveList,
+) -> (bool, Option<Arc<str>>) {
+    for directive in directives {
+        if directive.name == "deprecated" {
+            // Look for reason argument
+            let reason = directive.arguments.iter().find_map(|arg| {
+                if arg.name == "reason" {
+                    // Extract string value
+                    if let apollo_compiler::ast::Value::String(s) = &*arg.value {
+                        Some(Arc::from(s.as_str()))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            });
+            return (true, reason);
+        }
+    }
+    (false, None)
 }
 
 fn extract_type_ref(ty: &ast::Type) -> TypeRef {

@@ -179,7 +179,7 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Ensure operation and fragment names are unique across the project"
             },
-            "deprecated_field": {
+            "no_deprecated": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Warn about usage of deprecated fields"
             }

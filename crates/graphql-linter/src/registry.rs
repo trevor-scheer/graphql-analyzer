@@ -3,7 +3,7 @@
 /// This module provides functions to get all lint rules organized by category.
 /// Rules are registered here so that graphql-analysis can query them.
 use crate::rules::{
-    DeprecatedFieldRuleImpl, OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl,
+    NoDeprecatedRuleImpl, OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl,
     RequireIdFieldRuleImpl, UniqueNamesRuleImpl, UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl,
 };
 use crate::traits::{DocumentSchemaLintRule, ProjectLintRule, StandaloneDocumentLintRule};
@@ -28,7 +28,7 @@ pub fn standalone_document_rules() -> Vec<Arc<dyn StandaloneDocumentLintRule>> {
 #[must_use]
 pub fn document_schema_rules() -> Vec<Arc<dyn DocumentSchemaLintRule>> {
     vec![
-        Arc::new(DeprecatedFieldRuleImpl),
+        Arc::new(NoDeprecatedRuleImpl),
         Arc::new(RequireIdFieldRuleImpl),
     ]
 }

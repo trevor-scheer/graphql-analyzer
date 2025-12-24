@@ -63,7 +63,7 @@ file_diagnostics()
 
 4. **Lint Integration** (`lint_integration.rs`)
    - Integration with `graphql-linter` crate
-   - Document-level lints (require_id_field, deprecated_field, etc.)
+   - Document-level lints (require_id_field, no_deprecated, etc.)
    - Schema-level lints (TODO)
 
 5. **Project-Wide Lints** (`project_lints.rs`)

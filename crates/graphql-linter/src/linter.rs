@@ -354,7 +354,7 @@ mod tests {
 
     #[test]
     fn test_linter_respects_custom_severity() {
-        let yaml = "\ndeprecated_field: error\n";
+        let yaml = "\nno_deprecated: error\n";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         let linter = Linter::new(config);
         let schema = create_test_schema();
@@ -382,7 +382,7 @@ mod tests {
 
     #[test]
     fn test_linter_can_disable_specific_rules() {
-        let yaml = "\ndeprecated_field: off\n";
+        let yaml = "\nno_deprecated: off\n";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         let linter = Linter::new(config);
         let schema = create_test_schema();
@@ -393,7 +393,7 @@ mod tests {
 
         let diagnostics = linter.lint_document(document, "test.graphql", &schema, None, None);
 
-        // Should have no diagnostics since deprecated_field is disabled
+        // Should have no diagnostics since no_deprecated is disabled
         assert_eq!(
             diagnostics.len(),
             0,
