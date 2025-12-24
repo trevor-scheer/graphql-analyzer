@@ -242,9 +242,9 @@ impl GraphQLLanguageServer {
                 let combined_graphql: Vec<String> =
                     extracted.iter().map(|e| e.source.clone()).collect();
 
-                // Use the line offset from the first block
+                // Use the line offset from the first block (already 0-indexed)
                 #[allow(clippy::cast_possible_truncation)]
-                let line_offset = extracted[0].location.range.start.line.saturating_sub(1) as u32;
+                let line_offset = extracted[0].location.range.start.line as u32;
 
                 let result = combined_graphql.join("\n\n");
                 tracing::info!(
