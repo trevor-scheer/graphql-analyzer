@@ -171,18 +171,45 @@ impl GraphQLLanguageServer {
             .clone()
     }
 
-    /// Determine `FileKind` based on file path heuristics.
-    /// Schema files typically contain "schema" in their path.
-    fn determine_file_kind(uri: &str) -> graphql_ide::FileKind {
-        let uri_lower = uri.to_lowercase();
-        if uri_lower.contains("/schema/")
-            || uri_lower.contains("/schemas/")
-            || uri_lower.contains("schema.graphql")
-            || uri_lower.contains("schema.gql")
-            || uri_lower.ends_with("/schema")
-        {
+    /// Determine `FileKind` by parsing the file content and inspecting definitions.
+    ///
+    /// Schema files contain type definitions, directive definitions, schema definitions, etc.
+    /// Executable files contain operations and/or fragments.
+    fn determine_file_kind(content: &str) -> graphql_ide::FileKind {
+        use apollo_compiler::parser::Parser;
+
+        // Parse the GraphQL content
+        let mut parser = Parser::new();
+        let ast = parser
+            .parse_ast(content, "virtual.graphql")
+            .unwrap_or_else(|e| e.partial);
+
+        // Check what kinds of definitions exist
+        let has_schema_definitions = ast.definitions.iter().any(|def| {
+            matches!(
+                def,
+                apollo_compiler::ast::Definition::SchemaDefinition(_)
+                    | apollo_compiler::ast::Definition::SchemaExtension(_)
+                    | apollo_compiler::ast::Definition::ObjectTypeDefinition(_)
+                    | apollo_compiler::ast::Definition::ObjectTypeExtension(_)
+                    | apollo_compiler::ast::Definition::InterfaceTypeDefinition(_)
+                    | apollo_compiler::ast::Definition::InterfaceTypeExtension(_)
+                    | apollo_compiler::ast::Definition::UnionTypeDefinition(_)
+                    | apollo_compiler::ast::Definition::UnionTypeExtension(_)
+                    | apollo_compiler::ast::Definition::ScalarTypeDefinition(_)
+                    | apollo_compiler::ast::Definition::ScalarTypeExtension(_)
+                    | apollo_compiler::ast::Definition::EnumTypeDefinition(_)
+                    | apollo_compiler::ast::Definition::EnumTypeExtension(_)
+                    | apollo_compiler::ast::Definition::InputObjectTypeDefinition(_)
+                    | apollo_compiler::ast::Definition::InputObjectTypeExtension(_)
+                    | apollo_compiler::ast::Definition::DirectiveDefinition(_)
+            )
+        });
+
+        if has_schema_definitions {
             graphql_ide::FileKind::Schema
         } else {
+            // Operations and fragments are executable GraphQL
             graphql_ide::FileKind::ExecutableGraphQL
         }
     }
@@ -518,8 +545,8 @@ impl LanguageServer for GraphQLLanguageServer {
         if let Some((workspace_uri, _project_idx)) = self.find_workspace_and_project(&uri) {
             let _file_path = uri.to_file_path();
 
-            // Determine file kind using heuristics
-            let file_kind = Self::determine_file_kind(&uri.to_string());
+            // Determine file kind by parsing content
+            let file_kind = Self::determine_file_kind(&content);
 
             self.add_file_to_host(&workspace_uri, &uri, &content, file_kind)
                 .await;
@@ -544,8 +571,8 @@ impl LanguageServer for GraphQLLanguageServer {
             if let Some((workspace_uri, _project_idx)) = self.find_workspace_and_project(&uri) {
                 let _file_path = uri.to_file_path();
 
-                // Determine file kind using heuristics
-                let file_kind = Self::determine_file_kind(&uri.to_string());
+                // Determine file kind by parsing content
+                let file_kind = Self::determine_file_kind(&change.text);
 
                 self.add_file_to_host(&workspace_uri, &uri, &change.text, file_kind)
                     .await;
@@ -580,9 +607,16 @@ impl LanguageServer for GraphQLLanguageServer {
                 return;
             };
 
-            // Determine if this is a schema file using heuristics
+            // Get content from cache to determine file kind
+            let content = self
+                .document_cache
+                .get(&uri.to_string())
+                .map(|entry| entry.value().clone())
+                .unwrap_or_default();
+
+            // Determine if this is a schema file by parsing content
             matches!(
-                Self::determine_file_kind(&uri.to_string()),
+                Self::determine_file_kind(&content),
                 graphql_ide::FileKind::Schema
             )
         };
