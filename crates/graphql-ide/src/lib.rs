@@ -45,7 +45,7 @@ mod symbol;
 use symbol::{
     find_fragment_definition_range, find_fragment_spreads, find_parent_type_at_offset,
     find_symbol_at_offset, find_type_definition_range, find_type_references_in_tree,
-    is_in_selection_set, Symbol,
+    get_parent_field_path, is_in_selection_set, Symbol,
 };
 
 // Re-export database types that IDE layer needs
@@ -442,9 +442,19 @@ impl Analysis {
         // Get line index for position conversion
         let line_index = graphql_syntax::line_index(&self.db, content);
 
+        // Adjust position for line_offset (for extracted GraphQL from TypeScript/JavaScript)
+        let line_offset = metadata.line_offset(&self.db);
+        let adjusted_position = adjust_position_for_line_offset(position, line_offset)?;
+        tracing::debug!(
+            "Completions: original position {:?}, line_offset {}, adjusted position {:?}",
+            position,
+            line_offset,
+            adjusted_position
+        );
+
         // Convert position to byte offset
-        let offset = position_to_offset(&line_index, position)?;
-        tracing::debug!("Completions: position {:?} -> offset {}", position, offset);
+        let offset = position_to_offset(&line_index, adjusted_position)?;
+        tracing::debug!("Completions: position {:?} -> offset {}", adjusted_position, offset);
 
         // Find what symbol we're completing (or near)
         let symbol = find_symbol_at_offset(&parse.tree, offset);
@@ -594,6 +604,7 @@ impl Analysis {
     /// Get hover information at a position
     ///
     /// Returns documentation, type information, etc.
+    #[allow(clippy::too_many_lines)]
     pub fn hover(&self, file: &FilePath, position: Position) -> Option<HoverResult> {
         let (content, metadata) = {
             let registry = self.registry.read().unwrap();
@@ -615,8 +626,18 @@ impl Analysis {
         // Get line index for position conversion
         let line_index = graphql_syntax::line_index(&self.db, content);
 
+        // Adjust position for line_offset (for extracted GraphQL from TypeScript/JavaScript)
+        let line_offset = metadata.line_offset(&self.db);
+        let adjusted_position = adjust_position_for_line_offset(position, line_offset)?;
+        tracing::debug!(
+            "Hover: original position {:?}, line_offset {}, adjusted position {:?}",
+            position,
+            line_offset,
+            adjusted_position
+        );
+
         // Convert position to byte offset
-        let offset = position_to_offset(&line_index, position)?;
+        let offset = position_to_offset(&line_index, adjusted_position)?;
 
         // Try to find the symbol at the offset even if there are parse errors
         // This allows hover to work on valid parts of a file with syntax errors elsewhere
@@ -643,17 +664,39 @@ impl Analysis {
                 let types = graphql_hir::schema_types_with_project(&self.db, project_files);
                 let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
 
-                // Resolve to type name if it's a field
-                let parent_type_name = if parent_ctx.immediate_parent.chars().next()?.is_lowercase()
-                {
-                    Self::resolve_field_type(
-                        &parent_ctx.root_type,
-                        &parent_ctx.immediate_parent,
-                        &types,
-                    )?
+                // Get the full field path to properly resolve nested fields
+                let field_path = get_parent_field_path(&parse.tree, offset);
+
+                // Resolve the parent type by walking the field path
+                let parent_type_name = if let Some(path) = field_path {
+                    // Start from root type and resolve each field in the path
+                    let mut current_type = parent_ctx.root_type;
+                    for field_name in &path {
+                        current_type = Self::resolve_field_type(&current_type, field_name, &types)?;
+                    }
+                    current_type
                 } else {
-                    parent_ctx.immediate_parent
+                    // No field path, check if immediate_parent is a type or field
+                    if let Some(first_char) = parent_ctx.immediate_parent.chars().next() {
+                        if first_char.is_lowercase() {
+                            Self::resolve_field_type(
+                                &parent_ctx.root_type,
+                                &parent_ctx.immediate_parent,
+                                &types,
+                            )?
+                        } else {
+                            parent_ctx.immediate_parent
+                        }
+                    } else {
+                        parent_ctx.root_type
+                    }
                 };
+
+                tracing::debug!(
+                    "Hover: resolved parent type '{}' for field '{}'",
+                    parent_type_name,
+                    name
+                );
 
                 // Look up the field in the parent type
                 let parent_type = types.get(parent_type_name.as_str())?;
@@ -735,8 +778,18 @@ impl Analysis {
         // Get line index for position conversion
         let line_index = graphql_syntax::line_index(&self.db, content);
 
+        // Adjust position for line_offset (for extracted GraphQL from TypeScript/JavaScript)
+        let line_offset = metadata.line_offset(&self.db);
+        let adjusted_position = adjust_position_for_line_offset(position, line_offset)?;
+        tracing::debug!(
+            "Goto definition: original position {:?}, line_offset {}, adjusted position {:?}",
+            position,
+            line_offset,
+            adjusted_position
+        );
+
         // Convert position to byte offset
-        let offset = position_to_offset(&line_index, position)?;
+        let offset = position_to_offset(&line_index, adjusted_position)?;
 
         // Find the symbol at the offset
         let symbol = find_symbol_at_offset(&parse.tree, offset)?;
@@ -864,8 +917,18 @@ impl Analysis {
         // Get line index for position conversion
         let line_index = graphql_syntax::line_index(&self.db, content);
 
+        // Adjust position for line_offset (for extracted GraphQL from TypeScript/JavaScript)
+        let line_offset = metadata.line_offset(&self.db);
+        let adjusted_position = adjust_position_for_line_offset(position, line_offset)?;
+        tracing::debug!(
+            "Find references: original position {:?}, line_offset {}, adjusted position {:?}",
+            position,
+            line_offset,
+            adjusted_position
+        );
+
         // Convert position to byte offset
-        let offset = position_to_offset(&line_index, position)?;
+        let offset = position_to_offset(&line_index, adjusted_position)?;
 
         // Find the symbol at the offset
         let symbol = find_symbol_at_offset(&parse.tree, offset)?;
@@ -1034,6 +1097,26 @@ impl Analysis {
 }
 
 // Conversion functions from analysis types to IDE types
+
+/// Adjust a position for line offset (used for extracted GraphQL from TypeScript/JavaScript)
+///
+/// When GraphQL is extracted from TypeScript/JavaScript files, the line numbers in the
+/// LSP request are relative to the original file, but we need positions relative to the
+/// extracted GraphQL. This function subtracts the `line_offset` to get the correct position.
+#[allow(clippy::cast_possible_truncation)] // Line offset won't exceed u32::MAX
+const fn adjust_position_for_line_offset(position: Position, line_offset: u32) -> Option<Position> {
+    if line_offset == 0 {
+        return Some(position);
+    }
+
+    // Subtract line_offset from the incoming position
+    // If the position is before the GraphQL block, return None
+    if position.line < line_offset {
+        return None;
+    }
+
+    Some(Position::new(position.line - line_offset, position.character))
+}
 
 /// Convert IDE position to byte offset using `LineIndex`
 fn position_to_offset(line_index: &graphql_syntax::LineIndex, position: Position) -> Option<usize> {
