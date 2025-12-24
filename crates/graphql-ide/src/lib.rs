@@ -1337,21 +1337,23 @@ mod tests {
     }
 
     #[test]
-    fn test_hover_shows_syntax_errors() {
+    fn test_hover_with_syntax_errors_shows_valid_symbols() {
         let mut host = AnalysisHost::new();
 
-        // Add a file with syntax errors
+        // Add a file with syntax errors (missing closing brace)
         let path = FilePath::new("file:///invalid.graphql");
         host.add_file(&path, "type Query {", FileKind::Schema);
 
-        // Get hover
+        // Get hover on the Query type name (position 5 is in "Query")
         let snapshot = host.snapshot();
         let hover = snapshot.hover(&path, Position::new(0, 5));
 
-        // Should return hover with error information
+        // Should return hover info for the Query type even with syntax errors
+        // This tests that hover works on valid parts of a file with syntax errors
         assert!(hover.is_some());
         let hover = hover.unwrap();
-        assert!(hover.contents.contains("Syntax Errors"));
+        assert!(hover.contents.contains("Query"));
+        assert!(hover.contents.contains("Type"));
     }
 
     #[test]

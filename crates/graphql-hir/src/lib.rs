@@ -113,11 +113,14 @@ pub trait GraphQLHirDatabase: graphql_syntax::GraphQLSyntaxDatabase {
 
 // Implement the trait for RootDatabase
 // This makes RootDatabase usable with all HIR queries
-// Note: The default implementation of `project_files()` returns None
-// The IDE layer (graphql-ide) is responsible for creating and managing ProjectFiles
-// through the FileRegistry and passing it to the database
 #[salsa::db]
-impl GraphQLHirDatabase for graphql_db::RootDatabase {}
+impl GraphQLHirDatabase for graphql_db::RootDatabase {
+    /// Override to return the project files stored in the database
+    /// The IDE layer (graphql-ide) sets this via `FileRegistry`
+    fn project_files(&self) -> Option<graphql_db::ProjectFiles> {
+        Self::project_files(self)
+    }
+}
 
 /// Get all types in the schema with explicit project files
 /// This query depends on all schema file structures

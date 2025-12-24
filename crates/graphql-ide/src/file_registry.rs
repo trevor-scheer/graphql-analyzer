@@ -156,6 +156,9 @@ impl FileRegistry {
         };
 
         self.project_files = Some(project_files);
+
+        // Also set it in the database so queries can access it via db.project_files()
+        db.set_project_files(Some(project_files));
     }
 }
 
