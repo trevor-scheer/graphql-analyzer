@@ -15,3 +15,4 @@ graphql-project = { path = "../graphql-project" }
 salsa = { workspace = true }
 apollo-compiler = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }

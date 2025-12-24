@@ -13,25 +13,15 @@ use lsp_types::{
     DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, FileChangeType,
     FileSystemWatcher, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
     HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
-    MessageType, NumberOrString, OneOf, Position, Range, ReferenceParams, ServerCapabilities,
-    ServerInfo, SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
+    MessageType, OneOf, Position, Range, ReferenceParams, ServerCapabilities, ServerInfo,
+    SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
     WorkDoneProgressOptions, WorkspaceSymbol, WorkspaceSymbolParams,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::{Client, LanguageServer, UriExt};
-
-/// Debounce delay for validation in milliseconds
-const VALIDATION_DEBOUNCE_MS: u64 = 200;
-
-/// Type alias for validation task handle
-type ValidationTask = Arc<Mutex<Option<JoinHandle<()>>>>;
-
-/// Type alias for config reload task handle
-type ReloadTask = Arc<Mutex<Option<JoinHandle<()>>>>;
 
 // ============================================================================
 // Type Conversion Functions (LSP ↔ graphql-ide)
@@ -68,24 +58,6 @@ fn convert_ide_location(loc: &graphql_ide::Location) -> Location {
     Location {
         uri: loc.file.as_str().parse().expect("Invalid URI"),
         range: convert_ide_range(loc.range),
-    }
-}
-
-#[allow(dead_code)]
-/// Convert graphql-ide Diagnostic to LSP Diagnostic
-fn convert_ide_diagnostic(diag: graphql_ide::Diagnostic) -> Diagnostic {
-    Diagnostic {
-        range: convert_ide_range(diag.range),
-        severity: Some(match diag.severity {
-            graphql_ide::DiagnosticSeverity::Error => DiagnosticSeverity::ERROR,
-            graphql_ide::DiagnosticSeverity::Warning => DiagnosticSeverity::WARNING,
-            graphql_ide::DiagnosticSeverity::Information => DiagnosticSeverity::INFORMATION,
-            graphql_ide::DiagnosticSeverity::Hint => DiagnosticSeverity::HINT,
-        }),
-        code: diag.code.map(NumberOrString::String),
-        source: Some(diag.source),
-        message: diag.message,
-        ..Default::default()
     }
 }
 
@@ -142,11 +114,6 @@ pub struct GraphQLLanguageServer {
     hosts: Arc<DashMap<String, Arc<Mutex<AnalysisHost>>>>,
     /// Document content cache indexed by URI string
     document_cache: Arc<DashMap<String, String>>,
-    /// Pending validation tasks (URI -> `JoinHandle`) for debouncing
-    /// Each document can have at most one pending validation task
-    validation_tasks: Arc<DashMap<String, ValidationTask>>,
-    /// Pending config reload tasks (workspace URI -> `JoinHandle`) for debouncing
-    reload_tasks: Arc<DashMap<String, ReloadTask>>,
 }
 
 impl GraphQLLanguageServer {
@@ -158,8 +125,6 @@ impl GraphQLLanguageServer {
             config_paths: Arc::new(DashMap::new()),
             hosts: Arc::new(DashMap::new()),
             document_cache: Arc::new(DashMap::new()),
-            validation_tasks: Arc::new(DashMap::new()),
-            reload_tasks: Arc::new(DashMap::new()),
         }
     }
 
@@ -462,11 +427,6 @@ impl GraphQLLanguageServer {
     // REMOVED: reload_workspace_config (old validation system)
     async fn reload_workspace_config(&self, workspace_uri: &str) {}
 
-    /// Schedule a debounced config reload for a workspace
-    // REMOVED: schedule_config_reload (old validation system)
-    #[allow(clippy::unused_self)]
-    fn schedule_config_reload(&self, _workspace_uri: String) {}
-
     /// Find the workspace and project for a given document URI
     fn find_workspace_and_project(&self, document_uri: &Uri) -> Option<(String, usize)> {
         let doc_path = document_uri.to_file_path()?;
@@ -505,17 +465,78 @@ impl GraphQLLanguageServer {
 
     /// Validate a document and publish diagnostics
     #[allow(clippy::too_many_lines)]
-    #[tracing::instrument(skip(self, content, uri), fields(path = ?uri.to_file_path().unwrap()))]
-    async fn validate_document(&self, uri: Uri, content: &str) {
-        self.validate_document_impl(uri, content, true);
+    #[tracing::instrument(skip(self), fields(path = ?uri.to_file_path().unwrap()))]
+    async fn validate_document(&self, uri: Uri) {
+        tracing::debug!("Starting document validation");
+
+        // Find the workspace for this document
+        let Some((workspace_uri, _project_idx)) = self.find_workspace_and_project(&uri) else {
+            tracing::warn!("No workspace found for document");
+            return;
+        };
+
+        // Get the analysis host for this workspace
+        let Some(host_mutex) = self.hosts.get(&workspace_uri) else {
+            tracing::warn!("No analysis host found for workspace");
+            return;
+        };
+        let host = host_mutex.lock().await;
+
+        // Get the file path
+        let file_path = graphql_ide::FilePath::new(uri.as_str());
+
+        // Get diagnostics from the IDE layer
+        let snapshot = host.snapshot();
+        let diagnostics = snapshot.diagnostics(&file_path);
+        tracing::debug!(
+            diagnostic_count = diagnostics.len(),
+            "Got diagnostics from IDE layer"
+        );
+
+        // Convert IDE diagnostics to LSP diagnostics
+        let lsp_diagnostics: Vec<Diagnostic> = diagnostics
+            .into_iter()
+            .map(convert_ide_diagnostic)
+            .collect();
+
+        // Publish diagnostics
+        self.client
+            .publish_diagnostics(uri, lsp_diagnostics, None)
+            .await;
+
+        tracing::debug!("Published diagnostics");
     }
+}
 
-    /// Internal implementation of `validate_document` with control over revalidation
-    #[allow(clippy::too_many_lines)]
-    // REMOVED: validate_document_impl (old validation system)
-    #[allow(clippy::unused_self)]
-    fn validate_document_impl(&self, _uri: Uri, _content: &str, _should_revalidate_all: bool) {}
+/// Convert graphql-ide diagnostic to LSP diagnostic
+fn convert_ide_diagnostic(diag: graphql_ide::Diagnostic) -> Diagnostic {
+    let severity = match diag.severity {
+        graphql_ide::DiagnosticSeverity::Error => DiagnosticSeverity::ERROR,
+        graphql_ide::DiagnosticSeverity::Warning => DiagnosticSeverity::WARNING,
+        graphql_ide::DiagnosticSeverity::Information => DiagnosticSeverity::INFORMATION,
+        graphql_ide::DiagnosticSeverity::Hint => DiagnosticSeverity::HINT,
+    };
 
+    Diagnostic {
+        range: Range {
+            start: Position {
+                line: diag.range.start.line,
+                character: diag.range.start.character,
+            },
+            end: Position {
+                line: diag.range.end.line,
+                character: diag.range.end.character,
+            },
+        },
+        severity: Some(severity),
+        code: diag.code.map(lsp_types::NumberOrString::String),
+        source: Some(diag.source),
+        message: diag.message,
+        ..Default::default()
+    }
+}
+
+impl GraphQLLanguageServer {
     // REMOVED: get_project_wide_diagnostics (old validation system)
     // REMOVED: refresh_affected_files_diagnostics (old validation system)
     // REMOVED: validate_graphql_document (old validation)
@@ -552,15 +573,6 @@ impl GraphQLLanguageServer {
             ..Default::default()
         }
     }
-
-    /// Schedule a debounced validation for a document
-    ///
-    /// Cancels any pending validation for the same document and schedules a new one
-    /// after `VALIDATION_DEBOUNCE_MS` milliseconds. This prevents validation spam during
-    /// rapid typing.
-    // REMOVED: schedule_debounced_validation (old validation system)
-    #[allow(clippy::unused_self)]
-    fn schedule_debounced_validation(&self, _uri: Uri, _content: String) {}
 }
 
 impl LanguageServer for GraphQLLanguageServer {
@@ -729,7 +741,7 @@ impl LanguageServer for GraphQLLanguageServer {
                 .await;
         }
 
-        self.validate_document(uri, &content).await;
+        self.validate_document(uri).await;
     }
 
     #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
@@ -755,13 +767,13 @@ impl LanguageServer for GraphQLLanguageServer {
                     .await;
             }
 
-            // Schedule debounced validation instead of immediate validation
-            self.schedule_debounced_validation(uri.clone(), change.text.clone());
+            // Validate immediately - Salsa's incremental computation makes this fast
+            self.validate_document(uri.clone()).await;
         }
 
         tracing::debug!(
             elapsed_ms = start.elapsed().as_millis(),
-            "Completed did_change (scheduled debounced validation)"
+            "Completed did_change with validation"
         );
     }
 
@@ -853,8 +865,8 @@ impl LanguageServer for GraphQLLanguageServer {
             if let Some(workspace_uri) = workspace_uri {
                 match change.typ {
                     FileChangeType::CREATED | FileChangeType::CHANGED => {
-                        tracing::info!("Scheduling config reload for workspace: {}", workspace_uri);
-                        self.schedule_config_reload(workspace_uri);
+                        tracing::info!("Config file changed for workspace: {}", workspace_uri);
+                        // TODO: Reload config and re-validate all documents
                     }
                     FileChangeType::DELETED => {
                         tracing::warn!("Config file deleted for workspace: {}", workspace_uri);
