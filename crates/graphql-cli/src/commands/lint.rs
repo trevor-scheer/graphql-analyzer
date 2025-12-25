@@ -8,10 +8,9 @@ use std::path::PathBuf;
 use std::process;
 
 #[allow(clippy::too_many_lines)]
-#[allow(clippy::unused_async)]
-pub async fn run(
+pub fn run(
     config_path: Option<PathBuf>,
-    project_name: Option<String>,
+    project_name: Option<&str>,
     format: OutputFormat,
     _watch: bool,
 ) -> Result<()> {
@@ -31,10 +30,10 @@ pub async fn run(
     let start_time = std::time::Instant::now();
 
     // Load config and validate project requirement
-    let ctx = CommandContext::load(config_path, project_name.as_ref(), "lint")?;
+    let ctx = CommandContext::load(config_path, project_name, "lint")?;
 
     // Get project config
-    let selected_name = CommandContext::get_project_name(project_name.as_deref());
+    let selected_name = CommandContext::get_project_name(project_name);
     let project_config = ctx
         .config
         .projects()

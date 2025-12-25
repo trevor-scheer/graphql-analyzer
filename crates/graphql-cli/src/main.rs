@@ -79,10 +79,10 @@ async fn main() -> anyhow::Result<()> {
 
     let result = match cli.command {
         Commands::Validate { format, watch } => {
-            commands::validate::run(cli.config, cli.project, format, watch).await
+            commands::validate::run(cli.config, cli.project.as_deref(), format, watch)
         }
         Commands::Lint { format, watch } => {
-            commands::lint::run(cli.config, cli.project, format, watch).await
+            commands::lint::run(cli.config, cli.project.as_deref(), format, watch)
         }
         Commands::Check { base, head } => {
             commands::check::run(cli.config, cli.project, base, head).await
