@@ -3,8 +3,8 @@
 /// This module provides functions to get all lint rules organized by category.
 /// Rules are registered here so that graphql-analysis can query them.
 use crate::rules::{
-    NoDeprecatedRuleImpl, OperationNameSuffixRuleImpl, RequireIdFieldRuleImpl, UniqueNamesRuleImpl,
-    UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl,
+    NoDeprecatedRuleImpl, OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl,
+    RequireIdFieldRuleImpl, UniqueNamesRuleImpl, UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl,
 };
 use crate::traits::{DocumentSchemaLintRule, ProjectLintRule, StandaloneDocumentLintRule};
 use std::sync::Arc;
@@ -15,7 +15,10 @@ use std::sync::Arc;
 /// They are fast and suitable for real-time LSP diagnostics.
 #[must_use]
 pub fn standalone_document_rules() -> Vec<Arc<dyn StandaloneDocumentLintRule>> {
-    vec![Arc::new(OperationNameSuffixRuleImpl)]
+    vec![
+        Arc::new(OperationNameSuffixRuleImpl),
+        Arc::new(RedundantFieldsRuleImpl),
+    ]
 }
 
 /// Get all document+schema lint rules
