@@ -68,15 +68,6 @@ pub fn validate_document(
         "Document info"
     );
 
-    // Check if this is a fragment-only document
-    // Fragment-only documents should not be validated as executable documents
-    let is_fragment_only = is_fragment_only_document(&doc_text);
-    tracing::info!(is_fragment_only, "Checked if document is fragment-only");
-    if is_fragment_only {
-        tracing::info!("Skipping validation for fragment-only document");
-        return Arc::new(diagnostics);
-    }
-
     // Collect fragment names referenced by this document (transitively across files)
     let document_files = project_files.document_files(db);
     let referenced_fragments =
@@ -241,38 +232,6 @@ pub fn validate_document(
     }
 
     Arc::new(diagnostics)
-}
-
-/// Check if a document contains only fragment definitions (no operations)
-/// Fragment-only documents are valid but should not be validated as executable documents
-fn is_fragment_only_document(text: &str) -> bool {
-    // Use apollo-parser to check the structure
-    let parser = apollo_parser::Parser::new(text);
-    let tree = parser.parse();
-
-    if tree.errors().next().is_some() {
-        // If there are parse errors, let apollo-compiler handle validation
-        return false;
-    }
-
-    let document = tree.document();
-    let mut has_operation = false;
-    let mut has_fragment = false;
-
-    for definition in document.definitions() {
-        match definition {
-            apollo_parser::cst::Definition::OperationDefinition(_) => {
-                has_operation = true;
-            }
-            apollo_parser::cst::Definition::FragmentDefinition(_) => {
-                has_fragment = true;
-            }
-            _ => {}
-        }
-    }
-
-    // Fragment-only if it has fragments but no operations
-    has_fragment && !has_operation
 }
 
 /// Collect all fragment names referenced by a document transitively across files
@@ -521,7 +480,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_document_fragment_only() {
+    fn test_validate_document_with_valid_fragment() {
         let db = TestDatabase::default();
 
         // Create schema
@@ -535,7 +494,9 @@ mod tests {
             FileKind::Schema,
         );
 
-        // Create fragment-only document
+        // Create document with only fragment definitions (no operations)
+        // This is a valid document - fragments don't need to be used in operations
+        // within the same file, they may be used in other files
         let doc_id = FileId::new(1);
         let doc_content =
             FileContent::new(&db, Arc::from("fragment UserFields on User { id name }"));
@@ -556,7 +517,52 @@ mod tests {
         assert_eq!(
             diagnostics.len(),
             0,
-            "Expected no diagnostics for fragment-only document"
+            "Expected no diagnostics for valid fragment. Fragments don't need operations in the same file."
+        );
+    }
+
+    #[test]
+    fn test_validate_document_with_invalid_fragment() {
+        let db = TestDatabase::default();
+
+        // Create schema
+        let schema_id = FileId::new(0);
+        let schema_content =
+            FileContent::new(&db, Arc::from("type User { id: ID! name: String! }"));
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        // Create document with fragment that has an invalid field
+        let doc_id = FileId::new(1);
+        let doc_content =
+            FileContent::new(&db, Arc::from("fragment UserFields on User { invalidField }"));
+        let doc_metadata = FileMetadata::new(
+            &db,
+            doc_id,
+            FileUri::new("fragment.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let project_files = ProjectFiles::new(
+            &db,
+            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
+            Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
+        );
+
+        let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
+        assert!(
+            !diagnostics.is_empty(),
+            "Expected diagnostics for fragment with invalid field"
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.message.contains("invalidField") || d.message.contains("field")),
+            "Expected error message about invalid field 'invalidField'"
         );
     }
 
@@ -729,22 +735,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_fragment_only_document() {
-        assert!(is_fragment_only_document(
-            "fragment UserFields on User { id }"
-        ));
-        assert!(is_fragment_only_document(
-            "fragment A on User { id } fragment B on Post { title }"
-        ));
-        assert!(!is_fragment_only_document("query { hello }"));
-        assert!(!is_fragment_only_document(
-            "query { hello } fragment F on User { id }"
-        ));
-        assert!(!is_fragment_only_document("mutation { updateUser }"));
-        assert!(!is_fragment_only_document("invalid syntax here"));
-    }
-
-    #[test]
     fn test_cross_file_fragment_resolution() {
         let db = TestDatabase::default();
 
@@ -816,10 +806,11 @@ mod tests {
 
         // Create document with invalid query and line_offset of 10
         // This simulates extracted GraphQL from TypeScript/JavaScript at line 10
+        // The content is already extracted GraphQL, so we mark it as ExecutableGraphQL
         let doc_id = FileId::new(1);
         let doc_content = FileContent::new(&db, Arc::from("query { invalidField }"));
         let doc_metadata =
-            FileMetadata::new(&db, doc_id, FileUri::new("query.ts"), FileKind::TypeScript);
+            FileMetadata::new(&db, doc_id, FileUri::new("query.ts"), FileKind::ExecutableGraphQL);
         // Set line offset to simulate extraction from line 10 in TypeScript file
         doc_metadata.set_line_offset(&mut db).to(10);
 
