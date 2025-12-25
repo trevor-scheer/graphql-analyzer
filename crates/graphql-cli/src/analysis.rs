@@ -90,18 +90,8 @@ impl CliAnalysisHost {
             }
         }
 
-        // Load schema files
-        let schema_files = Self::load_schema_files(project_config, &base_dir)?;
-
-        for (path, content) in schema_files {
-            host.add_file(
-                &FilePath::new(path.to_string_lossy().to_string()),
-                &content,
-                FileKind::Schema,
-                0, // No line offset for pure GraphQL files
-            );
-            loaded_files.push(path);
-        }
+        // Load schema files using centralized method
+        let _schema_count = host.load_schemas_from_config(project_config, &base_dir)?;
 
         // Load document files (if configured)
         if let Some(ref documents_config) = project_config.documents {
@@ -131,47 +121,6 @@ impl CliAnalysisHost {
             loaded_files,
             base_dir,
         })
-    }
-
-    /// Load schema files from config
-    fn load_schema_files(
-        config: &ProjectConfig,
-        base_dir: &Path,
-    ) -> Result<Vec<(PathBuf, String)>> {
-        // Supports local file paths (single file, multiple files, glob patterns)
-        // Remote URL schemas (introspection) are not yet supported
-        let schema_config = &config.schema;
-        let mut schema_files = Vec::new();
-
-        // Get schema patterns from config
-        let patterns: Vec<String> = match schema_config {
-            graphql_config::SchemaConfig::Path(s) => vec![s.clone()],
-            graphql_config::SchemaConfig::Paths(arr) => arr.clone(),
-        };
-
-        for pattern in patterns {
-            // Skip URLs for now (would need introspection support)
-            if pattern.starts_with("http://") || pattern.starts_with("https://") {
-                tracing::warn!("URL schemas not yet supported: {}", pattern);
-                continue;
-            }
-
-            // Treat as file glob pattern
-            let full_pattern = base_dir.join(&pattern).display().to_string();
-            for path in (glob::glob(&full_pattern)
-                .with_context(|| format!("Invalid schema glob pattern: {full_pattern}"))?)
-            .flatten()
-            {
-                if path.is_file() {
-                    let content = std::fs::read_to_string(&path).with_context(|| {
-                        format!("Failed to read schema file: {}", path.display())
-                    })?;
-                    schema_files.push((path, content));
-                }
-            }
-        }
-
-        Ok(schema_files)
     }
 
     /// Load document files from config

@@ -931,8 +931,11 @@ dependencies = [
 name = "graphql-ide"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "glob",
  "graphql-analysis",
+ "graphql-config",
  "graphql-db",
  "graphql-extract",
  "graphql-hir",
