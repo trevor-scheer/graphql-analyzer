@@ -73,7 +73,6 @@ pub fn introspection_to_sdl(introspection: &IntrospectionResponse) -> String {
         sdl.push_str("}\n\n");
     }
 
-    // Generate directives
     for directive in &schema.directives {
         // Skip built-in directives
         if directive.name == "skip"
@@ -106,7 +105,6 @@ pub fn introspection_to_sdl(introspection: &IntrospectionResponse) -> String {
         sdl.push_str("\n\n");
     }
 
-    // Generate types
     let mut types_written = 0;
     for type_def in &schema.types {
         // Skip built-in types and introspection types

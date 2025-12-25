@@ -307,11 +307,9 @@ impl DocumentLoader {
     fn load_file(&self, path: &Path, index: &mut DocumentIndex) -> Result<()> {
         use std::fs;
 
-        // Read the file content
         let content = fs::read_to_string(path)
             .map_err(|e| ProjectError::DocumentLoad(format!("Failed to read file: {e}")))?;
 
-        // Parse the full content once and cache it
         let parsed = Parser::new(&content).parse();
         let parsed_arc = std::sync::Arc::new(parsed);
 
@@ -369,7 +367,6 @@ impl DocumentLoader {
         let parser = Parser::new(source);
         let tree = parser.parse();
 
-        // Skip if there are syntax errors
         if tree.errors().len() > 0 {
             return; // Silently skip invalid documents
         }
@@ -538,7 +535,6 @@ mod tests {
         let loader = DocumentLoader::new(config);
         let index = loader.load().unwrap();
 
-        // Check operation
         let get_user = index.get_operation("GetUser");
         assert!(get_user.is_some());
         assert_eq!(get_user.unwrap().operation_type, OperationType::Query);
@@ -547,7 +543,6 @@ mod tests {
         assert!(update_user.is_some());
         assert_eq!(update_user.unwrap().operation_type, OperationType::Mutation);
 
-        // Check fragment
         let user_fields = index.get_fragment("UserFields");
         assert!(user_fields.is_some());
         assert_eq!(user_fields.unwrap().type_condition, "User");
@@ -589,11 +584,9 @@ mod tests {
         let loader = DocumentLoader::new(config);
         let index = loader.load().unwrap();
 
-        // Check operation
         let get_user = index.get_operation("GetUser");
         assert!(get_user.is_some());
 
-        // Check fragment
         let user_info = index.get_fragment("UserInfo");
         assert!(user_info.is_some());
     }
