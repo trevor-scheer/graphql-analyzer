@@ -117,7 +117,6 @@ impl Default for RootDatabase {
     }
 }
 
-// Implement the Database trait
 #[salsa::db]
 impl salsa::Database for RootDatabase {}
 
@@ -200,7 +199,6 @@ mod tests {
     #[test]
     fn test_database_creation() {
         let _db = RootDatabase::new();
-        // Database should be created successfully
     }
 
     #[test]
@@ -225,7 +223,6 @@ mod tests {
             FileKind::JavaScript,
         ];
 
-        // All kinds should be distinct
         for (i, kind1) in kinds.iter().enumerate() {
             for (j, kind2) in kinds.iter().enumerate() {
                 if i == j {
@@ -243,7 +240,6 @@ mod tests {
         let content: Arc<str> = Arc::from("type Query { hello: String }");
         let file_content = FileContent::new(&db, content);
 
-        // File content should be stored and retrievable
         assert_eq!(
             file_content.text(&db).as_ref(),
             "type Query { hello: String }"
@@ -259,7 +255,6 @@ mod tests {
 
         let metadata = FileMetadata::new(&db, file_id, uri.clone(), kind);
 
-        // Metadata should be stored and retrievable
         assert_eq!(metadata.file_id(&db), file_id);
         assert_eq!(metadata.uri(&db), uri);
         assert_eq!(metadata.kind(&db), kind);
@@ -271,17 +266,14 @@ mod tests {
         let content1: Arc<str> = Arc::from("type Query { hello: String }");
         let file_content = FileContent::new(&db, content1);
 
-        // Initial content
         assert_eq!(
             file_content.text(&db).as_ref(),
             "type Query { hello: String }"
         );
 
-        // Update content
         let content2: Arc<str> = Arc::from("type Query { world: String }");
         file_content.set_text(&mut db).to(content2);
 
-        // Content should be updated
         assert_eq!(
             file_content.text(&db).as_ref(),
             "type Query { world: String }"
@@ -303,7 +295,6 @@ mod tests {
 
         db.apply_change(change);
 
-        // Change should be applied successfully
         // Detailed verification will come with FileRegistry implementation
     }
 }

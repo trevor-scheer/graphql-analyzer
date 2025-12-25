@@ -29,17 +29,13 @@ pub fn validate_schema_file(
     let mut builder = apollo_compiler::schema::SchemaBuilder::new();
     let mut parser = Parser::new();
 
-    // Parse the schema SDL
     parser.parse_into_schema_builder(text.as_ref(), uri.as_str(), &mut builder);
 
-    // Build and validate the schema
     match builder.build() {
         Ok(_schema) => {
-            // Schema is valid - no diagnostics
             tracing::debug!(uri = ?uri, "Schema file validated successfully");
         }
         Err(with_errors) => {
-            // Convert apollo-compiler diagnostics to our Diagnostic type
             tracing::debug!(
                 uri = ?uri,
                 error_count = with_errors.errors.len(),
@@ -51,7 +47,6 @@ pub fn validate_schema_file(
 
             #[allow(clippy::cast_possible_truncation, clippy::option_if_let_else)]
             for apollo_diag in with_errors.errors.iter() {
-                // Get location information if available
                 let range = if let Some(loc_range) = apollo_diag.line_column_range() {
                     DiagnosticRange {
                         start: Position {
@@ -70,7 +65,6 @@ pub fn validate_schema_file(
                     DiagnosticRange::default()
                 };
 
-                // Get message - apollo_diag.error is a GraphQLError which can be converted to string
                 let message: Arc<str> = Arc::from(apollo_diag.error.to_string());
 
                 diagnostics.push(Diagnostic {

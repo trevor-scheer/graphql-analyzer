@@ -22,7 +22,6 @@ impl Default for SchemaIndex {
 impl SchemaIndex {
     #[must_use]
     pub fn new() -> Self {
-        // Create an empty schema
         let schema = Schema::parse("", "schema.graphql").unwrap_or_else(|_| {
             Schema::parse("type Query { _: String }", "schema.graphql")
                 .expect("fallback schema should parse")
@@ -54,7 +53,6 @@ impl SchemaIndex {
             builder = builder.parse(content, path);
         }
 
-        // Build the schema
         match builder.build() {
             Ok(schema) => Self {
                 schema: Arc::new(schema),
@@ -196,17 +194,14 @@ impl SchemaIndex {
     ) -> Option<FieldDefinitionLocation> {
         use apollo_compiler::schema::ExtendedType;
 
-        // Get the type from the schema
         let extended_type = self.schema.types.get(type_name)?;
 
-        // Extract fields based on type kind
         let fields = match extended_type {
             ExtendedType::Object(obj) => &obj.fields,
             ExtendedType::Interface(iface) => &iface.fields,
             _ => return None,
         };
 
-        // Find the field
         let field_component = fields.get(field_name)?;
         let field_def = &field_component.node;
 
@@ -216,7 +211,6 @@ impl SchemaIndex {
         // Get the line/column range for the field name (not the whole field definition)
         let line_col_range = name.line_column_range(&self.schema.sources)?;
 
-        // Get the file path from the name's location
         let location = name.location()?;
         let file_id = location.file_id();
         let file_path = self
@@ -259,7 +253,6 @@ impl SchemaIndex {
     pub fn find_type_definition(&self, type_name: &str) -> Option<TypeDefinitionLocation> {
         use apollo_compiler::schema::ExtendedType;
 
-        // Get the type from the schema
         let extended_type = self.schema.types.get(type_name)?;
 
         // Get the name field from the type, which has its own location info
@@ -276,7 +269,6 @@ impl SchemaIndex {
         // Get the line/column range for the name (not the whole type definition)
         let line_col_range = name.line_column_range(&self.schema.sources)?;
 
-        // Get the file path from the name's location
         let location = name.location()?;
         let file_id = location.file_id();
         let file_path = self
@@ -1069,12 +1061,10 @@ mod tests {
 
         let index = SchemaIndex::from_schema(schema);
 
-        // Check type exists
         let user_type = index.get_type("User").expect("User type should exist");
         assert_eq!(user_type.name, "User");
         assert_eq!(user_type.kind, TypeKind::Object);
 
-        // Check fields
         let fields = index.get_fields("User").expect("User fields should exist");
         assert_eq!(fields.len(), 3);
 
@@ -1193,13 +1183,11 @@ mod tests {
             .expect("Query fields should exist");
         assert_eq!(fields.len(), 2);
 
-        // Test user field with single argument
         assert_eq!(fields[0].name, "user");
         assert_eq!(fields[0].arguments.len(), 1);
         assert_eq!(fields[0].arguments[0].name, "id");
         assert_eq!(fields[0].arguments[0].type_name, "ID!");
 
-        // Test users field with multiple arguments and default value
         assert_eq!(fields[1].name, "users");
         assert_eq!(fields[1].arguments.len(), 2);
         assert_eq!(fields[1].arguments[0].name, "limit");
@@ -1425,7 +1413,6 @@ mod tests {
 
         let index = SchemaIndex::from_schema(schema);
 
-        // Check that all types are indexed
         assert!(index.get_type("User").is_some());
         assert!(index.get_type("Node").is_some());
         assert!(index.get_type("Repository").is_some());
@@ -1433,11 +1420,9 @@ mod tests {
         assert!(index.get_type("RepositoryOrder").is_some());
         assert!(index.get_type("RepositoryOrderField").is_some());
 
-        // Check User fields
         let user_fields = index.get_fields("User").expect("User fields should exist");
         assert_eq!(user_fields.len(), 5);
 
-        // Check repositories field with arguments
         let repos_field = user_fields
             .iter()
             .find(|f| f.name == "repositories")
@@ -1445,7 +1430,6 @@ mod tests {
         assert_eq!(repos_field.arguments.len(), 3);
         assert_eq!(repos_field.type_name, "RepositoryConnection!");
 
-        // Verify input object fields
         let order_fields = index
             .get_fields("RepositoryOrder")
             .expect("RepositoryOrder fields should exist");
@@ -1501,7 +1485,6 @@ mod tests {
 
         let index = SchemaIndex::from_schema(schema);
 
-        // Check Product type
         let product = index.get_type("Product").expect("Product should exist");
         assert_eq!(product.kind, TypeKind::Object);
 
@@ -1510,7 +1493,6 @@ mod tests {
             .expect("Product fields should exist");
         assert_eq!(product_fields.len(), 6);
 
-        // Check variants field has arguments
         let variants_field = product_fields
             .iter()
             .find(|f| f.name == "variants")
@@ -1518,7 +1500,6 @@ mod tests {
         assert_eq!(variants_field.arguments.len(), 1);
         assert!(variants_field.arguments[0].default_value.is_some());
 
-        // Check Query type
         let query_fields = index
             .get_fields("Query")
             .expect("Query fields should exist");
@@ -1542,7 +1523,6 @@ mod tests {
 
         let index = SchemaIndex::from_schema(schema);
 
-        // Should return empty schema on syntax errors
         assert!(index.get_type("User").is_none());
     }
 
@@ -1552,7 +1532,6 @@ mod tests {
 
         let index = SchemaIndex::from_schema(schema);
 
-        // Empty schema won't have User type
         assert!(index.get_type("User").is_none());
     }
 
@@ -1567,7 +1546,6 @@ mod tests {
         let empty_type = index.get_type("Empty").expect("Empty type should exist");
         assert_eq!(empty_type.kind, TypeKind::Object);
 
-        // Should have no fields
         let fields = index.get_fields("Empty");
         assert!(fields.is_none() || fields.unwrap().is_empty());
     }
