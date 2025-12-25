@@ -11,15 +11,15 @@ use dashmap::DashMap;
 use graphql_config::find_config;
 use graphql_ide::AnalysisHost;
 use lsp_types::{
-    CompletionOptions, CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
+    CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
     DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, FileChangeType,
     FileSystemWatcher, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
     HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
-    MessageType, OneOf, Position, Range, ReferenceParams, ServerCapabilities, ServerInfo,
-    SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
-    WorkDoneProgressOptions, WorkspaceSymbol, WorkspaceSymbolParams,
+    MessageType, OneOf, ReferenceParams, ServerCapabilities, ServerInfo, SymbolInformation,
+    TextDocumentSyncCapability, TextDocumentSyncKind, Uri, WorkDoneProgressOptions,
+    WorkspaceSymbol, WorkspaceSymbolParams,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
