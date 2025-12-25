@@ -444,7 +444,7 @@ impl GraphQLLanguageServer {
 
             if doc_path.as_ref().starts_with(workspace_path.as_path()) {
                 // Found the workspace, return the workspace URI and project index (0 for now)
-                // TODO: Match document to correct project based on includes/excludes
+                // Multi-project matching not yet implemented - see #135
                 return Some((workspace_uri.clone(), 0));
             }
         }
@@ -2299,7 +2299,7 @@ impl LanguageServer for GraphQLLanguageServer {
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
         tracing::debug!("Document symbols requested: {:?}", params.text_document.uri);
-        // TODO: Implement document symbols
+        // Not yet implemented - see #154
         Ok(None)
     }
 
@@ -2308,7 +2308,7 @@ impl LanguageServer for GraphQLLanguageServer {
         params: WorkspaceSymbolParams,
     ) -> Result<Option<OneOf<Vec<SymbolInformation>, Vec<WorkspaceSymbol>>>> {
         tracing::debug!("Workspace symbols requested: {}", params.query);
-        // TODO: Implement workspace symbols
+        // Not yet implemented - see #154
         Ok(None)
     }
 

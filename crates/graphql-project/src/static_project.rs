@@ -154,7 +154,7 @@ impl StaticGraphQLProject {
     ///
     /// Returns diagnostics for all files in the project.
     /// This runs:
-    /// - Schema validation (TODO)
+    /// - Schema validation (validated during schema build)
     /// - Document validation (all documents)
     ///
     /// Note: Linting should be performed by the consumer (LSP/CLI) after calling this method.

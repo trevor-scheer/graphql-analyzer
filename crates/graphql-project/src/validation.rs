@@ -380,7 +380,7 @@ impl Validator {
                     }
                 }
                 cst::Selection::FragmentSpread(_) => {
-                    // TODO: Handle fragment spreads
+                    // Fragment spreads not analyzed - validation happens at fragment definition site
                 }
                 cst::Selection::InlineFragment(inline_fragment) => {
                     if let Some(selection_set) = inline_fragment.selection_set() {

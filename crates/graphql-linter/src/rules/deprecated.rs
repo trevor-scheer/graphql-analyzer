@@ -147,7 +147,7 @@ fn check_selection_set_cst(
                 }
             }
             cst::Selection::FragmentSpread(_) => {
-                // TODO: Handle fragment spreads
+                // Fragment spreads not checked - deprecated fields in fragments are not detected
             }
             cst::Selection::InlineFragment(inline_fragment) => {
                 if let Some(selection_set) = inline_fragment.selection_set() {

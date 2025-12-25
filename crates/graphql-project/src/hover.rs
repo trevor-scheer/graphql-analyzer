@@ -1140,7 +1140,7 @@ impl HoverProvider {
         _enum_type: Option<&str>,
         _schema_index: &SchemaIndex,
     ) -> Option<HoverInfo> {
-        // TODO: Implement enum value hover
+        // Enum value hover not yet implemented
         None
     }
 

@@ -42,7 +42,7 @@ pub struct DependencyGraph {
     operation_definitions: HashMap<String, PathBuf>,
 
     /// Type name -> files using it (for schema changes)
-    /// TODO: Implement tracking once `OperationInfo` has field selection tracking
+    /// Not yet tracked - requires field selection tracking in `OperationInfo`
     #[allow(dead_code)]
     type_usages: HashMap<String, HashSet<PathBuf>>,
 
@@ -103,7 +103,7 @@ impl DependencyGraph {
                     // Track that this file exists
                     graph.document_files.insert(file_path.clone());
 
-                    // TODO: Track fragment usages once OperationInfo has fragment_spreads field
+                    // Fragment usage tracking not yet implemented - requires fragment_spreads in `OperationInfo`
                 }
             }
         }
