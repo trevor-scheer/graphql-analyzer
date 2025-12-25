@@ -61,7 +61,7 @@ pub fn lint_file(
             }
         }
         FileKind::Schema => {
-            // TODO: Run schema lints (naming conventions, etc.)
+            // Schema lints (naming conventions, etc.) not yet implemented
             tracing::trace!("Schema linting not yet implemented");
         }
     }

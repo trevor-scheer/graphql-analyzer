@@ -39,7 +39,7 @@ pub fn validate_document_file(
             if count > 1 {
                 diagnostics.push(Diagnostic::error(
                     format!("Operation name '{name}' is not unique"),
-                    DiagnosticRange::default(), // TODO: Get actual position from HIR
+                    DiagnosticRange::default(), // Position from HIR not yet implemented
                 ));
             }
         }
@@ -82,14 +82,14 @@ pub fn validate_document_file(
         if count > 1 {
             diagnostics.push(Diagnostic::error(
                 format!("Fragment name '{}' is not unique", frag_structure.name),
-                DiagnosticRange::default(), // TODO: Get actual position from HIR
+                DiagnosticRange::default(), // Position from HIR not yet implemented
             ));
         }
 
         // Validate fragment type condition exists in schema
         validate_fragment_type_condition(frag_structure, &schema, &mut diagnostics);
 
-        // TODO: Validate fragment body (field selections)
+        // Fragment body validation not yet implemented
         // This requires parsing the fragment body and walking the selection set
     }
 

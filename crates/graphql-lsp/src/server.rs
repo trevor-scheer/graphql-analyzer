@@ -811,7 +811,7 @@ impl LanguageServer for GraphQLLanguageServer {
                 match change.typ {
                     FileChangeType::CREATED | FileChangeType::CHANGED => {
                         tracing::info!("Config file changed for workspace: {}", workspace_uri);
-                        // TODO: Reload config and re-validate all documents
+                        // Config reload not yet implemented - see #154
                     }
                     FileChangeType::DELETED => {
                         tracing::warn!("Config file deleted for workspace: {}", workspace_uri);
@@ -1031,7 +1031,7 @@ impl LanguageServer for GraphQLLanguageServer {
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
         tracing::debug!("Document symbols requested: {:?}", params.text_document.uri);
-        // TODO: Implement document symbols
+        // Not yet implemented - see #154
         Ok(None)
     }
 
@@ -1040,7 +1040,7 @@ impl LanguageServer for GraphQLLanguageServer {
         params: WorkspaceSymbolParams,
     ) -> Result<Option<OneOf<Vec<SymbolInformation>, Vec<WorkspaceSymbol>>>> {
         tracing::debug!("Workspace symbols requested: {}", params.query);
-        // TODO: Implement workspace symbols
+        // Not yet implemented - see #154
         Ok(None)
     }
 

@@ -299,7 +299,7 @@ impl CliAnalysisHost {
 
         // For now, return approximate counts
         // A full implementation would use graphql-hir queries
-        (0, 0) // TODO: Query HIR for actual counts
+        (0, 0) // HIR query for actual counts not yet implemented
     }
 
     /// Update a file (for watch mode - future enhancement)

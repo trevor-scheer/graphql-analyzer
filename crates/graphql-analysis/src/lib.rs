@@ -59,7 +59,7 @@ pub fn file_diagnostics(
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
             message: error.clone().into(),
-            range: DiagnosticRange::default(), // TODO: Parse error positions
+            range: DiagnosticRange::default(), // Parse error positions not yet tracked
             source: "graphql-parser".into(),
             code: None,
         });
@@ -139,7 +139,7 @@ pub fn project_wide_diagnostics(
     if lint_config.is_enabled("unused_fields") {
         let unused = project_lints::find_unused_fields(db);
         for (_field_id, diagnostic) in unused.iter() {
-            // TODO: Get file_id from field_id when we have proper HIR support
+            // File ID from field_id requires enhanced HIR support
             let file_id = FileId::new(0); // Placeholder
             diagnostics_by_file
                 .entry(file_id)
@@ -152,7 +152,7 @@ pub fn project_wide_diagnostics(
     if lint_config.is_enabled("unused_fragments") {
         let unused = project_lints::find_unused_fragments(db);
         for (_fragment_id, diagnostic) in unused.iter() {
-            // TODO: Get file_id from fragment_id when we have proper HIR support
+            // File ID from fragment_id requires enhanced HIR support
             let file_id = FileId::new(0); // Placeholder
             diagnostics_by_file
                 .entry(file_id)

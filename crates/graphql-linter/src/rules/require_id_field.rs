@@ -263,7 +263,7 @@ fn find_root_operation_type(
     schema_types: &HashMap<Arc<str>, graphql_hir::TypeDef>,
     default_name: &str,
 ) -> Option<String> {
-    // TODO: Read from schema definition directive once HIR supports it
+    // Schema definition directive reading not yet supported in HIR
     // For now, use the default names
     if schema_types.contains_key(default_name) {
         Some(default_name.to_string())

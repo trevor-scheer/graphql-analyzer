@@ -14,15 +14,8 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
 
     let unused = Vec::new();
 
-    // TODO: Implement unused field detection
-    // This requires:
-    // 1. Parsing operation bodies to extract field selections
-    // 2. Following fragment spreads (transitive)
-    // 3. Collecting all used fields across all operations
-    // 4. Comparing with schema fields to find unused ones
-    //
-    // This is complex and requires body parsing integration.
-    // For now, we leave this as a stub.
+    // Unused field detection not yet implemented
+    // Future work: Track field usage across operations and fragments
 
     Arc::new(unused)
 }
@@ -66,7 +59,7 @@ pub fn find_unused_fragments(
                 fragment_id,
                 Diagnostic::warning(
                     format!("Fragment '{fragment_name}' is never used"),
-                    DiagnosticRange::default(), // TODO: Get actual position
+                    DiagnosticRange::default(), // Position tracking not yet implemented
                 ),
             ));
         }
@@ -83,7 +76,7 @@ fn collect_fragment_spreads_from_operation(
     all_fragments: &HashMap<Arc<str>, graphql_hir::FragmentStructure>,
     used_fragments: &mut HashSet<Arc<str>>,
 ) {
-    // TODO: Implement fragment spread collection
+    // Fragment spread collection not yet implemented
     // This requires:
     // 1. Getting the parsed AST for the operation's file
     // 2. Walking the operation's selection set

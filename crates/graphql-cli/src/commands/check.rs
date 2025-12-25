@@ -35,12 +35,8 @@ pub async fn run(
             .yellow()
     );
 
-    // TODO: Implement breaking change detection
-    // - Use _ctx to load project
-    // - Load schema from base ref (git checkout or similar)
-    // - Load schema from head ref
-    // - Compare schemas for breaking changes using a schema diff library
-    // - Report breaking changes in both human and JSON formats
+    // Breaking change detection not yet implemented
+    // Future work: Compare schema against base ref to detect breaking changes
 
     Ok(())
 }

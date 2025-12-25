@@ -744,7 +744,7 @@ impl Analysis {
                 } else {
                     // Not in a selection set - we're at document level
                     // Don't show fragment names here; user would type keywords like "query", "mutation", "fragment"
-                    // TODO: In the future, consider showing operation/fragment definition keywords
+                    // Future enhancement: show operation/fragment definition keywords
                     Some(Vec::new())
                 }
             }
@@ -1504,7 +1504,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "TODO: Fix salsa update hang when modifying files"]
+    #[ignore = "Salsa update hang when modifying files - needs investigation"]
     fn test_diagnostics_after_file_update() {
         let mut host = AnalysisHost::new();
 
