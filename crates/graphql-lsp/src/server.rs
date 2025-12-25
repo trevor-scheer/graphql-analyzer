@@ -220,8 +220,12 @@ impl GraphQLLanguageServer {
     /// For TS/JS files: Returns extracted GraphQL or empty string if none found.
     /// For other files: Returns source as-is.
     #[allow(clippy::case_sensitive_file_extension_comparisons)]
-    fn extract_graphql_from_source(path: &str, source: &str) -> (String, u32) {
-        use graphql_extract::{extract_from_source, ExtractConfig, Language};
+    fn extract_graphql_from_source(
+        path: &str,
+        source: &str,
+        config: &graphql_extract::ExtractConfig,
+    ) -> (String, u32) {
+        use graphql_extract::{extract_from_source, Language};
 
         // Determine language from file extension
         let language = if path.ends_with(".ts") || path.ends_with(".tsx") {
@@ -233,10 +237,9 @@ impl GraphQLLanguageServer {
             return (source.to_string(), 0);
         };
 
-        // Extract GraphQL from TS/JS
-        let config = ExtractConfig::default();
+        // Extract GraphQL from TS/JS using provided config
         tracing::info!("Attempting to extract GraphQL from TS/JS file: {}", path);
-        match extract_from_source(source, language, &config) {
+        match extract_from_source(source, language, config) {
             Ok(extracted) if !extracted.is_empty() => {
                 // Concatenate all extracted GraphQL blocks
                 let combined_graphql: Vec<String> =
@@ -492,6 +495,35 @@ impl GraphQLLanguageServer {
         let projects: Vec<_> = config.projects().collect();
 
         for (_project_name, project_config) in projects {
+            // Parse and set extract configuration
+            let extract_config = project_config
+                .extensions
+                .as_ref()
+                .and_then(|extensions| extensions.get("extractConfig"))
+                .and_then(|extract_config_value| {
+                    match serde_json::from_value::<graphql_extract::ExtractConfig>(
+                        extract_config_value.clone(),
+                    ) {
+                        Ok(config) => {
+                            tracing::info!("Loaded extract configuration from project config");
+                            Some(config)
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to parse extract configuration: {e}, using defaults"
+                            );
+                            None
+                        }
+                    }
+                })
+                .unwrap_or_default();
+
+            // Set extract config on host
+            {
+                let mut host_guard = host.lock().await;
+                host_guard.set_extract_config(extract_config.clone());
+            }
+
             // Load schema files using SchemaLoader
             let mut schema_loader = SchemaLoader::new(project_config.schema.clone());
             schema_loader = schema_loader.with_base_path(workspace_path);
@@ -505,7 +537,7 @@ impl GraphQLLanguageServer {
 
                         // Extract GraphQL from TypeScript/JavaScript schema files
                         let (final_content, line_offset) =
-                            Self::extract_graphql_from_source(&path, &content);
+                            Self::extract_graphql_from_source(&path, &content, &extract_config);
 
                         // Strip leading '/' from absolute paths to avoid file:////
                         let path_str = path.trim_start_matches('/');
@@ -576,7 +608,9 @@ impl GraphQLLanguageServer {
                                                     // Extract GraphQL from TypeScript/JavaScript files
                                                     let (final_content, line_offset) =
                                                         Self::extract_graphql_from_source(
-                                                            &path_str, &content,
+                                                            &path_str,
+                                                            &content,
+                                                            &extract_config,
                                                         );
 
                                                     // IMPORTANT: After extraction, change TypeScript/JavaScript to ExecutableGraphQL
@@ -956,6 +990,14 @@ impl LanguageServer for GraphQLLanguageServer {
         if let Some((workspace_uri, _project_idx)) = self.find_workspace_and_project(&uri) {
             let _file_path = uri.to_file_path();
 
+            // Get extract config from host
+            let extract_config = if let Some(host_mutex) = self.hosts.get(&workspace_uri) {
+                let host = host_mutex.lock().await;
+                host.get_extract_config()
+            } else {
+                graphql_extract::ExtractConfig::default()
+            };
+
             // Determine file kind by inspecting path and content
             let file_kind = Self::determine_file_kind_from_content(uri.path().as_str(), &content);
             tracing::info!("Determined file_kind: {:?}", file_kind);
@@ -963,7 +1005,7 @@ impl LanguageServer for GraphQLLanguageServer {
             // Extract GraphQL from TypeScript/JavaScript files
             tracing::info!("About to extract GraphQL, path={}", uri.path().as_str());
             let (final_content, line_offset) =
-                Self::extract_graphql_from_source(uri.path().as_str(), &content);
+                Self::extract_graphql_from_source(uri.path().as_str(), &content, &extract_config);
             tracing::info!(
                 extracted_len = final_content.len(),
                 line_offset = line_offset,
@@ -1019,6 +1061,14 @@ impl LanguageServer for GraphQLLanguageServer {
             if let Some((workspace_uri, _project_idx)) = self.find_workspace_and_project(&uri) {
                 let _file_path = uri.to_file_path();
 
+                // Get extract config from host
+                let extract_config = if let Some(host_mutex) = self.hosts.get(&workspace_uri) {
+                    let host = host_mutex.lock().await;
+                    host.get_extract_config()
+                } else {
+                    graphql_extract::ExtractConfig::default()
+                };
+
                 // Determine file kind by inspecting path and content
                 let file_kind =
                     Self::determine_file_kind_from_content(uri.path().as_str(), &change.text);
@@ -1029,8 +1079,11 @@ impl LanguageServer for GraphQLLanguageServer {
                     "did_change about to extract GraphQL, path={}",
                     uri.path().as_str()
                 );
-                let (final_content, line_offset) =
-                    Self::extract_graphql_from_source(uri.path().as_str(), &change.text);
+                let (final_content, line_offset) = Self::extract_graphql_from_source(
+                    uri.path().as_str(),
+                    &change.text,
+                    &extract_config,
+                );
                 tracing::info!(
                     extracted_len = final_content.len(),
                     line_offset = line_offset,

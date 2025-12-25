@@ -334,6 +334,17 @@ impl AnalysisHost {
         ));
     }
 
+    /// Get the extract configuration for the project
+    ///
+    /// Returns the configured extract settings, or default if not set.
+    pub fn get_extract_config(&self) -> graphql_extract::ExtractConfig {
+        self.db
+            .extract_config_any()
+            .and_then(|any| any.downcast::<graphql_extract::ExtractConfig>().ok())
+            .map(|arc| (*arc).clone())
+            .unwrap_or_default()
+    }
+
     /// Get an immutable snapshot for analysis
     ///
     /// This snapshot can be used from multiple threads and provides all IDE features.
