@@ -35,6 +35,39 @@ impl CliAnalysisHost {
         let mut host = AnalysisHost::new();
         let mut loaded_files = Vec::new();
 
+        // Parse and set lint configuration
+        if let Some(ref lint_value) = project_config.lint {
+            tracing::debug!("Raw lint configuration: {lint_value:?}");
+            match serde_json::from_value::<graphql_linter::LintConfig>(lint_value.clone()) {
+                Ok(lint_config) => {
+                    // Validate the configuration
+                    if let Err(validation_error) = lint_config.validate() {
+                        return Err(anyhow::anyhow!(
+                            "Invalid lint configuration:\n\n{validation_error}"
+                        ));
+                    }
+
+                    tracing::info!("Loaded lint configuration from project config");
+                    tracing::debug!("Parsed lint config - unique_names enabled: {}, unused_fields enabled: {}, redundant_fields enabled: {}",
+                        lint_config.is_enabled("unique_names"),
+                        lint_config.is_enabled("unused_fields"),
+                        lint_config.is_enabled("redundant_fields"));
+                    host.set_lint_config(lint_config);
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!(
+                        "Failed to parse lint configuration: {e}\n\n\
+                         Expected format:\n\
+                         lint:\n  \
+                           rule_name: error  # or 'warn' or 'off'\n  \
+                           another_rule: warn"
+                    ));
+                }
+            }
+        } else {
+            tracing::debug!("No lint configuration found in project config, using defaults");
+        }
+
         // Load schema files
         let schema_files = Self::load_schema_files(project_config, &base_dir).await?;
 

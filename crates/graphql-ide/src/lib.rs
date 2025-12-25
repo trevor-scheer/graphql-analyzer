@@ -314,6 +314,16 @@ impl AnalysisHost {
         self.db.apply_change(change);
     }
 
+    /// Set the lint configuration for the project
+    ///
+    /// This should be called when loading project configuration to enable/disable
+    /// specific lint rules and their severities.
+    pub fn set_lint_config(&mut self, config: graphql_linter::LintConfig) {
+        self.db.set_lint_config_any(Some(
+            Arc::new(config) as Arc<dyn std::any::Any + Send + Sync>
+        ));
+    }
+
     /// Get an immutable snapshot for analysis
     ///
     /// This snapshot can be used from multiple threads and provides all IDE features.

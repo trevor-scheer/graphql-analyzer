@@ -45,3 +45,27 @@ pub fn project_rules() -> Vec<Arc<dyn ProjectLintRule>> {
         Arc::new(UnusedFragmentsRuleImpl),
     ]
 }
+
+/// Get all valid lint rule names
+///
+/// Returns a sorted list of all available lint rule names across all categories.
+/// Useful for validation and error messages.
+#[must_use]
+pub fn all_rule_names() -> Vec<&'static str> {
+    let mut names = Vec::new();
+
+    // Collect from all rule categories
+    for rule in standalone_document_rules() {
+        names.push(rule.name());
+    }
+    for rule in document_schema_rules() {
+        names.push(rule.name());
+    }
+    for rule in project_rules() {
+        names.push(rule.name());
+    }
+
+    // Sort for consistent output
+    names.sort_unstable();
+    names
+}

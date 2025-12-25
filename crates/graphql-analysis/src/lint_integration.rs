@@ -5,6 +5,15 @@ use graphql_db::{FileContent, FileId, FileKind, FileMetadata, ProjectFiles};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Convert `LintSeverity` to Severity
+const fn convert_severity(lint_severity: graphql_linter::LintSeverity) -> Severity {
+    match lint_severity {
+        graphql_linter::LintSeverity::Error => Severity::Error,
+        graphql_linter::LintSeverity::Warn => Severity::Warning,
+        graphql_linter::LintSeverity::Off => Severity::Info,
+    }
+}
+
 /// Run lints on a file
 ///
 /// This integrates with the new trait-based graphql-linter API.
@@ -83,14 +92,15 @@ fn standalone_document_lints(
         let lint_diags = rule.check(db, file_id, content, metadata);
 
         // Convert to analysis Diagnostic format
+        let severity = lint_config
+            .get_severity(rule.name())
+            .map_or(Severity::Warning, convert_severity);
         diagnostics.extend(convert_lint_diagnostics(
             db,
             content,
             lint_diags,
             rule.name(),
-            lint_config
-                .severity(rule.name())
-                .unwrap_or(Severity::Warning),
+            severity,
         ));
     }
 
@@ -120,14 +130,15 @@ fn document_schema_lints(
         let lint_diags = rule.check(db, file_id, content, metadata, project_files);
 
         // Convert to analysis Diagnostic format
+        let severity = lint_config
+            .get_severity(rule.name())
+            .map_or(Severity::Warning, convert_severity);
         diagnostics.extend(convert_lint_diagnostics(
             db,
             content,
             lint_diags,
             rule.name(),
-            lint_config
-                .severity(rule.name())
-                .unwrap_or(Severity::Warning),
+            severity,
         ));
     }
 
@@ -170,15 +181,11 @@ pub fn project_lint_diagnostics(
                 continue;
             };
 
-            let converted = convert_lint_diagnostics(
-                db,
-                content,
-                file_lint_diags,
-                rule.name(),
-                lint_config
-                    .severity(rule.name())
-                    .unwrap_or(Severity::Warning),
-            );
+            let severity = lint_config
+                .get_severity(rule.name())
+                .map_or(Severity::Warning, convert_severity);
+            let converted =
+                convert_lint_diagnostics(db, content, file_lint_diags, rule.name(), severity);
             diagnostics_by_file
                 .entry(file_id)
                 .or_default()

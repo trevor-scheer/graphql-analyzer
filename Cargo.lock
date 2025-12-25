@@ -1010,6 +1010,7 @@ dependencies = [
  "graphql-db",
  "graphql-extract",
  "graphql-hir",
+ "graphql-linter",
  "graphql-syntax",
  "salsa",
  "tracing",
