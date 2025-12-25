@@ -1215,14 +1215,12 @@ impl LanguageServer for GraphQLLanguageServer {
         self.document_cache
             .remove(&params.text_document.uri.to_string());
 
-        // Remove from AnalysisHost (new architecture)
-        if let Some((workspace_uri, _)) = self.find_workspace_and_project(&params.text_document.uri)
-        {
-            self.remove_file_from_host(&workspace_uri, &params.text_document.uri)
-                .await;
-        }
+        // NOTE: We intentionally do NOT remove the file from AnalysisHost when it's closed.
+        // The file is still part of the project on disk, and other files may reference
+        // fragments/types defined in it. Only files that are deleted from disk should be
+        // removed from the analysis.
 
-        // Clear diagnostics
+        // Clear diagnostics for the closed file
         self.client
             .publish_diagnostics(params.text_document.uri, vec![], None)
             .await;

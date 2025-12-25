@@ -350,10 +350,19 @@ impl AnalysisHost {
     /// This snapshot can be used from multiple threads and provides all IDE features.
     /// It's cheap to create and clone (`RootDatabase` implements Clone via salsa).
     pub fn snapshot(&self) -> Analysis {
-        let project_files = {
-            let registry = self.registry.read().unwrap();
-            registry.project_files()
-        };
+        let project_files = self.registry.read().unwrap().project_files();
+
+        if let Some(ref project_files) = project_files {
+            let doc_count = project_files.document_files(&self.db).len();
+            let schema_count = project_files.schema_files(&self.db).len();
+            tracing::debug!(
+                "Snapshot project_files: {} schema files, {} document files",
+                schema_count,
+                doc_count
+            );
+        } else {
+            tracing::warn!("Snapshot project_files is None!");
+        }
 
         Analysis {
             db: self.db.clone(),
@@ -897,6 +906,12 @@ impl Analysis {
             Symbol::FragmentSpread { name } => {
                 // Query HIR for all fragments
                 let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
+
+                tracing::debug!(
+                    "Looking for fragment '{}', available fragments: {:?}",
+                    name,
+                    fragments.keys().collect::<Vec<_>>()
+                );
 
                 // Find the fragment by name
                 let fragment = fragments.get(name.as_str())?;
