@@ -936,8 +936,10 @@ dependencies = [
  "anyhow",
  "clap",
  "colored",
+ "glob",
  "graphql-config",
  "graphql-extract",
+ "graphql-ide",
  "graphql-linter",
  "graphql-project",
  "indicatif",
@@ -1008,6 +1010,7 @@ dependencies = [
  "graphql-db",
  "graphql-extract",
  "graphql-hir",
+ "graphql-linter",
  "graphql-syntax",
  "salsa",
  "tracing",
@@ -1106,6 +1109,7 @@ dependencies = [
  "graphql-db",
  "graphql-extract",
  "salsa",
+ "tracing",
 ]
 
 [[package]]

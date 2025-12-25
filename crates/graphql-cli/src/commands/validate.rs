@@ -1,12 +1,15 @@
+use crate::analysis::CliAnalysisHost;
 use crate::commands::common::CommandContext;
 use crate::OutputFormat;
 use anyhow::Result;
 use colored::Colorize;
+use graphql_ide::DiagnosticSeverity;
 use std::path::PathBuf;
 use std::process;
 use tracing::Instrument;
 
 #[allow(clippy::too_many_lines)]
+#[allow(clippy::future_not_send)]
 #[tracing::instrument(skip(config_path, project_name, format), fields(project = ?project_name))]
 pub async fn run(
     config_path: Option<PathBuf>,
@@ -33,6 +36,15 @@ pub async fn run(
     // Load config and validate project requirement
     let ctx = CommandContext::load(config_path, project_name.as_ref(), "validate")?;
 
+    // Get project config
+    let selected_name = CommandContext::get_project_name(project_name.as_deref());
+    let project_config = ctx
+        .config
+        .projects()
+        .find(|(name, _)| *name == selected_name)
+        .map(|(_, cfg)| cfg.clone())
+        .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
+
     // Load and select project
     let spinner = if matches!(format, OutputFormat::Human) {
         Some(crate::progress::spinner("Loading schema and documents..."))
@@ -42,8 +54,8 @@ pub async fn run(
 
     let load_start = std::time::Instant::now();
     let load_projects_span = tracing::info_span!("load_projects");
-    let (project_name, project) = async {
-        ctx.load_project(project_name.as_deref())
+    let host = async {
+        CliAnalysisHost::from_project_config(&project_config, ctx.base_dir.clone())
             .await
             .map_err(|e| {
                 if matches!(format, OutputFormat::Human) {
@@ -66,7 +78,8 @@ pub async fn run(
 
     // Report project loaded successfully
     if matches!(format, OutputFormat::Human) {
-        CommandContext::print_success_message(&project);
+        println!("{}", "✓ Schema loaded successfully".green());
+        println!("{}", "✓ Documents loaded successfully".green());
     }
 
     // Validate all files
@@ -77,8 +90,8 @@ pub async fn run(
     };
 
     let validate_start = std::time::Instant::now();
-    let validate_span = tracing::info_span!("validate_all", project = %project_name);
-    let all_diagnostics = async { project.validate_all() }
+    let validate_span = tracing::info_span!("validate_all");
+    let all_diagnostics = async { host.all_diagnostics() }
         .instrument(validate_span)
         .await;
 
@@ -97,15 +110,13 @@ pub async fn run(
     let mut all_errors = Vec::new();
     for (file_path, diagnostics) in all_diagnostics {
         for diag in diagnostics {
-            use graphql_project::Severity;
-
-            // Only process errors (Apollo compiler validation)
-            if diag.severity == Severity::Error {
+            // Only process errors
+            if diag.severity == DiagnosticSeverity::Error {
                 let diag_output = DiagnosticOutput {
                     file_path: file_path.to_string_lossy().to_string(),
-                    // graphql-project uses 0-based, CLI output uses 1-based
-                    line: diag.range.start.line + 1,
-                    column: diag.range.start.character + 1,
+                    // graphql-ide uses 0-based, CLI output uses 1-based
+                    line: (diag.range.start.line + 1) as usize,
+                    column: (diag.range.start.character + 1) as usize,
                     message: diag.message,
                 };
 

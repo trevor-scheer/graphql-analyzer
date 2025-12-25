@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 mod diagnostics;
 mod document_validation;
-mod lint_integration;
+pub mod lint_integration;
 pub mod merged_schema;
 mod project_lints;
 mod schema_validation;
@@ -21,58 +21,25 @@ pub use validation::validate_document;
 #[salsa::db]
 pub trait GraphQLAnalysisDatabase: graphql_hir::GraphQLHirDatabase {
     /// Get the lint configuration for the project
-    /// TODO: Will be properly implemented with project configuration in a future phase
-    fn lint_config(&self) -> Arc<LintConfig> {
-        Arc::new(LintConfig::default())
+    fn lint_config(&self) -> Arc<graphql_linter::LintConfig> {
+        Arc::new(graphql_linter::LintConfig::default())
     }
 }
 
 // Implement the trait for RootDatabase
 // This makes RootDatabase usable with all analysis queries
 #[salsa::db]
-impl GraphQLAnalysisDatabase for graphql_db::RootDatabase {}
-
-/// Lint configuration (simplified for Phase 3)
-#[derive(Debug, Clone)]
-pub struct LintConfig {
-    /// Whether project-wide lints are enabled
-    pub project_wide_enabled: bool,
-    /// Enabled lint rules
-    pub enabled_rules: HashMap<String, Severity>,
-}
-
-impl Default for LintConfig {
-    fn default() -> Self {
-        let mut enabled_rules = HashMap::new();
-        // Enable some default rules for testing
-        enabled_rules.insert("redundant_fields".to_string(), Severity::Error);
-        enabled_rules.insert("no_deprecated".to_string(), Severity::Warning);
-        enabled_rules.insert("require_id_field".to_string(), Severity::Warning);
-
-        Self {
-            project_wide_enabled: false,
-            enabled_rules,
+impl GraphQLAnalysisDatabase for graphql_db::RootDatabase {
+    /// Get the lint configuration from the database storage
+    fn lint_config(&self) -> Arc<graphql_linter::LintConfig> {
+        if let Some(config_any) = self.lint_config_any() {
+            // Try to downcast to the concrete type
+            if let Some(config) = config_any.downcast_ref::<graphql_linter::LintConfig>() {
+                return Arc::new(config.clone());
+            }
         }
-    }
-}
-
-impl LintConfig {
-    /// Check if project-wide lints are enabled
-    #[must_use]
-    pub const fn enables_project_wide_lints(&self) -> bool {
-        self.project_wide_enabled
-    }
-
-    /// Check if a specific lint rule is enabled
-    #[must_use]
-    pub fn is_enabled(&self, rule: &str) -> bool {
-        self.enabled_rules.contains_key(rule)
-    }
-
-    /// Get the severity for a lint rule
-    #[must_use]
-    pub fn severity(&self, rule: &str) -> Option<Severity> {
-        self.enabled_rules.get(rule).copied()
+        // Fall back to default if not set or downcast fails
+        Arc::new(graphql_linter::LintConfig::default())
     }
 }
 
@@ -156,9 +123,13 @@ pub fn file_diagnostics(
 pub fn project_wide_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
 ) -> Arc<HashMap<FileId, Vec<Diagnostic>>> {
-    // Only run if enabled in config
+    // Check if any project-wide lints are enabled
     let lint_config = db.lint_config();
-    if !lint_config.enables_project_wide_lints() {
+    let has_project_wide_lints = lint_config.is_enabled("unique_names")
+        || lint_config.is_enabled("unused_fields")
+        || lint_config.is_enabled("unused_fragments");
+
+    if !has_project_wide_lints {
         return Arc::new(HashMap::new());
     }
 

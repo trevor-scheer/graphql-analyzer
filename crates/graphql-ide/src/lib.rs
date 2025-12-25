@@ -35,6 +35,7 @@
 //! - Feature types: [`CompletionItem`], [`HoverResult`], [`Diagnostic`]
 
 use graphql_db::RootDatabase;
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::{Arc, RwLock};
 
@@ -313,6 +314,16 @@ impl AnalysisHost {
         self.db.apply_change(change);
     }
 
+    /// Set the lint configuration for the project
+    ///
+    /// This should be called when loading project configuration to enable/disable
+    /// specific lint rules and their severities.
+    pub fn set_lint_config(&mut self, config: graphql_linter::LintConfig) {
+        self.db.set_lint_config_any(Some(
+            Arc::new(config) as Arc<dyn std::any::Any + Send + Sync>
+        ));
+    }
+
     /// Get an immutable snapshot for analysis
     ///
     /// This snapshot can be used from multiple threads and provides all IDE features.
@@ -389,6 +400,65 @@ impl Analysis {
             .iter()
             .map(convert_diagnostic)
             .collect()
+    }
+
+    /// Get only lint diagnostics for a file (excludes validation errors)
+    ///
+    /// Returns only custom lint rule violations, not GraphQL spec validation errors.
+    pub fn lint_diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
+        let (content, metadata) = {
+            let registry = self.registry.read().unwrap();
+
+            // Look up FileId from FilePath
+            let Some(file_id) = registry.get_file_id(file) else {
+                return Vec::new();
+            };
+
+            // Get FileContent and FileMetadata
+            let Some(content) = registry.get_content(file_id) else {
+                return Vec::new();
+            };
+            let Some(metadata) = registry.get_metadata(file_id) else {
+                return Vec::new();
+            };
+            drop(registry);
+
+            (content, metadata)
+        };
+
+        // Get only lint diagnostics from lint integration
+        let lint_diagnostics =
+            graphql_analysis::lint_integration::lint_file(&self.db, content, metadata);
+
+        // Convert to IDE diagnostic format
+        lint_diagnostics.iter().map(convert_diagnostic).collect()
+    }
+
+    /// Get project-wide lint diagnostics (e.g., unused fields, unique names)
+    ///
+    /// Returns a map of file paths -> diagnostics for project-wide lint rules.
+    /// These are expensive rules that analyze the entire project.
+    pub fn project_lint_diagnostics(&self) -> HashMap<FilePath, Vec<Diagnostic>> {
+        // Get project-wide diagnostics from analysis layer
+        let diagnostics_by_file_id =
+            graphql_analysis::lint_integration::project_lint_diagnostics(&self.db);
+
+        let mut results = HashMap::new();
+        let registry = self.registry.read().unwrap();
+
+        // Convert FileId -> FilePath and diagnostics
+        for (file_id, diagnostics) in diagnostics_by_file_id.iter() {
+            if let Some(file_path) = registry.get_path(*file_id) {
+                let converted: Vec<Diagnostic> =
+                    diagnostics.iter().map(convert_diagnostic).collect();
+
+                if !converted.is_empty() {
+                    results.insert(file_path, converted);
+                }
+            }
+        }
+
+        results
     }
 
     /// Resolve a field name in a parent type to get its return type name.

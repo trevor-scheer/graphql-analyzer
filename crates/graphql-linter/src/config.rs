@@ -49,6 +49,44 @@ impl Default for LintConfig {
 }
 
 impl LintConfig {
+    /// Validate the lint configuration against available rules
+    ///
+    /// Returns an error if any configured rule names are invalid.
+    /// The error message includes a list of valid rule names.
+    pub fn validate(&self) -> Result<(), String> {
+        let valid_rules = crate::registry::all_rule_names();
+        let valid_set: std::collections::HashSet<&str> = valid_rules.iter().copied().collect();
+
+        let configured_rules: Vec<&str> = match self {
+            Self::Recommended(_) => return Ok(()), // "recommended" is always valid
+            Self::Rules { rules } => rules
+                .keys()
+                .filter(|name| name.as_str() != "recommended") // "recommended" is special
+                .map(std::string::String::as_str)
+                .collect(),
+        };
+
+        let invalid_rules: Vec<&str> = configured_rules
+            .iter()
+            .filter(|rule| !valid_set.contains(*rule))
+            .copied()
+            .collect();
+
+        if invalid_rules.is_empty() {
+            Ok(())
+        } else {
+            use std::fmt::Write;
+            let mut error = format!(
+                "Invalid lint rule name(s): {}\n\nValid rule names are:\n",
+                invalid_rules.join(", ")
+            );
+            for rule in &valid_rules {
+                let _ = writeln!(error, "  - {rule}");
+            }
+            Err(error)
+        }
+    }
+
     /// Get the severity for a rule, considering recommended preset
     #[must_use]
     pub fn get_severity(&self, rule_name: &str) -> Option<LintSeverity> {

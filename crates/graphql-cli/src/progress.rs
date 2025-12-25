@@ -29,22 +29,3 @@ pub fn spinner(message: &str) -> ProgressBar {
     pb.enable_steady_tick(std::time::Duration::from_millis(80));
     pb
 }
-
-/// Create a progress bar for processing files
-/// Returns a hidden progress bar in CI environments
-pub fn progress_bar(total: u64, message: &str) -> ProgressBar {
-    let pb = if is_ci() {
-        ProgressBar::hidden()
-    } else {
-        ProgressBar::new(total)
-    };
-
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("{msg} [{bar:40.cyan/blue}] {pos}/{len} ({percent}%)")
-            .expect("Failed to set progress style")
-            .progress_chars("━━╸"),
-    );
-    pb.set_message(message.to_string());
-    pb
-}

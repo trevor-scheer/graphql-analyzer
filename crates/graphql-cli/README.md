@@ -432,6 +432,38 @@ $ graphql --project client validate
 RUST_LOG=debug graphql validate
 ```
 
+## Architecture
+
+The CLI uses a modern Salsa-based incremental computation architecture:
+
+- **Shared Logic**: Uses the same validation and linting engine as the LSP
+- **Single Source of Truth**: No code duplication between CLI and LSP
+- **Incremental Computation**: Salsa automatically caches and reuses computations
+- **Type-Safe**: Rust's type system ensures correctness
+
+### Architecture Layers
+
+```
+graphql-cli (this crate)
+    ↓ uses
+graphql-ide (editor API)
+    ↓ uses
+graphql-analysis (validation + linting queries)
+    ↓ uses
+graphql-hir (semantic queries)
+    ↓ uses
+graphql-syntax (parsing)
+    ↓ uses
+graphql-db (Salsa database)
+```
+
+### Benefits
+
+- ✅ **Consistent**: CLI and LSP produce identical results
+- ✅ **Efficient**: Salsa caching minimizes redundant work
+- ✅ **Maintainable**: Single codebase for all GraphQL analysis
+- ✅ **Extensible**: Easy to add new validation rules and features
+
 ## Differences from LSP
 
 The CLI and LSP share the same core validation and linting logic but are optimized for different use cases:

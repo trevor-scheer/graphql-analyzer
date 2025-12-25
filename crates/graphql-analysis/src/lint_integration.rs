@@ -5,6 +5,15 @@ use graphql_db::{FileContent, FileId, FileKind, FileMetadata, ProjectFiles};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Convert `LintSeverity` to Severity
+const fn convert_severity(lint_severity: graphql_linter::LintSeverity) -> Severity {
+    match lint_severity {
+        graphql_linter::LintSeverity::Error => Severity::Error,
+        graphql_linter::LintSeverity::Warn => Severity::Warning,
+        graphql_linter::LintSeverity::Off => Severity::Info,
+    }
+}
+
 /// Run lints on a file
 ///
 /// This integrates with the new trait-based graphql-linter API.
@@ -13,7 +22,6 @@ use std::sync::Arc;
 /// - The file metadata changes
 /// - The lint configuration changes
 #[salsa::tracked]
-#[tracing::instrument(skip(db, content, metadata), fields(file = %metadata.uri(db).as_str()))]
 pub fn lint_file(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
@@ -26,10 +34,7 @@ pub fn lint_file(
 
     // Skip linting if there are parse errors
     if !parse.errors.is_empty() {
-        tracing::debug!(
-            errors = parse.errors.len(),
-            "Skipping linting due to parse errors"
-        );
+        tracing::debug!("Skipping linting due to parse errors");
         return Arc::new(diagnostics);
     }
 
@@ -39,12 +44,13 @@ pub fn lint_file(
     // Run lints based on file kind
     match file_kind {
         FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
-            tracing::debug!("Running standalone document lints");
+            let uri = metadata.uri(db);
+            tracing::debug!(uri = %uri, "Running standalone document lints");
             diagnostics.extend(standalone_document_lints(db, file_id, content, metadata));
 
             // Run document+schema lints if we have project files
             if let Some(project_files) = db.project_files() {
-                tracing::debug!("Running document+schema lints");
+                tracing::debug!(uri = %uri, "Running document+schema lints");
                 diagnostics.extend(document_schema_lints(
                     db,
                     file_id,
@@ -77,24 +83,38 @@ fn standalone_document_lints(
 
     // Get all standalone document rules from registry
     for rule in graphql_linter::standalone_document_rules() {
-        if !lint_config.is_enabled(rule.name()) {
+        let enabled = lint_config.is_enabled(rule.name());
+        tracing::debug!(
+            rule = rule.name(),
+            enabled = enabled,
+            "Checking standalone document rule"
+        );
+
+        if !enabled {
             continue;
         }
-
-        tracing::trace!(rule = rule.name(), "Running standalone document rule");
 
         // Run the rule (it will access parse via Salsa)
         let lint_diags = rule.check(db, file_id, content, metadata);
 
+        if !lint_diags.is_empty() {
+            tracing::debug!(
+                rule = rule.name(),
+                count = lint_diags.len(),
+                "Found lint issues"
+            );
+        }
+
         // Convert to analysis Diagnostic format
+        let severity = lint_config
+            .get_severity(rule.name())
+            .map_or(Severity::Warning, convert_severity);
         diagnostics.extend(convert_lint_diagnostics(
             db,
             content,
             lint_diags,
             rule.name(),
-            lint_config
-                .severity(rule.name())
-                .unwrap_or(Severity::Warning),
+            severity,
         ));
     }
 
@@ -114,24 +134,38 @@ fn document_schema_lints(
 
     // Get all document+schema rules from registry
     for rule in graphql_linter::document_schema_rules() {
-        if !lint_config.is_enabled(rule.name()) {
+        let enabled = lint_config.is_enabled(rule.name());
+        tracing::debug!(
+            rule = rule.name(),
+            enabled = enabled,
+            "Checking document+schema rule"
+        );
+
+        if !enabled {
             continue;
         }
-
-        tracing::trace!(rule = rule.name(), "Running document+schema rule");
 
         // Run the rule (it has access to schema via project_files)
         let lint_diags = rule.check(db, file_id, content, metadata, project_files);
 
+        if !lint_diags.is_empty() {
+            tracing::debug!(
+                rule = rule.name(),
+                count = lint_diags.len(),
+                "Found lint issues"
+            );
+        }
+
         // Convert to analysis Diagnostic format
+        let severity = lint_config
+            .get_severity(rule.name())
+            .map_or(Severity::Warning, convert_severity);
         diagnostics.extend(convert_lint_diagnostics(
             db,
             content,
             lint_diags,
             rule.name(),
-            lint_config
-                .severity(rule.name())
-                .unwrap_or(Severity::Warning),
+            severity,
         ));
     }
 
@@ -157,14 +191,25 @@ pub fn project_lint_diagnostics(
 
     // Get all project rules from registry
     for rule in graphql_linter::project_rules() {
-        if !lint_config.is_enabled(rule.name()) {
+        let enabled = lint_config.is_enabled(rule.name());
+        tracing::info!(
+            rule = rule.name(),
+            enabled = enabled,
+            "Checking project-wide rule"
+        );
+
+        if !enabled {
             continue;
         }
 
-        tracing::debug!(rule = rule.name(), "Running project-wide rule");
-
         // Run the project-wide rule
         let lint_diags = rule.check(db, project_files);
+
+        tracing::info!(
+            rule = rule.name(),
+            file_count = lint_diags.len(),
+            "Project-wide rule returned diagnostics"
+        );
 
         // Merge into result
         for (file_id, file_lint_diags) in lint_diags {
@@ -174,15 +219,11 @@ pub fn project_lint_diagnostics(
                 continue;
             };
 
-            let converted = convert_lint_diagnostics(
-                db,
-                content,
-                file_lint_diags,
-                rule.name(),
-                lint_config
-                    .severity(rule.name())
-                    .unwrap_or(Severity::Warning),
-            );
+            let severity = lint_config
+                .get_severity(rule.name())
+                .map_or(Severity::Warning, convert_severity);
+            let converted =
+                convert_lint_diagnostics(db, content, file_lint_diags, rule.name(), severity);
             diagnostics_by_file
                 .entry(file_id)
                 .or_default()

@@ -85,9 +85,20 @@ fn parse_graphql(content: &str) -> Parse {
 fn extract_and_parse(content: &str) -> Parse {
     use graphql_extract::{extract_from_source, ExtractConfig, Language};
 
+    tracing::debug!(content_len = content.len(), "extract_and_parse called");
+
     let config = ExtractConfig::default();
     let language = Language::TypeScript; // Will work for both TS and JS
-    let extracted = extract_from_source(content, language, &config).unwrap_or_default();
+    let extracted = match extract_from_source(content, language, &config) {
+        Ok(blocks) => {
+            tracing::debug!(blocks_extracted = blocks.len(), "Extraction successful");
+            blocks
+        }
+        Err(e) => {
+            tracing::error!(error = ?e, "Extraction failed");
+            Vec::new()
+        }
+    };
 
     let mut blocks = Vec::new();
     let mut all_errors = Vec::new();
@@ -113,8 +124,10 @@ fn extract_and_parse(content: &str) -> Parse {
         },
     );
 
-    // Collect errors from main tree
-    all_errors.extend(main_tree.errors().map(|e| e.message().to_string()));
+    // Collect errors from main tree (only if we actually extracted blocks)
+    if !extracted.is_empty() {
+        all_errors.extend(main_tree.errors().map(|e| e.message().to_string()));
+    }
 
     // Parse each extracted block
     for block in extracted {
