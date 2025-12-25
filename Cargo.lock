@@ -936,6 +936,7 @@ dependencies = [
  "anyhow",
  "clap",
  "colored",
+ "glob",
  "graphql-config",
  "graphql-extract",
  "graphql-ide",
@@ -1107,6 +1108,7 @@ dependencies = [
  "graphql-db",
  "graphql-extract",
  "salsa",
+ "tracing",
 ]
 
 [[package]]

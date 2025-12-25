@@ -36,11 +36,35 @@ pub fn validate_document(
     tracing::info!("Merged schema obtained successfully");
 
     // Get the document text
-    let doc_text = content.text(db);
+    // For TypeScript/JavaScript files, we need to use the extracted GraphQL, not the full file
+    let parse = graphql_syntax::parse(db, content, metadata);
+    let doc_text: Arc<str> = if metadata.kind(db) == graphql_db::FileKind::TypeScript
+        || metadata.kind(db) == graphql_db::FileKind::JavaScript
+    {
+        // Skip files with no GraphQL blocks
+        if parse.blocks.is_empty() {
+            tracing::info!("Skipping validation for file with no GraphQL blocks");
+            return Arc::new(diagnostics);
+        }
+
+        // Combine all extracted GraphQL blocks into a single document
+        let combined = parse
+            .blocks
+            .iter()
+            .map(|block| block.source.as_ref())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        Arc::from(combined)
+    } else {
+        // For pure GraphQL files, use the content as-is
+        content.text(db)
+    };
+
     let doc_uri = metadata.uri(db);
     tracing::info!(
         uri = ?doc_uri,
         doc_length = doc_text.len(),
+        kind = ?metadata.kind(db),
         "Document info"
     );
 
@@ -110,10 +134,28 @@ pub fn validate_document(
 
             // Check if this file defines any referenced fragments
             if file_defines_any_fragment(&text, &referenced_fragments) {
+                // Extract GraphQL if this is a TypeScript/JavaScript file
+                let fragment_text = if file_metadata.kind(db) == graphql_db::FileKind::TypeScript
+                    || file_metadata.kind(db) == graphql_db::FileKind::JavaScript
+                {
+                    // Parse and extract GraphQL blocks
+                    let fragment_parse = graphql_syntax::parse(db, *file_content, *file_metadata);
+                    // Combine all extracted blocks
+                    let combined = fragment_parse
+                        .blocks
+                        .iter()
+                        .map(|block| block.source.as_ref())
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+                    combined
+                } else {
+                    text.as_ref().to_string()
+                };
+
                 // Extract and add only the specific fragments we need
-                tracing::info!(file = ?uri, "Adding file with fragments to builder");
+                tracing::info!(file = ?uri, kind = ?file_metadata.kind(db), "Adding file with fragments to builder");
                 apollo_compiler::parser::Parser::new().parse_into_executable_builder(
-                    text.as_ref(),
+                    &fragment_text,
                     uri.as_str(),
                     &mut builder,
                 );

@@ -54,11 +54,18 @@ impl CliAnalysisHost {
                 Self::load_document_files(documents_config, &base_dir, project_config)?;
 
             for (path, content) in document_files {
+                // Determine file kind based on extension
+                let kind = match path.extension().and_then(|e| e.to_str()) {
+                    Some("ts" | "tsx") => FileKind::TypeScript,
+                    Some("js" | "jsx") => FileKind::JavaScript,
+                    _ => FileKind::ExecutableGraphQL, // .graphql, .gql, or unknown
+                };
+
                 host.add_file(
                     &FilePath::new(path.to_string_lossy().to_string()),
                     &content,
-                    FileKind::ExecutableGraphQL,
-                    0, // No line offset for pure GraphQL files
+                    kind,
+                    0, // No line offset for pure GraphQL files from disk
                 );
                 loaded_files.push(path);
             }
@@ -97,35 +104,37 @@ impl CliAnalysisHost {
     fn load_document_files(
         documents_config: &graphql_config::DocumentsConfig,
         base_dir: &Path,
-        project_config: &ProjectConfig,
+        _project_config: &ProjectConfig,
     ) -> Result<Vec<(PathBuf, String)>> {
-        use graphql_project::DocumentLoader;
-
-        let mut loader = DocumentLoader::new(documents_config.clone());
-        loader = loader.with_base_path(base_dir);
-
-        // Apply extractConfig from project extensions
-        let extract_config: graphql_extract::ExtractConfig = project_config
-            .extensions
-            .as_ref()
-            .and_then(|ext| ext.get("extractConfig"))
-            .and_then(|value| serde_json::from_value(value.clone()).ok())
-            .unwrap_or_default();
-        loader = loader.with_extract_config(extract_config);
-
-        // Load the document index to get all file paths
-        let index = loader.load().context("Failed to load documents")?;
-
-        // Collect unique file paths
+        // Use glob to match all document files
+        // This ensures we load ALL matched files, even if they have parse errors
+        let patterns: Vec<_> = documents_config.patterns().into_iter().collect();
         let mut file_paths = std::collections::HashSet::new();
-        for operations in index.operations.values() {
-            for op in operations {
-                file_paths.insert(PathBuf::from(&op.file_path));
-            }
-        }
-        for fragments in index.fragments.values() {
-            for frag in fragments {
-                file_paths.insert(PathBuf::from(&frag.file_path));
+
+        for pattern in patterns {
+            // Expand brace patterns like {ts,tsx}
+            let expanded = Self::expand_braces(pattern);
+
+            for expanded_pattern in expanded {
+                let full_pattern = base_dir.join(&expanded_pattern).display().to_string();
+
+                for entry in glob::glob(&full_pattern)
+                    .with_context(|| format!("Invalid glob pattern: {full_pattern}"))?
+                {
+                    match entry {
+                        Ok(path) if path.is_file() => {
+                            // Skip node_modules
+                            if path.components().any(|c| c.as_os_str() == "node_modules") {
+                                continue;
+                            }
+                            file_paths.insert(path);
+                        }
+                        Ok(_) => {} // Skip directories
+                        Err(e) => {
+                            return Err(anyhow::anyhow!("Glob error: {e}"));
+                        }
+                    }
+                }
             }
         }
 
@@ -138,6 +147,25 @@ impl CliAnalysisHost {
         }
 
         Ok(files)
+    }
+
+    /// Expand brace patterns like "src/**/*.{ts,tsx}" into separate patterns
+    fn expand_braces(pattern: &str) -> Vec<String> {
+        // Simple brace expansion - handles single brace group
+        if let Some(start) = pattern.find('{') {
+            if let Some(end) = pattern.find('}') {
+                let before = &pattern[..start];
+                let after = &pattern[end + 1..];
+                let options = &pattern[start + 1..end];
+
+                return options
+                    .split(',')
+                    .map(|opt| format!("{}{}{}", before, opt.trim(), after))
+                    .collect();
+            }
+        }
+
+        vec![pattern.to_string()]
     }
 
     /// Get diagnostics for all loaded files
