@@ -32,6 +32,7 @@ pub fn spinner(message: &str) -> ProgressBar {
 
 /// Create a progress bar for processing files
 /// Returns a hidden progress bar in CI environments
+#[allow(dead_code)]
 pub fn progress_bar(total: u64, message: &str) -> ProgressBar {
     let pb = if is_ci() {
         ProgressBar::hidden()

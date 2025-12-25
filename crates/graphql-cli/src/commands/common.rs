@@ -87,6 +87,7 @@ impl CommandContext {
     ///
     /// This combines project selection and loading into one operation to reduce
     /// code duplication across commands.
+    #[allow(dead_code)]
     pub async fn load_project(
         &self,
         project_name: Option<&str>,
@@ -111,6 +112,7 @@ impl CommandContext {
     ///
     /// Centralizes the "Schema loaded" and "Documents loaded" messages that
     /// all commands display in human-readable format.
+    #[allow(dead_code)]
     pub fn print_success_message(project: &StaticGraphQLProject) {
         let doc_index = project.get_document_index();
         let op_count = doc_index.operations.len();

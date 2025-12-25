@@ -43,6 +43,7 @@ impl CliAnalysisHost {
                 &FilePath::new(path.to_string_lossy().to_string()),
                 &content,
                 FileKind::Schema,
+                0, // No line offset for pure GraphQL files
             );
             loaded_files.push(path);
         }
@@ -57,6 +58,7 @@ impl CliAnalysisHost {
                     &FilePath::new(path.to_string_lossy().to_string()),
                     &content,
                     FileKind::ExecutableGraphQL,
+                    0, // No line offset for pure GraphQL files
                 );
                 loaded_files.push(path);
             }
@@ -158,6 +160,35 @@ impl CliAnalysisHost {
         results
     }
 
+    /// Get only lint diagnostics for all loaded files
+    ///
+    /// Returns only custom lint rule violations, excluding GraphQL spec validation errors.
+    /// Includes both file-level and project-wide lint diagnostics.
+    /// Only includes files that have diagnostics.
+    pub fn all_lint_diagnostics(&self) -> HashMap<PathBuf, Vec<Diagnostic>> {
+        let snapshot = self.host.snapshot();
+        let mut results = HashMap::new();
+
+        // Get file-level lint diagnostics
+        for path in &self.loaded_files {
+            let file_path = FilePath::new(path.to_string_lossy().to_string());
+            let diagnostics = snapshot.lint_diagnostics(&file_path);
+
+            if !diagnostics.is_empty() {
+                results.insert(path.clone(), diagnostics);
+            }
+        }
+
+        // Get project-wide lint diagnostics (e.g., unused fields, unique names)
+        let project_diagnostics = snapshot.project_lint_diagnostics();
+        for (file_path, diagnostics) in project_diagnostics {
+            let path = PathBuf::from(file_path.as_str());
+            results.entry(path).or_default().extend(diagnostics);
+        }
+
+        results
+    }
+
     /// Get the number of schema files loaded
     #[allow(dead_code)]
     pub fn schema_file_count(&self) -> usize {
@@ -198,7 +229,7 @@ impl CliAnalysisHost {
         // For simplicity, default to ExecutableGraphQL kind
         let kind = FileKind::ExecutableGraphQL;
 
-        self.host.add_file(&file_path, content, kind);
+        self.host.add_file(&file_path, content, kind, 0);
 
         // Update loaded files list if this is a new file
         if !self.loaded_files.contains(&path.to_path_buf()) {

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 mod diagnostics;
 mod document_validation;
-mod lint_integration;
+pub mod lint_integration;
 pub mod merged_schema;
 mod project_lints;
 mod schema_validation;
