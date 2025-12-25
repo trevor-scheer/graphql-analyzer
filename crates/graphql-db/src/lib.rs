@@ -96,14 +96,6 @@ pub struct RootDatabase {
     /// Current project files (stored with interior mutability for access from queries)
     /// This is set by the IDE layer when files are added/removed
     project_files: std::cell::Cell<Option<ProjectFiles>>,
-    /// Lint configuration (stored with interior mutability for access from queries)
-    /// This is set by the IDE/CLI layer when loading configuration
-    /// Stored as Arc<dyn Any> to avoid circular dependencies
-    lint_config: std::cell::RefCell<Option<Arc<dyn std::any::Any + Send + Sync>>>,
-    /// Extract configuration (stored with interior mutability for access from queries)
-    /// This is set by the IDE/CLI layer when loading configuration
-    /// Stored as Arc<dyn Any> to avoid circular dependencies
-    extract_config: std::cell::RefCell<Option<Arc<dyn std::any::Any + Send + Sync>>>,
 }
 
 impl Default for RootDatabase {
@@ -111,8 +103,6 @@ impl Default for RootDatabase {
         Self {
             storage: salsa::Storage::default(),
             project_files: std::cell::Cell::new(None),
-            lint_config: std::cell::RefCell::new(None),
-            extract_config: std::cell::RefCell::new(None),
         }
     }
 }
@@ -137,32 +127,6 @@ impl RootDatabase {
     /// This should be called by the IDE layer when files are added/removed
     pub fn set_project_files(&self, project_files: Option<ProjectFiles>) {
         self.project_files.set(project_files);
-    }
-
-    /// Get the current lint configuration (type-erased)
-    /// Use `GraphQLAnalysisDatabase::lint_config()` for typed access
-    #[must_use]
-    pub fn lint_config_any(&self) -> Option<Arc<dyn std::any::Any + Send + Sync>> {
-        self.lint_config.borrow().clone()
-    }
-
-    /// Set the lint configuration (type-erased)
-    /// This should be called by the IDE/CLI layer when loading configuration
-    pub fn set_lint_config_any(&self, config: Option<Arc<dyn std::any::Any + Send + Sync>>) {
-        *self.lint_config.borrow_mut() = config;
-    }
-
-    /// Get the current extract configuration (type-erased)
-    /// Use `GraphQLSyntaxDatabase::extract_config()` for typed access
-    #[must_use]
-    pub fn extract_config_any(&self) -> Option<Arc<dyn std::any::Any + Send + Sync>> {
-        self.extract_config.borrow().clone()
-    }
-
-    /// Set the extract configuration (type-erased)
-    /// This should be called by the IDE/CLI layer when loading configuration
-    pub fn set_extract_config_any(&self, config: Option<Arc<dyn std::any::Any + Send + Sync>>) {
-        *self.extract_config.borrow_mut() = config;
     }
 }
 

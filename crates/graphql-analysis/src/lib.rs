@@ -30,17 +30,7 @@ pub trait GraphQLAnalysisDatabase: graphql_hir::GraphQLHirDatabase {
 // This makes RootDatabase usable with all analysis queries
 #[salsa::db]
 impl GraphQLAnalysisDatabase for graphql_db::RootDatabase {
-    /// Get the lint configuration from the database storage
-    fn lint_config(&self) -> Arc<graphql_linter::LintConfig> {
-        if let Some(config_any) = self.lint_config_any() {
-            // Try to downcast to the concrete type
-            if let Some(config) = config_any.downcast_ref::<graphql_linter::LintConfig>() {
-                return Arc::new(config.clone());
-            }
-        }
-        // Fall back to default if not set or downcast fails
-        Arc::new(graphql_linter::LintConfig::default())
-    }
+    // Use default implementation (returns default LintConfig)
 }
 
 /// Get all diagnostics for a file
@@ -181,11 +171,7 @@ mod tests {
     impl salsa::Database for TestDatabase {}
 
     #[salsa::db]
-    impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {
-        fn extract_config_any(&self) -> Option<std::sync::Arc<dyn std::any::Any + Send + Sync>> {
-            None
-        }
-    }
+    impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {}
 
     #[salsa::db]
     impl graphql_hir::GraphQLHirDatabase for TestDatabase {}
