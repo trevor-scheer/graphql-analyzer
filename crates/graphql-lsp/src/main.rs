@@ -1,3 +1,4 @@
+mod conversions;
 mod server;
 
 use server::GraphQLLanguageServer;
