@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::Path;
 
 /// Top-level GraphQL configuration.
 /// Either a single project or multiple named projects.
@@ -75,6 +76,115 @@ impl GraphQLConfig {
             Self::Single(config) => config.extensions.as_ref(),
             Self::Multi { .. } => None,
         }
+    }
+
+    /// Find the project that a document belongs to based on pattern matching.
+    ///
+    /// For single-project configs, always returns "default".
+    /// For multi-project configs, matches the document path against each project's
+    /// document patterns (includes/excludes).
+    ///
+    /// # Arguments
+    /// * `doc_path` - Absolute path to the document
+    /// * `workspace_root` - Root directory of the workspace (used to resolve relative patterns)
+    ///
+    /// # Returns
+    /// The name of the matching project, or None if no project matches
+    #[must_use]
+    pub fn find_project_for_document(
+        &self,
+        doc_path: &Path,
+        workspace_root: &Path,
+    ) -> Option<&str> {
+        match self {
+            Self::Single(_) => Some("default"),
+            Self::Multi { projects } => {
+                for (name, config) in projects {
+                    if Self::document_matches_project(doc_path, workspace_root, config) {
+                        return Some(name.as_str());
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    /// Check if a document matches a project's patterns
+    fn document_matches_project(
+        doc_path: &Path,
+        workspace_root: &Path,
+        config: &ProjectConfig,
+    ) -> bool {
+        let Ok(rel_path) = doc_path.strip_prefix(workspace_root) else {
+            return false;
+        };
+
+        let rel_path_str = rel_path.to_string_lossy();
+
+        // Check explicit excludes first
+        if let Some(ref excludes) = config.exclude {
+            for pattern in excludes {
+                for expanded in Self::expand_braces(pattern) {
+                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
+                        if glob_pattern.matches(&rel_path_str) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check includes (if specified)
+        if let Some(ref includes) = config.include {
+            for pattern in includes {
+                for expanded in Self::expand_braces(pattern) {
+                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
+                        if glob_pattern.matches(&rel_path_str) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            // If includes are specified but no match, return false
+            return false;
+        }
+
+        // Check document patterns (if specified)
+        if let Some(ref documents) = config.documents {
+            for pattern in documents.patterns() {
+                for expanded in Self::expand_braces(pattern) {
+                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
+                        if glob_pattern.matches(&rel_path_str) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            // If document patterns are specified but no match, return false
+            return false;
+        }
+
+        // No patterns specified - match by default
+        true
+    }
+
+    /// Expand brace patterns like "src/**/*.{ts,tsx}" into separate patterns
+    fn expand_braces(pattern: &str) -> Vec<String> {
+        // Simple brace expansion - handles single brace group
+        if let Some(start) = pattern.find('{') {
+            if let Some(end) = pattern.find('}') {
+                let before = &pattern[..start];
+                let after = &pattern[end + 1..];
+                let options = &pattern[start + 1..end];
+
+                return options
+                    .split(',')
+                    .map(|opt| format!("{}{}{}", before, opt.trim(), after))
+                    .collect();
+            }
+        }
+
+        vec![pattern.to_string()]
     }
 }
 
@@ -266,5 +376,116 @@ extensions:
         let extensions = config.extensions.unwrap();
         assert!(extensions.contains_key("extractConfig"));
         assert!(extensions.contains_key("otherExtension"));
+    }
+
+    #[test]
+    fn test_find_project_single_config() {
+        use std::path::PathBuf;
+
+        let config = GraphQLConfig::Single(ProjectConfig {
+            schema: SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(DocumentsConfig::Pattern("**/*.graphql".to_string())),
+            include: None,
+            exclude: None,
+            lint: None,
+            extensions: None,
+        });
+
+        let workspace_root = PathBuf::from("/workspace");
+        let doc_path = PathBuf::from("/workspace/src/queries.graphql");
+
+        let project = config.find_project_for_document(&doc_path, &workspace_root);
+        assert_eq!(project, Some("default"));
+    }
+
+    #[test]
+    fn test_find_project_multi_config_with_documents() {
+        use std::path::PathBuf;
+
+        let mut projects = HashMap::new();
+        projects.insert(
+            "frontend".to_string(),
+            ProjectConfig {
+                schema: SchemaConfig::Path("frontend/schema.graphql".to_string()),
+                documents: Some(DocumentsConfig::Pattern(
+                    "frontend/**/*.{ts,tsx}".to_string(),
+                )),
+                include: None,
+                exclude: None,
+                lint: None,
+                extensions: None,
+            },
+        );
+        projects.insert(
+            "backend".to_string(),
+            ProjectConfig {
+                schema: SchemaConfig::Path("backend/schema.graphql".to_string()),
+                documents: Some(DocumentsConfig::Pattern("backend/**/*.graphql".to_string())),
+                include: None,
+                exclude: None,
+                lint: None,
+                extensions: None,
+            },
+        );
+
+        let config = GraphQLConfig::Multi { projects };
+        let workspace_root = PathBuf::from("/workspace");
+
+        let backend_doc = PathBuf::from("/workspace/backend/api.graphql");
+        assert_eq!(
+            config.find_project_for_document(&backend_doc, &workspace_root),
+            Some("backend")
+        );
+
+        let frontend_doc = PathBuf::from("/workspace/frontend/components/User.tsx");
+        assert_eq!(
+            config.find_project_for_document(&frontend_doc, &workspace_root),
+            Some("frontend")
+        );
+
+        let no_match = PathBuf::from("/workspace/other/file.graphql");
+        assert_eq!(
+            config.find_project_for_document(&no_match, &workspace_root),
+            None
+        );
+    }
+
+    #[test]
+    fn test_find_project_with_include_exclude() {
+        use std::path::PathBuf;
+
+        let mut projects = HashMap::new();
+        projects.insert(
+            "main".to_string(),
+            ProjectConfig {
+                schema: SchemaConfig::Path("schema.graphql".to_string()),
+                documents: Some(DocumentsConfig::Pattern("**/*.graphql".to_string())),
+                include: Some(vec!["src/**".to_string()]),
+                exclude: Some(vec!["**/__tests__/**".to_string()]),
+                lint: None,
+                extensions: None,
+            },
+        );
+
+        let config = GraphQLConfig::Multi { projects };
+        let workspace_root = PathBuf::from("/workspace");
+
+        let included = PathBuf::from("/workspace/src/queries.graphql");
+        assert_eq!(
+            config.find_project_for_document(&included, &workspace_root),
+            Some("main")
+        );
+
+        let excluded = PathBuf::from("/workspace/src/__tests__/queries.graphql");
+        assert_eq!(
+            config.find_project_for_document(&excluded, &workspace_root),
+            None
+        );
+
+        let not_included = PathBuf::from("/workspace/other/queries.graphql");
+        assert_eq!(
+            config.find_project_for_document(&not_included, &workspace_root),
+            None
+        );
     }
 }
