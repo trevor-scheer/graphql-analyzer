@@ -68,6 +68,31 @@ impl CliAnalysisHost {
             tracing::debug!("No lint configuration found in project config, using defaults");
         }
 
+        // Parse and set extract configuration
+        if let Some(ref extensions) = project_config.extensions {
+            if let Some(extract_config_value) = extensions.get("extractConfig") {
+                tracing::debug!("Raw extract configuration: {extract_config_value:?}");
+                match serde_json::from_value::<graphql_extract::ExtractConfig>(
+                    extract_config_value.clone(),
+                ) {
+                    Ok(extract_config) => {
+                        tracing::info!("Loaded extract configuration from project config");
+                        tracing::debug!(
+                            allow_global_identifiers = extract_config.allow_global_identifiers,
+                            tag_identifiers = ?extract_config.tag_identifiers,
+                            "Parsed extract config"
+                        );
+                        host.set_extract_config(extract_config);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to parse extract configuration: {e}, using defaults"
+                        );
+                    }
+                }
+            }
+        }
+
         // Load schema files
         let schema_files = Self::load_schema_files(project_config, &base_dir).await?;
 
