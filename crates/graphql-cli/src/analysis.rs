@@ -28,10 +28,7 @@ impl CliAnalysisHost {
     /// Create from a project configuration
     ///
     /// Loads all schema and document files from the project config.
-    pub async fn from_project_config(
-        project_config: &ProjectConfig,
-        base_dir: PathBuf,
-    ) -> Result<Self> {
+    pub fn from_project_config(project_config: &ProjectConfig, base_dir: PathBuf) -> Result<Self> {
         let mut host = AnalysisHost::new();
         let mut loaded_files = Vec::new();
 
@@ -93,18 +90,8 @@ impl CliAnalysisHost {
             }
         }
 
-        // Load schema files
-        let schema_files = Self::load_schema_files(project_config, &base_dir).await?;
-
-        for (path, content) in schema_files {
-            host.add_file(
-                &FilePath::new(path.to_string_lossy().to_string()),
-                &content,
-                FileKind::Schema,
-                0, // No line offset for pure GraphQL files
-            );
-            loaded_files.push(path);
-        }
+        // Load schema files using centralized method
+        let _schema_count = host.load_schemas_from_config(project_config, &base_dir)?;
 
         // Load document files (if configured)
         if let Some(ref documents_config) = project_config.documents {
@@ -134,28 +121,6 @@ impl CliAnalysisHost {
             loaded_files,
             base_dir,
         })
-    }
-
-    /// Load schema files from config
-    async fn load_schema_files(
-        config: &ProjectConfig,
-        base_dir: &Path,
-    ) -> Result<Vec<(PathBuf, String)>> {
-        use graphql_project::SchemaLoader;
-
-        let mut loader = SchemaLoader::new(config.schema.clone());
-        loader = loader.with_base_path(base_dir);
-
-        let schema_files = loader
-            .load_with_paths()
-            .await
-            .context("Failed to load schema files")?;
-
-        // Convert String paths to PathBuf
-        Ok(schema_files
-            .into_iter()
-            .map(|(path, content)| (PathBuf::from(path), content))
-            .collect())
     }
 
     /// Load document files from config

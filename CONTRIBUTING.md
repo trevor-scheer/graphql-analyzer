@@ -135,7 +135,12 @@ graphql-lsp/
 ├── crates/
 │   ├── graphql-config/       # Configuration parsing
 │   ├── graphql-extract/      # GraphQL extraction from source files
-│   ├── graphql-project/      # Core validation and indexing
+│   ├── graphql-db/           # Salsa database and input queries
+│   ├── graphql-syntax/       # GraphQL parsing and syntax trees
+│   ├── graphql-hir/          # High-level semantic representation
+│   ├── graphql-analysis/     # Query-based validation and analysis
+│   ├── graphql-linter/       # Linting engine with custom rules
+│   ├── graphql-ide/          # Editor-facing IDE features API
 │   ├── graphql-lsp/          # LSP server
 │   └── graphql-cli/          # CLI tool
 ├── .github/workflows/        # CI/CD workflows

@@ -307,6 +307,91 @@ impl AnalysisHost {
         }
     }
 
+    /// Load schema files from a project configuration
+    ///
+    /// This method:
+    /// - Always includes Apollo Client built-in directives
+    /// - Loads schema files from local paths (single file, multiple files, glob patterns)
+    /// - Logs warnings for URL schemas (introspection not yet supported)
+    ///
+    /// Returns the number of schema files loaded.
+    pub fn load_schemas_from_config(
+        &mut self,
+        config: &graphql_config::ProjectConfig,
+        base_dir: &std::path::Path,
+    ) -> anyhow::Result<usize> {
+        // Always include Apollo Client built-in directives first
+        const APOLLO_CLIENT_BUILTINS: &str = include_str!("apollo_client_builtins.graphql");
+        self.add_file(
+            &FilePath::new("apollo_client_builtins.graphql".to_string()),
+            APOLLO_CLIENT_BUILTINS,
+            FileKind::Schema,
+            0,
+        );
+        tracing::info!("Loaded Apollo Client built-in directives");
+        let mut count = 1;
+
+        // Get schema patterns from config
+        let patterns: Vec<String> = match &config.schema {
+            graphql_config::SchemaConfig::Path(s) => vec![s.clone()],
+            graphql_config::SchemaConfig::Paths(arr) => arr.clone(),
+        };
+
+        tracing::info!("Loading {} schema pattern(s)", patterns.len());
+
+        for pattern in patterns {
+            // Skip URLs - these would need introspection support
+            if pattern.starts_with("http://") || pattern.starts_with("https://") {
+                tracing::warn!("URL schemas not yet supported: {}", pattern);
+                continue;
+            }
+
+            // Treat as file glob pattern
+            let full_pattern = base_dir.join(&pattern).display().to_string();
+            tracing::debug!("Expanding glob pattern: {}", full_pattern);
+
+            match glob::glob(&full_pattern) {
+                Ok(paths) => {
+                    for entry in paths.flatten() {
+                        if entry.is_file() {
+                            tracing::debug!("Loading schema file: {}", entry.display());
+                            match std::fs::read_to_string(&entry) {
+                                Ok(content) => {
+                                    self.add_file(
+                                        &FilePath::new(entry.to_string_lossy().to_string()),
+                                        &content,
+                                        FileKind::Schema,
+                                        0, // No line offset for pure GraphQL files
+                                    );
+                                    count += 1;
+                                    tracing::info!("Loaded schema: {}", entry.display());
+                                }
+                                Err(e) => {
+                                    let path_display = entry.display().to_string();
+                                    tracing::error!(
+                                        "Failed to read schema file {path_display}: {e}"
+                                    );
+                                    return Err(anyhow::anyhow!(
+                                        "Failed to read schema file {path_display}: {e}"
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to expand glob pattern {full_pattern}: {e}");
+                    return Err(anyhow::anyhow!(
+                        "Failed to expand glob pattern {full_pattern}: {e}"
+                    ));
+                }
+            }
+        }
+
+        tracing::info!("Loaded {} schema file(s) total", count);
+        Ok(count)
+    }
+
     /// Apply a change to the database
     ///
     /// Changes include adding/updating/removing files, updating configuration, etc.

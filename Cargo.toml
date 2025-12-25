@@ -3,7 +3,6 @@ resolver = "2"
 members = [
     "crates/graphql-config",
     "crates/graphql-extract",
-    "crates/graphql-project",
     "crates/graphql-lsp",
     "crates/graphql-cli",
     ".husky", "crates/graphql-linter",

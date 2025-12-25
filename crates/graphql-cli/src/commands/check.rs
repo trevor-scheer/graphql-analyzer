@@ -25,7 +25,7 @@ pub async fn run(
     // - Compare for breaking changes
     let _ctx = CommandContext::load(
         config_path,
-        project_name.as_ref(),
+        project_name.as_deref(),
         "check --base <BASE> --head <HEAD>",
     )?;
 

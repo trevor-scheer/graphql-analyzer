@@ -108,15 +108,15 @@ let body = operation_body(db, operation_id);
 
 ## Benefits
 
-Compared to the current `graphql-project` implementation:
+Compared to direct CST access:
 
-| Current | HIR (Phase 2) |
-|---------|---------------|
-| Manual index updates | Automatic via Salsa |
-| Coarse-grained invalidation | Fine-grained structure/body split |
+| Direct CST | HIR |
+|------------|-----|
+| Manual traversal | Semantic queries |
+| Coarse-grained caching | Fine-grained structure/body split |
 | Eager processing | Lazy evaluation |
-| Global locks | Lock-free queries |
-| Manual dependency tracking | Automatic via Salsa |
+| Manual invalidation | Automatic via Salsa |
+| No dependency tracking | Automatic via Salsa |
 
 ## Integration
 

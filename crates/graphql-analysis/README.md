@@ -203,6 +203,5 @@ Tests verify:
 - `graphql-db` - Salsa database and input types
 - `graphql-syntax` - Parsing layer
 - `graphql-hir` - Semantic queries
-- `graphql-linter` - Existing linting rules
-- `graphql-project` - Bridge types (SchemaIndex, DocumentIndex)
+- `graphql-linter` - Linting rules
 - `salsa` - Incremental computation framework

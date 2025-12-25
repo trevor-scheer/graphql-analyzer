@@ -6,14 +6,12 @@ use colored::Colorize;
 use graphql_ide::DiagnosticSeverity;
 use std::path::PathBuf;
 use std::process;
-use tracing::Instrument;
 
 #[allow(clippy::too_many_lines)]
-#[allow(clippy::future_not_send)]
 #[tracing::instrument(skip(config_path, project_name, format), fields(project = ?project_name))]
-pub async fn run(
+pub fn run(
     config_path: Option<PathBuf>,
-    project_name: Option<String>,
+    project_name: Option<&str>,
     format: OutputFormat,
     watch: bool,
 ) -> Result<()> {
@@ -34,10 +32,10 @@ pub async fn run(
     let start_time = std::time::Instant::now();
 
     // Load config and validate project requirement
-    let ctx = CommandContext::load(config_path, project_name.as_ref(), "validate")?;
+    let ctx = CommandContext::load(config_path, project_name, "validate")?;
 
     // Get project config
-    let selected_name = CommandContext::get_project_name(project_name.as_deref());
+    let selected_name = CommandContext::get_project_name(project_name);
     let project_config = ctx
         .config
         .projects()
@@ -53,22 +51,17 @@ pub async fn run(
     };
 
     let load_start = std::time::Instant::now();
-    let load_projects_span = tracing::info_span!("load_projects");
-    let host = async {
-        CliAnalysisHost::from_project_config(&project_config, ctx.base_dir.clone())
-            .await
-            .map_err(|e| {
-                if matches!(format, OutputFormat::Human) {
-                    eprintln!("{} {}", "✗ Failed to load project:".red(), e);
-                } else {
-                    eprintln!("{}", serde_json::json!({ "error": e.to_string() }));
-                }
-                process::exit(1);
-            })
-            .unwrap()
-    }
-    .instrument(load_projects_span)
-    .await;
+    let _load_projects_span = tracing::info_span!("load_projects").entered();
+    let host = CliAnalysisHost::from_project_config(&project_config, ctx.base_dir)
+        .map_err(|e| {
+            if matches!(format, OutputFormat::Human) {
+                eprintln!("{} {}", "✗ Failed to load project:".red(), e);
+            } else {
+                eprintln!("{}", serde_json::json!({ "error": e.to_string() }));
+            }
+            process::exit(1);
+        })
+        .unwrap();
 
     if let Some(pb) = spinner {
         pb.finish_and_clear();
@@ -90,10 +83,8 @@ pub async fn run(
     };
 
     let validate_start = std::time::Instant::now();
-    let validate_span = tracing::info_span!("validate_all");
-    let all_diagnostics = async { host.all_diagnostics() }
-        .instrument(validate_span)
-        .await;
+    let _validate_span = tracing::info_span!("validate_all").entered();
+    let all_diagnostics = host.all_diagnostics();
 
     if let Some(pb) = spinner {
         pb.finish_and_clear();

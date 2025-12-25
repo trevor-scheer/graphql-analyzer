@@ -21,7 +21,7 @@ impl CommandContext {
     /// multiple projects in a single config file.
     pub fn load(
         config_path: Option<PathBuf>,
-        project_name: Option<&String>,
+        project_name: Option<&str>,
         command_name: &str,
     ) -> Result<Self> {
         // Find and load config
