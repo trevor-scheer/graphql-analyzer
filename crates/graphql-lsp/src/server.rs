@@ -35,6 +35,8 @@ pub struct GraphQLLanguageServer {
     workspace_roots: Arc<DashMap<String, PathBuf>>,
     /// Config file paths indexed by workspace URI string
     config_paths: Arc<DashMap<String, PathBuf>>,
+    /// Loaded GraphQL configs indexed by workspace URI string
+    configs: Arc<DashMap<String, graphql_config::GraphQLConfig>>,
     /// `AnalysisHost` per workspace (workspace URI -> `AnalysisHost`)
     hosts: Arc<DashMap<String, Arc<Mutex<AnalysisHost>>>>,
 }
@@ -46,6 +48,7 @@ impl GraphQLLanguageServer {
             init_workspace_folders: Arc::new(DashMap::new()),
             workspace_roots: Arc::new(DashMap::new()),
             config_paths: Arc::new(DashMap::new()),
+            configs: Arc::new(DashMap::new()),
             hosts: Arc::new(DashMap::new()),
         }
     }
@@ -189,6 +192,10 @@ impl GraphQLLanguageServer {
                                 "GraphQL config found, loading files...",
                             )
                             .await;
+
+                        // Store the config
+                        self.configs
+                            .insert(workspace_uri.to_string(), config.clone());
 
                         // Load all files from all projects into AnalysisHost
                         self.load_all_project_files(workspace_uri, workspace_path, &config)
@@ -391,7 +398,7 @@ impl GraphQLLanguageServer {
     }
 
     /// Find the workspace and project for a given document URI
-    fn find_workspace_and_project(&self, document_uri: &Uri) -> Option<(String, usize)> {
+    fn find_workspace_and_project(&self, document_uri: &Uri) -> Option<(String, String)> {
         let doc_path = document_uri.to_file_path()?;
 
         // Try to find which workspace this document belongs to
@@ -400,9 +407,16 @@ impl GraphQLLanguageServer {
             let workspace_path = workspace_entry.value();
 
             if doc_path.as_ref().starts_with(workspace_path.as_path()) {
-                // Found the workspace, return the workspace URI and project index (0 for now)
-                // TODO: Match document to correct project based on includes/excludes
-                return Some((workspace_uri.clone(), 0));
+                // Found the workspace, now find the project
+                if let Some(config) = self.configs.get(workspace_uri.as_str()) {
+                    if let Some(project_name) =
+                        config.find_project_for_document(&doc_path, workspace_path)
+                    {
+                        return Some((workspace_uri.clone(), project_name.to_string()));
+                    }
+                }
+                // If no config or no matching project, return None
+                return None;
             }
         }
 
@@ -416,10 +430,12 @@ impl GraphQLLanguageServer {
         tracing::debug!("Starting document validation");
 
         // Find the workspace for this document
-        let Some((workspace_uri, _project_idx)) = self.find_workspace_and_project(&uri) else {
+        let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No workspace found for document");
             return;
         };
+
+        tracing::debug!(project = %project_name, "Document matched to project");
 
         // Get the analysis host for this workspace
         let Some(host_mutex) = self.hosts.get(&workspace_uri) else {
@@ -617,7 +633,8 @@ impl LanguageServer for GraphQLLanguageServer {
         );
 
         // Add to AnalysisHost
-        if let Some((workspace_uri, _project_idx)) = self.find_workspace_and_project(&uri) {
+        if let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) {
+            tracing::debug!(project = %project_name, "Document opened in project");
             let _file_path = uri.to_file_path();
 
             // Get extract config from host
@@ -683,7 +700,8 @@ impl LanguageServer for GraphQLLanguageServer {
             );
 
             // Update AnalysisHost
-            if let Some((workspace_uri, _project_idx)) = self.find_workspace_and_project(&uri) {
+            if let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) {
+                tracing::debug!(project = %project_name, "Document changed in project");
                 let _file_path = uri.to_file_path();
 
                 // Get extract config from host
