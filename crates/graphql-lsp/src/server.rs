@@ -112,8 +112,6 @@ pub struct GraphQLLanguageServer {
     config_paths: Arc<DashMap<String, PathBuf>>,
     /// `AnalysisHost` per workspace (workspace URI -> `AnalysisHost`)
     hosts: Arc<DashMap<String, Arc<Mutex<AnalysisHost>>>>,
-    /// Document content cache indexed by URI string
-    document_cache: Arc<DashMap<String, String>>,
 }
 
 impl GraphQLLanguageServer {
@@ -124,7 +122,6 @@ impl GraphQLLanguageServer {
             workspace_roots: Arc::new(DashMap::new()),
             config_paths: Arc::new(DashMap::new()),
             hosts: Arc::new(DashMap::new()),
-            document_cache: Arc::new(DashMap::new()),
         }
     }
 
@@ -983,10 +980,7 @@ impl LanguageServer for GraphQLLanguageServer {
             "Document opened"
         );
 
-        // Cache the document content
-        self.document_cache.insert(uri.to_string(), content.clone());
-
-        // Add to AnalysisHost (new architecture)
+        // Add to AnalysisHost
         if let Some((workspace_uri, _project_idx)) = self.find_workspace_and_project(&uri) {
             let _file_path = uri.to_file_path();
 
@@ -1053,11 +1047,7 @@ impl LanguageServer for GraphQLLanguageServer {
                 "Processing content change"
             );
 
-            // Update the document cache
-            self.document_cache
-                .insert(uri.to_string(), change.text.clone());
-
-            // Update AnalysisHost (new architecture)
+            // Update AnalysisHost
             if let Some((workspace_uri, _project_idx)) = self.find_workspace_and_project(&uri) {
                 let _file_path = uri.to_file_path();
 
@@ -1113,52 +1103,6 @@ impl LanguageServer for GraphQLLanguageServer {
 
             // Validate immediately - Salsa's incremental computation makes this fast
             self.validate_document(uri.clone()).await;
-
-            // If this file contains fragment definitions, re-validate only documents that use them
-            let changed_fragments = Self::extract_fragment_names_from_content(&change.text);
-
-            if !changed_fragments.is_empty() {
-                tracing::info!(
-                    fragment_count = changed_fragments.len(),
-                    fragments = ?changed_fragments,
-                    "File with fragments changed, checking which documents need revalidation"
-                );
-
-                // Collect open documents and their content
-                let open_docs: Vec<(String, String)> = self
-                    .document_cache
-                    .iter()
-                    .filter(|entry| entry.key() != &uri.to_string())
-                    .map(|entry| (entry.key().clone(), entry.value().clone()))
-                    .collect();
-
-                // Only re-validate documents that reference the changed fragments
-                for (doc_uri_str, doc_content) in open_docs {
-                    let references_changed_fragment =
-                        Self::document_references_fragments(&doc_content, &changed_fragments);
-
-                    if references_changed_fragment {
-                        tracing::info!(
-                            doc_uri = %doc_uri_str,
-                            "Document uses changed fragments, re-validating"
-                        );
-
-                        match doc_uri_str.parse::<Uri>() {
-                            Ok(doc_uri) => {
-                                self.validate_document(doc_uri).await;
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to parse URI '{}': {}", doc_uri_str, e);
-                            }
-                        }
-                    } else {
-                        tracing::debug!(
-                            doc_uri = %doc_uri_str,
-                            "Document does not use changed fragments, skipping revalidation"
-                        );
-                    }
-                }
-            }
         }
 
         tracing::debug!(
@@ -1169,51 +1113,14 @@ impl LanguageServer for GraphQLLanguageServer {
 
     #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        tracing::info!("Document saved");
-
-        // Re-validate schema files to update unused_fields warnings
-        // We do this on save (not on every keystroke) to avoid performance issues
-        // When field usage changes in operations/fragments, unused_fields diagnostics
-        // in schema files need to be updated
-        //
-        // Only revalidate schema files if the saved file is NOT a schema file
-        // (schema file changes trigger full revalidation via validate_document_impl)
-        let uri = params.text_document.uri;
-
-        // Check if this is a schema file
-        let is_schema_file = {
-            let Some((_workspace_uri, _project_idx)) = self.find_workspace_and_project(&uri) else {
-                return;
-            };
-
-            // Get content from cache to determine file kind
-            let content = self
-                .document_cache
-                .get(&uri.to_string())
-                .map(|entry| entry.value().clone())
-                .unwrap_or_default();
-
-            // Determine if this is a schema file by inspecting content
-            Self::content_has_schema_definitions(&content)
-        };
-
-        // Only revalidate schema files if this is NOT a schema file
-        if !is_schema_file {
-            let schema_revalidate_start = std::time::Instant::now();
-            self.revalidate_schema_files(&uri);
-            tracing::debug!(
-                "Schema revalidation took {:?}",
-                schema_revalidate_start.elapsed()
-            );
-        }
+        tracing::info!("Document saved: {:?}", params.text_document.uri);
+        // NOTE: Cross-file dependency tracking and revalidation should be handled
+        // by the Analysis layer, not the LSP layer. For now, files are only revalidated
+        // when they are opened or changed.
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         tracing::info!("Document closed: {:?}", params.text_document.uri);
-
-        // Remove from document cache
-        self.document_cache
-            .remove(&params.text_document.uri.to_string());
 
         // NOTE: We intentionally do NOT remove the file from AnalysisHost when it's closed.
         // The file is still part of the project on disk, and other files may reference
@@ -1520,13 +1427,6 @@ impl LanguageServer for GraphQLLanguageServer {
 
                 // Project information removed (old system)
             }
-
-            // Open documents
-            status_lines.push("".to_string());
-            status_lines.push(format!(
-                "{} files open in editor",
-                self.document_cache.len()
-            ));
 
             let status_report = status_lines.join("\n");
 
