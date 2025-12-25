@@ -184,6 +184,65 @@ pub struct LineIndex {
     line_starts: Vec<usize>,
 }
 
+/// Check if GraphQL content contains schema definitions
+///
+/// Returns true if the content contains any schema type definitions, extensions,
+/// or directive definitions. Used to distinguish schema files from executable documents.
+#[must_use]
+pub fn content_has_schema_definitions(content: &str) -> bool {
+    use apollo_compiler::parser::Parser;
+
+    let mut parser = Parser::new();
+    let ast = parser
+        .parse_ast(content, "virtual.graphql")
+        .unwrap_or_else(|e| e.partial);
+
+    ast.definitions.iter().any(|def| {
+        matches!(
+            def,
+            apollo_compiler::ast::Definition::SchemaDefinition(_)
+                | apollo_compiler::ast::Definition::SchemaExtension(_)
+                | apollo_compiler::ast::Definition::ObjectTypeDefinition(_)
+                | apollo_compiler::ast::Definition::ObjectTypeExtension(_)
+                | apollo_compiler::ast::Definition::InterfaceTypeDefinition(_)
+                | apollo_compiler::ast::Definition::InterfaceTypeExtension(_)
+                | apollo_compiler::ast::Definition::UnionTypeDefinition(_)
+                | apollo_compiler::ast::Definition::UnionTypeExtension(_)
+                | apollo_compiler::ast::Definition::ScalarTypeDefinition(_)
+                | apollo_compiler::ast::Definition::ScalarTypeExtension(_)
+                | apollo_compiler::ast::Definition::EnumTypeDefinition(_)
+                | apollo_compiler::ast::Definition::EnumTypeExtension(_)
+                | apollo_compiler::ast::Definition::InputObjectTypeDefinition(_)
+                | apollo_compiler::ast::Definition::InputObjectTypeExtension(_)
+                | apollo_compiler::ast::Definition::DirectiveDefinition(_)
+        )
+    })
+}
+
+/// Determine `FileKind` for files opened/changed in the editor
+///
+/// For TypeScript/JavaScript files, returns the appropriate `FileKind` without content inspection.
+/// For .graphql/.gql files, inspects the content to determine if it contains schema definitions
+/// (`FileKind::Schema`) or executable documents (`FileKind::ExecutableGraphQL`).
+#[must_use]
+#[allow(clippy::case_sensitive_file_extension_comparisons)]
+pub fn determine_file_kind_from_content(path: &str, content: &str) -> FileKind {
+    // For TypeScript/JavaScript, return the appropriate FileKind
+    if path.ends_with(".ts") || path.ends_with(".tsx") {
+        return FileKind::TypeScript;
+    }
+    if path.ends_with(".js") || path.ends_with(".jsx") {
+        return FileKind::JavaScript;
+    }
+
+    // For .graphql/.gql files, check content to determine Schema vs ExecutableGraphQL
+    if content_has_schema_definitions(content) {
+        FileKind::Schema
+    } else {
+        FileKind::ExecutableGraphQL
+    }
+}
+
 impl LineIndex {
     /// Create a new line index from source text
     #[must_use]
@@ -317,5 +376,79 @@ mod tests {
         assert_eq!(index.line_count(), 1);
         assert_eq!(index.line_col(0), (0, 0));
         assert_eq!(index.line_col(3), (0, 3));
+    }
+
+    #[test]
+    fn test_content_has_schema_definitions_true() {
+        let schema_content = "type User { id: ID! }";
+        assert!(content_has_schema_definitions(schema_content));
+
+        let interface_content = "interface Node { id: ID! }";
+        assert!(content_has_schema_definitions(interface_content));
+
+        let enum_content = "enum Status { ACTIVE INACTIVE }";
+        assert!(content_has_schema_definitions(enum_content));
+    }
+
+    #[test]
+    fn test_content_has_schema_definitions_false() {
+        let query_content = "query GetUser { user { id } }";
+        assert!(!content_has_schema_definitions(query_content));
+
+        let fragment_content = "fragment UserFields on User { id name }";
+        assert!(!content_has_schema_definitions(fragment_content));
+
+        let mutation_content = "mutation UpdateUser { updateUser { id } }";
+        assert!(!content_has_schema_definitions(mutation_content));
+    }
+
+    #[test]
+    fn test_content_has_schema_definitions_mixed() {
+        let mixed_content = "type User { id: ID! }\nquery GetUser { user { id } }";
+        assert!(content_has_schema_definitions(mixed_content));
+    }
+
+    #[test]
+    fn test_determine_file_kind_typescript() {
+        let content = "const query = gql`query { user { id } }`;";
+        assert_eq!(
+            determine_file_kind_from_content("file.ts", content),
+            FileKind::TypeScript
+        );
+        assert_eq!(
+            determine_file_kind_from_content("file.tsx", content),
+            FileKind::TypeScript
+        );
+    }
+
+    #[test]
+    fn test_determine_file_kind_javascript() {
+        let content = "const query = gql`query { user { id } }`;";
+        assert_eq!(
+            determine_file_kind_from_content("file.js", content),
+            FileKind::JavaScript
+        );
+        assert_eq!(
+            determine_file_kind_from_content("file.jsx", content),
+            FileKind::JavaScript
+        );
+    }
+
+    #[test]
+    fn test_determine_file_kind_schema() {
+        let content = "type User { id: ID! }";
+        assert_eq!(
+            determine_file_kind_from_content("schema.graphql", content),
+            FileKind::Schema
+        );
+    }
+
+    #[test]
+    fn test_determine_file_kind_executable() {
+        let content = "query GetUser { user { id } }";
+        assert_eq!(
+            determine_file_kind_from_content("query.graphql", content),
+            FileKind::ExecutableGraphQL
+        );
     }
 }

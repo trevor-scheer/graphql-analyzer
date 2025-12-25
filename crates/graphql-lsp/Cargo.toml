@@ -19,6 +19,7 @@ graphql-linter = { path = "../graphql-linter" }
 graphql-config = { path = "../graphql-config" }
 graphql-extract = { path = "../graphql-extract" }
 graphql-ide = { path = "../graphql-ide" }
+graphql-syntax = { path = "../graphql-syntax" }
 
 # GraphQL
 apollo-compiler = { workspace = true }

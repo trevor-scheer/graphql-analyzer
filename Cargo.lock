@@ -973,6 +973,7 @@ dependencies = [
  "graphql-extract",
  "graphql-ide",
  "graphql-linter",
+ "graphql-syntax",
  "lsp-types",
  "opentelemetry 0.31.0",
  "opentelemetry-otlp 0.31.0",
