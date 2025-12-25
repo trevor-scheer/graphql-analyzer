@@ -311,21 +311,28 @@ cargo run -p graphql-lsp
 - graphql-config implementation (parsing, loading, validation)
 - Core validation engine with project-wide diagnostics
 - Document loading and indexing
-- TypeScript/JavaScript extraction
-- LSP features: validation, go-to-definition, find references, hover
-- Schema and document indexing
+- TypeScript/JavaScript extraction and position mapping
+- Remote schema introspection via URL
+- Comprehensive linting system with multiple rule types
+- LSP features:
+  - Real-time validation and diagnostics
+  - Comprehensive goto definition (fragments, types, fields, variables, arguments, enum values, directives)
+  - Find references (fragments, types, fields)
+  - Hover information
+- CLI tools (validate, lint) with JSON output
+- VSCode extension with automatic LSP binary download
 
 🚧 **In Progress:**
 
-- VS Code extension improvements
-- Additional LSP features (completions, document symbols)
+- Query-based architecture migration (Salsa)
+- Additional IDE features (completions, document symbols)
 
 📋 **Planned:**
 
 - Breaking change detection
 - Code actions and refactoring
-- Remote schema introspection
-- Additional find references support (fields, variables, directives, enum values)
+- Semantic highlighting
+- Additional find references (variables, directives, enum values)
 
 ## Configuration
 
