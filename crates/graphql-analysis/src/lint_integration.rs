@@ -44,12 +44,13 @@ pub fn lint_file(
     // Run lints based on file kind
     match file_kind {
         FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
-            tracing::debug!("Running standalone document lints");
+            let uri = metadata.uri(db);
+            tracing::debug!(uri = %uri, "Running standalone document lints");
             diagnostics.extend(standalone_document_lints(db, file_id, content, metadata));
 
             // Run document+schema lints if we have project files
             if let Some(project_files) = db.project_files() {
-                tracing::debug!("Running document+schema lints");
+                tracing::debug!(uri = %uri, "Running document+schema lints");
                 diagnostics.extend(document_schema_lints(
                     db,
                     file_id,
@@ -82,14 +83,27 @@ fn standalone_document_lints(
 
     // Get all standalone document rules from registry
     for rule in graphql_linter::standalone_document_rules() {
-        if !lint_config.is_enabled(rule.name()) {
+        let enabled = lint_config.is_enabled(rule.name());
+        tracing::debug!(
+            rule = rule.name(),
+            enabled = enabled,
+            "Checking standalone document rule"
+        );
+
+        if !enabled {
             continue;
         }
 
-        tracing::trace!(rule = rule.name(), "Running standalone document rule");
-
         // Run the rule (it will access parse via Salsa)
         let lint_diags = rule.check(db, file_id, content, metadata);
+
+        if !lint_diags.is_empty() {
+            tracing::debug!(
+                rule = rule.name(),
+                count = lint_diags.len(),
+                "Found lint issues"
+            );
+        }
 
         // Convert to analysis Diagnostic format
         let severity = lint_config
@@ -120,14 +134,27 @@ fn document_schema_lints(
 
     // Get all document+schema rules from registry
     for rule in graphql_linter::document_schema_rules() {
-        if !lint_config.is_enabled(rule.name()) {
+        let enabled = lint_config.is_enabled(rule.name());
+        tracing::debug!(
+            rule = rule.name(),
+            enabled = enabled,
+            "Checking document+schema rule"
+        );
+
+        if !enabled {
             continue;
         }
 
-        tracing::trace!(rule = rule.name(), "Running document+schema rule");
-
         // Run the rule (it has access to schema via project_files)
         let lint_diags = rule.check(db, file_id, content, metadata, project_files);
+
+        if !lint_diags.is_empty() {
+            tracing::debug!(
+                rule = rule.name(),
+                count = lint_diags.len(),
+                "Found lint issues"
+            );
+        }
 
         // Convert to analysis Diagnostic format
         let severity = lint_config
@@ -164,14 +191,25 @@ pub fn project_lint_diagnostics(
 
     // Get all project rules from registry
     for rule in graphql_linter::project_rules() {
-        if !lint_config.is_enabled(rule.name()) {
+        let enabled = lint_config.is_enabled(rule.name());
+        tracing::info!(
+            rule = rule.name(),
+            enabled = enabled,
+            "Checking project-wide rule"
+        );
+
+        if !enabled {
             continue;
         }
 
-        tracing::debug!(rule = rule.name(), "Running project-wide rule");
-
         // Run the project-wide rule
         let lint_diags = rule.check(db, project_files);
+
+        tracing::info!(
+            rule = rule.name(),
+            file_count = lint_diags.len(),
+            "Project-wide rule returned diagnostics"
+        );
 
         // Merge into result
         for (file_id, file_lint_diags) in lint_diags {

@@ -227,26 +227,57 @@ impl CliAnalysisHost {
     /// Includes both file-level and project-wide lint diagnostics.
     /// Only includes files that have diagnostics.
     pub fn all_lint_diagnostics(&self) -> HashMap<PathBuf, Vec<Diagnostic>> {
+        tracing::info!(
+            file_count = self.loaded_files.len(),
+            "Starting lint diagnostics collection"
+        );
+
         let snapshot = self.host.snapshot();
         let mut results = HashMap::new();
 
         // Get file-level lint diagnostics
-        for path in &self.loaded_files {
+        for (idx, path) in self.loaded_files.iter().enumerate() {
+            tracing::debug!(
+                file = %path.display(),
+                progress = format!("{}/{}", idx + 1, self.loaded_files.len()),
+                "Checking file for lint issues"
+            );
             let file_path = FilePath::new(path.to_string_lossy().to_string());
             let diagnostics = snapshot.lint_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {
+                tracing::debug!(
+                    file = %path.display(),
+                    count = diagnostics.len(),
+                    "File has lint issues"
+                );
                 results.insert(path.clone(), diagnostics);
             }
         }
 
         // Get project-wide lint diagnostics (e.g., unused fields, unique names)
+        tracing::info!("Collecting project-wide lint diagnostics");
         let project_diagnostics = snapshot.project_lint_diagnostics();
+        tracing::info!(
+            file_count = project_diagnostics.len(),
+            "Project-wide diagnostics collection complete"
+        );
         for (file_path, diagnostics) in project_diagnostics {
             let path = PathBuf::from(file_path.as_str());
+            if !diagnostics.is_empty() {
+                tracing::debug!(
+                    file = %path.display(),
+                    count = diagnostics.len(),
+                    "File has project-wide lint issues"
+                );
+            }
             results.entry(path).or_default().extend(diagnostics);
         }
 
+        tracing::info!(
+            total_files_with_issues = results.len(),
+            "Lint diagnostics collection complete"
+        );
         results
     }
 
