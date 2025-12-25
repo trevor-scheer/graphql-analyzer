@@ -9,7 +9,7 @@ use crate::conversions::{
 };
 use dashmap::DashMap;
 use graphql_config::find_config;
-use graphql_ide::AnalysisHost;
+use graphql_ide::{AnalysisHost, FileKind, FilePath};
 use lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
@@ -318,9 +318,67 @@ impl GraphQLLanguageServer {
                 host_guard.set_extract_config(extract_config.clone());
             }
 
-            // TODO: Reimplement schema loading without graphql-project::SchemaLoader
-            // For now, schema files will need to be opened manually in the editor
-            tracing::warn!("Schema auto-loading temporarily disabled during refactoring");
+            // Load schema files
+            let schema_patterns: Vec<String> = match &project_config.schema {
+                graphql_config::SchemaConfig::Path(s) => vec![s.clone()],
+                graphql_config::SchemaConfig::Paths(arr) => arr.clone(),
+            };
+
+            tracing::info!(
+                "Loading schema files with {} patterns",
+                schema_patterns.len()
+            );
+
+            for pattern in schema_patterns {
+                // Skip URLs - these would need introspection support
+                if pattern.starts_with("http://") || pattern.starts_with("https://") {
+                    tracing::warn!("URL schemas not yet supported: {}", pattern);
+                    continue;
+                }
+
+                // Resolve pattern relative to workspace
+                let full_pattern = workspace_path.join(&pattern).display().to_string();
+
+                tracing::info!("Expanding schema glob pattern: {}", full_pattern);
+                match glob::glob(&full_pattern) {
+                    Ok(paths) => {
+                        for entry in paths.flatten() {
+                            if entry.is_file() {
+                                tracing::info!("Loading schema file: {}", entry.display());
+                                match std::fs::read_to_string(&entry) {
+                                    Ok(content) => {
+                                        let mut host_guard = host.lock().await;
+                                        host_guard.add_file(
+                                            &FilePath::new(entry.to_string_lossy().to_string()),
+                                            &content,
+                                            FileKind::Schema,
+                                            0, // No line offset for pure GraphQL files
+                                        );
+                                        tracing::info!(
+                                            "Successfully loaded schema: {}",
+                                            entry.display()
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            "Failed to read schema file {}: {}",
+                                            entry.display(),
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to expand schema glob pattern {}: {}",
+                            full_pattern,
+                            e
+                        );
+                    }
+                }
+            }
 
             // Load document files (operations and fragments)
             if let Some(documents_config) = &project_config.documents {

@@ -138,12 +138,8 @@ impl CliAnalysisHost {
         config: &ProjectConfig,
         base_dir: &Path,
     ) -> Result<Vec<(PathBuf, String)>> {
-        // TODO: Reimplement schema loading without graphql-project::SchemaLoader
-        // This needs to handle:
-        // 1. Local file paths (single file, multiple files, glob patterns)
-        // 2. Remote URLs (introspection)
-        // For now, attempt basic local file loading only
-
+        // Supports local file paths (single file, multiple files, glob patterns)
+        // Remote URL schemas (introspection) are not yet supported
         let schema_config = &config.schema;
         let mut schema_files = Vec::new();
 
