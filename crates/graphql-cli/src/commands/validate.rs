@@ -53,22 +53,17 @@ pub async fn run(
     };
 
     let load_start = std::time::Instant::now();
-    let load_projects_span = tracing::info_span!("load_projects");
-    let host = async {
-        CliAnalysisHost::from_project_config(&project_config, ctx.base_dir.clone())
-            .await
-            .map_err(|e| {
-                if matches!(format, OutputFormat::Human) {
-                    eprintln!("{} {}", "✗ Failed to load project:".red(), e);
-                } else {
-                    eprintln!("{}", serde_json::json!({ "error": e.to_string() }));
-                }
-                process::exit(1);
-            })
-            .unwrap()
-    }
-    .instrument(load_projects_span)
-    .await;
+    let _load_projects_span = tracing::info_span!("load_projects").entered();
+    let host = CliAnalysisHost::from_project_config(&project_config, ctx.base_dir)
+        .map_err(|e| {
+            if matches!(format, OutputFormat::Human) {
+                eprintln!("{} {}", "✗ Failed to load project:".red(), e);
+            } else {
+                eprintln!("{}", serde_json::json!({ "error": e.to_string() }));
+            }
+            process::exit(1);
+        })
+        .unwrap();
 
     if let Some(pb) = spinner {
         pb.finish_and_clear();

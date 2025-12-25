@@ -21,7 +21,7 @@ use lsp_types::{
     SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
     WorkDoneProgressOptions, WorkspaceSymbol, WorkspaceSymbolParams,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result;
@@ -280,11 +280,9 @@ impl GraphQLLanguageServer {
     async fn load_all_project_files(
         &self,
         workspace_uri: &str,
-        workspace_path: &PathBuf,
+        workspace_path: &Path,
         config: &graphql_config::GraphQLConfig,
     ) {
-        use graphql_project::SchemaLoader;
-
         let host = self.get_or_create_host(workspace_uri);
 
         // Collect projects into a Vec to avoid holding iterator across await
@@ -320,35 +318,9 @@ impl GraphQLLanguageServer {
                 host_guard.set_extract_config(extract_config.clone());
             }
 
-            // Load schema files using SchemaLoader
-            let mut schema_loader = SchemaLoader::new(project_config.schema.clone());
-            schema_loader = schema_loader.with_base_path(workspace_path);
-
-            match schema_loader.load_with_paths().await {
-                Ok(schema_files) => {
-                    tracing::info!("Loading {} schema files", schema_files.len());
-                    for (path, content) in schema_files {
-                        // Files from the schema path are always Schema files
-                        let file_kind = graphql_ide::FileKind::Schema;
-
-                        // Extract GraphQL from TypeScript/JavaScript schema files
-                        let (final_content, line_offset) =
-                            Self::extract_graphql_from_source(&path, &content, &extract_config);
-
-                        // Strip leading '/' from absolute paths to avoid file:////
-                        let path_str = path.trim_start_matches('/');
-                        let uri = format!("file:///{path_str}");
-                        let file_path = graphql_ide::FilePath::new(uri);
-
-                        let mut host_guard = host.lock().await;
-                        host_guard.add_file(&file_path, &final_content, file_kind, line_offset);
-                        tracing::info!("Loaded schema file: {}", path);
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("Error loading schema files: {}", e);
-                }
-            }
+            // TODO: Reimplement schema loading without graphql-project::SchemaLoader
+            // For now, schema files will need to be opened manually in the editor
+            tracing::warn!("Schema auto-loading temporarily disabled during refactoring");
 
             // Load document files (operations and fragments)
             if let Some(documents_config) = &project_config.documents {
@@ -537,38 +509,6 @@ impl GraphQLLanguageServer {
     // REMOVED: refresh_affected_files_diagnostics (old validation system)
     // REMOVED: validate_graphql_document (old validation)
     // REMOVED: validate_typescript_document (old validation)
-
-    /// Convert graphql-project diagnostic to LSP diagnostic
-    #[allow(clippy::cast_possible_truncation)]
-    #[allow(clippy::unused_self)]
-    fn convert_project_diagnostic(&self, diag: graphql_project::Diagnostic) -> Diagnostic {
-        use graphql_project::Severity;
-
-        let severity = match diag.severity {
-            Severity::Error => DiagnosticSeverity::ERROR,
-            Severity::Warning => DiagnosticSeverity::WARNING,
-            Severity::Information => DiagnosticSeverity::INFORMATION,
-            Severity::Hint => DiagnosticSeverity::HINT,
-        };
-
-        Diagnostic {
-            range: Range {
-                start: Position {
-                    line: diag.range.start.line as u32,
-                    character: diag.range.start.character as u32,
-                },
-                end: Position {
-                    line: diag.range.end.line as u32,
-                    character: diag.range.end.character as u32,
-                },
-            },
-            severity: Some(severity),
-            code: diag.code.map(lsp_types::NumberOrString::String),
-            source: Some(diag.source),
-            message: diag.message,
-            ..Default::default()
-        }
-    }
 }
 
 impl LanguageServer for GraphQLLanguageServer {

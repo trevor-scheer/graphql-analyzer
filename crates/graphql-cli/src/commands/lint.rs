@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process;
 
 #[allow(clippy::too_many_lines)]
+#[allow(clippy::unused_async)]
 pub async fn run(
     config_path: Option<PathBuf>,
     project_name: Option<String>,
@@ -49,7 +50,7 @@ pub async fn run(
     };
 
     let load_start = std::time::Instant::now();
-    let host = CliAnalysisHost::from_project_config(&project_config, ctx.base_dir.clone()).await?;
+    let host = CliAnalysisHost::from_project_config(&project_config, ctx.base_dir)?;
 
     if let Some(pb) = spinner {
         pb.finish_and_clear();

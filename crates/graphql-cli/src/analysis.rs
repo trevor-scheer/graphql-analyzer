@@ -28,10 +28,7 @@ impl CliAnalysisHost {
     /// Create from a project configuration
     ///
     /// Loads all schema and document files from the project config.
-    pub async fn from_project_config(
-        project_config: &ProjectConfig,
-        base_dir: PathBuf,
-    ) -> Result<Self> {
+    pub fn from_project_config(project_config: &ProjectConfig, base_dir: PathBuf) -> Result<Self> {
         let mut host = AnalysisHost::new();
         let mut loaded_files = Vec::new();
 
@@ -94,7 +91,7 @@ impl CliAnalysisHost {
         }
 
         // Load schema files
-        let schema_files = Self::load_schema_files(project_config, &base_dir).await?;
+        let schema_files = Self::load_schema_files(project_config, &base_dir)?;
 
         for (path, content) in schema_files {
             host.add_file(
@@ -137,25 +134,48 @@ impl CliAnalysisHost {
     }
 
     /// Load schema files from config
-    async fn load_schema_files(
+    fn load_schema_files(
         config: &ProjectConfig,
         base_dir: &Path,
     ) -> Result<Vec<(PathBuf, String)>> {
-        use graphql_project::SchemaLoader;
+        // TODO: Reimplement schema loading without graphql-project::SchemaLoader
+        // This needs to handle:
+        // 1. Local file paths (single file, multiple files, glob patterns)
+        // 2. Remote URLs (introspection)
+        // For now, attempt basic local file loading only
 
-        let mut loader = SchemaLoader::new(config.schema.clone());
-        loader = loader.with_base_path(base_dir);
+        let schema_config = &config.schema;
+        let mut schema_files = Vec::new();
 
-        let schema_files = loader
-            .load_with_paths()
-            .await
-            .context("Failed to load schema files")?;
+        // Get schema patterns from config
+        let patterns: Vec<String> = match schema_config {
+            graphql_config::SchemaConfig::Path(s) => vec![s.clone()],
+            graphql_config::SchemaConfig::Paths(arr) => arr.clone(),
+        };
 
-        // Convert String paths to PathBuf
-        Ok(schema_files
-            .into_iter()
-            .map(|(path, content)| (PathBuf::from(path), content))
-            .collect())
+        for pattern in patterns {
+            // Skip URLs for now (would need introspection support)
+            if pattern.starts_with("http://") || pattern.starts_with("https://") {
+                tracing::warn!("URL schemas not yet supported: {}", pattern);
+                continue;
+            }
+
+            // Treat as file glob pattern
+            let full_pattern = base_dir.join(&pattern).display().to_string();
+            for path in (glob::glob(&full_pattern)
+                .with_context(|| format!("Invalid schema glob pattern: {full_pattern}"))?)
+            .flatten()
+            {
+                if path.is_file() {
+                    let content = std::fs::read_to_string(&path).with_context(|| {
+                        format!("Failed to read schema file: {}", path.display())
+                    })?;
+                    schema_files.push((path, content));
+                }
+            }
+        }
+
+        Ok(schema_files)
     }
 
     /// Load document files from config

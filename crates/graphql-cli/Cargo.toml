@@ -15,7 +15,6 @@ path = "src/main.rs"
 
 [dependencies]
 # Internal dependencies
-graphql-project = { path = "../graphql-project" }
 graphql-config = { path = "../graphql-config" }
 graphql-extract = { path = "../graphql-extract" }
 graphql-ide = { path = "../graphql-ide" }

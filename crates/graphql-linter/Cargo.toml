@@ -12,9 +12,6 @@ graphql-db = { path = "../graphql-db" }
 graphql-syntax = { path = "../graphql-syntax" }
 graphql-hir = { path = "../graphql-hir" }
 
-# OLD architecture - keep temporarily for compatibility during migration
-graphql-project = { path = "../graphql-project" }
-
 # GraphQL parsing
 apollo-parser = { workspace = true }
 apollo-compiler = { workspace = true }
