@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
 use graphql_config::{find_config, load_config, GraphQLConfig};
-use graphql_project::StaticGraphQLProject;
 use std::path::PathBuf;
 use std::process;
 
@@ -81,49 +80,6 @@ impl CommandContext {
     #[must_use]
     pub fn get_project_name(requested: Option<&str>) -> &str {
         requested.unwrap_or("default")
-    }
-
-    /// Select and load a project from the config.
-    ///
-    /// This combines project selection and loading into one operation to reduce
-    /// code duplication across commands.
-    #[allow(dead_code)]
-    pub async fn load_project(
-        &self,
-        project_name: Option<&str>,
-    ) -> Result<(String, StaticGraphQLProject)> {
-        let projects = StaticGraphQLProject::from_config_with_base(&self.config, &self.base_dir)
-            .await
-            .context("Failed to load projects")?;
-
-        let selected_name = Self::get_project_name(project_name);
-
-        // Find the requested project. This should always succeed because
-        // load() already validated the project requirement, but we handle
-        // the error case for robustness (e.g., if project was deleted between
-        // validation and loading).
-        projects
-            .into_iter()
-            .find(|(name, _)| name == selected_name)
-            .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found in configuration"))
-    }
-
-    /// Print success message showing project was loaded.
-    ///
-    /// Centralizes the "Schema loaded" and "Documents loaded" messages that
-    /// all commands display in human-readable format.
-    #[allow(dead_code)]
-    pub fn print_success_message(project: &StaticGraphQLProject) {
-        let doc_index = project.get_document_index();
-        let op_count = doc_index.operations.len();
-        let frag_count = doc_index.fragments.len();
-        println!("{}", "✓ Schema loaded successfully".green());
-        println!(
-            "{} ({} operations, {} fragments)",
-            "✓ Documents loaded successfully".green(),
-            op_count,
-            frag_count
-        );
     }
 }
 
