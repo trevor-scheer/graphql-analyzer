@@ -80,62 +80,6 @@ impl GraphQLLanguageServer {
         }
     }
 
-    /// Determine if a file contains schema definitions by inspecting its content.
-    ///
-    /// Used for files opened/changed in the editor where we don't have config context.
-    /// Returns true if the content contains schema type definitions.
-    fn content_has_schema_definitions(content: &str) -> bool {
-        use apollo_compiler::parser::Parser;
-
-        let mut parser = Parser::new();
-        let ast = parser
-            .parse_ast(content, "virtual.graphql")
-            .unwrap_or_else(|e| e.partial);
-
-        ast.definitions.iter().any(|def| {
-            matches!(
-                def,
-                apollo_compiler::ast::Definition::SchemaDefinition(_)
-                    | apollo_compiler::ast::Definition::SchemaExtension(_)
-                    | apollo_compiler::ast::Definition::ObjectTypeDefinition(_)
-                    | apollo_compiler::ast::Definition::ObjectTypeExtension(_)
-                    | apollo_compiler::ast::Definition::InterfaceTypeDefinition(_)
-                    | apollo_compiler::ast::Definition::InterfaceTypeExtension(_)
-                    | apollo_compiler::ast::Definition::UnionTypeDefinition(_)
-                    | apollo_compiler::ast::Definition::UnionTypeExtension(_)
-                    | apollo_compiler::ast::Definition::ScalarTypeDefinition(_)
-                    | apollo_compiler::ast::Definition::ScalarTypeExtension(_)
-                    | apollo_compiler::ast::Definition::EnumTypeDefinition(_)
-                    | apollo_compiler::ast::Definition::EnumTypeExtension(_)
-                    | apollo_compiler::ast::Definition::InputObjectTypeDefinition(_)
-                    | apollo_compiler::ast::Definition::InputObjectTypeExtension(_)
-                    | apollo_compiler::ast::Definition::DirectiveDefinition(_)
-            )
-        })
-    }
-
-    /// Determine `FileKind` for files opened/changed in the editor.
-    ///
-    /// For TypeScript/JavaScript files, we can't easily distinguish between schema
-    /// and documents without config context, so we check the extracted GraphQL content.
-    #[allow(clippy::case_sensitive_file_extension_comparisons)]
-    fn determine_file_kind_from_content(path: &str, content: &str) -> graphql_ide::FileKind {
-        // For TypeScript/JavaScript, check if content has schema definitions
-        if path.ends_with(".ts") || path.ends_with(".tsx") {
-            return graphql_ide::FileKind::TypeScript;
-        }
-        if path.ends_with(".js") || path.ends_with(".jsx") {
-            return graphql_ide::FileKind::JavaScript;
-        }
-
-        // For .graphql/.gql files, check content to determine Schema vs ExecutableGraphQL
-        if Self::content_has_schema_definitions(content) {
-            graphql_ide::FileKind::Schema
-        } else {
-            graphql_ide::FileKind::ExecutableGraphQL
-        }
-    }
-
     /// Extract GraphQL from TypeScript/JavaScript source code.
     ///
     /// Returns `(extracted_graphql, line_offset)` tuple.
@@ -685,7 +629,8 @@ impl LanguageServer for GraphQLLanguageServer {
             };
 
             // Determine file kind by inspecting path and content
-            let file_kind = Self::determine_file_kind_from_content(uri.path().as_str(), &content);
+            let file_kind =
+                graphql_syntax::determine_file_kind_from_content(uri.path().as_str(), &content);
             tracing::info!("Determined file_kind: {:?}", file_kind);
 
             // Extract GraphQL from TypeScript/JavaScript files
@@ -750,8 +695,10 @@ impl LanguageServer for GraphQLLanguageServer {
                 };
 
                 // Determine file kind by inspecting path and content
-                let file_kind =
-                    Self::determine_file_kind_from_content(uri.path().as_str(), &change.text);
+                let file_kind = graphql_syntax::determine_file_kind_from_content(
+                    uri.path().as_str(),
+                    &change.text,
+                );
                 tracing::info!("did_change determined file_kind: {:?}", file_kind);
 
                 // Extract GraphQL from TypeScript/JavaScript files
