@@ -443,11 +443,7 @@ mod tests {
     impl salsa::Database for TestDatabase {}
 
     #[salsa::db]
-    impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {
-        fn extract_config_any(&self) -> Option<std::sync::Arc<dyn std::any::Any + Send + Sync>> {
-            None
-        }
-    }
+    impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {}
 
     #[salsa::db]
     impl graphql_hir::GraphQLHirDatabase for TestDatabase {}
@@ -538,8 +534,10 @@ mod tests {
 
         // Create document with fragment that has an invalid field
         let doc_id = FileId::new(1);
-        let doc_content =
-            FileContent::new(&db, Arc::from("fragment UserFields on User { invalidField }"));
+        let doc_content = FileContent::new(
+            &db,
+            Arc::from("fragment UserFields on User { invalidField }"),
+        );
         let doc_metadata = FileMetadata::new(
             &db,
             doc_id,
@@ -809,8 +807,12 @@ mod tests {
         // The content is already extracted GraphQL, so we mark it as ExecutableGraphQL
         let doc_id = FileId::new(1);
         let doc_content = FileContent::new(&db, Arc::from("query { invalidField }"));
-        let doc_metadata =
-            FileMetadata::new(&db, doc_id, FileUri::new("query.ts"), FileKind::ExecutableGraphQL);
+        let doc_metadata = FileMetadata::new(
+            &db,
+            doc_id,
+            FileUri::new("query.ts"),
+            FileKind::ExecutableGraphQL,
+        );
         // Set line offset to simulate extraction from line 10 in TypeScript file
         doc_metadata.set_line_offset(&mut db).to(10);
 
