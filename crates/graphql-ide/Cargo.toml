@@ -20,6 +20,4 @@ graphql-syntax = { path = "../graphql-syntax" }
 graphql-hir = { path = "../graphql-hir" }
 graphql-analysis = { path = "../graphql-analysis" }
 graphql-linter = { path = "../graphql-linter" }
-
-[dev-dependencies]
 graphql-extract = { path = "../graphql-extract" }

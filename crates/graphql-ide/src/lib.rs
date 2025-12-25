@@ -324,6 +324,16 @@ impl AnalysisHost {
         ));
     }
 
+    /// Set the extract configuration for the project
+    ///
+    /// This should be called when loading project configuration to customize
+    /// how GraphQL is extracted from TypeScript/JavaScript files.
+    pub fn set_extract_config(&mut self, config: graphql_extract::ExtractConfig) {
+        self.db.set_extract_config_any(Some(
+            Arc::new(config) as Arc<dyn std::any::Any + Send + Sync>
+        ));
+    }
+
     /// Get an immutable snapshot for analysis
     ///
     /// This snapshot can be used from multiple threads and provides all IDE features.

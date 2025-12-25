@@ -50,7 +50,7 @@ pub fn parse(
         }
         FileKind::TypeScript | FileKind::JavaScript => {
             // Use graphql-extract to get blocks, then parse each
-            extract_and_parse(&content.text(db))
+            extract_and_parse(db, &content.text(db))
         }
     }
 }
@@ -82,12 +82,22 @@ fn parse_graphql(content: &str) -> Parse {
 }
 
 /// Extract GraphQL from TypeScript/JavaScript and parse each block
-fn extract_and_parse(content: &str) -> Parse {
+fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str) -> Parse {
     use graphql_extract::{extract_from_source, ExtractConfig, Language};
 
     tracing::debug!(content_len = content.len(), "extract_and_parse called");
 
-    let config = ExtractConfig::default();
+    // Get extract config from database, or use default
+    let config = db
+        .extract_config()
+        .map_or_else(ExtractConfig::default, |arc| (*arc).clone());
+
+    tracing::debug!(
+        allow_global_identifiers = config.allow_global_identifiers,
+        tag_identifiers = ?config.tag_identifiers,
+        "Using extract config"
+    );
+
     let language = Language::TypeScript; // Will work for both TS and JS
     let extracted = match extract_from_source(content, language, &config) {
         Ok(blocks) => {
@@ -222,12 +232,27 @@ pub fn line_index(db: &dyn GraphQLSyntaxDatabase, content: FileContent) -> Arc<L
 
 /// The salsa database trait for syntax queries
 #[salsa::db]
-pub trait GraphQLSyntaxDatabase: salsa::Database {}
+pub trait GraphQLSyntaxDatabase: salsa::Database {
+    /// Get the extract configuration for TypeScript/JavaScript extraction
+    /// Returns None if no configuration is set (will use default)
+    fn extract_config(&self) -> Option<Arc<graphql_extract::ExtractConfig>> {
+        self.extract_config_any()
+            .and_then(|any| any.downcast::<graphql_extract::ExtractConfig>().ok())
+    }
+
+    /// Get the extract configuration (type-erased)
+    /// This is implemented by `RootDatabase`
+    fn extract_config_any(&self) -> Option<Arc<dyn std::any::Any + Send + Sync>>;
+}
 
 // Implement the trait for RootDatabase
 // This makes RootDatabase usable with all syntax queries
 #[salsa::db]
-impl GraphQLSyntaxDatabase for graphql_db::RootDatabase {}
+impl GraphQLSyntaxDatabase for graphql_db::RootDatabase {
+    fn extract_config_any(&self) -> Option<Arc<dyn std::any::Any + Send + Sync>> {
+        self.extract_config_any()
+    }
+}
 
 #[cfg(test)]
 mod tests {

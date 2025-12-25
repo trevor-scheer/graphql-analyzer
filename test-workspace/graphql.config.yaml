@@ -8,6 +8,9 @@ lint:
   no_deprecated: warn # Warn when using deprecated fields
   redundant_fields: error
   require_id_field: error # Warn when using redundant fields
+  unique_names: error # Unique operation/fragment names
+  unused_fields: warn # Warn about unused schema fields
+  unused_fragments: error # Error on unused fragments
 # Tool-specific extensions
 extensions:
   # LSP-specific lint configuration
@@ -20,3 +23,4 @@ extensions:
   cli:
     lint:
       unused_fields: error # More strict in CLI
+      unused_fragments: error # Detect unused fragments
