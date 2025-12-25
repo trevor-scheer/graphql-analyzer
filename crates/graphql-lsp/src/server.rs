@@ -3,6 +3,10 @@
 #![allow(clippy::significant_drop_in_scrutinee)]
 #![allow(dead_code)] // Temporary - during Phase 6 cleanup
 
+use crate::conversions::{
+    convert_ide_completion_item, convert_ide_diagnostic, convert_ide_hover, convert_ide_location,
+    convert_lsp_position,
+};
 use dashmap::DashMap;
 use graphql_config::find_config;
 use graphql_ide::AnalysisHost;
@@ -22,85 +26,6 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::{Client, LanguageServer, UriExt};
-
-// ============================================================================
-// Type Conversion Functions (LSP ↔ graphql-ide)
-// ============================================================================
-
-// Allow dead code temporarily - these will be used as we migrate handlers
-#[allow(dead_code)]
-/// Convert LSP Position to graphql-ide Position
-const fn convert_lsp_position(pos: Position) -> graphql_ide::Position {
-    graphql_ide::Position::new(pos.line, pos.character)
-}
-
-#[allow(dead_code)]
-/// Convert graphql-ide Position to LSP Position
-const fn convert_ide_position(pos: graphql_ide::Position) -> Position {
-    Position {
-        line: pos.line,
-        character: pos.character,
-    }
-}
-
-#[allow(dead_code)]
-/// Convert graphql-ide Range to LSP Range
-const fn convert_ide_range(range: graphql_ide::Range) -> Range {
-    Range {
-        start: convert_ide_position(range.start),
-        end: convert_ide_position(range.end),
-    }
-}
-
-#[allow(dead_code)]
-/// Convert graphql-ide Location to LSP Location
-fn convert_ide_location(loc: &graphql_ide::Location) -> Location {
-    Location {
-        uri: loc.file.as_str().parse().expect("Invalid URI"),
-        range: convert_ide_range(loc.range),
-    }
-}
-
-#[allow(dead_code)]
-/// Convert graphql-ide `CompletionItem` to LSP `CompletionItem`
-fn convert_ide_completion_item(item: graphql_ide::CompletionItem) -> lsp_types::CompletionItem {
-    lsp_types::CompletionItem {
-        label: item.label,
-        kind: Some(match item.kind {
-            graphql_ide::CompletionKind::Field => lsp_types::CompletionItemKind::FIELD,
-            graphql_ide::CompletionKind::Type => lsp_types::CompletionItemKind::CLASS,
-            graphql_ide::CompletionKind::Fragment => lsp_types::CompletionItemKind::SNIPPET,
-            graphql_ide::CompletionKind::Directive => lsp_types::CompletionItemKind::KEYWORD,
-            graphql_ide::CompletionKind::EnumValue => lsp_types::CompletionItemKind::ENUM_MEMBER,
-            graphql_ide::CompletionKind::Argument => lsp_types::CompletionItemKind::PROPERTY,
-            graphql_ide::CompletionKind::Variable => lsp_types::CompletionItemKind::VARIABLE,
-        }),
-        detail: item.detail,
-        documentation: item.documentation.map(|doc| {
-            lsp_types::Documentation::MarkupContent(lsp_types::MarkupContent {
-                kind: lsp_types::MarkupKind::Markdown,
-                value: doc,
-            })
-        }),
-        deprecated: Some(item.deprecated),
-        insert_text: item.insert_text,
-        ..Default::default()
-    }
-}
-
-#[allow(dead_code)]
-/// Convert graphql-ide `HoverResult` to LSP Hover
-fn convert_ide_hover(hover: graphql_ide::HoverResult) -> Hover {
-    Hover {
-        contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
-            kind: lsp_types::MarkupKind::Markdown,
-            value: hover.contents,
-        }),
-        range: hover.range.map(convert_ide_range),
-    }
-}
-
-// Removed: load_lsp_lint_config_for_project - old project system
 
 pub struct GraphQLLanguageServer {
     client: Client,
@@ -293,132 +218,6 @@ impl GraphQLLanguageServer {
         }
 
         vec![pattern.to_string()]
-    }
-
-    /// Extract fragment names defined in GraphQL content
-    fn extract_fragment_names_from_content(content: &str) -> std::collections::HashSet<String> {
-        use apollo_parser::{cst, Parser};
-        use std::collections::HashSet;
-
-        let mut fragment_names = HashSet::new();
-        let parser = Parser::new(content);
-        let tree = parser.parse();
-
-        for definition in tree.document().definitions() {
-            if let cst::Definition::FragmentDefinition(fragment) = definition {
-                if let Some(name) = fragment.fragment_name() {
-                    if let Some(name_token) = name.name() {
-                        fragment_names.insert(name_token.text().to_string());
-                    }
-                }
-            }
-        }
-
-        fragment_names
-    }
-
-    /// Check if a document references any of the given fragments (transitively)
-    fn document_references_fragments(
-        content: &str,
-        fragment_names: &std::collections::HashSet<String>,
-    ) -> bool {
-        use apollo_parser::{cst, Parser};
-        use std::collections::VecDeque;
-
-        let parser = Parser::new(content);
-        let tree = parser.parse();
-
-        // Collect all directly referenced fragments from operations and fragment definitions
-        let mut to_process = VecDeque::new();
-
-        for definition in tree.document().definitions() {
-            match definition {
-                cst::Definition::OperationDefinition(operation) => {
-                    if let Some(selection_set) = operation.selection_set() {
-                        Self::collect_fragment_spreads_recursive(&selection_set, &mut to_process);
-                    }
-                }
-                cst::Definition::FragmentDefinition(fragment) => {
-                    if let Some(selection_set) = fragment.selection_set() {
-                        Self::collect_fragment_spreads_recursive(&selection_set, &mut to_process);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // Check if any of the referenced fragments match the changed fragments
-        while let Some(frag_name) = to_process.pop_front() {
-            if fragment_names.contains(&frag_name) {
-                return true;
-            }
-        }
-
-        // TODO: Could also check transitive references by looking up fragments
-        // in the document index, but direct references are sufficient for now
-
-        false
-    }
-
-    /// Recursively collect fragment spread names from a selection set
-    fn collect_fragment_spreads_recursive(
-        selection_set: &apollo_parser::cst::SelectionSet,
-        result: &mut std::collections::VecDeque<String>,
-    ) {
-        for selection in selection_set.selections() {
-            match selection {
-                apollo_parser::cst::Selection::FragmentSpread(spread) => {
-                    if let Some(name) = spread.fragment_name() {
-                        if let Some(name_token) = name.name() {
-                            result.push_back(name_token.text().to_string());
-                        }
-                    }
-                }
-                apollo_parser::cst::Selection::Field(field) => {
-                    if let Some(nested_selection_set) = field.selection_set() {
-                        Self::collect_fragment_spreads_recursive(&nested_selection_set, result);
-                    }
-                }
-                apollo_parser::cst::Selection::InlineFragment(inline) => {
-                    if let Some(nested_selection_set) = inline.selection_set() {
-                        Self::collect_fragment_spreads_recursive(&nested_selection_set, result);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Add or update a file in the `AnalysisHost` for a workspace
-    async fn add_file_to_host(
-        &self,
-        workspace_uri: &str,
-        file_uri: &Uri,
-        content: &str,
-        file_kind: graphql_ide::FileKind,
-        line_offset: u32,
-    ) {
-        let host = self.get_or_create_host(workspace_uri);
-        let file_path = graphql_ide::FilePath::new(file_uri.to_string());
-
-        let mut host_guard = host.lock().await;
-        host_guard.add_file(&file_path, content, file_kind, line_offset);
-    }
-
-    /// Remove a file from the `AnalysisHost` for a workspace
-    async fn remove_file_from_host(&self, workspace_uri: &str, file_uri: &Uri) {
-        if let Some(host) = self.hosts.get(workspace_uri) {
-            let file_path = graphql_ide::FilePath::new(file_uri.to_string());
-            let mut host_guard = host.lock().await;
-            host_guard.remove_file(&file_path);
-        }
-    }
-
-    /// Load schema files from a project into the `AnalysisHost`
-    // TODO: Implement load_schema_into_host without old project
-    #[allow(clippy::unused_self)]
-    #[allow(clippy::missing_const_for_fn)]
-    fn load_schema_into_host(&self, _workspace_uri: &str) {
-        // Placeholder - schema loading happens via did_open
     }
 
     #[allow(clippy::too_many_lines)]
@@ -670,12 +469,6 @@ impl GraphQLLanguageServer {
         tracing::info!("Finished loading all project files into AnalysisHost");
     }
 
-    /// Reload GraphQL config for a workspace
-    #[allow(clippy::too_many_lines)]
-    #[tracing::instrument(skip(self), fields(workspace_uri = %workspace_uri))]
-    // REMOVED: reload_workspace_config (old validation system)
-    async fn reload_workspace_config(&self, workspace_uri: &str) {}
-
     /// Find the workspace and project for a given document URI
     fn find_workspace_and_project(&self, document_uri: &Uri) -> Option<(String, usize)> {
         let doc_path = document_uri.to_file_path()?;
@@ -694,23 +487,6 @@ impl GraphQLLanguageServer {
 
         None
     }
-
-    /// Re-validate all open documents in all workspaces
-    /// This is called after schema changes to update validation errors
-    // REMOVED: revalidate_all_documents (old validation system)
-    #[allow(clippy::unused_self)]
-    #[allow(clippy::missing_const_for_fn)]
-    fn revalidate_all_documents(&self) {}
-
-    /// Re-validate schema files when field usage changes in a document
-    ///
-    /// When operations or fragments change, the set of used fields changes,
-    /// which affects `unused_fields` diagnostics in schema files. This method
-    /// finds all schema files and re-publishes their diagnostics.
-    // REMOVED: revalidate_schema_files (old validation system)
-    #[allow(clippy::unused_self)]
-    #[allow(clippy::missing_const_for_fn)]
-    fn revalidate_schema_files(&self, _changed_uri: &Uri) {}
 
     /// Validate a document and publish diagnostics
     #[allow(clippy::too_many_lines)]
@@ -756,35 +532,6 @@ impl GraphQLLanguageServer {
         tracing::debug!("Published diagnostics");
     }
 }
-
-/// Convert graphql-ide diagnostic to LSP diagnostic
-fn convert_ide_diagnostic(diag: graphql_ide::Diagnostic) -> Diagnostic {
-    let severity = match diag.severity {
-        graphql_ide::DiagnosticSeverity::Error => DiagnosticSeverity::ERROR,
-        graphql_ide::DiagnosticSeverity::Warning => DiagnosticSeverity::WARNING,
-        graphql_ide::DiagnosticSeverity::Information => DiagnosticSeverity::INFORMATION,
-        graphql_ide::DiagnosticSeverity::Hint => DiagnosticSeverity::HINT,
-    };
-
-    Diagnostic {
-        range: Range {
-            start: Position {
-                line: diag.range.start.line,
-                character: diag.range.start.character,
-            },
-            end: Position {
-                line: diag.range.end.line,
-                character: diag.range.end.character,
-            },
-        },
-        severity: Some(severity),
-        code: diag.code.map(lsp_types::NumberOrString::String),
-        source: Some(diag.source),
-        message: diag.message,
-        ..Default::default()
-    }
-}
-
 impl GraphQLLanguageServer {
     // REMOVED: get_project_wide_diagnostics (old validation system)
     // REMOVED: refresh_affected_files_diagnostics (old validation system)
@@ -1020,14 +767,12 @@ impl LanguageServer for GraphQLLanguageServer {
 
             tracing::info!("Adding to host: workspace={}, uri={:?}, content_len={}, file_kind={:?}, line_offset={}",
                 workspace_uri, uri, final_content.len(), final_kind, line_offset);
-            self.add_file_to_host(
-                &workspace_uri,
-                &uri,
-                &final_content,
-                final_kind,
-                line_offset,
-            )
-            .await;
+            {
+                let host = self.get_or_create_host(&workspace_uri);
+                let file_path = graphql_ide::FilePath::new(uri.to_string());
+                let mut host_guard = host.lock().await;
+                host_guard.add_file(&file_path, &final_content, final_kind, line_offset);
+            }
         }
 
         self.validate_document(uri).await;
@@ -1091,14 +836,12 @@ impl LanguageServer for GraphQLLanguageServer {
                     _ => file_kind,
                 };
 
-                self.add_file_to_host(
-                    &workspace_uri,
-                    &uri,
-                    &final_content,
-                    final_kind,
-                    line_offset,
-                )
-                .await;
+                {
+                    let host = self.get_or_create_host(&workspace_uri);
+                    let file_path = graphql_ide::FilePath::new(uri.to_string());
+                    let mut host_guard = host.lock().await;
+                    host_guard.add_file(&file_path, &final_content, final_kind, line_offset);
+                }
             }
 
             // Validate immediately - Salsa's incremental computation makes this fast
@@ -1456,148 +1199,5 @@ impl LanguageServer for GraphQLLanguageServer {
             tracing::warn!("Unknown command: {}", params.command);
             Ok(None)
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::GraphQLLanguageServer;
-
-    #[test]
-    fn test_extract_fragment_names_from_content() {
-        // Test with multiple fragments
-        let content = r"
-            fragment UserBasic on User {
-                id
-                name
-            }
-
-            fragment UserDetailed on User {
-                ...UserBasic
-                email
-                posts {
-                    ...PostBasic
-                }
-            }
-
-            query GetUser {
-                user {
-                    ...UserDetailed
-                }
-            }
-        ";
-
-        let fragments = GraphQLLanguageServer::extract_fragment_names_from_content(content);
-        assert_eq!(fragments.len(), 2);
-        assert!(fragments.contains("UserBasic"));
-        assert!(fragments.contains("UserDetailed"));
-        assert!(!fragments.contains("PostBasic")); // Referenced but not defined
-
-        // Test with no fragments
-        let content_no_fragments = r"
-            query GetUser {
-                user {
-                    id
-                    name
-                }
-            }
-        ";
-
-        let fragments =
-            GraphQLLanguageServer::extract_fragment_names_from_content(content_no_fragments);
-        assert_eq!(fragments.len(), 0);
-    }
-
-    #[test]
-    fn test_document_references_fragments() {
-        // Document that references BattleDetailed
-        let content_with_reference = r"
-            mutation StartBattle($trainer1Id: ID!, $trainer2Id: ID!) {
-                startBattle(trainer1Id: $trainer1Id, trainer2Id: $trainer2Id) {
-                    ...BattleDetailed
-                }
-            }
-        ";
-
-        let mut changed_fragments = std::collections::HashSet::new();
-        changed_fragments.insert("BattleDetailed".to_string());
-
-        assert!(
-            GraphQLLanguageServer::document_references_fragments(
-                content_with_reference,
-                &changed_fragments
-            ),
-            "Document should reference BattleDetailed fragment"
-        );
-
-        // Document that doesn't reference BattleDetailed
-        let content_without_reference = r"
-            query GetPokemon($id: ID!) {
-                pokemon(id: $id) {
-                    id
-                    name
-                }
-            }
-        ";
-
-        assert!(
-            !GraphQLLanguageServer::document_references_fragments(
-                content_without_reference,
-                &changed_fragments
-            ),
-            "Document should not reference BattleDetailed fragment"
-        );
-
-        // Document with nested fragment spreads
-        let content_nested = r"
-            fragment TrainerWithBattles on Trainer {
-                id
-                name
-                battles {
-                    ...BattleDetailed
-                }
-            }
-        ";
-
-        assert!(
-            GraphQLLanguageServer::document_references_fragments(
-                content_nested,
-                &changed_fragments
-            ),
-            "Fragment definition should reference BattleDetailed fragment"
-        );
-
-        // Multiple fragments, only one matches
-        let mut multiple_fragments = std::collections::HashSet::new();
-        multiple_fragments.insert("BattleDetailed".to_string());
-        multiple_fragments.insert("PokemonInfo".to_string());
-
-        assert!(
-            GraphQLLanguageServer::document_references_fragments(
-                content_with_reference,
-                &multiple_fragments
-            ),
-            "Document should reference at least one of the changed fragments"
-        );
-    }
-
-    #[test]
-    fn test_document_references_fragments_no_match() {
-        let content = r"
-            query GetPokemon {
-                pokemon {
-                    id
-                    ...PokemonBasic
-                }
-            }
-        ";
-
-        let mut changed_fragments = std::collections::HashSet::new();
-        changed_fragments.insert("BattleDetailed".to_string());
-
-        assert!(
-            !GraphQLLanguageServer::document_references_fragments(content, &changed_fragments),
-            "Document uses PokemonBasic but not BattleDetailed"
-        );
     }
 }
