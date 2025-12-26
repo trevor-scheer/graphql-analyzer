@@ -1,5 +1,5 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
-use crate::traits::{DocumentSchemaLintRule, LintRule};
+use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use std::collections::{HashMap, HashSet};
@@ -43,7 +43,7 @@ impl LintRule for RedundantFieldsRuleImpl {
     }
 }
 
-impl DocumentSchemaLintRule for RedundantFieldsRuleImpl {
+impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
     fn check(
         &self,
         db: &dyn graphql_hir::GraphQLHirDatabase,
