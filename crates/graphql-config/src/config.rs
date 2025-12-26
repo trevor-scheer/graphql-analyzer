@@ -116,13 +116,22 @@ impl GraphQLConfig {
         config: &ProjectConfig,
     ) -> bool {
         let Ok(rel_path) = doc_path.strip_prefix(workspace_root) else {
+            tracing::debug!("Document not in workspace root");
             return false;
         };
 
         let rel_path_str = rel_path.to_string_lossy();
+        tracing::debug!("Checking if '{}' matches project patterns", rel_path_str);
+        tracing::debug!(
+            "  Project has: exclude={}, include={}, documents={}",
+            config.exclude.as_ref().map_or(0, Vec::len),
+            config.include.as_ref().map_or(0, Vec::len),
+            config.documents.as_ref().map_or(0, |d| d.patterns().len())
+        );
 
         // Check explicit excludes first
         if let Some(ref excludes) = config.exclude {
+            tracing::debug!("Checking exclude patterns: {:?}", excludes);
             for pattern in excludes {
                 for expanded in Self::expand_braces(pattern) {
                     if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
@@ -134,48 +143,101 @@ impl GraphQLConfig {
             }
         }
 
-        // Check includes (if specified)
-        if let Some(ref includes) = config.include {
+        // Determine if file is in project scope based on include/exclude patterns
+        let in_include_scope = config.include.as_ref().is_none_or(|includes| {
+            tracing::debug!("Checking include patterns: {:?}", includes);
+            let mut matched = false;
             for pattern in includes {
                 for expanded in Self::expand_braces(pattern) {
+                    tracing::debug!("  Testing include pattern: {}", expanded);
                     if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
                         if glob_pattern.matches(&rel_path_str) {
-                            return true;
+                            tracing::debug!("    ✓ Matched include pattern: {}", expanded);
+                            matched = true;
+                            break;
                         }
                     }
                 }
+                if matched {
+                    break;
+                }
             }
-            // If includes are specified but no match, return false
+            if !matched {
+                tracing::debug!("No include patterns matched, file excluded");
+            }
+            matched
+        });
+
+        // If file is not in include scope, it doesn't match this project
+        if !in_include_scope {
             return false;
         }
 
-        // Check document patterns (if specified)
+        // File is in scope - now check if it matches document patterns (if specified)
         if let Some(ref documents) = config.documents {
-            for pattern in documents.patterns() {
+            let patterns = documents.patterns();
+            tracing::debug!("Checking document patterns: {:?}", patterns);
+            for pattern in patterns {
                 for expanded in Self::expand_braces(pattern) {
+                    tracing::debug!("  Testing document pattern: {}", expanded);
                     if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
                         if glob_pattern.matches(&rel_path_str) {
+                            tracing::debug!("    ✓ Matched document pattern: {}", expanded);
                             return true;
                         }
                     }
                 }
             }
-            // If document patterns are specified but no match, return false
+            // Document patterns specified but no match
+            tracing::debug!("No document patterns matched, file excluded");
             return false;
         }
 
-        // No patterns specified - match by default
+        // No document patterns - if file is in include scope, it matches
+        tracing::debug!("No document patterns specified, matching by include scope");
         true
     }
 
+    /// Normalize a glob pattern for consistent matching
+    ///
+    /// Handles:
+    /// - Leading "./" prefix (removes it)
+    /// - Leading "/" prefix (removes it - patterns are relative to workspace)
+    /// - Consecutive slashes (collapses to single slash)
+    fn normalize_pattern(pattern: &str) -> String {
+        let mut normalized = pattern.to_string();
+
+        // Remove leading "./"
+        if normalized.starts_with("./") {
+            normalized = normalized[2..].to_string();
+        }
+
+        // Remove leading "/" (patterns should be relative)
+        if normalized.starts_with('/') {
+            normalized = normalized[1..].to_string();
+        }
+
+        // Collapse consecutive slashes (but preserve in **/)
+        // This is a simple approach - just replace "//" with "/"
+        while normalized.contains("//") {
+            normalized = normalized.replace("//", "/");
+        }
+
+        normalized
+    }
+
     /// Expand brace patterns like "src/**/*.{ts,tsx}" into separate patterns
+    /// Also normalizes patterns for consistent matching
     fn expand_braces(pattern: &str) -> Vec<String> {
+        // Normalize pattern first
+        let normalized = Self::normalize_pattern(pattern);
+
         // Simple brace expansion - handles single brace group
-        if let Some(start) = pattern.find('{') {
-            if let Some(end) = pattern.find('}') {
-                let before = &pattern[..start];
-                let after = &pattern[end + 1..];
-                let options = &pattern[start + 1..end];
+        if let Some(start) = normalized.find('{') {
+            if let Some(end) = normalized.find('}') {
+                let before = &normalized[..start];
+                let after = &normalized[end + 1..];
+                let options = &normalized[start + 1..end];
 
                 return options
                     .split(',')
@@ -184,7 +246,7 @@ impl GraphQLConfig {
             }
         }
 
-        vec![pattern.to_string()]
+        vec![normalized]
     }
 }
 
@@ -486,6 +548,76 @@ extensions:
         assert_eq!(
             config.find_project_for_document(&not_included, &workspace_root),
             None
+        );
+    }
+
+    #[test]
+    fn test_pattern_normalization() {
+        // Test leading "./" removal
+        assert_eq!(
+            GraphQLConfig::normalize_pattern("./src/**/*.ts"),
+            "src/**/*.ts"
+        );
+
+        // Test leading "/" removal
+        assert_eq!(
+            GraphQLConfig::normalize_pattern("/src/**/*.ts"),
+            "src/**/*.ts"
+        );
+
+        // Test consecutive slash collapsing
+        assert_eq!(
+            GraphQLConfig::normalize_pattern("src//components/*.ts"),
+            "src/components/*.ts"
+        );
+
+        // Test combined normalization
+        assert_eq!(
+            GraphQLConfig::normalize_pattern("./src//components/*.ts"),
+            "src/components/*.ts"
+        );
+
+        // Test pattern without issues
+        assert_eq!(
+            GraphQLConfig::normalize_pattern("src/**/*.ts"),
+            "src/**/*.ts"
+        );
+    }
+
+    #[test]
+    fn test_pattern_normalization_with_leading_dot_slash() {
+        use std::path::PathBuf;
+
+        let mut projects = HashMap::new();
+        projects.insert(
+            "web".to_string(),
+            ProjectConfig {
+                schema: SchemaConfig::Path("schema.graphql".to_string()),
+                // Pattern with leading "./" should be normalized
+                documents: Some(DocumentsConfig::Pattern(
+                    "./apps/web/**/*.{ts,tsx}".to_string(),
+                )),
+                include: None,
+                exclude: None,
+                lint: None,
+                extensions: None,
+            },
+        );
+
+        let config = GraphQLConfig::Multi { projects };
+        let workspace_root = PathBuf::from("/workspace");
+
+        // File path WITHOUT leading "./" should match pattern WITH "./"
+        let component_file = PathBuf::from("/workspace/apps/web/src/components/Foo.tsx");
+        assert_eq!(
+            config.find_project_for_document(&component_file, &workspace_root),
+            Some("web")
+        );
+
+        let api_file = PathBuf::from("/workspace/apps/web/src/api/client.ts");
+        assert_eq!(
+            config.find_project_for_document(&api_file, &workspace_root),
+            Some("web")
         );
     }
 }
