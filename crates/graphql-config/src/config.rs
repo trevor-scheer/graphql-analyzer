@@ -122,9 +122,16 @@ impl GraphQLConfig {
 
         let rel_path_str = rel_path.to_string_lossy();
         tracing::debug!("Checking if '{}' matches project patterns", rel_path_str);
+        tracing::debug!(
+            "  Project has: exclude={}, include={}, documents={}",
+            config.exclude.as_ref().map_or(0, Vec::len),
+            config.include.as_ref().map_or(0, Vec::len),
+            config.documents.as_ref().map_or(0, |d| d.patterns().len())
+        );
 
         // Check explicit excludes first
         if let Some(ref excludes) = config.exclude {
+            tracing::debug!("Checking exclude patterns: {:?}", excludes);
             for pattern in excludes {
                 for expanded in Self::expand_braces(pattern) {
                     if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
@@ -138,7 +145,7 @@ impl GraphQLConfig {
 
         // Determine if file is in project scope based on include/exclude patterns
         let in_include_scope = config.include.as_ref().is_none_or(|includes| {
-            tracing::debug!("Checking include patterns ({} patterns)", includes.len());
+            tracing::debug!("Checking include patterns: {:?}", includes);
             let mut matched = false;
             for pattern in includes {
                 for expanded in Self::expand_braces(pattern) {
@@ -168,11 +175,9 @@ impl GraphQLConfig {
 
         // File is in scope - now check if it matches document patterns (if specified)
         if let Some(ref documents) = config.documents {
-            tracing::debug!(
-                "Checking document patterns ({} patterns)",
-                documents.patterns().len()
-            );
-            for pattern in documents.patterns() {
+            let patterns = documents.patterns();
+            tracing::debug!("Checking document patterns: {:?}", patterns);
+            for pattern in patterns {
                 for expanded in Self::expand_braces(pattern) {
                     tracing::debug!("  Testing document pattern: {}", expanded);
                     if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
