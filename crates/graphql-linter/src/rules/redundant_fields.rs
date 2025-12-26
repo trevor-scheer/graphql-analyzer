@@ -258,7 +258,46 @@ fn check_selection_set_for_redundancy(
         }
     }
 
-    // Now check each field to see if it's redundant
+    // Track direct field selections and their counts
+    use std::collections::HashMap;
+    let mut direct_field_counts: HashMap<FieldKey, Vec<&cst::Field>> = HashMap::new();
+
+    for selection in &selections {
+        if let cst::Selection::Field(field) = selection {
+            if let Some(field_key) = FieldKey::from_field(field) {
+                direct_field_counts.entry(field_key).or_default().push(field);
+            }
+        }
+    }
+
+    // Report duplicate direct field selections
+    for (field_key, fields) in &direct_field_counts {
+        if fields.len() > 1 {
+            for field in fields.iter().skip(1) {
+                if let Some(field_name) = field.name() {
+                    let syntax_node = field_name.syntax();
+                    let start_offset: usize = syntax_node.text_range().start().into();
+                    let end_offset: usize = syntax_node.text_range().end().into();
+                    let field_desc = if let Some(alias) = &field_key.alias {
+                        format!("'{}: {}'", alias, field_key.field_name)
+                    } else {
+                        format!("'{}'", field_key.field_name)
+                    };
+                    let message = format!(
+                        "Field {field_desc} is selected multiple times in the same selection set"
+                    );
+                    diagnostics.push(LintDiagnostic::warning(
+                        start_offset,
+                        end_offset,
+                        message,
+                        "redundant_fields",
+                    ));
+                }
+            }
+        }
+    }
+
+    // Now check each field to see if it's redundant via fragment
     for selection in &selections {
         if let cst::Selection::Field(field) = selection {
             if let Some(field_key) = FieldKey::from_field(field) {
