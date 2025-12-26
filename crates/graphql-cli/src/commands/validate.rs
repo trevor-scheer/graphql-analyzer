@@ -75,7 +75,7 @@ pub fn run(
         println!("{}", "✓ Documents loaded successfully".green());
     }
 
-    // Validate all files
+    // Validate all files (spec validation only, no custom lints)
     let spinner = if matches!(format, OutputFormat::Human) {
         Some(crate::progress::spinner("Validating GraphQL documents..."))
     } else {
@@ -84,7 +84,7 @@ pub fn run(
 
     let validate_start = std::time::Instant::now();
     let _validate_span = tracing::info_span!("validate_all").entered();
-    let all_diagnostics = host.all_diagnostics();
+    let all_diagnostics = host.all_validation_diagnostics();
 
     if let Some(pb) = spinner {
         pb.finish_and_clear();

@@ -532,8 +532,44 @@ impl Analysis {
             (content, metadata)
         };
 
-        // Get diagnostics from analysis layer
+        // Get diagnostics from analysis layer (includes both validation and linting)
         let analysis_diagnostics = graphql_analysis::file_diagnostics(&self.db, content, metadata);
+
+        // Convert to IDE diagnostic format
+        analysis_diagnostics
+            .iter()
+            .map(convert_diagnostic)
+            .collect()
+    }
+
+    /// Get only validation diagnostics for a file (excludes custom lint rules)
+    ///
+    /// Returns only GraphQL spec validation errors, not custom lint rule violations.
+    /// Use this for the `validate` command to avoid duplicating lint checks.
+    pub fn validation_diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
+        let (content, metadata) = {
+            let registry = self.registry.read().unwrap();
+
+            // Look up FileId from FilePath
+            let Some(file_id) = registry.get_file_id(file) else {
+                return Vec::new();
+            };
+
+            // Get FileContent and FileMetadata
+            let Some(content) = registry.get_content(file_id) else {
+                return Vec::new();
+            };
+            let Some(metadata) = registry.get_metadata(file_id) else {
+                return Vec::new();
+            };
+            drop(registry);
+
+            (content, metadata)
+        };
+
+        // Get only validation diagnostics from analysis layer
+        let analysis_diagnostics =
+            graphql_analysis::file_validation_diagnostics(&self.db, content, metadata);
 
         // Convert to IDE diagnostic format
         analysis_diagnostics

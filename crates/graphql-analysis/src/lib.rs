@@ -29,10 +29,17 @@ pub trait GraphQLAnalysisDatabase: graphql_hir::GraphQLHirDatabase {
 #[salsa::db]
 impl GraphQLAnalysisDatabase for graphql_db::RootDatabase {}
 
-/// Get all diagnostics for a file
-/// This is the main entry point for validation
+/// Get validation diagnostics for a file (GraphQL spec validation only)
+///
+/// This includes:
+/// - Syntax errors
+/// - Schema validation errors (GraphQL spec)
+/// - Document validation errors (GraphQL spec)
+///
+/// This does NOT include custom lint rules - use `file_diagnostics()` for that.
+/// Returns diagnostics as a Salsa-tracked Arc for efficient caching.
 #[salsa::tracked]
-pub fn file_diagnostics(
+pub fn file_validation_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: graphql_db::FileContent,
     metadata: graphql_db::FileMetadata,
@@ -93,7 +100,36 @@ pub fn file_diagnostics(
         }
     }
 
-    // Lint diagnostics (from graphql-linter integration)
+    Arc::new(diagnostics)
+}
+
+/// Get all diagnostics for a file (validation + linting)
+///
+/// This includes:
+/// - Syntax errors
+/// - Schema validation errors
+/// - Document validation errors
+/// - Lint diagnostics
+///
+/// For LSP use, where you want both validation and linting.
+/// For CLI validate command, use `file_validation_diagnostics()` instead.
+/// This is the main entry point for full diagnostics.
+#[salsa::tracked]
+pub fn file_diagnostics(
+    db: &dyn GraphQLAnalysisDatabase,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+) -> Arc<Vec<Diagnostic>> {
+    let mut diagnostics = Vec::new();
+
+    // Get validation diagnostics
+    diagnostics.extend(
+        file_validation_diagnostics(db, content, metadata)
+            .iter()
+            .cloned(),
+    );
+
+    // Add lint diagnostics (from graphql-linter integration)
     diagnostics.extend(
         lint_integration::lint_file(db, content, metadata)
             .iter()

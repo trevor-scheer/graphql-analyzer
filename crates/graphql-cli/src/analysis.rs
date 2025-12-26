@@ -191,10 +191,12 @@ impl CliAnalysisHost {
         vec![pattern.to_string()]
     }
 
-    /// Get diagnostics for all loaded files
+    /// Get diagnostics for all loaded files (validation + linting)
     ///
     /// Returns a map of file path -> diagnostics.
     /// Only includes files that have diagnostics.
+    /// Note: Currently unused in CLI but kept for potential LSP use.
+    #[allow(dead_code)]
     pub fn all_diagnostics(&self) -> HashMap<PathBuf, Vec<Diagnostic>> {
         let snapshot = self.host.snapshot();
         let mut results = HashMap::new();
@@ -202,6 +204,27 @@ impl CliAnalysisHost {
         for path in &self.loaded_files {
             let file_path = FilePath::new(path.to_string_lossy().to_string());
             let diagnostics = snapshot.diagnostics(&file_path);
+
+            if !diagnostics.is_empty() {
+                results.insert(path.clone(), diagnostics);
+            }
+        }
+
+        results
+    }
+
+    /// Get only validation diagnostics for all loaded files (excludes custom lint rules)
+    ///
+    /// Returns only GraphQL spec validation errors, not custom lint rule violations.
+    /// Use this for the `validate` command to avoid duplicating lint checks.
+    /// Only includes files that have diagnostics.
+    pub fn all_validation_diagnostics(&self) -> HashMap<PathBuf, Vec<Diagnostic>> {
+        let snapshot = self.host.snapshot();
+        let mut results = HashMap::new();
+
+        for path in &self.loaded_files {
+            let file_path = FilePath::new(path.to_string_lossy().to_string());
+            let diagnostics = snapshot.validation_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {
                 results.insert(path.clone(), diagnostics);
