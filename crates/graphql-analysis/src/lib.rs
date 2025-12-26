@@ -2,8 +2,6 @@
 // This crate provides validation and linting on top of the HIR layer.
 // All validation is query-based for automatic incrementality via Salsa.
 
-use graphql_db::FileId;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 mod diagnostics;
@@ -113,57 +111,10 @@ pub fn file_diagnostics(
     Arc::new(diagnostics)
 }
 
-/// Get project-wide diagnostics (expensive, opt-in)
-/// This includes lints like `unused_fields` and `unused_fragments`
-#[salsa::tracked]
-pub fn project_wide_diagnostics(
-    db: &dyn GraphQLAnalysisDatabase,
-) -> Arc<HashMap<FileId, Vec<Diagnostic>>> {
-    // Check if any project-wide lints are enabled
-    let lint_config = db.lint_config();
-    let has_project_wide_lints = lint_config.is_enabled("unique_names")
-        || lint_config.is_enabled("unused_fields")
-        || lint_config.is_enabled("unused_fragments");
-
-    if !has_project_wide_lints {
-        return Arc::new(HashMap::new());
-    }
-
-    let mut diagnostics_by_file = HashMap::new();
-
-    // Unused fields lint (expensive)
-    if lint_config.is_enabled("unused_fields") {
-        let unused = project_lints::find_unused_fields(db);
-        for (_field_id, diagnostic) in unused.iter() {
-            // TODO: Get file_id from field_id when we have proper HIR support
-            let file_id = FileId::new(0); // Placeholder
-            diagnostics_by_file
-                .entry(file_id)
-                .or_insert_with(Vec::new)
-                .push(diagnostic.clone());
-        }
-    }
-
-    // Unused fragments lint
-    if lint_config.is_enabled("unused_fragments") {
-        let unused = project_lints::find_unused_fragments(db);
-        for (_fragment_id, diagnostic) in unused.iter() {
-            // TODO: Get file_id from fragment_id when we have proper HIR support
-            let file_id = FileId::new(0); // Placeholder
-            diagnostics_by_file
-                .entry(file_id)
-                .or_insert_with(Vec::new)
-                .push(diagnostic.clone());
-        }
-    }
-
-    Arc::new(diagnostics_by_file)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::{FileContent, FileKind, FileMetadata, FileUri};
+    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
 
     // Test database wrapper
     #[salsa::db]
@@ -205,14 +156,5 @@ mod tests {
         // Should have no diagnostics for valid schema
         // Note: This will work once we implement the parse query properly
         assert!(diagnostics.is_empty() || !diagnostics.is_empty()); // Placeholder assertion
-    }
-
-    #[test]
-    fn test_project_wide_diagnostics_disabled() {
-        let db = TestDatabase::default();
-
-        // Project-wide diagnostics should be empty when disabled
-        let diagnostics = project_wide_diagnostics(&db);
-        assert!(diagnostics.is_empty());
     }
 }
