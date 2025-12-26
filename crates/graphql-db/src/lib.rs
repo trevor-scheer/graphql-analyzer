@@ -130,31 +130,6 @@ impl RootDatabase {
     }
 }
 
-/// A batch of changes to apply to the database atomically
-#[derive(Debug, Default)]
-pub struct Change {
-    /// Files whose content has changed (`file_id`, `new_content`)
-    pub files_changed: Vec<(FileId, Arc<str>)>,
-    /// Files that have been removed from the project
-    pub files_removed: Vec<FileId>,
-    /// Files that have been added to the project (uri, content, kind)
-    pub files_added: Vec<(FileUri, Arc<str>, FileKind)>,
-}
-
-impl RootDatabase {
-    /// Apply a batch of changes to the database
-    /// This will automatically invalidate dependent queries via salsa
-    ///
-    /// Note: This is a simplified implementation for Phase 1.
-    /// A complete implementation will include a `FileRegistry` to map URIs to `FileIds`.
-    pub fn apply_change(&mut self, _change: Change) {
-        // Placeholder implementation for Phase 1
-        // Full implementation will come when we add FileRegistry
-        // For now, we just accept changes but don't process them
-        // This is sufficient for initial testing of the database structure
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,23 +217,5 @@ mod tests {
             file_content.text(&db).as_ref(),
             "type Query { world: String }"
         );
-    }
-
-    #[test]
-    fn test_change_application() {
-        let mut db = RootDatabase::new();
-
-        let change = Change {
-            files_added: vec![(
-                FileUri::new("file:///test.graphql"),
-                Arc::from("type Query { hello: String }"),
-                FileKind::Schema,
-            )],
-            ..Default::default()
-        };
-
-        db.apply_change(change);
-
-        // Detailed verification will come with FileRegistry implementation
     }
 }
