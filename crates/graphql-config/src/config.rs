@@ -116,10 +116,12 @@ impl GraphQLConfig {
         config: &ProjectConfig,
     ) -> bool {
         let Ok(rel_path) = doc_path.strip_prefix(workspace_root) else {
+            tracing::debug!("Document not in workspace root");
             return false;
         };
 
         let rel_path_str = rel_path.to_string_lossy();
+        tracing::debug!("Checking if '{}' matches project patterns", rel_path_str);
 
         // Check explicit excludes first
         if let Some(ref excludes) = config.exclude {
