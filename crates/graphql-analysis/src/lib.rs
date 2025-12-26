@@ -29,9 +29,7 @@ pub trait GraphQLAnalysisDatabase: graphql_hir::GraphQLHirDatabase {
 // Implement the trait for RootDatabase
 // This makes RootDatabase usable with all analysis queries
 #[salsa::db]
-impl GraphQLAnalysisDatabase for graphql_db::RootDatabase {
-    // Use default implementation (returns default LintConfig)
-}
+impl GraphQLAnalysisDatabase for graphql_db::RootDatabase {}
 
 /// Get all diagnostics for a file
 /// This is the main entry point for validation
