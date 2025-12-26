@@ -32,21 +32,28 @@ pub fn lint_file(
     // Parse the file (cached by Salsa!)
     let parse = graphql_syntax::parse(db, content, metadata);
 
+    let uri = metadata.uri(db);
+    tracing::debug!(uri = %uri, parse_errors = parse.errors.len(), "lint_file called");
+
     // Skip linting if there are parse errors
     if !parse.errors.is_empty() {
-        tracing::debug!("Skipping linting due to parse errors");
+        tracing::debug!(uri = %uri, "Skipping linting due to parse errors");
         return Arc::new(diagnostics);
     }
 
     let file_id = metadata.file_id(db);
     let file_kind = metadata.kind(db);
 
+    tracing::debug!(uri = %uri, ?file_kind, "Checking file kind");
+
     // Run lints based on file kind
     match file_kind {
         FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
             // Get project files for linting
-            if let Some(project_files) = db.project_files() {
-                let uri = metadata.uri(db);
+            let project_files_opt = db.project_files();
+            tracing::debug!(uri = %uri, has_project_files = project_files_opt.is_some(), "Checking project_files");
+
+            if let Some(project_files) = project_files_opt {
                 tracing::debug!(uri = %uri, "Running standalone document lints");
                 diagnostics.extend(standalone_document_lints(
                     db,
@@ -64,11 +71,13 @@ pub fn lint_file(
                     metadata,
                     project_files,
                 ));
+            } else {
+                tracing::warn!(uri = %uri, "project_files is None, skipping lints!");
             }
         }
         FileKind::Schema => {
             // TODO: Run schema lints (naming conventions, etc.)
-            tracing::trace!("Schema linting not yet implemented");
+            tracing::trace!(uri = %uri, "Schema linting not yet implemented");
         }
     }
 

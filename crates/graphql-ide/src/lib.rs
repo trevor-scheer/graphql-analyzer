@@ -282,7 +282,11 @@ impl graphql_syntax::GraphQLSyntaxDatabase for IdeDatabase {
 }
 
 #[salsa::db]
-impl graphql_hir::GraphQLHirDatabase for IdeDatabase {}
+impl graphql_hir::GraphQLHirDatabase for IdeDatabase {
+    fn project_files(&self) -> Option<graphql_db::ProjectFiles> {
+        self.project_files.get()
+    }
+}
 
 #[salsa::db]
 impl graphql_analysis::GraphQLAnalysisDatabase for IdeDatabase {
