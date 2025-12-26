@@ -291,6 +291,22 @@ cargo build --workspace
 cargo test --workspace
 ```
 
+#### Run Benchmarks
+
+```bash
+# Run all benchmarks
+cargo bench
+
+# Run specific benchmark
+cargo bench parse_cold
+
+# Compare against baseline
+cargo bench -- --save-baseline main
+cargo bench -- --baseline main
+```
+
+See [benches/README.md](benches/README.md) for detailed information about the benchmark suite and interpreting results.
+
 #### Run CLI from Source
 
 ```bash

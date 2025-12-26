@@ -11,6 +11,7 @@ members = [
     "crates/graphql-hir",
     "crates/graphql-analysis",
     "crates/graphql-ide",
+    "benches",
 ]
 
 [workspace.package]
@@ -64,6 +65,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Incremental computation
 salsa = "0.25"
+
+# Benchmarking
+criterion = { version = "0.5", features = ["html_reports"] }
 
 # The profile that 'dist' will build with
 [profile.dist]
