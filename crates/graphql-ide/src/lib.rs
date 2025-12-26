@@ -327,19 +327,28 @@ impl AnalysisHost {
     /// This is a convenience method for adding files to the registry and database.
     /// The `line_offset` parameter is used for TypeScript/JavaScript files where GraphQL
     /// is extracted - it indicates the line number in the original source where the GraphQL starts.
+    ///
+    /// **IMPORTANT**: This does NOT rebuild `ProjectFiles`. Caller must call `rebuild_project_files()`
+    /// after batch adding multiple files to avoid O(n²) performance.
     pub fn add_file(&mut self, path: &FilePath, content: &str, kind: FileKind, line_offset: u32) {
-        tracing::info!(
-            "AnalysisHost::add_file: path={}, content_len={}, kind={:?}, line_offset={}, first_100={:?}",
+        tracing::debug!(
+            "AnalysisHost::add_file: path={}, content_len={}, kind={:?}, line_offset={}",
             path.as_str(),
             content.len(),
             kind,
-            line_offset,
-            &content[..100.min(content.len())]
+            line_offset
         );
-        {
-            let mut registry = self.registry.write().unwrap();
-            registry.add_file(&mut self.db, path, content, kind, line_offset);
-        } // Drop lock before rebuilding ProjectFiles
+        let mut registry = self.registry.write().unwrap();
+        registry.add_file(&mut self.db, path, content, kind, line_offset);
+    }
+
+    /// Rebuild the `ProjectFiles` index after adding/removing files
+    ///
+    /// This should be called after batch adding files to avoid O(n²) performance.
+    /// It's relatively expensive as it iterates through all files, so avoid calling
+    /// it in a loop.
+    pub fn rebuild_project_files(&mut self) {
+        tracing::debug!("Rebuilding ProjectFiles index");
         let mut registry = self.registry.write().unwrap();
         registry.rebuild_project_files(&mut self.db);
     }
@@ -1539,6 +1548,7 @@ mod tests {
         // Add a valid schema file
         let path = FilePath::new("file:///schema.graphql");
         host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
+        host.rebuild_project_files();
 
         // Get diagnostics
         let snapshot = host.snapshot();
@@ -1664,6 +1674,7 @@ mod tests {
         // Add a schema file
         let path = FilePath::new("file:///schema.graphql");
         host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
+        host.rebuild_project_files();
 
         // Get hover at a position
         let snapshot = host.snapshot();
@@ -1695,6 +1706,7 @@ mod tests {
         // Add a file with syntax errors (missing closing brace)
         let path = FilePath::new("file:///invalid.graphql");
         host.add_file(&path, "type Query {", FileKind::Schema, 0);
+        host.rebuild_project_files();
 
         // Get hover on the Query type name (position 5 is in "Query")
         let snapshot = host.snapshot();
@@ -1777,6 +1789,8 @@ mod tests {
         let path = FilePath::new("file:///invalid.graphql");
         host.add_file(&path, "type Query {", FileKind::Schema, 0);
 
+        host.rebuild_project_files();
+
         // Get completions
         let snapshot = host.snapshot();
         let completions = snapshot.completions(&path, Position::new(0, 10));
@@ -1840,6 +1854,7 @@ mod tests {
         let query_file = FilePath::new("file:///query.graphql");
         let query_text = "query { ...UserFields }";
         host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL, 0);
+        host.rebuild_project_files();
 
         // Get goto definition for the fragment spread (position at "UserFields")
         // Position should be at the start of "UserFields" after "..."
@@ -1878,6 +1893,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
             0,
         );
+        host.rebuild_project_files();
 
         // Get goto definition for the type reference (position at "User" in fragment)
         // "fragment F on " = 14 characters, so "User" starts at position 14
@@ -1920,6 +1936,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
             0,
         );
+        host.rebuild_project_files();
 
         // Find references to the fragment (position at "F" in fragment definition)
         // "fragment " = 9 characters, so "F" starts at position 9
@@ -1953,6 +1970,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
             0,
         );
+        host.rebuild_project_files();
 
         // Find references including declaration
         // "fragment " = 9 characters, so "F" starts at position 9
@@ -1989,6 +2007,7 @@ mod tests {
             FileKind::Schema,
             0,
         );
+        host.rebuild_project_files();
 
         // Find references to the User type
         // "type " = 5 characters, so "User" starts at position 5
@@ -2018,6 +2037,7 @@ mod tests {
             FileKind::Schema,
             0,
         );
+        host.rebuild_project_files();
 
         // Find references including declaration
         // "type " = 5 characters, so "User" starts at position 5
@@ -2057,6 +2077,7 @@ mod tests {
         let query_text = "query { user { id } }";
         //                                 ^ cursor here at position 15 (right after { before id)
         host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL, 0);
+        host.rebuild_project_files();
 
         // Get completions inside the selection set (simulating user about to type)
         let snapshot = host.snapshot();
@@ -2174,6 +2195,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
             0,
         );
+        host.rebuild_project_files();
 
         // Get completions after the fragment spread (line 3, position 4 - after newline)
         let snapshot = host.snapshot();
@@ -2243,6 +2265,7 @@ mutation ForfeitBattle($battleId: ID!, $trainerId: ID!) {
             FileKind::ExecutableGraphQL,
             0,
         );
+        host.rebuild_project_files();
 
         // Get completions in the second mutation after the fragment spread (line 10, position 4)
         let snapshot = host.snapshot();
