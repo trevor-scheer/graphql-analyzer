@@ -480,25 +480,54 @@ impl GraphQLLanguageServer {
     fn find_workspace_and_project(&self, document_uri: &Uri) -> Option<(String, String)> {
         let doc_path = document_uri.to_file_path()?;
 
+        tracing::debug!("Finding workspace for document: {}", doc_path.display());
+        tracing::debug!("Available workspaces: {}", self.workspace_roots.len());
+
         // Try to find which workspace this document belongs to
         for workspace_entry in self.workspace_roots.iter() {
             let workspace_uri = workspace_entry.key();
             let workspace_path = workspace_entry.value();
 
+            tracing::debug!(
+                "Checking workspace: {} (path: {})",
+                workspace_uri,
+                workspace_path.display()
+            );
+
             if doc_path.as_ref().starts_with(workspace_path.as_path()) {
+                tracing::debug!("Document is in workspace: {}", workspace_uri);
+
                 // Found the workspace, now find the project
                 if let Some(config) = self.configs.get(workspace_uri.as_str()) {
+                    tracing::debug!("Found config for workspace");
+
                     if let Some(project_name) =
                         config.find_project_for_document(&doc_path, workspace_path)
                     {
+                        tracing::info!(
+                            "Document matched to project '{}' in workspace '{}'",
+                            project_name,
+                            workspace_uri
+                        );
                         return Some((workspace_uri.clone(), project_name.to_string()));
                     }
+
+                    tracing::warn!(
+                        "Document is in workspace but doesn't match any project patterns: {}",
+                        doc_path.display()
+                    );
+                } else {
+                    tracing::warn!("Workspace found but no config loaded: {}", workspace_uri);
                 }
                 // If no config or no matching project, return None
                 return None;
             }
         }
 
+        tracing::warn!(
+            "Document not in any known workspace: {}",
+            doc_path.display()
+        );
         None
     }
 
@@ -562,13 +591,23 @@ impl LanguageServer for GraphQLLanguageServer {
 
         // Store workspace folders for later config loading
         if let Some(ref folders) = params.workspace_folders {
-            tracing::info!(count = folders.len(), "Workspace folders");
+            tracing::info!(count = folders.len(), "Workspace folders received");
             for folder in folders {
+                tracing::info!(
+                    "Workspace folder: name={}, uri={}",
+                    folder.name,
+                    folder.uri.as_str()
+                );
                 if let Some(path) = folder.uri.to_file_path() {
+                    tracing::info!("  -> Path: {}", path.display());
                     self.init_workspace_folders
                         .insert(folder.uri.to_string(), path.into_owned());
+                } else {
+                    tracing::warn!("  -> Could not convert URI to file path");
                 }
             }
+        } else {
+            tracing::warn!("No workspace folders provided in initialization");
         }
 
         Ok(InitializeResult {
@@ -628,9 +667,21 @@ impl LanguageServer for GraphQLLanguageServer {
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect();
 
+        tracing::info!("Loading configs for {} workspace(s)", folders.len());
         for (uri, path) in folders {
+            tracing::info!(
+                "Loading config for workspace: {} at {}",
+                uri,
+                path.display()
+            );
             self.load_workspace_config(&uri, &path).await;
         }
+
+        tracing::info!(
+            "After loading: {} workspace roots, {} configs",
+            self.workspace_roots.len(),
+            self.configs.len()
+        );
 
         // Register file watchers for config files after loading
         let config_paths: Vec<PathBuf> = self
