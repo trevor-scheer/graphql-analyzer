@@ -1,0 +1,20 @@
+[package]
+name = "graphql-lsp-benches"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[[bench]]
+name = "incremental_computation"
+harness = false
+
+[dependencies]
+graphql-db = { path = "../crates/graphql-db" }
+graphql-syntax = { path = "../crates/graphql-syntax" }
+graphql-hir = { path = "../crates/graphql-hir" }
+graphql-analysis = { path = "../crates/graphql-analysis" }
+graphql-ide = { path = "../crates/graphql-ide" }
+criterion = { workspace = true }
