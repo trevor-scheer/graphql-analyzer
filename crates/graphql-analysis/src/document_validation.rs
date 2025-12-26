@@ -253,7 +253,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Requires multi-file HIR setup"]
     fn test_variable_invalid_input_type() {
         let db = TestDatabase::default();
 
@@ -268,9 +267,6 @@ mod tests {
             FileKind::Schema,
         );
 
-        // Parse schema to populate HIR
-        let _ = graphql_hir::file_structure(&db, schema_file_id, schema_fc, schema_metadata);
-
         // Now test document with invalid variable type
         let doc_file_id = graphql_db::FileId::new(1);
         let doc_content = "query GetUser($user: User!) { user }";
@@ -281,6 +277,14 @@ mod tests {
             FileUri::new("query.graphql"),
             FileKind::ExecutableGraphQL,
         );
+
+        // Set up project files with schema and document
+        let project_files = graphql_db::ProjectFiles::new(
+            &db,
+            Arc::new(vec![(schema_file_id, schema_fc, schema_metadata)]),
+            Arc::new(vec![(doc_file_id, doc_fc, doc_metadata)]),
+        );
+        db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, doc_fc, doc_metadata);
 
@@ -327,7 +331,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Requires multi-file HIR setup"]
     fn test_fragment_invalid_type_condition() {
         let db = TestDatabase::default();
 
@@ -341,7 +344,6 @@ mod tests {
             FileUri::new("schema.graphql"),
             FileKind::Schema,
         );
-        let _ = graphql_hir::file_structure(&db, schema_file_id, schema_fc, schema_metadata);
 
         // Fragment on scalar (invalid)
         let doc_file_id = graphql_db::FileId::new(1);
@@ -353,6 +355,14 @@ mod tests {
             FileUri::new("fragment.graphql"),
             FileKind::ExecutableGraphQL,
         );
+
+        // Set up project files with schema and document
+        let project_files = graphql_db::ProjectFiles::new(
+            &db,
+            Arc::new(vec![(schema_file_id, schema_fc, schema_metadata)]),
+            Arc::new(vec![(doc_file_id, doc_fc, doc_metadata)]),
+        );
+        db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, doc_fc, doc_metadata);
 
@@ -400,7 +410,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Requires multi-file HIR setup"]
     fn test_valid_document() {
         let db = TestDatabase::default();
 
@@ -418,7 +427,6 @@ mod tests {
             FileUri::new("schema.graphql"),
             FileKind::Schema,
         );
-        let _ = graphql_hir::file_structure(&db, schema_file_id, schema_fc, schema_metadata);
 
         // Valid query
         let doc_file_id = graphql_db::FileId::new(1);
@@ -435,6 +443,14 @@ mod tests {
             FileUri::new("query.graphql"),
             FileKind::ExecutableGraphQL,
         );
+
+        // Set up project files with schema and document
+        let project_files = graphql_db::ProjectFiles::new(
+            &db,
+            Arc::new(vec![(schema_file_id, schema_fc, schema_metadata)]),
+            Arc::new(vec![(doc_file_id, doc_fc, doc_metadata)]),
+        );
+        db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, doc_fc, doc_metadata);
 
