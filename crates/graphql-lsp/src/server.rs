@@ -234,12 +234,15 @@ impl GraphQLLanguageServer {
         workspace_path: &Path,
         config: &graphql_config::GraphQLConfig,
     ) {
+        let start = std::time::Instant::now();
         let host = self.get_or_create_host(workspace_uri);
 
         // Collect projects into a Vec to avoid holding iterator across await
         let projects: Vec<_> = config.projects().collect();
+        tracing::info!("Loading files for {} project(s)", projects.len());
 
-        for (_project_name, project_config) in projects {
+        for (project_name, project_config) in projects {
+            tracing::info!("Loading project: {}", project_name);
             // Parse and set extract configuration
             let extract_config = project_config
                 .extensions
@@ -280,6 +283,9 @@ impl GraphQLLanguageServer {
 
             // Load document files (operations and fragments)
             if let Some(documents_config) = &project_config.documents {
+                const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
+                const MAX_FILES_HARD_LIMIT: usize = 10000;
+
                 // Get document patterns from config
                 let patterns: Vec<String> = documents_config
                     .patterns()
@@ -288,6 +294,8 @@ impl GraphQLLanguageServer {
                     .collect();
 
                 tracing::info!("Loading document files with {} patterns", patterns.len());
+
+                let mut total_files_loaded = 0;
 
                 for pattern in patterns {
                     // Skip negation patterns (starting with !)
@@ -311,6 +319,25 @@ impl GraphQLLanguageServer {
                         match glob::glob(&full_pattern.display().to_string()) {
                             Ok(paths) => {
                                 for entry in paths {
+                                    // Check hard limit
+                                    if total_files_loaded >= MAX_FILES_HARD_LIMIT {
+                                        tracing::error!(
+                                            "Hit hard limit of {} files, stopping file loading to prevent OOM. \
+                                            Consider using more specific document patterns in .graphqlrc.yaml",
+                                            MAX_FILES_HARD_LIMIT
+                                        );
+                                        self.client
+                                            .show_message(
+                                                MessageType::ERROR,
+                                                format!(
+                                                    "GraphQL LSP: Stopped loading after {MAX_FILES_HARD_LIMIT} files to prevent memory issues. \
+                                                    Please use more specific patterns in your .graphqlrc.yaml"
+                                                ),
+                                            )
+                                            .await;
+                                        break;
+                                    }
+
                                     match entry {
                                         Ok(path) if path.is_file() => {
                                             // Skip node_modules
@@ -319,6 +346,35 @@ impl GraphQLLanguageServer {
                                                 .any(|c| c.as_os_str() == "node_modules")
                                             {
                                                 continue;
+                                            }
+
+                                            // Log progress every 100 files
+                                            if total_files_loaded > 0
+                                                && total_files_loaded % 100 == 0
+                                            {
+                                                tracing::info!(
+                                                    "Loaded {} files so far (pattern: {})",
+                                                    total_files_loaded,
+                                                    pattern
+                                                );
+
+                                                // Show warning at threshold
+                                                if total_files_loaded == MAX_FILES_WARNING_THRESHOLD
+                                                {
+                                                    tracing::warn!(
+                                                        "Loading large number of files ({}+), this may take a while...",
+                                                        MAX_FILES_WARNING_THRESHOLD
+                                                    );
+                                                    self.client
+                                                        .show_message(
+                                                            MessageType::WARNING,
+                                                            format!(
+                                                                "GraphQL LSP: Loading {MAX_FILES_WARNING_THRESHOLD}+ files, this may take a while. \
+                                                                Consider using more specific patterns if this is too slow."
+                                                            ),
+                                                        )
+                                                        .await;
+                                                }
                                             }
 
                                             // Read file content
@@ -353,6 +409,7 @@ impl GraphQLLanguageServer {
                                                     let uri = format!("file:///{path_str}");
                                                     let file_path = graphql_ide::FilePath::new(uri);
 
+                                                    // Release host lock for each file to allow concurrent access
                                                     let mut host_guard = host.lock().await;
                                                     host_guard.add_file(
                                                         &file_path,
@@ -360,8 +417,12 @@ impl GraphQLLanguageServer {
                                                         final_kind,
                                                         line_offset,
                                                     );
-                                                    tracing::info!(
-                                                        "Loaded document file: {}",
+                                                    drop(host_guard); // Explicitly drop to release lock
+
+                                                    total_files_loaded += 1;
+                                                    tracing::debug!(
+                                                        "Loaded document file #{}: {}",
+                                                        total_files_loaded,
                                                         path.display()
                                                     );
                                                 }
@@ -391,10 +452,48 @@ impl GraphQLLanguageServer {
                         }
                     }
                 }
+
+                tracing::info!(
+                    "Finished loading documents for project '{}': {} files total",
+                    project_name,
+                    total_files_loaded
+                );
+
+                // Rebuild ProjectFiles index once after loading all files
+                // This is CRITICAL for performance - avoids O(n²) behavior
+                tracing::info!(
+                    "Rebuilding ProjectFiles index for {} files...",
+                    total_files_loaded
+                );
+                let rebuild_start = std::time::Instant::now();
+                {
+                    let mut host_guard = host.lock().await;
+                    host_guard.rebuild_project_files();
+                }
+                tracing::info!(
+                    "ProjectFiles rebuild took {:.2}s",
+                    rebuild_start.elapsed().as_secs_f64()
+                );
             }
         }
 
-        tracing::info!("Finished loading all project files into AnalysisHost");
+        let elapsed = start.elapsed();
+        tracing::info!(
+            "Finished loading all project files into AnalysisHost in {:.2}s",
+            elapsed.as_secs_f64()
+        );
+
+        // Log memory usage if available
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+                for line in status.lines() {
+                    if line.starts_with("VmRSS:") || line.starts_with("VmSize:") {
+                        tracing::info!("Memory: {}", line.trim());
+                    }
+                }
+            }
+        }
     }
 
     /// Find the workspace and project for a given document URI
@@ -679,6 +778,7 @@ impl LanguageServer for GraphQLLanguageServer {
                 let file_path = graphql_ide::FilePath::new(uri.to_string());
                 let mut host_guard = host.lock().await;
                 host_guard.add_file(&file_path, &final_content, final_kind, line_offset);
+                host_guard.rebuild_project_files(); // Rebuild after single file add
             }
         }
 
@@ -751,6 +851,7 @@ impl LanguageServer for GraphQLLanguageServer {
                     let file_path = graphql_ide::FilePath::new(uri.to_string());
                     let mut host_guard = host.lock().await;
                     host_guard.add_file(&file_path, &final_content, final_kind, line_offset);
+                    host_guard.rebuild_project_files(); // Rebuild after single file change
                 }
             }
 
