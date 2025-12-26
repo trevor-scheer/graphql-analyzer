@@ -9,7 +9,10 @@ use std::sync::Arc;
 /// This is expensive and should only run when explicitly requested
 #[salsa::tracked]
 pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId, Diagnostic)>> {
-    let _schema = graphql_hir::schema_types(db);
+    let project_files = db
+        .project_files()
+        .expect("project files must be set for project-wide analysis");
+    let _schema = graphql_hir::schema_types_with_project(db, project_files);
     let _operations = graphql_hir::all_operations(db);
 
     let unused = Vec::new();
@@ -32,7 +35,10 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
 pub fn find_unused_fragments(
     db: &dyn GraphQLAnalysisDatabase,
 ) -> Arc<Vec<(FragmentId, Diagnostic)>> {
-    let all_fragments = graphql_hir::all_fragments(db);
+    let project_files = db
+        .project_files()
+        .expect("project files must be set for project-wide analysis");
+    let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
     let all_operations = graphql_hir::all_operations(db);
 
     // Collect all used fragments by walking operations
