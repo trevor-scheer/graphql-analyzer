@@ -32,6 +32,11 @@ cargo test                      # Run all tests
 cargo clippy                    # Lint checks
 cargo fmt                       # Format code
 
+# Benchmarking
+cargo bench                     # Run all benchmarks
+cargo bench parse_cold          # Run specific benchmark
+cargo bench -- --save-baseline main  # Save baseline for comparison
+
 # CLI Tools
 target/debug/graphql validate   # Validate GraphQL files
 target/debug/graphql lint       # Lint GraphQL files
@@ -51,6 +56,7 @@ npm run lint                    # Lint TypeScript
 - **Project structure**: `.graphqlrc.yaml`
 - **Crate sources**: `crates/*/src/`
 - **Integration tests**: `tests/`
+- **Benchmarks**: `benches/`
 - **VSCode extension**: `editors/vscode/`
 - **Design docs**: `.claude/notes/active/lsp-rearchitecture/`
 
@@ -166,6 +172,7 @@ crates/
 ├── graphql-lsp/         # LSP server implementation
 └── graphql-syntax/      # Parsing layer
 
+benches/                 # Performance benchmarks
 editors/
 └── vscode/              # VSCode extension
 
@@ -429,6 +436,45 @@ mod tests {
     }
 }
 ```
+
+### Performance Benchmarks
+
+The project includes comprehensive benchmarks to validate the Salsa-based incremental computation architecture. See [benches/README.md](../benches/README.md) for complete documentation.
+
+#### Running Benchmarks
+
+```bash
+# Run all benchmarks
+cargo bench
+
+# Run specific benchmark
+cargo bench parse_cold
+
+# Save baseline for comparison
+cargo bench -- --save-baseline main
+
+# Compare against baseline
+cargo bench -- --baseline main
+```
+
+#### What the Benchmarks Validate
+
+1. **Salsa Caching**: Warm queries should be 100-1000x faster than cold queries
+2. **Golden Invariant**: Editing operation bodies doesn't invalidate schema cache (< 100ns)
+3. **Fragment Resolution**: Cross-file fragment resolution benefits from caching
+4. **AnalysisHost Performance**: High-level IDE API performance
+
+#### Interpreting Results
+
+Criterion generates HTML reports in `target/criterion/`. Open `target/criterion/report/index.html` to view:
+- Performance distributions
+- Regression detection
+- Comparison with previous runs
+
+**Expected results if architecture is working correctly:**
+- Warm vs Cold: 100-1000x speedup
+- Golden Invariant: < 100 nanoseconds
+- Fragment Resolution: ~10x speedup with caching
 
 ---
 
