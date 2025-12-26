@@ -15,10 +15,7 @@ use std::sync::Arc;
 /// They are fast and suitable for real-time LSP diagnostics.
 #[must_use]
 pub fn standalone_document_rules() -> Vec<Arc<dyn StandaloneDocumentLintRule>> {
-    vec![
-        Arc::new(OperationNameSuffixRuleImpl),
-        Arc::new(RedundantFieldsRuleImpl),
-    ]
+    vec![Arc::new(OperationNameSuffixRuleImpl)]
 }
 
 /// Get all document+schema lint rules
@@ -29,6 +26,7 @@ pub fn standalone_document_rules() -> Vec<Arc<dyn StandaloneDocumentLintRule>> {
 pub fn document_schema_rules() -> Vec<Arc<dyn DocumentSchemaLintRule>> {
     vec![
         Arc::new(NoDeprecatedRuleImpl),
+        Arc::new(RedundantFieldsRuleImpl),
         Arc::new(RequireIdFieldRuleImpl),
     ]
 }

@@ -1,7 +1,7 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
-use crate::traits::{LintRule, StandaloneDocumentLintRule};
+use crate::traits::{DocumentSchemaLintRule, LintRule};
 use apollo_parser::cst::{self, CstNode};
-use graphql_db::{FileContent, FileId, FileMetadata};
+use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use std::collections::{HashMap, HashSet};
 
 /// Lint rule that detects fields that are redundant because they are already
@@ -43,13 +43,14 @@ impl LintRule for RedundantFieldsRuleImpl {
     }
 }
 
-impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
+impl DocumentSchemaLintRule for RedundantFieldsRuleImpl {
     fn check(
         &self,
         db: &dyn graphql_hir::GraphQLHirDatabase,
         _file_id: FileId,
         content: FileContent,
         metadata: FileMetadata,
+        project_files: ProjectFiles,
     ) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
 
@@ -72,9 +73,6 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
         }
 
         // Get all fragments from the project (for cross-file resolution)
-        let project_files = db
-            .project_files()
-            .expect("project files must be set for linting");
         let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
 
         // Add cross-file fragments to the registry
