@@ -49,7 +49,7 @@ use symbol::{
 };
 
 // Re-export database types that IDE layer needs
-pub use graphql_db::{Change, FileKind};
+pub use graphql_db::FileKind;
 
 /// Position in a file (editor coordinates, 0-indexed)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -269,16 +269,7 @@ impl Default for IdeDatabase {
     }
 }
 
-impl IdeDatabase {
-    #[allow(
-        clippy::unused_self,
-        clippy::needless_pass_by_value,
-        clippy::needless_pass_by_ref_mut
-    )]
-    pub fn apply_change(&mut self, change: graphql_db::Change) {
-        let _ = change;
-    }
-}
+impl IdeDatabase {}
 
 #[salsa::db]
 impl salsa::Database for IdeDatabase {}
@@ -449,13 +440,6 @@ impl AnalysisHost {
 
         tracing::info!("Loaded {} schema file(s) total", count);
         Ok(count)
-    }
-
-    /// Apply a change to the database
-    ///
-    /// Changes include adding/updating/removing files, updating configuration, etc.
-    pub fn apply_change(&mut self, change: Change) {
-        self.db.apply_change(change);
     }
 
     /// Set the lint configuration for the project
