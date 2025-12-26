@@ -33,6 +33,7 @@ pub trait StandaloneDocumentLintRule: LintRule {
         file_id: FileId,
         content: FileContent,
         metadata: FileMetadata,
+        project_files: ProjectFiles,
     ) -> Vec<LintDiagnostic>;
 }
 

@@ -44,12 +44,18 @@ pub fn lint_file(
     // Run lints based on file kind
     match file_kind {
         FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
-            let uri = metadata.uri(db);
-            tracing::debug!(uri = %uri, "Running standalone document lints");
-            diagnostics.extend(standalone_document_lints(db, file_id, content, metadata));
-
-            // Run document+schema lints if we have project files
+            // Get project files for linting
             if let Some(project_files) = db.project_files() {
+                let uri = metadata.uri(db);
+                tracing::debug!(uri = %uri, "Running standalone document lints");
+                diagnostics.extend(standalone_document_lints(
+                    db,
+                    file_id,
+                    content,
+                    metadata,
+                    project_files,
+                ));
+
                 tracing::debug!(uri = %uri, "Running document+schema lints");
                 diagnostics.extend(document_schema_lints(
                     db,
@@ -77,6 +83,7 @@ fn standalone_document_lints(
     file_id: FileId,
     content: FileContent,
     metadata: FileMetadata,
+    project_files: ProjectFiles,
 ) -> Vec<Diagnostic> {
     let lint_config = db.lint_config();
     let mut diagnostics = Vec::new();
@@ -95,7 +102,7 @@ fn standalone_document_lints(
         }
 
         // Run the rule (it will access parse via Salsa)
-        let lint_diags = rule.check(db, file_id, content, metadata);
+        let lint_diags = rule.check(db, file_id, content, metadata, project_files);
 
         if !lint_diags.is_empty() {
             tracing::debug!(
