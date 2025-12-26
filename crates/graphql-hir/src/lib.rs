@@ -111,12 +111,8 @@ pub trait GraphQLHirDatabase: graphql_syntax::GraphQLSyntaxDatabase {
     }
 }
 
-// Implement the trait for RootDatabase
-// This makes RootDatabase usable with all HIR queries
 #[salsa::db]
 impl GraphQLHirDatabase for graphql_db::RootDatabase {
-    /// Override to return the project files stored in the database
-    /// The IDE layer (graphql-ide) sets this via `FileRegistry`
     fn project_files(&self) -> Option<graphql_db::ProjectFiles> {
         Self::project_files(self)
     }
@@ -227,11 +223,7 @@ mod tests {
     impl salsa::Database for TestDatabase {}
 
     #[salsa::db]
-    impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {
-        fn extract_config_any(&self) -> Option<std::sync::Arc<dyn std::any::Any + Send + Sync>> {
-            None
-        }
-    }
+    impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {}
 
     #[salsa::db]
     impl GraphQLHirDatabase for TestDatabase {}

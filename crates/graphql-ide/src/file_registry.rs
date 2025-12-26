@@ -3,14 +3,22 @@
 //! This module provides the bridge between editor file paths (strings/URIs)
 //! and salsa database file identifiers.
 
-use graphql_db::{
-    FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles, RootDatabase,
-};
+use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
 use salsa::Setter;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::FilePath;
+
+pub trait ProjectFilesDatabase {
+    fn set_project_files(&self, project_files: Option<ProjectFiles>);
+}
+
+impl ProjectFilesDatabase for graphql_db::RootDatabase {
+    fn set_project_files(&self, project_files: Option<ProjectFiles>) {
+        self.set_project_files(project_files);
+    }
+}
 
 /// Maps file paths to database file IDs and metadata
 ///
@@ -34,14 +42,17 @@ impl FileRegistry {
     }
 
     /// Add or update a file in the registry
-    pub fn add_file(
+    pub fn add_file<DB>(
         &mut self,
-        db: &mut RootDatabase,
+        db: &mut DB,
         path: &FilePath,
         content: &str,
         kind: FileKind,
         line_offset: u32,
-    ) -> (FileId, FileContent, FileMetadata) {
+    ) -> (FileId, FileContent, FileMetadata)
+    where
+        DB: salsa::Database,
+    {
         let uri_str = path.as_str();
 
         // Get or create FileId
@@ -122,7 +133,10 @@ impl FileRegistry {
     /// This should be called after files are added or removed
     ///
     /// Note: This method should be called WITHOUT holding any locks to avoid deadlocks
-    pub fn rebuild_project_files(&mut self, db: &mut RootDatabase) {
+    pub fn rebuild_project_files<DB>(&mut self, db: &mut DB)
+    where
+        DB: salsa::Database + ProjectFilesDatabase,
+    {
         let mut schema_files = Vec::new();
         let mut document_files = Vec::new();
 
@@ -170,6 +184,7 @@ impl FileRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use graphql_db::RootDatabase;
 
     #[test]
     fn test_file_registry_add_and_lookup() {

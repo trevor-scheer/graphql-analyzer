@@ -293,25 +293,15 @@ pub fn line_index(db: &dyn GraphQLSyntaxDatabase, content: FileContent) -> Arc<L
 #[salsa::db]
 pub trait GraphQLSyntaxDatabase: salsa::Database {
     /// Get the extract configuration for TypeScript/JavaScript extraction
-    /// Returns None if no configuration is set (will use default)
+    /// Returns None by default, which means use `ExtractConfig::default()`
+    /// Implementations can override to provide custom configuration
     fn extract_config(&self) -> Option<Arc<graphql_extract::ExtractConfig>> {
-        self.extract_config_any()
-            .and_then(|any| any.downcast::<graphql_extract::ExtractConfig>().ok())
+        None
     }
-
-    /// Get the extract configuration (type-erased)
-    /// This is implemented by `RootDatabase`
-    fn extract_config_any(&self) -> Option<Arc<dyn std::any::Any + Send + Sync>>;
 }
 
-// Implement the trait for RootDatabase
-// This makes RootDatabase usable with all syntax queries
 #[salsa::db]
-impl GraphQLSyntaxDatabase for graphql_db::RootDatabase {
-    fn extract_config_any(&self) -> Option<Arc<dyn std::any::Any + Send + Sync>> {
-        self.extract_config_any()
-    }
-}
+impl GraphQLSyntaxDatabase for graphql_db::RootDatabase {}
 
 #[cfg(test)]
 mod tests {

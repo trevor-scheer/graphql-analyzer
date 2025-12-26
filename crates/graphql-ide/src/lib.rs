@@ -34,13 +34,12 @@
 //! - POD types: [`Position`], [`Range`], [`Location`], [`FilePath`]
 //! - Feature types: [`CompletionItem`], [`HoverResult`], [`Diagnostic`]
 
-use graphql_db::RootDatabase;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::{Arc, RwLock};
 
 mod file_registry;
-pub use file_registry::FileRegistry;
+pub use file_registry::{FileRegistry, ProjectFilesDatabase};
 
 mod symbol;
 use symbol::{
@@ -247,12 +246,72 @@ impl Diagnostic {
     }
 }
 
+/// Custom database that implements config traits
+#[salsa::db]
+#[derive(Clone)]
+struct IdeDatabase {
+    storage: salsa::Storage<Self>,
+    project_files: std::cell::Cell<Option<graphql_db::ProjectFiles>>,
+    lint_config: std::cell::RefCell<Arc<graphql_linter::LintConfig>>,
+    extract_config: std::cell::RefCell<Arc<graphql_extract::ExtractConfig>>,
+}
+
+impl Default for IdeDatabase {
+    fn default() -> Self {
+        Self {
+            storage: salsa::Storage::default(),
+            project_files: std::cell::Cell::new(None),
+            lint_config: std::cell::RefCell::new(Arc::new(graphql_linter::LintConfig::default())),
+            extract_config: std::cell::RefCell::new(Arc::new(
+                graphql_extract::ExtractConfig::default(),
+            )),
+        }
+    }
+}
+
+impl IdeDatabase {
+    #[allow(
+        clippy::unused_self,
+        clippy::needless_pass_by_value,
+        clippy::needless_pass_by_ref_mut
+    )]
+    pub fn apply_change(&mut self, change: graphql_db::Change) {
+        let _ = change;
+    }
+}
+
+#[salsa::db]
+impl salsa::Database for IdeDatabase {}
+
+#[salsa::db]
+impl graphql_syntax::GraphQLSyntaxDatabase for IdeDatabase {
+    fn extract_config(&self) -> Option<Arc<graphql_extract::ExtractConfig>> {
+        Some(self.extract_config.borrow().clone())
+    }
+}
+
+#[salsa::db]
+impl graphql_hir::GraphQLHirDatabase for IdeDatabase {}
+
+#[salsa::db]
+impl graphql_analysis::GraphQLAnalysisDatabase for IdeDatabase {
+    fn lint_config(&self) -> Arc<graphql_linter::LintConfig> {
+        self.lint_config.borrow().clone()
+    }
+}
+
+impl ProjectFilesDatabase for IdeDatabase {
+    fn set_project_files(&self, project_files: Option<graphql_db::ProjectFiles>) {
+        self.project_files.set(project_files);
+    }
+}
+
 /// The main analysis host
 ///
 /// This is the entry point for all IDE features. It owns the database and
 /// provides methods to apply changes and create snapshots for analysis.
 pub struct AnalysisHost {
-    db: RootDatabase,
+    db: IdeDatabase,
     /// File registry for mapping paths to file IDs
     /// Wrapped in Arc<RwLock> so snapshots can share it
     registry: Arc<RwLock<FileRegistry>>,
@@ -263,7 +322,7 @@ impl AnalysisHost {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            db: RootDatabase::default(),
+            db: IdeDatabase::default(),
             registry: Arc::new(RwLock::new(FileRegistry::new())),
         }
     }
@@ -400,34 +459,18 @@ impl AnalysisHost {
     }
 
     /// Set the lint configuration for the project
-    ///
-    /// This should be called when loading project configuration to enable/disable
-    /// specific lint rules and their severities.
     pub fn set_lint_config(&mut self, config: graphql_linter::LintConfig) {
-        self.db.set_lint_config_any(Some(
-            Arc::new(config) as Arc<dyn std::any::Any + Send + Sync>
-        ));
+        *self.db.lint_config.borrow_mut() = Arc::new(config);
     }
 
     /// Set the extract configuration for the project
-    ///
-    /// This should be called when loading project configuration to customize
-    /// how GraphQL is extracted from TypeScript/JavaScript files.
     pub fn set_extract_config(&mut self, config: graphql_extract::ExtractConfig) {
-        self.db.set_extract_config_any(Some(
-            Arc::new(config) as Arc<dyn std::any::Any + Send + Sync>
-        ));
+        *self.db.extract_config.borrow_mut() = Arc::new(config);
     }
 
     /// Get the extract configuration for the project
-    ///
-    /// Returns the configured extract settings, or default if not set.
     pub fn get_extract_config(&self) -> graphql_extract::ExtractConfig {
-        self.db
-            .extract_config_any()
-            .and_then(|any| any.downcast::<graphql_extract::ExtractConfig>().ok())
-            .map(|arc| (*arc).clone())
-            .unwrap_or_default()
+        (**self.db.extract_config.borrow()).clone()
     }
 
     /// Get an immutable snapshot for analysis
@@ -455,12 +498,6 @@ impl AnalysisHost {
             project_files,
         }
     }
-
-    /// Get mutable access to the database (for testing)
-    #[doc(hidden)]
-    pub const fn db_mut(&mut self) -> &mut RootDatabase {
-        &mut self.db
-    }
 }
 
 impl Default for AnalysisHost {
@@ -475,7 +512,7 @@ impl Default for AnalysisHost {
 /// All IDE feature queries go through this.
 #[derive(Clone)]
 pub struct Analysis {
-    db: RootDatabase,
+    db: IdeDatabase,
     registry: Arc<RwLock<FileRegistry>>,
     /// Cached `ProjectFiles` for HIR queries
     /// This is fetched from the registry when the snapshot is created
