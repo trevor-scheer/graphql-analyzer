@@ -136,37 +136,60 @@ impl GraphQLConfig {
             }
         }
 
-        // Check includes (if specified)
-        if let Some(ref includes) = config.include {
+        // Determine if file is in project scope based on include/exclude patterns
+        let in_include_scope = config.include.as_ref().is_none_or(|includes| {
+            tracing::debug!("Checking include patterns ({} patterns)", includes.len());
+            let mut matched = false;
             for pattern in includes {
                 for expanded in Self::expand_braces(pattern) {
+                    tracing::debug!("  Testing include pattern: {}", expanded);
                     if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
                         if glob_pattern.matches(&rel_path_str) {
-                            return true;
+                            tracing::debug!("    ✓ Matched include pattern: {}", expanded);
+                            matched = true;
+                            break;
                         }
                     }
                 }
+                if matched {
+                    break;
+                }
             }
-            // If includes are specified but no match, return false
+            if !matched {
+                tracing::debug!("No include patterns matched, file excluded");
+            }
+            matched
+        });
+
+        // If file is not in include scope, it doesn't match this project
+        if !in_include_scope {
             return false;
         }
 
-        // Check document patterns (if specified)
+        // File is in scope - now check if it matches document patterns (if specified)
         if let Some(ref documents) = config.documents {
+            tracing::debug!(
+                "Checking document patterns ({} patterns)",
+                documents.patterns().len()
+            );
             for pattern in documents.patterns() {
                 for expanded in Self::expand_braces(pattern) {
+                    tracing::debug!("  Testing document pattern: {}", expanded);
                     if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
                         if glob_pattern.matches(&rel_path_str) {
+                            tracing::debug!("    ✓ Matched document pattern: {}", expanded);
                             return true;
                         }
                     }
                 }
             }
-            // If document patterns are specified but no match, return false
+            // Document patterns specified but no match
+            tracing::debug!("No document patterns matched, file excluded");
             return false;
         }
 
-        // No patterns specified - match by default
+        // No document patterns - if file is in include scope, it matches
+        tracing::debug!("No document patterns specified, matching by include scope");
         true
     }
 
