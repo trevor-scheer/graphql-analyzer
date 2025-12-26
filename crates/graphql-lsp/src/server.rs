@@ -284,7 +284,6 @@ impl GraphQLLanguageServer {
             // Load document files (operations and fragments)
             if let Some(documents_config) = &project_config.documents {
                 const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
-                const MAX_FILES_HARD_LIMIT: usize = 10000;
 
                 // Get document patterns from config
                 let patterns: Vec<String> = documents_config
@@ -319,25 +318,6 @@ impl GraphQLLanguageServer {
                         match glob::glob(&full_pattern.display().to_string()) {
                             Ok(paths) => {
                                 for entry in paths {
-                                    // Check hard limit
-                                    if total_files_loaded >= MAX_FILES_HARD_LIMIT {
-                                        tracing::error!(
-                                            "Hit hard limit of {} files, stopping file loading to prevent OOM. \
-                                            Consider using more specific document patterns in .graphqlrc.yaml",
-                                            MAX_FILES_HARD_LIMIT
-                                        );
-                                        self.client
-                                            .show_message(
-                                                MessageType::ERROR,
-                                                format!(
-                                                    "GraphQL LSP: Stopped loading after {MAX_FILES_HARD_LIMIT} files to prevent memory issues. \
-                                                    Please use more specific patterns in your .graphqlrc.yaml"
-                                                ),
-                                            )
-                                            .await;
-                                        break;
-                                    }
-
                                     match entry {
                                         Ok(path) if path.is_file() => {
                                             // Skip node_modules

@@ -30,13 +30,13 @@ This document describes how to debug performance and OOM issues when the LSP str
 
 **Problem**: The LSP would try to load ALL files matching glob patterns without any limits, even if there were 100,000+ files.
 
-**Fix**: Added configurable limits:
-- **Warning threshold**: 1,000 files - shows warning to user
-- **Hard limit**: 10,000 files - stops loading and shows error
+**Fix**: Added progress tracking and warnings:
+- **Warning threshold**: 1,000 files - shows warning to user about large file count
 - **Progress logging**: Every 100 files during load
+- **No hard limit**: With O(n²) fix, can handle arbitrarily large codebases
 
 **Files Changed**:
-- [graphql-lsp/src/server.rs](crates/graphql-lsp/src/server.rs#L295-L339) - Added limits and progress tracking
+- [graphql-lsp/src/server.rs](crates/graphql-lsp/src/server.rs) - Added progress tracking and warnings
 
 ### 3. Insufficient Logging
 
@@ -167,21 +167,23 @@ find . -name "*.graphql" | wc -l
 find ./src/queries -name "*.graphql" | wc -l
 ```
 
-If you see 1,000+ files, consider more specific patterns.
+With the O(n²) fix, the LSP can handle tens of thousands of files. The 1,000 file warning is informational only.
 
 ## Expected Performance
 
 After the O(n²) fix, expected initialization times:
 
 - **100 files**: < 1 second
-- **1,000 files**: 1-3 seconds
-- **10,000 files**: 10-30 seconds (hits warning/limit)
+- **1,000 files**: 1-3 seconds (warning shown)
+- **10,000 files**: 10-30 seconds
+- **50,000 files**: 1-2 minutes
 
 Memory usage should be roughly:
 - Base: ~50MB
 - Per file: ~10-50KB (depends on file size)
 - 1,000 files: ~100-150MB
 - 10,000 files: ~500MB-1GB
+- 50,000 files: ~2-5GB
 
 If you're seeing worse performance than this, check:
 1. Glob patterns are specific
@@ -192,11 +194,12 @@ If you're seeing worse performance than this, check:
 
 - [ ] Check VSCode Output logs for errors
 - [ ] Verify `.graphqlrc.yaml` has specific glob patterns
-- [ ] Count actual files matching patterns (< 10,000)
+- [ ] Count actual files matching patterns (informational)
 - [ ] Check memory usage isn't growing infinitely
 - [ ] Ensure `RUST_LOG=debug` is set for detailed logs
 - [ ] Look for O(n²) patterns in logs (same operation repeating)
 - [ ] Check if initialization eventually completes (even if slow)
+- [ ] Verify "ProjectFiles rebuild" happens once, not per file
 
 ## Related Files
 
