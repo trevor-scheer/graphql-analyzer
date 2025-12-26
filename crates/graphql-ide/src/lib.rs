@@ -247,16 +247,12 @@ impl Diagnostic {
 }
 
 /// Custom database that implements config traits
-/// This extends `RootDatabase` functionality with config storage
 #[salsa::db]
 #[derive(Clone)]
 struct IdeDatabase {
     storage: salsa::Storage<Self>,
-    /// Project files (same as `RootDatabase`)
     project_files: std::cell::Cell<Option<graphql_db::ProjectFiles>>,
-    /// Lint configuration
     lint_config: std::cell::RefCell<Arc<graphql_linter::LintConfig>>,
-    /// Extract configuration
     extract_config: std::cell::RefCell<Arc<graphql_extract::ExtractConfig>>,
 }
 
@@ -274,16 +270,13 @@ impl Default for IdeDatabase {
 }
 
 impl IdeDatabase {
-    /// Apply a batch of changes
     #[allow(
         clippy::unused_self,
         clippy::needless_pass_by_value,
         clippy::needless_pass_by_ref_mut
     )]
     pub fn apply_change(&mut self, change: graphql_db::Change) {
-        // For now, change operations are handled by Salsa automatically
-        // This method exists for compatibility with `RootDatabase` API
-        let _ = change; // Suppress unused warning
+        let _ = change;
     }
 }
 

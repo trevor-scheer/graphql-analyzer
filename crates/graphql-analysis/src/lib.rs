@@ -26,8 +26,6 @@ pub trait GraphQLAnalysisDatabase: graphql_hir::GraphQLHirDatabase {
     }
 }
 
-// Implement the trait for RootDatabase
-// This makes RootDatabase usable with all analysis queries
 #[salsa::db]
 impl GraphQLAnalysisDatabase for graphql_db::RootDatabase {}
 

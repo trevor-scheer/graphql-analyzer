@@ -10,12 +10,10 @@ use std::sync::Arc;
 
 use crate::FilePath;
 
-/// Trait for databases that support project files
 pub trait ProjectFilesDatabase {
     fn set_project_files(&self, project_files: Option<ProjectFiles>);
 }
 
-// Implement for RootDatabase
 impl ProjectFilesDatabase for graphql_db::RootDatabase {
     fn set_project_files(&self, project_files: Option<ProjectFiles>) {
         self.set_project_files(project_files);

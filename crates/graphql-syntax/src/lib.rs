@@ -300,12 +300,8 @@ pub trait GraphQLSyntaxDatabase: salsa::Database {
     }
 }
 
-// Implement the trait for RootDatabase
-// This makes RootDatabase usable with all syntax queries
 #[salsa::db]
-impl GraphQLSyntaxDatabase for graphql_db::RootDatabase {
-    // Use default implementation (returns None)
-}
+impl GraphQLSyntaxDatabase for graphql_db::RootDatabase {}
 
 #[cfg(test)]
 mod tests {
