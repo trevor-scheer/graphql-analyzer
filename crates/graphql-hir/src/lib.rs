@@ -138,23 +138,6 @@ pub fn schema_types_with_project(
     Arc::new(types)
 }
 
-/// Get all types in the schema (legacy method using trait)
-/// This query depends on all schema file structures
-#[salsa::tracked]
-pub fn schema_types(db: &dyn GraphQLHirDatabase) -> Arc<HashMap<Arc<str>, TypeDef>> {
-    let schema_files = db.schema_files();
-    let mut types = HashMap::new();
-
-    for (file_id, content, metadata) in schema_files.iter() {
-        let structure = file_structure(db, *file_id, *content, *metadata);
-        for type_def in &structure.type_defs {
-            types.insert(type_def.name.clone(), type_def.clone());
-        }
-    }
-
-    Arc::new(types)
-}
-
 /// Get all fragments in the project
 /// This query depends on all document file structures
 #[salsa::tracked]
@@ -163,23 +146,6 @@ pub fn all_fragments_with_project(
     project_files: graphql_db::ProjectFiles,
 ) -> Arc<HashMap<Arc<str>, FragmentStructure>> {
     let document_files = project_files.document_files(db);
-    let mut fragments = HashMap::new();
-
-    for (file_id, content, metadata) in document_files.iter() {
-        let structure = file_structure(db, *file_id, *content, *metadata);
-        for fragment in &structure.fragments {
-            fragments.insert(fragment.name.clone(), fragment.clone());
-        }
-    }
-
-    Arc::new(fragments)
-}
-
-/// Get all fragments in the project (legacy method using trait)
-/// This query depends on all document file structures
-#[salsa::tracked]
-pub fn all_fragments(db: &dyn GraphQLHirDatabase) -> Arc<HashMap<Arc<str>, FragmentStructure>> {
-    let document_files = db.document_files();
     let mut fragments = HashMap::new();
 
     for (file_id, content, metadata) in document_files.iter() {
@@ -231,7 +197,9 @@ mod tests {
     #[test]
     fn test_schema_types_empty() {
         let db = TestDatabase::default();
-        let types = schema_types(&db);
+        let project_files =
+            graphql_db::ProjectFiles::new(&db, Arc::new(Vec::new()), Arc::new(Vec::new()));
+        let types = schema_types_with_project(&db, project_files);
         assert_eq!(types.len(), 0);
     }
 

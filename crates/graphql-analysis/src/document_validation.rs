@@ -22,7 +22,10 @@ pub fn validate_document_file(
     let mut diagnostics = Vec::new();
 
     // Get schema for validation
-    let schema = graphql_hir::schema_types(db);
+    let project_files = db
+        .project_files()
+        .expect("project files must be set for validation");
+    let schema = graphql_hir::schema_types_with_project(db, project_files);
 
     // Validate each operation
     for op_structure in &structure.operations {
@@ -72,7 +75,7 @@ pub fn validate_document_file(
     // Validate fragments
     for frag_structure in &structure.fragments {
         // Check fragment name uniqueness
-        let all_fragments = graphql_hir::all_fragments(db);
+        let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
 
         let count = all_fragments
             .iter()
@@ -179,9 +182,25 @@ mod tests {
     use graphql_db::{FileContent, FileKind, FileMetadata, FileUri};
 
     #[salsa::db]
-    #[derive(Clone, Default)]
+    #[derive(Clone)]
     struct TestDatabase {
         storage: salsa::Storage<Self>,
+        project_files: std::cell::Cell<Option<graphql_db::ProjectFiles>>,
+    }
+
+    impl Default for TestDatabase {
+        fn default() -> Self {
+            Self {
+                storage: salsa::Storage::default(),
+                project_files: std::cell::Cell::new(None),
+            }
+        }
+    }
+
+    impl TestDatabase {
+        fn set_project_files(&self, project_files: Option<graphql_db::ProjectFiles>) {
+            self.project_files.set(project_files);
+        }
     }
 
     #[salsa::db]
@@ -191,7 +210,11 @@ mod tests {
     impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {}
 
     #[salsa::db]
-    impl graphql_hir::GraphQLHirDatabase for TestDatabase {}
+    impl graphql_hir::GraphQLHirDatabase for TestDatabase {
+        fn project_files(&self) -> Option<graphql_db::ProjectFiles> {
+            self.project_files.get()
+        }
+    }
 
     #[salsa::db]
     impl crate::GraphQLAnalysisDatabase for TestDatabase {}
@@ -209,6 +232,14 @@ mod tests {
             FileUri::new("query.graphql"),
             FileKind::ExecutableGraphQL,
         );
+
+        // Set up project files
+        let project_files = graphql_db::ProjectFiles::new(
+            &db,
+            Arc::new(Vec::new()), // No schema files
+            Arc::new(vec![(file_id, content, metadata)]),
+        );
+        db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, content, metadata);
 
@@ -276,6 +307,14 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
+        // Set up project files
+        let project_files = graphql_db::ProjectFiles::new(
+            &db,
+            Arc::new(Vec::new()), // No schema files
+            Arc::new(vec![(file_id, content, metadata)]),
+        );
+        db.set_project_files(Some(project_files));
+
         let diagnostics = validate_document_file(&db, content, metadata);
 
         let unknown_type_error = diagnostics
@@ -340,6 +379,14 @@ mod tests {
             FileUri::new("query.graphql"),
             FileKind::ExecutableGraphQL,
         );
+
+        // Set up project files
+        let project_files = graphql_db::ProjectFiles::new(
+            &db,
+            Arc::new(Vec::new()), // No schema files
+            Arc::new(vec![(file_id, content, metadata)]),
+        );
+        db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, content, metadata);
 
