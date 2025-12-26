@@ -1,0 +1,15 @@
+# Query to fetch all Star Wars characters
+query AllCharacters {
+  characters {
+    id
+    name
+    species
+    homeworld {
+      name
+    }
+    starships {
+      name
+    }
+    affiliation
+  }
+}
