@@ -1,21 +1,14 @@
 # yaml-language-server: $schema=../crates/graphql-config/schema/graphqlrc.schema.json
 projects:
   pokemon:
-    schema: schema.graphql
-    documents: "src/**/*.{graphql,gql,ts,tsx,js,jsx}"
+    schema: pokemon/schema.graphql
+    documents: "pokemon/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
 
-    # Global lint configuration (applies to all tools by default)
     lint:
-      recommended: error # Use recommended preset with error severity
-      no_deprecated: warn # Warn when using deprecated fields
-      redundant_fields: error
-      require_id_field: error # Warn when using redundant fields
-      unique_names: error # Unique operation/fragment names
-      unused_fields: warn # Warn about unused schema fields
-      unused_fragments: error # Error on unused fragments
+      recommended: error
 
   starwars:
-    schema: ./starwars/schema.graphql
+    schema: starwars/schema.graphql
     documents: "starwars/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
     lint:
-      recommended: error # Use recommended preset with error severity
+      recommended: error
