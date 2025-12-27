@@ -1,0 +1,14 @@
+# Query to fetch all Star Wars starships
+query AllStarships {
+  starships {
+    id
+    name
+    model
+    manufacturer
+    crew
+    passengers
+    pilots {
+      name
+    }
+  }
+}

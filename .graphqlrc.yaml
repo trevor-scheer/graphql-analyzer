@@ -1,37 +1,14 @@
 # GraphQL LSP Project Configuration
 # yaml-language-server: $schema=crates/graphql-config/schema/graphqlrc.schema.json
-#
-# This config enables the GraphQL LSP to validate and lint its own test workspace,
-# demonstrating the configuration system ("dogfooding").
-
-schema: test-workspace/schema.graphql
-documents: "test-workspace/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
-
-# Lint configuration with recommended baseline
-lint:
-  # Use recommended rules as baseline
-  recommended: error
-
-  # Specific rule configuration
-  no_deprecated: warn
-  redundant_fields: error
-  require_id_field: error
-  unique_names: error
-  unused_fragments: error
-
-  # Expensive project-wide analysis - off by default
-  unused_fields: off
-
-# Tool-specific overrides
-extensions:
-  # LSP gets real-time friendly rules
-  lsp:
+projects:
+  pokemon:
+    schema: test-workspace/pokemon/schema.graphql
+    documents: "test-workspace/pokemon/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
     lint:
-      unique_names: error
-      unused_fields: off  # Too expensive for real-time
+      recommended: error
 
-  # CLI can run more expensive checks
-  cli:
+  starwars:
+    schema: test-workspace/starwars/schema.graphql
+    documents: "test-workspace/starwars/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
     lint:
-      unused_fields: error  # Enable in CI/batch operations
-      unused_fragments: error
+      recommended: error # Use recommended preset with error severity

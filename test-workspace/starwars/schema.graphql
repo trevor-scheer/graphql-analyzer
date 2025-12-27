@@ -1,0 +1,35 @@
+# Star Wars GraphQL Schema
+# A comprehensive schema for managing Star Wars characters, planets, and starships
+
+type Character {
+  id: ID!
+  name: String!
+  species: String!
+  homeworld: Planet!
+  starships: [Starship!]
+  affiliation: String!
+}
+
+type Planet {
+  id: ID!
+  name: String!
+  climate: String!
+  population: Int!
+  residents: [Character!]
+}
+
+type Starship {
+  id: ID!
+  name: String!
+  model: String!
+  manufacturer: String!
+  crew: Int!
+  passengers: Int!
+  pilots: [Character!]
+}
+
+type Query {
+  characters: [Character!]
+  planets: [Planet!]
+  starships: [Starship!]
+}
