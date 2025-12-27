@@ -5,7 +5,7 @@ projects:
     documents: "pokemon/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
 
     lint:
-      recommended: error
+      recommended: error2
 
   starwars:
     schema: starwars/schema.graphql

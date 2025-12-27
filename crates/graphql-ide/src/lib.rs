@@ -356,6 +356,13 @@ impl AnalysisHost {
         registry.rebuild_project_files(&mut self.db);
     }
 
+    /// Check if a file exists in this host's registry
+    #[must_use]
+    pub fn contains_file(&self, path: &FilePath) -> bool {
+        let registry = self.registry.read().unwrap();
+        registry.get_file_id(path).is_some()
+    }
+
     /// Remove a file from the host
     pub fn remove_file(&mut self, path: &FilePath) {
         let file_id = {

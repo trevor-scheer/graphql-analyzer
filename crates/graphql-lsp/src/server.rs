@@ -508,37 +508,49 @@ impl GraphQLLanguageServer {
     }
 
     /// Find the workspace and project for a given document URI
+    ///
+    /// This first checks if the file was loaded during initialization by querying
+    /// each `AnalysisHost` directly. If not found, falls back to pattern matching
+    /// via the config (for files opened after init that match project patterns).
     fn find_workspace_and_project(&self, document_uri: &Uri) -> Option<(String, String)> {
         let doc_path = document_uri.to_file_path()?;
+        let file_path = graphql_ide::FilePath::new(document_uri.to_string());
 
         tracing::debug!("Finding workspace for document: {}", doc_path.display());
-        tracing::debug!("Available workspaces: {}", self.workspace_roots.len());
 
-        // Try to find which workspace this document belongs to
+        // First, check if file is already loaded in any host (fast path)
+        for host_entry in self.hosts.iter() {
+            let (workspace_uri, project_name) = host_entry.key();
+            let host_mutex = host_entry.value();
+
+            // Try to acquire lock without blocking - skip if locked
+            if let Ok(host) = host_mutex.try_lock() {
+                if host.contains_file(&file_path) {
+                    tracing::debug!(
+                        "Document found in host for project '{}' in workspace '{}'",
+                        project_name,
+                        workspace_uri
+                    );
+                    return Some((workspace_uri.clone(), project_name.clone()));
+                }
+            }
+        }
+
+        tracing::debug!("Document not in any host, falling back to config pattern matching");
+
+        // Fallback: use config pattern matching (for files opened after init)
         for workspace_entry in self.workspace_roots.iter() {
             let workspace_uri = workspace_entry.key();
             let workspace_path = workspace_entry.value();
 
-            tracing::debug!(
-                "Checking workspace: {} (path: {})",
-                workspace_uri,
-                workspace_path.display()
-            );
-
             if doc_path.as_ref().starts_with(workspace_path.as_path()) {
-                tracing::debug!("Document is in workspace: {}", workspace_uri);
-
-                // Found the workspace, now find the project
                 if let Some(config) = self.configs.get(workspace_uri.as_str()) {
-                    tracing::debug!("Found config for workspace");
-
                     if let Some(project_name) =
                         config.find_project_for_document(&doc_path, workspace_path)
                     {
                         tracing::info!(
-                            "Document matched to project '{}' in workspace '{}'",
-                            project_name,
-                            workspace_uri
+                            "Document matched to project '{}' via config patterns",
+                            project_name
                         );
                         return Some((workspace_uri.clone(), project_name.to_string()));
                     }
@@ -550,7 +562,6 @@ impl GraphQLLanguageServer {
                 } else {
                     tracing::warn!("Workspace found but no config loaded: {}", workspace_uri);
                 }
-                // If no config or no matching project, return None
                 return None;
             }
         }
