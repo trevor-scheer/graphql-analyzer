@@ -110,11 +110,13 @@ impl CliAnalysisHost {
                     &FilePath::new(path.to_string_lossy().to_string()),
                     &content,
                     kind,
-                    0, // No line offset for pure GraphQL files from disk
+                    0,
                 );
                 loaded_files.push(path);
             }
         }
+
+        host.rebuild_project_files();
 
         Ok(Self {
             host,
