@@ -37,8 +37,9 @@ pub struct GraphQLLanguageServer {
     config_paths: Arc<DashMap<String, PathBuf>>,
     /// Loaded GraphQL configs indexed by workspace URI string
     configs: Arc<DashMap<String, graphql_config::GraphQLConfig>>,
-    /// `AnalysisHost` per workspace (workspace URI -> `AnalysisHost`)
-    hosts: Arc<DashMap<String, Arc<Mutex<AnalysisHost>>>>,
+    /// `AnalysisHost` per (workspace URI, project name) tuple
+    #[allow(clippy::type_complexity)]
+    hosts: Arc<DashMap<(String, String), Arc<Mutex<AnalysisHost>>>>,
 }
 
 impl GraphQLLanguageServer {
@@ -53,10 +54,14 @@ impl GraphQLLanguageServer {
         }
     }
 
-    /// Get or create an `AnalysisHost` for a workspace
-    fn get_or_create_host(&self, workspace_uri: &str) -> Arc<Mutex<AnalysisHost>> {
+    /// Get or create an `AnalysisHost` for a workspace/project
+    fn get_or_create_host(
+        &self,
+        workspace_uri: &str,
+        project_name: &str,
+    ) -> Arc<Mutex<AnalysisHost>> {
         self.hosts
-            .entry(workspace_uri.to_string())
+            .entry((workspace_uri.to_string(), project_name.to_string()))
             .or_insert_with(|| Arc::new(Mutex::new(AnalysisHost::new())))
             .clone()
     }
@@ -235,7 +240,12 @@ impl GraphQLLanguageServer {
         config: &graphql_config::GraphQLConfig,
     ) {
         let start = std::time::Instant::now();
-        let host = self.get_or_create_host(workspace_uri);
+        // For each project, use a unique AnalysisHost per (workspace, project)
+        tracing::debug!(
+            "load_all_project_files: workspace_uri={}, workspace_path={:?}",
+            workspace_uri,
+            workspace_path
+        );
 
         // Collect projects into a Vec to avoid holding iterator across await
         let projects: Vec<_> = config.projects().collect();
@@ -266,10 +276,26 @@ impl GraphQLLanguageServer {
                 })
                 .unwrap_or_default();
 
-            // Set extract config on host
+            // Parse and set lint configuration
+            let lint_config = project_config.lint.as_ref().map_or_else(
+                graphql_linter::LintConfig::default,
+                |lint_value| match serde_json::from_value::<graphql_linter::LintConfig>(lint_value.clone()) {
+                    Ok(cfg) => cfg,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse lint config for project '{}': {}. Using default lint config.", project_name, e);
+                        graphql_linter::LintConfig::default()
+                    }
+                },
+            );
+
+            // Get the host for this (workspace, project)
+            let host = self.get_or_create_host(workspace_uri, project_name);
+
+            // Set extract and lint config on host
             {
                 let mut host_guard = host.lock().await;
                 host_guard.set_extract_config(extract_config.clone());
+                host_guard.set_lint_config(lint_config);
             }
 
             // Load schema files using centralized method
@@ -320,6 +346,10 @@ impl GraphQLLanguageServer {
                                 for entry in paths {
                                     match entry {
                                         Ok(path) if path.is_file() => {
+                                            tracing::debug!(
+                                                "File matched pattern: {}",
+                                                path.display()
+                                            );
                                             // Skip node_modules
                                             if path
                                                 .components()
@@ -387,8 +417,9 @@ impl GraphQLLanguageServer {
                                                     // Strip leading '/' from absolute paths to avoid file:////
                                                     let path_str = path_str.trim_start_matches('/');
                                                     let uri = format!("file:///{path_str}");
-                                                    let file_path = graphql_ide::FilePath::new(uri);
-
+                                                    let file_path =
+                                                        graphql_ide::FilePath::new(uri.clone());
+                                                    tracing::debug!("Adding file to AnalysisHost: uri={}, file_path={:?}, kind={:?}, line_offset={}", uri, file_path, final_kind, line_offset);
                                                     // Release host lock for each file to allow concurrent access
                                                     let mut host_guard = host.lock().await;
                                                     host_guard.add_file(
@@ -535,29 +566,38 @@ impl GraphQLLanguageServer {
     #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self), fields(path = ?uri.to_file_path().unwrap()))]
     async fn validate_document(&self, uri: Uri) {
-        tracing::debug!("Starting document validation");
+        tracing::debug!("Starting document validation for uri: {:?}", uri);
 
         // Find the workspace for this document
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
-            tracing::warn!("No workspace found for document");
+            tracing::warn!("No workspace/project found for document");
             return;
         };
 
         tracing::debug!(project = %project_name, "Document matched to project");
 
-        // Get the analysis host for this workspace
-        let Some(host_mutex) = self.hosts.get(&workspace_uri) else {
-            tracing::warn!("No analysis host found for workspace");
+        // Get the analysis host for this workspace/project
+        let Some(host_mutex) = self
+            .hosts
+            .get(&(workspace_uri.clone(), project_name.clone()))
+        else {
+            tracing::warn!("No analysis host found for workspace/project");
             return;
         };
         let host = host_mutex.lock().await;
 
         // Get the file path
         let file_path = graphql_ide::FilePath::new(uri.as_str());
+        tracing::debug!("validate_document: file_path={:?}", file_path);
 
         // Get diagnostics from the IDE layer
         let snapshot = host.snapshot();
         let diagnostics = snapshot.diagnostics(&file_path);
+        tracing::debug!(
+            "validate_document: diagnostics count for file_path={:?} is {}",
+            file_path,
+            diagnostics.len()
+        );
         tracing::debug!(
             diagnostic_count = diagnostics.len(),
             "Got diagnostics from IDE layer"
@@ -768,7 +808,10 @@ impl LanguageServer for GraphQLLanguageServer {
             let _file_path = uri.to_file_path();
 
             // Get extract config from host
-            let extract_config = if let Some(host_mutex) = self.hosts.get(&workspace_uri) {
+            let extract_config = if let Some(host_mutex) = self
+                .hosts
+                .get(&(workspace_uri.clone(), project_name.clone()))
+            {
                 let host = host_mutex.lock().await;
                 host.get_extract_config()
             } else {
@@ -805,7 +848,7 @@ impl LanguageServer for GraphQLLanguageServer {
             tracing::info!("Adding to host: workspace={}, uri={:?}, content_len={}, file_kind={:?}, line_offset={}",
                 workspace_uri, uri, final_content.len(), final_kind, line_offset);
             {
-                let host = self.get_or_create_host(&workspace_uri);
+                let host = self.get_or_create_host(&workspace_uri, &project_name);
                 let file_path = graphql_ide::FilePath::new(uri.to_string());
                 let mut host_guard = host.lock().await;
                 host_guard.add_file(&file_path, &final_content, final_kind, line_offset);
@@ -836,7 +879,10 @@ impl LanguageServer for GraphQLLanguageServer {
                 let _file_path = uri.to_file_path();
 
                 // Get extract config from host
-                let extract_config = if let Some(host_mutex) = self.hosts.get(&workspace_uri) {
+                let extract_config = if let Some(host_mutex) = self
+                    .hosts
+                    .get(&(workspace_uri.clone(), project_name.clone()))
+                {
                     let host = host_mutex.lock().await;
                     host.get_extract_config()
                 } else {
@@ -878,7 +924,7 @@ impl LanguageServer for GraphQLLanguageServer {
                 };
 
                 {
-                    let host = self.get_or_create_host(&workspace_uri);
+                    let host = self.get_or_create_host(&workspace_uri, &project_name);
                     let file_path = graphql_ide::FilePath::new(uri.to_string());
                     let mut host_guard = host.lock().await;
                     host_guard.add_file(&file_path, &final_content, final_kind, line_offset);
@@ -969,13 +1015,13 @@ impl LanguageServer for GraphQLLanguageServer {
         tracing::debug!("Completion requested: {:?} at {:?}", uri, lsp_position);
 
         // Find workspace for this document
-        let Some((workspace_uri, _)) = self.find_workspace_and_project(&uri) else {
+        let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
         // Get AnalysisHost and create snapshot (new architecture)
-        let host = self.get_or_create_host(&workspace_uri);
+        let host = self.get_or_create_host(&workspace_uri, &project_name);
         let analysis = {
             let host_guard = host.lock().await;
             host_guard.snapshot()
@@ -1004,13 +1050,13 @@ impl LanguageServer for GraphQLLanguageServer {
         tracing::debug!("Hover requested: {:?} at {:?}", uri, lsp_position);
 
         // Find workspace for this document
-        let Some((workspace_uri, _)) = self.find_workspace_and_project(&uri) else {
+        let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
         // Get AnalysisHost and create snapshot (new architecture)
-        let host = self.get_or_create_host(&workspace_uri);
+        let host = self.get_or_create_host(&workspace_uri, &project_name);
         let analysis = {
             let host_guard = host.lock().await;
             host_guard.snapshot()
@@ -1047,13 +1093,13 @@ impl LanguageServer for GraphQLLanguageServer {
         );
 
         // Find workspace for this document
-        let Some((workspace_uri, _)) = self.find_workspace_and_project(&uri) else {
+        let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
         // Get AnalysisHost and create snapshot (new architecture)
-        let host = self.get_or_create_host(&workspace_uri);
+        let host = self.get_or_create_host(&workspace_uri, &project_name);
         let analysis = {
             let host_guard = host.lock().await;
             host_guard.snapshot()
@@ -1116,13 +1162,13 @@ impl LanguageServer for GraphQLLanguageServer {
         );
 
         // Find workspace for this document
-        let Some((workspace_uri, _)) = self.find_workspace_and_project(&uri) else {
+        let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
         // Get AnalysisHost and create snapshot (new architecture)
-        let host = self.get_or_create_host(&workspace_uri);
+        let host = self.get_or_create_host(&workspace_uri, &project_name);
         let analysis = {
             let host_guard = host.lock().await;
             host_guard.snapshot()

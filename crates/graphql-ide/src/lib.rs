@@ -34,6 +34,9 @@
 //! - POD types: [`Position`], [`Range`], [`Location`], [`FilePath`]
 //! - Feature types: [`CompletionItem`], [`HoverResult`], [`Diagnostic`]
 
+#[cfg(test)]
+mod analysis_host_isolation;
+
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::{Arc, RwLock};

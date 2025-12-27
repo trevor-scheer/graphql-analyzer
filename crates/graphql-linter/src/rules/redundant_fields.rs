@@ -259,13 +259,15 @@ fn check_selection_set_for_redundancy(
     }
 
     // Track direct field selections and their counts
-    use std::collections::HashMap;
     let mut direct_field_counts: HashMap<FieldKey, Vec<&cst::Field>> = HashMap::new();
 
     for selection in &selections {
         if let cst::Selection::Field(field) = selection {
             if let Some(field_key) = FieldKey::from_field(field) {
-                direct_field_counts.entry(field_key).or_default().push(field);
+                direct_field_counts
+                    .entry(field_key)
+                    .or_default()
+                    .push(field);
             }
         }
     }
@@ -278,11 +280,10 @@ fn check_selection_set_for_redundancy(
                     let syntax_node = field_name.syntax();
                     let start_offset: usize = syntax_node.text_range().start().into();
                     let end_offset: usize = syntax_node.text_range().end().into();
-                    let field_desc = if let Some(alias) = &field_key.alias {
-                        format!("'{}: {}'", alias, field_key.field_name)
-                    } else {
-                        format!("'{}'", field_key.field_name)
-                    };
+                    let field_desc = field_key.alias.as_ref().map_or_else(
+                        || format!("'{}'", field_key.field_name),
+                        |alias| format!("'{}: {}'", alias, field_key.field_name),
+                    );
                     let message = format!(
                         "Field {field_desc} is selected multiple times in the same selection set"
                     );
