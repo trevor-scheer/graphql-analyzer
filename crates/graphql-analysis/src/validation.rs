@@ -138,11 +138,10 @@ pub fn validate_document(
             // Convert apollo-compiler diagnostics to our format
             // Only include diagnostics for the current file
 
-            // Get line offset for TypeScript/JavaScript extraction
-            let line_offset = metadata.line_offset(db);
-
             // Iterate over the diagnostic list and filter to current file
             // Note: Since we used builder pattern, diagnostics will have proper source tracking
+            // Note: apollo-compiler already returns line numbers adjusted for the source offset
+            // we provided earlier, so we do NOT add line_offset here again
             #[allow(clippy::cast_possible_truncation, clippy::option_if_let_else)]
             for apollo_diag in error_list.iter() {
                 // Filter diagnostics to only include those from the current file
@@ -161,17 +160,16 @@ pub fn validate_document(
                 }
 
                 // Get location information if available
+                // apollo-compiler returns 1-indexed line/column, we use 0-indexed
+                // The SourceOffset we provided means positions are already in original file coordinates
                 let range = if let Some(loc_range) = apollo_diag.line_column_range() {
                     DiagnosticRange {
                         start: Position {
-                            // apollo-compiler uses 1-indexed, we use 0-indexed
-                            // Casting usize to u32 is safe for line/column numbers in practice
-                            // Add line_offset to adjust for TypeScript/JavaScript extraction
-                            line: loc_range.start.line.saturating_sub(1) as u32 + line_offset,
+                            line: loc_range.start.line.saturating_sub(1) as u32,
                             character: loc_range.start.column.saturating_sub(1) as u32,
                         },
                         end: Position {
-                            line: loc_range.end.line.saturating_sub(1) as u32 + line_offset,
+                            line: loc_range.end.line.saturating_sub(1) as u32,
                             character: loc_range.end.column.saturating_sub(1) as u32,
                         },
                     }

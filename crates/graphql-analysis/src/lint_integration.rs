@@ -128,6 +128,7 @@ fn standalone_document_lints(
         diagnostics.extend(convert_lint_diagnostics(
             db,
             content,
+            metadata,
             lint_diags,
             rule.name(),
             severity,
@@ -179,6 +180,7 @@ fn document_schema_lints(
         diagnostics.extend(convert_lint_diagnostics(
             db,
             content,
+            metadata,
             lint_diags,
             rule.name(),
             severity,
@@ -225,8 +227,10 @@ pub fn project_lint_diagnostics(
 
         // Merge into result
         for (file_id, file_lint_diags) in lint_diags {
-            // Find the FileContent for this FileId from project_files
-            let Some(content) = find_file_content(db, project_files, file_id) else {
+            // Find the FileContent and FileMetadata for this FileId from project_files
+            let Some((content, metadata)) =
+                find_file_content_and_metadata(db, project_files, file_id)
+            else {
                 tracing::warn!(?file_id, "Could not find content for file");
                 continue;
             };
@@ -234,8 +238,14 @@ pub fn project_lint_diagnostics(
             let severity = lint_config
                 .get_severity(rule.name())
                 .map_or(Severity::Warning, convert_severity);
-            let converted =
-                convert_lint_diagnostics(db, content, file_lint_diags, rule.name(), severity);
+            let converted = convert_lint_diagnostics(
+                db,
+                content,
+                metadata,
+                file_lint_diags,
+                rule.name(),
+                severity,
+            );
             diagnostics_by_file
                 .entry(file_id)
                 .or_default()
@@ -251,23 +261,23 @@ pub fn project_lint_diagnostics(
     Arc::new(diagnostics_by_file)
 }
 
-/// Helper to find `FileContent` for a given `FileId` from `ProjectFiles`
-fn find_file_content(
+/// Helper to find `FileContent` and `FileMetadata` for a given `FileId` from `ProjectFiles`
+fn find_file_content_and_metadata(
     db: &dyn GraphQLAnalysisDatabase,
     project_files: ProjectFiles,
     file_id: FileId,
-) -> Option<FileContent> {
+) -> Option<(FileContent, FileMetadata)> {
     // Search in document files
-    for (fid, content, _) in project_files.document_files(db).iter() {
+    for (fid, content, metadata) in project_files.document_files(db).iter() {
         if *fid == file_id {
-            return Some(*content);
+            return Some((*content, *metadata));
         }
     }
 
     // Search in schema files
-    for (fid, content, _) in project_files.schema_files(db).iter() {
+    for (fid, content, metadata) in project_files.schema_files(db).iter() {
         if *fid == file_id {
-            return Some(*content);
+            return Some((*content, *metadata));
         }
     }
 
@@ -275,10 +285,15 @@ fn find_file_content(
 }
 
 /// Convert `LintDiagnostic` (byte offsets) to `Diagnostic` (line/column)
+///
+/// For TypeScript/JavaScript files, `metadata.line_offset()` provides the line
+/// offset where the GraphQL content starts in the original file. This offset
+/// must be added to all line numbers to get correct positions in the source.
 #[allow(clippy::cast_possible_truncation)]
 fn convert_lint_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
+    metadata: FileMetadata,
     lint_diags: Vec<graphql_linter::LintDiagnostic>,
     rule_name: &str,
     configured_severity: Severity,
@@ -286,6 +301,7 @@ fn convert_lint_diagnostics(
     use graphql_linter::DiagnosticSeverity as LintSev;
 
     let line_index = graphql_syntax::line_index(db, content);
+    let line_offset = metadata.line_offset(db);
 
     lint_diags
         .into_iter()
@@ -306,11 +322,11 @@ fn convert_lint_diagnostics(
                 message: ld.message.into(),
                 range: DiagnosticRange {
                     start: Position {
-                        line: start_line as u32,
+                        line: start_line as u32 + line_offset,
                         character: start_col as u32,
                     },
                     end: Position {
-                        line: end_line as u32,
+                        line: end_line as u32 + line_offset,
                         character: end_col as u32,
                     },
                 },
