@@ -187,6 +187,26 @@ pub fn validate_document(
             // Note: Since we used builder pattern, diagnostics will have proper source tracking
             #[allow(clippy::cast_possible_truncation, clippy::option_if_let_else)]
             for apollo_diag in error_list.iter() {
+                // Filter diagnostics to only include those from the current file
+                // This prevents duplicate reporting when fragments with errors are used in multiple files
+                use apollo_compiler::diagnostic::ToCliReport;
+                if let Some(location) = apollo_diag.error.location() {
+                    let file_id = location.file_id();
+                    // Get the file path for this diagnostic from the source map
+                    if let Some(source_file) = apollo_diag.sources.get(&file_id) {
+                        let diag_file_path = source_file.path();
+                        // Only include diagnostics that belong to the current file
+                        if diag_file_path != doc_uri.as_str() {
+                            tracing::debug!(
+                                diag_file = ?diag_file_path,
+                                current_file = ?doc_uri.as_str(),
+                                "Skipping diagnostic from different file"
+                            );
+                            continue;
+                        }
+                    }
+                }
+
                 // Get location information if available
                 let range = if let Some(loc_range) = apollo_diag.line_column_range() {
                     DiagnosticRange {
