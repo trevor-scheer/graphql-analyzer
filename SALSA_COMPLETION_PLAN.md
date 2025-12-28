@@ -10,6 +10,51 @@ The project has a partially-implemented Salsa-based incremental computation arch
 
 ---
 
+## Development Workflow
+
+### Integration Branch Strategy
+
+All Salsa completion work is developed on the **`salsa-completion`** integration branch:
+
+```
+main (stable)
+  └── salsa-completion (integration branch)
+        ├── phase-1-database-foundation (merged)
+        ├── phase-2-body-queries (future)
+        ├── phase-3-validation (future)
+        └── ...
+```
+
+**Why an integration branch?**
+- Allows incremental PRs without destabilizing main
+- Each phase can be reviewed and merged independently
+- Easy to test the full Salsa implementation in isolation
+- Can be merged to main when complete and stable
+
+**Workflow:**
+1. Create feature branch from `salsa-completion` for each phase
+2. Open PR against `salsa-completion` (not main)
+3. After review, merge to `salsa-completion`
+4. When all phases complete and tested, merge `salsa-completion` → `main`
+
+**Branch naming convention:** `phase-N-description` (e.g., `phase-1-database-foundation`)
+
+---
+
+## Progress Tracker
+
+| Phase | Status | Branch/PR |
+|-------|--------|-----------|
+| Phase 1.1: Remove Cell from RootDatabase | ✅ Complete | `phase-1-database-foundation` |
+| Phase 1.2: Position tracking (structure) | ✅ Complete | `phase-1-database-foundation` |
+| Phase 1.2: Position tracking (extraction) | 🚧 Pending | - |
+| Phase 2: Body queries | 📋 Not started | - |
+| Phase 3: Validation using HIR | 📋 Not started | - |
+| Phase 4: Integration & testing | 📋 Not started | - |
+| Phase 5: Documentation | 📋 Not started | - |
+
+---
+
 ## Critical Problems Identified
 
 ### 1. **Body Queries Don't Exist**
@@ -70,14 +115,16 @@ pub struct RootDatabase {
 ```
 
 **Tasks:**
-- [ ] Remove `project_files` field from `RootDatabase`
-- [ ] Remove `set_project_files()` and `project_files()` methods
-- [ ] Make `ProjectFiles` a proper input that queries depend on
-- [ ] Update all callers to use Salsa's input system
+- [x] Remove `project_files` field from `RootDatabase` ✅
+- [x] Remove `set_project_files()` and `project_files()` methods ✅
+- [x] Make `ProjectFiles` a proper input that queries depend on ✅
+- [x] Update all callers to use Salsa's input system ✅
 
 **Success Criteria:**
-- Changing project files automatically invalidates dependent queries
-- No interior mutability in database struct
+- ✅ Changing project files automatically invalidates dependent queries
+- ✅ No interior mutability in database struct
+
+**Completed in:** `phase-1-database-foundation` branch
 
 ---
 
@@ -113,16 +160,23 @@ pub struct FragmentStructure {
 ```
 
 **Tasks:**
-- [ ] Add `TextRange` type to HIR (or import from `text-size` crate)
-- [ ] Update structure extraction to capture positions from AST
-- [ ] Update all HIR types to include position information
+- [x] Add `TextRange` type to HIR (import from `text-size` crate) ✅
+- [x] Update all HIR types to include position information ✅
+- [ ] Update structure extraction to capture actual positions from AST
 - [ ] Remove all `DiagnosticRange::default()` calls
 - [ ] Replace with actual positions from HIR
+
+**Current Status:**
+- Position fields added to `TypeDef`, `OperationStructure`, `FragmentStructure`
+- Currently using `empty_range()` placeholder - needs actual AST position extraction
+- Blocked on understanding apollo-compiler's position API
 
 **Success Criteria:**
 - All diagnostics show exact error positions
 - Zero TODOs for missing positions
 - Tests verify position accuracy
+
+**Partial completion in:** `phase-1-database-foundation` branch
 
 ---
 
