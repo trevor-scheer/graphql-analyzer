@@ -46,9 +46,11 @@ pub use file_registry::{FileRegistry, ProjectFilesDatabase};
 
 mod symbol;
 use symbol::{
-    find_field_definition_range, find_fragment_definition_range, find_fragment_spreads,
-    find_parent_type_at_offset, find_symbol_at_offset, find_type_definition_range,
-    find_type_references_in_tree, get_parent_field_path, is_in_selection_set, Symbol,
+    extract_all_definitions, find_field_definition_full_range, find_field_definition_range,
+    find_fragment_definition_full_range, find_fragment_definition_range, find_fragment_spreads,
+    find_operation_definition_ranges, find_parent_type_at_offset, find_symbol_at_offset,
+    find_type_definition_full_range, find_type_definition_range, find_type_references_in_tree,
+    get_parent_field_path, is_in_selection_set, Symbol,
 };
 
 // Re-export database types that IDE layer needs
@@ -267,6 +269,112 @@ impl Diagnostic {
     #[must_use]
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
         self.code = Some(code.into());
+        self
+    }
+}
+
+/// Kind of GraphQL symbol for document/workspace symbols
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SymbolKind {
+    /// Object type definition
+    Type,
+    /// Field definition
+    Field,
+    /// Query operation
+    Query,
+    /// Mutation operation
+    Mutation,
+    /// Subscription operation
+    Subscription,
+    /// Fragment definition
+    Fragment,
+    /// Enum value
+    EnumValue,
+    /// Scalar type
+    Scalar,
+    /// Input type
+    Input,
+    /// Interface type
+    Interface,
+    /// Union type
+    Union,
+    /// Enum type
+    Enum,
+}
+
+/// A document symbol (hierarchical structure for outline view)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentSymbol {
+    /// Symbol name
+    pub name: String,
+    /// Symbol kind
+    pub kind: SymbolKind,
+    /// Optional detail (e.g., type signature)
+    pub detail: Option<String>,
+    /// Full range of the symbol (entire definition)
+    pub range: Range,
+    /// Selection range (just the name)
+    pub selection_range: Range,
+    /// Child symbols (e.g., fields within a type)
+    pub children: Vec<DocumentSymbol>,
+}
+
+impl DocumentSymbol {
+    pub fn new(
+        name: impl Into<String>,
+        kind: SymbolKind,
+        range: Range,
+        selection_range: Range,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            kind,
+            detail: None,
+            range,
+            selection_range,
+            children: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_children(mut self, children: Vec<Self>) -> Self {
+        self.children = children;
+        self
+    }
+}
+
+/// A workspace symbol (flat structure for global search)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceSymbol {
+    /// Symbol name
+    pub name: String,
+    /// Symbol kind
+    pub kind: SymbolKind,
+    /// Location of the symbol
+    pub location: Location,
+    /// Container name (e.g., parent type for fields)
+    pub container_name: Option<String>,
+}
+
+impl WorkspaceSymbol {
+    pub fn new(name: impl Into<String>, kind: SymbolKind, location: Location) -> Self {
+        Self {
+            name: name.into(),
+            kind,
+            location,
+            container_name: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_container(mut self, container: impl Into<String>) -> Self {
+        self.container_name = Some(container.into());
         self
     }
 }
@@ -1428,6 +1536,270 @@ impl Analysis {
 
         locations
     }
+
+    /// Get document symbols for a file (hierarchical outline)
+    ///
+    /// Returns types, operations, and fragments with their fields as children.
+    /// This powers the "Go to Symbol in Editor" (Cmd+Shift+O) feature.
+    pub fn document_symbols(&self, file: &FilePath) -> Vec<DocumentSymbol> {
+        let (content, metadata, file_id) = {
+            let registry = self.registry.read().unwrap();
+
+            let Some(file_id) = registry.get_file_id(file) else {
+                return Vec::new();
+            };
+
+            let Some(content) = registry.get_content(file_id) else {
+                return Vec::new();
+            };
+            let Some(metadata) = registry.get_metadata(file_id) else {
+                return Vec::new();
+            };
+            drop(registry);
+
+            (content, metadata, file_id)
+        };
+
+        // Parse the file
+        let parse = graphql_syntax::parse(&self.db, content, metadata);
+        let line_index = graphql_syntax::line_index(&self.db, content);
+
+        // Get HIR structure for this file (for field information)
+        let structure = graphql_hir::file_structure(&self.db, file_id, content, metadata);
+
+        let mut symbols = Vec::new();
+
+        // Extract all definitions from the parse tree
+        let definitions = extract_all_definitions(&parse.tree);
+
+        for (name, kind, ranges) in definitions {
+            let range = offset_range_to_range(&line_index, ranges.def_start, ranges.def_end);
+            let selection_range =
+                offset_range_to_range(&line_index, ranges.name_start, ranges.name_end);
+
+            let symbol = match kind {
+                "object" => {
+                    // Find fields for this type from HIR structure
+                    let children =
+                        self.get_field_children(&structure, &name, &parse.tree, &line_index);
+                    DocumentSymbol::new(name, SymbolKind::Type, range, selection_range)
+                        .with_children(children)
+                }
+                "interface" => {
+                    let children =
+                        self.get_field_children(&structure, &name, &parse.tree, &line_index);
+                    DocumentSymbol::new(name, SymbolKind::Interface, range, selection_range)
+                        .with_children(children)
+                }
+                "input" => {
+                    let children =
+                        self.get_field_children(&structure, &name, &parse.tree, &line_index);
+                    DocumentSymbol::new(name, SymbolKind::Input, range, selection_range)
+                        .with_children(children)
+                }
+                "union" => DocumentSymbol::new(name, SymbolKind::Union, range, selection_range),
+                "enum" => {
+                    // For enums, we could add enum values as children
+                    DocumentSymbol::new(name, SymbolKind::Enum, range, selection_range)
+                }
+                "scalar" => DocumentSymbol::new(name, SymbolKind::Scalar, range, selection_range),
+                "query" => DocumentSymbol::new(name, SymbolKind::Query, range, selection_range),
+                "mutation" => {
+                    DocumentSymbol::new(name, SymbolKind::Mutation, range, selection_range)
+                }
+                "subscription" => {
+                    DocumentSymbol::new(name, SymbolKind::Subscription, range, selection_range)
+                }
+                "fragment" => {
+                    // Find type condition from HIR
+                    let detail = structure
+                        .fragments
+                        .iter()
+                        .find(|f| f.name.as_ref() == name)
+                        .map(|f| format!("on {}", f.type_condition));
+                    let mut sym =
+                        DocumentSymbol::new(name, SymbolKind::Fragment, range, selection_range);
+                    if let Some(d) = detail {
+                        sym = sym.with_detail(d);
+                    }
+                    sym
+                }
+                _ => continue,
+            };
+
+            symbols.push(symbol);
+        }
+
+        symbols
+    }
+
+    /// Get field children for a type definition
+    #[allow(clippy::unused_self)]
+    fn get_field_children(
+        &self,
+        structure: &graphql_hir::FileStructureData,
+        type_name: &str,
+        tree: &apollo_parser::SyntaxTree,
+        line_index: &graphql_syntax::LineIndex,
+    ) -> Vec<DocumentSymbol> {
+        // Find the type in structure
+        let Some(type_def) = structure
+            .type_defs
+            .iter()
+            .find(|t| t.name.as_ref() == type_name)
+        else {
+            return Vec::new();
+        };
+
+        let mut children = Vec::new();
+
+        for field in &type_def.fields {
+            if let Some(ranges) = find_field_definition_full_range(tree, type_name, &field.name) {
+                let range = offset_range_to_range(line_index, ranges.def_start, ranges.def_end);
+                let selection_range =
+                    offset_range_to_range(line_index, ranges.name_start, ranges.name_end);
+
+                let detail = format_type_ref(&field.type_ref);
+                children.push(
+                    DocumentSymbol::new(
+                        field.name.to_string(),
+                        SymbolKind::Field,
+                        range,
+                        selection_range,
+                    )
+                    .with_detail(detail),
+                );
+            }
+        }
+
+        children
+    }
+
+    /// Search for workspace symbols matching a query
+    ///
+    /// Returns matching types, operations, and fragments across all files.
+    /// This powers the "Go to Symbol in Workspace" (Cmd+T) feature.
+    pub fn workspace_symbols(&self, query: &str) -> Vec<WorkspaceSymbol> {
+        let Some(project_files) = self.project_files else {
+            return Vec::new();
+        };
+
+        let query_lower = query.to_lowercase();
+        let mut symbols = Vec::new();
+
+        // Search types
+        let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+        for (name, type_def) in types.iter() {
+            if name.to_lowercase().contains(&query_lower) {
+                if let Some(location) = self.get_type_location(type_def) {
+                    let kind = match type_def.kind {
+                        graphql_hir::TypeDefKind::Object => SymbolKind::Type,
+                        graphql_hir::TypeDefKind::Interface => SymbolKind::Interface,
+                        graphql_hir::TypeDefKind::Union => SymbolKind::Union,
+                        graphql_hir::TypeDefKind::Enum => SymbolKind::Enum,
+                        graphql_hir::TypeDefKind::Scalar => SymbolKind::Scalar,
+                        graphql_hir::TypeDefKind::InputObject => SymbolKind::Input,
+                    };
+
+                    symbols.push(WorkspaceSymbol::new(name.to_string(), kind, location));
+                }
+            }
+        }
+
+        // Search fragments
+        let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
+        for (name, fragment) in fragments.iter() {
+            if name.to_lowercase().contains(&query_lower) {
+                if let Some(location) = self.get_fragment_location(fragment) {
+                    symbols.push(
+                        WorkspaceSymbol::new(name.to_string(), SymbolKind::Fragment, location)
+                            .with_container(format!("on {}", fragment.type_condition)),
+                    );
+                }
+            }
+        }
+
+        // Search operations from document files
+        let document_files = project_files.document_files(&self.db);
+        for (file_id, content, metadata) in document_files.iter() {
+            let structure = graphql_hir::file_structure(&self.db, *file_id, *content, *metadata);
+            for operation in &structure.operations {
+                if let Some(op_name) = &operation.name {
+                    if op_name.to_lowercase().contains(&query_lower) {
+                        if let Some(location) = self.get_operation_location(operation) {
+                            let kind = match operation.operation_type {
+                                graphql_hir::OperationType::Query => SymbolKind::Query,
+                                graphql_hir::OperationType::Mutation => SymbolKind::Mutation,
+                                graphql_hir::OperationType::Subscription => {
+                                    SymbolKind::Subscription
+                                }
+                            };
+
+                            symbols.push(WorkspaceSymbol::new(op_name.to_string(), kind, location));
+                        }
+                    }
+                }
+            }
+        }
+
+        symbols
+    }
+
+    /// Get location for a type definition
+    fn get_type_location(&self, type_def: &graphql_hir::TypeDef) -> Option<Location> {
+        let registry = self.registry.read().unwrap();
+        let file_path = registry.get_path(type_def.file_id)?;
+        let content = registry.get_content(type_def.file_id)?;
+        let metadata = registry.get_metadata(type_def.file_id)?;
+        drop(registry);
+
+        let parse = graphql_syntax::parse(&self.db, content, metadata);
+        let line_index = graphql_syntax::line_index(&self.db, content);
+
+        let ranges = find_type_definition_full_range(&parse.tree, &type_def.name)?;
+        let range = offset_range_to_range(&line_index, ranges.name_start, ranges.name_end);
+
+        Some(Location::new(file_path, range))
+    }
+
+    /// Get location for a fragment definition
+    fn get_fragment_location(&self, fragment: &graphql_hir::FragmentStructure) -> Option<Location> {
+        let registry = self.registry.read().unwrap();
+        let file_path = registry.get_path(fragment.file_id)?;
+        let content = registry.get_content(fragment.file_id)?;
+        let metadata = registry.get_metadata(fragment.file_id)?;
+        drop(registry);
+
+        let parse = graphql_syntax::parse(&self.db, content, metadata);
+        let line_index = graphql_syntax::line_index(&self.db, content);
+
+        let ranges = find_fragment_definition_full_range(&parse.tree, &fragment.name)?;
+        let range = offset_range_to_range(&line_index, ranges.name_start, ranges.name_end);
+
+        Some(Location::new(file_path, range))
+    }
+
+    /// Get location for an operation definition
+    fn get_operation_location(
+        &self,
+        operation: &graphql_hir::OperationStructure,
+    ) -> Option<Location> {
+        let op_name = operation.name.as_ref()?;
+
+        let registry = self.registry.read().unwrap();
+        let file_path = registry.get_path(operation.file_id)?;
+        let content = registry.get_content(operation.file_id)?;
+        let metadata = registry.get_metadata(operation.file_id)?;
+        drop(registry);
+
+        let parse = graphql_syntax::parse(&self.db, content, metadata);
+        let line_index = graphql_syntax::line_index(&self.db, content);
+
+        let ranges = find_operation_definition_ranges(&parse.tree, op_name)?;
+        let range = offset_range_to_range(&line_index, ranges.name_start, ranges.name_end);
+
+        Some(Location::new(file_path, range))
+    }
 }
 
 // Conversion functions from analysis types to IDE types
@@ -2532,5 +2904,176 @@ export const GET_POKEMON = gql`
             graphql.contains("pokemon"),
             "Should contain field selections"
         );
+    }
+
+    #[test]
+    fn test_document_symbols_type_with_fields() {
+        let mut host = AnalysisHost::new();
+
+        let path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &path,
+            "type User {\n  id: ID!\n  name: String\n  email: String!\n}",
+            FileKind::Schema,
+            0,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let symbols = snapshot.document_symbols(&path);
+
+        assert_eq!(symbols.len(), 1, "Should have one type symbol");
+        assert_eq!(symbols[0].name, "User");
+        assert_eq!(symbols[0].kind, SymbolKind::Type);
+        assert_eq!(symbols[0].children.len(), 3, "Should have 3 field children");
+
+        // Check field names
+        let field_names: Vec<&str> = symbols[0]
+            .children
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
+        assert!(field_names.contains(&"id"));
+        assert!(field_names.contains(&"name"));
+        assert!(field_names.contains(&"email"));
+
+        // Check field kinds
+        for child in &symbols[0].children {
+            assert_eq!(child.kind, SymbolKind::Field);
+        }
+    }
+
+    #[test]
+    fn test_document_symbols_operations() {
+        let mut host = AnalysisHost::new();
+
+        // Add schema first
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { user: String }\ntype Mutation { createUser: String }",
+            FileKind::Schema,
+            0,
+        );
+
+        let path = FilePath::new("file:///queries.graphql");
+        host.add_file(
+            &path,
+            "query GetUser { user }\nmutation CreateUser { createUser }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let symbols = snapshot.document_symbols(&path);
+
+        assert_eq!(symbols.len(), 2, "Should have two operation symbols");
+
+        // Check query
+        assert_eq!(symbols[0].name, "GetUser");
+        assert_eq!(symbols[0].kind, SymbolKind::Query);
+
+        // Check mutation
+        assert_eq!(symbols[1].name, "CreateUser");
+        assert_eq!(symbols[1].kind, SymbolKind::Mutation);
+    }
+
+    #[test]
+    fn test_document_symbols_fragments() {
+        let mut host = AnalysisHost::new();
+
+        // Add schema
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type User { id: ID! name: String }",
+            FileKind::Schema,
+            0,
+        );
+
+        let path = FilePath::new("file:///fragments.graphql");
+        host.add_file(
+            &path,
+            "fragment UserFields on User { id name }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let symbols = snapshot.document_symbols(&path);
+
+        assert_eq!(symbols.len(), 1, "Should have one fragment symbol");
+        assert_eq!(symbols[0].name, "UserFields");
+        assert_eq!(symbols[0].kind, SymbolKind::Fragment);
+        assert_eq!(symbols[0].detail, Some("on User".to_string()));
+    }
+
+    #[test]
+    fn test_workspace_symbols_search() {
+        let mut host = AnalysisHost::new();
+
+        // Add schema with multiple types
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { user: User }\ntype User { id: ID! }\ntype Post { title: String }",
+            FileKind::Schema,
+            0,
+        );
+
+        // Add operations
+        let queries_path = FilePath::new("file:///queries.graphql");
+        host.add_file(
+            &queries_path,
+            "query GetUser { user { id } }\nquery GetUsers { user { id } }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Search for "User"
+        let symbols = snapshot.workspace_symbols("User");
+        assert!(!symbols.is_empty(), "Should find symbols matching 'User'");
+
+        let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"User"), "Should find User type");
+        assert!(names.contains(&"GetUser"), "Should find GetUser operation");
+        assert!(
+            names.contains(&"GetUsers"),
+            "Should find GetUsers operation"
+        );
+
+        // Search for "Post"
+        let symbols = snapshot.workspace_symbols("Post");
+        assert_eq!(symbols.len(), 1, "Should find one symbol matching 'Post'");
+        assert_eq!(symbols[0].name, "Post");
+    }
+
+    #[test]
+    fn test_workspace_symbols_case_insensitive() {
+        let mut host = AnalysisHost::new();
+
+        let path = FilePath::new("file:///schema.graphql");
+        host.add_file(&path, "type UserProfile { id: ID! }", FileKind::Schema, 0);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Search with different cases
+        let lower = snapshot.workspace_symbols("user");
+        let upper = snapshot.workspace_symbols("USER");
+        let mixed = snapshot.workspace_symbols("uSeR");
+
+        assert_eq!(lower.len(), 1);
+        assert_eq!(upper.len(), 1);
+        assert_eq!(mixed.len(), 1);
+
+        assert_eq!(lower[0].name, "UserProfile");
+        assert_eq!(upper[0].name, "UserProfile");
+        assert_eq!(mixed[0].name, "UserProfile");
     }
 }

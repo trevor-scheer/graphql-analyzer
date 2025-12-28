@@ -92,3 +92,65 @@ pub fn convert_ide_diagnostic(diag: graphql_ide::Diagnostic) -> Diagnostic {
         ..Default::default()
     }
 }
+
+/// Convert graphql-ide `SymbolKind` to LSP `SymbolKind`
+pub const fn convert_ide_symbol_kind(kind: graphql_ide::SymbolKind) -> lsp_types::SymbolKind {
+    match kind {
+        graphql_ide::SymbolKind::Type | graphql_ide::SymbolKind::Fragment => {
+            lsp_types::SymbolKind::CLASS
+        }
+        graphql_ide::SymbolKind::Field => lsp_types::SymbolKind::FIELD,
+        graphql_ide::SymbolKind::Query
+        | graphql_ide::SymbolKind::Mutation
+        | graphql_ide::SymbolKind::Subscription => lsp_types::SymbolKind::FUNCTION,
+        graphql_ide::SymbolKind::EnumValue => lsp_types::SymbolKind::ENUM_MEMBER,
+        graphql_ide::SymbolKind::Scalar => lsp_types::SymbolKind::TYPE_PARAMETER,
+        graphql_ide::SymbolKind::Input => lsp_types::SymbolKind::STRUCT,
+        graphql_ide::SymbolKind::Interface => lsp_types::SymbolKind::INTERFACE,
+        graphql_ide::SymbolKind::Union | graphql_ide::SymbolKind::Enum => {
+            lsp_types::SymbolKind::ENUM
+        }
+    }
+}
+
+/// Convert graphql-ide `DocumentSymbol` to LSP `DocumentSymbol`
+#[allow(deprecated)] // LSP requires deprecated field
+pub fn convert_ide_document_symbol(
+    symbol: graphql_ide::DocumentSymbol,
+) -> lsp_types::DocumentSymbol {
+    lsp_types::DocumentSymbol {
+        name: symbol.name,
+        kind: convert_ide_symbol_kind(symbol.kind),
+        detail: symbol.detail,
+        range: convert_ide_range(symbol.range),
+        selection_range: convert_ide_range(symbol.selection_range),
+        children: if symbol.children.is_empty() {
+            None
+        } else {
+            Some(
+                symbol
+                    .children
+                    .into_iter()
+                    .map(convert_ide_document_symbol)
+                    .collect(),
+            )
+        },
+        tags: None,
+        deprecated: None,
+    }
+}
+
+/// Convert graphql-ide `WorkspaceSymbol` to LSP `WorkspaceSymbol`
+#[allow(deprecated)] // LSP requires deprecated field
+pub fn convert_ide_workspace_symbol(
+    symbol: graphql_ide::WorkspaceSymbol,
+) -> lsp_types::WorkspaceSymbol {
+    lsp_types::WorkspaceSymbol {
+        name: symbol.name,
+        kind: convert_ide_symbol_kind(symbol.kind),
+        location: lsp_types::OneOf::Left(convert_ide_location(&symbol.location)),
+        container_name: symbol.container_name,
+        tags: None,
+        data: None,
+    }
+}

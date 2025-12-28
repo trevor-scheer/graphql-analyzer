@@ -1008,6 +1008,345 @@ fn find_type_refs_in_type(ty: &cst::Type, type_name: &str, offsets: &mut Vec<usi
     }
 }
 
+/// Symbol range info containing both name range and full definition range
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SymbolRanges {
+    /// Start byte offset of the name
+    pub name_start: usize,
+    /// End byte offset of the name
+    pub name_end: usize,
+    /// Start byte offset of the full definition
+    pub def_start: usize,
+    /// End byte offset of the full definition
+    pub def_end: usize,
+}
+
+/// Find the byte offset ranges of a type definition by name
+/// Returns both name range (for selection) and full definition range
+pub fn find_type_definition_full_range(
+    tree: &apollo_parser::SyntaxTree,
+    type_name: &str,
+) -> Option<SymbolRanges> {
+    let doc = tree.document();
+
+    for definition in doc.definitions() {
+        let (name_node, def_syntax) = match &definition {
+            cst::Definition::ObjectTypeDefinition(obj) => (obj.name(), obj.syntax()),
+            cst::Definition::InterfaceTypeDefinition(iface) => (iface.name(), iface.syntax()),
+            cst::Definition::UnionTypeDefinition(union) => (union.name(), union.syntax()),
+            cst::Definition::EnumTypeDefinition(enum_def) => (enum_def.name(), enum_def.syntax()),
+            cst::Definition::ScalarTypeDefinition(scalar) => (scalar.name(), scalar.syntax()),
+            cst::Definition::InputObjectTypeDefinition(input) => (input.name(), input.syntax()),
+            _ => continue,
+        };
+
+        if let Some(name) = name_node {
+            if name.text() == type_name {
+                let name_range = name.syntax().text_range();
+                let def_range = def_syntax.text_range();
+                return Some(SymbolRanges {
+                    name_start: name_range.start().into(),
+                    name_end: name_range.end().into(),
+                    def_start: def_range.start().into(),
+                    def_end: def_range.end().into(),
+                });
+            }
+        }
+    }
+
+    None
+}
+
+/// Find the byte offset ranges of a fragment definition by name
+/// Returns both name range (for selection) and full definition range
+pub fn find_fragment_definition_full_range(
+    tree: &apollo_parser::SyntaxTree,
+    fragment_name: &str,
+) -> Option<SymbolRanges> {
+    let doc = tree.document();
+
+    for definition in doc.definitions() {
+        if let cst::Definition::FragmentDefinition(frag) = definition {
+            if let Some(name) = frag.fragment_name().and_then(|n| n.name()) {
+                if name.text() == fragment_name {
+                    let name_range = name.syntax().text_range();
+                    let def_range = frag.syntax().text_range();
+                    return Some(SymbolRanges {
+                        name_start: name_range.start().into(),
+                        name_end: name_range.end().into(),
+                        def_start: def_range.start().into(),
+                        def_end: def_range.end().into(),
+                    });
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Find the byte offset ranges of an operation definition by name
+/// Returns both name range (for selection) and full definition range
+/// Returns None for anonymous operations when searching by name
+pub fn find_operation_definition_ranges(
+    tree: &apollo_parser::SyntaxTree,
+    operation_name: &str,
+) -> Option<SymbolRanges> {
+    let doc = tree.document();
+
+    for definition in doc.definitions() {
+        if let cst::Definition::OperationDefinition(op) = definition {
+            if let Some(name) = op.name() {
+                if name.text() == operation_name {
+                    let name_range = name.syntax().text_range();
+                    let def_range = op.syntax().text_range();
+                    return Some(SymbolRanges {
+                        name_start: name_range.start().into(),
+                        name_end: name_range.end().into(),
+                        def_start: def_range.start().into(),
+                        def_end: def_range.end().into(),
+                    });
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Find the byte offset ranges of a field definition within a type
+/// Returns both name range (for selection) and full field definition range
+pub fn find_field_definition_full_range(
+    tree: &apollo_parser::SyntaxTree,
+    type_name: &str,
+    field_name: &str,
+) -> Option<SymbolRanges> {
+    let doc = tree.document();
+
+    for definition in doc.definitions() {
+        match definition {
+            cst::Definition::ObjectTypeDefinition(obj) => {
+                if obj.name().is_some_and(|n| n.text() == type_name) {
+                    if let Some(fields) = obj.fields_definition() {
+                        for field in fields.field_definitions() {
+                            if field.name().is_some_and(|n| n.text() == field_name) {
+                                let name = field.name().unwrap();
+                                let name_range = name.syntax().text_range();
+                                let def_range = field.syntax().text_range();
+                                return Some(SymbolRanges {
+                                    name_start: name_range.start().into(),
+                                    name_end: name_range.end().into(),
+                                    def_start: def_range.start().into(),
+                                    def_end: def_range.end().into(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            cst::Definition::InterfaceTypeDefinition(iface) => {
+                if iface.name().is_some_and(|n| n.text() == type_name) {
+                    if let Some(fields) = iface.fields_definition() {
+                        for field in fields.field_definitions() {
+                            if field.name().is_some_and(|n| n.text() == field_name) {
+                                let name = field.name().unwrap();
+                                let name_range = name.syntax().text_range();
+                                let def_range = field.syntax().text_range();
+                                return Some(SymbolRanges {
+                                    name_start: name_range.start().into(),
+                                    name_end: name_range.end().into(),
+                                    def_start: def_range.start().into(),
+                                    def_end: def_range.end().into(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            cst::Definition::InputObjectTypeDefinition(input) => {
+                if input.name().is_some_and(|n| n.text() == type_name) {
+                    if let Some(fields) = input.input_fields_definition() {
+                        for field in fields.input_value_definitions() {
+                            if field.name().is_some_and(|n| n.text() == field_name) {
+                                let name = field.name().unwrap();
+                                let name_range = name.syntax().text_range();
+                                let def_range = field.syntax().text_range();
+                                return Some(SymbolRanges {
+                                    name_start: name_range.start().into(),
+                                    name_end: name_range.end().into(),
+                                    def_start: def_range.start().into(),
+                                    def_end: def_range.end().into(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+/// Extract all definitions from a document for document symbols
+/// Returns a list of (name, kind, ranges) for each definition
+#[allow(clippy::too_many_lines)]
+pub fn extract_all_definitions(
+    tree: &apollo_parser::SyntaxTree,
+) -> Vec<(String, &'static str, SymbolRanges)> {
+    let doc = tree.document();
+    let mut results = Vec::new();
+
+    for definition in doc.definitions() {
+        match &definition {
+            cst::Definition::ObjectTypeDefinition(obj) => {
+                if let Some(name) = obj.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = obj.syntax().text_range();
+                    results.push((
+                        name.text().to_string(),
+                        "object",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            cst::Definition::InterfaceTypeDefinition(iface) => {
+                if let Some(name) = iface.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = iface.syntax().text_range();
+                    results.push((
+                        name.text().to_string(),
+                        "interface",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            cst::Definition::UnionTypeDefinition(union) => {
+                if let Some(name) = union.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = union.syntax().text_range();
+                    results.push((
+                        name.text().to_string(),
+                        "union",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            cst::Definition::EnumTypeDefinition(enum_def) => {
+                if let Some(name) = enum_def.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = enum_def.syntax().text_range();
+                    results.push((
+                        name.text().to_string(),
+                        "enum",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            cst::Definition::ScalarTypeDefinition(scalar) => {
+                if let Some(name) = scalar.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = scalar.syntax().text_range();
+                    results.push((
+                        name.text().to_string(),
+                        "scalar",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            cst::Definition::InputObjectTypeDefinition(input) => {
+                if let Some(name) = input.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = input.syntax().text_range();
+                    results.push((
+                        name.text().to_string(),
+                        "input",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            cst::Definition::OperationDefinition(op) => {
+                let name = op
+                    .name()
+                    .map_or_else(|| "<anonymous>".to_string(), |n| n.text().to_string());
+                let kind = op.operation_type().map_or("query", |op_type| {
+                    if op_type.mutation_token().is_some() {
+                        "mutation"
+                    } else if op_type.subscription_token().is_some() {
+                        "subscription"
+                    } else {
+                        "query"
+                    }
+                });
+
+                let def_range = op.syntax().text_range();
+                let name_range = op.name().map_or(def_range, |n| n.syntax().text_range());
+
+                results.push((
+                    name,
+                    kind,
+                    SymbolRanges {
+                        name_start: name_range.start().into(),
+                        name_end: name_range.end().into(),
+                        def_start: def_range.start().into(),
+                        def_end: def_range.end().into(),
+                    },
+                ));
+            }
+            cst::Definition::FragmentDefinition(frag) => {
+                if let Some(name) = frag.fragment_name().and_then(|n| n.name()) {
+                    let name_range = name.syntax().text_range();
+                    let def_range = frag.syntax().text_range();
+                    results.push((
+                        name.text().to_string(),
+                        "fragment",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
