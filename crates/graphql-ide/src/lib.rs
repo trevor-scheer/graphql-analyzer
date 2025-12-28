@@ -46,9 +46,9 @@ pub use file_registry::{FileRegistry, ProjectFilesDatabase};
 
 mod symbol;
 use symbol::{
-    find_fragment_definition_range, find_fragment_spreads, find_parent_type_at_offset,
-    find_symbol_at_offset, find_type_definition_range, find_type_references_in_tree,
-    get_parent_field_path, is_in_selection_set, Symbol,
+    find_field_definition_range, find_fragment_definition_range, find_fragment_spreads,
+    find_parent_type_at_offset, find_symbol_at_offset, find_type_definition_range,
+    find_type_references_in_tree, get_parent_field_path, is_in_selection_set, Symbol,
 };
 
 // Re-export database types that IDE layer needs
@@ -1026,6 +1026,7 @@ impl Analysis {
     /// Get goto definition locations for the symbol at a position
     ///
     /// Returns the definition location(s) for types, fields, fragments, etc.
+    #[allow(clippy::too_many_lines)]
     pub fn goto_definition(&self, file: &FilePath, position: Position) -> Option<Vec<Location>> {
         let (content, metadata) = {
             let registry = self.registry.read().unwrap();
@@ -1157,6 +1158,40 @@ impl Analysis {
                         file_path,
                         Range::new(Position::new(0, 0), Position::new(0, 0)),
                     )])
+                }
+            }
+            Symbol::FieldName { name: field_name } => {
+                // Get parent type context
+                let parent_context = find_parent_type_at_offset(&parse.tree, offset)?;
+                let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+
+                // Resolve the parent type by following the field path
+                let field_path = get_parent_field_path(&parse.tree, offset).unwrap_or_default();
+                let parent_type_name =
+                    resolve_parent_type_for_field(&parent_context.root_type, &field_path, &types);
+
+                // Find the parent type definition
+                let parent_type = types.get(parent_type_name.as_str())?;
+
+                // Get the schema file info
+                let registry = self.registry.read().unwrap();
+                let file_path = registry.get_path(parent_type.file_id)?;
+                let def_content = registry.get_content(parent_type.file_id)?;
+                let def_metadata = registry.get_metadata(parent_type.file_id)?;
+                drop(registry);
+
+                // Parse the schema file
+                let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
+
+                // Find the field definition range
+                if let Some((start_offset, end_offset)) =
+                    find_field_definition_range(&def_parse.tree, &parent_type_name, &field_name)
+                {
+                    let def_line_index = graphql_syntax::line_index(&self.db, def_content);
+                    let range = offset_range_to_range(&def_line_index, start_offset, end_offset);
+                    Some(vec![Location::new(file_path, range)])
+                } else {
+                    None
                 }
             }
             _ => None,
@@ -1420,6 +1455,33 @@ fn offset_range_to_range(
     let start = offset_to_position(line_index, start_offset);
     let end = offset_to_position(line_index, end_offset);
     Range::new(start, end)
+}
+
+/// Resolve the parent type for a field by walking the field path
+fn resolve_parent_type_for_field(
+    root_type: &str,
+    field_path: &[String],
+    types: &std::collections::HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
+) -> String {
+    let mut current_type = root_type.to_string();
+
+    for field_name in field_path {
+        if let Some(type_def) = types.get(current_type.as_str()) {
+            if let Some(field) = type_def
+                .fields
+                .iter()
+                .find(|f| f.name.as_ref() == field_name)
+            {
+                current_type = field.type_ref.name.to_string();
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    current_type
 }
 
 /// Convert analysis Position to IDE Position
@@ -1915,6 +1977,72 @@ mod tests {
         let locations = locations.unwrap();
         assert_eq!(locations.len(), 1);
         assert_eq!(locations[0].file.as_str(), schema_file.as_str());
+    }
+
+    #[test]
+    fn test_goto_definition_field_on_root_type() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User }\ntype User { id: ID! }",
+            FileKind::Schema,
+            0,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        // "query { user }" - "user" starts at position 8
+        host.add_file(
+            &query_file,
+            "query { user }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&query_file, Position::new(0, 9));
+
+        assert!(locations.is_some(), "Should find field definition");
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), schema_file.as_str());
+        // Should point to "user" field in Query type (line 0)
+        assert_eq!(locations[0].range.start.line, 0);
+    }
+
+    #[test]
+    fn test_goto_definition_nested_field() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User }\ntype User { name: String }",
+            FileKind::Schema,
+            0,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        // "query { user { name } }" - "name" starts at position 15
+        host.add_file(
+            &query_file,
+            "query { user { name } }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&query_file, Position::new(0, 16));
+
+        assert!(locations.is_some(), "Should find nested field definition");
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), schema_file.as_str());
+        // Should point to "name" field in User type (line 1)
+        assert_eq!(locations[0].range.start.line, 1);
     }
 
     #[test]

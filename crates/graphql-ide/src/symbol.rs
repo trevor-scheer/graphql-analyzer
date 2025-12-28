@@ -502,6 +502,59 @@ pub fn find_type_definition_range(
     None
 }
 
+/// Find the byte offset range of a field definition within a type
+pub fn find_field_definition_range(
+    tree: &apollo_parser::SyntaxTree,
+    type_name: &str,
+    field_name: &str,
+) -> Option<(usize, usize)> {
+    let doc = tree.document();
+
+    for definition in doc.definitions() {
+        match definition {
+            cst::Definition::ObjectTypeDefinition(obj) => {
+                if obj.name().is_some_and(|n| n.text() == type_name) {
+                    if let Some(fields) = obj.fields_definition() {
+                        for field in fields.field_definitions() {
+                            if field.name().is_some_and(|n| n.text() == field_name) {
+                                let range = field.name().unwrap().syntax().text_range();
+                                return Some((range.start().into(), range.end().into()));
+                            }
+                        }
+                    }
+                }
+            }
+            cst::Definition::InterfaceTypeDefinition(iface) => {
+                if iface.name().is_some_and(|n| n.text() == type_name) {
+                    if let Some(fields) = iface.fields_definition() {
+                        for field in fields.field_definitions() {
+                            if field.name().is_some_and(|n| n.text() == field_name) {
+                                let range = field.name().unwrap().syntax().text_range();
+                                return Some((range.start().into(), range.end().into()));
+                            }
+                        }
+                    }
+                }
+            }
+            cst::Definition::InputObjectTypeDefinition(input) => {
+                if input.name().is_some_and(|n| n.text() == type_name) {
+                    if let Some(fields) = input.input_fields_definition() {
+                        for field in fields.input_value_definitions() {
+                            if field.name().is_some_and(|n| n.text() == field_name) {
+                                let range = field.name().unwrap().syntax().text_range();
+                                return Some((range.start().into(), range.end().into()));
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
 /// Find all fragment spreads with a specific name in a syntax tree
 pub fn find_fragment_spreads(
     tree: &apollo_parser::SyntaxTree,
