@@ -4,6 +4,15 @@ import * as https from "https";
 import { promisify } from "util";
 import { exec } from "child_process";
 import { ExtensionContext, window, OutputChannel, ProgressLocation } from "vscode";
+import * as os from "os";
+// Expands a leading ~ to the user's home directory
+function expandTilde(inputPath: string): string {
+  if (!inputPath) return inputPath;
+  if (inputPath.startsWith("~")) {
+    return path.join(os.homedir(), inputPath.slice(1));
+  }
+  return inputPath;
+}
 
 const execAsync = promisify(exec);
 
@@ -232,17 +241,19 @@ export async function findServerBinary(
   customPath?: string
 ): Promise<string> {
   if (customPath && customPath.trim() !== "") {
-    outputChannel.appendLine(`Checking custom path: ${customPath}`);
-    if (fs.existsSync(customPath)) {
-      outputChannel.appendLine(`Found binary at custom path: ${customPath}`);
-      return customPath;
+    const expandedCustomPath = expandTilde(customPath.trim());
+    outputChannel.appendLine(`Checking custom path: ${expandedCustomPath}`);
+    if (fs.existsSync(expandedCustomPath)) {
+      outputChannel.appendLine(`Found binary at custom path: ${expandedCustomPath}`);
+      return expandedCustomPath;
     } else {
-      outputChannel.appendLine(`Custom path does not exist: ${customPath}`);
+      outputChannel.appendLine(`Custom path does not exist: ${expandedCustomPath}`);
     }
   }
 
-  const envPath = process.env.GRAPHQL_LSP_PATH;
-  if (envPath && envPath.trim() !== "") {
+  const envPathRaw = process.env.GRAPHQL_LSP_PATH;
+  if (envPathRaw && envPathRaw.trim() !== "") {
+    const envPath = expandTilde(envPathRaw.trim());
     outputChannel.appendLine(`Checking GRAPHQL_LSP_PATH: ${envPath}`);
     if (fs.existsSync(envPath)) {
       outputChannel.appendLine(`Found binary at GRAPHQL_LSP_PATH: ${envPath}`);
