@@ -1784,9 +1784,13 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
         let line_index = graphql_syntax::line_index(&self.db, content);
+        let line_offset = metadata.line_offset(&self.db);
 
         let ranges = find_type_definition_full_range(&parse.tree, &type_def.name)?;
-        let range = offset_range_to_range(&line_index, ranges.name_start, ranges.name_end);
+        let range = adjust_range_for_line_offset(
+            offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
+            line_offset,
+        );
 
         Some(Location::new(file_path, range))
     }
@@ -1801,9 +1805,13 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
         let line_index = graphql_syntax::line_index(&self.db, content);
+        let line_offset = metadata.line_offset(&self.db);
 
         let ranges = find_fragment_definition_full_range(&parse.tree, &fragment.name)?;
-        let range = offset_range_to_range(&line_index, ranges.name_start, ranges.name_end);
+        let range = adjust_range_for_line_offset(
+            offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
+            line_offset,
+        );
 
         Some(Location::new(file_path, range))
     }
@@ -1823,9 +1831,13 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
         let line_index = graphql_syntax::line_index(&self.db, content);
+        let line_offset = metadata.line_offset(&self.db);
 
         let ranges = find_operation_definition_ranges(&parse.tree, op_name)?;
-        let range = offset_range_to_range(&line_index, ranges.name_start, ranges.name_end);
+        let range = adjust_range_for_line_offset(
+            offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
+            line_offset,
+        );
 
         Some(Location::new(file_path, range))
     }
