@@ -4,8 +4,8 @@
 #![allow(dead_code)] // Temporary - during Phase 6 cleanup
 
 use crate::conversions::{
-    convert_ide_completion_item, convert_ide_diagnostic, convert_ide_hover, convert_ide_location,
-    convert_lsp_position,
+    convert_ide_completion_item, convert_ide_diagnostic, convert_ide_document_symbol,
+    convert_ide_hover, convert_ide_location, convert_ide_workspace_symbol, convert_lsp_position,
 };
 use dashmap::DashMap;
 use graphql_config::find_config;
@@ -1096,9 +1096,40 @@ impl LanguageServer for GraphQLLanguageServer {
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
-        tracing::debug!("Document symbols requested: {:?}", params.text_document.uri);
-        // TODO: Implement document symbols
-        Ok(None)
+        let uri = params.text_document.uri;
+        tracing::debug!("Document symbols requested: {:?}", uri);
+
+        // Find workspace for this document
+        let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
+            tracing::warn!("No project found for document: {:?}", uri);
+            return Ok(None);
+        };
+
+        // Get AnalysisHost and create snapshot
+        let host = self.get_or_create_host(&workspace_uri, &project_name);
+        let analysis = {
+            let host_guard = host.lock().await;
+            host_guard.snapshot()
+        };
+
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
+
+        // Get document symbols from Analysis
+        let symbols = analysis.document_symbols(&file_path);
+
+        if symbols.is_empty() {
+            tracing::debug!("No symbols found in document");
+            return Ok(None);
+        }
+
+        // Convert to LSP types
+        let lsp_symbols: Vec<lsp_types::DocumentSymbol> = symbols
+            .into_iter()
+            .map(convert_ide_document_symbol)
+            .collect();
+
+        tracing::debug!("Returning {} document symbols", lsp_symbols.len());
+        Ok(Some(DocumentSymbolResponse::Nested(lsp_symbols)))
     }
 
     async fn symbol(
@@ -1106,8 +1137,30 @@ impl LanguageServer for GraphQLLanguageServer {
         params: WorkspaceSymbolParams,
     ) -> Result<Option<OneOf<Vec<SymbolInformation>, Vec<WorkspaceSymbol>>>> {
         tracing::debug!("Workspace symbols requested: {}", params.query);
-        // TODO: Implement workspace symbols
-        Ok(None)
+
+        // Search across all projects in all workspaces
+        let mut all_symbols = Vec::new();
+
+        for entry in self.hosts.iter() {
+            let host = entry.value();
+            let analysis = {
+                let host_guard = host.lock().await;
+                host_guard.snapshot()
+            };
+
+            let symbols = analysis.workspace_symbols(&params.query);
+            for symbol in symbols {
+                all_symbols.push(convert_ide_workspace_symbol(symbol));
+            }
+        }
+
+        if all_symbols.is_empty() {
+            tracing::debug!("No workspace symbols found matching query");
+            return Ok(None);
+        }
+
+        tracing::debug!("Returning {} workspace symbols", all_symbols.len());
+        Ok(Some(OneOf::Right(all_symbols)))
     }
 
     #[allow(
