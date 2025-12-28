@@ -23,17 +23,14 @@ pub fn validate_document(
     metadata: FileMetadata,
     project_files: graphql_db::ProjectFiles,
 ) -> Arc<Vec<Diagnostic>> {
-    tracing::info!("validate_document: Starting validation");
     let mut diagnostics = Vec::new();
 
     // Get the merged schema
     let Some(schema) = crate::merged_schema::merged_schema(db, project_files) else {
-        tracing::info!("No schema available for document validation - cannot validate");
         // Without a schema, we can't validate documents
         // Return empty diagnostics (syntax errors are handled elsewhere)
         return Arc::new(diagnostics);
     };
-    tracing::info!("Merged schema obtained successfully");
 
     // Get the document text
     // For TypeScript/JavaScript files, we need to use the extracted GraphQL, not the full file
@@ -43,7 +40,6 @@ pub fn validate_document(
     {
         // Skip files with no GraphQL blocks
         if parse.blocks.is_empty() {
-            tracing::info!("Skipping validation for file with no GraphQL blocks");
             return Arc::new(diagnostics);
         }
 
@@ -61,23 +57,11 @@ pub fn validate_document(
     };
 
     let doc_uri = metadata.uri(db);
-    tracing::info!(
-        uri = ?doc_uri,
-        doc_length = doc_text.len(),
-        kind = ?metadata.kind(db),
-        "Document info"
-    );
 
     // Collect fragment names referenced by this document (transitively across files)
     let document_files = project_files.document_files(db);
     let referenced_fragments =
         collect_referenced_fragments_transitive(&doc_text, &doc_uri, &document_files, db);
-
-    tracing::info!(
-        fragment_count = referenced_fragments.len(),
-        fragments = ?referenced_fragments,
-        "Found referenced fragments (transitive)"
-    );
 
     // Use builder pattern to construct the executable document
     // This allows us to add fragments individually with proper source tracking
@@ -96,30 +80,14 @@ pub fn validate_document(
         .source_offset(offset)
         .parse_into_executable_builder(doc_text.as_ref(), doc_uri.as_str(), &mut builder);
 
-    tracing::debug!("Added current document to builder");
-
     // Add referenced fragments
-    if referenced_fragments.is_empty() {
-        tracing::info!("No referenced fragments to add");
-    } else {
-        tracing::info!(
-            document_file_count = document_files.len(),
-            "Adding {} referenced fragments",
-            referenced_fragments.len()
-        );
+    if !referenced_fragments.is_empty() {
         for (_file_id, file_content, file_metadata) in document_files.iter() {
             let text = file_content.text(db);
             let uri = file_metadata.uri(db);
 
-            tracing::debug!(
-                file = ?uri,
-                text_length = text.len(),
-                "Checking file for fragments"
-            );
-
             // Skip the current document (already included)
             if uri.as_str() == doc_uri.as_str() {
-                tracing::debug!(file = ?uri, "Skipping current document");
                 continue;
             }
 
@@ -144,22 +112,17 @@ pub fn validate_document(
                 };
 
                 // Extract and add only the specific fragments we need
-                tracing::info!(file = ?uri, kind = ?file_metadata.kind(db), "Adding file with fragments to builder");
                 apollo_compiler::parser::Parser::new().parse_into_executable_builder(
                     &fragment_text,
                     uri.as_str(),
                     &mut builder,
                 );
-                tracing::info!(file = ?uri, "Successfully added fragments from file");
-            } else {
-                tracing::debug!(file = ?uri, "File does not define any referenced fragments, skipping");
             }
         }
     }
 
     // Build and validate
     let doc = builder.build();
-    tracing::info!("Document built, running validation");
 
     match if errors.is_empty() {
         doc.validate(valid_schema)
@@ -170,15 +133,10 @@ pub fn validate_document(
     } {
         Ok(_valid_document) => {
             // Document is valid
-            tracing::info!("Document validated successfully - no errors");
         }
         Err(error_list) => {
             // Convert apollo-compiler diagnostics to our format
             // Only include diagnostics for the current file
-            tracing::info!(
-                error_count = error_list.len(),
-                "Apollo-compiler found validation errors"
-            );
 
             // Get line offset for TypeScript/JavaScript extraction
             let line_offset = metadata.line_offset(db);
@@ -197,11 +155,6 @@ pub fn validate_document(
                         let diag_file_path = source_file.path();
                         // Only include diagnostics that belong to the current file
                         if diag_file_path != doc_uri.as_str() {
-                            tracing::debug!(
-                                diag_file = ?diag_file_path,
-                                current_file = ?doc_uri.as_str(),
-                                "Skipping diagnostic from different file"
-                            );
                             continue;
                         }
                     }
@@ -243,11 +196,6 @@ pub fn validate_document(
                     code: None,
                 });
             }
-
-            tracing::debug!(
-                diagnostic_count = diagnostics.len(),
-                "Document validation found errors for current file"
-            );
         }
     }
 
@@ -413,12 +361,10 @@ fn file_defines_any_fragment(
 
     if tree.errors().next().is_some() {
         // If there are parse errors, skip this file
-        tracing::debug!("Skipping file with parse errors");
         return false;
     }
 
     let document = tree.document();
-    let mut found_fragments = Vec::new();
 
     for definition in document.definitions() {
         if let apollo_parser::cst::Definition::FragmentDefinition(frag) = definition {
@@ -426,12 +372,7 @@ fn file_defines_any_fragment(
                 if let Some(name_node) = name.name() {
                     let frag_name = name_node.text();
                     let frag_name_str = frag_name.as_str();
-                    found_fragments.push(frag_name_str.to_string());
                     if fragment_names.contains(frag_name_str) {
-                        tracing::info!(
-                            fragment = frag_name_str,
-                            "Found matching fragment definition"
-                        );
                         return true;
                     }
                 }
@@ -439,11 +380,6 @@ fn file_defines_any_fragment(
         }
     }
 
-    tracing::debug!(
-        found_fragments = ?found_fragments,
-        looking_for = ?fragment_names,
-        "No matching fragments found in file"
-    );
     false
 }
 

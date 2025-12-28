@@ -356,13 +356,6 @@ impl AnalysisHost {
     /// **IMPORTANT**: This does NOT rebuild `ProjectFiles`. Caller must call `rebuild_project_files()`
     /// after batch adding multiple files to avoid O(n²) performance.
     pub fn add_file(&mut self, path: &FilePath, content: &str, kind: FileKind, line_offset: u32) {
-        tracing::debug!(
-            "AnalysisHost::add_file: path={}, content_len={}, kind={:?}, line_offset={}",
-            path.as_str(),
-            content.len(),
-            kind,
-            line_offset
-        );
         let mut registry = self.registry.write().unwrap();
         registry.add_file(&mut self.db, path, content, kind, line_offset);
     }
@@ -373,7 +366,6 @@ impl AnalysisHost {
     /// It's relatively expensive as it iterates through all files, so avoid calling
     /// it in a loop.
     pub fn rebuild_project_files(&mut self) {
-        tracing::debug!("Rebuilding ProjectFiles index");
         let mut registry = self.registry.write().unwrap();
         registry.rebuild_project_files(&mut self.db);
     }
@@ -423,7 +415,6 @@ impl AnalysisHost {
             FileKind::Schema,
             0,
         );
-        tracing::info!("Loaded Apollo Client built-in directives");
         let mut count = 1;
 
         // Get schema patterns from config
@@ -431,8 +422,6 @@ impl AnalysisHost {
             graphql_config::SchemaConfig::Path(s) => vec![s.clone()],
             graphql_config::SchemaConfig::Paths(arr) => arr.clone(),
         };
-
-        tracing::info!("Loading {} schema pattern(s)", patterns.len());
 
         for pattern in patterns {
             // Skip URLs - these would need introspection support
@@ -443,13 +432,11 @@ impl AnalysisHost {
 
             // Treat as file glob pattern
             let full_pattern = base_dir.join(&pattern).display().to_string();
-            tracing::debug!("Expanding glob pattern: {}", full_pattern);
 
             match glob::glob(&full_pattern) {
                 Ok(paths) => {
                     for entry in paths.flatten() {
                         if entry.is_file() {
-                            tracing::debug!("Loading schema file: {}", entry.display());
                             match std::fs::read_to_string(&entry) {
                                 Ok(content) => {
                                     // Convert filesystem path to file:// URI for consistent lookups
@@ -461,7 +448,6 @@ impl AnalysisHost {
                                         0, // No line offset for pure GraphQL files
                                     );
                                     count += 1;
-                                    tracing::info!("Loaded schema: {}", entry.display());
                                 }
                                 Err(e) => {
                                     let path_display = entry.display().to_string();
@@ -485,7 +471,7 @@ impl AnalysisHost {
             }
         }
 
-        tracing::info!("Loaded {} schema file(s) total", count);
+        tracing::info!("Loaded {} schema file(s)", count);
         Ok(count)
     }
 
@@ -721,10 +707,6 @@ impl Analysis {
 
         // Return empty if there are syntax errors
         if !parse.errors.is_empty() {
-            tracing::debug!(
-                "Completions: file has syntax errors, returning empty list. Errors: {:?}",
-                parse.errors
-            );
             return Some(Vec::new());
         }
 
@@ -734,24 +716,12 @@ impl Analysis {
         // Adjust position for line_offset (for extracted GraphQL from TypeScript/JavaScript)
         let line_offset = metadata.line_offset(&self.db);
         let adjusted_position = adjust_position_for_line_offset(position, line_offset)?;
-        tracing::debug!(
-            "Completions: original position {:?}, line_offset {}, adjusted position {:?}",
-            position,
-            line_offset,
-            adjusted_position
-        );
 
         // Convert position to byte offset
         let offset = position_to_offset(&line_index, adjusted_position)?;
-        tracing::debug!(
-            "Completions: position {:?} -> offset {}",
-            adjusted_position,
-            offset
-        );
 
         // Find what symbol we're completing (or near)
         let symbol = find_symbol_at_offset(&parse.tree, offset);
-        tracing::debug!("Completions: symbol at offset = {:?}", symbol);
 
         // Determine completion context and provide appropriate completions
         match symbol {
@@ -772,12 +742,10 @@ impl Analysis {
             None => {
                 // No specific symbol - check if we're in a selection set
                 let Some(project_files) = self.project_files else {
-                    tracing::debug!("Completions: no project files available");
                     return Some(Vec::new());
                 };
 
                 let in_selection_set = is_in_selection_set(&parse.tree, offset);
-                tracing::debug!("Completions: in_selection_set = {}", in_selection_set);
 
                 if in_selection_set {
                     // We're in a selection set - determine the parent type
