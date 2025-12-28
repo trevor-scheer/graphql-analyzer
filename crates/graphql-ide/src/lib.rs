@@ -109,6 +109,28 @@ impl From<&str> for FilePath {
     }
 }
 
+/// Convert a filesystem path to a file:// URI
+///
+/// This handles the common case of absolute Unix paths.
+/// If the path is already a URI (starts with a scheme), it's returned as-is.
+fn path_to_file_uri(path: &std::path::Path) -> String {
+    let path_str = path.to_string_lossy();
+
+    // Already a URI
+    if path_str.starts_with("file://") || path_str.contains("://") {
+        return path_str.to_string();
+    }
+
+    // Absolute Unix path
+    if path_str.starts_with('/') {
+        return format!("file://{path_str}");
+    }
+
+    // For other cases (relative paths, Windows paths), just use as-is
+    // A more complete implementation would handle Windows drive letters
+    path_str.to_string()
+}
+
 /// Location in a specific file
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Location {
@@ -430,8 +452,10 @@ impl AnalysisHost {
                             tracing::debug!("Loading schema file: {}", entry.display());
                             match std::fs::read_to_string(&entry) {
                                 Ok(content) => {
+                                    // Convert filesystem path to file:// URI for consistent lookups
+                                    let file_uri = path_to_file_uri(&entry);
                                     self.add_file(
-                                        &FilePath::new(entry.to_string_lossy().to_string()),
+                                        &FilePath::new(file_uri),
                                         &content,
                                         FileKind::Schema,
                                         0, // No line offset for pure GraphQL files
@@ -2042,6 +2066,36 @@ mod tests {
         assert_eq!(locations.len(), 1);
         assert_eq!(locations[0].file.as_str(), schema_file.as_str());
         // Should point to "name" field in User type (line 1)
+        assert_eq!(locations[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn test_goto_definition_schema_field_type() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        // "type Query { user: User }" - "User" return type starts at position 19
+        // "type User { id: ID! }" on line 1
+        host.add_file(
+            &schema_file,
+            "type Query { user: User }\ntype User { id: ID! }",
+            FileKind::Schema,
+            0,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Click on "User" in "user: User"
+        let locations = snapshot.goto_definition(&schema_file, Position::new(0, 20));
+
+        assert!(
+            locations.is_some(),
+            "Should find type definition from field return type"
+        );
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), schema_file.as_str());
+        // Should point to "User" type definition (line 1)
         assert_eq!(locations[0].range.start.line, 1);
     }
 
