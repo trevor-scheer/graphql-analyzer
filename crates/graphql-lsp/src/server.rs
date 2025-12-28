@@ -112,7 +112,6 @@ impl GraphQLLanguageServer {
         };
 
         // Extract GraphQL from TS/JS using provided config
-        tracing::info!("Attempting to extract GraphQL from TS/JS file: {}", path);
         match extract_from_source(source, language, config) {
             Ok(extracted) if !extracted.is_empty() => {
                 // Concatenate all extracted GraphQL blocks
@@ -124,22 +123,10 @@ impl GraphQLLanguageServer {
                 let line_offset = extracted[0].location.range.start.line as u32;
 
                 let result = combined_graphql.join("\n\n");
-                tracing::info!(
-                    "Successfully extracted GraphQL from {}: {} blocks, {} chars, line_offset={}",
-                    path,
-                    extracted.len(),
-                    result.len(),
-                    line_offset
-                );
                 (result, line_offset)
             }
-            Ok(extracted) => {
+            Ok(_extracted) => {
                 // No GraphQL found in TS/JS file - return empty string
-                tracing::warn!(
-                    "No GraphQL found in TypeScript/JavaScript file: {} (extracted {} blocks)",
-                    path,
-                    extracted.len()
-                );
                 (String::new(), 0)
             }
             Err(e) => {
@@ -240,13 +227,6 @@ impl GraphQLLanguageServer {
         config: &graphql_config::GraphQLConfig,
     ) {
         let start = std::time::Instant::now();
-        // For each project, use a unique AnalysisHost per (workspace, project)
-        tracing::debug!(
-            "load_all_project_files: workspace_uri={}, workspace_path={:?}",
-            workspace_uri,
-            workspace_path
-        );
-
         // Collect projects into a Vec to avoid holding iterator across await
         let projects: Vec<_> = config.projects().collect();
         tracing::info!("Loading files for {} project(s)", projects.len());
@@ -262,14 +242,9 @@ impl GraphQLLanguageServer {
                     match serde_json::from_value::<graphql_extract::ExtractConfig>(
                         extract_config_value.clone(),
                     ) {
-                        Ok(config) => {
-                            tracing::info!("Loaded extract configuration from project config");
-                            Some(config)
-                        }
+                        Ok(config) => Some(config),
                         Err(e) => {
-                            tracing::warn!(
-                                "Failed to parse extract configuration: {e}, using defaults"
-                            );
+                            tracing::warn!("Failed to parse extract config: {e}, using defaults");
                             None
                         }
                     }
@@ -318,38 +293,26 @@ impl GraphQLLanguageServer {
                     .map(std::string::ToString::to_string)
                     .collect();
 
-                tracing::info!("Loading document files with {} patterns", patterns.len());
-
                 let mut total_files_loaded = 0;
 
                 for pattern in patterns {
                     // Skip negation patterns (starting with !)
                     if pattern.trim().starts_with('!') {
-                        tracing::info!("Skipping negation pattern: {}", pattern);
                         continue;
                     }
 
-                    tracing::info!("Processing pattern: {}", pattern);
-
                     // Expand brace patterns like {ts,tsx} since glob crate doesn't support them
                     let expanded_patterns = Self::expand_braces(&pattern);
-                    tracing::info!("Expanded into {} patterns", expanded_patterns.len());
 
                     for expanded_pattern in expanded_patterns {
                         // Resolve pattern relative to workspace
                         let full_pattern = workspace_path.join(&expanded_pattern);
-
-                        tracing::debug!("Globbing: {}", full_pattern.display());
 
                         match glob::glob(&full_pattern.display().to_string()) {
                             Ok(paths) => {
                                 for entry in paths {
                                     match entry {
                                         Ok(path) if path.is_file() => {
-                                            tracing::debug!(
-                                                "File matched pattern: {}",
-                                                path.display()
-                                            );
                                             // Skip node_modules
                                             if path
                                                 .components()
@@ -419,7 +382,6 @@ impl GraphQLLanguageServer {
                                                     let uri = format!("file:///{path_str}");
                                                     let file_path =
                                                         graphql_ide::FilePath::new(uri.clone());
-                                                    tracing::debug!("Adding file to AnalysisHost: uri={}, file_path={:?}, kind={:?}, line_offset={}", uri, file_path, final_kind, line_offset);
                                                     // Release host lock for each file to allow concurrent access
                                                     let mut host_guard = host.lock().await;
                                                     host_guard.add_file(
@@ -431,11 +393,6 @@ impl GraphQLLanguageServer {
                                                     drop(host_guard); // Explicitly drop to release lock
 
                                                     total_files_loaded += 1;
-                                                    tracing::debug!(
-                                                        "Loaded document file #{}: {}",
-                                                        total_files_loaded,
-                                                        path.display()
-                                                    );
                                                 }
                                                 Err(e) => {
                                                     tracing::warn!(
@@ -574,8 +531,6 @@ impl GraphQLLanguageServer {
         let doc_path = document_uri.to_file_path()?;
         let file_path = graphql_ide::FilePath::new(document_uri.to_string());
 
-        tracing::debug!("Finding workspace for document: {}", doc_path.display());
-
         // First, check if file is already loaded in any host (fast path)
         for host_entry in self.hosts.iter() {
             let (workspace_uri, project_name) = host_entry.key();
@@ -584,17 +539,10 @@ impl GraphQLLanguageServer {
             // Try to acquire lock without blocking - skip if locked
             if let Ok(host) = host_mutex.try_lock() {
                 if host.contains_file(&file_path) {
-                    tracing::debug!(
-                        "Document found in host for project '{}' in workspace '{}'",
-                        project_name,
-                        workspace_uri
-                    );
                     return Some((workspace_uri.clone(), project_name.clone()));
                 }
             }
         }
-
-        tracing::debug!("Document not in any host, falling back to config pattern matching");
 
         // Fallback: use config pattern matching (for files opened after init)
         for workspace_entry in self.workspace_roots.iter() {
@@ -606,28 +554,13 @@ impl GraphQLLanguageServer {
                     if let Some(project_name) =
                         config.find_project_for_document(&doc_path, workspace_path)
                     {
-                        tracing::info!(
-                            "Document matched to project '{}' via config patterns",
-                            project_name
-                        );
                         return Some((workspace_uri.clone(), project_name.to_string()));
                     }
-
-                    tracing::warn!(
-                        "Document is in workspace but doesn't match any project patterns: {}",
-                        doc_path.display()
-                    );
-                } else {
-                    tracing::warn!("Workspace found but no config loaded: {}", workspace_uri);
                 }
                 return None;
             }
         }
 
-        tracing::warn!(
-            "Document not in any known workspace: {}",
-            doc_path.display()
-        );
         None
     }
 
@@ -635,15 +568,11 @@ impl GraphQLLanguageServer {
     #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self), fields(path = ?uri.to_file_path().unwrap()))]
     async fn validate_document(&self, uri: Uri) {
-        tracing::debug!("Starting document validation for uri: {:?}", uri);
-
         // Find the workspace for this document
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No workspace/project found for document");
             return;
         };
-
-        tracing::debug!(project = %project_name, "Document matched to project");
 
         // Get the analysis host for this workspace/project
         let Some(host_mutex) = self
@@ -657,20 +586,10 @@ impl GraphQLLanguageServer {
 
         // Get the file path
         let file_path = graphql_ide::FilePath::new(uri.as_str());
-        tracing::debug!("validate_document: file_path={:?}", file_path);
 
         // Get diagnostics from the IDE layer
         let snapshot = host.snapshot();
         let diagnostics = snapshot.diagnostics(&file_path);
-        tracing::debug!(
-            "validate_document: diagnostics count for file_path={:?} is {}",
-            file_path,
-            diagnostics.len()
-        );
-        tracing::debug!(
-            diagnostic_count = diagnostics.len(),
-            "Got diagnostics from IDE layer"
-        );
 
         // Convert IDE diagnostics to LSP diagnostics
         let lsp_diagnostics: Vec<Diagnostic> = diagnostics
@@ -682,8 +601,6 @@ impl GraphQLLanguageServer {
         self.client
             .publish_diagnostics(uri, lsp_diagnostics, None)
             .await;
-
-        tracing::debug!("Published diagnostics");
     }
 }
 impl GraphQLLanguageServer {
@@ -865,15 +782,9 @@ impl LanguageServer for GraphQLLanguageServer {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
         let content = params.text_document.text;
-        tracing::info!(
-            content_len = content.len(),
-            first_100 = ?&content[..100.min(content.len())],
-            "Document opened"
-        );
 
         // Add to AnalysisHost
         if let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) {
-            tracing::debug!(project = %project_name, "Document opened in project");
             let _file_path = uri.to_file_path();
 
             // Get extract config from host
@@ -890,18 +801,10 @@ impl LanguageServer for GraphQLLanguageServer {
             // Determine file kind by inspecting path and content
             let file_kind =
                 graphql_syntax::determine_file_kind_from_content(uri.path().as_str(), &content);
-            tracing::info!("Determined file_kind: {:?}", file_kind);
 
             // Extract GraphQL from TypeScript/JavaScript files
-            tracing::info!("About to extract GraphQL, path={}", uri.path().as_str());
             let (final_content, line_offset) =
                 Self::extract_graphql_from_source(uri.path().as_str(), &content, &extract_config);
-            tracing::info!(
-                extracted_len = final_content.len(),
-                line_offset = line_offset,
-                first_100 = ?&final_content[..100.min(final_content.len())],
-                "Extracted GraphQL content"
-            );
 
             // IMPORTANT: After extraction, the content is pure GraphQL, so change the kind to ExecutableGraphQL
             // This prevents the syntax layer from trying to extract again
@@ -914,8 +817,6 @@ impl LanguageServer for GraphQLLanguageServer {
                 _ => file_kind,
             };
 
-            tracing::info!("Adding to host: workspace={}, uri={:?}, content_len={}, file_kind={:?}, line_offset={}",
-                workspace_uri, uri, final_content.len(), final_kind, line_offset);
             {
                 let host = self.get_or_create_host(&workspace_uri, &project_name);
                 let file_path = graphql_ide::FilePath::new(uri.to_string());
@@ -931,20 +832,11 @@ impl LanguageServer for GraphQLLanguageServer {
     #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
-        let start = std::time::Instant::now();
-        tracing::info!("Document changed");
 
         // Get the latest content from changes (full sync mode)
         for change in params.content_changes {
-            tracing::info!(
-                change_len = change.text.len(),
-                first_100 = ?&change.text[..100.min(change.text.len())],
-                "Processing content change"
-            );
-
             // Update AnalysisHost
             if let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) {
-                tracing::debug!(project = %project_name, "Document changed in project");
                 let _file_path = uri.to_file_path();
 
                 // Get extract config from host
@@ -963,23 +855,12 @@ impl LanguageServer for GraphQLLanguageServer {
                     uri.path().as_str(),
                     &change.text,
                 );
-                tracing::info!("did_change determined file_kind: {:?}", file_kind);
 
                 // Extract GraphQL from TypeScript/JavaScript files
-                tracing::info!(
-                    "did_change about to extract GraphQL, path={}",
-                    uri.path().as_str()
-                );
                 let (final_content, line_offset) = Self::extract_graphql_from_source(
                     uri.path().as_str(),
                     &change.text,
                     &extract_config,
-                );
-                tracing::info!(
-                    extracted_len = final_content.len(),
-                    line_offset = line_offset,
-                    first_100 = ?&final_content[..100.min(final_content.len())],
-                    "did_change extracted GraphQL content"
                 );
 
                 // IMPORTANT: After extraction, the content is pure GraphQL, so change the kind to ExecutableGraphQL
@@ -1004,24 +885,17 @@ impl LanguageServer for GraphQLLanguageServer {
             // Validate immediately - Salsa's incremental computation makes this fast
             self.validate_document(uri.clone()).await;
         }
-
-        tracing::debug!(
-            elapsed_ms = start.elapsed().as_millis(),
-            "Completed did_change with validation"
-        );
     }
 
     #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        tracing::info!("Document saved: {:?}", params.text_document.uri);
+        let _uri = params.text_document.uri;
         // NOTE: Cross-file dependency tracking and revalidation should be handled
         // by the Analysis layer, not the LSP layer. For now, files are only revalidated
         // when they are opened or changed.
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        tracing::info!("Document closed: {:?}", params.text_document.uri);
-
         // NOTE: We intentionally do NOT remove the file from AnalysisHost when it's closed.
         // The file is still part of the project on disk, and other files may reference
         // fragments/types defined in it. Only files that are deleted from disk should be
@@ -1081,11 +955,8 @@ impl LanguageServer for GraphQLLanguageServer {
         let uri = params.text_document_position.text_document.uri;
         let lsp_position = params.text_document_position.position;
 
-        tracing::debug!("Completion requested: {:?} at {:?}", uri, lsp_position);
-
         // Find workspace for this document
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
-            tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
@@ -1116,11 +987,8 @@ impl LanguageServer for GraphQLLanguageServer {
         let uri = params.text_document_position_params.text_document.uri;
         let lsp_position = params.text_document_position_params.position;
 
-        tracing::debug!("Hover requested: {:?} at {:?}", uri, lsp_position);
-
         // Find workspace for this document
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
-            tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
@@ -1150,20 +1018,11 @@ impl LanguageServer for GraphQLLanguageServer {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let start = std::time::Instant::now();
         let uri = params.text_document_position_params.text_document.uri;
         let lsp_position = params.text_document_position_params.position;
 
-        tracing::info!(
-            "Go to definition requested: {:?} at line={} char={}",
-            uri,
-            lsp_position.line,
-            lsp_position.character
-        );
-
         // Find workspace for this document
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
-            tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
@@ -1180,34 +1039,11 @@ impl LanguageServer for GraphQLLanguageServer {
 
         // Get goto definition from Analysis
         let Some(locations) = analysis.goto_definition(&file_path, position) else {
-            tracing::info!(
-                "Goto definition completed in {:?}, returning 0 locations",
-                start.elapsed()
-            );
             return Ok(None);
         };
 
         // Convert graphql-ide Locations to LSP Locations
-        let lsp_locations: Vec<Location> = locations
-            .iter()
-            .map(|loc| {
-                tracing::info!(
-                    "Returning location: file={}, range={}:{} to {}:{}",
-                    loc.file.as_str(),
-                    loc.range.start.line,
-                    loc.range.start.character,
-                    loc.range.end.line,
-                    loc.range.end.character
-                );
-                convert_ide_location(loc)
-            })
-            .collect();
-
-        tracing::info!(
-            "Goto definition completed in {:?}, returning {} location(s)",
-            start.elapsed(),
-            lsp_locations.len()
-        );
+        let lsp_locations: Vec<Location> = locations.iter().map(convert_ide_location).collect();
 
         if lsp_locations.is_empty() {
             Ok(None)
@@ -1217,22 +1053,12 @@ impl LanguageServer for GraphQLLanguageServer {
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        let start = std::time::Instant::now();
         let uri = params.text_document_position.text_document.uri;
         let lsp_position = params.text_document_position.position;
         let include_declaration = params.context.include_declaration;
 
-        tracing::info!(
-            "Find references requested: {:?} at line={} char={} (include_declaration: {})",
-            uri,
-            lsp_position.line,
-            lsp_position.character,
-            include_declaration
-        );
-
         // Find workspace for this document
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
-            tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
@@ -1250,7 +1076,6 @@ impl LanguageServer for GraphQLLanguageServer {
         // Find references from Analysis
         let Some(locations) = analysis.find_references(&file_path, position, include_declaration)
         else {
-            tracing::info!("No references found at position {:?}", position);
             return Ok(None);
         };
 
@@ -1259,12 +1084,6 @@ impl LanguageServer for GraphQLLanguageServer {
             .into_iter()
             .map(|loc| convert_ide_location(&loc))
             .collect();
-
-        tracing::info!(
-            "Find references completed in {:?}, returning {} location(s)",
-            start.elapsed(),
-            lsp_locations.len()
-        );
 
         if lsp_locations.is_empty() {
             Ok(None)
