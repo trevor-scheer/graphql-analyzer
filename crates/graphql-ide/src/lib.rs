@@ -1564,6 +1564,9 @@ impl Analysis {
         let parse = graphql_syntax::parse(&self.db, content, metadata);
         let line_index = graphql_syntax::line_index(&self.db, content);
 
+        // Get line offset for TypeScript/JavaScript files
+        let line_offset = metadata.line_offset(&self.db);
+
         // Get HIR structure for this file (for field information)
         let structure = graphql_hir::file_structure(&self.db, file_id, content, metadata);
 
@@ -1573,27 +1576,47 @@ impl Analysis {
         let definitions = extract_all_definitions(&parse.tree);
 
         for (name, kind, ranges) in definitions {
-            let range = offset_range_to_range(&line_index, ranges.def_start, ranges.def_end);
-            let selection_range =
-                offset_range_to_range(&line_index, ranges.name_start, ranges.name_end);
+            let range = adjust_range_for_line_offset(
+                offset_range_to_range(&line_index, ranges.def_start, ranges.def_end),
+                line_offset,
+            );
+            let selection_range = adjust_range_for_line_offset(
+                offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
+                line_offset,
+            );
 
             let symbol = match kind {
                 "object" => {
                     // Find fields for this type from HIR structure
-                    let children =
-                        self.get_field_children(&structure, &name, &parse.tree, &line_index);
+                    let children = self.get_field_children(
+                        &structure,
+                        &name,
+                        &parse.tree,
+                        &line_index,
+                        line_offset,
+                    );
                     DocumentSymbol::new(name, SymbolKind::Type, range, selection_range)
                         .with_children(children)
                 }
                 "interface" => {
-                    let children =
-                        self.get_field_children(&structure, &name, &parse.tree, &line_index);
+                    let children = self.get_field_children(
+                        &structure,
+                        &name,
+                        &parse.tree,
+                        &line_index,
+                        line_offset,
+                    );
                     DocumentSymbol::new(name, SymbolKind::Interface, range, selection_range)
                         .with_children(children)
                 }
                 "input" => {
-                    let children =
-                        self.get_field_children(&structure, &name, &parse.tree, &line_index);
+                    let children = self.get_field_children(
+                        &structure,
+                        &name,
+                        &parse.tree,
+                        &line_index,
+                        line_offset,
+                    );
                     DocumentSymbol::new(name, SymbolKind::Input, range, selection_range)
                         .with_children(children)
                 }
@@ -1641,6 +1664,7 @@ impl Analysis {
         type_name: &str,
         tree: &apollo_parser::SyntaxTree,
         line_index: &graphql_syntax::LineIndex,
+        line_offset: u32,
     ) -> Vec<DocumentSymbol> {
         // Find the type in structure
         let Some(type_def) = structure
@@ -1655,9 +1679,14 @@ impl Analysis {
 
         for field in &type_def.fields {
             if let Some(ranges) = find_field_definition_full_range(tree, type_name, &field.name) {
-                let range = offset_range_to_range(line_index, ranges.def_start, ranges.def_end);
-                let selection_range =
-                    offset_range_to_range(line_index, ranges.name_start, ranges.name_end);
+                let range = adjust_range_for_line_offset(
+                    offset_range_to_range(line_index, ranges.def_start, ranges.def_end),
+                    line_offset,
+                );
+                let selection_range = adjust_range_for_line_offset(
+                    offset_range_to_range(line_index, ranges.name_start, ranges.name_end),
+                    line_offset,
+                );
 
                 let detail = format_type_ref(&field.type_ref);
                 children.push(
@@ -1825,6 +1854,22 @@ const fn adjust_position_for_line_offset(position: Position, line_offset: u32) -
         position.line - line_offset,
         position.character,
     ))
+}
+
+/// Add line offset to a range (used when returning positions from extracted GraphQL)
+///
+/// When returning positions for document symbols in TypeScript/JavaScript files,
+/// we need to add the `line_offset` to convert from GraphQL-relative positions
+/// back to original file positions.
+const fn adjust_range_for_line_offset(range: Range, line_offset: u32) -> Range {
+    if line_offset == 0 {
+        return range;
+    }
+
+    Range::new(
+        Position::new(range.start.line + line_offset, range.start.character),
+        Position::new(range.end.line + line_offset, range.end.character),
+    )
 }
 
 /// Convert IDE position to byte offset using `LineIndex`
