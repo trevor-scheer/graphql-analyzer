@@ -507,6 +507,64 @@ impl GraphQLLanguageServer {
         }
     }
 
+    /// Reload configuration for a workspace
+    ///
+    /// This clears all existing hosts for the workspace and reloads the config
+    /// from disk, then re-discovers and loads all project files.
+    #[tracing::instrument(skip(self), fields(workspace_uri = %workspace_uri))]
+    async fn reload_workspace_config(&self, workspace_uri: &str) {
+        tracing::info!("Reloading configuration for workspace: {}", workspace_uri);
+
+        // Get the workspace path
+        let Some(workspace_path) = self.workspace_roots.get(workspace_uri).map(|r| r.clone())
+        else {
+            tracing::error!(
+                "Cannot reload config: workspace root not found for {}",
+                workspace_uri
+            );
+            return;
+        };
+
+        // Clear existing hosts for this workspace
+        // We need to collect keys first to avoid holding the lock while modifying
+        let keys_to_remove: Vec<_> = self
+            .hosts
+            .iter()
+            .filter(|entry| entry.key().0 == workspace_uri)
+            .map(|entry| entry.key().clone())
+            .collect();
+
+        for key in &keys_to_remove {
+            tracing::debug!("Removing host for project: {}", key.1);
+            self.hosts.remove(key);
+        }
+
+        tracing::info!(
+            "Cleared {} existing host(s) for workspace",
+            keys_to_remove.len()
+        );
+
+        // Clear the existing config
+        self.configs.remove(workspace_uri);
+
+        // Reload config and files
+        self.load_workspace_config(workspace_uri, &workspace_path)
+            .await;
+
+        // Notify user
+        self.client
+            .show_message(
+                MessageType::INFO,
+                "GraphQL configuration reloaded successfully",
+            )
+            .await;
+
+        tracing::info!(
+            "Configuration reload complete for workspace: {}",
+            workspace_uri
+        );
+    }
+
     /// Find the workspace and project for a given document URI
     ///
     /// This first checks if the file was loaded during initialization by querying
@@ -1000,7 +1058,7 @@ impl LanguageServer for GraphQLLanguageServer {
                 match change.typ {
                     FileChangeType::CREATED | FileChangeType::CHANGED => {
                         tracing::info!("Config file changed for workspace: {}", workspace_uri);
-                        // TODO: Reload config and re-validate all documents
+                        self.reload_workspace_config(&workspace_uri).await;
                     }
                     FileChangeType::DELETED => {
                         tracing::warn!("Config file deleted for workspace: {}", workspace_uri);
