@@ -1012,9 +1012,11 @@ impl Analysis {
 
         // If we couldn't find a symbol and there are parse errors, show the errors
         if symbol.is_none() && !parse.errors.is_empty() {
+            let error_messages: Vec<&str> =
+                parse.errors.iter().map(|e| e.message.as_str()).collect();
             return Some(HoverResult::new(format!(
                 "**Syntax Errors**\n\n{}",
-                parse.errors.join("\n")
+                error_messages.join("\n")
             )));
         }
 
