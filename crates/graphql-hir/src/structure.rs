@@ -284,6 +284,7 @@ fn extract_fragment_structure(
     let name = Arc::from(frag.name.as_str());
     let type_condition = Arc::from(frag.type_condition.as_str());
 
+    // TODO: Extract actual positions from AST nodes
     FragmentStructure {
         name,
         type_condition,
@@ -325,6 +326,7 @@ fn extract_object_type(obj: &Node<ast::ObjectTypeDefinition>, file_id: FileId) -
         .map(|t| Arc::from(t.as_str()))
         .collect();
 
+    // TODO: Extract actual positions from AST nodes
     TypeDef {
         name,
         kind: TypeDefKind::Object,
@@ -355,6 +357,7 @@ fn extract_interface_type(iface: &Node<ast::InterfaceTypeDefinition>, file_id: F
         .map(|t| Arc::from(t.as_str()))
         .collect();
 
+    // TODO: Extract actual positions from AST nodes
     TypeDef {
         name,
         kind: TypeDefKind::Interface,
@@ -382,6 +385,7 @@ fn extract_union_type(union_def: &Node<ast::UnionTypeDefinition>, file_id: FileI
         .map(|t| Arc::from(t.as_str()))
         .collect();
 
+    // TODO: Extract actual positions from AST nodes
     TypeDef {
         name,
         kind: TypeDefKind::Union,
@@ -414,6 +418,7 @@ fn extract_enum_type(enum_def: &Node<ast::EnumTypeDefinition>, file_id: FileId) 
         })
         .collect();
 
+    // TODO: Extract actual positions from AST nodes
     TypeDef {
         name,
         kind: TypeDefKind::Enum,
@@ -432,6 +437,7 @@ fn extract_scalar_type(scalar: &Node<ast::ScalarTypeDefinition>, file_id: FileId
     let name = Arc::from(scalar.name.as_str());
     let description = scalar.description.as_ref().map(|d| Arc::from(d.as_str()));
 
+    // TODO: Extract actual positions from AST nodes
     TypeDef {
         name,
         kind: TypeDefKind::Scalar,
@@ -459,6 +465,7 @@ fn extract_input_object_type(
         .map(|f| extract_input_field_signature(f))
         .collect();
 
+    // TODO: Extract actual positions from AST nodes
     TypeDef {
         name,
         kind: TypeDefKind::InputObject,
