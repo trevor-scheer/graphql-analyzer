@@ -2,9 +2,10 @@
 // This is the foundation of the golden invariant: structure is stable across body edits
 
 use apollo_compiler::ast;
+use apollo_compiler::Node;
 use graphql_db::FileId;
 use std::sync::Arc;
-use text_size::TextRange;
+use text_size::{TextRange, TextSize};
 
 /// Structure of a type definition (no field bodies)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -126,10 +127,32 @@ pub struct FileStructureData {
     pub fragments: Vec<FragmentStructure>,
 }
 
-/// Helper to create an empty `TextRange`
-/// TODO: Replace with actual position extraction from AST nodes
-fn empty_range() -> TextRange {
-    TextRange::default()
+/// Extract a `TextRange` from an apollo-compiler `Node`
+#[allow(clippy::cast_possible_truncation)]
+fn node_range<T>(node: &Node<T>) -> TextRange {
+    node.location()
+        .map(|loc| {
+            // Safe: GraphQL files are never larger than 4GB
+            TextRange::new(
+                TextSize::from(loc.offset() as u32),
+                TextSize::from(loc.end_offset() as u32),
+            )
+        })
+        .unwrap_or_default()
+}
+
+/// Extract a `TextRange` from an apollo-compiler `Name`
+#[allow(clippy::cast_possible_truncation)]
+fn name_range(name: &apollo_compiler::Name) -> TextRange {
+    name.location()
+        .map(|loc| {
+            // Safe: GraphQL files are never larger than 4GB
+            TextRange::new(
+                TextSize::from(loc.offset() as u32),
+                TextSize::from(loc.end_offset() as u32),
+            )
+        })
+        .unwrap_or_default()
 }
 
 /// Extract the file structure from a parsed syntax tree
@@ -204,8 +227,8 @@ fn extract_from_document(
             ast::Definition::InterfaceTypeDefinition(iface) => {
                 type_defs.push(extract_interface_type(iface, file_id));
             }
-            ast::Definition::UnionTypeDefinition(union) => {
-                type_defs.push(extract_union_type(union, file_id));
+            ast::Definition::UnionTypeDefinition(union_def) => {
+                type_defs.push(extract_union_type(union_def, file_id));
             }
             ast::Definition::EnumTypeDefinition(enum_def) => {
                 type_defs.push(extract_enum_type(enum_def, file_id));
@@ -222,7 +245,7 @@ fn extract_from_document(
 }
 
 fn extract_operation_structure(
-    op: &ast::OperationDefinition,
+    op: &Node<ast::OperationDefinition>,
     file_id: FileId,
     index: usize,
 ) -> OperationStructure {
@@ -240,12 +263,8 @@ fn extract_operation_structure(
         .map(|v| extract_variable_signature(v))
         .collect();
 
-    // TODO: Extract actual positions from AST nodes
-    let name_range = if name.is_some() {
-        Some(empty_range())
-    } else {
-        None
-    };
+    // Extract name range from the Name if present
+    let op_name_range = op.name.as_ref().map(name_range);
 
     OperationStructure {
         name,
@@ -253,26 +272,25 @@ fn extract_operation_structure(
         variables,
         file_id,
         index,
-        name_range,
-        operation_range: empty_range(),
+        name_range: op_name_range,
+        operation_range: node_range(op),
     }
 }
 
 fn extract_fragment_structure(
-    frag: &ast::FragmentDefinition,
+    frag: &Node<ast::FragmentDefinition>,
     file_id: FileId,
 ) -> FragmentStructure {
     let name = Arc::from(frag.name.as_str());
     let type_condition = Arc::from(frag.type_condition.as_str());
 
-    // TODO: Extract actual positions from AST nodes
     FragmentStructure {
         name,
         type_condition,
         file_id,
-        name_range: empty_range(),
-        type_condition_range: empty_range(),
-        fragment_range: empty_range(),
+        name_range: name_range(&frag.name),
+        type_condition_range: name_range(&frag.type_condition),
+        fragment_range: node_range(frag),
     }
 }
 
@@ -291,7 +309,7 @@ fn extract_variable_signature(var: &ast::VariableDefinition) -> VariableSignatur
     }
 }
 
-fn extract_object_type(obj: &ast::ObjectTypeDefinition, file_id: FileId) -> TypeDef {
+fn extract_object_type(obj: &Node<ast::ObjectTypeDefinition>, file_id: FileId) -> TypeDef {
     let name = Arc::from(obj.name.as_str());
     let description = obj.description.as_ref().map(|d| Arc::from(d.as_str()));
 
@@ -307,7 +325,6 @@ fn extract_object_type(obj: &ast::ObjectTypeDefinition, file_id: FileId) -> Type
         .map(|t| Arc::from(t.as_str()))
         .collect();
 
-    // TODO: Extract actual positions from AST nodes
     TypeDef {
         name,
         kind: TypeDefKind::Object,
@@ -317,12 +334,12 @@ fn extract_object_type(obj: &ast::ObjectTypeDefinition, file_id: FileId) -> Type
         enum_values: Vec::new(),
         description,
         file_id,
-        name_range: empty_range(),
-        definition_range: empty_range(),
+        name_range: name_range(&obj.name),
+        definition_range: node_range(obj),
     }
 }
 
-fn extract_interface_type(iface: &ast::InterfaceTypeDefinition, file_id: FileId) -> TypeDef {
+fn extract_interface_type(iface: &Node<ast::InterfaceTypeDefinition>, file_id: FileId) -> TypeDef {
     let name = Arc::from(iface.name.as_str());
     let description = iface.description.as_ref().map(|d| Arc::from(d.as_str()));
 
@@ -338,7 +355,6 @@ fn extract_interface_type(iface: &ast::InterfaceTypeDefinition, file_id: FileId)
         .map(|t| Arc::from(t.as_str()))
         .collect();
 
-    // TODO: Extract actual positions from AST nodes
     TypeDef {
         name,
         kind: TypeDefKind::Interface,
@@ -348,22 +364,24 @@ fn extract_interface_type(iface: &ast::InterfaceTypeDefinition, file_id: FileId)
         enum_values: Vec::new(),
         description,
         file_id,
-        name_range: empty_range(),
-        definition_range: empty_range(),
+        name_range: name_range(&iface.name),
+        definition_range: node_range(iface),
     }
 }
 
-fn extract_union_type(union: &ast::UnionTypeDefinition, file_id: FileId) -> TypeDef {
-    let name = Arc::from(union.name.as_str());
-    let description = union.description.as_ref().map(|d| Arc::from(d.as_str()));
+fn extract_union_type(union_def: &Node<ast::UnionTypeDefinition>, file_id: FileId) -> TypeDef {
+    let name = Arc::from(union_def.name.as_str());
+    let description = union_def
+        .description
+        .as_ref()
+        .map(|d| Arc::from(d.as_str()));
 
-    let union_members = union
+    let union_members = union_def
         .members
         .iter()
         .map(|t| Arc::from(t.as_str()))
         .collect();
 
-    // TODO: Extract actual positions from AST nodes
     TypeDef {
         name,
         kind: TypeDefKind::Union,
@@ -373,12 +391,12 @@ fn extract_union_type(union: &ast::UnionTypeDefinition, file_id: FileId) -> Type
         enum_values: Vec::new(),
         description,
         file_id,
-        name_range: empty_range(),
-        definition_range: empty_range(),
+        name_range: name_range(&union_def.name),
+        definition_range: node_range(union_def),
     }
 }
 
-fn extract_enum_type(enum_def: &ast::EnumTypeDefinition, file_id: FileId) -> TypeDef {
+fn extract_enum_type(enum_def: &Node<ast::EnumTypeDefinition>, file_id: FileId) -> TypeDef {
     let name = Arc::from(enum_def.name.as_str());
     let description = enum_def.description.as_ref().map(|d| Arc::from(d.as_str()));
 
@@ -396,7 +414,6 @@ fn extract_enum_type(enum_def: &ast::EnumTypeDefinition, file_id: FileId) -> Typ
         })
         .collect();
 
-    // TODO: Extract actual positions from AST nodes
     TypeDef {
         name,
         kind: TypeDefKind::Enum,
@@ -406,16 +423,15 @@ fn extract_enum_type(enum_def: &ast::EnumTypeDefinition, file_id: FileId) -> Typ
         enum_values,
         description,
         file_id,
-        name_range: empty_range(),
-        definition_range: empty_range(),
+        name_range: name_range(&enum_def.name),
+        definition_range: node_range(enum_def),
     }
 }
 
-fn extract_scalar_type(scalar: &ast::ScalarTypeDefinition, file_id: FileId) -> TypeDef {
+fn extract_scalar_type(scalar: &Node<ast::ScalarTypeDefinition>, file_id: FileId) -> TypeDef {
     let name = Arc::from(scalar.name.as_str());
     let description = scalar.description.as_ref().map(|d| Arc::from(d.as_str()));
 
-    // TODO: Extract actual positions from AST nodes
     TypeDef {
         name,
         kind: TypeDefKind::Scalar,
@@ -425,12 +441,15 @@ fn extract_scalar_type(scalar: &ast::ScalarTypeDefinition, file_id: FileId) -> T
         enum_values: Vec::new(),
         description,
         file_id,
-        name_range: empty_range(),
-        definition_range: empty_range(),
+        name_range: name_range(&scalar.name),
+        definition_range: node_range(scalar),
     }
 }
 
-fn extract_input_object_type(input: &ast::InputObjectTypeDefinition, file_id: FileId) -> TypeDef {
+fn extract_input_object_type(
+    input: &Node<ast::InputObjectTypeDefinition>,
+    file_id: FileId,
+) -> TypeDef {
     let name = Arc::from(input.name.as_str());
     let description = input.description.as_ref().map(|d| Arc::from(d.as_str()));
 
@@ -440,7 +459,6 @@ fn extract_input_object_type(input: &ast::InputObjectTypeDefinition, file_id: Fi
         .map(|f| extract_input_field_signature(f))
         .collect();
 
-    // TODO: Extract actual positions from AST nodes
     TypeDef {
         name,
         kind: TypeDefKind::InputObject,
@@ -450,8 +468,8 @@ fn extract_input_object_type(input: &ast::InputObjectTypeDefinition, file_id: Fi
         enum_values: Vec::new(),
         description,
         file_id,
-        name_range: empty_range(),
-        definition_range: empty_range(),
+        name_range: name_range(&input.name),
+        definition_range: node_range(input),
     }
 }
 
