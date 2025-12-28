@@ -1980,6 +1980,72 @@ mod tests {
     }
 
     #[test]
+    fn test_goto_definition_field_on_root_type() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User }\ntype User { id: ID! }",
+            FileKind::Schema,
+            0,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        // "query { user }" - "user" starts at position 8
+        host.add_file(
+            &query_file,
+            "query { user }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&query_file, Position::new(0, 9));
+
+        assert!(locations.is_some(), "Should find field definition");
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), schema_file.as_str());
+        // Should point to "user" field in Query type (line 0)
+        assert_eq!(locations[0].range.start.line, 0);
+    }
+
+    #[test]
+    fn test_goto_definition_nested_field() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User }\ntype User { name: String }",
+            FileKind::Schema,
+            0,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        // "query { user { name } }" - "name" starts at position 15
+        host.add_file(
+            &query_file,
+            "query { user { name } }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&query_file, Position::new(0, 16));
+
+        assert!(locations.is_some(), "Should find nested field definition");
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), schema_file.as_str());
+        // Should point to "name" field in User type (line 1)
+        assert_eq!(locations[0].range.start.line, 1);
+    }
+
+    #[test]
     fn test_find_references_fragment() {
         let mut host = AnalysisHost::new();
 
