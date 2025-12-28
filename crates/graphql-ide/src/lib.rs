@@ -42,7 +42,7 @@ use std::fmt::Write as _;
 use std::sync::{Arc, RwLock};
 
 mod file_registry;
-pub use file_registry::{FileRegistry, ProjectFilesDatabase};
+pub use file_registry::FileRegistry;
 
 mod symbol;
 use symbol::{
@@ -384,7 +384,6 @@ impl WorkspaceSymbol {
 #[derive(Clone)]
 struct IdeDatabase {
     storage: salsa::Storage<Self>,
-    project_files: std::cell::Cell<Option<graphql_db::ProjectFiles>>,
     lint_config: std::cell::RefCell<Arc<graphql_linter::LintConfig>>,
     extract_config: std::cell::RefCell<Arc<graphql_extract::ExtractConfig>>,
 }
@@ -393,7 +392,6 @@ impl Default for IdeDatabase {
     fn default() -> Self {
         Self {
             storage: salsa::Storage::default(),
-            project_files: std::cell::Cell::new(None),
             lint_config: std::cell::RefCell::new(Arc::new(graphql_linter::LintConfig::default())),
             extract_config: std::cell::RefCell::new(Arc::new(
                 graphql_extract::ExtractConfig::default(),
@@ -416,9 +414,8 @@ impl graphql_syntax::GraphQLSyntaxDatabase for IdeDatabase {
 
 #[salsa::db]
 impl graphql_hir::GraphQLHirDatabase for IdeDatabase {
-    fn project_files(&self) -> Option<graphql_db::ProjectFiles> {
-        self.project_files.get()
-    }
+    // Uses default implementation (returns None)
+    // ProjectFiles is managed by FileRegistry and passed to queries as parameters
 }
 
 #[salsa::db]
@@ -428,11 +425,7 @@ impl graphql_analysis::GraphQLAnalysisDatabase for IdeDatabase {
     }
 }
 
-impl ProjectFilesDatabase for IdeDatabase {
-    fn set_project_files(&self, project_files: Option<graphql_db::ProjectFiles>) {
-        self.project_files.set(project_files);
-    }
-}
+// ProjectFiles is now managed by FileRegistry and passed as parameters to queries
 
 /// The main analysis host
 ///
