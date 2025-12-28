@@ -76,8 +76,20 @@ pub fn lint_file(
             }
         }
         FileKind::Schema => {
-            // TODO: Run schema lints (naming conventions, etc.)
-            tracing::trace!(uri = %uri, "Schema linting not yet implemented");
+            // Run schema lints (naming conventions, design patterns, etc.)
+            let project_files_opt = db.project_files();
+            if let Some(project_files) = project_files_opt {
+                tracing::debug!(uri = %uri, "Running schema lints");
+                diagnostics.extend(schema_lints(
+                    db,
+                    file_id,
+                    content,
+                    metadata,
+                    project_files,
+                ));
+            } else {
+                tracing::debug!(uri = %uri, "project_files is None, skipping schema lints");
+            }
         }
     }
 
@@ -184,6 +196,45 @@ fn document_schema_lints(
             severity,
         ));
     }
+
+    diagnostics
+}
+
+/// Run schema lint rules
+#[allow(clippy::unnecessary_wraps)] // Future schema rules will return diagnostics
+fn schema_lints(
+    db: &dyn GraphQLAnalysisDatabase,
+    _file_id: FileId,
+    _content: FileContent,
+    _metadata: FileMetadata,
+    _project_files: ProjectFiles,
+) -> Vec<Diagnostic> {
+    let _lint_config = db.lint_config(); // Will be used when schema rules are added
+    let diagnostics = Vec::new();
+
+    // Note: Currently there are no schema lint rules in graphql-linter
+    // This is a placeholder for future schema design rules like:
+    // - Type naming conventions (PascalCase)
+    // - Field naming conventions (camelCase)
+    // - Enum value naming conventions (SCREAMING_SNAKE_CASE)
+    // - Description requirements
+    // - Deprecation guidelines
+    // etc.
+
+    // When schema rules are added to graphql-linter, they would be called here:
+    // for rule in graphql_linter::schema_rules() {
+    //     if lint_config.is_enabled(rule.name()) {
+    //         let lint_diags = rule.check(db, file_id, content, metadata, project_files);
+    //         let severity = lint_config.get_severity(rule.name())
+    //             .map_or(Severity::Warning, convert_severity);
+    //         diagnostics.extend(convert_lint_diagnostics(db, content, lint_diags, rule.name(), severity));
+    //     }
+    // }
+
+    tracing::debug!(
+        enabled_rules = 0,
+        "Schema linting complete (no schema rules available yet)"
+    );
 
     diagnostics
 }
