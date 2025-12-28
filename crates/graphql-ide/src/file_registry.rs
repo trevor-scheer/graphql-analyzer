@@ -10,16 +10,6 @@ use std::sync::Arc;
 
 use crate::FilePath;
 
-pub trait ProjectFilesDatabase {
-    fn set_project_files(&self, project_files: Option<ProjectFiles>);
-}
-
-impl ProjectFilesDatabase for graphql_db::RootDatabase {
-    fn set_project_files(&self, project_files: Option<ProjectFiles>) {
-        self.set_project_files(project_files);
-    }
-}
-
 /// Maps file paths to database file IDs and metadata
 ///
 /// This is a temporary implementation for Phase 4. A more sophisticated
@@ -135,7 +125,7 @@ impl FileRegistry {
     /// Note: This method should be called WITHOUT holding any locks to avoid deadlocks
     pub fn rebuild_project_files<DB>(&mut self, db: &mut DB)
     where
-        DB: salsa::Database + ProjectFilesDatabase,
+        DB: salsa::Database,
     {
         let mut schema_files = Vec::new();
         let mut document_files = Vec::new();
@@ -176,8 +166,8 @@ impl FileRegistry {
 
         self.project_files = Some(project_files);
 
-        // Also set it in the database so queries can access it via db.project_files()
-        db.set_project_files(Some(project_files));
+        // ProjectFiles is now managed by the registry.
+        // Queries that need ProjectFiles should accept it as a parameter.
     }
 }
 

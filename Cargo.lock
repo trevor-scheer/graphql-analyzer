@@ -1006,6 +1006,7 @@ dependencies = [
  "graphql-db",
  "graphql-syntax",
  "salsa",
+ "text-size",
 ]
 
 [[package]]
