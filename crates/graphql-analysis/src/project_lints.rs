@@ -1,12 +1,9 @@
-// Project-wide lint queries
-
 use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase};
 use graphql_hir::{FieldId, FragmentId};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-/// Find unused fields (project-wide analysis)
-/// This is expensive and should only run when explicitly requested
+// TODO(trevor): implement these queries
 #[salsa::tracked]
 pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId, Diagnostic)>> {
     let project_files = db
@@ -17,7 +14,7 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
 
     let unused = Vec::new();
 
-    // TODO: Implement unused field detection
+    // TODO(trevor): Implement unused field detection
     // This requires:
     // 1. Parsing operation bodies to extract field selections
     // 2. Following fragment spreads (transitive)
@@ -41,7 +38,6 @@ pub fn find_unused_fragments(
     let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
     let all_operations = graphql_hir::all_operations(db);
 
-    // Collect all used fragments by walking operations
     let mut used_fragments = HashSet::new();
 
     // Get the parse results for all operations to extract fragment spreads
@@ -60,7 +56,6 @@ pub fn find_unused_fragments(
         collect_fragment_spreads_from_operation(db, operation, &all_fragments, &mut used_fragments);
     }
 
-    // Find unused fragments
     let mut unused = Vec::new();
     for (fragment_name, _fragment_structure) in all_fragments.iter() {
         if !used_fragments.contains(fragment_name) {

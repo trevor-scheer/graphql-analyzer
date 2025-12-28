@@ -186,17 +186,15 @@ lint:
   rules:
     no_deprecated: warn
     unique_names: error
-    unused_fields: off  # Expensive, off by default
+    unused_fields: off
 
 # Tool-specific overrides
 extensions:
-  # CLI: Enable expensive project-wide lints
   cli:
     lint:
       rules:
         unused_fields: error
 
-  # LSP: Keep expensive lints off for performance
   lsp:
     lint:
       rules:
@@ -235,14 +233,15 @@ fragment UserFields on User {
 query GetUser {
   user {
     ...UserFields
-    id    # ⚠️ Warning: Redundant - already in UserFields
-    name  # ⚠️ Warning: Redundant - already in UserFields
-    userId: id  # ✅ OK - Different alias
+    id # ⚠️ Warning: Redundant - already in UserFields
+    name # ⚠️ Warning: Redundant - already in UserFields
+    userId: id # ✅ OK - Different alias
   }
 }
 ```
 
 The rule handles:
+
 - Direct redundancy (field in same selection set as fragment spread)
 - Transitive redundancy (field in fragment that includes other fragments)
 - Circular fragment references (prevents infinite loops)
@@ -267,7 +266,7 @@ type User {
 # Query
 query {
   user {
-    name  # ⚠️ Warning: Field 'name' is deprecated: Use fullName instead
+    name # ⚠️ Warning: Field 'name' is deprecated: Use fullName instead
   }
 }
 ```
@@ -282,10 +281,18 @@ Ensures operation and fragment names are unique across the project.
 
 ```graphql
 # file1.graphql
-query GetUser { user { id } }
+query GetUser {
+  user {
+    id
+  }
+}
 
 # file2.graphql
-query GetUser { user { name } }  # ❌ Error: Duplicate operation name 'GetUser'
+query GetUser {
+  user {
+    name
+  }
+} # ❌ Error: Duplicate operation name 'GetUser'
 ```
 
 ### unused_fields
@@ -300,11 +307,15 @@ Detects schema fields that are never queried in any operation or fragment.
 # Schema
 type User {
   id: ID!
-  email: String!  # ⚠️ Warning: Field 'email' is never used
+  email: String! # ⚠️ Warning: Field 'email' is never used
 }
 
 # Operations only query 'id', never 'email'
-query { user { id } }
+query {
+  user {
+    id
+  }
+}
 ```
 
 ## Creating Custom Rules
@@ -477,7 +488,7 @@ extensions:
   lsp:
     lint:
       rules:
-        unused_fields: off  # Too expensive for real-time
+        unused_fields: off
 ```
 
 ### For CLI Integration
@@ -489,7 +500,7 @@ extensions:
   cli:
     lint:
       rules:
-        unused_fields: error  # Enable in CI
+        unused_fields: error # Enable in CI
 ```
 
 ## Examples
@@ -550,11 +561,13 @@ for (file, diagnostics) in diagnostics_by_file {
 ## Testing
 
 Run tests:
+
 ```bash
 cargo test -p graphql-linter
 ```
 
 Test individual rules:
+
 ```bash
 cargo test -p graphql-linter deprecated
 cargo test -p graphql-linter unique_names

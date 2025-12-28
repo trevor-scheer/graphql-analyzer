@@ -752,14 +752,12 @@ impl Analysis {
     /// Returns a map of file paths -> diagnostics for project-wide lint rules.
     /// These are expensive rules that analyze the entire project.
     pub fn project_lint_diagnostics(&self) -> HashMap<FilePath, Vec<Diagnostic>> {
-        // Get project-wide diagnostics from analysis layer
         let diagnostics_by_file_id =
             graphql_analysis::lint_integration::project_lint_diagnostics(&self.db);
 
         let mut results = HashMap::new();
         let registry = self.registry.read().unwrap();
 
-        // Convert FileId -> FilePath and diagnostics
         for (file_id, diagnostics) in diagnostics_by_file_id.iter() {
             if let Some(file_path) = registry.get_path(*file_id) {
                 let converted: Vec<Diagnostic> =

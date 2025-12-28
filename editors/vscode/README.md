@@ -107,14 +107,14 @@ lint:
     no_deprecated: warn
     require_id_field: error
     redundant_fields: error
-    unused_fields: off # Expensive, opt-in
+    unused_fields: off
 
 # Tool-specific overrides
 extensions:
   lsp:
     lint:
       rules:
-        unused_fields: off # Keep expensive rules off for real-time
+        unused_fields: off
 ```
 
 See [Configuration Documentation](../../README.md#configuration) for more details.

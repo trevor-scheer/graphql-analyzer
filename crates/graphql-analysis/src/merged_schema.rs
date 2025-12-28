@@ -1,18 +1,7 @@
-// Merged schema query for apollo-compiler validation
-// This module provides a Salsa query that aggregates all schema files
-// into a single apollo_compiler::Schema for validation purposes.
-
 use crate::GraphQLAnalysisDatabase;
 use apollo_compiler::parser::Parser;
 use std::sync::Arc;
 
-/// Get the merged apollo-compiler Schema for validation
-/// This is expensive but heavily cached by Salsa
-///
-/// Returns None if:
-/// - No schema files exist in the project
-/// - Schema files fail to parse
-/// - Schema merging fails
 #[salsa::tracked]
 pub fn merged_schema(
     db: &dyn GraphQLAnalysisDatabase,
@@ -27,11 +16,9 @@ pub fn merged_schema(
         return None;
     }
 
-    // Use apollo-compiler's builder pattern to parse multiple schema files
     let mut builder = apollo_compiler::schema::SchemaBuilder::new();
     let mut parser = Parser::new();
 
-    // Parse each schema file separately so apollo-compiler tracks sources correctly
     for (_file_id, content, metadata) in schema_files.iter() {
         let text = content.text(db);
         let uri = metadata.uri(db);
@@ -42,7 +29,6 @@ pub fn merged_schema(
         parser.parse_into_schema_builder(text.as_ref(), uri.as_str(), &mut builder);
     }
 
-    // Build and validate the schema
     match builder.build() {
         Ok(schema) => {
             tracing::debug!(
@@ -205,7 +191,6 @@ mod tests {
         let query_type = schema.types.get("Query");
         assert!(query_type.is_some(), "Expected Query type to exist");
 
-        // Both hello and world fields should be present
         if let Some(apollo_compiler::schema::ExtendedType::Object(obj)) = query_type {
             let field_names: Vec<&str> = obj
                 .fields

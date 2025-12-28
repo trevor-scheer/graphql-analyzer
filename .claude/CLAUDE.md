@@ -180,6 +180,7 @@ tests/                   # Integration tests
 ```
 
 For detailed architecture documentation, see:
+
 - [Foundation Phase](../.claude/notes/active/lsp-rearchitecture/01-FOUNDATION.md)
 - [Semantics Phase](../.claude/notes/active/lsp-rearchitecture/02-SEMANTICS.md)
 - [Analysis Phase](../.claude/notes/active/lsp-rearchitecture/03-ANALYSIS.md)
@@ -221,12 +222,14 @@ npm run lint             # Lint TypeScript
 ### PR Guidelines
 
 **Do:**
+
 - Write clear, descriptive PR titles
 - Explain what changed and why
 - Call out new and updated tests
 - Reference related issues
 
 **Don't:**
+
 - Use excessive emoji in titles or descriptions
 - Mention that tests or linting passed (expected baseline)
 
@@ -292,6 +295,7 @@ All derived data is computed via Salsa queries:
 - **Lazy evaluation**: Queries only run when results are needed
 
 Example flow:
+
 ```rust
 // User types in a file
 file_content.set_text(db, new_content);
@@ -317,6 +321,7 @@ Current LSP features:
 - **Schema Introspection**: Load schemas from remote URLs
 
 All features work in:
+
 - Pure GraphQL files (`.graphql`, `.gql`)
 - Embedded GraphQL in TypeScript/JavaScript
 
@@ -338,18 +343,18 @@ lint:
     no_deprecated: warn
     require_id_field: error
     redundant_fields: error
-    unused_fields: off  # Expensive, opt-in
+    unused_fields: off
 
 # Tool-specific overrides
 extensions:
   lsp:
     lint:
       rules:
-        unused_fields: off  # Too expensive for real-time
+        unused_fields: off
   cli:
     lint:
       rules:
-        unused_fields: error  # Enable in CI
+        unused_fields: error
 ```
 
 ### Multi-Project Configuration
@@ -380,6 +385,7 @@ schema: https://api.example.com/graphql
 ```
 
 The introspection flow:
+
 1. `graphql-config` detects URL
 2. `graphql-introspect` executes introspection query
 3. JSON response converted to SDL
@@ -467,11 +473,13 @@ cargo bench -- --baseline main
 #### Interpreting Results
 
 Criterion generates HTML reports in `target/criterion/`. Open `target/criterion/report/index.html` to view:
+
 - Performance distributions
 - Regression detection
 - Comparison with previous runs
 
 **Expected results if architecture is working correctly:**
+
 - Warm vs Cold: 100-1000x speedup
 - Golden Invariant: < 100 nanoseconds
 - Fragment Resolution: ~10x speedup with caching
@@ -483,11 +491,13 @@ Criterion generates HTML reports in `target/criterion/`. Open `target/criterion/
 ### Adding a New Lint Rule
 
 1. **Choose the rule type** based on context needed:
+
    - `StandaloneDocumentRule` - No schema required
    - `DocumentSchemaRule` - Document + schema
    - `ProjectRule` - Project-wide analysis
 
 2. **Create the rule** in `crates/graphql-linter/src/rules/your_rule.rs`:
+
 ```rust
 use crate::{DocumentSchemaRule, DocumentSchemaContext, Diagnostic};
 
@@ -539,6 +549,7 @@ See [graphql-analysis README](../crates/graphql-analysis/README.md) for architec
 4. **Integrate in LSP** in `crates/graphql-lsp/src/`
 
 Example:
+
 ```rust
 // In graphql-ide
 impl Analysis {
@@ -594,6 +605,7 @@ code --install-extension graphql-lsp-*.vsix
 **Problem**: Running `graphql validate` or `graphql lint` shows "No project found"
 
 **Solution**:
+
 - Ensure `.graphqlrc.yaml` exists in current directory or parent
 - For multi-project configs without "default", use `--project` flag:
   ```bash
@@ -605,6 +617,7 @@ code --install-extension graphql-lsp-*.vsix
 **Problem**: LSP features not working in VSCode
 
 **Diagnosis**:
+
 ```bash
 # Check if LSP binary exists
 ls -la target/debug/graphql-lsp
@@ -614,6 +627,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | target/debug
 ```
 
 **Solution**:
+
 - Rebuild: `cargo build`
 - Check VSCode extension logs: View → Output → GraphQL
 - Increase logging: Set `RUST_LOG=debug` in VSCode settings
@@ -625,6 +639,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | target/debug
 **Cause**: Salsa cache persists across test runs in same process
 
 **Solution**:
+
 - Tests should create fresh database instances
 - Use `cargo test -- --test-threads=1` if needed
 - Clear `target/` and rebuild: `cargo clean && cargo build`
@@ -636,6 +651,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | target/debug
 **Cause**: Missing fragment index or stale cache
 
 **Solution**:
+
 - Ensure fragment file is registered in `document_files()`
 - Check that `all_fragments()` query includes the file
 - Verify fragment name uniqueness (duplicates may be filtered)
@@ -645,6 +661,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | target/debug
 **Problem**: Editor feels sluggish with LSP enabled
 
 **Diagnosis**:
+
 ```bash
 # Run with OpenTelemetry to identify hot spots
 cargo build --features otel
@@ -653,6 +670,7 @@ OTEL_TRACES_ENABLED=1 target/debug/graphql-lsp
 ```
 
 **Solution**:
+
 - Disable expensive lints in LSP config:
   ```yaml
   extensions:
@@ -729,19 +747,22 @@ Overhead: ~1-2% CPU when enabled, zero when disabled.
 ### Working with This Project
 
 **When adding validation:**
+
 1. Check if it belongs in schema or document validation
 2. Add as a Salsa query in `graphql-analysis`
 3. Write tests showing the validation working
 4. Update documentation if adding new concepts
 
 **When adding lint rules:**
+
 1. Determine the rule type (standalone/document/project)
 2. Implement in `graphql-linter/src/rules/`
 3. Add comprehensive tests
 4. Document in linter README
-5. Consider performance implications (expensive rules should be opt-in)
+5. Consider performance implications
 
 **When fixing bugs:**
+
 1. Add to `.claude/notes/BUGS.md` if user-reported
 2. Write a failing test first
 3. Fix the bug
@@ -749,6 +770,7 @@ Overhead: ~1-2% CPU when enabled, zero when disabled.
 5. Check for similar issues elsewhere
 
 **After making changes:**
+
 1. Build debug binary: `cargo build`
 2. Run tests: `cargo test`
 3. If LSP changes: Test with VSCode extension
@@ -764,6 +786,7 @@ Overhead: ~1-2% CPU when enabled, zero when disabled.
 ### Working with Git Worktrees
 
 When starting work in a new git worktree:
+
 ```bash
 cp -r /path/to/main/worktree/.claude /path/to/new/worktree/.claude
 ```
@@ -773,11 +796,13 @@ This preserves notes and local settings.
 ### Handling Uncertainty
 
 **If unclear about approach:**
+
 - Don't guess - ask the user for clarification
 - Use the AskUserQuestion pattern if multiple approaches are valid
 - Reference existing patterns in the codebase
 
 **If code is ambiguous:**
+
 - Read the README for that crate
 - Look for tests showing intended usage
 - Check design docs in `.claude/notes/active/`
@@ -814,6 +839,7 @@ This preserves notes and local settings.
 ### Crate Documentation
 
 Each crate has a detailed README:
+
 - [graphql-db](../crates/graphql-db/README.md) - Salsa database layer
 - [graphql-syntax](../crates/graphql-syntax/README.md) - Parsing layer
 - [graphql-hir](../crates/graphql-hir/README.md) - Semantic layer

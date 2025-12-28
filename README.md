@@ -218,17 +218,20 @@ graphql lint --watch
 When using a multi-project configuration, you must specify which project to use with the `--project` flag, unless your config includes a project named `default`.
 
 **Single-project config** - No `--project` flag needed:
+
 ```yaml
 # .graphqlrc.yml
 schema: "schema.graphql"
 documents: "src/**/*.graphql"
 ```
+
 ```bash
 graphql validate
 graphql lint
 ```
 
 **Multi-project config** - Requires `--project` flag:
+
 ```yaml
 # .graphqlrc.yml
 projects:
@@ -239,6 +242,7 @@ projects:
     schema: "backend/schema.graphql"
     documents: "backend/**/*.graphql"
 ```
+
 ```bash
 # Must specify which project to validate/lint
 graphql validate --project frontend
@@ -246,6 +250,7 @@ graphql lint --project backend
 ```
 
 **Multi-project with "default"** - Optional `--project` flag:
+
 ```yaml
 # .graphqlrc.yml
 projects:
@@ -256,6 +261,7 @@ projects:
     schema: "experimental/schema.graphql"
     documents: "experimental/**/*.graphql"
 ```
+
 ```bash
 # Uses "default" project automatically
 graphql validate
@@ -393,9 +399,11 @@ Linting is configured via top-level `lint` with optional tool-specific overrides
 
 **Available rules:**
 
+<!-- TODO(trevor): update rule list. List recommended rules. -->
+
 - `no_deprecated` - Warns when using fields marked with @deprecated (recommended: warn)
 - `unique_names` - Ensures operation and fragment names are unique (recommended: error)
-- `unused_fields` - Detects schema fields never used (off by default, expensive)
+- `unused_fields` - Detects schema fields never used (recommended: warn)
 
 **Severity levels:**
 
@@ -408,27 +416,25 @@ Linting is configured via top-level `lint` with optional tool-specific overrides
 ```yaml
 # Top-level lint applies to all tools
 lint:
-  recommended: error  # Enable recommended rules
+  recommended: error # Enable recommended rules
 ```
 
 **Tool-specific overrides:**
+
+<!-- TODO(trevor): recommended should be on/off, not error/warn. -->
 
 ```yaml
 # Base configuration
 lint:
   recommended: error
-  rules:
-    unused_fields: off  # Expensive, off by default
 
 # Tool-specific overrides
 extensions:
-  # CLI: Enable expensive lints for CI
   cli:
     lint:
       rules:
         unused_fields: error
 
-  # LSP: Keep expensive lints off for performance
   lsp:
     lint:
       rules:
@@ -445,7 +451,7 @@ projects:
     lint:
       recommended: error
       rules:
-        no_deprecated: off  # Project-specific override
+        no_deprecated: off # Project-specific override
 ```
 
 ## License

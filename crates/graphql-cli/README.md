@@ -16,11 +16,13 @@ Command-line tool for validating and linting GraphQL projects.
 ### Via Installation Script (Recommended)
 
 **macOS and Linux:**
+
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/trevor-scheer/graphql-lsp/releases/latest/download/graphql-cli-installer.sh | sh
 ```
 
 **Windows (PowerShell):**
+
 ```powershell
 irm https://github.com/trevor-scheer/graphql-lsp/releases/latest/download/graphql-cli-installer.ps1 | iex
 ```
@@ -94,12 +96,14 @@ graphql validate [OPTIONS]
 ```
 
 **Options:**
+
 - `--format <FORMAT>` - Output format: `human` (default), `json`, `github`
 - `--watch` - Watch for file changes and re-validate
 - `--config <PATH>` - Path to config file (auto-discovered by default)
 - `--project <NAME>` - Project name for multi-project configs
 
 **Exit codes:**
+
 - `0` - No validation errors
 - `1` - Validation errors found
 
@@ -128,12 +132,14 @@ graphql lint [OPTIONS]
 ```
 
 **Options:**
+
 - `--format <FORMAT>` - Output format: `human` (default), `json`, `github`
 - `--watch` - Watch for file changes and re-lint
 - `--config <PATH>` - Path to config file (auto-discovered by default)
 - `--project <NAME>` - Project name for multi-project configs
 
 **Exit codes:**
+
 - `0` - No lint errors
 - `1` - Lint errors found (warnings don't cause non-zero exit)
 
@@ -205,6 +211,7 @@ Errors and warnings appear as annotations in GitHub pull requests.
 ## Configuration
 
 The CLI uses `.graphqlrc` configuration files. It searches for:
+
 - `.graphqlrc` (YAML or JSON)
 - `.graphqlrc.yml` / `.graphqlrc.yaml`
 - `.graphqlrc.json`
@@ -243,7 +250,7 @@ extensions:
   cli:
     lint:
       rules:
-        unused_fields: error  # Enable expensive rules in CLI/CI
+        unused_fields: error
 ```
 
 See [graphql-linter](../graphql-linter/README.md) for available rules and configuration options.
@@ -489,11 +496,11 @@ extensions:
   cli:
     lint:
       rules:
-        unused_fields: error  # Enable in CLI
+        unused_fields: error # Enable in CLI
   lsp:
     lint:
       rules:
-        unused_fields: off    # Disable in LSP
+        unused_fields: off # Disable in LSP
 ```
 
 ## Building from Source

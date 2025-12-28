@@ -80,8 +80,6 @@ pub trait StandaloneSchemaLintRule: LintRule {
 /// - All operations
 ///
 /// Examples: `unique_names`, `unused_fields`, `unused_fragments`
-///
-/// Note: These rules are expensive and should only run when explicitly requested (CLI, not LSP)
 pub trait ProjectLintRule: LintRule {
     /// Check the entire project
     /// Returns diagnostics grouped by file

@@ -37,6 +37,7 @@ Download the appropriate binary from the [releases page](https://github.com/trev
 Set in your editor configuration:
 
 **VSCode** (`settings.json`):
+
 ```json
 {
   "graphql.server.path": "/path/to/graphql-lsp"
@@ -44,6 +45,7 @@ Set in your editor configuration:
 ```
 
 **Neovim** (`init.lua`):
+
 ```lua
 require('lspconfig').graphql.setup {
   cmd = { '/path/to/graphql-lsp' }
@@ -87,6 +89,7 @@ The LSP server communicates via stdin/stdout using the standard LSP protocol. Co
 ## Configuration
 
 The LSP uses `.graphqlrc` configuration files. It searches for:
+
 - `.graphqlrc` (YAML or JSON)
 - `.graphqlrc.yml` / `.graphqlrc.yaml`
 - `.graphqlrc.json`
@@ -125,7 +128,7 @@ extensions:
   lsp:
     lint:
       rules:
-        unused_fields: off  # Disable expensive rules for real-time
+        unused_fields: off
 ```
 
 See [graphql-linter](../graphql-linter/README.md) for available rules.
@@ -157,7 +160,7 @@ Real-time validation with accurate error reporting:
 ```graphql
 query GetUser {
   user {
-    unknownField  # Error: Cannot query field "unknownField" on type "User"
+    unknownField # Error: Cannot query field "unknownField" on type "User"
   }
 }
 ```
@@ -167,6 +170,7 @@ query GetUser {
 Navigate to definitions by clicking or using keyboard shortcuts:
 
 **Supported:**
+
 - Fragment spreads → Fragment definitions
 - Operation names → Operation definitions
 - Type references → Type definitions (in fragments, inline fragments, implements, union members, field types, variable types)
@@ -178,6 +182,7 @@ Navigate to definitions by clicking or using keyboard shortcuts:
 - Directive arguments → Directive argument definitions
 
 **Works in:**
+
 - Pure GraphQL files (`.graphql`, `.gql`)
 - Embedded GraphQL in TypeScript/JavaScript
 - Cross-file navigation
@@ -192,7 +197,7 @@ fragment UserFields on User {
 
 query GetUser {
   user {
-    ...UserFields  # Ctrl+Click → jumps to UserFields definition
+    ...UserFields # Ctrl+Click → jumps to UserFields definition
   }
 }
 ```
@@ -202,16 +207,19 @@ query GetUser {
 Find all usages of GraphQL elements:
 
 **Supported:**
+
 - Fragment definitions → All fragment spreads
 - Type definitions → All usages in field types, union members, implements clauses, input fields, arguments
 
 **Respects:**
+
 - Include/exclude declaration context from client
 - List and NonNull type wrappers
 
 **Example:**
 
 Find all places where the `User` type is used:
+
 - Field types: `user: User`
 - Union members: `SearchResult = User | Post`
 - Implements clauses: `Admin implements User`
@@ -221,6 +229,7 @@ Find all places where the `User` type is used:
 Display type information and descriptions:
 
 **Shows:**
+
 - Type information for fields
 - Schema descriptions
 - Deprecation warnings
@@ -231,7 +240,7 @@ Display type information and descriptions:
 ```graphql
 query {
   user {
-    name  # Hover: String! - The user's full name
+    name # Hover: String! - The user's full name
   }
 }
 ```
@@ -243,7 +252,7 @@ Full support for TypeScript/JavaScript with position mapping:
 **Supported patterns:**
 
 ```typescript
-import { gql } from 'graphql-tag';
+import { gql } from "graphql-tag";
 
 const query = gql`
   query GetUser($id: ID!) {
@@ -256,6 +265,7 @@ const query = gql`
 ```
 
 **Features:**
+
 - Accurate diagnostics at correct positions
 - Goto definition from embedded GraphQL
 - Hover information in template literals
@@ -347,7 +357,7 @@ extensions:
   lsp:
     lint:
       rules:
-        unused_fields: off  # Too expensive for real-time
+        unused_fields: off # Too expensive for real-time
 ```
 
 Enable expensive rules in the CLI for CI/CD:
@@ -357,7 +367,7 @@ extensions:
   cli:
     lint:
       rules:
-        unused_fields: error  # Run in CI only
+        unused_fields: error # Run in CI only
 ```
 
 ### Concurrent Requests
@@ -426,14 +436,12 @@ The LSP and CLI share core validation logic but are optimized differently:
 
 - **Real-time feedback**: Validates as you type
 - **Incremental updates**: Only re-validates changed files
-- **Fast rules only**: Expensive lints disabled by default
 - **Editor integration**: VSCode, Neovim, etc.
 
 ### CLI
 
 - **Batch processing**: Validates all files at once
 - **CI/CD optimized**: Exit codes, JSON output
-- **Expensive rules enabled**: Project-wide lints like `unused_fields`
 - **No incremental updates**: Full project validation each run
 
 Configure independently:
@@ -443,11 +451,11 @@ extensions:
   lsp:
     lint:
       rules:
-        unused_fields: off    # Disable in LSP
+        unused_fields: off # Disable in LSP
   cli:
     lint:
       rules:
-        unused_fields: error  # Enable in CLI
+        unused_fields: error # Enable in CLI
 ```
 
 ## Troubleshooting
@@ -482,7 +490,7 @@ RUST_LOG=debug graphql-lsp 2> lsp.log
 Verify documents match the pattern in config:
 
 ```yaml
-documents: "src/**/*.graphql"  # Must match your file locations
+documents: "src/**/*.graphql" # Must match your file locations
 ```
 
 ### Embedded GraphQL Not Working
@@ -491,10 +499,10 @@ Check import tracking:
 
 ```typescript
 // ✓ Will work (gql from recognized module)
-import { gql } from 'graphql-tag';
+import { gql } from "graphql-tag";
 
 // ✗ Won't work (unknown module)
-import { gql } from 'custom-unknown-module';
+import { gql } from "custom-unknown-module";
 ```
 
 Add custom modules:

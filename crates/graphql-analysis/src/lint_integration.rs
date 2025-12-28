@@ -188,10 +188,6 @@ fn document_schema_lints(
     diagnostics
 }
 
-/// Run project-wide lint rules (expensive!)
-///
-/// This should ONLY be called when explicitly requested (CLI, not LSP).
-/// Returns diagnostics grouped by file.
 #[salsa::tracked]
 pub fn project_lint_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,

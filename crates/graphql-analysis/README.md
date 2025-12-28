@@ -14,7 +14,6 @@ Instead of imperative "validate all files" functions, validation is expressed as
 // Main entry point - get all diagnostics for a file
 let diagnostics = file_diagnostics(db, content, metadata);
 
-// Project-wide analysis (opt-in, expensive)
 let project_diagnostics = project_wide_diagnostics(db);
 ```
 
@@ -31,10 +30,12 @@ file_diagnostics()
 ### Validation Layers
 
 1. **Syntax Validation** (`graphql-syntax` crate)
+
    - Parse errors from apollo-parser
    - File-local, cached by Salsa
 
 2. **Schema Validation** (`schema_validation.rs`)
+
    - ✅ Duplicate type names within a file
    - ✅ Field type existence checking
    - ✅ Interface implementation validation:
@@ -50,6 +51,7 @@ file_diagnostics()
    - ✅ Argument type validation
 
 3. **Document Validation** (`document_validation.rs`)
+
    - ✅ Operation name uniqueness (project-wide)
    - ✅ Fragment name uniqueness (project-wide)
    - ✅ Fragment type condition validation:
@@ -62,12 +64,13 @@ file_diagnostics()
    - ⏳ Field selections against schema (deferred to apollo-compiler integration)
 
 4. **Lint Integration** (`lint_integration.rs`)
+
    - Integration with `graphql-linter` crate
    - Document-level lints (require_id_field, no_deprecated, etc.)
    - Schema-level lints (TODO)
 
 5. **Project-Wide Lints** (`project_lints.rs`)
-   - Unused fields (expensive, opt-in)
+   - Unused fields
    - Unused fragments
    - Only run when explicitly requested
 
@@ -86,12 +89,14 @@ query GetUser {
 ```
 
 **What gets recomputed:**
+
 - `parse(file)` - file content changed
 - `file_structure(file)` - structure unchanged (no name change)
 - `operation_body(operation)` - body changed
 - `validate_document_file(file)` - validates this operation
 
 **What stays cached:**
+
 - `schema_types()` - schema unchanged ✅
 - `all_fragments()` - no fragment changes ✅
 - Bodies of other operations ✅
@@ -109,12 +114,14 @@ type User {
 ```
 
 **What gets recomputed:**
+
 - `parse(schema_file)` - schema changed
 - `file_structure(schema_file)` - User type structure changed
 - `schema_types()` - depends on schema structures
 - `validate_document_file(*)` - schema changed, revalidate all documents
 
 **What stays cached:**
+
 - `file_structure()` for document files ✅
 - `all_fragments()` ✅
 
@@ -138,14 +145,14 @@ Ranges use LSP-style positions (0-indexed line/column).
 
 ## Comparison to Current Implementation
 
-| Current | New (Query-Based) |
-|---------|-------------------|
-| `validate_all_files()` - imperative | `file_diagnostics()` - declarative query |
-| Manual dependency tracking | Automatic via Salsa |
-| `ValidationMode::Quick/Smart/Full` | Automatic fine-grained invalidation |
-| Project-wide lints run on every save | Opt-in, incremental |
-| Locking entire indices | Lock-free query evaluation |
-| Hard to test individual steps | Each query independently testable |
+| Current                              | New (Query-Based)                        |
+| ------------------------------------ | ---------------------------------------- |
+| `validate_all_files()` - imperative  | `file_diagnostics()` - declarative query |
+| Manual dependency tracking           | Automatic via Salsa                      |
+| `ValidationMode::Quick/Smart/Full`   | Automatic fine-grained invalidation      |
+| Project-wide lints run on every save | Opt-in, incremental                      |
+| Locking entire indices               | Lock-free query evaluation               |
+| Hard to test individual steps        | Each query independently testable        |
 
 ## Current Status
 
@@ -165,12 +172,14 @@ Ranges use LSP-style positions (0-indexed line/column).
 ### Phase 4: Complete Validation
 
 1. **Schema Validation**
+
    - Field type existence checking
    - Interface implementation validation
    - Union member validation
    - Directive validation
 
 2. **Document Validation**
+
    - Field selection validation against schema
    - Variable type checking
    - Fragment spread validation
@@ -194,6 +203,7 @@ cargo test --package graphql-analysis
 ```
 
 Tests verify:
+
 - Diagnostic creation and formatting
 - Query behavior with empty database
 - Project-wide diagnostics gating
