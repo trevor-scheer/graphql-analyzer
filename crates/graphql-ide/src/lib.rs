@@ -2046,6 +2046,36 @@ mod tests {
     }
 
     #[test]
+    fn test_goto_definition_schema_field_type() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        // "type Query { user: User }" - "User" return type starts at position 19
+        // "type User { id: ID! }" on line 1
+        host.add_file(
+            &schema_file,
+            "type Query { user: User }\ntype User { id: ID! }",
+            FileKind::Schema,
+            0,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Click on "User" in "user: User"
+        let locations = snapshot.goto_definition(&schema_file, Position::new(0, 20));
+
+        assert!(
+            locations.is_some(),
+            "Should find type definition from field return type"
+        );
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), schema_file.as_str());
+        // Should point to "User" type definition (line 1)
+        assert_eq!(locations[0].range.start.line, 1);
+    }
+
+    #[test]
     fn test_find_references_fragment() {
         let mut host = AnalysisHost::new();
 

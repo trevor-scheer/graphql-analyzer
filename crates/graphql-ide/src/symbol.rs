@@ -289,12 +289,28 @@ fn check_definition(definition: &cst::Definition, byte_offset: usize) -> Option<
         cst::Definition::FragmentDefinition(frag) => check_fragment_definition(frag, byte_offset),
         cst::Definition::ObjectTypeDefinition(obj) => {
             check_type_definition_name(obj.name(), byte_offset)
+                .or_else(|| check_fields_definition(obj.fields_definition(), byte_offset))
         }
         cst::Definition::InterfaceTypeDefinition(iface) => {
             check_type_definition_name(iface.name(), byte_offset)
+                .or_else(|| check_fields_definition(iface.fields_definition(), byte_offset))
         }
         cst::Definition::UnionTypeDefinition(union) => {
-            check_type_definition_name(union.name(), byte_offset)
+            check_type_definition_name(union.name(), byte_offset).or_else(|| {
+                // Check union member types
+                if let Some(members) = union.union_member_types() {
+                    for member in members.named_types() {
+                        if let Some(name) = member.name() {
+                            if is_within_range(&name, byte_offset) {
+                                return Some(Symbol::TypeName {
+                                    name: name.text().to_string(),
+                                });
+                            }
+                        }
+                    }
+                }
+                None
+            })
         }
         cst::Definition::EnumTypeDefinition(enum_def) => {
             check_type_definition_name(enum_def.name(), byte_offset)
@@ -303,10 +319,89 @@ fn check_definition(definition: &cst::Definition, byte_offset: usize) -> Option<
             check_type_definition_name(scalar.name(), byte_offset)
         }
         cst::Definition::InputObjectTypeDefinition(input) => {
-            check_type_definition_name(input.name(), byte_offset)
+            check_type_definition_name(input.name(), byte_offset).or_else(|| {
+                check_input_fields_definition(input.input_fields_definition(), byte_offset)
+            })
         }
         _ => None,
     }
+}
+
+fn check_fields_definition(
+    fields: Option<cst::FieldsDefinition>,
+    byte_offset: usize,
+) -> Option<Symbol> {
+    let fields = fields?;
+    for field in fields.field_definitions() {
+        // Check the field's return type
+        if let Some(ty) = field.ty() {
+            if let Some(symbol) = check_type_reference(&ty, byte_offset) {
+                return Some(symbol);
+            }
+        }
+        // Check argument types
+        if let Some(args) = field.arguments_definition() {
+            for arg in args.input_value_definitions() {
+                if let Some(ty) = arg.ty() {
+                    if let Some(symbol) = check_type_reference(&ty, byte_offset) {
+                        return Some(symbol);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn check_input_fields_definition(
+    fields: Option<cst::InputFieldsDefinition>,
+    byte_offset: usize,
+) -> Option<Symbol> {
+    let fields = fields?;
+    for field in fields.input_value_definitions() {
+        if let Some(ty) = field.ty() {
+            if let Some(symbol) = check_type_reference(&ty, byte_offset) {
+                return Some(symbol);
+            }
+        }
+    }
+    None
+}
+
+fn check_type_reference(ty: &cst::Type, byte_offset: usize) -> Option<Symbol> {
+    match ty {
+        cst::Type::NamedType(named) => {
+            if let Some(name) = named.name() {
+                if is_within_range(&name, byte_offset) {
+                    return Some(Symbol::TypeName {
+                        name: name.text().to_string(),
+                    });
+                }
+            }
+        }
+        cst::Type::ListType(list) => {
+            if let Some(inner) = list.ty() {
+                return check_type_reference(&inner, byte_offset);
+            }
+        }
+        cst::Type::NonNullType(non_null) => {
+            if let Some(named) = non_null.named_type() {
+                if let Some(name) = named.name() {
+                    if is_within_range(&name, byte_offset) {
+                        return Some(Symbol::TypeName {
+                            name: name.text().to_string(),
+                        });
+                    }
+                }
+            }
+            if let Some(list) = non_null.list_type() {
+                if let Some(inner) = list.ty() {
+                    return check_type_reference(&inner, byte_offset);
+                }
+            }
+        }
+    }
+    None
 }
 
 fn check_type_definition_name(name: Option<cst::Name>, byte_offset: usize) -> Option<Symbol> {
