@@ -111,7 +111,7 @@ let diagnostics = linter.lint_document(&ctx);
 
 **Use case**: Real-time editor feedback
 **Performance**: Fast, runs per-document
-**Current rules**: `deprecated_field`
+**Current rules**: `no_deprecated`
 
 ### 3. Standalone Schema
 
@@ -162,7 +162,7 @@ let config = LintConfig::recommended();
 
 // Custom configuration
 let mut config = LintConfig::default();
-config.set_rule_severity("deprecated_field", Severity::Warn);
+config.set_rule_severity("no_deprecated", Severity::Warn);
 config.set_rule_severity("unique_names", Severity::Error);
 config.set_rule_severity("unused_fields", Severity::Off);
 ```
@@ -184,7 +184,7 @@ lint:
 lint:
   recommended: error
   rules:
-    deprecated_field: warn
+    no_deprecated: warn
     unique_names: error
     unused_fields: off  # Expensive, off by default
 
@@ -248,7 +248,7 @@ The rule handles:
 - Circular fragment references (prevents infinite loops)
 - Aliased fields (only same alias is considered redundant)
 
-### deprecated_field
+### no_deprecated
 
 **Type**: DocumentSchemaRule
 **Default**: `warn`

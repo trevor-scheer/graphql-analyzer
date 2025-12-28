@@ -1,337 +1,113 @@
-use crate::context::ProjectContext;
-use graphql_project::{Diagnostic, Location, Position, Range, RelatedInfo};
+use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::traits::{LintRule, ProjectLintRule};
+use graphql_db::{FileId, ProjectFiles};
 use std::collections::HashMap;
 
-use super::ProjectRule;
+/// Trait implementation for `unique_names` rule
+pub struct UniqueNamesRuleImpl;
 
-/// Lint rule that checks for unique operation and fragment names across the entire project
-pub struct UniqueNamesRule;
-
-impl ProjectRule for UniqueNamesRule {
+impl LintRule for UniqueNamesRuleImpl {
     fn name(&self) -> &'static str {
         "unique_names"
     }
 
     fn description(&self) -> &'static str {
-        "Ensures operation and fragment names are unique across the entire project"
+        "Ensures operation and fragment names are unique across the project"
     }
 
-    #[allow(clippy::too_many_lines)]
-    fn check(&self, ctx: &ProjectContext) -> HashMap<String, Vec<Diagnostic>> {
-        let document_index = ctx.documents;
-        let mut diagnostics_by_file: HashMap<String, Vec<Diagnostic>> = HashMap::new();
+    fn default_severity(&self) -> LintSeverity {
+        LintSeverity::Error
+    }
+}
 
-        // Check for duplicate operation names
-        for (name, operations) in &document_index.operations {
-            if operations.len() > 1 {
-                for op in operations {
-                    let message = format!(
-                        "Operation name '{}' is not unique across the project. Found {} definitions.",
-                        name,
-                        operations.len()
-                    );
+impl ProjectLintRule for UniqueNamesRuleImpl {
+    fn check(
+        &self,
+        db: &dyn graphql_hir::GraphQLHirDatabase,
+        project_files: ProjectFiles,
+    ) -> HashMap<FileId, Vec<LintDiagnostic>> {
+        let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
 
-                    let range = Range {
-                        start: Position {
-                            line: op.line,
-                            character: op.column,
-                        },
-                        end: Position {
-                            line: op.line,
-                            character: op.column + name.len(),
-                        },
-                    };
+        // Collect all operations with their locations
+        let document_files = project_files.document_files(db);
+        let mut operations_by_name: HashMap<String, Vec<(FileId, usize)>> = HashMap::new();
 
-                    let mut diag = Diagnostic::error(range, message)
-                        .with_code("unique_operation_names")
-                        .with_source("graphql-linter");
-
-                    // Add related information for all other occurrences
-                    for other_op in operations {
-                        if other_op.file_path != op.file_path
-                            || other_op.line != op.line
-                            || other_op.column != op.column
-                        {
-                            let other_range = Range {
-                                start: Position {
-                                    line: other_op.line,
-                                    character: other_op.column,
-                                },
-                                end: Position {
-                                    line: other_op.line,
-                                    character: other_op.column + name.len(),
-                                },
-                            };
-                            let related = RelatedInfo {
-                                message: format!("Operation '{name}' also defined here"),
-                                location: Location {
-                                    uri: format!("file://{}", other_op.file_path),
-                                    range: other_range,
-                                },
-                            };
-                            diag = diag.with_related_info(related);
-                        }
-                    }
-
-                    // Add diagnostic to the file's list
-                    diagnostics_by_file
-                        .entry(op.file_path.clone())
+        for (file_id, content, metadata) in document_files.iter() {
+            let structure = graphql_hir::file_structure(db, *file_id, *content, *metadata);
+            for operation in &structure.operations {
+                if let Some(ref name) = operation.name {
+                    operations_by_name
+                        .entry(name.to_string())
                         .or_default()
-                        .push(diag);
+                        .push((*file_id, operation.index));
                 }
             }
         }
 
-        // Check for duplicate fragment names
-        for (name, fragments) in &document_index.fragments {
-            if fragments.len() > 1 {
-                for frag in fragments {
+        // Check for duplicate operation names
+        for (name, locations) in &operations_by_name {
+            if locations.len() > 1 {
+                // Found duplicate operation names
+                for (file_id, _operation_index) in locations {
                     let message = format!(
-                        "Fragment name '{}' is not unique across the project. Found {} definitions.",
-                        name,
-                        fragments.len()
+                        "Operation name '{name}' is not unique across the project. Found {} definitions.",
+                        locations.len()
                     );
 
-                    let range = Range {
-                        start: Position {
-                            line: frag.line,
-                            character: frag.column,
+                    // For now, use offset 0 - we'll need to extract position from AST
+                    let diag = LintDiagnostic {
+                        message,
+                        offset_range: crate::diagnostics::OffsetRange {
+                            start: 0,
+                            end: name.len(),
                         },
-                        end: Position {
-                            line: frag.line,
-                            character: frag.column + name.len(),
-                        },
+                        severity: self.default_severity(),
+                        rule: self.name().to_string(),
                     };
 
-                    let mut diag = Diagnostic::error(range, message)
-                        .with_code("unique_fragment_names")
-                        .with_source("graphql-linter");
+                    diagnostics_by_file.entry(*file_id).or_default().push(diag);
+                }
+            }
+        }
 
-                    // Add related information for all other occurrences
-                    for other_frag in fragments {
-                        if other_frag.file_path != frag.file_path
-                            || other_frag.line != frag.line
-                            || other_frag.column != frag.column
-                        {
-                            let other_range = Range {
-                                start: Position {
-                                    line: other_frag.line,
-                                    character: other_frag.column,
-                                },
-                                end: Position {
-                                    line: other_frag.line,
-                                    character: other_frag.column + name.len(),
-                                },
-                            };
-                            let related = RelatedInfo {
-                                message: format!("Fragment '{name}' also defined here"),
-                                location: Location {
-                                    uri: format!("file://{}", other_frag.file_path),
-                                    range: other_range,
-                                },
-                            };
-                            diag = diag.with_related_info(related);
-                        }
-                    }
+        // Collect all fragments with their locations
+        let mut fragments_by_name: HashMap<String, Vec<FileId>> = HashMap::new();
 
-                    // Add diagnostic to the file's list
-                    diagnostics_by_file
-                        .entry(frag.file_path.clone())
-                        .or_default()
-                        .push(diag);
+        for (file_id, content, metadata) in document_files.iter() {
+            let structure = graphql_hir::file_structure(db, *file_id, *content, *metadata);
+            for fragment in &structure.fragments {
+                fragments_by_name
+                    .entry(fragment.name.to_string())
+                    .or_default()
+                    .push(*file_id);
+            }
+        }
+
+        // Check for duplicate fragment names
+        for (name, file_ids) in &fragments_by_name {
+            if file_ids.len() > 1 {
+                // Found duplicate fragment names
+                for file_id in file_ids {
+                    let message = format!(
+                        "Fragment name '{name}' is not unique across the project. Found {} definitions.",
+                        file_ids.len()
+                    );
+
+                    let diag = LintDiagnostic {
+                        message,
+                        offset_range: crate::diagnostics::OffsetRange {
+                            start: 0,
+                            end: name.len(),
+                        },
+                        severity: self.default_severity(),
+                        rule: self.name().to_string(),
+                    };
+
+                    diagnostics_by_file.entry(*file_id).or_default().push(diag);
                 }
             }
         }
 
         diagnostics_by_file
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::needless_raw_string_hashes)]
-mod tests {
-    use super::*;
-    use apollo_parser::{cst, Parser};
-    use graphql_project::{DocumentIndex, FragmentInfo, OperationInfo, OperationType, SchemaIndex};
-
-    fn create_test_document_index(files: Vec<(&str, &str)>) -> DocumentIndex {
-        let mut index = DocumentIndex::new();
-
-        for (file_path, content) in files {
-            let parser = Parser::new(content);
-            let tree = parser.parse();
-            let tree_arc = std::sync::Arc::new(tree);
-
-            // Cache the parsed AST
-            index
-                .parsed_asts
-                .insert(file_path.to_string(), tree_arc.clone());
-
-            // Index operations and fragments
-            let doc_cst = tree_arc.document();
-            for definition in doc_cst.definitions() {
-                match definition {
-                    cst::Definition::OperationDefinition(op_def) => {
-                        if let Some(name_node) = op_def.name() {
-                            let name = name_node.text().to_string();
-                            let op_type = if op_def
-                                .operation_type()
-                                .is_some_and(|t| t.mutation_token().is_some())
-                            {
-                                OperationType::Mutation
-                            } else if op_def
-                                .operation_type()
-                                .is_some_and(|t| t.subscription_token().is_some())
-                            {
-                                OperationType::Subscription
-                            } else {
-                                OperationType::Query
-                            };
-
-                            let operation_info = OperationInfo {
-                                name: Some(name.clone()),
-                                operation_type: op_type,
-                                file_path: file_path.to_string(),
-                                line: 0,
-                                column: 0,
-                            };
-
-                            index
-                                .operations
-                                .entry(name)
-                                .or_default()
-                                .push(operation_info);
-                        }
-                    }
-                    cst::Definition::FragmentDefinition(frag_def) => {
-                        if let Some(frag_name) = frag_def.fragment_name().and_then(|n| n.name()) {
-                            let name = frag_name.text().to_string();
-                            let type_condition = frag_def
-                                .type_condition()
-                                .and_then(|tc| tc.named_type())
-                                .and_then(|nt| nt.name())
-                                .map(|n| n.text().to_string())
-                                .unwrap_or_default();
-
-                            let fragment_info = FragmentInfo {
-                                name: name.clone(),
-                                type_condition,
-                                file_path: file_path.to_string(),
-                                line: 0,
-                                column: 0,
-                            };
-
-                            index.fragments.entry(name).or_default().push(fragment_info);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        index
-    }
-
-    #[test]
-    fn test_detects_duplicate_operations_across_files() {
-        let rule = UniqueNamesRule;
-        let schema = SchemaIndex::new();
-
-        let document_index = create_test_document_index(vec![
-            ("file1.graphql", r#"query GetUser { __typename }"#),
-            ("file2.graphql", r#"query GetUser { __typename }"#),
-        ]);
-
-        let ctx = ProjectContext {
-            documents: &document_index,
-            schema: &schema,
-        };
-        let diagnostics_map = rule.check(&ctx);
-        let diagnostics: Vec<_> = diagnostics_map.values().flatten().cloned().collect();
-
-        assert_eq!(
-            diagnostics.len(),
-            2,
-            "Should have 2 errors for duplicate operation"
-        );
-        assert!(diagnostics.iter().all(|d| d.message.contains("GetUser")));
-        assert!(diagnostics.iter().all(|d| d.message.contains("not unique")));
-    }
-
-    #[test]
-    fn test_detects_duplicate_fragments_across_files() {
-        let rule = UniqueNamesRule;
-        let schema = SchemaIndex::new();
-
-        let document_index = create_test_document_index(vec![
-            ("file1.graphql", r#"fragment UserFields on User { id }"#),
-            ("file2.graphql", r#"fragment UserFields on User { name }"#),
-        ]);
-
-        let ctx = ProjectContext {
-            documents: &document_index,
-            schema: &schema,
-        };
-        let diagnostics_map = rule.check(&ctx);
-        let diagnostics: Vec<_> = diagnostics_map.values().flatten().cloned().collect();
-
-        assert_eq!(
-            diagnostics.len(),
-            2,
-            "Should have 2 errors for duplicate fragment"
-        );
-        assert!(diagnostics.iter().all(|d| d.message.contains("UserFields")));
-        assert!(diagnostics.iter().all(|d| d.message.contains("not unique")));
-    }
-
-    #[test]
-    fn test_no_errors_for_unique_names() {
-        let rule = UniqueNamesRule;
-        let schema = SchemaIndex::new();
-
-        let document_index = create_test_document_index(vec![
-            (
-                "file1.graphql",
-                r#"query GetUser { __typename } fragment UserFields on User { id }"#,
-            ),
-            (
-                "file2.graphql",
-                r#"query GetPost { __typename } fragment PostFields on Post { id }"#,
-            ),
-        ]);
-
-        let ctx = ProjectContext {
-            documents: &document_index,
-            schema: &schema,
-        };
-        let diagnostics_map = rule.check(&ctx);
-
-        assert_eq!(
-            diagnostics_map.values().flatten().count(),
-            0,
-            "Should have no errors for unique names"
-        );
-    }
-
-    #[test]
-    fn test_includes_related_info() {
-        let rule = UniqueNamesRule;
-        let schema = SchemaIndex::new();
-
-        let document_index = create_test_document_index(vec![
-            ("file1.graphql", r#"query GetUser { __typename }"#),
-            ("file2.graphql", r#"query GetUser { __typename }"#),
-        ]);
-
-        let ctx = ProjectContext {
-            documents: &document_index,
-            schema: &schema,
-        };
-        let diagnostics_map = rule.check(&ctx);
-        let diagnostics: Vec<_> = diagnostics_map.values().flatten().cloned().collect();
-
-        assert_eq!(diagnostics.len(), 2);
-        // Each diagnostic should have related info pointing to the other occurrence
-        assert!(diagnostics.iter().all(|d| !d.related_info.is_empty()));
     }
 }

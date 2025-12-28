@@ -80,7 +80,7 @@ projects:
       project:
         lint:
           recommended: error
-          deprecated_field: off
+          no_deprecated: off
 
   client:
     schema: client/schema.graphql
@@ -115,7 +115,7 @@ extensions:
   project:
     lint:
       unique_names: error
-      deprecated_field: warn
+      no_deprecated: warn
 ```
 
 ### Recommended Preset with Overrides
@@ -127,7 +127,7 @@ extensions:
   project:
     lint:
       recommended: error
-      deprecated_field: off # Override to disable this rule
+      no_deprecated: off # Override to disable this rule
 ```
 
 ## Schema Features
@@ -169,7 +169,7 @@ Linting configuration:
 - Object with rule configurations:
   - `recommended`: Severity to apply recommended rules
   - `unique_names`: Ensure operation/fragment names are unique
-  - `deprecated_field`: Warn about deprecated field usage
+  - `no_deprecated`: Warn about deprecated field usage
   - Additional custom rules
 
 Severity values: `"off"`, `"warn"`, `"error"`

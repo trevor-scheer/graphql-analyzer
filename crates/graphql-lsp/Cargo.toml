@@ -15,13 +15,15 @@ path = "src/main.rs"
 
 [dependencies]
 # Internal dependencies
-graphql-project = { path = "../graphql-project" }
 graphql-linter = { path = "../graphql-linter" }
 graphql-config = { path = "../graphql-config" }
 graphql-extract = { path = "../graphql-extract" }
+graphql-ide = { path = "../graphql-ide" }
+graphql-syntax = { path = "../graphql-syntax" }
 
 # GraphQL
 apollo-compiler = { workspace = true }
+apollo-parser = { workspace = true }
 
 # LSP
 tower-lsp-server = { workspace = true }
@@ -40,8 +42,8 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 
 # Logging and Tracing
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 tracing-opentelemetry = { version = "0.32", optional = true }
 opentelemetry = { version = "0.31", optional = true }
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"], optional = true }
@@ -49,6 +51,7 @@ opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic"], optional = t
 
 # Temp files for TypeScript extraction
 tempfile = "3.0"
+glob.workspace = true
 
 [build-dependencies]
 vergen-git2 = { version = "1.0", features = ["build", "cargo"] }

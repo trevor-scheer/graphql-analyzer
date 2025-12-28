@@ -1,78 +1,31 @@
 // Allow nursery clippy lints that are too pedantic for our use case
 #![allow(clippy::significant_drop_tightening)]
 #![allow(clippy::significant_drop_in_scrutinee)]
+#![allow(dead_code)] // Temporary - during Phase 6 cleanup
 
+use crate::conversions::{
+    convert_ide_completion_item, convert_ide_diagnostic, convert_ide_hover, convert_ide_location,
+    convert_lsp_position,
+};
 use dashmap::DashMap;
-use graphql_config::{find_config, load_config};
-use graphql_linter::{LintConfig, Linter, ProjectContext};
-use graphql_project::DynamicGraphQLProject;
+use graphql_config::find_config;
+use graphql_ide::AnalysisHost;
 use lsp_types::{
-    CompletionOptions, CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
+    CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
     DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, FileChangeType,
     FileSystemWatcher, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
     HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
-    MessageType, NumberOrString, OneOf, Position, ProgressParams, ProgressParamsValue, Range,
-    ReferenceParams, ServerCapabilities, ServerInfo, SymbolInformation, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Uri, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
-    WorkDoneProgressOptions, WorkspaceSymbol, WorkspaceSymbolParams,
+    MessageType, OneOf, ReferenceParams, ServerCapabilities, ServerInfo, SymbolInformation,
+    TextDocumentSyncCapability, TextDocumentSyncKind, Uri, WorkDoneProgressOptions,
+    WorkspaceSymbol, WorkspaceSymbolParams,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::{Client, LanguageServer, UriExt};
-
-/// Debounce delay for validation in milliseconds
-const VALIDATION_DEBOUNCE_MS: u64 = 200;
-
-/// Type alias for validation task handle
-type ValidationTask = Arc<Mutex<Option<JoinHandle<()>>>>;
-
-/// Type alias for a locked GraphQL project
-type LockedProject = Arc<tokio::sync::RwLock<DynamicGraphQLProject>>;
-
-/// Type alias for a list of projects in a workspace
-/// Each project has a name, the project instance, and its own linter
-type WorkspaceProjects = Vec<(String, LockedProject, Linter)>;
-
-/// Type alias for config reload task handle
-type ReloadTask = Arc<Mutex<Option<JoinHandle<()>>>>;
-
-/// Load lint configuration for a specific project with LSP-specific overrides
-///
-/// Priority (highest to lowest):
-/// 1. `extensions.lsp.lint` - LSP-specific overrides from project config
-/// 2. Project-level `lint` - Project-specific defaults
-fn load_lsp_lint_config_for_project(project: &DynamicGraphQLProject) -> LintConfig {
-    // Get base lint config from project
-    let base_config: LintConfig = project
-        .lint_config()
-        .and_then(|value| serde_json::from_value(value.clone()).ok())
-        .unwrap_or_default();
-
-    // Get LSP-specific overrides from extensions.lsp.lint
-    let lsp_overrides = project
-        .extensions()
-        .and_then(|ext| ext.get("lsp"))
-        .and_then(|lsp_ext| {
-            if let serde_json::Value::Object(map) = lsp_ext {
-                map.get("lint")
-            } else {
-                None
-            }
-        })
-        .and_then(|value| serde_json::from_value::<LintConfig>(value.clone()).ok());
-
-    // Merge: LSP-specific overrides take precedence over base config
-    if let Some(overrides) = lsp_overrides {
-        base_config.merge(&overrides)
-    } else {
-        base_config
-    }
-}
 
 pub struct GraphQLLanguageServer {
     client: Client,
@@ -82,16 +35,11 @@ pub struct GraphQLLanguageServer {
     workspace_roots: Arc<DashMap<String, PathBuf>>,
     /// Config file paths indexed by workspace URI string
     config_paths: Arc<DashMap<String, PathBuf>>,
-    /// GraphQL projects by workspace URI -> Vec<(`project_name`, project, linter)>
-    /// Each project has its own linter configured from project-level lint config
-    projects: Arc<DashMap<String, WorkspaceProjects>>,
-    /// Document content cache indexed by URI string
-    document_cache: Arc<DashMap<String, String>>,
-    /// Pending validation tasks (URI -> `JoinHandle`) for debouncing
-    /// Each document can have at most one pending validation task
-    validation_tasks: Arc<DashMap<String, ValidationTask>>,
-    /// Pending config reload tasks (workspace URI -> `JoinHandle`) for debouncing
-    reload_tasks: Arc<DashMap<String, ReloadTask>>,
+    /// Loaded GraphQL configs indexed by workspace URI string
+    configs: Arc<DashMap<String, graphql_config::GraphQLConfig>>,
+    /// `AnalysisHost` per (workspace URI, project name) tuple
+    #[allow(clippy::type_complexity)]
+    hosts: Arc<DashMap<(String, String), Arc<Mutex<AnalysisHost>>>>,
 }
 
 impl GraphQLLanguageServer {
@@ -101,115 +49,175 @@ impl GraphQLLanguageServer {
             init_workspace_folders: Arc::new(DashMap::new()),
             workspace_roots: Arc::new(DashMap::new()),
             config_paths: Arc::new(DashMap::new()),
-            projects: Arc::new(DashMap::new()),
-            document_cache: Arc::new(DashMap::new()),
-            validation_tasks: Arc::new(DashMap::new()),
-            reload_tasks: Arc::new(DashMap::new()),
+            configs: Arc::new(DashMap::new()),
+            hosts: Arc::new(DashMap::new()),
         }
     }
 
-    /// Load GraphQL config from a workspace folder
+    /// Get or create an `AnalysisHost` for a workspace/project
+    fn get_or_create_host(
+        &self,
+        workspace_uri: &str,
+        project_name: &str,
+    ) -> Arc<Mutex<AnalysisHost>> {
+        self.hosts
+            .entry((workspace_uri.to_string(), project_name.to_string()))
+            .or_insert_with(|| Arc::new(Mutex::new(AnalysisHost::new())))
+            .clone()
+    }
+
+    /// Determine `FileKind` for a document file based on its path.
+    ///
+    /// This is used for files loaded from the `documents` configuration.
+    /// - `.ts`/`.tsx` files → TypeScript
+    /// - `.js`/`.jsx` files → JavaScript
+    /// - `.graphql`/`.gql` files → `ExecutableGraphQL`
+    ///
+    /// Note: Files from the `schema` configuration are always `FileKind::Schema`,
+    /// regardless of their extension.
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
+    fn determine_file_kind(path: &str, _content: &str) -> graphql_ide::FileKind {
+        // Determine kind based on file extension
+        if path.ends_with(".ts") || path.ends_with(".tsx") {
+            graphql_ide::FileKind::TypeScript
+        } else if path.ends_with(".js") || path.ends_with(".jsx") {
+            graphql_ide::FileKind::JavaScript
+        } else {
+            // .graphql, .gql, or other files from documents pattern
+            graphql_ide::FileKind::ExecutableGraphQL
+        }
+    }
+
+    /// Extract GraphQL from TypeScript/JavaScript source code.
+    ///
+    /// Returns `(extracted_graphql, line_offset)` tuple.
+    /// For TS/JS files: Returns extracted GraphQL or empty string if none found.
+    /// For other files: Returns source as-is.
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
+    fn extract_graphql_from_source(
+        path: &str,
+        source: &str,
+        config: &graphql_extract::ExtractConfig,
+    ) -> (String, u32) {
+        use graphql_extract::{extract_from_source, Language};
+
+        // Determine language from file extension
+        let language = if path.ends_with(".ts") || path.ends_with(".tsx") {
+            Language::TypeScript
+        } else if path.ends_with(".js") || path.ends_with(".jsx") {
+            Language::JavaScript
+        } else {
+            // Not a TS/JS file, return as-is (for .graphql files)
+            return (source.to_string(), 0);
+        };
+
+        // Extract GraphQL from TS/JS using provided config
+        tracing::info!("Attempting to extract GraphQL from TS/JS file: {}", path);
+        match extract_from_source(source, language, config) {
+            Ok(extracted) if !extracted.is_empty() => {
+                // Concatenate all extracted GraphQL blocks
+                let combined_graphql: Vec<String> =
+                    extracted.iter().map(|e| e.source.clone()).collect();
+
+                // Use the line offset from the first block (already 0-indexed)
+                #[allow(clippy::cast_possible_truncation)]
+                let line_offset = extracted[0].location.range.start.line as u32;
+
+                let result = combined_graphql.join("\n\n");
+                tracing::info!(
+                    "Successfully extracted GraphQL from {}: {} blocks, {} chars, line_offset={}",
+                    path,
+                    extracted.len(),
+                    result.len(),
+                    line_offset
+                );
+                (result, line_offset)
+            }
+            Ok(extracted) => {
+                // No GraphQL found in TS/JS file - return empty string
+                tracing::warn!(
+                    "No GraphQL found in TypeScript/JavaScript file: {} (extracted {} blocks)",
+                    path,
+                    extracted.len()
+                );
+                (String::new(), 0)
+            }
+            Err(e) => {
+                // Extraction failed - return empty string
+                tracing::error!("Failed to extract GraphQL from {}: {}", path, e);
+                (String::new(), 0)
+            }
+        }
+    }
+
+    /// Expand brace patterns like `{ts,tsx}` into multiple patterns
+    ///
+    /// This is needed because the glob crate doesn't support brace expansion.
+    /// For example, `**/*.{ts,tsx}` expands to `["**/*.ts", "**/*.tsx"]`.
+    fn expand_braces(pattern: &str) -> Vec<String> {
+        // Simple brace expansion for patterns like **/*.{ts,tsx}
+        if let Some(start) = pattern.find('{') {
+            if let Some(end) = pattern.find('}') {
+                let before = &pattern[..start];
+                let after = &pattern[end + 1..];
+                let options = &pattern[start + 1..end];
+
+                return options
+                    .split(',')
+                    .map(|opt| format!("{before}{opt}{after}"))
+                    .collect();
+            }
+        }
+
+        vec![pattern.to_string()]
+    }
+
+    #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self), fields(workspace_uri = %workspace_uri))]
+    /// Load GraphQL config from a workspace folder and load all project files
     async fn load_workspace_config(&self, workspace_uri: &str, workspace_path: &PathBuf) {
         tracing::info!(path = ?workspace_path, "Loading GraphQL config");
 
-        // Find graphql config
+        // Store workspace root
+        self.workspace_roots
+            .insert(workspace_uri.to_string(), workspace_path.clone());
+
+        // Find and load config
         match find_config(workspace_path) {
             Ok(Some(config_path)) => {
-                tracing::info!(config_path = ?config_path, "Found GraphQL config");
-
-                // Store the config path for watching
                 self.config_paths
                     .insert(workspace_uri.to_string(), config_path.clone());
 
-                // Load the config
-                match load_config(&config_path) {
+                // Parse the config to load all files
+                match graphql_config::load_config(&config_path) {
                     Ok(config) => {
-                        // Create and initialize projects from config
-                        match DynamicGraphQLProject::from_config_with_base(&config, workspace_path)
-                            .await
-                        {
-                            Ok(projects) => {
-                                tracing::info!(
-                                    count = projects.len(),
-                                    "Initialized GraphQL projects"
-                                );
+                        self.client
+                            .log_message(
+                                MessageType::INFO,
+                                "GraphQL config found, loading files...",
+                            )
+                            .await;
 
-                                // Log project info
-                                for (name, project) in &projects {
-                                    let doc_index = project.document_index();
-                                    match doc_index.read() {
-                                        Ok(doc_index_guard) => {
-                                            tracing::info!(
-                                                project = %name,
-                                                operations = doc_index_guard.operations.len(),
-                                                fragments = doc_index_guard.fragments.len(),
-                                                "Project ready"
-                                            );
-                                        }
-                                        Err(e) => {
-                                            tracing::error!(
-                                                project = %name,
-                                                "Failed to acquire document index lock: {}",
-                                                e
-                                            );
-                                        }
-                                    };
-                                }
+                        // Store the config
+                        self.configs
+                            .insert(workspace_uri.to_string(), config.clone());
 
-                                // Wrap projects and create per-project linters
-                                let wrapped_projects: Vec<(
-                                    String,
-                                    Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
-                                    Linter,
-                                )> = projects
-                                    .into_iter()
-                                    .map(|(name, proj)| {
-                                        // Load lint config from project
-                                        let lint_config = load_lsp_lint_config_for_project(&proj);
-                                        let linter = Linter::new(lint_config);
-                                        tracing::info!(project = %name, "Loaded lint configuration for project");
-                                        (name, Arc::new(tokio::sync::RwLock::new(proj)), linter)
-                                    })
-                                    .collect();
-
-                                // Store workspace and projects
-                                self.workspace_roots
-                                    .insert(workspace_uri.to_string(), workspace_path.clone());
-                                self.projects
-                                    .insert(workspace_uri.to_string(), wrapped_projects);
-
-                                self.client
-                                    .log_message(
-                                        MessageType::INFO,
-                                        "GraphQL config loaded successfully",
-                                    )
-                                    .await;
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to initialize projects: {e}");
-                                self.client
-                                    .log_message(
-                                        MessageType::ERROR,
-                                        format!("Failed to load GraphQL projects: {e}"),
-                                    )
-                                    .await;
-                            }
-                        }
+                        // Load all files from all projects into AnalysisHost
+                        self.load_all_project_files(workspace_uri, workspace_path, &config)
+                            .await;
                     }
                     Err(e) => {
-                        tracing::error!("Failed to load config: {e}");
+                        tracing::error!("Error loading config: {}", e);
                         self.client
                             .log_message(
                                 MessageType::ERROR,
-                                format!("Failed to parse GraphQL config: {e}"),
+                                &format!("Failed to load GraphQL config: {e}"),
                             )
                             .await;
                     }
                 }
             }
             Ok(None) => {
-                tracing::warn!("No GraphQL config found in workspace");
                 self.client
                     .log_message(
                         MessageType::WARNING,
@@ -223,1086 +231,466 @@ impl GraphQLLanguageServer {
         }
     }
 
-    /// Reload GraphQL config for a workspace
+    /// Load all GraphQL files from the config into `AnalysisHost`
     #[allow(clippy::too_many_lines)]
-    #[tracing::instrument(skip(self), fields(workspace_uri = %workspace_uri))]
-    async fn reload_workspace_config(&self, workspace_uri: &str) {
-        tracing::info!("Reloading GraphQL config");
+    async fn load_all_project_files(
+        &self,
+        workspace_uri: &str,
+        workspace_path: &Path,
+        config: &graphql_config::GraphQLConfig,
+    ) {
+        let start = std::time::Instant::now();
+        // For each project, use a unique AnalysisHost per (workspace, project)
+        tracing::debug!(
+            "load_all_project_files: workspace_uri={}, workspace_path={:?}",
+            workspace_uri,
+            workspace_path
+        );
 
-        // Get the config path
-        let Some(config_path) = self.config_paths.get(workspace_uri).map(|r| r.clone()) else {
-            tracing::warn!("No config path found for workspace");
-            return;
-        };
+        // Collect projects into a Vec to avoid holding iterator across await
+        let projects: Vec<_> = config.projects().collect();
+        tracing::info!("Loading files for {} project(s)", projects.len());
 
-        let Some(workspace_path) = self.workspace_roots.get(workspace_uri).map(|r| r.clone())
-        else {
-            tracing::warn!("No workspace path found");
-            return;
-        };
+        for (project_name, project_config) in projects {
+            tracing::info!("Loading project: {}", project_name);
+            // Parse and set extract configuration
+            let extract_config = project_config
+                .extensions
+                .as_ref()
+                .and_then(|extensions| extensions.get("extractConfig"))
+                .and_then(|extract_config_value| {
+                    match serde_json::from_value::<graphql_extract::ExtractConfig>(
+                        extract_config_value.clone(),
+                    ) {
+                        Ok(config) => {
+                            tracing::info!("Loaded extract configuration from project config");
+                            Some(config)
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to parse extract configuration: {e}, using defaults"
+                            );
+                            None
+                        }
+                    }
+                })
+                .unwrap_or_default();
 
-        // Show progress notification with toast
-        let token = NumberOrString::String(format!("graphql-config-reload-{workspace_uri}"));
-        let create_progress = self
-            .client
-            .send_request::<lsp_types::request::WorkDoneProgressCreate>(
-                lsp_types::WorkDoneProgressCreateParams {
-                    token: token.clone(),
+            // Parse and set lint configuration
+            let lint_config = project_config.lint.as_ref().map_or_else(
+                graphql_linter::LintConfig::default,
+                |lint_value| match serde_json::from_value::<graphql_linter::LintConfig>(lint_value.clone()) {
+                    Ok(cfg) => cfg,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse lint config for project '{}': {}. Using default lint config.", project_name, e);
+                        graphql_linter::LintConfig::default()
+                    }
                 },
-            )
-            .await;
+            );
 
-        if create_progress.is_err() {
-            tracing::warn!("Failed to create progress token");
+            // Get the host for this (workspace, project)
+            let host = self.get_or_create_host(workspace_uri, project_name);
+
+            // Set extract and lint config on host
+            {
+                let mut host_guard = host.lock().await;
+                host_guard.set_extract_config(extract_config.clone());
+                host_guard.set_lint_config(lint_config);
+            }
+
+            // Load schema files using centralized method
+            {
+                let mut host_guard = host.lock().await;
+                if let Err(e) = host_guard.load_schemas_from_config(project_config, workspace_path)
+                {
+                    tracing::error!("Failed to load schemas: {}", e);
+                }
+            }
+
+            // Load document files (operations and fragments)
+            if let Some(documents_config) = &project_config.documents {
+                const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
+
+                // Get document patterns from config
+                let patterns: Vec<String> = documents_config
+                    .patterns()
+                    .into_iter()
+                    .map(std::string::ToString::to_string)
+                    .collect();
+
+                tracing::info!("Loading document files with {} patterns", patterns.len());
+
+                let mut total_files_loaded = 0;
+
+                for pattern in patterns {
+                    // Skip negation patterns (starting with !)
+                    if pattern.trim().starts_with('!') {
+                        tracing::info!("Skipping negation pattern: {}", pattern);
+                        continue;
+                    }
+
+                    tracing::info!("Processing pattern: {}", pattern);
+
+                    // Expand brace patterns like {ts,tsx} since glob crate doesn't support them
+                    let expanded_patterns = Self::expand_braces(&pattern);
+                    tracing::info!("Expanded into {} patterns", expanded_patterns.len());
+
+                    for expanded_pattern in expanded_patterns {
+                        // Resolve pattern relative to workspace
+                        let full_pattern = workspace_path.join(&expanded_pattern);
+
+                        tracing::debug!("Globbing: {}", full_pattern.display());
+
+                        match glob::glob(&full_pattern.display().to_string()) {
+                            Ok(paths) => {
+                                for entry in paths {
+                                    match entry {
+                                        Ok(path) if path.is_file() => {
+                                            tracing::debug!(
+                                                "File matched pattern: {}",
+                                                path.display()
+                                            );
+                                            // Skip node_modules
+                                            if path
+                                                .components()
+                                                .any(|c| c.as_os_str() == "node_modules")
+                                            {
+                                                continue;
+                                            }
+
+                                            // Log progress every 100 files
+                                            if total_files_loaded > 0
+                                                && total_files_loaded % 100 == 0
+                                            {
+                                                tracing::info!(
+                                                    "Loaded {} files so far (pattern: {})",
+                                                    total_files_loaded,
+                                                    pattern
+                                                );
+
+                                                // Show warning at threshold
+                                                if total_files_loaded == MAX_FILES_WARNING_THRESHOLD
+                                                {
+                                                    tracing::warn!(
+                                                        "Loading large number of files ({}+), this may take a while...",
+                                                        MAX_FILES_WARNING_THRESHOLD
+                                                    );
+                                                    self.client
+                                                        .show_message(
+                                                            MessageType::WARNING,
+                                                            format!(
+                                                                "GraphQL LSP: Loading {MAX_FILES_WARNING_THRESHOLD}+ files, this may take a while. \
+                                                                Consider using more specific patterns if this is too slow."
+                                                            ),
+                                                        )
+                                                        .await;
+                                                }
+                                            }
+
+                                            // Read file content
+                                            match std::fs::read_to_string(&path) {
+                                                Ok(content) => {
+                                                    let path_str = path.display().to_string();
+                                                    let file_kind = Self::determine_file_kind(
+                                                        &path_str, &content,
+                                                    );
+
+                                                    // Extract GraphQL from TypeScript/JavaScript files
+                                                    let (final_content, line_offset) =
+                                                        Self::extract_graphql_from_source(
+                                                            &path_str,
+                                                            &content,
+                                                            &extract_config,
+                                                        );
+
+                                                    // IMPORTANT: After extraction, change TypeScript/JavaScript to ExecutableGraphQL
+                                                    let final_kind = match file_kind {
+                                                        graphql_ide::FileKind::TypeScript
+                                                        | graphql_ide::FileKind::JavaScript
+                                                            if !final_content.is_empty() =>
+                                                        {
+                                                            graphql_ide::FileKind::ExecutableGraphQL
+                                                        }
+                                                        _ => file_kind,
+                                                    };
+
+                                                    // Strip leading '/' from absolute paths to avoid file:////
+                                                    let path_str = path_str.trim_start_matches('/');
+                                                    let uri = format!("file:///{path_str}");
+                                                    let file_path =
+                                                        graphql_ide::FilePath::new(uri.clone());
+                                                    tracing::debug!("Adding file to AnalysisHost: uri={}, file_path={:?}, kind={:?}, line_offset={}", uri, file_path, final_kind, line_offset);
+                                                    // Release host lock for each file to allow concurrent access
+                                                    let mut host_guard = host.lock().await;
+                                                    host_guard.add_file(
+                                                        &file_path,
+                                                        &final_content,
+                                                        final_kind,
+                                                        line_offset,
+                                                    );
+                                                    drop(host_guard); // Explicitly drop to release lock
+
+                                                    total_files_loaded += 1;
+                                                    tracing::debug!(
+                                                        "Loaded document file #{}: {}",
+                                                        total_files_loaded,
+                                                        path.display()
+                                                    );
+                                                }
+                                                Err(e) => {
+                                                    tracing::warn!(
+                                                        "Failed to read file {}: {}",
+                                                        path.display(),
+                                                        e
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        Ok(_) => {} // Skip directories
+                                        Err(e) => {
+                                            tracing::warn!("Glob entry error: {}", e);
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    "Invalid glob pattern '{}': {}",
+                                    expanded_pattern,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+
+                tracing::info!(
+                    "Finished loading documents for project '{}': {} files total",
+                    project_name,
+                    total_files_loaded
+                );
+
+                // Rebuild ProjectFiles index once after loading all files
+                // This is CRITICAL for performance - avoids O(n²) behavior
+                tracing::info!(
+                    "Rebuilding ProjectFiles index for {} files...",
+                    total_files_loaded
+                );
+                let rebuild_start = std::time::Instant::now();
+                {
+                    let mut host_guard = host.lock().await;
+                    host_guard.rebuild_project_files();
+                }
+                tracing::info!(
+                    "ProjectFiles rebuild took {:.2}s",
+                    rebuild_start.elapsed().as_secs_f64()
+                );
+            }
         }
 
-        // Send begin progress
-        self.client
-            .send_notification::<lsp_types::notification::Progress>(ProgressParams {
-                token: token.clone(),
-                value: ProgressParamsValue::WorkDone(WorkDoneProgress::Begin(
-                    WorkDoneProgressBegin {
-                        title: "GraphQL".to_string(),
-                        message: Some("Config changed, reloading...".to_string()),
-                        cancellable: Some(false),
-                        percentage: None,
-                    },
-                )),
-            })
-            .await;
+        let elapsed = start.elapsed();
+        tracing::info!(
+            "Finished loading all project files into AnalysisHost in {:.2}s",
+            elapsed.as_secs_f64()
+        );
 
-        // Try to load the new config
-        match load_config(&config_path) {
-            Ok(config) => {
-                // Create and initialize projects from config
-                match DynamicGraphQLProject::from_config_with_base(&config, &workspace_path).await {
-                    Ok(projects) => {
-                        tracing::info!(count = projects.len(), "Re-initialized GraphQL projects");
-
-                        // Wrap projects and create per-project linters
-                        let wrapped_projects: Vec<(
-                            String,
-                            Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
-                            Linter,
-                        )> = projects
-                            .into_iter()
-                            .map(|(name, proj)| {
-                                // Load lint config from project
-                                let lint_config = load_lsp_lint_config_for_project(&proj);
-                                let linter = Linter::new(lint_config);
-                                tracing::info!(project = %name, "Reloaded lint configuration for project");
-                                (name, Arc::new(tokio::sync::RwLock::new(proj)), linter)
-                            })
-                            .collect();
-
-                        // Replace projects
-                        self.projects
-                            .insert(workspace_uri.to_string(), wrapped_projects);
-
-                        // Send completion progress
-                        self.client
-                            .send_notification::<lsp_types::notification::Progress>(
-                                ProgressParams {
-                                    token: token.clone(),
-                                    value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(
-                                        WorkDoneProgressEnd {
-                                            message: Some(
-                                                "Config reloaded successfully".to_string(),
-                                            ),
-                                        },
-                                    )),
-                                },
-                            )
-                            .await;
-
-                        // Show success message as a toast
-                        self.client
-                            .show_message(MessageType::INFO, "GraphQL config reloaded successfully")
-                            .await;
-
-                        // Revalidate all open documents with the new config
-                        tracing::info!("Starting re-validation after config reload");
-                        self.revalidate_all_documents().await;
-                        tracing::info!("Completed re-validation after config reload");
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to initialize projects after reload: {e}");
-
-                        // Send error progress
-                        self.client
-                            .send_notification::<lsp_types::notification::Progress>(
-                                ProgressParams {
-                                    token: token.clone(),
-                                    value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(
-                                        WorkDoneProgressEnd {
-                                            message: Some(format!("Failed to reload: {e}")),
-                                        },
-                                    )),
-                                },
-                            )
-                            .await;
-
-                        self.client
-                            .show_message(
-                                MessageType::ERROR,
-                                format!("Failed to reload GraphQL config: {e}"),
-                            )
-                            .await;
+        // Log memory usage if available
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+                for line in status.lines() {
+                    if line.starts_with("VmRSS:") || line.starts_with("VmSize:") {
+                        tracing::info!("Memory: {}", line.trim());
                     }
                 }
             }
-            Err(e) => {
-                tracing::error!("Failed to load config after change: {e}");
-
-                // Send error progress
-                self.client
-                    .send_notification::<lsp_types::notification::Progress>(ProgressParams {
-                        token: token.clone(),
-                        value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(
-                            WorkDoneProgressEnd {
-                                message: Some(format!("Failed to reload: {e}")),
-                            },
-                        )),
-                    })
-                    .await;
-
-                self.client
-                    .show_message(
-                        MessageType::ERROR,
-                        format!("Failed to parse GraphQL config: {e}"),
-                    )
-                    .await;
-            }
         }
     }
 
-    /// Schedule a debounced config reload for a workspace
-    async fn schedule_config_reload(&self, workspace_uri: String) {
-        // Get or create the task slot for this workspace
-        let task_slot = self
-            .reload_tasks
-            .entry(workspace_uri.clone())
-            .or_insert_with(|| Arc::new(Mutex::new(None)))
-            .clone();
+    /// Reload configuration for a workspace
+    ///
+    /// This clears all existing hosts for the workspace and reloads the config
+    /// from disk, then re-discovers and loads all project files.
+    #[tracing::instrument(skip(self), fields(workspace_uri = %workspace_uri))]
+    async fn reload_workspace_config(&self, workspace_uri: &str) {
+        tracing::info!("Reloading configuration for workspace: {}", workspace_uri);
 
-        // Cancel any existing pending reload for this workspace
-        {
-            let mut task_guard = task_slot.lock().await;
-            if let Some(existing_task) = task_guard.take() {
-                existing_task.abort();
-                tracing::debug!(workspace = %workspace_uri, "Cancelled previous reload task");
-            }
-        }
-
-        // Clone necessary data for the async task
-        let server = Self {
-            client: self.client.clone(),
-            init_workspace_folders: self.init_workspace_folders.clone(),
-            workspace_roots: self.workspace_roots.clone(),
-            config_paths: self.config_paths.clone(),
-            projects: self.projects.clone(),
-            document_cache: self.document_cache.clone(),
-            validation_tasks: self.validation_tasks.clone(),
-            reload_tasks: self.reload_tasks.clone(),
+        // Get the workspace path
+        let Some(workspace_path) = self.workspace_roots.get(workspace_uri).map(|r| r.clone())
+        else {
+            tracing::error!(
+                "Cannot reload config: workspace root not found for {}",
+                workspace_uri
+            );
+            return;
         };
 
-        let workspace_uri_for_task = workspace_uri.clone();
+        // Clear existing hosts for this workspace
+        // We need to collect keys first to avoid holding the lock while modifying
+        let keys_to_remove: Vec<_> = self
+            .hosts
+            .iter()
+            .filter(|entry| entry.key().0 == workspace_uri)
+            .map(|entry| entry.key().clone())
+            .collect();
 
-        // Spawn a new debounced reload task (500ms delay to batch rapid changes)
-        let task = tokio::spawn(async move {
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            tracing::debug!(workspace = %workspace_uri_for_task, "Debounce period elapsed, starting config reload");
-
-            server
-                .reload_workspace_config(&workspace_uri_for_task)
-                .await;
-
-            // Clear the task slot once reload completes
-            if let Some(slot) = server.reload_tasks.get(&workspace_uri_for_task) {
-                let mut task_guard = slot.lock().await;
-                *task_guard = None;
-            }
-        });
-
-        // Store the new task
-        {
-            let mut task_guard = task_slot.lock().await;
-            *task_guard = Some(task);
+        for key in &keys_to_remove {
+            tracing::debug!("Removing host for project: {}", key.1);
+            self.hosts.remove(key);
         }
 
-        tracing::debug!(workspace = %workspace_uri, "Scheduled debounced config reload");
+        tracing::info!(
+            "Cleared {} existing host(s) for workspace",
+            keys_to_remove.len()
+        );
+
+        // Clear the existing config
+        self.configs.remove(workspace_uri);
+
+        // Reload config and files
+        self.load_workspace_config(workspace_uri, &workspace_path)
+            .await;
+
+        // Notify user
+        self.client
+            .show_message(
+                MessageType::INFO,
+                "GraphQL configuration reloaded successfully",
+            )
+            .await;
+
+        tracing::info!(
+            "Configuration reload complete for workspace: {}",
+            workspace_uri
+        );
     }
 
     /// Find the workspace and project for a given document URI
-    fn find_workspace_and_project(&self, document_uri: &Uri) -> Option<(String, usize)> {
+    ///
+    /// This first checks if the file was loaded during initialization by querying
+    /// each `AnalysisHost` directly. If not found, falls back to pattern matching
+    /// via the config (for files opened after init that match project patterns).
+    fn find_workspace_and_project(&self, document_uri: &Uri) -> Option<(String, String)> {
         let doc_path = document_uri.to_file_path()?;
+        let file_path = graphql_ide::FilePath::new(document_uri.to_string());
 
-        // Try to find which workspace this document belongs to
+        tracing::debug!("Finding workspace for document: {}", doc_path.display());
+
+        // First, check if file is already loaded in any host (fast path)
+        for host_entry in self.hosts.iter() {
+            let (workspace_uri, project_name) = host_entry.key();
+            let host_mutex = host_entry.value();
+
+            // Try to acquire lock without blocking - skip if locked
+            if let Ok(host) = host_mutex.try_lock() {
+                if host.contains_file(&file_path) {
+                    tracing::debug!(
+                        "Document found in host for project '{}' in workspace '{}'",
+                        project_name,
+                        workspace_uri
+                    );
+                    return Some((workspace_uri.clone(), project_name.clone()));
+                }
+            }
+        }
+
+        tracing::debug!("Document not in any host, falling back to config pattern matching");
+
+        // Fallback: use config pattern matching (for files opened after init)
         for workspace_entry in self.workspace_roots.iter() {
             let workspace_uri = workspace_entry.key();
             let workspace_path = workspace_entry.value();
 
             if doc_path.as_ref().starts_with(workspace_path.as_path()) {
-                // Found the workspace, return the workspace URI and project index (0 for now)
-                // TODO: Match document to correct project based on includes/excludes
-                return Some((workspace_uri.clone(), 0));
-            }
-        }
-
-        None
-    }
-
-    /// Re-validate all open documents in all workspaces
-    /// This is called after schema changes to update validation errors
-    async fn revalidate_all_documents(&self) {
-        let start = std::time::Instant::now();
-        tracing::info!("Starting re-validation of all open documents after schema change");
-
-        // Collect all URIs and their content from the document cache
-        let documents: Vec<(String, String)> = self
-            .document_cache
-            .iter()
-            .map(|entry| {
-                let uri_str = entry.key().clone();
-                let content = entry.value().clone();
-                (uri_str, content)
-            })
-            .collect();
-
-        tracing::info!("Re-validating {} open documents", documents.len());
-
-        // Validate each document (skip schema files to avoid recursion)
-        for (uri_str, content) in documents {
-            // Parse the URI string - these are already valid URIs from the LSP
-            if let Ok(uri) = serde_json::from_str::<Uri>(&format!("\"{uri_str}\"")) {
-                // Skip schema files - they don't need revalidation after schema changes
-                if let Some(path) = uri.to_file_path() {
-                    // Check if this is a schema file by checking against all projects
-                    let mut is_schema = false;
-                    for workspace_projects in self.projects.iter() {
-                        for (_, project, _) in workspace_projects.value() {
-                            if project.read().await.is_schema_file(&path) {
-                                is_schema = true;
-                                break;
-                            }
-                        }
-                        if is_schema {
-                            break;
-                        }
+                if let Some(config) = self.configs.get(workspace_uri.as_str()) {
+                    if let Some(project_name) =
+                        config.find_project_for_document(&doc_path, workspace_path)
+                    {
+                        tracing::info!(
+                            "Document matched to project '{}' via config patterns",
+                            project_name
+                        );
+                        return Some((workspace_uri.clone(), project_name.to_string()));
                     }
 
-                    if is_schema {
-                        tracing::debug!("Skipping schema file: {:?}", uri);
-                        continue;
-                    }
-                }
-
-                tracing::debug!("Re-validating document: {:?}", uri);
-                // Don't trigger another revalidate_all_documents during batch revalidation
-                self.validate_document_impl(uri, &content, false).await;
-            } else {
-                tracing::warn!("Failed to parse URI: {}", uri_str);
-            }
-        }
-
-        tracing::info!(
-            "Completed re-validation of all documents in {:?}",
-            start.elapsed()
-        );
-    }
-
-    /// Re-validate schema files when field usage changes in a document
-    ///
-    /// When operations or fragments change, the set of used fields changes,
-    /// which affects `unused_fields` diagnostics in schema files. This method
-    /// finds all schema files and re-publishes their diagnostics.
-    async fn revalidate_schema_files(&self, changed_uri: &Uri) {
-        let start = std::time::Instant::now();
-        tracing::debug!(
-            "Starting re-validation of schema files for: {:?}",
-            changed_uri
-        );
-
-        // Find the workspace and project for the changed document
-        let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(changed_uri)
-        else {
-            tracing::debug!("No workspace found for URI: {:?}", changed_uri);
-            return;
-        };
-
-        // Get all schema files from the project config
-        let schema_files: Vec<String> = {
-            let project = {
-                let Some(projects) = self.projects.get(&workspace_uri) else {
-                    tracing::debug!("No projects loaded for workspace: {}", workspace_uri);
-                    return;
-                };
-
-                let Some((_, project, _)) = projects.get(project_idx) else {
-                    tracing::debug!(
-                        "Project index {} not found in workspace {}",
-                        project_idx,
-                        workspace_uri
+                    tracing::warn!(
+                        "Document is in workspace but doesn't match any project patterns: {}",
+                        doc_path.display()
                     );
-                    return;
-                };
-
-                project.clone()
-            };
-
-            let schema_files = project.read().await.get_schema_file_paths();
-            schema_files
-        };
-
-        tracing::debug!(
-            "Re-validating {} schema files after field usage change",
-            schema_files.len()
-        );
-
-        // Re-publish diagnostics for each schema file
-        for file_path in schema_files {
-            // Convert file path to URI
-            let Some(schema_uri) = Uri::from_file_path(&file_path) else {
-                tracing::warn!("Failed to convert schema file path to URI: {}", file_path);
-                continue;
-            };
-
-            // Get content from cache or read from disk
-            let content =
-                if let Some(cached_content) = self.document_cache.get(&schema_uri.to_string()) {
-                    cached_content.clone()
                 } else {
-                    // Schema file not open in editor, skip it
-                    // We only update diagnostics for open files
-                    continue;
-                };
-
-            // Re-validate the schema file (this will publish updated diagnostics)
-            self.validate_document(schema_uri, &content).await;
+                    tracing::warn!("Workspace found but no config loaded: {}", workspace_uri);
+                }
+                return None;
+            }
         }
 
-        tracing::debug!(
-            "Completed re-validation of schema files in {:?}",
-            start.elapsed()
+        tracing::warn!(
+            "Document not in any known workspace: {}",
+            doc_path.display()
         );
+        None
     }
 
     /// Validate a document and publish diagnostics
     #[allow(clippy::too_many_lines)]
-    #[tracing::instrument(skip(self, content, uri), fields(path = ?uri.to_file_path().unwrap()))]
-    async fn validate_document(&self, uri: Uri, content: &str) {
-        self.validate_document_impl(uri, content, true).await;
-    }
+    #[tracing::instrument(skip(self), fields(path = ?uri.to_file_path().unwrap()))]
+    async fn validate_document(&self, uri: Uri) {
+        tracing::debug!("Starting document validation for uri: {:?}", uri);
 
-    /// Internal implementation of `validate_document` with control over revalidation
-    #[allow(clippy::too_many_lines)]
-    async fn validate_document_impl(&self, uri: Uri, content: &str, should_revalidate_all: bool) {
-        let start = std::time::Instant::now();
-        tracing::debug!("Validating document");
-
-        let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) else {
-            tracing::warn!("No project found for document");
+        // Find the workspace for this document
+        let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
+            tracing::warn!("No workspace/project found for document");
             return;
         };
 
-        let file_path = uri.to_file_path();
+        tracing::debug!(project = %project_name, "Document matched to project");
 
-        // Check if this is a schema file and update document index
-        // We do this in a narrow scope to minimize lock duration
-        {
-            // Get the project from the workspace (need mutable to update document index)
-            let project = {
-                let Some(mut projects) = self.projects.get_mut(&workspace_uri) else {
-                    tracing::warn!("No projects loaded for workspace: {workspace_uri}");
-                    return;
-                };
+        // Get the analysis host for this workspace/project
+        let Some(host_mutex) = self
+            .hosts
+            .get(&(workspace_uri.clone(), project_name.clone()))
+        else {
+            tracing::warn!("No analysis host found for workspace/project");
+            return;
+        };
+        let host = host_mutex.lock().await;
 
-                let Some((_, project, _)) = projects.get_mut(project_idx) else {
-                    tracing::warn!(
-                        "Project index {project_idx} not found in workspace {workspace_uri}"
-                    );
-                    return;
-                };
+        // Get the file path
+        let file_path = graphql_ide::FilePath::new(uri.as_str());
+        tracing::debug!("validate_document: file_path={:?}", file_path);
 
-                project.clone()
-            };
-
-            // Check if this is a schema file - schema files need special handling
-            let is_schema_file = if let Some(path) = file_path.as_ref() {
-                project.read().await.is_schema_file(path.as_ref())
-            } else {
-                false
-            };
-
-            if is_schema_file {
-                tracing::info!("Schema file changed, reloading schema");
-
-                // Update the schema index with the new content
-                let file_path_buf = file_path.as_ref().unwrap().clone();
-                if let Err(e) = project
-                    .write()
-                    .await
-                    .update_schema_index(&file_path_buf, content)
-                    .await
-                {
-                    tracing::error!("Failed to update schema: {}", e);
-                    self.client
-                        .log_message(MessageType::ERROR, format!("Failed to update schema: {e}"))
-                        .await;
-                    return;
-                }
-
-                tracing::info!("Schema reloaded successfully");
-
-                // Publish project-wide lint diagnostics for the schema file
-                // This includes unused_fields warnings
-                let schema_diagnostics = async {
-                    let Some(projects) = self.projects.get(&workspace_uri) else {
-                        tracing::warn!("No projects loaded for workspace: {workspace_uri}");
-                        return Vec::new();
-                    };
-
-                    let Some((_, project, linter)) = projects.get(project_idx) else {
-                        tracing::warn!(
-                            "Project index {project_idx} not found in workspace {workspace_uri}"
-                        );
-                        return Vec::new();
-                    };
-
-                    if let Some(path) = file_path.as_ref() {
-                        let file_path_str = path.display().to_string();
-                        self.get_project_wide_diagnostics(&file_path_str, project, linter)
-                            .await
-                    } else {
-                        Vec::new()
-                    }
-                }
-                .await;
-
-                self.client
-                    .publish_diagnostics(uri.clone(), schema_diagnostics, None)
-                    .await;
-
-                // After schema changes, we need to revalidate all open documents
-                // because field types, deprecations, etc. may have changed
-                // Only do this if we're not already in a batch revalidation
-                if should_revalidate_all {
-                    Box::pin(self.revalidate_all_documents()).await;
-                }
-                return;
-            }
-
-            // Update the document index for this specific file with in-memory content
-            // This is more efficient than reloading all documents from disk and
-            // ensures we use the latest editor content even before it's saved
-            if let Some(path) = &file_path {
-                let update_result = project.write().await.update_document_index(path, content);
-                if let Err(e) = update_result {
-                    tracing::warn!(
-                        "Failed to update document index for {}: {}",
-                        path.display(),
-                        e
-                    );
-                }
-            }
-        } // Drop the mutable lock here before validation
-
-        // Check if this is a TypeScript/JavaScript file
-        let is_ts_js = file_path
-            .as_ref()
-            .and_then(|path| {
-                path.extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(|ext| matches!(ext, "ts" | "tsx" | "js" | "jsx"))
-            })
-            .unwrap_or(false);
-
-        // Get document-specific diagnostics (type errors, etc.)
-        // Now we get a read-only reference for validation, which won't block other operations
-        let mut diagnostics = {
-            let Some(projects) = self.projects.get(&workspace_uri) else {
-                tracing::warn!("No projects loaded for workspace: {workspace_uri}");
-                return;
-            };
-
-            let Some((_, project, linter)) = projects.get(project_idx) else {
-                tracing::warn!(
-                    "Project index {project_idx} not found in workspace {workspace_uri}"
-                );
-                return;
-            };
-
-            if is_ts_js {
-                self.validate_typescript_document(&uri, content, project, linter)
-                    .await
-            } else {
-                self.validate_graphql_document(content, project, linter)
-                    .await
-            }
-        }; // Drop the read lock here
-
-        // Add project-wide duplicate name diagnostics for this file
-        if let Some(path) = uri.to_file_path() {
-            let file_path_str = path.display().to_string();
-
-            let project_wide_diags = {
-                let Some(projects) = self.projects.get(&workspace_uri) else {
-                    tracing::warn!("No projects loaded for workspace: {workspace_uri}");
-                    return;
-                };
-
-                let Some((_, project, linter)) = projects.get(project_idx) else {
-                    tracing::warn!(
-                        "Project index {project_idx} not found in workspace {workspace_uri}"
-                    );
-                    return;
-                };
-
-                self.get_project_wide_diagnostics(&file_path_str, project, linter)
-                    .await
-            }; // Drop the read lock here
-
-            diagnostics.extend(project_wide_diags);
-        }
-
-        // Filter out diagnostics with invalid ranges (defensive fix for stale diagnostics)
-        // Count total lines in the content to validate ranges
-        let line_count = content.lines().count();
-        diagnostics.retain(|diag| {
-            let start_line = diag.range.start.line as usize;
-            let end_line = diag.range.end.line as usize;
-
-            // Keep diagnostic only if both start and end are within document bounds
-            if start_line >= line_count || end_line >= line_count {
-                tracing::warn!(
-                    "Filtered out diagnostic with invalid range: {:?} (document has {} lines)",
-                    diag.range,
-                    line_count
-                );
-                false
-            } else {
-                true
-            }
-        });
-
-        self.client
-            .publish_diagnostics(uri.clone(), diagnostics.clone(), None)
-            .await;
-
+        // Get diagnostics from the IDE layer
+        let snapshot = host.snapshot();
+        let diagnostics = snapshot.diagnostics(&file_path);
         tracing::debug!(
-            elapsed_ms = start.elapsed().as_millis(),
+            "validate_document: diagnostics count for file_path={:?} is {}",
+            file_path,
+            diagnostics.len()
+        );
+        tracing::debug!(
             diagnostic_count = diagnostics.len(),
-            "Validated document"
+            "Got diagnostics from IDE layer"
         );
 
-        // Refresh diagnostics for any other files affected by duplicate name changes
-        self.refresh_affected_files_diagnostics(&workspace_uri, project_idx, &uri)
+        // Convert IDE diagnostics to LSP diagnostics
+        let lsp_diagnostics: Vec<Diagnostic> = diagnostics
+            .into_iter()
+            .map(convert_ide_diagnostic)
+            .collect();
+
+        // Publish diagnostics
+        self.client
+            .publish_diagnostics(uri, lsp_diagnostics, None)
             .await;
+
+        tracing::debug!("Published diagnostics");
     }
-
-    /// Get project-wide lint diagnostics for a specific file
-    async fn get_project_wide_diagnostics(
-        &self,
-        file_path: &str,
-        project: &Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
-        linter: &Linter,
-    ) -> Vec<Diagnostic> {
-        // Run project-wide lint rules using graphql-linter
-        let project_guard = project.read().await;
-        let document_index = project_guard.document_index();
-        let schema_index = project_guard.schema_index();
-
-        let document_index_guard = match document_index.read() {
-            Ok(guard) => guard,
-            Err(e) => {
-                tracing::error!("Failed to acquire document index lock: {}", e);
-                return Vec::new();
-            }
-        };
-        let schema_index_guard = match schema_index.read() {
-            Ok(guard) => guard,
-            Err(e) => {
-                tracing::error!("Failed to acquire schema index lock: {}", e);
-                return Vec::new();
-            }
-        };
-
-        let ctx = ProjectContext {
-            documents: &document_index_guard,
-            schema: &schema_index_guard,
-        };
-
-        let project_diagnostics_by_file = linter.lint_project(&ctx);
-
-        // Get diagnostics for this specific file
-        project_diagnostics_by_file
-            .get(file_path)
-            .map(|diags| {
-                diags
-                    .iter()
-                    .map(|diag| self.convert_project_diagnostic(diag.clone()))
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    /// Refresh diagnostics for all files affected by project-wide lint changes
-    ///
-    /// When a file is edited and introduces or removes issues detected by project-wide
-    /// lints (like duplicate names or unused fields), other files that are affected
-    /// need to have their diagnostics refreshed.
-    #[allow(clippy::too_many_lines)]
-    async fn refresh_affected_files_diagnostics(
-        &self,
-        workspace_uri: &str,
-        project_idx: usize,
-        changed_file_uri: &Uri,
-    ) {
-        use std::collections::HashSet;
-
-        // Get the project and linter
-        let Some(projects) = self.projects.get(workspace_uri) else {
-            return;
-        };
-
-        let Some((_, project, linter)) = projects.get(project_idx) else {
-            return;
-        };
-
-        // Run project-wide lints to get all affected files
-        let affected_files: HashSet<String> = {
-            let project_guard = project.read().await;
-            let document_index = project_guard.document_index();
-            let schema_index = project_guard.schema_index();
-            let document_index_guard = match document_index.read() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    tracing::error!("Failed to acquire document index lock: {}", e);
-                    return;
-                }
-            };
-            let schema_index_guard = match schema_index.read() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    tracing::error!("Failed to acquire schema index lock: {}", e);
-                    return;
-                }
-            };
-            let ctx = ProjectContext {
-                documents: &document_index_guard,
-                schema: &schema_index_guard,
-            };
-            let project_diagnostics_by_file = linter.lint_project(&ctx);
-
-            // Extract unique file paths that have project-wide diagnostics
-            project_diagnostics_by_file.keys().cloned().collect()
-        }; // Drop guards here
-
-        let changed_file_path = changed_file_uri.to_file_path();
-
-        // For each affected file (excluding the one we just validated), refresh diagnostics
-        for file_path in affected_files {
-            // Skip the file we just validated
-            if let Some(ref changed_path) = changed_file_path {
-                if file_path == changed_path.display().to_string() {
-                    continue;
-                }
-            }
-
-            // Try to convert the file path to a URI
-            let Some(file_uri) = Uri::from_file_path(&file_path) else {
-                tracing::warn!("Failed to convert file path to URI: {}", file_path);
-                continue;
-            };
-
-            // Get the document content from cache, or read from disk
-            let content = if let Some(cached) = self.document_cache.get(file_uri.as_str()) {
-                cached.clone()
-            } else {
-                // File not in cache, try to read from disk
-                match std::fs::read_to_string(&file_path) {
-                    Ok(content) => content,
-                    Err(e) => {
-                        tracing::warn!("Failed to read file {}: {}", file_path, e);
-                        continue;
-                    }
-                }
-            };
-
-            // Check if this is a schema file
-            let is_schema_file = project
-                .read()
-                .await
-                .is_schema_file(std::path::Path::new(&file_path));
-
-            // For schema files, only publish project-wide diagnostics (unused_fields)
-            // Schema files should not be validated as executable documents
-            let mut diagnostics = if is_schema_file {
-                // Schema files only get project-wide diagnostics
-                self.get_project_wide_diagnostics(&file_path, project, linter)
-                    .await
-            } else {
-                // Check if this is a TypeScript/JavaScript file
-                let is_ts_js = std::path::Path::new(&file_path)
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .is_some_and(|ext| matches!(ext, "ts" | "tsx" | "js" | "jsx"));
-
-                // Get document-specific diagnostics (type errors, etc.)
-                let mut diagnostics = if is_ts_js {
-                    self.validate_typescript_document(&file_uri, &content, project, linter)
-                        .await
-                } else {
-                    self.validate_graphql_document(&content, project, linter)
-                        .await
-                };
-
-                // Add project-wide diagnostics for this file
-                let project_wide_diags = self
-                    .get_project_wide_diagnostics(&file_path, project, linter)
-                    .await;
-                diagnostics.extend(project_wide_diags);
-                diagnostics
-            };
-
-            // Filter out diagnostics with invalid ranges
-            let line_count = content.lines().count();
-            diagnostics.retain(|diag| {
-                let start_line = diag.range.start.line as usize;
-                let end_line = diag.range.end.line as usize;
-
-                if start_line >= line_count || end_line >= line_count {
-                    tracing::warn!(
-                        "Filtered out diagnostic with invalid range: {:?} (document has {} lines)",
-                        diag.range,
-                        line_count
-                    );
-                    false
-                } else {
-                    true
-                }
-            });
-
-            // Publish diagnostics for the affected file
-            tracing::debug!(
-                "Refreshing diagnostics for affected file: {} ({} diagnostics)",
-                file_path,
-                diagnostics.len()
-            );
-            self.client
-                .publish_diagnostics(file_uri, diagnostics, None)
-                .await;
-        }
-    }
-
-    /// Validate a pure GraphQL document
-    #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
-    async fn validate_graphql_document(
-        &self,
-        content: &str,
-        project: &Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
-        linter: &Linter,
-    ) -> Vec<Diagnostic> {
-        // Use the centralized validation logic from graphql-project
-        let project_guard = project.read().await;
-        let mut project_diagnostics =
-            project_guard.validate_document_source(content, "document.graphql");
-
-        // Run document-level lints using graphql-linter
-        let schema_index = project_guard.schema_index();
-        let schema_index_guard = match schema_index.read() {
-            Ok(guard) => guard,
-            Err(e) => {
-                tracing::error!("Failed to acquire schema index lock: {}", e);
-                return project_diagnostics
-                    .into_iter()
-                    .map(|d| self.convert_project_diagnostic(d))
-                    .collect();
-            }
-        };
-        let document_index = project_guard.document_index();
-        let document_index_guard = match document_index.read() {
-            Ok(guard) => guard,
-            Err(e) => {
-                tracing::error!("Failed to acquire document index lock: {}", e);
-                return project_diagnostics
-                    .into_iter()
-                    .map(|d| self.convert_project_diagnostic(d))
-                    .collect();
-            }
-        };
-
-        // Run standalone document rules (don't need schema, but need fragments)
-        let standalone_diagnostics = linter.lint_standalone_document(
-            content,
-            "document.graphql",
-            Some(&document_index_guard),
-            None,
-        );
-        project_diagnostics.extend(standalone_diagnostics);
-
-        // Run document+schema rules
-        let lint_diagnostics = linter.lint_document(
-            content,
-            "document.graphql",
-            &schema_index_guard,
-            Some(&document_index_guard),
-            None,
-        );
-        project_diagnostics.extend(lint_diagnostics);
-
-        // Convert graphql-project diagnostics to LSP diagnostics
-        project_diagnostics
-            .into_iter()
-            .map(|d| self.convert_project_diagnostic(d))
-            .collect()
-    }
-
-    /// Validate GraphQL embedded in TypeScript/JavaScript
-    #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
-    #[allow(clippy::too_many_lines)]
-    async fn validate_typescript_document(
-        &self,
-        uri: &Uri,
-        content: &str,
-        project: &Arc<tokio::sync::RwLock<DynamicGraphQLProject>>,
-        linter: &Linter,
-    ) -> Vec<Diagnostic> {
-        use std::io::Write;
-
-        // Get the file extension from the original URI to preserve it in the temp file
-        let extension = uri
-            .to_file_path()
-            .and_then(|path| {
-                path.extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(String::from)
-            })
-            .unwrap_or_else(|| "tsx".to_string());
-
-        let temp_file = match tempfile::Builder::new()
-            .suffix(&format!(".{extension}"))
-            .tempfile()
-        {
-            Ok(mut file) => {
-                if file.write_all(content.as_bytes()).is_err() {
-                    return vec![];
-                }
-                file
-            }
-            Err(_) => return vec![],
-        };
-
-        // Extract GraphQL from TypeScript/JavaScript
-        let project_guard = project.read().await;
-        let extract_config = project_guard.get_extract_config();
-        let extracted = match graphql_extract::extract_from_file(temp_file.path(), &extract_config)
-        {
-            Ok(extracted) => extracted,
-            Err(e) => {
-                tracing::error!("Failed to extract GraphQL from {:?}: {}", uri, e);
-                return vec![];
-            }
-        };
-
-        if extracted.is_empty() {
-            return vec![];
-        }
-
-        tracing::info!(
-            "Extracted {} GraphQL document(s) from {:?}",
-            extracted.len(),
-            uri
-        );
-
-        // Use the centralized validation logic from graphql-project (Apollo compiler)
-        let file_path = uri.to_string();
-        let mut all_diagnostics =
-            project_guard.validate_extracted_documents(&extracted, &file_path);
-
-        // Run document-level lints using graphql-linter
-        let schema_index = project_guard.schema_index();
-        let schema_index_guard = match schema_index.read() {
-            Ok(guard) => guard,
-            Err(e) => {
-                tracing::error!("Failed to acquire schema index lock: {}", e);
-                return all_diagnostics
-                    .into_iter()
-                    .map(|d| self.convert_project_diagnostic(d))
-                    .collect();
-            }
-        };
-        let document_index = project_guard.document_index();
-        let document_index_guard = match document_index.read() {
-            Ok(guard) => guard,
-            Err(e) => {
-                tracing::error!("Failed to acquire document index lock: {}", e);
-                return all_diagnostics
-                    .into_iter()
-                    .map(|d| self.convert_project_diagnostic(d))
-                    .collect();
-            }
-        };
-
-        for block in &extracted {
-            // Run standalone document rules (don't need schema, but need fragments)
-            let mut standalone_diagnostics = linter.lint_standalone_document(
-                &block.source,
-                &file_path,
-                Some(&document_index_guard),
-                None,
-            );
-
-            // Adjust positions for extracted blocks
-            for diag in &mut standalone_diagnostics {
-                diag.range.start.line += block.location.range.start.line;
-                diag.range.end.line += block.location.range.start.line;
-
-                // Adjust column only for first line
-                if diag.range.start.line == block.location.range.start.line {
-                    diag.range.start.character += block.location.range.start.column;
-                }
-                if diag.range.end.line == block.location.range.start.line {
-                    diag.range.end.character += block.location.range.start.column;
-                }
-            }
-            all_diagnostics.extend(standalone_diagnostics);
-
-            // Run document+schema rules
-            let lint_diagnostics = linter.lint_document(
-                &block.source,
-                &file_path,
-                &schema_index_guard,
-                Some(&document_index_guard),
-                None,
-            );
-
-            // Adjust positions for extracted blocks
-            for mut diag in lint_diagnostics {
-                diag.range.start.line += block.location.range.start.line;
-                diag.range.end.line += block.location.range.start.line;
-
-                // Adjust column only for first line
-                if diag.range.start.line == block.location.range.start.line {
-                    diag.range.start.character += block.location.range.start.column;
-                }
-                if diag.range.end.line == block.location.range.start.line {
-                    diag.range.end.character += block.location.range.start.column;
-                }
-
-                all_diagnostics.push(diag);
-            }
-        }
-
-        // Convert graphql-project diagnostics to LSP diagnostics
-        all_diagnostics
-            .into_iter()
-            .map(|d| self.convert_project_diagnostic(d))
-            .collect()
-    }
-
-    /// Convert graphql-project diagnostic to LSP diagnostic
-    #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
-    #[allow(clippy::unused_self)]
-    fn convert_project_diagnostic(&self, diag: graphql_project::Diagnostic) -> Diagnostic {
-        use graphql_project::Severity;
-
-        let severity = match diag.severity {
-            Severity::Error => DiagnosticSeverity::ERROR,
-            Severity::Warning => DiagnosticSeverity::WARNING,
-            Severity::Information => DiagnosticSeverity::INFORMATION,
-            Severity::Hint => DiagnosticSeverity::HINT,
-        };
-
-        Diagnostic {
-            range: Range {
-                start: Position {
-                    line: diag.range.start.line as u32,
-                    character: diag.range.start.character as u32,
-                },
-                end: Position {
-                    line: diag.range.end.line as u32,
-                    character: diag.range.end.character as u32,
-                },
-            },
-            severity: Some(severity),
-            code: diag.code.map(lsp_types::NumberOrString::String),
-            source: Some(diag.source),
-            message: diag.message,
-            ..Default::default()
-        }
-    }
-
-    /// Schedule a debounced validation for a document
-    ///
-    /// Cancels any pending validation for the same document and schedules a new one
-    /// after `VALIDATION_DEBOUNCE_MS` milliseconds. This prevents validation spam during
-    /// rapid typing.
-    async fn schedule_debounced_validation(&self, uri: Uri, content: String) {
-        let uri_string = uri.to_string();
-
-        // Get or create the task slot for this document
-        let task_slot = self
-            .validation_tasks
-            .entry(uri_string.clone())
-            .or_insert_with(|| Arc::new(Mutex::new(None)))
-            .clone();
-
-        // Cancel any existing pending validation for this document
-        {
-            let mut task_guard = task_slot.lock().await;
-            if let Some(existing_task) = task_guard.take() {
-                existing_task.abort();
-                tracing::debug!(uri = ?uri, "Cancelled previous validation task");
-            }
-        }
-
-        // Clone necessary data for the async task
-        let server = Self {
-            client: self.client.clone(),
-            init_workspace_folders: self.init_workspace_folders.clone(),
-            workspace_roots: self.workspace_roots.clone(),
-            config_paths: self.config_paths.clone(),
-            projects: self.projects.clone(),
-            document_cache: self.document_cache.clone(),
-            validation_tasks: self.validation_tasks.clone(),
-            reload_tasks: self.reload_tasks.clone(),
-        };
-
-        // Clone uri for the closure
-        let uri_for_task = uri.clone();
-
-        // Spawn a new debounced validation task
-        let task = tokio::spawn(async move {
-            // Wait for the debounce period
-            tokio::time::sleep(tokio::time::Duration::from_millis(VALIDATION_DEBOUNCE_MS)).await;
-
-            tracing::debug!(uri = ?uri_for_task, delay_ms = VALIDATION_DEBOUNCE_MS, "Debounce period elapsed, starting validation");
-
-            let validate_start = std::time::Instant::now();
-            server
-                .validate_document(uri_for_task.clone(), &content)
-                .await;
-            tracing::debug!(uri = ?uri_for_task, elapsed_ms = validate_start.elapsed().as_millis(), "Validation completed");
-
-            // Clear the task slot once validation completes
-            if let Some(slot) = server.validation_tasks.get(&uri_for_task.to_string()) {
-                let mut task_guard = slot.lock().await;
-                *task_guard = None;
-            }
-        });
-
-        // Store the new task
-        {
-            let mut task_guard = task_slot.lock().await;
-            *task_guard = Some(task);
-        }
-
-        tracing::debug!(uri = ?uri, delay_ms = VALIDATION_DEBOUNCE_MS, "Scheduled debounced validation");
-    }
+}
+impl GraphQLLanguageServer {
+    // REMOVED: get_project_wide_diagnostics (old validation system)
+    // REMOVED: refresh_affected_files_diagnostics (old validation system)
+    // REMOVED: validate_graphql_document (old validation)
+    // REMOVED: validate_typescript_document (old validation)
 }
 
 impl LanguageServer for GraphQLLanguageServer {
@@ -1312,13 +700,23 @@ impl LanguageServer for GraphQLLanguageServer {
 
         // Store workspace folders for later config loading
         if let Some(ref folders) = params.workspace_folders {
-            tracing::info!(count = folders.len(), "Workspace folders");
+            tracing::info!(count = folders.len(), "Workspace folders received");
             for folder in folders {
+                tracing::info!(
+                    "Workspace folder: name={}, uri={}",
+                    folder.name,
+                    folder.uri.as_str()
+                );
                 if let Some(path) = folder.uri.to_file_path() {
+                    tracing::info!("  -> Path: {}", path.display());
                     self.init_workspace_folders
                         .insert(folder.uri.to_string(), path.into_owned());
+                } else {
+                    tracing::warn!("  -> Could not convert URI to file path");
                 }
             }
+        } else {
+            tracing::warn!("No workspace folders provided in initialization");
         }
 
         Ok(InitializeResult {
@@ -1378,9 +776,21 @@ impl LanguageServer for GraphQLLanguageServer {
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect();
 
+        tracing::info!("Loading configs for {} workspace(s)", folders.len());
         for (uri, path) in folders {
+            tracing::info!(
+                "Loading config for workspace: {} at {}",
+                uri,
+                path.display()
+            );
             self.load_workspace_config(&uri, &path).await;
         }
+
+        tracing::info!(
+            "After loading: {} workspace roots, {} configs",
+            self.workspace_roots.len(),
+            self.configs.len()
+        );
 
         // Register file watchers for config files after loading
         let config_paths: Vec<PathBuf> = self
@@ -1455,12 +865,67 @@ impl LanguageServer for GraphQLLanguageServer {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
         let content = params.text_document.text;
-        tracing::info!("Document opened");
+        tracing::info!(
+            content_len = content.len(),
+            first_100 = ?&content[..100.min(content.len())],
+            "Document opened"
+        );
 
-        // Cache the document content
-        self.document_cache.insert(uri.to_string(), content.clone());
+        // Add to AnalysisHost
+        if let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) {
+            tracing::debug!(project = %project_name, "Document opened in project");
+            let _file_path = uri.to_file_path();
 
-        self.validate_document(uri, &content).await;
+            // Get extract config from host
+            let extract_config = if let Some(host_mutex) = self
+                .hosts
+                .get(&(workspace_uri.clone(), project_name.clone()))
+            {
+                let host = host_mutex.lock().await;
+                host.get_extract_config()
+            } else {
+                graphql_extract::ExtractConfig::default()
+            };
+
+            // Determine file kind by inspecting path and content
+            let file_kind =
+                graphql_syntax::determine_file_kind_from_content(uri.path().as_str(), &content);
+            tracing::info!("Determined file_kind: {:?}", file_kind);
+
+            // Extract GraphQL from TypeScript/JavaScript files
+            tracing::info!("About to extract GraphQL, path={}", uri.path().as_str());
+            let (final_content, line_offset) =
+                Self::extract_graphql_from_source(uri.path().as_str(), &content, &extract_config);
+            tracing::info!(
+                extracted_len = final_content.len(),
+                line_offset = line_offset,
+                first_100 = ?&final_content[..100.min(final_content.len())],
+                "Extracted GraphQL content"
+            );
+
+            // IMPORTANT: After extraction, the content is pure GraphQL, so change the kind to ExecutableGraphQL
+            // This prevents the syntax layer from trying to extract again
+            let final_kind = match file_kind {
+                graphql_ide::FileKind::TypeScript | graphql_ide::FileKind::JavaScript
+                    if !final_content.is_empty() =>
+                {
+                    graphql_ide::FileKind::ExecutableGraphQL
+                }
+                _ => file_kind,
+            };
+
+            tracing::info!("Adding to host: workspace={}, uri={:?}, content_len={}, file_kind={:?}, line_offset={}",
+                workspace_uri, uri, final_content.len(), final_kind, line_offset);
+            {
+                let host = self.get_or_create_host(&workspace_uri, &project_name);
+                let file_path = graphql_ide::FilePath::new(uri.to_string());
+                let mut host_guard = host.lock().await;
+                host_guard.add_file(&file_path, &final_content, final_kind, line_offset);
+                host_guard.rebuild_project_files(); // Rebuild after single file add
+            }
+        }
+
+        self.validate_document(uri).await;
     }
 
     #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
@@ -1471,74 +936,98 @@ impl LanguageServer for GraphQLLanguageServer {
 
         // Get the latest content from changes (full sync mode)
         for change in params.content_changes {
-            // Update the document cache
-            self.document_cache
-                .insert(uri.to_string(), change.text.clone());
+            tracing::info!(
+                change_len = change.text.len(),
+                first_100 = ?&change.text[..100.min(change.text.len())],
+                "Processing content change"
+            );
 
-            // Schedule debounced validation instead of immediate validation
-            self.schedule_debounced_validation(uri.clone(), change.text.clone())
-                .await;
+            // Update AnalysisHost
+            if let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) {
+                tracing::debug!(project = %project_name, "Document changed in project");
+                let _file_path = uri.to_file_path();
+
+                // Get extract config from host
+                let extract_config = if let Some(host_mutex) = self
+                    .hosts
+                    .get(&(workspace_uri.clone(), project_name.clone()))
+                {
+                    let host = host_mutex.lock().await;
+                    host.get_extract_config()
+                } else {
+                    graphql_extract::ExtractConfig::default()
+                };
+
+                // Determine file kind by inspecting path and content
+                let file_kind = graphql_syntax::determine_file_kind_from_content(
+                    uri.path().as_str(),
+                    &change.text,
+                );
+                tracing::info!("did_change determined file_kind: {:?}", file_kind);
+
+                // Extract GraphQL from TypeScript/JavaScript files
+                tracing::info!(
+                    "did_change about to extract GraphQL, path={}",
+                    uri.path().as_str()
+                );
+                let (final_content, line_offset) = Self::extract_graphql_from_source(
+                    uri.path().as_str(),
+                    &change.text,
+                    &extract_config,
+                );
+                tracing::info!(
+                    extracted_len = final_content.len(),
+                    line_offset = line_offset,
+                    first_100 = ?&final_content[..100.min(final_content.len())],
+                    "did_change extracted GraphQL content"
+                );
+
+                // IMPORTANT: After extraction, the content is pure GraphQL, so change the kind to ExecutableGraphQL
+                let final_kind = match file_kind {
+                    graphql_ide::FileKind::TypeScript | graphql_ide::FileKind::JavaScript
+                        if !final_content.is_empty() =>
+                    {
+                        graphql_ide::FileKind::ExecutableGraphQL
+                    }
+                    _ => file_kind,
+                };
+
+                {
+                    let host = self.get_or_create_host(&workspace_uri, &project_name);
+                    let file_path = graphql_ide::FilePath::new(uri.to_string());
+                    let mut host_guard = host.lock().await;
+                    host_guard.add_file(&file_path, &final_content, final_kind, line_offset);
+                    host_guard.rebuild_project_files(); // Rebuild after single file change
+                }
+            }
+
+            // Validate immediately - Salsa's incremental computation makes this fast
+            self.validate_document(uri.clone()).await;
         }
 
         tracing::debug!(
             elapsed_ms = start.elapsed().as_millis(),
-            "Completed did_change (scheduled debounced validation)"
+            "Completed did_change with validation"
         );
     }
 
     #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        tracing::info!("Document saved");
-
-        // Re-validate schema files to update unused_fields warnings
-        // We do this on save (not on every keystroke) to avoid performance issues
-        // When field usage changes in operations/fragments, unused_fields diagnostics
-        // in schema files need to be updated
-        //
-        // Only revalidate schema files if the saved file is NOT a schema file
-        // (schema file changes trigger full revalidation via validate_document_impl)
-        let uri = params.text_document.uri;
-
-        // Check if this is a schema file
-        let is_schema_file = {
-            let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) else {
-                return;
-            };
-
-            let Some(projects) = self.projects.get(&workspace_uri) else {
-                return;
-            };
-
-            let Some((_, project, _)) = projects.get(project_idx) else {
-                return;
-            };
-
-            if let Some(path) = uri.to_file_path().as_ref() {
-                project.read().await.is_schema_file(path.as_ref())
-            } else {
-                false
-            }
-        };
-
-        // Only revalidate schema files if this is NOT a schema file
-        if !is_schema_file {
-            let schema_revalidate_start = std::time::Instant::now();
-            self.revalidate_schema_files(&uri).await;
-            tracing::debug!(
-                "Schema revalidation took {:?}",
-                schema_revalidate_start.elapsed()
-            );
-        }
+        tracing::info!("Document saved: {:?}", params.text_document.uri);
+        // NOTE: Cross-file dependency tracking and revalidation should be handled
+        // by the Analysis layer, not the LSP layer. For now, files are only revalidated
+        // when they are opened or changed.
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         tracing::info!("Document closed: {:?}", params.text_document.uri);
 
-        // Remove from document cache
-        self.document_cache
-            .remove(&params.text_document.uri.to_string());
+        // NOTE: We intentionally do NOT remove the file from AnalysisHost when it's closed.
+        // The file is still part of the project on disk, and other files may reference
+        // fragments/types defined in it. Only files that are deleted from disk should be
+        // removed from the analysis.
 
-        // Clear diagnostics
+        // Clear diagnostics for the closed file
         self.client
             .publish_diagnostics(params.text_document.uri, vec![], None)
             .await;
@@ -1568,8 +1057,8 @@ impl LanguageServer for GraphQLLanguageServer {
             if let Some(workspace_uri) = workspace_uri {
                 match change.typ {
                     FileChangeType::CREATED | FileChangeType::CHANGED => {
-                        tracing::info!("Scheduling config reload for workspace: {}", workspace_uri);
-                        self.schedule_config_reload(workspace_uri).await;
+                        tracing::info!("Config file changed for workspace: {}", workspace_uri);
+                        self.reload_workspace_config(&workspace_uri).await;
                     }
                     FileChangeType::DELETED => {
                         tracing::warn!("Config file deleted for workspace: {}", workspace_uri);
@@ -1594,88 +1083,31 @@ impl LanguageServer for GraphQLLanguageServer {
 
         tracing::debug!("Completion requested: {:?} at {:?}", uri, lsp_position);
 
-        let Some(content) = self.document_cache.get(&uri.to_string()) else {
-            tracing::warn!("No cached content for document: {:?}", uri);
-            return Ok(None);
-        };
-
-        let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) else {
+        // Find workspace for this document
+        let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
-        let Some(projects) = self.projects.get(&workspace_uri) else {
-            tracing::warn!("No projects loaded for workspace: {workspace_uri}");
+        // Get AnalysisHost and create snapshot (new architecture)
+        let host = self.get_or_create_host(&workspace_uri, &project_name);
+        let analysis = {
+            let host_guard = host.lock().await;
+            host_guard.snapshot()
+        };
+
+        // Convert LSP position to graphql-ide position
+        let position = convert_lsp_position(lsp_position);
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
+
+        // Get completions from Analysis
+        let Some(items) = analysis.completions(&file_path, position) else {
             return Ok(None);
         };
 
-        let Some((_, project, _)) = projects.get(project_idx) else {
-            tracing::warn!("Project index {project_idx} not found in workspace {workspace_uri}");
-            return Ok(None);
-        };
-
-        let position = graphql_project::Position {
-            line: lsp_position.line as usize,
-            character: lsp_position.character as usize,
-        };
-
-        let file_path = uri.to_string();
-        let Some(items) = project
-            .read()
-            .await
-            .complete(&content, position, &file_path)
-        else {
-            return Ok(None);
-        };
-
-        let lsp_items: Vec<lsp_types::CompletionItem> = items
-            .into_iter()
-            .map(|item| {
-                let kind = match item.kind {
-                    graphql_project::CompletionItemKind::Field => {
-                        Some(lsp_types::CompletionItemKind::FIELD)
-                    }
-                    graphql_project::CompletionItemKind::Type => {
-                        Some(lsp_types::CompletionItemKind::CLASS)
-                    }
-                    graphql_project::CompletionItemKind::Fragment => {
-                        Some(lsp_types::CompletionItemKind::SNIPPET)
-                    }
-                    graphql_project::CompletionItemKind::Operation => {
-                        Some(lsp_types::CompletionItemKind::FUNCTION)
-                    }
-                    graphql_project::CompletionItemKind::Directive => {
-                        Some(lsp_types::CompletionItemKind::KEYWORD)
-                    }
-                    graphql_project::CompletionItemKind::EnumValue => {
-                        Some(lsp_types::CompletionItemKind::ENUM_MEMBER)
-                    }
-                    graphql_project::CompletionItemKind::Argument => {
-                        Some(lsp_types::CompletionItemKind::PROPERTY)
-                    }
-                    graphql_project::CompletionItemKind::Variable => {
-                        Some(lsp_types::CompletionItemKind::VARIABLE)
-                    }
-                };
-
-                let documentation = item.documentation.map(|doc| {
-                    lsp_types::Documentation::MarkupContent(lsp_types::MarkupContent {
-                        kind: lsp_types::MarkupKind::Markdown,
-                        value: doc,
-                    })
-                });
-
-                lsp_types::CompletionItem {
-                    label: item.label,
-                    kind,
-                    detail: item.detail,
-                    documentation,
-                    deprecated: Some(item.deprecated),
-                    insert_text: item.insert_text,
-                    ..Default::default()
-                }
-            })
-            .collect();
+        // Convert graphql-ide completion items to LSP completion items
+        let lsp_items: Vec<lsp_types::CompletionItem> =
+            items.into_iter().map(convert_ide_completion_item).collect();
 
         Ok(Some(CompletionResponse::Array(lsp_items)))
     }
@@ -1686,72 +1118,34 @@ impl LanguageServer for GraphQLLanguageServer {
 
         tracing::debug!("Hover requested: {:?} at {:?}", uri, lsp_position);
 
-        // Get the cached document content
-        let Some(content) = self.document_cache.get(&uri.to_string()) else {
-            tracing::warn!("No cached content for document: {:?}", uri);
-            return Ok(None);
-        };
-
-        // Find the workspace and project for this document
-        let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) else {
+        // Find workspace for this document
+        let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
-        // Get the project
-        let Some(projects) = self.projects.get(&workspace_uri) else {
-            tracing::warn!("No projects loaded for workspace: {workspace_uri}");
+        // Get AnalysisHost and create snapshot (new architecture)
+        let host = self.get_or_create_host(&workspace_uri, &project_name);
+        let analysis = {
+            let host_guard = host.lock().await;
+            host_guard.snapshot()
+        };
+
+        // Convert LSP position to graphql-ide position
+        let position = convert_lsp_position(lsp_position);
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
+
+        // Get hover from Analysis
+        let Some(hover_result) = analysis.hover(&file_path, position) else {
             return Ok(None);
         };
 
-        let Some((_, project, _)) = projects.get(project_idx) else {
-            tracing::warn!("Project index {project_idx} not found in workspace {workspace_uri}");
-            return Ok(None);
-        };
-
-        // Convert LSP position to graphql-project Position
-        let position = graphql_project::Position {
-            line: lsp_position.line as usize,
-            character: lsp_position.character as usize,
-        };
-
-        // Get hover info from the project (handles TypeScript extraction internally)
-        // Convert URI to file path for cache lookup consistency
-        let file_path = uri
-            .to_file_path()
-            .map_or_else(|| uri.to_string(), |path| path.display().to_string());
-
-        let Some(hover_info) = project
-            .read()
-            .await
-            .hover_info_at_position(&file_path, position, &content)
-        else {
-            return Ok(None);
-        };
-
-        // Convert to LSP Hover
-        #[allow(clippy::cast_possible_truncation)]
-        let hover = Hover {
-            contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
-                kind: lsp_types::MarkupKind::Markdown,
-                value: hover_info.contents,
-            }),
-            range: hover_info.range.map(|r| Range {
-                start: Position {
-                    line: r.start.line as u32,
-                    character: r.start.character as u32,
-                },
-                end: Position {
-                    line: r.end.line as u32,
-                    character: r.end.character as u32,
-                },
-            }),
-        };
+        // Convert graphql-ide HoverResult to LSP Hover
+        let hover = convert_ide_hover(hover_result);
 
         Ok(Some(hover))
     }
 
-    #[allow(clippy::too_many_lines)]
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
@@ -1767,391 +1161,45 @@ impl LanguageServer for GraphQLLanguageServer {
             lsp_position.character
         );
 
-        // Get the cached document content
-        let Some(content) = self.document_cache.get(&uri.to_string()) else {
-            tracing::warn!("No cached content for document: {:?}", uri);
-            return Ok(None);
-        };
-
-        // Find the workspace and project for this document
-        let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) else {
+        // Find workspace for this document
+        let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
-        // Get the project
-        let Some(projects) = self.projects.get(&workspace_uri) else {
-            tracing::warn!("No projects loaded for workspace: {workspace_uri}");
-            return Ok(None);
+        // Get AnalysisHost and create snapshot (new architecture)
+        let host = self.get_or_create_host(&workspace_uri, &project_name);
+        let analysis = {
+            let host_guard = host.lock().await;
+            host_guard.snapshot()
         };
 
-        let Some((_, project, _)) = projects.get(project_idx) else {
-            tracing::warn!("Project index {project_idx} not found in workspace {workspace_uri}");
-            return Ok(None);
-        };
+        // Convert LSP position to graphql-ide position
+        let position = convert_lsp_position(lsp_position);
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
 
-        // Check if this is a TypeScript/JavaScript file that needs GraphQL extraction
-        let file_path = uri.to_file_path();
-        let (is_ts_file, language) =
-            file_path
-                .as_ref()
-                .map_or((false, graphql_extract::Language::GraphQL), |path| {
-                    path.extension().and_then(|e| e.to_str()).map_or(
-                        (false, graphql_extract::Language::GraphQL),
-                        |ext| match ext {
-                            "ts" | "tsx" => (true, graphql_extract::Language::TypeScript),
-                            "js" | "jsx" => (true, graphql_extract::Language::JavaScript),
-                            _ => (false, graphql_extract::Language::GraphQL),
-                        },
-                    )
-                });
-
-        if is_ts_file {
-            // Try to use cached extracted blocks first (Phase 3 optimization)
-            let project_guard = project.read().await;
-            let cached_blocks = project_guard.get_extracted_blocks(&uri.to_string());
-
-            // Find which extracted GraphQL block contains the cursor position
-            let cursor_line = lsp_position.line as usize;
-
-            if let Some(blocks) = cached_blocks {
-                // Use cached blocks - no extraction or parsing needed!
-                for block in blocks {
-                    if cursor_line >= block.start_line && cursor_line <= block.end_line {
-                        // Adjust position relative to the extracted GraphQL
-                        #[allow(clippy::cast_possible_truncation)]
-                        let relative_position = graphql_project::Position {
-                            line: cursor_line - block.start_line,
-                            character: if cursor_line == block.start_line {
-                                lsp_position
-                                    .character
-                                    .saturating_sub(block.start_column as u32)
-                                    as usize
-                            } else {
-                                lsp_position.character as usize
-                            },
-                        };
-
-                        tracing::debug!(
-                            "Using cached extracted block at position {:?}",
-                            relative_position
-                        );
-
-                        // Get definition locations from the project using the cached GraphQL
-                        let Some(locations) = project_guard.goto_definition(
-                            &block.content,
-                            relative_position,
-                            &uri.to_string(),
-                        ) else {
-                            tracing::debug!(
-                                "No definition found at position {:?}",
-                                relative_position
-                            );
-                            continue;
-                        };
-
-                        tracing::debug!("Found {} definition location(s)", locations.len());
-
-                        // Convert to LSP Locations (adjust positions back to original file coordinates)
-                        #[allow(clippy::cast_possible_truncation)]
-                        let lsp_locations: Vec<Location> = locations
-                            .iter()
-                            .filter_map(|loc| {
-                                // Check if the file_path is already a URI
-                                let file_uri = if loc.file_path.starts_with("file://") {
-                                    // Already a URI, parse it directly
-                                    loc.file_path.parse::<Uri>().ok()?
-                                } else {
-                                    // Resolve the file path relative to the workspace if it's not absolute
-                                    let file_path = if std::path::Path::new(&loc.file_path)
-                                        .is_absolute()
-                                    {
-                                        std::path::PathBuf::from(&loc.file_path)
-                                    } else {
-                                        // Resolve relative to workspace root
-                                        let workspace_path: Uri = workspace_uri.parse().ok()?;
-                                        let workspace_file_path = workspace_path.to_file_path()?;
-                                        workspace_file_path.join(&loc.file_path)
-                                    };
-
-                                    Uri::from_file_path(file_path)?
-                                };
-
-                                // If the location is in the same file, adjust positions back to original file coordinates
-                                let (start_line, start_char, end_line, end_char) = if file_uri
-                                    == uri
-                                {
-                                    // Adjust positions back from extracted GraphQL to original file
-                                    let adjusted_start_line =
-                                        loc.range.start.line + block.start_line;
-                                    let adjusted_start_char = if loc.range.start.line == 0 {
-                                        loc.range.start.character + block.start_column
-                                    } else {
-                                        loc.range.start.character
-                                    };
-                                    let adjusted_end_line = loc.range.end.line + block.start_line;
-                                    let adjusted_end_char = if loc.range.end.line == 0 {
-                                        loc.range.end.character + block.start_column
-                                    } else {
-                                        loc.range.end.character
-                                    };
-                                    (
-                                        adjusted_start_line as u32,
-                                        adjusted_start_char as u32,
-                                        adjusted_end_line as u32,
-                                        adjusted_end_char as u32,
-                                    )
-                                } else {
-                                    (
-                                        loc.range.start.line as u32,
-                                        loc.range.start.character as u32,
-                                        loc.range.end.line as u32,
-                                        loc.range.end.character as u32,
-                                    )
-                                };
-
-                                Some(Location {
-                                    uri: file_uri,
-                                    range: Range {
-                                        start: Position {
-                                            line: start_line,
-                                            character: start_char,
-                                        },
-                                        end: Position {
-                                            line: end_line,
-                                            character: end_char,
-                                        },
-                                    },
-                                })
-                            })
-                            .collect();
-
-                        if !lsp_locations.is_empty() {
-                            return Ok(Some(GotoDefinitionResponse::Array(lsp_locations)));
-                        }
-                    }
-                }
-            } else {
-                // Fallback: Extract GraphQL from TypeScript file (cache miss)
-                tracing::debug!("Cache miss - extracting GraphQL from TypeScript file");
-                let extract_config = project_guard.get_extract_config();
-                let extracted =
-                    match graphql_extract::extract_from_source(&content, language, &extract_config)
-                    {
-                        Ok(extracted) => extracted,
-                        Err(e) => {
-                            tracing::debug!(
-                                "Failed to extract GraphQL from TypeScript file: {}",
-                                e
-                            );
-                            return Ok(None);
-                        }
-                    };
-
-                for item in extracted {
-                    let start_line = item.location.range.start.line;
-                    let end_line = item.location.range.end.line;
-
-                    if cursor_line >= start_line && cursor_line <= end_line {
-                        // Adjust position relative to the extracted GraphQL
-                        #[allow(clippy::cast_possible_truncation)]
-                        let relative_position = graphql_project::Position {
-                            line: cursor_line - start_line,
-                            character: if cursor_line == start_line {
-                                lsp_position
-                                    .character
-                                    .saturating_sub(item.location.range.start.column as u32)
-                                    as usize
-                            } else {
-                                lsp_position.character as usize
-                            },
-                        };
-
-                        tracing::debug!(
-                            "Adjusted position from {:?} to {:?} for extracted GraphQL",
-                            lsp_position,
-                            relative_position
-                        );
-
-                        // Get definition locations from the project using the extracted GraphQL
-                        let Some(locations) = project_guard.goto_definition(
-                            &item.source,
-                            relative_position,
-                            &uri.to_string(),
-                        ) else {
-                            tracing::debug!(
-                                "No definition found at position {:?}",
-                                relative_position
-                            );
-                            continue;
-                        };
-
-                        tracing::debug!("Found {} definition location(s)", locations.len());
-
-                        // Convert to LSP Locations
-                        #[allow(clippy::cast_possible_truncation)]
-                        let lsp_locations: Vec<Location> = locations
-                            .iter()
-                            .filter_map(|loc| {
-                                // Check if the file_path is already a URI
-                                let file_uri = if loc.file_path.starts_with("file://") {
-                                    // Already a URI, parse it directly
-                                    loc.file_path.parse::<Uri>().ok()?
-                                } else {
-                                    // Resolve the file path relative to the workspace if it's not absolute
-                                    let file_path = if std::path::Path::new(&loc.file_path)
-                                        .is_absolute()
-                                    {
-                                        std::path::PathBuf::from(&loc.file_path)
-                                    } else {
-                                        // Resolve relative to workspace root
-                                        let workspace_path: Uri = workspace_uri.parse().ok()?;
-                                        let workspace_file_path = workspace_path.to_file_path()?;
-                                        workspace_file_path.join(&loc.file_path)
-                                    };
-                                    Uri::from_file_path(file_path)?
-                                };
-
-                                // If the location is in the same file, adjust positions back to original file coordinates
-                                let (start_line, start_char, end_line, end_char) = if file_uri
-                                    == uri
-                                {
-                                    // Adjust positions back from extracted GraphQL to original file
-                                    let adjusted_start_line = loc.range.start.line + start_line;
-                                    let adjusted_start_char = if loc.range.start.line == 0 {
-                                        loc.range.start.character + item.location.range.start.column
-                                    } else {
-                                        loc.range.start.character
-                                    };
-                                    let adjusted_end_line = loc.range.end.line + start_line;
-                                    let adjusted_end_char = if loc.range.end.line == 0 {
-                                        loc.range.end.character + item.location.range.start.column
-                                    } else {
-                                        loc.range.end.character
-                                    };
-                                    (
-                                        adjusted_start_line as u32,
-                                        adjusted_start_char as u32,
-                                        adjusted_end_line as u32,
-                                        adjusted_end_char as u32,
-                                    )
-                                } else {
-                                    (
-                                        loc.range.start.line as u32,
-                                        loc.range.start.character as u32,
-                                        loc.range.end.line as u32,
-                                        loc.range.end.character as u32,
-                                    )
-                                };
-
-                                Some(Location {
-                                    uri: file_uri,
-                                    range: Range {
-                                        start: Position {
-                                            line: start_line,
-                                            character: start_char,
-                                        },
-                                        end: Position {
-                                            line: end_line,
-                                            character: end_char,
-                                        },
-                                    },
-                                })
-                            })
-                            .collect();
-
-                        if !lsp_locations.is_empty() {
-                            return Ok(Some(GotoDefinitionResponse::Array(lsp_locations)));
-                        }
-                    }
-                }
-            }
-
-            return Ok(None);
-        }
-
-        // For pure GraphQL files, use the content as-is
-        let position = graphql_project::Position {
-            line: lsp_position.line as usize,
-            character: lsp_position.character as usize,
-        };
-
-        tracing::info!(
-            "Calling project.goto_definition with position: {:?}",
-            position
-        );
-        tracing::info!("Content length: {} bytes", content.len());
-
-        // Get definition locations from the project
-        let Some(locations) =
-            project
-                .read()
-                .await
-                .goto_definition(&content, position, &uri.to_string())
-        else {
+        // Get goto definition from Analysis
+        let Some(locations) = analysis.goto_definition(&file_path, position) else {
             tracing::info!(
-                "project.goto_definition returned None at position {:?}",
-                position
+                "Goto definition completed in {:?}, returning 0 locations",
+                start.elapsed()
             );
             return Ok(None);
         };
 
-        tracing::info!("Found {} definition location(s)", locations.len());
-        for (idx, loc) in locations.iter().enumerate() {
-            tracing::info!(
-                "Location {}: file={}, line={}, col={}",
-                idx,
-                loc.file_path,
-                loc.range.start.line,
-                loc.range.start.character
-            );
-        }
-
-        // Convert to LSP Locations
-        #[allow(clippy::cast_possible_truncation)]
+        // Convert graphql-ide Locations to LSP Locations
         let lsp_locations: Vec<Location> = locations
             .iter()
-            .filter_map(|loc| {
-                // Check if the file_path is already a URI
-                let file_uri = if loc.file_path.starts_with("file://") {
-                    // Already a URI, parse it directly
-                    loc.file_path.parse::<Uri>().ok()?
-                } else {
-                    // Resolve the file path relative to the workspace if it's not absolute
-                    let file_path = if std::path::Path::new(&loc.file_path).is_absolute() {
-                        std::path::PathBuf::from(&loc.file_path)
-                    } else {
-                        // Resolve relative to workspace root
-                        let workspace_path: Uri = workspace_uri.parse().ok()?;
-                        let workspace_file_path = workspace_path.to_file_path()?;
-                        workspace_file_path.join(&loc.file_path)
-                    };
-
-                    tracing::info!("Resolved file path: {:?}", file_path);
-                    Uri::from_file_path(&file_path)?
-                };
-
-                tracing::info!("Created URI: {:?}", file_uri);
-
-                let lsp_loc = Location {
-                    uri: file_uri,
-                    range: Range {
-                        start: Position {
-                            line: loc.range.start.line as u32,
-                            character: loc.range.start.character as u32,
-                        },
-                        end: Position {
-                            line: loc.range.end.line as u32,
-                            character: loc.range.end.character as u32,
-                        },
-                    },
-                };
+            .map(|loc| {
                 tracing::info!(
-                    "LSP Location: uri={:?}, range={:?}",
-                    lsp_loc.uri,
-                    lsp_loc.range
+                    "Returning location: file={}, range={}:{} to {}:{}",
+                    loc.file.as_str(),
+                    loc.range.start.line,
+                    loc.range.start.character,
+                    loc.range.end.line,
+                    loc.range.end.character
                 );
-                Some(lsp_loc)
+                convert_ide_location(loc)
             })
             .collect();
 
@@ -2182,103 +1230,34 @@ impl LanguageServer for GraphQLLanguageServer {
             include_declaration
         );
 
-        // Get the cached document content
-        let Some(content) = self.document_cache.get(&uri.to_string()) else {
-            tracing::warn!("No cached content for document: {:?}", uri);
-            return Ok(None);
-        };
-
-        // Find the workspace and project for this document
-        let Some((workspace_uri, project_idx)) = self.find_workspace_and_project(&uri) else {
+        // Find workspace for this document
+        let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
-        // Get the project
-        let Some(projects) = self.projects.get(&workspace_uri) else {
-            tracing::warn!("No projects loaded for workspace: {workspace_uri}");
-            return Ok(None);
+        // Get AnalysisHost and create snapshot (new architecture)
+        let host = self.get_or_create_host(&workspace_uri, &project_name);
+        let analysis = {
+            let host_guard = host.lock().await;
+            host_guard.snapshot()
         };
 
-        let Some((_, project, _)) = projects.get(project_idx) else {
-            tracing::warn!("Project index {project_idx} not found in workspace {workspace_uri}");
-            return Ok(None);
-        };
+        // Convert LSP position to graphql-ide position
+        let position = convert_lsp_position(lsp_position);
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
 
-        // Collect all documents from the cache
-        let collect_start = std::time::Instant::now();
-        let all_documents: Vec<(String, String)> = self
-            .document_cache
-            .iter()
-            .map(|entry| {
-                let uri_string = entry.key().clone();
-                let content = entry.value().clone();
-                (uri_string, content)
-            })
-            .collect();
-
-        tracing::info!(
-            "Collected {} documents for reference search in {:?}",
-            all_documents.len(),
-            collect_start.elapsed()
-        );
-
-        // For find_references optimization, we would parse all documents once here
-        // However, since the documents are already cached in document_index via did_open/did_change,
-        // the actual optimization happens by reusing those cached ASTs.
-        // We pass None here as the ASTs will be retrieved from document_index internally.
-        let document_asts: Option<&std::collections::HashMap<String, graphql_project::SyntaxTree>> =
-            None;
-
-        // For pure GraphQL files (TypeScript extraction not implemented yet for find references)
-        let position = graphql_project::Position {
-            line: lsp_position.line as usize,
-            character: lsp_position.character as usize,
-        };
-
-        // Find references with pre-parsed ASTs
-        let find_start = std::time::Instant::now();
-        let Some(references) = project.read().await.find_references_with_asts(
-            &content,
-            position,
-            &all_documents,
-            include_declaration,
-            Some(&uri.to_string()),
-            document_asts,
-        ) else {
+        // Find references from Analysis
+        let Some(locations) = analysis.find_references(&file_path, position, include_declaration)
+        else {
             tracing::info!("No references found at position {:?}", position);
             return Ok(None);
         };
 
-        tracing::info!(
-            "Found {} reference(s) in {:?}",
-            references.len(),
-            find_start.elapsed()
-        );
-
-        // Convert to LSP Locations
-        #[allow(clippy::cast_possible_truncation)]
-        let lsp_locations: Vec<Location> = references
-            .iter()
-            .filter_map(|reference_loc| {
-                // The file_path in reference_loc is the URI string from the document cache
-                // Parse it as a URI
-                let file_uri: Uri = reference_loc.file_path.parse().ok()?;
-
-                Some(Location {
-                    uri: file_uri,
-                    range: Range {
-                        start: Position {
-                            line: reference_loc.range.start.line as u32,
-                            character: reference_loc.range.start.character as u32,
-                        },
-                        end: Position {
-                            line: reference_loc.range.end.line as u32,
-                            character: reference_loc.range.end.character as u32,
-                        },
-                    },
-                })
-            })
+        // Convert graphql-ide Locations to LSP Locations
+        let lsp_locations: Vec<Location> = locations
+            .into_iter()
+            .map(|loc| convert_ide_location(&loc))
             .collect();
 
         tracing::info!(
@@ -2346,70 +1325,8 @@ impl LanguageServer for GraphQLLanguageServer {
                     ));
                 }
 
-                // Get projects for this workspace
-                if let Some(projects) = self.projects.get(workspace_uri) {
-                    for (project_name, project, _) in projects.iter() {
-                        let project_guard = project.read().await;
-
-                        // Schema information
-                        let schema_index = project_guard.schema_index();
-                        if let Ok(schema_guard) = schema_index.read() {
-                            let schema = schema_guard.schema();
-                            let type_count = schema.types.len();
-
-                            // Count fields from object and interface types
-                            let field_count: usize = schema
-                                .types
-                                .values()
-                                .filter_map(|type_def| {
-                                    if let Some(obj) = type_def.as_object() {
-                                        Some(obj.fields.len())
-                                    } else if let Some(iface) = type_def.as_interface() {
-                                        Some(iface.fields.len())
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .sum();
-
-                            status_lines.push(format!(
-                                "  Project '{}': {} types, {} fields",
-                                project_name, type_count, field_count
-                            ));
-                        } else {
-                            status_lines.push(format!(
-                                "  Project '{}': ⚠️ Schema not loaded",
-                                project_name
-                            ));
-                        }
-
-                        // Document information
-                        {
-                            let document_index = project_guard.document_index();
-                            if let Ok(doc_guard) = document_index.read() {
-                                let operation_count = doc_guard.operations.len();
-                                let fragment_count = doc_guard.fragments.len();
-
-                                status_lines.push(format!(
-                                    "    {} operations, {} fragments",
-                                    operation_count, fragment_count
-                                ));
-                            } else {
-                                status_lines.push("    ⚠️ Documents not loaded".to_string());
-                            };
-                        }
-                    }
-                } else {
-                    status_lines.push("  ⚠️ No projects loaded".to_string());
-                }
+                // Project information removed (old system)
             }
-
-            // Open documents
-            status_lines.push("".to_string());
-            status_lines.push(format!(
-                "{} files open in editor",
-                self.document_cache.len()
-            ));
 
             let status_report = status_lines.join("\n");
 
@@ -2426,10 +1343,9 @@ impl LanguageServer for GraphQLLanguageServer {
                 "No workspaces loaded".to_string()
             } else {
                 let workspace_count = self.workspace_roots.len();
-                let project_count: usize = self.projects.iter().map(|p| p.value().len()).sum();
                 format!(
-                    "{} workspace(s), {} project(s) - Check output for details",
-                    workspace_count, project_count
+                    "{} workspace(s) - Check output for details",
+                    workspace_count
                 )
             };
 

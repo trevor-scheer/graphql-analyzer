@@ -7,8 +7,10 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-# Internal dependencies
-graphql-project = { path = "../graphql-project" }
+# Internal dependencies - NEW ARCHITECTURE
+graphql-db = { path = "../graphql-db" }
+graphql-syntax = { path = "../graphql-syntax" }
+graphql-hir = { path = "../graphql-hir" }
 
 # GraphQL parsing
 apollo-parser = { workspace = true }

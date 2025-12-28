@@ -1,16 +1,17 @@
+use crate::analysis::CliAnalysisHost;
 use crate::commands::common::CommandContext;
 use crate::OutputFormat;
 use anyhow::Result;
 use colored::Colorize;
+use graphql_ide::DiagnosticSeverity;
 use std::path::PathBuf;
 use std::process;
-use tracing::Instrument;
 
 #[allow(clippy::too_many_lines)]
 #[tracing::instrument(skip(config_path, project_name, format), fields(project = ?project_name))]
-pub async fn run(
+pub fn run(
     config_path: Option<PathBuf>,
-    project_name: Option<String>,
+    project_name: Option<&str>,
     format: OutputFormat,
     watch: bool,
 ) -> Result<()> {
@@ -31,7 +32,16 @@ pub async fn run(
     let start_time = std::time::Instant::now();
 
     // Load config and validate project requirement
-    let ctx = CommandContext::load(config_path, project_name.as_ref(), "validate")?;
+    let ctx = CommandContext::load(config_path, project_name, "validate")?;
+
+    // Get project config
+    let selected_name = CommandContext::get_project_name(project_name);
+    let project_config = ctx
+        .config
+        .projects()
+        .find(|(name, _)| *name == selected_name)
+        .map(|(_, cfg)| cfg.clone())
+        .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
 
     // Load and select project
     let spinner = if matches!(format, OutputFormat::Human) {
@@ -41,22 +51,17 @@ pub async fn run(
     };
 
     let load_start = std::time::Instant::now();
-    let load_projects_span = tracing::info_span!("load_projects");
-    let (project_name, project) = async {
-        ctx.load_project(project_name.as_deref())
-            .await
-            .map_err(|e| {
-                if matches!(format, OutputFormat::Human) {
-                    eprintln!("{} {}", "✗ Failed to load project:".red(), e);
-                } else {
-                    eprintln!("{}", serde_json::json!({ "error": e.to_string() }));
-                }
-                process::exit(1);
-            })
-            .unwrap()
-    }
-    .instrument(load_projects_span)
-    .await;
+    let _load_projects_span = tracing::info_span!("load_projects").entered();
+    let host = CliAnalysisHost::from_project_config(&project_config, ctx.base_dir)
+        .map_err(|e| {
+            if matches!(format, OutputFormat::Human) {
+                eprintln!("{} {}", "✗ Failed to load project:".red(), e);
+            } else {
+                eprintln!("{}", serde_json::json!({ "error": e.to_string() }));
+            }
+            process::exit(1);
+        })
+        .unwrap();
 
     if let Some(pb) = spinner {
         pb.finish_and_clear();
@@ -66,10 +71,11 @@ pub async fn run(
 
     // Report project loaded successfully
     if matches!(format, OutputFormat::Human) {
-        CommandContext::print_success_message(&project);
+        println!("{}", "✓ Schema loaded successfully".green());
+        println!("{}", "✓ Documents loaded successfully".green());
     }
 
-    // Validate all files
+    // Validate all files (spec validation only, no custom lints)
     let spinner = if matches!(format, OutputFormat::Human) {
         Some(crate::progress::spinner("Validating GraphQL documents..."))
     } else {
@@ -77,10 +83,8 @@ pub async fn run(
     };
 
     let validate_start = std::time::Instant::now();
-    let validate_span = tracing::info_span!("validate_all", project = %project_name);
-    let all_diagnostics = async { project.validate_all() }
-        .instrument(validate_span)
-        .await;
+    let _validate_span = tracing::info_span!("validate_all").entered();
+    let all_diagnostics = host.all_validation_diagnostics();
 
     if let Some(pb) = spinner {
         pb.finish_and_clear();
@@ -97,15 +101,13 @@ pub async fn run(
     let mut all_errors = Vec::new();
     for (file_path, diagnostics) in all_diagnostics {
         for diag in diagnostics {
-            use graphql_project::Severity;
-
-            // Only process errors (Apollo compiler validation)
-            if diag.severity == Severity::Error {
+            // Only process errors
+            if diag.severity == DiagnosticSeverity::Error {
                 let diag_output = DiagnosticOutput {
                     file_path: file_path.to_string_lossy().to_string(),
-                    // graphql-project uses 0-based, CLI output uses 1-based
-                    line: diag.range.start.line + 1,
-                    column: diag.range.start.character + 1,
+                    // graphql-ide uses 0-based, CLI output uses 1-based
+                    line: (diag.range.start.line + 1) as usize,
+                    column: (diag.range.start.character + 1) as usize,
                     message: diag.message,
                 };
 

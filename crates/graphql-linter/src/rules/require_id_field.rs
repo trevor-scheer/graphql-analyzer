@@ -1,83 +1,122 @@
-use crate::context::DocumentSchemaContext;
+use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::traits::{DocumentSchemaLintRule, LintRule};
 use apollo_parser::cst::{self, CstNode};
-use graphql_project::{Diagnostic, DocumentIndex, Position, Range, SchemaIndex};
-use std::collections::HashSet;
+use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
-use super::DocumentSchemaRule;
+/// Trait implementation for `require_id_field` rule
+pub struct RequireIdFieldRuleImpl;
 
-/// Lint rule that checks if an `id` field is requested when available on a type
-pub struct RequireIdFieldRule;
-
-impl DocumentSchemaRule for RequireIdFieldRule {
+impl LintRule for RequireIdFieldRuleImpl {
     fn name(&self) -> &'static str {
         "require_id_field"
     }
 
     fn description(&self) -> &'static str {
-        "Requires that the 'id' field be requested in selection sets when available on a type"
+        "Warns when the `id` field is not requested on types that have it"
     }
 
-    fn check(&self, ctx: &DocumentSchemaContext) -> Vec<Diagnostic> {
-        let document = ctx.document;
-        let schema_index = ctx.schema;
-        let fragments = ctx.fragments;
-        let mut diagnostics = Vec::new();
+    fn default_severity(&self) -> LintSeverity {
+        LintSeverity::Warning
+    }
+}
 
-        let doc_cst = ctx.parsed.document();
+impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
+    fn check(
+        &self,
+        db: &dyn graphql_hir::GraphQLHirDatabase,
+        _file_id: FileId,
+        content: FileContent,
+        metadata: FileMetadata,
+        project_files: ProjectFiles,
+    ) -> Vec<LintDiagnostic> {
+        let mut diagnostics = Vec::new();
+        let parse = graphql_syntax::parse(db, content, metadata);
+        if !parse.errors.is_empty() {
+            return diagnostics;
+        }
+
+        // Get schema types from HIR
+        let schema_types = graphql_hir::schema_types_with_project(db, project_files);
+
+        // Build a map of type names to whether they have an id field
+        let mut types_with_id: HashMap<String, bool> = HashMap::new();
+        for (type_name, type_def) in schema_types.iter() {
+            let has_id = match type_def.kind {
+                graphql_hir::TypeDefKind::Object | graphql_hir::TypeDefKind::Interface => {
+                    type_def.fields.iter().any(|f| f.name.as_ref() == "id")
+                }
+                _ => false,
+            };
+            types_with_id.insert(type_name.to_string(), has_id);
+        }
+
+        // Get all fragments from the project (for cross-file resolution)
+        let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
+
+        // Get root operation types from schema
+        let query_type = find_root_operation_type(&schema_types, "Query");
+        let mutation_type = find_root_operation_type(&schema_types, "Mutation");
+        let subscription_type = find_root_operation_type(&schema_types, "Subscription");
+
+        // Create context for fragment resolution
+        let check_context = CheckContext {
+            db,
+            schema_types: &schema_types,
+            types_with_id: &types_with_id,
+            all_fragments: &all_fragments,
+        };
+
+        // Walk the CST for position info
+        let doc_cst = parse.tree.document();
 
         for definition in doc_cst.definitions() {
             match definition {
-                cst::Definition::OperationDefinition(operation) => {
-                    let root_type_name = match operation.operation_type() {
-                        Some(op_type) if op_type.query_token().is_some() => {
-                            schema_index.schema().schema_definition.query.as_ref()
-                        }
+                cst::Definition::OperationDefinition(op) => {
+                    let root_type = match op.operation_type() {
+                        Some(op_type) if op_type.query_token().is_some() => query_type.as_deref(),
                         Some(op_type) if op_type.mutation_token().is_some() => {
-                            schema_index.schema().schema_definition.mutation.as_ref()
+                            mutation_type.as_deref()
                         }
-                        Some(op_type) if op_type.subscription_token().is_some() => schema_index
-                            .schema()
-                            .schema_definition
-                            .subscription
-                            .as_ref(),
-                        None => schema_index.schema().schema_definition.query.as_ref(),
+                        Some(op_type) if op_type.subscription_token().is_some() => {
+                            subscription_type.as_deref()
+                        }
+                        None => query_type.as_deref(), // Default to query for anonymous operations
                         _ => None,
                     };
 
-                    if let Some(root_type_name) = root_type_name {
-                        if let Some(selection_set) = operation.selection_set() {
-                            let mut visited_fragments = HashSet::new();
-                            check_selection_set_for_id(
-                                &selection_set,
-                                root_type_name.as_str(),
-                                schema_index,
-                                fragments,
-                                &mut visited_fragments,
-                                &mut diagnostics,
-                                document,
-                            );
-                        }
+                    if let (Some(root_type_name), Some(selection_set)) =
+                        (root_type, op.selection_set())
+                    {
+                        let mut visited_fragments = HashSet::new();
+                        check_selection_set(
+                            &selection_set,
+                            root_type_name,
+                            &check_context,
+                            &mut visited_fragments,
+                            &mut diagnostics,
+                        );
                     }
                 }
-                cst::Definition::FragmentDefinition(fragment) => {
-                    if let Some(type_condition) = fragment.type_condition() {
-                        if let Some(named_type) = type_condition.named_type() {
-                            if let Some(type_name) = named_type.name() {
-                                let type_name_str = type_name.text();
-                                if let Some(selection_set) = fragment.selection_set() {
-                                    let mut visited_fragments = HashSet::new();
-                                    check_selection_set_for_id(
-                                        &selection_set,
-                                        type_name_str.as_ref(),
-                                        schema_index,
-                                        fragments,
-                                        &mut visited_fragments,
-                                        &mut diagnostics,
-                                        document,
-                                    );
-                                }
-                            }
-                        }
+                cst::Definition::FragmentDefinition(frag) => {
+                    let type_condition = frag
+                        .type_condition()
+                        .and_then(|tc| tc.named_type())
+                        .and_then(|nt| nt.name())
+                        .map(|name| name.text().to_string());
+
+                    if let (Some(type_name), Some(selection_set)) =
+                        (type_condition.as_deref(), frag.selection_set())
+                    {
+                        let mut visited_fragments = HashSet::new();
+                        check_selection_set(
+                            &selection_set,
+                            type_name,
+                            &check_context,
+                            &mut visited_fragments,
+                            &mut diagnostics,
+                        );
                     }
                 }
                 _ => {}
@@ -88,63 +127,72 @@ impl DocumentSchemaRule for RequireIdFieldRule {
     }
 }
 
-#[allow(clippy::too_many_lines)]
-fn check_selection_set_for_id(
+/// Context for checking selection sets with fragment resolution
+struct CheckContext<'a> {
+    db: &'a dyn graphql_hir::GraphQLHirDatabase,
+    schema_types: &'a HashMap<Arc<str>, graphql_hir::TypeDef>,
+    types_with_id: &'a HashMap<String, bool>,
+    all_fragments: &'a HashMap<Arc<str>, graphql_hir::FragmentStructure>,
+}
+
+#[allow(clippy::only_used_in_recursion)]
+fn check_selection_set(
     selection_set: &cst::SelectionSet,
     parent_type_name: &str,
-    schema_index: &SchemaIndex,
-    fragments: Option<&DocumentIndex>,
+    context: &CheckContext,
     visited_fragments: &mut HashSet<String>,
-    diagnostics: &mut Vec<Diagnostic>,
-    document: &str,
+    diagnostics: &mut Vec<LintDiagnostic>,
 ) {
-    let Some(fields) = schema_index.get_fields(parent_type_name) else {
-        return;
-    };
+    // Check if this type has an id field
+    let has_id_field = context
+        .types_with_id
+        .get(parent_type_name)
+        .copied()
+        .unwrap_or(false);
+    if !has_id_field {
+        return; // Type doesn't have id field, nothing to check
+    }
 
-    let has_id_field = fields.iter().any(|f| f.name == "id");
     let mut has_id_in_selection = false;
 
-    // First, recurse into all nested selections
+    // Check selections for id field and recurse into nested selections
     for selection in selection_set.selections() {
         match selection {
             cst::Selection::Field(field) => {
                 if let Some(field_name) = field.name() {
                     let field_name_str = field_name.text();
 
+                    // Check if this is the id field
                     if field_name_str == "id" {
                         has_id_in_selection = true;
                     }
 
-                    if let Some(field_info) = fields.iter().find(|f| f.name == field_name_str) {
-                        if let Some(nested_selection_set) = field.selection_set() {
-                            let nested_type = field_info
-                                .type_name
-                                .trim_matches(|c| c == '[' || c == ']' || c == '!');
-
-                            check_selection_set_for_id(
+                    // Recurse into nested selection sets
+                    if let Some(nested_selection_set) = field.selection_set() {
+                        // Get the field's return type from schema
+                        if let Some(field_type) =
+                            get_field_type(parent_type_name, &field_name_str, context.schema_types)
+                        {
+                            check_selection_set(
                                 &nested_selection_set,
-                                nested_type,
-                                schema_index,
-                                fragments,
+                                &field_type,
+                                context,
                                 visited_fragments,
                                 diagnostics,
-                                document,
                             );
                         }
                     }
                 }
             }
             cst::Selection::FragmentSpread(fragment_spread) => {
-                // Check if this fragment spread or its nested fragments contain the id field
+                // Check if the fragment contains the id field
                 if let Some(fragment_name) = fragment_spread.fragment_name() {
                     if let Some(name) = fragment_name.name() {
                         let name_str = name.text().to_string();
-                        if fragment_contains_id_field(
+                        if fragment_contains_id(
                             &name_str,
                             parent_type_name,
-                            schema_index,
-                            fragments,
+                            context,
                             visited_fragments,
                         ) {
                             has_id_in_selection = true;
@@ -153,49 +201,37 @@ fn check_selection_set_for_id(
                 }
             }
             cst::Selection::InlineFragment(inline_fragment) => {
-                // For inline fragments, we recursively check nested fields but don't enforce
-                // the id requirement on the inline fragment itself since it's part of the parent's
-                // selection set and the parent may have already selected id
+                // For inline fragments, check nested selections
                 if let Some(nested_selection_set) = inline_fragment.selection_set() {
-                    // Still need to check nested object selections within the inline fragment
+                    // Determine the type for the inline fragment
+                    let inline_type = inline_fragment
+                        .type_condition()
+                        .and_then(|tc| tc.named_type())
+                        .and_then(|nt| nt.name())
+                        .map_or_else(|| parent_type_name.to_string(), |n| n.text().to_string());
+
+                    // Check for id in inline fragment's direct fields
                     for nested_selection in nested_selection_set.selections() {
                         if let cst::Selection::Field(nested_field) = nested_selection {
                             if let Some(field_name) = nested_field.name() {
-                                let field_name_str = field_name.text();
+                                if field_name.text() == "id" {
+                                    has_id_in_selection = true;
+                                }
 
-                                // Determine the type context for this inline fragment
-                                let type_name_owned =
-                                    inline_fragment.type_condition().and_then(|type_condition| {
-                                        type_condition.named_type().and_then(|named_type| {
-                                            named_type.name().map(|name| name.text().to_string())
-                                        })
-                                    });
-                                let type_name_ref =
-                                    type_name_owned.as_deref().unwrap_or(parent_type_name);
-
-                                // Get fields for the inline fragment's type
-                                if let Some(inline_fields) = schema_index.get_fields(type_name_ref)
-                                {
-                                    if let Some(field_info) =
-                                        inline_fields.iter().find(|f| f.name == field_name_str)
-                                    {
-                                        if let Some(field_selection_set) =
-                                            nested_field.selection_set()
-                                        {
-                                            let nested_type = field_info
-                                                .type_name
-                                                .trim_matches(|c| c == '[' || c == ']' || c == '!');
-
-                                            check_selection_set_for_id(
-                                                &field_selection_set,
-                                                nested_type,
-                                                schema_index,
-                                                fragments,
-                                                visited_fragments,
-                                                diagnostics,
-                                                document,
-                                            );
-                                        }
+                                // Recurse into nested object selections
+                                if let Some(field_selection_set) = nested_field.selection_set() {
+                                    if let Some(field_type) = get_field_type(
+                                        &inline_type,
+                                        &field_name.text(),
+                                        context.schema_types,
+                                    ) {
+                                        check_selection_set(
+                                            &field_selection_set,
+                                            &field_type,
+                                            context,
+                                            visited_fragments,
+                                            diagnostics,
+                                        );
                                     }
                                 }
                             }
@@ -206,44 +242,66 @@ fn check_selection_set_for_id(
         }
     }
 
-    // After recursing, check if this type has an id field and if it's missing from the selection
-    if !has_id_field {
-        return;
-    }
-
+    // If type has id field and it's not in the selection, emit diagnostic
     if !has_id_in_selection {
         let syntax_node = selection_set.syntax();
-        let offset: usize = syntax_node.text_range().start().into();
-        let line_col = offset_to_line_col(document, offset);
+        let start_offset: usize = syntax_node.text_range().start().into();
+        let end_offset: usize = start_offset + 1;
 
-        let range = Range {
-            start: Position {
-                line: line_col.0,
-                character: line_col.1,
-            },
-            end: Position {
-                line: line_col.0,
-                character: line_col.1 + 1,
-            },
-        };
-
-        let message =
-            format!("Selection set on type '{parent_type_name}' should include the 'id' field");
-
-        diagnostics.push(
-            Diagnostic::warning(range, message)
-                .with_code("require_id_field")
-                .with_source("graphql-linter"),
-        );
+        diagnostics.push(LintDiagnostic::warning(
+            start_offset,
+            end_offset,
+            format!("Selection set on type '{parent_type_name}' should include the 'id' field"),
+            "require_id_field",
+        ));
     }
 }
 
-/// Check if a fragment (or its nested fragments) contains the id field
-fn fragment_contains_id_field(
+/// Find root operation type (Query, Mutation, or Subscription)
+/// Falls back to the default name if no custom schema definition exists
+fn find_root_operation_type(
+    schema_types: &HashMap<Arc<str>, graphql_hir::TypeDef>,
+    default_name: &str,
+) -> Option<String> {
+    // TODO: Read from schema definition directive once HIR supports it
+    // For now, use the default names
+    if schema_types.contains_key(default_name) {
+        Some(default_name.to_string())
+    } else {
+        None
+    }
+}
+
+/// Get the return type name for a field, unwrapping `List` and `NonNull` wrappers
+fn get_field_type(
+    parent_type_name: &str,
+    field_name: &str,
+    schema_types: &HashMap<Arc<str>, graphql_hir::TypeDef>,
+) -> Option<String> {
+    let type_def = schema_types.get(parent_type_name)?;
+
+    // Only Object and Interface types have fields
+    if !matches!(
+        type_def.kind,
+        graphql_hir::TypeDefKind::Object | graphql_hir::TypeDefKind::Interface
+    ) {
+        return None;
+    }
+
+    let field = type_def
+        .fields
+        .iter()
+        .find(|f| f.name.as_ref() == field_name)?;
+
+    // The TypeRef name is already unwrapped from List/NonNull wrappers
+    Some(field.type_ref.name.to_string())
+}
+
+/// Check if a fragment (or its nested fragments) contains the `id` field
+fn fragment_contains_id(
     fragment_name: &str,
     parent_type_name: &str,
-    schema_index: &SchemaIndex,
-    fragments: Option<&DocumentIndex>,
+    context: &CheckContext,
     visited_fragments: &mut HashSet<String>,
 ) -> bool {
     // Prevent infinite recursion with circular fragment references
@@ -252,86 +310,55 @@ fn fragment_contains_id_field(
     }
     visited_fragments.insert(fragment_name.to_string());
 
-    let Some(fragments_index) = fragments else {
+    // Look up the fragment in HIR
+    let Some(fragment_info) = context.all_fragments.get(fragment_name) else {
+        // Fragment not found - might be undefined
         return false;
     };
 
-    // Look up the fragment in the document index
-    let Some(fragment_infos) = fragments_index.fragments.get(fragment_name) else {
+    // Get the fragment's file and parse it (cached by Salsa)
+    let file_id = fragment_info.file_id;
+
+    // We need to get the file content and metadata to parse it
+    // Use the document_files from project_files to find this file
+    let document_files = context.db.document_files();
+
+    let Some((file_content, file_metadata)) = document_files
+        .iter()
+        .find(|(fid, _, _)| *fid == file_id)
+        .map(|(_, c, m)| (*c, *m))
+    else {
         return false;
     };
 
-    // Check all definitions of this fragment (there should typically be only one)
-    for fragment_info in fragment_infos {
-        // Parse the fragment's AST if we have it
-        let parsed_ast = fragments_index
-            .parsed_asts
-            .get(&fragment_info.file_path)
-            .map_or_else(
-                || {
-                    // For extracted blocks, find the one containing this fragment
-                    fragments_index
-                        .extracted_blocks
-                        .get(&fragment_info.file_path)
-                        .and_then(|blocks| {
-                            blocks
-                                .iter()
-                                .find(|block| {
-                                    // Parse and check if this block contains the fragment
-                                    let doc = block.parsed.document();
-                                    doc.definitions().any(|def| {
-                                        if let cst::Definition::FragmentDefinition(frag) = def {
-                                            frag.fragment_name()
-                                                .and_then(|name| name.name())
-                                                .is_some_and(|name| name.text() == fragment_name)
-                                        } else {
-                                            false
-                                        }
-                                    })
-                                })
-                                .map(|block| &block.parsed)
-                        })
-                },
-                Some,
-            );
+    // Parse the file (cached by Salsa)
+    let parse = graphql_syntax::parse(context.db, file_content, file_metadata);
+    if !parse.errors.is_empty() {
+        return false;
+    }
 
-        let Some(ast) = parsed_ast else {
-            continue;
-        };
+    // Find the fragment definition in the CST
+    let doc_cst = parse.tree.document();
+    for definition in doc_cst.definitions() {
+        if let cst::Definition::FragmentDefinition(frag) = definition {
+            // Check if this is the fragment we're looking for
+            let is_target_fragment = frag
+                .fragment_name()
+                .and_then(|name| name.name())
+                .is_some_and(|name| name.text() == fragment_name);
 
-        // Find the fragment definition in the AST
-        let doc = ast.document();
-        for definition in doc.definitions() {
-            if let cst::Definition::FragmentDefinition(fragment) = definition {
-                // Check if this is the fragment we're looking for
-                let is_target_fragment = fragment
-                    .fragment_name()
-                    .and_then(|name| name.name())
-                    .is_some_and(|name| name.text() == fragment_name);
+            if !is_target_fragment {
+                continue;
+            }
 
-                if !is_target_fragment {
-                    continue;
-                }
-
-                // Get the fragment's type condition
-                let fragment_type = fragment
-                    .type_condition()
-                    .and_then(|tc| tc.named_type())
-                    .and_then(|nt| nt.name())
-                    .map_or_else(|| parent_type_name.to_string(), |n| n.text().to_string());
-
-                // Check if the fragment's selection set contains the id field
-                if let Some(selection_set) = fragment.selection_set() {
-                    if selection_set_contains_id_field(
-                        &selection_set,
-                        &fragment_type,
-                        schema_index,
-                        fragments,
-                        visited_fragments,
-                    ) {
-                        return true;
-                    }
-                }
+            // Found the fragment, check its selection set for id
+            if let Some(selection_set) = frag.selection_set() {
+                return check_fragment_selection_for_id(
+                    &selection_set,
+                    parent_type_name,
+                    context,
+                    visited_fragments,
+                );
             }
         }
     }
@@ -339,40 +366,35 @@ fn fragment_contains_id_field(
     false
 }
 
-/// Check if a selection set directly contains the id field or references fragments that do
-fn selection_set_contains_id_field(
+/// Check if a selection set within a fragment contains the `id` field
+/// This is similar to `check_selection_set` but only checks for presence of id,
+/// doesn't emit diagnostics
+fn check_fragment_selection_for_id(
     selection_set: &cst::SelectionSet,
     parent_type_name: &str,
-    schema_index: &SchemaIndex,
-    fragments: Option<&DocumentIndex>,
+    context: &CheckContext,
     visited_fragments: &mut HashSet<String>,
 ) -> bool {
     for selection in selection_set.selections() {
         match selection {
             cst::Selection::Field(field) => {
-                // Check if this field is the id field
                 if let Some(field_name) = field.name() {
+                    // Check if this is the id field
                     if field_name.text() == "id" {
                         return true;
                     }
 
-                    // Recursively check nested selection sets
+                    // Recurse into nested selection sets
                     if let Some(nested_selection_set) = field.selection_set() {
-                        let Some(fields) = schema_index.get_fields(parent_type_name) else {
-                            continue;
-                        };
-
-                        let field_name_str = field_name.text();
-                        if let Some(field_info) = fields.iter().find(|f| f.name == field_name_str) {
-                            let nested_type = field_info
-                                .type_name
-                                .trim_matches(|c| c == '[' || c == ']' || c == '!');
-
-                            if selection_set_contains_id_field(
+                        if let Some(field_type) = get_field_type(
+                            parent_type_name,
+                            &field_name.text(),
+                            context.schema_types,
+                        ) {
+                            if check_fragment_selection_for_id(
                                 &nested_selection_set,
-                                nested_type,
-                                schema_index,
-                                fragments,
+                                &field_type,
+                                context,
                                 visited_fragments,
                             ) {
                                 return true;
@@ -382,15 +404,14 @@ fn selection_set_contains_id_field(
                 }
             }
             cst::Selection::FragmentSpread(fragment_spread) => {
-                // Recursively check if the fragment contains id
+                // Recursively check nested fragment spreads
                 if let Some(fragment_name) = fragment_spread.fragment_name() {
                     if let Some(name) = fragment_name.name() {
                         let name_str = name.text().to_string();
-                        if fragment_contains_id_field(
+                        if fragment_contains_id(
                             &name_str,
                             parent_type_name,
-                            schema_index,
-                            fragments,
+                            context,
                             visited_fragments,
                         ) {
                             return true;
@@ -399,21 +420,18 @@ fn selection_set_contains_id_field(
                 }
             }
             cst::Selection::InlineFragment(inline_fragment) => {
-                // Check inline fragment's selection set
-                if let Some(selection_set) = inline_fragment.selection_set() {
-                    let type_name_owned =
-                        inline_fragment.type_condition().and_then(|type_condition| {
-                            type_condition.named_type().and_then(|named_type| {
-                                named_type.name().map(|name| name.text().to_string())
-                            })
-                        });
-                    let type_name_ref = type_name_owned.as_deref().unwrap_or(parent_type_name);
+                // Check inline fragments
+                if let Some(nested_selection_set) = inline_fragment.selection_set() {
+                    let inline_type = inline_fragment
+                        .type_condition()
+                        .and_then(|tc| tc.named_type())
+                        .and_then(|nt| nt.name())
+                        .map_or_else(|| parent_type_name.to_string(), |n| n.text().to_string());
 
-                    if selection_set_contains_id_field(
-                        &selection_set,
-                        type_name_ref,
-                        schema_index,
-                        fragments,
+                    if check_fragment_selection_for_id(
+                        &nested_selection_set,
+                        &inline_type,
+                        context,
                         visited_fragments,
                     ) {
                         return true;
@@ -424,679 +442,4 @@ fn selection_set_contains_id_field(
     }
 
     false
-}
-
-fn offset_to_line_col(document: &str, offset: usize) -> (usize, usize) {
-    let mut line = 0;
-    let mut col = 0;
-    let mut current_offset = 0;
-
-    for ch in document.chars() {
-        if current_offset >= offset {
-            break;
-        }
-
-        if ch == '\n' {
-            line += 1;
-            col = 0;
-        } else {
-            col += 1;
-        }
-
-        current_offset += ch.len_utf8();
-    }
-
-    (line, col)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::context::DocumentSchemaContext;
-    use graphql_project::Severity;
-
-    #[test]
-    fn test_missing_id_field() {
-        let schema = SchemaIndex::from_schema(
-            r"
-            type Query {
-                user(id: ID!): User
-            }
-
-            type User {
-                id: ID!
-                name: String!
-                email: String!
-            }
-            ",
-        );
-
-        let rule = RequireIdFieldRule;
-
-        let document = r"
-            query GetUser($userId: ID!) {
-                user(id: $userId) {
-                    name
-                    email
-                }
-            }
-        ";
-
-        let parsed = apollo_parser::Parser::new(document).parse();
-        let diagnostics = rule.check(&DocumentSchemaContext {
-            document,
-            file_name: "test.graphql",
-            schema: &schema,
-            fragments: None,
-            parsed: &parsed,
-        });
-
-        assert_eq!(diagnostics.len(), 1, "Should have exactly one diagnostic");
-        assert!(diagnostics[0].message.contains("id"));
-        assert!(diagnostics[0].message.contains("User"));
-        assert_eq!(diagnostics[0].severity, Severity::Warning);
-    }
-
-    #[test]
-    fn test_with_id_field_present() {
-        let schema = SchemaIndex::from_schema(
-            r"
-            type Query {
-                user(id: ID!): User
-            }
-
-            type User {
-                id: ID!
-                name: String!
-                email: String!
-            }
-            ",
-        );
-
-        let rule = RequireIdFieldRule;
-
-        let document = r"
-            query GetUser($userId: ID!) {
-                user(id: $userId) {
-                    id
-                    name
-                    email
-                }
-            }
-        ";
-
-        let parsed = apollo_parser::Parser::new(document).parse();
-        let diagnostics = rule.check(&DocumentSchemaContext {
-            document,
-            file_name: "test.graphql",
-            schema: &schema,
-            fragments: None,
-            parsed: &parsed,
-        });
-
-        assert_eq!(diagnostics.len(), 0, "Should have no diagnostics");
-    }
-
-    #[test]
-    fn test_type_without_id_field() {
-        let schema = SchemaIndex::from_schema(
-            r"
-            type Query {
-                settings: Settings
-            }
-
-            type Settings {
-                theme: String!
-                language: String!
-            }
-            ",
-        );
-
-        let rule = RequireIdFieldRule;
-
-        let document = r"
-            query GetSettings {
-                settings {
-                    theme
-                    language
-                }
-            }
-        ";
-
-        let parsed = apollo_parser::Parser::new(document).parse();
-        let diagnostics = rule.check(&DocumentSchemaContext {
-            document,
-            file_name: "test.graphql",
-            schema: &schema,
-            fragments: None,
-            parsed: &parsed,
-        });
-
-        assert_eq!(
-            diagnostics.len(),
-            0,
-            "Should have no diagnostics when type has no id field"
-        );
-    }
-
-    #[test]
-    fn test_nested_selection_sets() {
-        let schema = SchemaIndex::from_schema(
-            r"
-            type Query {
-                user(id: ID!): User
-            }
-
-            type User {
-                id: ID!
-                name: String!
-                posts: [Post!]!
-            }
-
-            type Post {
-                id: ID!
-                title: String!
-                content: String!
-            }
-            ",
-        );
-
-        let rule = RequireIdFieldRule;
-
-        let document = r"
-            query GetUser($userId: ID!) {
-                user(id: $userId) {
-                    id
-                    name
-                    posts {
-                        title
-                        content
-                    }
-                }
-            }
-        ";
-
-        let parsed = apollo_parser::Parser::new(document).parse();
-        let diagnostics = rule.check(&DocumentSchemaContext {
-            document,
-            file_name: "test.graphql",
-            schema: &schema,
-            fragments: None,
-            parsed: &parsed,
-        });
-
-        assert_eq!(
-            diagnostics.len(),
-            1,
-            "Should have one diagnostic for missing id in Post"
-        );
-        assert!(diagnostics[0].message.contains("Post"));
-    }
-
-    #[test]
-    fn test_fragment_with_missing_id() {
-        let schema = SchemaIndex::from_schema(
-            r"
-            type Query {
-                user(id: ID!): User
-            }
-
-            type User {
-                id: ID!
-                name: String!
-                email: String!
-            }
-            ",
-        );
-
-        let rule = RequireIdFieldRule;
-
-        let document = r"
-            fragment UserInfo on User {
-                name
-                email
-            }
-        ";
-
-        let parsed = apollo_parser::Parser::new(document).parse();
-        let diagnostics = rule.check(&DocumentSchemaContext {
-            document,
-            file_name: "test.graphql",
-            schema: &schema,
-            fragments: None,
-            parsed: &parsed,
-        });
-
-        assert_eq!(
-            diagnostics.len(),
-            1,
-            "Should have one diagnostic for missing id in fragment"
-        );
-        assert!(diagnostics[0].message.contains("User"));
-    }
-
-    #[test]
-    fn test_inline_fragment() {
-        let schema = SchemaIndex::from_schema(
-            r"
-            type Query {
-                node(id: ID!): Node
-            }
-
-            interface Node {
-                id: ID!
-            }
-
-            type User implements Node {
-                id: ID!
-                name: String!
-            }
-
-            type Post implements Node {
-                id: ID!
-                title: String!
-            }
-            ",
-        );
-
-        let rule = RequireIdFieldRule;
-
-        let document = r"
-            query GetNode($nodeId: ID!) {
-                node(id: $nodeId) {
-                    id
-                    ... on User {
-                        name
-                    }
-                    ... on Post {
-                        title
-                    }
-                }
-            }
-        ";
-
-        let parsed = apollo_parser::Parser::new(document).parse();
-        let diagnostics = rule.check(&DocumentSchemaContext {
-            document,
-            file_name: "test.graphql",
-            schema: &schema,
-            fragments: None,
-            parsed: &parsed,
-        });
-
-        assert_eq!(diagnostics.len(), 0, "Should have no diagnostics");
-    }
-
-    #[test]
-    fn test_fragment_spread_with_id_field() {
-        use graphql_project::{DocumentIndex, FragmentInfo};
-        use std::collections::HashMap;
-        use std::sync::Arc;
-
-        let schema = SchemaIndex::from_schema(
-            r"
-            type Query {
-                user(id: ID!): User
-            }
-
-            type User {
-                id: ID!
-                name: String!
-                email: String!
-            }
-            ",
-        );
-
-        let rule = RequireIdFieldRule;
-
-        // Fragment that includes the id field
-        let fragment_document = r"
-            fragment UserInfo on User {
-                id
-                name
-                email
-            }
-        ";
-
-        // Operation that uses the fragment
-        let operation_document = r"
-            query GetUser($userId: ID!) {
-                user(id: $userId) {
-                    ...UserInfo
-                }
-            }
-        ";
-
-        // Create a document index with the fragment
-        let mut parsed_asts = HashMap::new();
-        let fragment_parsed = apollo_parser::Parser::new(fragment_document).parse();
-        parsed_asts.insert("fragment.graphql".to_string(), Arc::new(fragment_parsed));
-
-        let mut fragments = HashMap::new();
-        fragments.insert(
-            "UserInfo".to_string(),
-            vec![FragmentInfo {
-                name: "UserInfo".to_string(),
-                type_condition: "User".to_string(),
-                file_path: "fragment.graphql".to_string(),
-                line: 1,
-                column: 22,
-            }],
-        );
-
-        let document_index = DocumentIndex {
-            parsed_asts,
-            fragments,
-            ..Default::default()
-        };
-
-        // Check the operation
-        let operation_parsed = apollo_parser::Parser::new(operation_document).parse();
-        let diagnostics = rule.check(&DocumentSchemaContext {
-            document: operation_document,
-            file_name: "operation.graphql",
-            schema: &schema,
-            fragments: Some(&document_index),
-            parsed: &operation_parsed,
-        });
-
-        assert_eq!(
-            diagnostics.len(),
-            0,
-            "Should have no diagnostics when fragment includes id field"
-        );
-    }
-
-    #[test]
-    fn test_fragment_spread_without_id_field() {
-        use graphql_project::{DocumentIndex, FragmentInfo};
-        use std::collections::HashMap;
-        use std::sync::Arc;
-
-        let schema = SchemaIndex::from_schema(
-            r"
-            type Query {
-                user(id: ID!): User
-            }
-
-            type User {
-                id: ID!
-                name: String!
-                email: String!
-            }
-            ",
-        );
-
-        let rule = RequireIdFieldRule;
-
-        // Fragment that does NOT include the id field
-        let fragment_document = r"
-            fragment UserInfo on User {
-                name
-                email
-            }
-        ";
-
-        // Operation that uses the fragment
-        let operation_document = r"
-            query GetUser($userId: ID!) {
-                user(id: $userId) {
-                    ...UserInfo
-                }
-            }
-        ";
-
-        // Create a document index with the fragment
-        let mut parsed_asts = HashMap::new();
-        let fragment_parsed = apollo_parser::Parser::new(fragment_document).parse();
-        parsed_asts.insert("fragment.graphql".to_string(), Arc::new(fragment_parsed));
-
-        let mut fragments = HashMap::new();
-        fragments.insert(
-            "UserInfo".to_string(),
-            vec![FragmentInfo {
-                name: "UserInfo".to_string(),
-                type_condition: "User".to_string(),
-                file_path: "fragment.graphql".to_string(),
-                line: 1,
-                column: 22,
-            }],
-        );
-
-        let document_index = DocumentIndex {
-            parsed_asts,
-            fragments,
-            ..Default::default()
-        };
-
-        // Check the operation
-        let operation_parsed = apollo_parser::Parser::new(operation_document).parse();
-        let diagnostics = rule.check(&DocumentSchemaContext {
-            document: operation_document,
-            file_name: "operation.graphql",
-            schema: &schema,
-            fragments: Some(&document_index),
-            parsed: &operation_parsed,
-        });
-
-        assert_eq!(
-            diagnostics.len(),
-            1,
-            "Should have one diagnostic when fragment doesn't include id field"
-        );
-        assert!(diagnostics[0].message.contains("User"));
-    }
-
-    #[test]
-    #[allow(clippy::too_many_lines)]
-    fn test_nested_fragment_spreads() {
-        use graphql_project::{DocumentIndex, FragmentInfo};
-        use std::collections::HashMap;
-        use std::sync::Arc;
-
-        let schema = SchemaIndex::from_schema(
-            r"
-            type Query {
-                user(id: ID!): User
-            }
-
-            type User {
-                id: ID!
-                name: String!
-                profile: Profile!
-            }
-
-            type Profile {
-                id: ID!
-                bio: String!
-            }
-            ",
-        );
-
-        let rule = RequireIdFieldRule;
-
-        // Base fragment with id
-        let base_fragment = r"
-            fragment UserBase on User {
-                id
-                name
-            }
-        ";
-
-        // Profile fragment with id
-        let profile_fragment = r"
-            fragment ProfileInfo on Profile {
-                id
-                bio
-            }
-        ";
-
-        // Composite fragment that uses other fragments
-        let composite_fragment = r"
-            fragment UserWithProfile on User {
-                ...UserBase
-                profile {
-                    ...ProfileInfo
-                }
-            }
-        ";
-
-        // Operation that uses the composite fragment
-        let operation_document = r"
-            query GetUser($userId: ID!) {
-                user(id: $userId) {
-                    ...UserWithProfile
-                }
-            }
-        ";
-
-        // Create a document index with all fragments
-        let mut parsed_asts = HashMap::new();
-        parsed_asts.insert(
-            "base.graphql".to_string(),
-            Arc::new(apollo_parser::Parser::new(base_fragment).parse()),
-        );
-        parsed_asts.insert(
-            "profile.graphql".to_string(),
-            Arc::new(apollo_parser::Parser::new(profile_fragment).parse()),
-        );
-        parsed_asts.insert(
-            "composite.graphql".to_string(),
-            Arc::new(apollo_parser::Parser::new(composite_fragment).parse()),
-        );
-
-        let mut fragments = HashMap::new();
-        fragments.insert(
-            "UserBase".to_string(),
-            vec![FragmentInfo {
-                name: "UserBase".to_string(),
-                type_condition: "User".to_string(),
-                file_path: "base.graphql".to_string(),
-                line: 1,
-                column: 22,
-            }],
-        );
-        fragments.insert(
-            "ProfileInfo".to_string(),
-            vec![FragmentInfo {
-                name: "ProfileInfo".to_string(),
-                type_condition: "Profile".to_string(),
-                file_path: "profile.graphql".to_string(),
-                line: 1,
-                column: 22,
-            }],
-        );
-        fragments.insert(
-            "UserWithProfile".to_string(),
-            vec![FragmentInfo {
-                name: "UserWithProfile".to_string(),
-                type_condition: "User".to_string(),
-                file_path: "composite.graphql".to_string(),
-                line: 1,
-                column: 22,
-            }],
-        );
-
-        let document_index = DocumentIndex {
-            parsed_asts,
-            fragments,
-            ..Default::default()
-        };
-
-        // Check the operation
-        let operation_parsed = apollo_parser::Parser::new(operation_document).parse();
-        let diagnostics = rule.check(&DocumentSchemaContext {
-            document: operation_document,
-            file_name: "operation.graphql",
-            schema: &schema,
-            fragments: Some(&document_index),
-            parsed: &operation_parsed,
-        });
-
-        assert_eq!(
-            diagnostics.len(),
-            0,
-            "Should have no diagnostics when nested fragments include id fields"
-        );
-    }
-
-    #[test]
-    fn test_fragment_spread_with_additional_fields() {
-        use graphql_project::{DocumentIndex, FragmentInfo};
-        use std::collections::HashMap;
-        use std::sync::Arc;
-
-        let schema = SchemaIndex::from_schema(
-            r"
-            type Query {
-                user(id: ID!): User
-            }
-
-            type User {
-                id: ID!
-                name: String!
-                email: String!
-            }
-            ",
-        );
-
-        let rule = RequireIdFieldRule;
-
-        // Fragment without id
-        let fragment_document = r"
-            fragment UserInfo on User {
-                name
-                email
-            }
-        ";
-
-        // Operation that adds id alongside the fragment
-        let operation_document = r"
-            query GetUser($userId: ID!) {
-                user(id: $userId) {
-                    id
-                    ...UserInfo
-                }
-            }
-        ";
-
-        // Create a document index with the fragment
-        let mut parsed_asts = HashMap::new();
-        let fragment_parsed = apollo_parser::Parser::new(fragment_document).parse();
-        parsed_asts.insert("fragment.graphql".to_string(), Arc::new(fragment_parsed));
-
-        let mut fragments = HashMap::new();
-        fragments.insert(
-            "UserInfo".to_string(),
-            vec![FragmentInfo {
-                name: "UserInfo".to_string(),
-                type_condition: "User".to_string(),
-                file_path: "fragment.graphql".to_string(),
-                line: 1,
-                column: 22,
-            }],
-        );
-
-        let document_index = DocumentIndex {
-            parsed_asts,
-            fragments,
-            ..Default::default()
-        };
-
-        // Check the operation
-        let operation_parsed = apollo_parser::Parser::new(operation_document).parse();
-        let diagnostics = rule.check(&DocumentSchemaContext {
-            document: operation_document,
-            file_name: "operation.graphql",
-            schema: &schema,
-            fragments: Some(&document_index),
-            parsed: &operation_parsed,
-        });
-
-        assert_eq!(
-            diagnostics.len(),
-            0,
-            "Should have no diagnostics when id is included alongside fragment"
-        );
-    }
 }

@@ -10,8 +10,12 @@ graphql-lsp/
 │   ├── graphql-config/       # .graphqlrc parser and loader
 │   ├── graphql-extract/      # Extract GraphQL from source files
 │   ├── graphql-introspect/   # GraphQL introspection and SDL conversion
+│   ├── graphql-db/           # Salsa database and input queries
+│   ├── graphql-syntax/       # GraphQL parsing and syntax trees
+│   ├── graphql-hir/          # High-level semantic representation
+│   ├── graphql-analysis/     # Query-based validation and analysis
 │   ├── graphql-linter/       # Linting engine with custom rules
-│   ├── graphql-project/      # Core: validation, indexing, diagnostics
+│   ├── graphql-ide/          # Editor-facing IDE features API
 │   ├── graphql-lsp/          # LSP server implementation
 │   └── graphql-cli/          # CLI tool for CI/CD
 └── .claude/
@@ -68,22 +72,23 @@ Flexible linting engine with support for different linting contexts.
 
 **Current rules:**
 
-- `deprecated_field` - Warns when using @deprecated fields
+- `no_deprecated` - Warns when using @deprecated fields
 - `unique_names` - Ensures operation/fragment names are unique
 - `unused_fields` - Detects schema fields never used in operations (opt-in)
 
-### graphql-project
+### graphql-ide
 
-Core library providing validation, indexing, and diagnostics.
+Editor-facing API layer providing IDE features through the Salsa-based analysis infrastructure.
 
 **Features:**
 
-- Schema loading from files and URLs
-- Document loading and extraction
-- Apollo compiler validation engine
-- Schema and document indexing
-- Diagnostic system
+- Schema loading from config (with Apollo Client built-in directives)
+- Document management and change tracking
+- Real-time validation and diagnostics
+- Linting with configurable rules
 - Type information and hover support
+- Go-to-definition and find references
+- Completion suggestions
 
 ### graphql-lsp
 
@@ -286,6 +291,22 @@ cargo build --workspace
 cargo test --workspace
 ```
 
+#### Run Benchmarks
+
+```bash
+# Run all benchmarks
+cargo bench
+
+# Run specific benchmark
+cargo bench parse_cold
+
+# Compare against baseline
+cargo bench -- --save-baseline main
+cargo bench -- --baseline main
+```
+
+See [benches/README.md](benches/README.md) for detailed information about the benchmark suite and interpreting results.
+
 #### Run CLI from Source
 
 ```bash
@@ -306,21 +327,28 @@ cargo run -p graphql-lsp
 - graphql-config implementation (parsing, loading, validation)
 - Core validation engine with project-wide diagnostics
 - Document loading and indexing
-- TypeScript/JavaScript extraction
-- LSP features: validation, go-to-definition, find references, hover
-- Schema and document indexing
+- TypeScript/JavaScript extraction and position mapping
+- Remote schema introspection via URL
+- Comprehensive linting system with multiple rule types
+- LSP features:
+  - Real-time validation and diagnostics
+  - Comprehensive goto definition (fragments, types, fields, variables, arguments, enum values, directives)
+  - Find references (fragments, types, fields)
+  - Hover information
+- CLI tools (validate, lint) with JSON output
+- VSCode extension with automatic LSP binary download
 
 🚧 **In Progress:**
 
-- VS Code extension improvements
-- Additional LSP features (completions, document symbols)
+- Query-based architecture migration (Salsa)
+- Additional IDE features (completions, document symbols)
 
 📋 **Planned:**
 
 - Breaking change detection
 - Code actions and refactoring
-- Remote schema introspection
-- Additional find references support (fields, variables, directives, enum values)
+- Semantic highlighting
+- Additional find references (variables, directives, enum values)
 
 ## Configuration
 
@@ -339,7 +367,7 @@ lint:
   recommended: error
   rules:
     # Override specific rules
-    deprecated_field: warn
+    no_deprecated: warn
     unique_names: off
 ```
 
@@ -365,7 +393,7 @@ Linting is configured via top-level `lint` with optional tool-specific overrides
 
 **Available rules:**
 
-- `deprecated_field` - Warns when using fields marked with @deprecated (recommended: warn)
+- `no_deprecated` - Warns when using fields marked with @deprecated (recommended: warn)
 - `unique_names` - Ensures operation and fragment names are unique (recommended: error)
 - `unused_fields` - Detects schema fields never used (off by default, expensive)
 
@@ -417,7 +445,7 @@ projects:
     lint:
       recommended: error
       rules:
-        deprecated_field: off  # Project-specific override
+        no_deprecated: off  # Project-specific override
 ```
 
 ## License

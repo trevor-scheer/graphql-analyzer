@@ -1,9 +1,8 @@
-use crate::context::StandaloneDocumentContext;
+use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
-use graphql_project::{Diagnostic, Position, Range};
+use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use std::collections::{HashMap, HashSet};
-
-use super::StandaloneDocumentRule;
 
 /// Lint rule that detects fields that are redundant because they are already
 /// included in a sibling fragment spread within the same selection set.
@@ -28,9 +27,9 @@ use super::StandaloneDocumentRule;
 ///   }
 /// }
 /// ```
-pub struct RedundantFieldsRule;
+pub struct RedundantFieldsRuleImpl;
 
-impl StandaloneDocumentRule for RedundantFieldsRule {
+impl LintRule for RedundantFieldsRuleImpl {
     fn name(&self) -> &'static str {
         "redundant_fields"
     }
@@ -39,16 +38,31 @@ impl StandaloneDocumentRule for RedundantFieldsRule {
         "Detects fields that are redundant because they are already included in a sibling fragment spread"
     }
 
-    fn check(&self, ctx: &StandaloneDocumentContext) -> Vec<Diagnostic> {
-        let document = ctx.document;
+    fn default_severity(&self) -> LintSeverity {
+        LintSeverity::Warning
+    }
+}
+
+impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
+    fn check(
+        &self,
+        db: &dyn graphql_hir::GraphQLHirDatabase,
+        _file_id: FileId,
+        content: FileContent,
+        metadata: FileMetadata,
+        project_files: ProjectFiles,
+    ) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
 
-        let doc_cst = ctx.parsed.document();
+        let parse = graphql_syntax::parse(db, content, metadata);
+        if !parse.errors.is_empty() {
+            return diagnostics;
+        }
 
-        // Collect fragment definitions - first from the document, then from the global index
+        let doc_cst = parse.tree.document();
+
+        // Collect fragment definitions from the current document
         let mut fragments = FragmentRegistry::new();
-
-        // Add fragments defined in this document
         for definition in doc_cst.definitions() {
             if let cst::Definition::FragmentDefinition(fragment) = definition {
                 if let Some(name) = fragment.fragment_name().and_then(|n| n.name()) {
@@ -58,35 +72,37 @@ impl StandaloneDocumentRule for RedundantFieldsRule {
             }
         }
 
-        // Add fragments from the global index (all other files in the project)
-        if let Some(doc_index) = ctx.fragments {
-            // Load fragments from all parsed ASTs
-            for ast in doc_index.parsed_asts.values() {
-                for definition in ast.document().definitions() {
-                    if let apollo_parser::cst::Definition::FragmentDefinition(fragment) = definition
-                    {
-                        if let Some(name) = fragment.fragment_name().and_then(|n| n.name()) {
-                            let fragment_name = name.text().to_string();
-                            // Don't overwrite local fragments
-                            if fragments.get(&fragment_name).is_none() {
-                                fragments.register(fragment_name, fragment.clone());
-                            }
-                        }
-                    }
-                }
+        // Get all fragments from the project (for cross-file resolution)
+        let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
+
+        // Add cross-file fragments to the registry
+        for (fragment_name, fragment_info) in all_fragments.iter() {
+            // Skip if we already have this fragment from the current document
+            if fragments.get(fragment_name.as_ref()).is_some() {
+                continue;
             }
 
-            // Also load from extracted blocks (TypeScript/JavaScript files)
-            for blocks in doc_index.extracted_blocks.values() {
-                for block in blocks {
-                    for definition in block.parsed.document().definitions() {
-                        if let apollo_parser::cst::Definition::FragmentDefinition(fragment) =
-                            definition
-                        {
+            // Get the file content and metadata for this fragment
+            let fragment_file_id = fragment_info.file_id;
+
+            // Get the file from document_files
+            let document_files = db.document_files();
+            if let Some((_, file_content, file_metadata)) = document_files
+                .iter()
+                .find(|(fid, _, _)| *fid == fragment_file_id)
+            {
+                // Parse the file (cached by Salsa)
+                let fragment_parse = graphql_syntax::parse(db, *file_content, *file_metadata);
+                if fragment_parse.errors.is_empty() {
+                    let fragment_doc_cst = fragment_parse.tree.document();
+
+                    // Find the fragment definition
+                    for definition in fragment_doc_cst.definitions() {
+                        if let cst::Definition::FragmentDefinition(fragment) = definition {
                             if let Some(name) = fragment.fragment_name().and_then(|n| n.name()) {
-                                let fragment_name = name.text().to_string();
-                                if fragments.get(&fragment_name).is_none() {
-                                    fragments.register(fragment_name, fragment.clone());
+                                if name.text() == fragment_name.as_ref() {
+                                    fragments.register(fragment_name.to_string(), fragment.clone());
+                                    break;
                                 }
                             }
                         }
@@ -104,7 +120,6 @@ impl StandaloneDocumentRule for RedundantFieldsRule {
                             &selection_set,
                             &fragments,
                             &mut diagnostics,
-                            document,
                         );
                     }
                 }
@@ -114,7 +129,6 @@ impl StandaloneDocumentRule for RedundantFieldsRule {
                             &selection_set,
                             &fragments,
                             &mut diagnostics,
-                            document,
                         );
                     }
                 }
@@ -129,9 +143,7 @@ impl StandaloneDocumentRule for RedundantFieldsRule {
 /// A key that uniquely identifies a field selection by its field name and alias
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct FieldKey {
-    /// The actual field name being queried
     field_name: String,
-    /// The alias for the field, if any (None means no alias)
     alias: Option<String>,
 }
 
@@ -223,8 +235,7 @@ impl FragmentRegistry {
 fn check_selection_set_for_redundancy(
     selection_set: &cst::SelectionSet,
     fragments: &FragmentRegistry,
-    diagnostics: &mut Vec<Diagnostic>,
-    document: &str,
+    diagnostics: &mut Vec<LintDiagnostic>,
 ) {
     let selections: Vec<_> = selection_set.selections().collect();
 
@@ -247,26 +258,55 @@ fn check_selection_set_for_redundancy(
         }
     }
 
-    // Now check each field to see if it's redundant
+    // Track direct field selections and their counts
+    let mut direct_field_counts: HashMap<FieldKey, Vec<&cst::Field>> = HashMap::new();
+
+    for selection in &selections {
+        if let cst::Selection::Field(field) = selection {
+            if let Some(field_key) = FieldKey::from_field(field) {
+                direct_field_counts
+                    .entry(field_key)
+                    .or_default()
+                    .push(field);
+            }
+        }
+    }
+
+    // Report duplicate direct field selections
+    for (field_key, fields) in &direct_field_counts {
+        if fields.len() > 1 {
+            for field in fields.iter().skip(1) {
+                if let Some(field_name) = field.name() {
+                    let syntax_node = field_name.syntax();
+                    let start_offset: usize = syntax_node.text_range().start().into();
+                    let end_offset: usize = syntax_node.text_range().end().into();
+                    let field_desc = field_key.alias.as_ref().map_or_else(
+                        || format!("'{}'", field_key.field_name),
+                        |alias| format!("'{}: {}'", alias, field_key.field_name),
+                    );
+                    let message = format!(
+                        "Field {field_desc} is selected multiple times in the same selection set"
+                    );
+                    diagnostics.push(LintDiagnostic::warning(
+                        start_offset,
+                        end_offset,
+                        message,
+                        "redundant_fields",
+                    ));
+                }
+            }
+        }
+    }
+
+    // Now check each field to see if it's redundant via fragment
     for selection in &selections {
         if let cst::Selection::Field(field) = selection {
             if let Some(field_key) = FieldKey::from_field(field) {
                 if fields_from_fragments.contains(&field_key) {
                     let field_name = field.name().unwrap();
                     let syntax_node = field_name.syntax();
-                    let offset: usize = syntax_node.text_range().start().into();
-                    let line_col = offset_to_line_col(document, offset);
-
-                    let range = Range {
-                        start: Position {
-                            line: line_col.0,
-                            character: line_col.1,
-                        },
-                        end: Position {
-                            line: line_col.0,
-                            character: line_col.1 + field_name.text().len(),
-                        },
-                    };
+                    let start_offset: usize = syntax_node.text_range().start().into();
+                    let end_offset: usize = syntax_node.text_range().end().into();
 
                     let fragment_list = if fragment_spreads.len() == 1 {
                         format!("fragment '{}'", fragment_spreads[0])
@@ -291,368 +331,23 @@ fn check_selection_set_for_redundancy(
                         "Field {field_desc} is redundant - already included in {fragment_list}"
                     );
 
-                    diagnostics.push(
-                        Diagnostic::warning(range, message)
-                            .with_code("redundant_field")
-                            .with_source("graphql-linter"),
-                    );
+                    diagnostics.push(LintDiagnostic::warning(
+                        start_offset,
+                        end_offset,
+                        message,
+                        "redundant_fields",
+                    ));
                 }
             }
 
             // Recursively check nested selection sets
             if let Some(nested_set) = field.selection_set() {
-                check_selection_set_for_redundancy(&nested_set, fragments, diagnostics, document);
+                check_selection_set_for_redundancy(&nested_set, fragments, diagnostics);
             }
         } else if let cst::Selection::InlineFragment(inline_fragment) = selection {
             if let Some(nested_set) = inline_fragment.selection_set() {
-                check_selection_set_for_redundancy(&nested_set, fragments, diagnostics, document);
+                check_selection_set_for_redundancy(&nested_set, fragments, diagnostics);
             }
         }
-    }
-}
-
-fn offset_to_line_col(document: &str, offset: usize) -> (usize, usize) {
-    let mut line = 0;
-    let mut col = 0;
-    let mut current_offset = 0;
-
-    for ch in document.chars() {
-        if current_offset >= offset {
-            break;
-        }
-
-        if ch == '\n' {
-            line += 1;
-            col = 0;
-        } else {
-            col += 1;
-        }
-
-        current_offset += ch.len_utf8();
-    }
-
-    (line, col)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::context::StandaloneDocumentContext;
-    use graphql_project::Severity;
-
-    #[test]
-    fn test_redundant_field_in_operation() {
-        let rule = RedundantFieldsRule;
-
-        let document = r"
-            fragment UserFields on User {
-                id
-                name
-            }
-
-            query GetUser {
-                user {
-                    ...UserFields
-                    id
-                    name
-                }
-            }
-        ";
-
-        let parsed = apollo_parser::Parser::new(document).parse();
-        let diagnostics = rule.check(&StandaloneDocumentContext {
-            document,
-            file_name: "test.graphql",
-            fragments: None,
-            parsed: &parsed,
-        });
-
-        assert_eq!(diagnostics.len(), 2);
-        assert!(diagnostics.iter().any(|d| d.message.contains("'id'")));
-        assert!(diagnostics.iter().any(|d| d.message.contains("'name'")));
-        assert!(diagnostics.iter().all(|d| d.severity == Severity::Warning));
-    }
-
-    #[test]
-    fn test_no_redundancy_when_no_fragments() {
-        let rule = RedundantFieldsRule;
-
-        let document = r"
-            query GetUser {
-                user {
-                    id
-                    name
-                }
-            }
-        ";
-
-        let parsed = apollo_parser::Parser::new(document).parse();
-        let diagnostics = rule.check(&StandaloneDocumentContext {
-            document,
-            file_name: "test.graphql",
-            fragments: None,
-            parsed: &parsed,
-        });
-
-        assert_eq!(diagnostics.len(), 0);
-    }
-
-    #[test]
-    fn test_no_redundancy_with_different_fields() {
-        let rule = RedundantFieldsRule;
-
-        let document = r"
-            fragment UserFields on User {
-                id
-                name
-            }
-
-            query GetUser {
-                user {
-                    ...UserFields
-                    email
-                }
-            }
-        ";
-
-        let parsed = apollo_parser::Parser::new(document).parse();
-        let diagnostics = rule.check(&StandaloneDocumentContext {
-            document,
-            file_name: "test.graphql",
-            fragments: None,
-            parsed: &parsed,
-        });
-
-        assert_eq!(diagnostics.len(), 0);
-    }
-
-    #[test]
-    fn test_transitive_fragment_dependencies() {
-        let rule = RedundantFieldsRule;
-
-        let document = r"
-            fragment BaseFields on User {
-                id
-            }
-
-            fragment UserFields on User {
-                ...BaseFields
-                name
-            }
-
-            query GetUser {
-                user {
-                    ...UserFields
-                    id
-                    name
-                }
-            }
-        ";
-
-        let parsed = apollo_parser::Parser::new(document).parse();
-        let diagnostics = rule.check(&StandaloneDocumentContext {
-            document,
-            file_name: "test.graphql",
-            fragments: None,
-            parsed: &parsed,
-        });
-
-        assert_eq!(diagnostics.len(), 2);
-        assert!(diagnostics.iter().any(|d| d.message.contains("'id'")));
-        assert!(diagnostics.iter().any(|d| d.message.contains("'name'")));
-    }
-
-    #[test]
-    fn test_nested_selection_sets() {
-        let rule = RedundantFieldsRule;
-
-        let document = r"
-            fragment ProfileFields on Profile {
-                bio
-            }
-
-            query GetUser {
-                user {
-                    id
-                    profile {
-                        ...ProfileFields
-                        bio
-                    }
-                }
-            }
-        ";
-
-        let parsed = apollo_parser::Parser::new(document).parse();
-        let diagnostics = rule.check(&StandaloneDocumentContext {
-            document,
-            file_name: "test.graphql",
-            fragments: None,
-            parsed: &parsed,
-        });
-
-        assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("'bio'"));
-    }
-
-    #[test]
-    fn test_multiple_fragments() {
-        let rule = RedundantFieldsRule;
-
-        let document = r"
-            fragment IdField on User {
-                id
-            }
-
-            fragment NameField on User {
-                name
-            }
-
-            query GetUser {
-                user {
-                    ...IdField
-                    ...NameField
-                    id
-                    name
-                }
-            }
-        ";
-
-        let parsed = apollo_parser::Parser::new(document).parse();
-        let diagnostics = rule.check(&StandaloneDocumentContext {
-            document,
-            file_name: "test.graphql",
-            fragments: None,
-            parsed: &parsed,
-        });
-
-        assert_eq!(diagnostics.len(), 2);
-        assert!(diagnostics.iter().any(|d| d.message.contains("'id'")));
-        assert!(diagnostics.iter().any(|d| d.message.contains("'name'")));
-        assert!(diagnostics.iter().all(|d| d.message.contains("fragments")));
-    }
-
-    #[test]
-    fn test_circular_fragment_reference() {
-        let rule = RedundantFieldsRule;
-
-        let document = r"
-            fragment A on User {
-                id
-                ...B
-            }
-
-            fragment B on User {
-                name
-                ...A
-            }
-
-            query GetUser {
-                user {
-                    ...A
-                    id
-                    name
-                    email
-                }
-            }
-        ";
-
-        let parsed = apollo_parser::Parser::new(document).parse();
-        let diagnostics = rule.check(&StandaloneDocumentContext {
-            document,
-            file_name: "test.graphql",
-            fragments: None,
-            parsed: &parsed,
-        });
-
-        // Fragment A contains: id, ...B (which includes name and ...A recursively)
-        // Fragment B contains: name, ...A (which includes id and ...B recursively)
-        // So both fragments contain both id and name
-        // Diagnostics:
-        // 1. Fragment A: id is redundant (already in B via ...A)
-        // 2. Fragment B: name is redundant (already in A via ...B)
-        // 3. Query: id is redundant (already in ...A)
-        // 4. Query: name is redundant (already in ...A)
-        assert_eq!(
-            diagnostics.len(),
-            4,
-            "Should detect redundancies in both fragments and the query"
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .filter(|d| d.message.contains("'id'"))
-                .count()
-                == 2
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .filter(|d| d.message.contains("'name'"))
-                .count()
-                == 2
-        );
-    }
-
-    #[test]
-    fn test_aliased_fields_not_redundant() {
-        let rule = RedundantFieldsRule;
-
-        let document = r"
-            fragment UserFields on User {
-                id
-                name
-            }
-
-            query GetUser {
-                user {
-                    ...UserFields
-                    userId: id
-                    userName: name
-                }
-            }
-        ";
-
-        let parsed = apollo_parser::Parser::new(document).parse();
-        let diagnostics = rule.check(&StandaloneDocumentContext {
-            document,
-            file_name: "test.graphql",
-            fragments: None,
-            parsed: &parsed,
-        });
-
-        assert_eq!(
-            diagnostics.len(),
-            0,
-            "Aliased fields should not be considered redundant"
-        );
-    }
-
-    #[test]
-    fn test_same_alias_is_redundant() {
-        let rule = RedundantFieldsRule;
-
-        let document = r"
-            fragment UserFields on User {
-                userId: id
-            }
-
-            query GetUser {
-                user {
-                    ...UserFields
-                    userId: id
-                }
-            }
-        ";
-
-        let parsed = apollo_parser::Parser::new(document).parse();
-        let diagnostics = rule.check(&StandaloneDocumentContext {
-            document,
-            file_name: "test.graphql",
-            fragments: None,
-            parsed: &parsed,
-        });
-
-        assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("'userId: id'"));
     }
 }

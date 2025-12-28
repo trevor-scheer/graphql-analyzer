@@ -1,0 +1,18 @@
+[package]
+name = "graphql-analysis"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+graphql-db = { path = "../graphql-db" }
+graphql-syntax = { path = "../graphql-syntax" }
+graphql-hir = { path = "../graphql-hir" }
+graphql-linter = { path = "../graphql-linter" }
+salsa = { workspace = true }
+apollo-compiler = { workspace = true }
+apollo-parser = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

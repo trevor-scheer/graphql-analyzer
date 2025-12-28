@@ -1,0 +1,12 @@
+# Query to fetch all Star Wars planets
+query AllPlanets {
+  planets {
+    id
+    name
+    climate
+    population
+    residents {
+      name
+    }
+  }
+}

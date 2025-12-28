@@ -31,7 +31,6 @@ pub fn find_config(start_dir: &Path) -> Result<Option<PathBuf>> {
         }
 
         checked_dirs += 1;
-        // Move to parent directory
         if !current_dir.pop() {
             // Reached root without finding config
             tracing::debug!(checked_dirs, "No config file found");

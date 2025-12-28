@@ -1,436 +1,843 @@
-# GraphQL LSP Project Context
+# GraphQL LSP Project Guide
 
-## Overview
+**Last Updated**: December 2025
 
-This is a GraphQL Language Server Protocol (LSP) implementation written in Rust. The project provides language server features for GraphQL files, including validation, diagnostics, and IDE integration.
+This document provides context and guidance for working with the GraphQL LSP codebase. It's designed to help future iterations of Claude understand the project quickly and work effectively.
 
-## Project Structure
+---
 
-- `crates/graphql-config/` - Configuration parser and loader
-- `crates/graphql-extract/` - Extract GraphQL from source files
-- `crates/graphql-introspect/` - GraphQL introspection and SDL conversion
-- `crates/graphql-linter/` - Linting engine with custom rules
-- `crates/graphql-project/` - Core types, validation, and indexing
-- `crates/graphql-lsp/` - Main LSP implementation
-- `crates/graphql-cli/` - CLI tool for validation and linting
-- `editors/vscode/` - VSCode extension for the LSP
-- `tests/` - Test suites
+## Table of Contents
 
-## Key Technologies
+- [Quick Reference](#quick-reference)
+- [Project Overview](#project-overview)
+- [Architecture](#architecture)
+- [Development Workflow](#development-workflow)
+- [Key Concepts](#key-concepts)
+- [Configuration](#configuration)
+- [Testing](#testing)
+- [Common Tasks](#common-tasks)
+- [Troubleshooting](#troubleshooting)
+- [Instructions for Claude](#instructions-for-claude)
 
-- **Language**: Rust
-- **LSP Framework**: tower-lsp
-- **GraphQL Parsing**: apollo-compiler and graphql-parser
+---
+
+## Quick Reference
+
+### Most Common Commands
+
+```bash
+# Build & Test
+cargo build                     # Build all crates
+cargo test                      # Run all tests
+cargo clippy                    # Lint checks
+cargo fmt                       # Format code
+
+# Benchmarking
+cargo bench                     # Run all benchmarks
+cargo bench parse_cold          # Run specific benchmark
+cargo bench -- --save-baseline main  # Save baseline for comparison
+
+# CLI Tools
+target/debug/graphql validate   # Validate GraphQL files
+target/debug/graphql lint       # Lint GraphQL files
+
+# LSP Development
+RUST_LOG=debug target/debug/graphql-lsp  # Run LSP with logging
+
+# VSCode Extension
+cd editors/vscode
+npm run compile                 # Build extension
+npm run format                  # Format TypeScript
+npm run lint                    # Lint TypeScript
+```
+
+### Critical File Locations
+
+- **Project structure**: `.graphqlrc.yaml`
+- **Crate sources**: `crates/*/src/`
+- **Integration tests**: `tests/`
+- **Benchmarks**: `benches/`
+- **VSCode extension**: `editors/vscode/`
+- **Design docs**: `.claude/notes/active/lsp-rearchitecture/`
+
+### Quick Answers
+
+**Q: Where do I add a new lint rule?**
+A: `crates/graphql-linter/src/rules/` - See [Linter README](../crates/graphql-linter/README.md)
+
+**Q: How do I add validation logic?**
+A: Add queries in `crates/graphql-analysis/src/` - See [Analysis README](../crates/graphql-analysis/README.md)
+
+**Q: Where's the schema loading code?**
+A: `crates/graphql-introspect/` for remote introspection, `crates/graphql-config/` for config parsing
+
+**Q: How does incremental computation work?**
+A: Via Salsa queries in `graphql-db` → `graphql-syntax` → `graphql-hir` → `graphql-analysis`
+
+---
+
+## Project Overview
+
+This is a **GraphQL Language Server Protocol (LSP)** implementation written in Rust, providing IDE features for GraphQL files including validation, diagnostics, goto definition, find references, and more.
+
+### What Makes This Project Unique
+
+1. **Query-Based Architecture**: Uses [Salsa](https://github.com/salsa-rs/salsa) for automatic incremental computation
+2. **Multi-Language Support**: Works with pure `.graphql` files and embedded GraphQL in TypeScript/JavaScript
+3. **Project-Wide Analysis**: Validates across all files with proper fragment resolution
+4. **Extensible Linting**: Plugin-based linting system with tool-specific configuration
+5. **Remote Schema Support**: Introspects remote GraphQL endpoints and converts to SDL
+
+### Key Technologies
+
+- **Language**: Rust (see `rust-toolchain.toml` for version)
+- **LSP Framework**: [tower-lsp](https://github.com/ebkalderon/tower-lsp)
+- **GraphQL Parsing**: [apollo-compiler](https://github.com/apollographql/apollo-rs) and [graphql-parser](https://github.com/graphql-rust/graphql-parser)
+- **Incremental Computation**: [Salsa](https://github.com/salsa-rs/salsa)
 - **Build System**: Cargo
 
-## GraphQL Document Model and Common Gotchas
+---
 
-Understanding the GraphQL document model is critical for implementing LSP features correctly. Here are key nuances to consider:
+## Architecture
 
-### Document Types
+### Current Architecture (Rearchitecture in Progress)
 
-A GraphQL "document" is ambiguous without context. Always use precise terminology:
+The codebase is transitioning to a query-based, incremental architecture inspired by [rust-analyzer](https://rust-analyzer.github.io/book/contributing/architecture.html).
 
-- **Schema Document**: Contains type definitions, directives, schema extensions
-- **Executable Document**: Contains operations and/or fragments that can be executed against a schema
+```
+┌─────────────────────────────────────────────────┐
+│  graphql-lsp (LSP Protocol Adapter)             │
+│  - tower-lsp integration                        │
+│  - JSON-RPC handling                            │
+└─────────────────┬───────────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────────┐
+│  graphql-ide (Editor API)                       │
+│  - POD types (Position, Range, Location)        │
+│  - AnalysisHost & Analysis snapshots            │
+│  - Thread-safe, lock-free queries               │
+└─────────────────┬───────────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────────┐
+│  graphql-analysis (Validation & Linting)        │
+│  - file_diagnostics() query                     │
+│  - Schema validation                            │
+│  - Document validation                          │
+│  - Lint integration                             │
+└─────────────────┬───────────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────────┐
+│  graphql-hir (High-level IR)                    │
+│  - Separates structure from bodies              │
+│  - schema_types(), all_fragments() queries      │
+│  - Fine-grained invalidation                    │
+└─────────────────┬───────────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────────┐
+│  graphql-syntax (Parsing)                       │
+│  - parse() query (file-local)                   │
+│  - LineIndex for position conversion            │
+│  - TypeScript/JavaScript extraction             │
+└─────────────────┬───────────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────────┐
+│  graphql-db (Salsa Database)                    │
+│  - FileId, FileContent, FileMetadata            │
+│  - RootDatabase                                 │
+│  - Automatic memoization & invalidation         │
+└─────────────────────────────────────────────────┘
+```
 
-### Executable Document Structure
+### Supporting Crates
 
-Executable documents have flexible composition. A single document can contain:
+- **graphql-config**: Parses `.graphqlrc.yaml` configuration files
+- **graphql-extract**: Extracts GraphQL from TypeScript/JavaScript template literals
+- **graphql-introspect**: Introspects remote GraphQL endpoints and converts to SDL
+- **graphql-linter**: Pluggable linting engine with document and project-wide rules
+- **graphql-cli**: CLI tool for validation and linting
 
-- **Zero or more operation definitions** (query, mutation, subscription)
-- **Zero or more fragment definitions**
+### Directory Structure
 
-**Important**: An executable document might contain ONLY fragment definitions with no operations. This is valid and common in practice for organizing reusable fragments.
+```
+crates/
+├── graphql-analysis/    # Validation layer (Salsa queries)
+├── graphql-cli/         # CLI tool
+├── graphql-config/      # Configuration parser
+├── graphql-db/          # Salsa database foundation
+├── graphql-extract/     # Extract GraphQL from TS/JS
+├── graphql-hir/         # Semantic layer (structure/body separation)
+├── graphql-ide/         # Editor API (POD types)
+├── graphql-introspect/  # Remote schema introspection
+├── graphql-linter/      # Linting engine
+├── graphql-lsp/         # LSP server implementation
+└── graphql-syntax/      # Parsing layer
 
-### Fragment Scope and Cross-Document References
+benches/                 # Performance benchmarks
+editors/
+└── vscode/              # VSCode extension
 
-Fragments have project-wide scope, not file scope:
+tests/                   # Integration tests
+```
 
-- **Global Fragment Registry**: All fragments are globally available across the entire project
-- **Cross-Document References**: Any operation or fragment can reference fragments defined in other documents
-- **Transitive Dependencies**: Fragment spreads can reference other fragments, creating deep dependency chains
+For detailed architecture documentation, see:
+- [Foundation Phase](../.claude/notes/active/lsp-rearchitecture/01-FOUNDATION.md)
+- [Semantics Phase](../.claude/notes/active/lsp-rearchitecture/02-SEMANTICS.md)
+- [Analysis Phase](../.claude/notes/active/lsp-rearchitecture/03-ANALYSIS.md)
 
-### Validation Implications
+---
+
+## Development Workflow
+
+### Setup
+
+1. Clone the repository
+2. Ensure Rust toolchain matches `rust-toolchain.toml`
+3. Run `cargo build` to build all crates
+4. Run `cargo test` to verify everything works
+
+### Before Committing
+
+Pre-commit hooks are configured via [cargo-husky](https://github.com/rhysd/cargo-husky):
+
+```bash
+cargo fmt                # Format Rust code
+cargo clippy             # Lint Rust code
+cargo test               # Run tests
+
+# For VSCode extension changes
+cd editors/vscode
+npm run format:check     # Check formatting
+npm run lint             # Lint TypeScript
+```
+
+### Creating Pull Requests
+
+1. Create a feature branch from `main` (or target branch)
+2. Make your changes following code quality standards
+3. Commit with conventional commit messages (e.g., `feat:`, `fix:`, `refactor:`)
+4. Use `gh pr create` to open a PR
+5. Follow PR guidelines (see below)
+
+### PR Guidelines
+
+**Do:**
+- Write clear, descriptive PR titles
+- Explain what changed and why
+- Call out new and updated tests
+- Reference related issues
+
+**Don't:**
+- Use excessive emoji in titles or descriptions
+- Mention that tests or linting passed (expected baseline)
+
+---
+
+## Key Concepts
+
+### GraphQL Document Model
+
+Understanding the GraphQL document model is critical for implementing features correctly.
+
+#### Document Types
+
+- **Schema Document**: Type definitions, directives, schema extensions
+- **Executable Document**: Operations (query/mutation/subscription) and/or fragments
+
+**Important**: An executable document can contain ONLY fragments with no operations. This is valid GraphQL.
+
+#### Fragment Scope
+
+Fragments have **project-wide scope**, not file scope:
+
+- All fragments are globally available across the entire project
+- Operations can reference fragments defined in other files
+- Fragment spreads can reference other fragments (transitive dependencies)
+
+#### Validation Implications
 
 When validating operations, you MUST:
 
-1. **Include Direct Fragment Dependencies**: Collect all fragments directly referenced by the operation
-2. **Recurse Through Fragment Dependencies**: Follow fragment spreads within fragments to build the complete dependency graph
-3. **Handle Circular References**: Detect and handle circular fragment dependencies (fragment A → fragment B → fragment A)
-4. **Validate Against Schema**: Ensure all fragments in the dependency chain are valid for their type conditions
+1. Include **direct fragment dependencies** (fragments referenced by operation)
+2. **Recurse through fragment dependencies** (fragments referenced by fragments)
+3. **Handle circular references** (fragment A → fragment B → fragment A)
+4. **Validate against schema** for all fragments in the dependency chain
 
-Failing to include transitive fragment dependencies will result in incorrect validation errors about unknown fragments or type mismatches.
+**Failing to include transitive fragment dependencies will cause incorrect validation errors.**
 
-### Schema Document Nuances
-
-Schema documents also have important characteristics:
-
-- **Type Extensions**: Schema can be split across multiple documents using `extend type`, `extend interface`, etc.
-- **Directive Definitions**: Custom directives must be defined before use
-- **Scalar Definitions**: Custom scalars should be explicitly defined, though parsers may be lenient
-
-### Naming and Uniqueness
+#### Naming and Uniqueness
 
 - **Operation Names**: Must be unique across the entire project (when named)
 - **Fragment Names**: Must be unique across the entire project
-- **Type Names**: Must be unique within the schema (across all schema documents)
+- **Type Names**: Must be unique within the schema
 - **Anonymous Operations**: Only allowed when a document contains a single operation
 
-## Code Quality Standards
+### The Golden Invariant
 
-- Run `cargo fmt` before committing
-- Run `cargo clippy` and address warnings
-- Ensure `cargo test` passes
-- Pre-commit hooks are set up via cargo-husky
-- For VSCode extension changes:
-  - Run `npm run format:check` (prettier) in `editors/vscode/`
-  - Run `npm run lint` (oxlint) in `editors/vscode/`
+> **"Editing a document's body never invalidates global schema knowledge"**
 
-## PR Guidelines
+This principle drives the architecture:
 
-- Don't use excessive emoji in PR titles or descriptions
-- NEVER mention tests or linting passing in PR description
-- Call out new and updated tests
+- **Structure** (stable): Type names, field signatures, operation names, fragment names
+- **Bodies** (dynamic): Selection sets, field selections, directives
 
-## Testing
+By separating structure from bodies, we achieve fine-grained incremental recomputation.
 
-- Unit tests are located alongside source files
-- Integration tests are in the `tests/` directory
-- Use `cargo test` to run all tests
-- Use `cargo insta` for snapshot testing (if applicable)
+### Salsa Query System
 
-## Documentation
+All derived data is computed via Salsa queries:
 
-- README.md files should be kept up to date
-- Before starting a new task, read the relevant README.md files for context
-- Add a README.md to each crate / major directory. README.md files should:
-  - Explain the purpose of the crate/directory
-  - Describe how it fits into the overall project
-  - Provide instructions and examples for using the code within
-  - Explain technical details that would help a new contributor understand the code
+- **Automatic memoization**: Results cached by inputs
+- **Dependency tracking**: Salsa knows what depends on what
+- **Incremental invalidation**: Only affected queries re-run
+- **Lazy evaluation**: Queries only run when results are needed
 
-## Important LSP Features
+Example flow:
+```rust
+// User types in a file
+file_content.set_text(db, new_content);
 
-- **Goto Definition**: Comprehensive navigation support for all GraphQL language constructs
-  - Fragment spreads to their definitions across files
-  - Operation names to their definitions
-  - Type references (in fragments, inline fragments, implements clauses, union members, field types, variable types)
-  - Field references to their schema definitions
-  - Variable references to their operation variable definitions
-  - Field argument names to their schema argument definitions
-  - Enum values to their enum value definitions
-  - Directive names to their directive definitions
-  - Directive argument names to their argument definitions
-  - Works in both pure GraphQL files (.graphql, .gql) and embedded GraphQL in TypeScript/JavaScript
-  - Handles TypeScript/JavaScript by extracting GraphQL and adjusting positions automatically
-- **Find References**: Find all usages of GraphQL elements across the project
-  - Fragment definitions → All fragment spreads using that fragment
-  - Type definitions → All usages in field types, union members, implements clauses, input fields, arguments
-  - Supports List and NonNull type wrappers
-  - Respects include/exclude declaration context from client
-  - Works across all open documents in the workspace
-- **Hover**: Type information and descriptions for GraphQL elements
-- **Diagnostics**: Project-wide validation with accurate error reporting
-  - Project-wide unique name validation for operations and fragments
-  - Correct line/column positioning for extracted GraphQL from TypeScript/JavaScript
-  - Support for multiple GraphQL parsers (apollo-compiler and graphql-parser)
+// Salsa automatically invalidates:
+parse(db, file_content)           // File changed
+operation_body(db, operation_id)  // Body changed
+file_diagnostics(db, file_id)     // Needs revalidation
 
-## Development Notes
-
-- The project uses Rust toolchain specified in `rust-toolchain.toml`
-- Main branch: `main`
-- Follow conventional commit messages
-- PRs should be created using `gh pr create`
-- **IMPORTANT**: `.github/workflows/release.yml` is autogenerated by cargo-dist - do not manually edit it
-  - For VSCode extension releases, edit `.github/workflows/vscode-release.yml` instead
-  - To update the main release workflow, modify `Cargo.toml` dist config and run `dist init` or `dist generate`
-
-## Common Commands
-
-- `cargo build` - Build the project
-- `cargo test` - Run tests
-- `cargo clippy` - Lint checks
-- `cargo fmt` - Format code
-- `target/debug/graphql validate` - Run validation CLI
-- `target/debug/graphql lint` - Run linting CLI
-- `RUST_LOG=debug target/debug/graphql-lsp` - Run LSP with debug logging
-- `cd editors/vscode && npm run format` - Format VSCode extension code
-- `cd editors/vscode && npm run format:check` - Check VSCode extension formatting
-- `cd editors/vscode && npm run lint` - Lint VSCode extension
-- `cd editors/vscode && npm run compile` - Build VSCode extension
-
-## CLI Usage
-
-### Multi-Project Configurations
-
-The CLI commands (`validate`, `lint`, `check`) require the `--project` flag when using a multi-project configuration, unless a project named "default" exists.
-
-**Single-project config**: No `--project` flag needed
-```bash
-graphql validate
-graphql lint
+// Salsa keeps cached:
+schema_types(db)                  // Schema unchanged ✅
+all_fragments(db)                 // No fragment changes ✅
 ```
 
-**Multi-project config without "default"**: Requires `--project` flag
-```yaml
-# .graphqlrc.yaml
-projects:
-  frontend:
-    schema: frontend/schema.graphql
-  backend:
-    schema: backend/schema.graphql
-```
-```bash
-graphql validate --project frontend
-graphql lint --project backend
-```
+### LSP Feature Support
 
-**Multi-project config with "default"**: Optional `--project` flag
-```yaml
-# .graphqlrc.yaml
-projects:
-  default:
-    schema: schema.graphql
-  experimental:
-    schema: experimental/schema.graphql
-```
-```bash
-graphql validate              # Uses "default" project
-graphql validate --project experimental  # Uses "experimental" project
-```
+Current LSP features:
 
-If `--project` is omitted with a multi-project config (without "default"), the CLI shows an error listing available projects.
+- **Diagnostics**: Real-time validation and linting with accurate positions
+- **Goto Definition**: Navigate to type/field/fragment/variable definitions
+- **Find References**: Find all usages of types/fields/fragments
+- **Hover**: Type information and descriptions
+- **Schema Introspection**: Load schemas from remote URLs
 
-## Linting Architecture
+All features work in:
+- Pure GraphQL files (`.graphql`, `.gql`)
+- Embedded GraphQL in TypeScript/JavaScript
 
-The linting system is implemented in the `graphql-linter` crate, which is used by both the LSP and CLI.
+---
 
-### Separation of Concerns
+## Configuration
 
-- **graphql-project**: Provides core types (Diagnostic, SchemaIndex, DocumentIndex) and project management. No linting logic.
-- **graphql-linter**: Implements all linting rules (document-level and project-wide). Depends on graphql-project for types.
-- **graphql-lsp** and **graphql-cli**: Use graphql-linter directly for all linting needs.
-
-### Linting Contexts
-
-The linter supports four distinct contexts:
-
-1. **Standalone Document**: Quick validation without schema (e.g., naming conventions). Has optional access to `DocumentIndex` for cross-file fragment resolution.
-2. **Document Against Schema**: Real-time feedback (e.g., `deprecated_field`, `require_id_field`). Has access to `SchemaIndex` and optional `DocumentIndex` for cross-file fragment resolution.
-3. **Standalone Schema**: Schema design validation
-4. **Project-Wide**: Comprehensive analysis across all documents (e.g., `unique_names`, `unused_fields`)
-
-**Fragment Resolution**: Both `StandaloneDocumentContext` and `DocumentSchemaContext` have an optional `fragments: Option<&DocumentIndex>` field. This enables lint rules to:
-- Resolve fragment spreads to their definitions across files
-- Follow transitive fragment dependencies (fragment → fragment → field)
-- Detect circular fragment references
-- Properly analyze operations that use fragments for completeness checks
-
-### Configuration
-
-Linting is configured via top-level `lint` in `.graphqlrc.yaml` with optional tool-specific overrides:
+### GraphQL Configuration (`.graphqlrc.yaml`)
 
 ```yaml
-# Base configuration
+# Single-project configuration
+schema: schema.graphql
+documents: "src/**/*.graphql"
+
+# Linting configuration
 lint:
   recommended: error
+  rules:
+    no_deprecated: warn
+    require_id_field: error
+    redundant_fields: error
+    unused_fields: off  # Expensive, opt-in
 
 # Tool-specific overrides
 extensions:
   lsp:
     lint:
       rules:
-        unused_fields: off  # Expensive, keep off for LSP
+        unused_fields: off  # Too expensive for real-time
   cli:
     lint:
       rules:
-        unused_fields: error  # Enable in CLI/CI
+        unused_fields: error  # Enable in CI
 ```
 
-### Current Rules
+### Multi-Project Configuration
 
-**Standalone Document Rules** (no schema required):
-- **redundant_fields** (StandaloneDocumentRule): Detects redundant field selections in operations and fragments
+```yaml
+projects:
+  frontend:
+    schema: frontend/schema.graphql
+    documents: "frontend/**/*.graphql"
+  backend:
+    schema: backend/schema.graphql
+    documents: "backend/**/*.graphql"
+```
 
-**Document + Schema Rules**:
-- **deprecated_field** (DocumentSchemaRule): Warns when using @deprecated fields
-- **require_id_field** (DocumentSchemaRule): Warns when `id` field is not requested on types that have it. Recursively checks fragment spreads and their nested fragments to determine if `id` is included.
+CLI commands require `--project` flag for multi-project configs (unless a "default" project exists):
 
-**Project-Wide Rules**:
-- **unique_names** (ProjectRule): Ensures operation/fragment names are unique across the project
-- **unused_fields** (ProjectRule): Detects schema fields never used in any operation or fragment (opt-in, expensive)
-- **unused_fragments** (ProjectRule): Detects fragment definitions that are never used in any operation
+```bash
+graphql validate --project frontend
+graphql lint --project backend
+```
 
-### Performance Considerations
+### Remote Schema Loading
 
-- **LSP**: Only runs fast document-level lints in real-time. Project-wide lints are opt-in only.
-- **CLI**: Runs all enabled lints including expensive project-wide analysis.
-
-See [graphql-linter/README.md](../crates/graphql-linter/README.md) for detailed documentation.
-
-## Schema Loading and Introspection
-
-The project supports loading GraphQL schemas from multiple sources:
-
-### Local File Sources
-
-- Single file: `schema: schema.graphql`
-- Multiple files: `schema: ["schema.graphql", "extensions.graphql"]`
-- Glob patterns: `schema: "schema/**/*.graphql"`
-
-### Remote URL Sources
-
-Schemas can be loaded from remote GraphQL endpoints via introspection:
+Schemas can be loaded from URLs via introspection:
 
 ```yaml
 schema: https://api.example.com/graphql
 ```
 
-When a URL is detected in the schema configuration:
-1. **graphql-config** detects the URL using `has_remote_schema()`
-2. **graphql-project**'s `SchemaLoader::load_remote()` is called
-3. **graphql-introspect** executes the standard introspection query
-4. The introspection JSON response is converted to SDL
-5. The SDL is used for validation and language features
+The introspection flow:
+1. `graphql-config` detects URL
+2. `graphql-introspect` executes introspection query
+3. JSON response converted to SDL
+4. SDL used for validation and IDE features
 
-### graphql-introspect Crate
+See [graphql-introspect README](../crates/graphql-introspect/README.md) for details.
 
-Located at `crates/graphql-introspect/`, this crate provides:
+---
 
-- **Introspection Query Execution**: Standard GraphQL introspection with 7 levels of type nesting
-- **Type-Safe Deserialization**: Complete type definitions for introspection responses
-- **SDL Conversion**: Clean, readable SDL generation that:
-  - Filters built-in scalars (Int, Float, String, Boolean, ID)
-  - Filters introspection types (types starting with `__`)
-  - Filters built-in directives (@skip, @include, @deprecated, @specifiedBy)
-  - Preserves descriptions, deprecation info, and custom directives
-  - Proper indentation and GraphQL syntax
+## Testing
 
-**Main API:**
-- `introspect_url_to_sdl(url)` - One-step convenience function
-- `execute_introspection(url)` - Execute query and get JSON response
-- `introspection_to_sdl(response)` - Convert JSON to SDL
-
-**Error Handling:**
-- Network errors (connection failures, timeouts)
-- HTTP errors (non-2xx status codes)
-- Parse errors (invalid JSON)
-- Invalid responses (malformed introspection data)
-
-See [graphql-introspect/README.md](../crates/graphql-introspect/README.md) for detailed documentation.
-
-## Logging and Tracing Strategy
-
-### Framework
-- Uses `tracing` crate for structured logging and instrumentation
-- Uses `tracing-subscriber` with env-filter for log level control
-- Outputs to stderr (LSP protocol uses stdout for JSON-RPC)
-- ANSI colors disabled for LSP compatibility
-- Optional OpenTelemetry integration for distributed tracing and performance analysis
-
-### Log Levels
-- **ERROR**: Critical failures (schema load errors, document processing failures)
-- **WARN**: Non-fatal issues (missing config, no project found, stale data)
-- **INFO**: High-level operations (server lifecycle, document operations, validation completion)
-- **DEBUG**: Detailed operations (cache hits, timing measurements, internal state)
-- **TRACE**: Reserved for deep debugging (not currently used)
-
-### Configuration
-- Set `RUST_LOG` environment variable to control log levels
-- Default: `info` if not specified
-- Examples:
-  - `RUST_LOG=debug` - Enable debug logging
-  - `RUST_LOG=graphql_lsp=debug,graphql_project=info` - Module-specific levels
-  - `RUST_LOG=off` - Disable logging
-
-### Guidelines
-- Log user-facing operations at INFO (document open/save, validation start/complete)
-- Log performance metrics with timing at DEBUG level
-- Include context in log messages (file paths, project names, positions)
-- Log errors immediately when they occur, before propagating
-- Use structured fields for searchable data: `tracing::info!(uri = ?doc_uri, "message")`
-- Keep log messages concise but informative
-- Avoid logging sensitive data (API keys, credentials)
-- Log at entry/exit of complex operations for traceability
-
-### OpenTelemetry Integration
-
-The LSP supports OpenTelemetry tracing for performance analysis and visualization of hot spots.
-
-#### Building with OpenTelemetry Support
-
-Build the LSP with the `otel` feature flag:
+### Running Tests
 
 ```bash
-cargo build --features otel
-# or for release
-cargo build --release --features otel
+# All tests
+cargo test
+
+# Specific crate
+cargo test --package graphql-linter
+
+# Specific test
+cargo test --package graphql-linter redundant_fields
+
+# With output
+cargo test -- --nocapture
+
+# Integration tests only
+cargo test --test '*'
 ```
 
-#### Running with OpenTelemetry
+### Test Organization
 
-Set the `OTEL_TRACES_ENABLED` environment variable to enable OpenTelemetry tracing:
+- **Unit tests**: Located alongside source files (`mod tests { ... }`)
+- **Integration tests**: In `tests/` directory
+- **Snapshot tests**: Using `cargo-insta` (if applicable)
 
-```bash
-# Start Jaeger for trace collection and visualization
-docker run -d --name jaeger \
-  -p 4317:4317 \
-  -p 16686:16686 \
-  jaegertracing/all-in-one:latest
+### Writing Tests
 
-# Run the LSP with OpenTelemetry enabled
-OTEL_TRACES_ENABLED=1 ./target/debug/graphql-lsp
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-# Optional: Customize the OTLP endpoint (defaults to http://localhost:4317)
-OTEL_TRACES_ENABLED=1 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 ./target/debug/graphql-lsp
-```
+    #[test]
+    fn test_feature() {
+        // Arrange
+        let input = "...";
 
-#### Viewing Traces
+        // Act
+        let result = function_under_test(input);
 
-1. Open your browser to [http://localhost:16686](http://localhost:16686)
-2. Select "graphql-lsp" from the Service dropdown
-3. Click "Find Traces" to view collected traces
-4. Click on individual traces to see:
-   - Span timings and durations
-   - Call hierarchies and dependencies
-   - Performance hot spots
-   - Flame graphs showing where time is spent
-
-#### Using with VSCode
-
-To enable OpenTelemetry tracing in VSCode:
-
-1. Ensure the LSP binary is built with `--features otel`
-2. Set environment variables in VSCode settings:
-
-```json
-{
-  "graphql.server.env": {
-    "OTEL_TRACES_ENABLED": "1",
-    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317",
-    "RUST_LOG": "debug"
-  }
+        // Assert
+        assert_eq!(result, expected);
+    }
 }
 ```
 
-3. Restart VSCode or reload the window
-4. Use the LSP normally while traces are collected
-5. View traces in Jaeger UI
+### Performance Benchmarks
 
-#### Performance Impact
+The project includes comprehensive benchmarks to validate the Salsa-based incremental computation architecture. See [benches/README.md](../benches/README.md) for complete documentation.
 
-- OpenTelemetry adds minimal overhead when enabled (~1-2% CPU)
-- Traces are batched and sent asynchronously to avoid blocking LSP operations
-- Can be disabled at runtime by unsetting `OTEL_TRACES_ENABLED`
-- No impact when binary is built without the `otel` feature
+#### Running Benchmarks
 
-# Instructions for Claude
+```bash
+# Run all benchmarks
+cargo bench
 
-- Please read and understand the contents of this file before assisting with any questions related to the GraphQL LSP project.
-- Suggest updates to this file as the project evolves to keep it current and useful.
-- Default to creating a new branch, committing changes, and opening a pull request for any modifications suggested.
-- Don't add needless comments in source code; code should describe itself. Use comments to call out things that are subtle, confusing, or surprising.
-- After finishing making changes, make sure the debug binary is built and the editor extensions are rebuilt if necessary to enable human testing.
-- Put user reported bugs in .claude/notes/BUGS.md
-- When starting work in a new git worktree, copy over the .claude/ directory from the main worktree to include notes and local settings.
+# Run specific benchmark
+cargo bench parse_cold
+
+# Save baseline for comparison
+cargo bench -- --save-baseline main
+
+# Compare against baseline
+cargo bench -- --baseline main
+```
+
+#### What the Benchmarks Validate
+
+1. **Salsa Caching**: Warm queries should be 100-1000x faster than cold queries
+2. **Golden Invariant**: Editing operation bodies doesn't invalidate schema cache (< 100ns)
+3. **Fragment Resolution**: Cross-file fragment resolution benefits from caching
+4. **AnalysisHost Performance**: High-level IDE API performance
+
+#### Interpreting Results
+
+Criterion generates HTML reports in `target/criterion/`. Open `target/criterion/report/index.html` to view:
+- Performance distributions
+- Regression detection
+- Comparison with previous runs
+
+**Expected results if architecture is working correctly:**
+- Warm vs Cold: 100-1000x speedup
+- Golden Invariant: < 100 nanoseconds
+- Fragment Resolution: ~10x speedup with caching
+
+---
+
+## Common Tasks
+
+### Adding a New Lint Rule
+
+1. **Choose the rule type** based on context needed:
+   - `StandaloneDocumentRule` - No schema required
+   - `DocumentSchemaRule` - Document + schema
+   - `ProjectRule` - Project-wide analysis
+
+2. **Create the rule** in `crates/graphql-linter/src/rules/your_rule.rs`:
+```rust
+use crate::{DocumentSchemaRule, DocumentSchemaContext, Diagnostic};
+
+pub struct YourRule;
+
+impl DocumentSchemaRule for YourRule {
+    fn name(&self) -> &'static str {
+        "your_rule"
+    }
+
+    fn description(&self) -> &'static str {
+        "What this rule checks"
+    }
+
+    fn check(&self, ctx: &DocumentSchemaContext) -> Vec<Diagnostic> {
+        // Implementation
+        vec![]
+    }
+}
+```
+
+3. **Register the rule** in `crates/graphql-linter/src/rules/mod.rs`
+4. **Add tests** in the same file
+5. **Update documentation** in the linter README
+
+See [graphql-linter README](../crates/graphql-linter/README.md) for complete guide.
+
+### Adding Schema Validation
+
+Add validation queries in `crates/graphql-analysis/src/`:
+
+```rust
+// In schema_validation.rs
+pub fn validate_schema_file(
+    db: &dyn GraphQLAnalysisDatabase,
+    file_id: FileId,
+) -> Vec<Diagnostic> {
+    // Implementation using HIR queries
+}
+```
+
+See [graphql-analysis README](../crates/graphql-analysis/README.md) for architecture.
+
+### Adding an IDE Feature
+
+1. **Add the feature type** in `crates/graphql-ide/src/types.rs` (POD struct)
+2. **Implement the query** in `crates/graphql-ide/src/lib.rs` on `Analysis`
+3. **Add tests** in `crates/graphql-ide/src/lib.rs`
+4. **Integrate in LSP** in `crates/graphql-lsp/src/`
+
+Example:
+```rust
+// In graphql-ide
+impl Analysis {
+    pub fn your_feature(&self, file: &FilePath, pos: Position) -> Option<YourResult> {
+        // Query HIR and analysis layers
+        Some(YourResult { /* ... */ })
+    }
+}
+```
+
+### Debugging the LSP
+
+```bash
+# Run with debug logging
+RUST_LOG=debug target/debug/graphql-lsp
+
+# Module-specific logging
+RUST_LOG=graphql_lsp=debug,graphql_analysis=info target/debug/graphql-lsp
+
+# With OpenTelemetry (requires otel feature)
+cargo build --features otel
+OTEL_TRACES_ENABLED=1 target/debug/graphql-lsp
+
+# View traces in Jaeger
+docker run -d --name jaeger -p 4317:4317 -p 16686:16686 jaegertracing/all-in-one:latest
+# Open http://localhost:16686
+```
+
+See [Logging Strategy](#logging-strategy) for details.
+
+### Building VSCode Extension
+
+```bash
+cd editors/vscode
+npm install
+npm run compile
+
+# Package extension
+npm run package
+
+# Install locally
+code --install-extension graphql-lsp-*.vsix
+```
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+#### "No project found" Error in CLI
+
+**Problem**: Running `graphql validate` or `graphql lint` shows "No project found"
+
+**Solution**:
+- Ensure `.graphqlrc.yaml` exists in current directory or parent
+- For multi-project configs without "default", use `--project` flag:
+  ```bash
+  graphql validate --project frontend
+  ```
+
+#### LSP Not Responding in Editor
+
+**Problem**: LSP features not working in VSCode
+
+**Diagnosis**:
+```bash
+# Check if LSP binary exists
+ls -la target/debug/graphql-lsp
+
+# Test LSP directly
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | target/debug/graphql-lsp
+```
+
+**Solution**:
+- Rebuild: `cargo build`
+- Check VSCode extension logs: View → Output → GraphQL
+- Increase logging: Set `RUST_LOG=debug` in VSCode settings
+
+#### Tests Failing After Schema Changes
+
+**Problem**: Tests fail after modifying schema types
+
+**Cause**: Salsa cache persists across test runs in same process
+
+**Solution**:
+- Tests should create fresh database instances
+- Use `cargo test -- --test-threads=1` if needed
+- Clear `target/` and rebuild: `cargo clean && cargo build`
+
+#### Fragment Not Found Errors
+
+**Problem**: Validation shows "Unknown fragment" but fragment exists
+
+**Cause**: Missing fragment index or stale cache
+
+**Solution**:
+- Ensure fragment file is registered in `document_files()`
+- Check that `all_fragments()` query includes the file
+- Verify fragment name uniqueness (duplicates may be filtered)
+
+#### Slow LSP Performance
+
+**Problem**: Editor feels sluggish with LSP enabled
+
+**Diagnosis**:
+```bash
+# Run with OpenTelemetry to identify hot spots
+cargo build --features otel
+OTEL_TRACES_ENABLED=1 target/debug/graphql-lsp
+# View traces at http://localhost:16686
+```
+
+**Solution**:
+- Disable expensive lints in LSP config:
+  ```yaml
+  extensions:
+    lsp:
+      lint:
+        rules:
+          unused_fields: off
+  ```
+- Check for large files causing re-parsing
+- Profile with `cargo flamegraph` if needed
+
+---
+
+## Logging Strategy
+
+### Log Levels
+
+- **ERROR**: Critical failures (schema load errors, processing failures)
+- **WARN**: Non-fatal issues (missing config, stale data)
+- **INFO**: High-level operations (document open/save, validation complete)
+- **DEBUG**: Detailed operations (cache hits, timing)
+- **TRACE**: Deep debugging (not currently used)
+
+### Configuration
+
+Set `RUST_LOG` environment variable:
+
+```bash
+RUST_LOG=debug                                      # All debug logs
+RUST_LOG=graphql_lsp=debug,graphql_analysis=info   # Module-specific
+RUST_LOG=off                                        # Disable logging
+```
+
+### Guidelines
+
+- Log user-facing operations at **INFO**
+- Log performance metrics at **DEBUG**
+- Include context (file paths, positions) in messages
+- Use structured fields: `tracing::info!(uri = ?doc_uri, "message")`
+- Log errors immediately before propagating
+- Avoid logging sensitive data (API keys, credentials)
+
+### OpenTelemetry Integration
+
+For performance analysis:
+
+1. Build with `otel` feature: `cargo build --features otel`
+2. Start Jaeger: `docker run -d --name jaeger -p 4317:4317 -p 16686:16686 jaegertracing/all-in-one:latest`
+3. Run with tracing enabled: `OTEL_TRACES_ENABLED=1 target/debug/graphql-lsp`
+4. View traces: http://localhost:16686
+
+Overhead: ~1-2% CPU when enabled, zero when disabled.
+
+---
+
+## Instructions for Claude
+
+### General Approach
+
+1. **Read before acting**: Always check relevant README.md files and this document before starting work
+2. **Understand the architecture**: Know which layer you're working in (db → syntax → hir → analysis → ide → lsp)
+3. **Follow the patterns**: Study existing code in the same layer before adding new features
+4. **Test incrementally**: Write tests as you go, don't batch at the end
+5. **Keep it simple**: Don't over-engineer or add unnecessary abstractions
+
+### Code Style
+
+- **No needless comments**: Code should describe itself
+- Use comments only for subtle, confusing, or surprising things
+- **No emoji** in code or commits (unless user explicitly requests)
+- Follow Rust conventions: `snake_case` for functions, `CamelCase` for types
+- Keep lines under 100 characters where reasonable
+
+### Working with This Project
+
+**When adding validation:**
+1. Check if it belongs in schema or document validation
+2. Add as a Salsa query in `graphql-analysis`
+3. Write tests showing the validation working
+4. Update documentation if adding new concepts
+
+**When adding lint rules:**
+1. Determine the rule type (standalone/document/project)
+2. Implement in `graphql-linter/src/rules/`
+3. Add comprehensive tests
+4. Document in linter README
+5. Consider performance implications (expensive rules should be opt-in)
+
+**When fixing bugs:**
+1. Add to `.claude/notes/BUGS.md` if user-reported
+2. Write a failing test first
+3. Fix the bug
+4. Verify test passes
+5. Check for similar issues elsewhere
+
+**After making changes:**
+1. Build debug binary: `cargo build`
+2. Run tests: `cargo test`
+3. If LSP changes: Test with VSCode extension
+4. If extension changes: Rebuild with `npm run compile`
+
+### Branching and PRs
+
+- **Default approach**: Create new branch, make changes, open PR
+- Use descriptive branch names: `feat/goto-definition`, `fix/fragment-resolution`
+- Target `main` unless specifically told otherwise (e.g., "open PR against lsp-rearchitecture branch")
+- Follow PR guidelines above
+
+### Working with Git Worktrees
+
+When starting work in a new git worktree:
+```bash
+cp -r /path/to/main/worktree/.claude /path/to/new/worktree/.claude
+```
+
+This preserves notes and local settings.
+
+### Handling Uncertainty
+
+**If unclear about approach:**
+- Don't guess - ask the user for clarification
+- Use the AskUserQuestion pattern if multiple approaches are valid
+- Reference existing patterns in the codebase
+
+**If code is ambiguous:**
+- Read the README for that crate
+- Look for tests showing intended usage
+- Check design docs in `.claude/notes/active/`
+
+### Updating This Document
+
+- Suggest updates as the project evolves
+- Call out when sections become outdated
+- Add new sections for new patterns or concepts
+- Keep the Quick Reference up to date
+
+### Things to Never Do
+
+- ❌ Don't manually edit `.github/workflows/release.yml` (auto-generated by cargo-dist)
+- ❌ Don't add features not requested by the user
+- ❌ Don't create markdown files unless explicitly asked
+- ❌ Don't mention "tests pass" in PR descriptions (expected)
+- ❌ Don't use excessive emoji
+- ❌ Don't commit without running `cargo fmt` and `cargo clippy`
+
+### Things to Always Do
+
+- ✅ Read this file and relevant READMEs before starting
+- ✅ Write tests for new functionality
+- ✅ Update documentation when changing behavior
+- ✅ Follow the existing code style and patterns
+- ✅ Build the debug binary after changes
+- ✅ Ask when uncertain about the correct approach
+
+---
+
+## Additional Resources
+
+### Crate Documentation
+
+Each crate has a detailed README:
+- [graphql-db](../crates/graphql-db/README.md) - Salsa database layer
+- [graphql-syntax](../crates/graphql-syntax/README.md) - Parsing layer
+- [graphql-hir](../crates/graphql-hir/README.md) - Semantic layer
+- [graphql-analysis](../crates/graphql-analysis/README.md) - Validation layer
+- [graphql-ide](../crates/graphql-ide/README.md) - Editor API
+- [graphql-linter](../crates/graphql-linter/README.md) - Linting engine
+- [graphql-introspect](../crates/graphql-introspect/README.md) - Schema introspection
+
+### Design Documents
+
+- [Rearchitecture Overview](../.claude/notes/active/lsp-rearchitecture/README.md)
+- [Phase 1: Foundation](../.claude/notes/active/lsp-rearchitecture/01-FOUNDATION.md)
+- [Phase 2: Semantics](../.claude/notes/active/lsp-rearchitecture/02-SEMANTICS.md)
+- [Phase 3: Analysis](../.claude/notes/active/lsp-rearchitecture/03-ANALYSIS.md)
+
+### External Resources
+
+- [Rust-Analyzer Architecture](https://rust-analyzer.github.io/book/contributing/architecture.html) - Inspiration for this project
+- [Salsa Documentation](https://salsa-rs.github.io/salsa/) - Incremental computation framework
+- [LSP Specification](https://microsoft.github.io/language-server-protocol/) - Protocol reference
+- [GraphQL Specification](https://spec.graphql.org/) - Language reference
+
+---
+
+**End of Guide**
+
+This document is a living resource. Suggest improvements as you discover gaps or outdated information.

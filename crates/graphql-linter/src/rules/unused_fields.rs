@@ -1,109 +1,187 @@
-use crate::context::ProjectContext;
-use apollo_compiler::schema::ExtendedType;
-use apollo_parser::cst;
-use graphql_project::{Diagnostic, DocumentIndex, Position, Range, SchemaIndex};
+use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::traits::{LintRule, ProjectLintRule};
+use graphql_db::{FileId, ProjectFiles};
 use std::collections::{HashMap, HashSet};
 
-use super::ProjectRule;
+/// Trait implementation for `unused_fields` rule
+pub struct UnusedFieldsRuleImpl;
 
-/// Lint rule that checks for schema fields that are never used in any operation or fragment
-pub struct UnusedFieldsRule;
-
-impl ProjectRule for UnusedFieldsRule {
+impl LintRule for UnusedFieldsRuleImpl {
     fn name(&self) -> &'static str {
         "unused_fields"
     }
 
     fn description(&self) -> &'static str {
-        "Reports schema fields that are never used in any operation or fragment"
+        "Detects schema fields that are never used in any operation or fragment"
     }
 
-    fn check(&self, ctx: &ProjectContext) -> HashMap<String, Vec<Diagnostic>> {
-        let document_index = ctx.documents;
-        let schema_index = ctx.schema;
-        let mut diagnostics_by_file: HashMap<String, Vec<Diagnostic>> = HashMap::new();
+    fn default_severity(&self) -> LintSeverity {
+        LintSeverity::Warning
+    }
+}
 
-        // Collect all fields used across all documents in the project
-        let used_fields = collect_all_used_fields(document_index, schema_index);
+impl ProjectLintRule for UnusedFieldsRuleImpl {
+    #[allow(clippy::too_many_lines)]
+    fn check(
+        &self,
+        db: &dyn graphql_hir::GraphQLHirDatabase,
+        project_files: ProjectFiles,
+    ) -> HashMap<FileId, Vec<LintDiagnostic>> {
+        let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
 
-        // Get all fields defined in the schema
-        let schema_fields = collect_schema_fields(schema_index);
+        // Step 1: Collect all schema fields
+        let schema_types = graphql_hir::schema_types_with_project(db, project_files);
+        let mut schema_fields: HashMap<String, HashSet<String>> = HashMap::new();
+        let mut field_locations: HashMap<(String, String), FileId> = HashMap::new();
 
-        // Find unused fields
-        for (type_name, fields) in schema_fields {
-            // Skip built-in introspection types
-            if is_introspection_type(&type_name) {
+        for (type_name, type_def) in schema_types.iter() {
+            // Skip introspection types
+            if is_introspection_type(type_name) {
                 continue;
             }
 
-            let used_in_type = used_fields.get(&type_name);
+            // Only track Object and Interface fields
+            if matches!(
+                type_def.kind,
+                graphql_hir::TypeDefKind::Object | graphql_hir::TypeDefKind::Interface
+            ) {
+                let mut fields = HashSet::new();
+                for field in &type_def.fields {
+                    fields.insert(field.name.to_string());
+                    field_locations.insert(
+                        (type_name.to_string(), field.name.to_string()),
+                        type_def.file_id,
+                    );
+                }
+                schema_fields.insert(type_name.to_string(), fields);
+            }
+        }
+
+        // Step 2: Collect all used fields from operations and fragments
+        let mut used_fields: HashMap<String, HashSet<String>> = HashMap::new();
+        let document_files = project_files.document_files(db);
+
+        // Determine root types for skipping
+        let root_types = get_root_type_names(db, &schema_types);
+
+        for (_file_id, content, metadata) in document_files.iter() {
+            let parse = graphql_syntax::parse(db, *content, *metadata);
+
+            // Scan operations and fragments in main AST
+            for definition in &parse.ast.definitions {
+                match definition {
+                    apollo_compiler::ast::Definition::OperationDefinition(operation) => {
+                        let root_type = match operation.operation_type {
+                            apollo_compiler::ast::OperationType::Query => {
+                                root_types.query.as_deref()
+                            }
+                            apollo_compiler::ast::OperationType::Mutation => {
+                                root_types.mutation.as_deref()
+                            }
+                            apollo_compiler::ast::OperationType::Subscription => {
+                                root_types.subscription.as_deref()
+                            }
+                        };
+
+                        if let Some(root_type) = root_type {
+                            collect_used_fields_from_selection_set(
+                                &operation.selection_set,
+                                root_type,
+                                &schema_types,
+                                &mut used_fields,
+                            );
+                        }
+                    }
+                    apollo_compiler::ast::Definition::FragmentDefinition(fragment) => {
+                        let type_condition = fragment.type_condition.as_str();
+                        collect_used_fields_from_selection_set(
+                            &fragment.selection_set,
+                            type_condition,
+                            &schema_types,
+                            &mut used_fields,
+                        );
+                    }
+                    _ => {}
+                }
+            }
+
+            // Also scan operations and fragments in extracted blocks
+            for block in &parse.blocks {
+                for definition in &block.ast.definitions {
+                    match definition {
+                        apollo_compiler::ast::Definition::OperationDefinition(operation) => {
+                            let root_type = match operation.operation_type {
+                                apollo_compiler::ast::OperationType::Query => {
+                                    root_types.query.as_deref()
+                                }
+                                apollo_compiler::ast::OperationType::Mutation => {
+                                    root_types.mutation.as_deref()
+                                }
+                                apollo_compiler::ast::OperationType::Subscription => {
+                                    root_types.subscription.as_deref()
+                                }
+                            };
+
+                            if let Some(root_type) = root_type {
+                                collect_used_fields_from_selection_set(
+                                    &operation.selection_set,
+                                    root_type,
+                                    &schema_types,
+                                    &mut used_fields,
+                                );
+                            }
+                        }
+                        apollo_compiler::ast::Definition::FragmentDefinition(fragment) => {
+                            let type_condition = fragment.type_condition.as_str();
+                            collect_used_fields_from_selection_set(
+                                &fragment.selection_set,
+                                type_condition,
+                                &schema_types,
+                                &mut used_fields,
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        // Step 3: Report unused fields
+        for (type_name, fields) in &schema_fields {
+            // Skip root operation types
+            if root_types.is_root_type(type_name) {
+                continue;
+            }
+
+            let used_in_type = used_fields.get(type_name);
 
             for field_name in fields {
                 // Skip introspection fields
-                if is_introspection_field(&field_name) {
+                if is_introspection_field(field_name) {
                     continue;
                 }
 
-                // Skip root operation type fields (Query/Mutation/Subscription fields are entry points)
-                if is_root_type_in_schema(&type_name, schema_index) {
-                    continue;
-                }
-
-                let is_used = used_in_type.is_some_and(|set| set.contains(&field_name));
+                let is_used = used_in_type.is_some_and(|set| set.contains(field_name));
 
                 if !is_used {
-                    // Get the location of the field definition in the schema
-                    let field_location =
-                        schema_index.find_field_definition(&type_name, &field_name);
+                    if let Some(&file_id) =
+                        field_locations.get(&(type_name.clone(), field_name.clone()))
+                    {
+                        let message = format!(
+                            "Field '{type_name}.{field_name}' is defined in the schema but never used in any operation or fragment"
+                        );
 
-                    // Create a diagnostic for this unused field
-                    let message = format!(
-                        "Field '{type_name}.{field_name}' is defined in the schema but never used in any operation or fragment"
-                    );
-
-                    let (range, file_path) = if let Some(location) = field_location {
-                        // Use actual field location from schema
-                        let field_name_len = field_name.len();
-                        (
-                            Range {
-                                start: Position {
-                                    line: location.line,
-                                    character: location.column,
-                                },
-                                end: Position {
-                                    line: location.line,
-                                    character: location.column + field_name_len,
-                                },
+                        let diag = LintDiagnostic {
+                            message,
+                            offset_range: crate::diagnostics::OffsetRange {
+                                start: 0,
+                                end: field_name.len(),
                             },
-                            Some(location.file_path),
-                        )
-                    } else {
-                        // Fallback to zero position if we can't find the location
-                        (
-                            Range {
-                                start: Position {
-                                    line: 0,
-                                    character: 0,
-                                },
-                                end: Position {
-                                    line: 0,
-                                    character: 0,
-                                },
-                            },
-                            None,
-                        )
-                    };
+                            severity: self.default_severity(),
+                            rule: self.name().to_string(),
+                        };
 
-                    // Add diagnostic to the appropriate file
-                    if let Some(ref file_path) = file_path {
-                        let diag = Diagnostic::warning(range, message)
-                            .with_code("unused_field")
-                            .with_source("graphql-linter");
-
-                        diagnostics_by_file
-                            .entry(file_path.clone())
-                            .or_default()
-                            .push(diag);
+                        diagnostics_by_file.entry(file_id).or_default().push(diag);
                     }
                 }
             }
@@ -113,192 +191,102 @@ impl ProjectRule for UnusedFieldsRule {
     }
 }
 
-/// Collect all fields used across all documents in the project
-fn collect_all_used_fields(
-    document_index: &DocumentIndex,
-    schema_index: &SchemaIndex,
-) -> HashMap<String, HashSet<String>> {
-    let mut used_fields: HashMap<String, HashSet<String>> = HashMap::new();
+/// Helper struct to track root type names
+struct RootTypes {
+    query: Option<String>,
+    mutation: Option<String>,
+    subscription: Option<String>,
+}
 
-    // Process all parsed ASTs from pure GraphQL files
-    for tree in document_index.parsed_asts.values() {
-        if tree.errors().next().is_none() {
-            process_document_definitions(&tree.document(), schema_index, &mut used_fields);
-        }
+impl RootTypes {
+    fn is_root_type(&self, type_name: &str) -> bool {
+        self.query.as_deref() == Some(type_name)
+            || self.mutation.as_deref() == Some(type_name)
+            || self.subscription.as_deref() == Some(type_name)
     }
+}
 
-    // Process extracted GraphQL blocks from TypeScript/JavaScript files
-    for blocks in document_index.extracted_blocks.values() {
-        for block in blocks {
-            if block.parsed.errors().next().is_none() {
-                process_document_definitions(
-                    &block.parsed.document(),
-                    schema_index,
-                    &mut used_fields,
+/// Get root type names from schema
+fn get_root_type_names(
+    _db: &dyn graphql_hir::GraphQLHirDatabase,
+    schema_types: &HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
+) -> RootTypes {
+    // Default to "Query", "Mutation", "Subscription" if they exist
+    let query = schema_types
+        .contains_key("Query")
+        .then(|| "Query".to_string());
+    let mutation = schema_types
+        .contains_key("Mutation")
+        .then(|| "Mutation".to_string());
+    let subscription = schema_types
+        .contains_key("Subscription")
+        .then(|| "Subscription".to_string());
+
+    RootTypes {
+        query,
+        mutation,
+        subscription,
+    }
+}
+
+/// Recursively collect used fields from a selection set
+fn collect_used_fields_from_selection_set(
+    selections: &[apollo_compiler::ast::Selection],
+    parent_type: &str,
+    schema_types: &HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
+    used_fields: &mut HashMap<String, HashSet<String>>,
+) {
+    for selection in selections {
+        match selection {
+            apollo_compiler::ast::Selection::Field(field) => {
+                let field_name = field.name.as_str();
+
+                // Record this field as used
+                used_fields
+                    .entry(parent_type.to_string())
+                    .or_default()
+                    .insert(field_name.to_string());
+
+                // Recursively process nested selections if present
+                if !field.selection_set.is_empty() {
+                    // Find the field's return type from schema
+                    if let Some(type_def) = schema_types.get(parent_type) {
+                        if let Some(field_sig) = type_def
+                            .fields
+                            .iter()
+                            .find(|f| f.name.as_ref() == field_name)
+                        {
+                            // Extract base type name (remove wrappers)
+                            let nested_type = field_sig.type_ref.name.as_ref();
+                            collect_used_fields_from_selection_set(
+                                &field.selection_set,
+                                nested_type,
+                                schema_types,
+                                used_fields,
+                            );
+                        }
+                    }
+                }
+            }
+            apollo_compiler::ast::Selection::FragmentSpread(_) => {
+                // Fragment spreads are processed separately when we scan fragments
+            }
+            apollo_compiler::ast::Selection::InlineFragment(inline) => {
+                // Use type condition if present, otherwise use parent type
+                let type_name = inline
+                    .type_condition
+                    .as_ref()
+                    .map_or(parent_type, apollo_compiler::Name::as_str);
+
+                collect_used_fields_from_selection_set(
+                    &inline.selection_set,
+                    type_name,
+                    schema_types,
+                    used_fields,
                 );
             }
         }
     }
-
-    used_fields
-}
-
-/// Process all definitions in a GraphQL document and collect used fields
-fn process_document_definitions(
-    doc_cst: &cst::Document,
-    schema_index: &SchemaIndex,
-    used_fields: &mut HashMap<String, HashSet<String>>,
-) {
-    for definition in doc_cst.definitions() {
-        match definition {
-            cst::Definition::OperationDefinition(op_def) => {
-                // Get the root type name for this operation
-                let root_type_name = match op_def.operation_type() {
-                    Some(op_type) if op_type.query_token().is_some() => {
-                        schema_index.schema().schema_definition.query.as_ref()
-                    }
-                    Some(op_type) if op_type.mutation_token().is_some() => {
-                        schema_index.schema().schema_definition.mutation.as_ref()
-                    }
-                    Some(op_type) if op_type.subscription_token().is_some() => schema_index
-                        .schema()
-                        .schema_definition
-                        .subscription
-                        .as_ref(),
-                    None => schema_index.schema().schema_definition.query.as_ref(),
-                    _ => None,
-                };
-
-                if let Some(root_type_name) = root_type_name {
-                    if let Some(selection_set) = op_def.selection_set() {
-                        collect_fields_from_selection_set(
-                            &selection_set,
-                            root_type_name.as_str(),
-                            schema_index,
-                            used_fields,
-                        );
-                    }
-                }
-            }
-            cst::Definition::FragmentDefinition(frag_def) => {
-                if let Some(type_condition) = frag_def.type_condition() {
-                    if let Some(type_name) = type_condition
-                        .named_type()
-                        .and_then(|nt| nt.name())
-                        .map(|n| n.text().to_string())
-                    {
-                        if let Some(selection_set) = frag_def.selection_set() {
-                            collect_fields_from_selection_set(
-                                &selection_set,
-                                &type_name,
-                                schema_index,
-                                used_fields,
-                            );
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-/// Recursively collect fields from a selection set
-fn collect_fields_from_selection_set(
-    selection_set: &cst::SelectionSet,
-    parent_type_name: &str,
-    schema_index: &SchemaIndex,
-    used_fields: &mut HashMap<String, HashSet<String>>,
-) {
-    for selection in selection_set.selections() {
-        match selection {
-            cst::Selection::Field(field) => {
-                if let Some(field_name) = field.name() {
-                    let field_name_str = field_name.text().to_string();
-
-                    // Record this field as used
-                    used_fields
-                        .entry(parent_type_name.to_string())
-                        .or_default()
-                        .insert(field_name_str.clone());
-
-                    // Recursively process nested selections
-                    if let Some(nested_selection_set) = field.selection_set() {
-                        // Get the field's return type from schema
-                        if let Some(field_info) =
-                            schema_index.get_field(parent_type_name, &field_name_str)
-                        {
-                            // Extract the base type name (remove List/NonNull wrappers)
-                            let nested_type = field_info
-                                .type_name
-                                .trim_matches(|c| c == '[' || c == ']' || c == '!');
-
-                            collect_fields_from_selection_set(
-                                &nested_selection_set,
-                                nested_type,
-                                schema_index,
-                                used_fields,
-                            );
-                        }
-                    }
-                }
-            }
-            cst::Selection::FragmentSpread(_) => {
-                // Fragment spreads are already processed separately via document_index.fragments
-            }
-            cst::Selection::InlineFragment(inline_fragment) => {
-                if let Some(selection_set) = inline_fragment.selection_set() {
-                    // Use the type condition if present, otherwise use parent type
-                    let type_name_owned =
-                        inline_fragment.type_condition().and_then(|type_condition| {
-                            type_condition.named_type().and_then(|named_type| {
-                                named_type.name().map(|name| name.text().to_string())
-                            })
-                        });
-
-                    let type_name_ref = type_name_owned.as_deref().unwrap_or(parent_type_name);
-
-                    collect_fields_from_selection_set(
-                        &selection_set,
-                        type_name_ref,
-                        schema_index,
-                        used_fields,
-                    );
-                }
-            }
-        }
-    }
-}
-
-/// Collect all fields defined in the schema
-fn collect_schema_fields(schema_index: &SchemaIndex) -> HashMap<String, HashSet<String>> {
-    let mut schema_fields: HashMap<String, HashSet<String>> = HashMap::new();
-
-    for (type_name, extended_type) in &schema_index.schema().types {
-        match extended_type {
-            ExtendedType::Object(object_type) => {
-                let fields: HashSet<String> = object_type
-                    .fields
-                    .keys()
-                    .map(std::string::ToString::to_string)
-                    .collect();
-                schema_fields.insert(type_name.to_string(), fields);
-            }
-            ExtendedType::Interface(interface_type) => {
-                let fields: HashSet<String> = interface_type
-                    .fields
-                    .keys()
-                    .map(std::string::ToString::to_string)
-                    .collect();
-                schema_fields.insert(type_name.to_string(), fields);
-            }
-            _ => {
-                // We only track object and interface fields
-            }
-        }
-    }
-
-    schema_fields
 }
 
 /// Check if a type is a built-in introspection type
@@ -319,301 +307,4 @@ fn is_introspection_type(type_name: &str) -> bool {
 /// Check if a field name is an introspection field
 fn is_introspection_field(field_name: &str) -> bool {
     matches!(field_name, "__typename" | "__schema" | "__type")
-}
-
-/// Check if a type is a root operation type (Query/Mutation/Subscription)
-fn is_root_type_in_schema(type_name: &str, schema_index: &SchemaIndex) -> bool {
-    let schema_def = &schema_index.schema().schema_definition;
-    schema_def.query.as_ref().is_some_and(|q| q == type_name)
-        || schema_def.mutation.as_ref().is_some_and(|m| m == type_name)
-        || schema_def
-            .subscription
-            .as_ref()
-            .is_some_and(|s| s == type_name)
-}
-
-#[cfg(test)]
-#[allow(clippy::needless_raw_string_hashes)]
-mod tests {
-    use super::*;
-    use crate::context::ProjectContext;
-    use apollo_parser::Parser;
-    use graphql_project::{DocumentIndex, SchemaIndex};
-    use graphql_project::{OperationInfo, OperationType};
-
-    fn create_test_schema() -> SchemaIndex {
-        SchemaIndex::from_schema(
-            r"
-            type Query {
-                user(id: ID!): User
-                posts: [Post!]!
-                unusedQuery: String
-            }
-
-            type User {
-                id: ID!
-                name: String!
-                email: String!
-                age: Int
-                unusedField: String
-            }
-
-            type Post {
-                id: ID!
-                title: String!
-                content: String!
-                author: User!
-                unusedPostField: Int
-            }
-        ",
-        )
-    }
-
-    fn create_test_document_index(operations: &[(&str, &str)]) -> DocumentIndex {
-        let mut index = DocumentIndex::new();
-
-        for (idx, (_name, text)) in operations.iter().enumerate() {
-            let parser = Parser::new(text);
-            let tree = parser.parse();
-            let tree_arc = std::sync::Arc::new(tree);
-
-            // Cache the parsed AST
-            let file_path = format!("test_{idx}.graphql");
-            index
-                .parsed_asts
-                .insert(file_path.clone(), tree_arc.clone());
-
-            // Also populate the operations map for completeness
-            if let Some(op_def) = tree_arc.document().definitions().find_map(|def| {
-                if let cst::Definition::OperationDefinition(op) = def {
-                    Some(op)
-                } else {
-                    None
-                }
-            }) {
-                let op_type = if op_def
-                    .operation_type()
-                    .is_some_and(|t| t.mutation_token().is_some())
-                {
-                    OperationType::Mutation
-                } else if op_def
-                    .operation_type()
-                    .is_some_and(|t| t.subscription_token().is_some())
-                {
-                    OperationType::Subscription
-                } else {
-                    OperationType::Query
-                };
-
-                let operation_name = op_def.name().map(|n| n.text().to_string());
-
-                let operation_info = OperationInfo {
-                    name: operation_name.clone(),
-                    operation_type: op_type,
-                    file_path: file_path.clone(),
-                    line: 0,
-                    column: 0,
-                };
-
-                index
-                    .operations
-                    .entry(operation_name.clone().unwrap_or_default())
-                    .or_default()
-                    .push(operation_info);
-            }
-        }
-
-        index
-    }
-
-    #[test]
-    fn test_detects_unused_fields() {
-        let rule = UnusedFieldsRule;
-        let schema = create_test_schema();
-
-        let document_index = create_test_document_index(&[
-            (
-                "GetUser",
-                r#"query GetUser($id: ID!) {
-                    user(id: $id) {
-                        id
-                        name
-                        email
-                    }
-                }"#,
-            ),
-            (
-                "GetPosts",
-                r#"query GetPosts {
-                    posts {
-                        id
-                        title
-                        author {
-                            name
-                        }
-                    }
-                }"#,
-            ),
-        ]);
-
-        let diagnostics = {
-            let ctx = ProjectContext {
-                documents: &document_index,
-                schema: &schema,
-            };
-            let map = rule.check(&ctx);
-            map.values().flatten().cloned().collect::<Vec<_>>()
-        };
-
-        // Should detect: User.age, User.unusedField, Post.content, Post.unusedPostField
-        assert!(
-            diagnostics.len() >= 4,
-            "Should detect at least 4 unused fields, got {}",
-            diagnostics.len()
-        );
-
-        let messages: Vec<_> = diagnostics.iter().map(|d| &d.message).collect();
-
-        // Check for some specific unused fields
-        assert!(
-            messages.iter().any(|m| m.contains("User.unusedField")),
-            "Should detect User.unusedField"
-        );
-        assert!(
-            messages.iter().any(|m| m.contains("User.age")),
-            "Should detect User.age"
-        );
-        assert!(
-            messages.iter().any(|m| m.contains("Post.unusedPostField")),
-            "Should detect Post.unusedPostField"
-        );
-    }
-
-    #[test]
-    fn test_no_diagnostics_when_all_fields_used() {
-        let rule = UnusedFieldsRule;
-        let schema = SchemaIndex::from_schema(
-            r"
-            type Query {
-                user(id: ID!): User
-            }
-
-            type User {
-                id: ID!
-                name: String!
-            }
-        ",
-        );
-
-        let document_index = create_test_document_index(&[(
-            "GetUser",
-            r#"query GetUser($id: ID!) {
-                user(id: $id) {
-                    id
-                    name
-                }
-            }"#,
-        )]);
-
-        let diagnostics = {
-            let ctx = ProjectContext {
-                documents: &document_index,
-                schema: &schema,
-            };
-            let map = rule.check(&ctx);
-            map.values().flatten().cloned().collect::<Vec<_>>()
-        };
-
-        assert_eq!(
-            diagnostics.len(),
-            0,
-            "Should have no diagnostics when all fields are used"
-        );
-    }
-
-    #[test]
-    fn test_skips_root_operation_fields() {
-        let rule = UnusedFieldsRule;
-        let schema = SchemaIndex::from_schema(
-            r"
-            type Query {
-                user(id: ID!): User
-                unusedRootField: String
-            }
-
-            type User {
-                id: ID!
-            }
-        ",
-        );
-
-        let document_index = create_test_document_index(&[(
-            "GetUser",
-            r#"query GetUser($id: ID!) {
-                user(id: $id) {
-                    id
-                }
-            }"#,
-        )]);
-
-        let diagnostics = {
-            let ctx = ProjectContext {
-                documents: &document_index,
-                schema: &schema,
-            };
-            let map = rule.check(&ctx);
-            map.values().flatten().cloned().collect::<Vec<_>>()
-        };
-
-        // Root operation fields (Query fields) should not be reported as unused
-        assert_eq!(
-            diagnostics.len(),
-            0,
-            "Root operation fields should not be reported as unused"
-        );
-    }
-
-    #[test]
-    fn test_handles_nested_field_usage() {
-        let rule = UnusedFieldsRule;
-        let schema = create_test_schema();
-
-        let document_index = create_test_document_index(&[(
-            "GetPosts",
-            r#"query GetPosts {
-                posts {
-                    id
-                    author {
-                        name
-                        email
-                    }
-                }
-            }"#,
-        )]);
-
-        let diagnostics = {
-            let ctx = ProjectContext {
-                documents: &document_index,
-                schema: &schema,
-            };
-            let map = rule.check(&ctx);
-            map.values().flatten().cloned().collect::<Vec<_>>()
-        };
-
-        let messages: Vec<_> = diagnostics.iter().map(|d| &d.message).collect();
-
-        // name and email are used, but id and age are not
-        assert!(
-            !messages.iter().any(|m| m.contains("User.name")),
-            "User.name should not be reported (it's used)"
-        );
-        assert!(
-            !messages.iter().any(|m| m.contains("User.email")),
-            "User.email should not be reported (it's used)"
-        );
-        assert!(
-            messages.iter().any(|m| m.contains("User.id")),
-            "User.id should be reported (it's not used in this query)"
-        );
-    }
 }

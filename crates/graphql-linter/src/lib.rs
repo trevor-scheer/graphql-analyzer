@@ -1,10 +1,17 @@
 mod config;
-mod context;
-mod linter;
+
+// New Salsa-based architecture
+mod diagnostics;
+mod registry;
 mod rules;
+mod traits;
 
 pub use config::{LintConfig, LintRuleConfig, LintSeverity};
-pub use context::{
-    DocumentSchemaContext, ProjectContext, StandaloneDocumentContext, StandaloneSchemaContext,
+
+// New architecture exports
+pub use diagnostics::{LintDiagnostic, LintSeverity as DiagnosticSeverity, OffsetRange};
+pub use registry::{document_schema_rules, project_rules, standalone_document_rules};
+pub use traits::{
+    DocumentSchemaLintRule, LintRule, ProjectLintRule, StandaloneDocumentLintRule,
+    StandaloneSchemaLintRule,
 };
-pub use linter::Linter;

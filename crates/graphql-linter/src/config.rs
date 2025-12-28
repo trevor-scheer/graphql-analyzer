@@ -49,6 +49,44 @@ impl Default for LintConfig {
 }
 
 impl LintConfig {
+    /// Validate the lint configuration against available rules
+    ///
+    /// Returns an error if any configured rule names are invalid.
+    /// The error message includes a list of valid rule names.
+    pub fn validate(&self) -> Result<(), String> {
+        let valid_rules = crate::registry::all_rule_names();
+        let valid_set: std::collections::HashSet<&str> = valid_rules.iter().copied().collect();
+
+        let configured_rules: Vec<&str> = match self {
+            Self::Recommended(_) => return Ok(()), // "recommended" is always valid
+            Self::Rules { rules } => rules
+                .keys()
+                .filter(|name| name.as_str() != "recommended") // "recommended" is special
+                .map(std::string::String::as_str)
+                .collect(),
+        };
+
+        let invalid_rules: Vec<&str> = configured_rules
+            .iter()
+            .filter(|rule| !valid_set.contains(*rule))
+            .copied()
+            .collect();
+
+        if invalid_rules.is_empty() {
+            Ok(())
+        } else {
+            use std::fmt::Write;
+            let mut error = format!(
+                "Invalid lint rule name(s): {}\n\nValid rule names are:\n",
+                invalid_rules.join(", ")
+            );
+            for rule in &valid_rules {
+                let _ = writeln!(error, "  - {rule}");
+            }
+            Err(error)
+        }
+    }
+
     /// Get the severity for a rule, considering recommended preset
     #[must_use]
     pub fn get_severity(&self, rule_name: &str) -> Option<LintSeverity> {
@@ -95,7 +133,8 @@ impl LintConfig {
     fn recommended_severity(rule_name: &str) -> Option<LintSeverity> {
         match rule_name {
             "unique_names" | "no_anonymous_operations" => Some(LintSeverity::Error),
-            "deprecated_field"
+            "no_deprecated"
+            | "redundant_fields"
             | "field_names_should_be_camel_case"
             | "type_names_should_be_pascal_case"
             | "enum_values_should_be_screaming_snake_case" => Some(LintSeverity::Warn),
@@ -160,39 +199,39 @@ mod tests {
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         assert!(matches!(config, LintConfig::Recommended(_)));
         assert!(config.is_enabled("unique_names"));
-        assert!(config.is_enabled("deprecated_field"));
+        assert!(config.is_enabled("no_deprecated"));
     }
 
     #[test]
     fn test_parse_simple_rules() {
-        let yaml = "\nunique_names: error\ndeprecated_field: off\n";
+        let yaml = "\nunique_names: error\nno_deprecated: off\n";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
             config.get_severity("unique_names"),
             Some(LintSeverity::Error)
         );
         assert_eq!(
-            config.get_severity("deprecated_field"),
+            config.get_severity("no_deprecated"),
             Some(LintSeverity::Off)
         );
-        assert!(!config.is_enabled("deprecated_field"));
+        assert!(!config.is_enabled("no_deprecated"));
     }
 
     #[test]
     fn test_parse_recommended_with_overrides() {
-        let yaml = "\nrecommended: error\ndeprecated_field: off\n";
+        let yaml = "\nrecommended: error\nno_deprecated: off\n";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         // Should have recommended rules enabled
         assert!(config.is_enabled("unique_names"));
         // But deprecated_field is overridden to off
-        assert!(!config.is_enabled("deprecated_field"));
+        assert!(!config.is_enabled("no_deprecated"));
     }
 
     #[test]
     fn test_default_no_rules_enabled() {
         let config = LintConfig::default();
         assert!(!config.is_enabled("unique_names"));
-        assert!(!config.is_enabled("deprecated_field"));
+        assert!(!config.is_enabled("no_deprecated"));
     }
 
     #[test]
@@ -203,7 +242,7 @@ mod tests {
             Some(LintSeverity::Error)
         );
         assert_eq!(
-            config.get_severity("deprecated_field"),
+            config.get_severity("no_deprecated"),
             Some(LintSeverity::Warn)
         );
     }
@@ -218,17 +257,17 @@ mod tests {
 
         // Should have recommended rules
         assert!(merged.is_enabled("unique_names"));
-        assert!(merged.is_enabled("deprecated_field"));
+        assert!(merged.is_enabled("no_deprecated"));
         // Plus override
         assert!(merged.is_enabled("unused_fields"));
     }
 
     #[test]
     fn test_merge_override_severity() {
-        let base_yaml = "\nunique_names: error\ndeprecated_field: warn\n";
+        let base_yaml = "\nunique_names: error\nno_deprecated: warn\n";
         let base: LintConfig = serde_yaml::from_str(base_yaml).unwrap();
 
-        let override_yaml = "\ndeprecated_field: off\n";
+        let override_yaml = "\nno_deprecated: off\n";
         let override_config: LintConfig = serde_yaml::from_str(override_yaml).unwrap();
 
         let merged = base.merge(&override_config);
@@ -240,7 +279,7 @@ mod tests {
         );
         // deprecated_field overridden
         assert_eq!(
-            merged.get_severity("deprecated_field"),
+            merged.get_severity("no_deprecated"),
             Some(LintSeverity::Off)
         );
     }

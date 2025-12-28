@@ -1,9 +1,0 @@
-fragment PostFields on Post {
-  id
-  title
-  content
-  author {
-    id
-    name
-  }
-}

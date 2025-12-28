@@ -1,0 +1,71 @@
+/// Registry of all available lint rules
+///
+/// This module provides functions to get all lint rules organized by category.
+/// Rules are registered here so that graphql-analysis can query them.
+use crate::rules::{
+    NoDeprecatedRuleImpl, OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl,
+    RequireIdFieldRuleImpl, UniqueNamesRuleImpl, UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl,
+};
+use crate::traits::{DocumentSchemaLintRule, ProjectLintRule, StandaloneDocumentLintRule};
+use std::sync::Arc;
+
+/// Get all standalone document lint rules
+///
+/// These rules run on individual documents without requiring schema access.
+/// They are fast and suitable for real-time LSP diagnostics.
+#[must_use]
+pub fn standalone_document_rules() -> Vec<Arc<dyn StandaloneDocumentLintRule>> {
+    vec![
+        Arc::new(OperationNameSuffixRuleImpl),
+        Arc::new(RedundantFieldsRuleImpl),
+    ]
+}
+
+/// Get all document+schema lint rules
+///
+/// These rules run on individual documents with schema access.
+/// They are suitable for real-time LSP diagnostics.
+#[must_use]
+pub fn document_schema_rules() -> Vec<Arc<dyn DocumentSchemaLintRule>> {
+    vec![
+        Arc::new(NoDeprecatedRuleImpl),
+        Arc::new(RequireIdFieldRuleImpl),
+    ]
+}
+
+/// Get all project-wide lint rules
+///
+/// These rules analyze the entire project and are expensive.
+/// They should only run in CLI/CI, not in real-time LSP.
+#[must_use]
+pub fn project_rules() -> Vec<Arc<dyn ProjectLintRule>> {
+    vec![
+        Arc::new(UniqueNamesRuleImpl),
+        Arc::new(UnusedFieldsRuleImpl),
+        Arc::new(UnusedFragmentsRuleImpl),
+    ]
+}
+
+/// Get all valid lint rule names
+///
+/// Returns a sorted list of all available lint rule names across all categories.
+/// Useful for validation and error messages.
+#[must_use]
+pub fn all_rule_names() -> Vec<&'static str> {
+    let mut names = Vec::new();
+
+    // Collect from all rule categories
+    for rule in standalone_document_rules() {
+        names.push(rule.name());
+    }
+    for rule in document_schema_rules() {
+        names.push(rule.name());
+    }
+    for rule in project_rules() {
+        names.push(rule.name());
+    }
+
+    // Sort for consistent output
+    names.sort_unstable();
+    names
+}

@@ -1,0 +1,14 @@
+# GraphQL LSP Project Configuration
+# yaml-language-server: $schema=crates/graphql-config/schema/graphqlrc.schema.json
+projects:
+  pokemon:
+    schema: test-workspace/pokemon/schema.graphql
+    documents: "test-workspace/pokemon/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
+    lint:
+      recommended: error
+
+  starwars:
+    schema: test-workspace/starwars/schema.graphql
+    documents: "test-workspace/starwars/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
+    lint:
+      recommended: error # Use recommended preset with error severity

@@ -1,0 +1,32 @@
+[package]
+name = "graphql-ide"
+version = "0.1.0"
+edition = "2021"
+description = "IDE features for GraphQL Language Server"
+
+[dependencies]
+# Salsa for database access
+salsa = { workspace = true }
+
+# Apollo parser for CST traversal
+apollo-parser = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Configuration
+graphql-config = { path = "../graphql-config" }
+
+# File globbing
+glob = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+
+# Internal crates (query-based layers)
+graphql-db = { path = "../graphql-db" }
+graphql-syntax = { path = "../graphql-syntax" }
+graphql-hir = { path = "../graphql-hir" }
+graphql-analysis = { path = "../graphql-analysis" }
+graphql-linter = { path = "../graphql-linter" }
+graphql-extract = { path = "../graphql-extract" }
