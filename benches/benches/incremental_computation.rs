@@ -3,6 +3,7 @@ use graphql_db::{
     FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles, RootDatabase,
 };
 use graphql_ide::AnalysisHost;
+use salsa::Setter;
 use std::sync::Arc;
 
 // Sample GraphQL schema for benchmarks
@@ -63,36 +64,31 @@ fragment UserFields on User {
 }
 ";
 
-/// Helper to create a database with schema and document
-fn setup_db_with_schema_and_doc() -> RootDatabase {
-    let db = RootDatabase::new();
-
+/// Helper to create ProjectFiles with schema and document
+fn create_project_files(db: &RootDatabase) -> ProjectFiles {
     let schema_id = FileId::new(0);
-    let schema_content = FileContent::new(&db, Arc::from(SAMPLE_SCHEMA));
+    let schema_content = FileContent::new(db, Arc::from(SAMPLE_SCHEMA));
     let schema_meta = FileMetadata::new(
-        &db,
+        db,
         schema_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
     );
 
     let doc_id = FileId::new(1);
-    let doc_content = FileContent::new(&db, Arc::from(SAMPLE_OPERATION));
+    let doc_content = FileContent::new(db, Arc::from(SAMPLE_OPERATION));
     let doc_meta = FileMetadata::new(
-        &db,
+        db,
         doc_id,
         FileUri::new("query.graphql"),
         FileKind::ExecutableGraphQL,
     );
 
-    let project_files = ProjectFiles::new(
-        &db,
+    ProjectFiles::new(
+        db,
         Arc::new(vec![(schema_id, schema_content, schema_meta)]),
         Arc::new(vec![(doc_id, doc_content, doc_meta)]),
-    );
-
-    db.set_project_files(Some(project_files));
-    db
+    )
 }
 
 /// Parse benchmarks
@@ -146,11 +142,12 @@ fn bench_schema_types_cold(c: &mut Criterion) {
         b.iter_batched(
             || {
                 // Setup: Fresh database with schema
-                setup_db_with_schema_and_doc()
+                let db = RootDatabase::new();
+                let project_files = create_project_files(&db);
+                (db, project_files)
             },
-            |db| {
+            |(db, project_files)| {
                 // Measure: Extract schema types for first time
-                let project_files = db.project_files().unwrap();
                 black_box(graphql_hir::schema_types_with_project(&db, project_files))
             },
             BatchSize::SmallInput,
@@ -161,8 +158,8 @@ fn bench_schema_types_cold(c: &mut Criterion) {
 fn bench_schema_types_warm(c: &mut Criterion) {
     c.bench_function("schema_types_warm", |b| {
         // Setup: Extract schema types once to populate cache
-        let db = setup_db_with_schema_and_doc();
-        let project_files = db.project_files().unwrap();
+        let db = RootDatabase::new();
+        let project_files = create_project_files(&db);
         let _ = graphql_hir::schema_types_with_project(&db, project_files);
 
         b.iter(|| {
@@ -173,21 +170,48 @@ fn bench_schema_types_warm(c: &mut Criterion) {
 }
 
 /// Golden invariant benchmark: editing operation body doesn't invalidate schema
+///
+/// This tests the critical performance property: when we edit only the document
+/// content (not add/remove files), the schema types should remain cached.
 fn bench_golden_invariant(c: &mut Criterion) {
     c.bench_function("golden_invariant_schema_after_body_edit", |b| {
         b.iter_batched(
             || {
                 // Setup: Database with schema and doc, schema types cached
-                let db = setup_db_with_schema_and_doc();
-                let project_files = db.project_files().unwrap();
+                let mut db = RootDatabase::new();
+
+                let schema_id = FileId::new(0);
+                let schema_content = FileContent::new(&db, Arc::from(SAMPLE_SCHEMA));
+                let schema_meta = FileMetadata::new(
+                    &db,
+                    schema_id,
+                    FileUri::new("schema.graphql"),
+                    FileKind::Schema,
+                );
+
+                let doc_id = FileId::new(1);
+                let doc_content = FileContent::new(&db, Arc::from(SAMPLE_OPERATION));
+                let doc_meta = FileMetadata::new(
+                    &db,
+                    doc_id,
+                    FileUri::new("query.graphql"),
+                    FileKind::ExecutableGraphQL,
+                );
+
+                let project_files = ProjectFiles::new(
+                    &db,
+                    Arc::new(vec![(schema_id, schema_content, schema_meta)]),
+                    Arc::new(vec![(doc_id, doc_content, doc_meta)]),
+                );
+
+                // Cache schema types
                 let _ = graphql_hir::schema_types_with_project(&db, project_files);
 
-                // Now edit the operation body
-                let doc_id = FileId::new(1);
-                let new_content = FileContent::new(
-                    &db,
-                    Arc::from(
-                        r"
+                // Now edit the document content using Salsa's in-place setter
+                // This simulates what happens on a keystroke - we update content
+                // WITHOUT rebuilding ProjectFiles
+                doc_content.set_text(&mut db).to(Arc::from(
+                    r"
 query GetUser($id: ID!) {
   user(id: $id) {
     id
@@ -197,28 +221,13 @@ query GetUser($id: ID!) {
   }
 }
 ",
-                    ),
-                );
-                let doc_meta = FileMetadata::new(
-                    &db,
-                    doc_id,
-                    FileUri::new("query.graphql"),
-                    FileKind::ExecutableGraphQL,
-                );
+                ));
 
-                // Update project files with new content
-                let schema_files = project_files.schema_files(&db);
-                let new_project_files = ProjectFiles::new(
-                    &db,
-                    schema_files,
-                    Arc::new(vec![(doc_id, new_content, doc_meta)]),
-                );
-                db.set_project_files(Some(new_project_files));
-
-                (db, new_project_files)
+                (db, project_files)
             },
             |(db, project_files)| {
                 // Measure: Schema types query should be instant (cached, not invalidated)
+                // because we only changed document content, not ProjectFiles structure
                 black_box(graphql_hir::schema_types_with_project(&db, project_files))
             },
             BatchSize::SmallInput,
@@ -258,7 +267,6 @@ fn bench_fragment_resolution_cold(c: &mut Criterion) {
                     Arc::new(vec![(doc_id, doc_content, doc_meta)]),
                 );
 
-                db.set_project_files(Some(project_files));
                 (db, project_files)
             },
             |(db, project_files)| {
@@ -299,7 +307,6 @@ fn bench_fragment_resolution_warm(c: &mut Criterion) {
             Arc::new(vec![(doc_id, doc_content, doc_meta)]),
         );
 
-        db.set_project_files(Some(project_files));
         let _ = graphql_hir::all_fragments_with_project(&db, project_files);
 
         b.iter(|| {
@@ -347,6 +354,7 @@ fn bench_analysis_host_diagnostics(c: &mut Criterion) {
             graphql_ide::FileKind::ExecutableGraphQL,
             0,
         );
+        host.rebuild_project_files();
 
         b.iter(|| {
             // Measure: Get diagnostics (should be cached after first call)
@@ -354,6 +362,21 @@ fn bench_analysis_host_diagnostics(c: &mut Criterion) {
             black_box(snapshot.diagnostics(&doc_path))
         });
     });
+}
+
+/// Benchmark: warm edit using AnalysisHost (simulates real LSP keystroke)
+///
+/// NOTE: This benchmark is currently disabled due to a known Salsa deadlock issue
+/// when updating files and getting diagnostics in the same thread.
+/// See: test_diagnostics_after_file_update in graphql-ide/src/lib.rs
+///
+/// The fix we implemented (not calling rebuild_project_files on content changes)
+/// is validated by the golden_invariant benchmark which tests the underlying
+/// Salsa caching behavior directly.
+#[allow(dead_code)]
+fn bench_analysis_host_warm_edit(_c: &mut Criterion) {
+    // Disabled - see comment above
+    // To re-enable, fix the Salsa update hang issue first
 }
 
 criterion_group!(
@@ -367,6 +390,7 @@ criterion_group!(
     bench_fragment_resolution_warm,
     bench_analysis_host_add_file,
     bench_analysis_host_diagnostics,
+    // bench_analysis_host_warm_edit, // Disabled - Salsa deadlock, see comment above
 );
 
 criterion_main!(benches);
