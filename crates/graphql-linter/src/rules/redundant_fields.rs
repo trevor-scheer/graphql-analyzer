@@ -85,8 +85,8 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
             // Get the file content and metadata for this fragment
             let fragment_file_id = fragment_info.file_id;
 
-            // Get the file from document_files
-            let document_files = db.document_files();
+            // Get the file from document_files (use project_files directly, not db.document_files())
+            let document_files = project_files.document_files(db);
             if let Some((_, file_content, file_metadata)) = document_files
                 .iter()
                 .find(|(fid, _, _)| *fid == fragment_file_id)
