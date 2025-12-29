@@ -157,6 +157,48 @@ pub fn all_fragments_with_project(
     Arc::new(fragments)
 }
 
+/// Index mapping fragment names to their file content and metadata
+/// This allows O(1) lookup of fragment definitions without re-parsing files
+#[salsa::tracked]
+pub fn fragment_file_index(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, (graphql_db::FileContent, graphql_db::FileMetadata)>> {
+    let document_files = project_files.document_files(db);
+    let mut index = HashMap::new();
+
+    for (_file_id, content, metadata) in document_files.iter() {
+        let structure = file_structure(db, metadata.file_id(db), *content, *metadata);
+        for fragment in &structure.fragments {
+            index.insert(fragment.name.clone(), (*content, *metadata));
+        }
+    }
+
+    Arc::new(index)
+}
+
+/// Index mapping fragment names to the fragments they reference (spread)
+/// This allows efficient transitive fragment resolution without re-parsing
+#[salsa::tracked]
+pub fn fragment_spreads_index(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, std::collections::HashSet<Arc<str>>>> {
+    let document_files = project_files.document_files(db);
+    let mut index = HashMap::new();
+
+    for (_file_id, content, metadata) in document_files.iter() {
+        let structure = file_structure(db, metadata.file_id(db), *content, *metadata);
+        for fragment in &structure.fragments {
+            // Get the fragment body to find its spreads
+            let body = fragment_body(db, *content, *metadata, fragment.name.clone());
+            index.insert(fragment.name.clone(), body.fragment_spreads.clone());
+        }
+    }
+
+    Arc::new(index)
+}
+
 /// Get all operations in the project
 /// This query depends on all document file structures
 #[salsa::tracked]
