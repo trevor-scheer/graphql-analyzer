@@ -111,32 +111,39 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
             }
         }
 
-        // Now check all selection sets for redundant fields
-        for definition in doc_cst.definitions() {
-            match definition {
-                cst::Definition::OperationDefinition(operation) => {
-                    if let Some(selection_set) = operation.selection_set() {
-                        check_selection_set_for_redundancy(
-                            &selection_set,
-                            &fragments,
-                            &mut diagnostics,
-                        );
-                    }
-                }
-                cst::Definition::FragmentDefinition(fragment) => {
-                    if let Some(selection_set) = fragment.selection_set() {
-                        check_selection_set_for_redundancy(
-                            &selection_set,
-                            &fragments,
-                            &mut diagnostics,
-                        );
-                    }
-                }
-                _ => {}
-            }
+        // Now check all selection sets for redundant fields in main document
+        check_document_for_redundancy(&doc_cst, &fragments, &mut diagnostics);
+
+        // Also check selection sets in extracted blocks (TypeScript/JavaScript)
+        for block in &parse.blocks {
+            let block_doc = block.tree.document();
+            check_document_for_redundancy(&block_doc, &fragments, &mut diagnostics);
         }
 
         diagnostics
+    }
+}
+
+/// Check a GraphQL document for redundant fields
+fn check_document_for_redundancy(
+    doc_cst: &cst::Document,
+    fragments: &FragmentRegistry,
+    diagnostics: &mut Vec<LintDiagnostic>,
+) {
+    for definition in doc_cst.definitions() {
+        match definition {
+            cst::Definition::OperationDefinition(operation) => {
+                if let Some(selection_set) = operation.selection_set() {
+                    check_selection_set_for_redundancy(&selection_set, fragments, diagnostics);
+                }
+            }
+            cst::Definition::FragmentDefinition(fragment) => {
+                if let Some(selection_set) = fragment.selection_set() {
+                    check_selection_set_for_redundancy(&selection_set, fragments, diagnostics);
+                }
+            }
+            _ => {}
+        }
     }
 }
 

@@ -135,6 +135,7 @@ impl LintConfig {
             "unique_names" | "no_anonymous_operations" => Some(LintSeverity::Error),
             "no_deprecated"
             | "redundant_fields"
+            | "require_id_field"
             | "field_names_should_be_camel_case"
             | "type_names_should_be_pascal_case"
             | "enum_values_should_be_screaming_snake_case" => Some(LintSeverity::Warn),
