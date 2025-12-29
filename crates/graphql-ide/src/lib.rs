@@ -1210,12 +1210,21 @@ impl Analysis {
                     let def_line_index = graphql_syntax::line_index(&self.db, def_content);
                     let range = offset_range_to_range(&def_line_index, start_offset, end_offset);
 
-                    Some(vec![Location::new(file_path, range)])
+                    // Adjust for line offset (TypeScript/JavaScript files)
+                    let def_line_offset = def_metadata.line_offset(&self.db);
+                    let adjusted_range = adjust_range_for_line_offset(range, def_line_offset);
+
+                    Some(vec![Location::new(file_path, adjusted_range)])
                 } else {
                     // Fallback to placeholder if we can't find exact position
+                    // Still need to account for line offset in fallback
+                    let def_line_offset = def_metadata.line_offset(&self.db);
                     Some(vec![Location::new(
                         file_path,
-                        Range::new(Position::new(0, 0), Position::new(0, 0)),
+                        Range::new(
+                            Position::new(def_line_offset, 0),
+                            Position::new(def_line_offset, 0),
+                        ),
                     )])
                 }
             }
@@ -1244,12 +1253,21 @@ impl Analysis {
                     let def_line_index = graphql_syntax::line_index(&self.db, def_content);
                     let range = offset_range_to_range(&def_line_index, start_offset, end_offset);
 
-                    Some(vec![Location::new(file_path, range)])
+                    // Adjust for line offset (TypeScript/JavaScript files)
+                    let def_line_offset = def_metadata.line_offset(&self.db);
+                    let adjusted_range = adjust_range_for_line_offset(range, def_line_offset);
+
+                    Some(vec![Location::new(file_path, adjusted_range)])
                 } else {
                     // Fallback to placeholder if we can't find exact position
+                    // Still need to account for line offset in fallback
+                    let def_line_offset = def_metadata.line_offset(&self.db);
                     Some(vec![Location::new(
                         file_path,
-                        Range::new(Position::new(0, 0), Position::new(0, 0)),
+                        Range::new(
+                            Position::new(def_line_offset, 0),
+                            Position::new(def_line_offset, 0),
+                        ),
                     )])
                 }
             }
@@ -1282,7 +1300,12 @@ impl Analysis {
                 {
                     let def_line_index = graphql_syntax::line_index(&self.db, def_content);
                     let range = offset_range_to_range(&def_line_index, start_offset, end_offset);
-                    Some(vec![Location::new(file_path, range)])
+
+                    // Adjust for line offset (TypeScript/JavaScript files)
+                    let def_line_offset = def_metadata.line_offset(&self.db);
+                    let adjusted_range = adjust_range_for_line_offset(range, def_line_offset);
+
+                    Some(vec![Location::new(file_path, adjusted_range)])
                 } else {
                     None
                 }
@@ -1386,7 +1409,12 @@ impl Analysis {
                         let def_line_index = graphql_syntax::line_index(&self.db, def_content);
                         let range =
                             offset_range_to_range(&def_line_index, start_offset, end_offset);
-                        locations.push(Location::new(file_path, range));
+
+                        // Adjust for line offset (TypeScript/JavaScript files)
+                        let def_line_offset = def_metadata.line_offset(&self.db);
+                        let adjusted_range = adjust_range_for_line_offset(range, def_line_offset);
+
+                        locations.push(Location::new(file_path, adjusted_range));
                     }
                 }
             }
@@ -1409,6 +1437,9 @@ impl Analysis {
                     // Get line index for position conversion
                     let line_index = graphql_syntax::line_index(&self.db, *content);
 
+                    // Get line offset for TypeScript/JavaScript files
+                    let line_offset = metadata.line_offset(&self.db);
+
                     // Convert each offset to a position range
                     for spread_offset in spread_offsets {
                         // For spreads, we want to highlight just the fragment name
@@ -1416,7 +1447,11 @@ impl Analysis {
                         // We'll create a range spanning the fragment name
                         let end_offset = spread_offset + fragment_name.len();
                         let range = offset_range_to_range(&line_index, spread_offset, end_offset);
-                        locations.push(Location::new(file_path.clone(), range));
+
+                        // Adjust for line offset
+                        let adjusted_range = adjust_range_for_line_offset(range, line_offset);
+
+                        locations.push(Location::new(file_path.clone(), adjusted_range));
                     }
                 }
             }
@@ -1459,7 +1494,12 @@ impl Analysis {
                         let def_line_index = graphql_syntax::line_index(&self.db, def_content);
                         let range =
                             offset_range_to_range(&def_line_index, start_offset, end_offset);
-                        locations.push(Location::new(file_path, range));
+
+                        // Adjust for line offset (TypeScript/JavaScript files)
+                        let def_line_offset = def_metadata.line_offset(&self.db);
+                        let adjusted_range = adjust_range_for_line_offset(range, def_line_offset);
+
+                        locations.push(Location::new(file_path, adjusted_range));
                     }
                 }
             }
@@ -1482,6 +1522,9 @@ impl Analysis {
                     // Get line index for position conversion
                     let line_index = graphql_syntax::line_index(&self.db, *content);
 
+                    // Get line offset for TypeScript/JavaScript files
+                    let line_offset = metadata.line_offset(&self.db);
+
                     // Convert each offset to a position range
                     for type_offset in type_offsets {
                         // For type references, we want to highlight just the type name
@@ -1489,7 +1532,11 @@ impl Analysis {
                         // We'll create a range spanning the type name
                         let end_offset = type_offset + type_name.len();
                         let range = offset_range_to_range(&line_index, type_offset, end_offset);
-                        locations.push(Location::new(file_path.clone(), range));
+
+                        // Adjust for line offset
+                        let adjusted_range = adjust_range_for_line_offset(range, line_offset);
+
+                        locations.push(Location::new(file_path.clone(), adjusted_range));
                     }
                 }
             }
