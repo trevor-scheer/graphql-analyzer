@@ -12,3 +12,4 @@ graphql-syntax = { path = "../graphql-syntax" }
 salsa = { workspace = true }
 apollo-parser = { workspace = true }
 apollo-compiler = { workspace = true }
+text-size = "1.1"
