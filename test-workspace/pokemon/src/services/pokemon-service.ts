@@ -1,7 +1,6 @@
-import { gql } from '@apollo/client';
+import { gql } from "@apollo/client";
 
 export const GET_STARTER_POKEMON = gql`
-
   query GetStarterPokemon($region: Region!) {
     allPokemon(region: $region, limit: 3) {
       nodes {
