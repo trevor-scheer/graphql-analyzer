@@ -28,6 +28,7 @@ impl GraphQLAnalysisDatabase for graphql_db::RootDatabase {}
 /// Get validation diagnostics for a file, including syntax errors and
 /// validation errors.
 #[salsa::tracked]
+#[allow(clippy::cast_possible_truncation)] // Line and column numbers won't exceed u32::MAX
 pub fn file_validation_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: graphql_db::FileContent,
@@ -36,11 +37,27 @@ pub fn file_validation_diagnostics(
     let mut diagnostics = Vec::new();
 
     let parse = graphql_syntax::parse(db, content, metadata);
+    let line_index = graphql_syntax::line_index(db, content);
+
     for error in &parse.errors {
+        // Convert byte offset to line/column position
+        let (line, col) = line_index.line_col(error.offset);
+
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
-            message: error.clone().into(),
-            range: DiagnosticRange::default(), // TODO: Parse error positions
+            message: error.message.clone().into(),
+            range: DiagnosticRange {
+                start: Position {
+                    line: line as u32,
+                    character: col as u32,
+                },
+                // For parse errors, we typically don't have an end position,
+                // so use the same position for start and end
+                end: Position {
+                    line: line as u32,
+                    character: col as u32,
+                },
+            },
             source: "graphql-parser".into(),
             code: None,
         });
