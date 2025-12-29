@@ -113,9 +113,8 @@ pub trait GraphQLHirDatabase: graphql_syntax::GraphQLSyntaxDatabase {
 
 #[salsa::db]
 impl GraphQLHirDatabase for graphql_db::RootDatabase {
-    fn project_files(&self) -> Option<graphql_db::ProjectFiles> {
-        Self::project_files(self)
-    }
+    // Uses default implementation (returns None)
+    // Queries should accept ProjectFiles as a parameter instead
 }
 
 /// Get all types in the schema with explicit project files
