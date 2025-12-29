@@ -17,15 +17,29 @@ const fn convert_severity(lint_severity: graphql_linter::LintSeverity) -> Severi
 /// Run lints on a file
 ///
 /// This integrates with the new trait-based graphql-linter API.
-/// This query is automatically memoized by Salsa - it will only re-run when:
-/// - The file content changes
-/// - The file metadata changes
-/// - The lint configuration changes
-#[salsa::tracked]
+/// When `project_files` is `None`, no lints are run.
+/// Memoization happens at the inner function level.
 pub fn lint_file(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
     metadata: FileMetadata,
+    project_files: Option<ProjectFiles>,
+) -> Arc<Vec<Diagnostic>> {
+    let Some(project_files) = project_files else {
+        tracing::debug!("project_files is None, skipping all lints");
+        return Arc::new(Vec::new());
+    };
+
+    lint_file_impl(db, content, metadata, project_files)
+}
+
+/// Internal tracked function for linting with project files
+#[salsa::tracked]
+fn lint_file_impl(
+    db: &dyn GraphQLAnalysisDatabase,
+    content: FileContent,
+    metadata: FileMetadata,
+    project_files: ProjectFiles,
 ) -> Arc<Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
 
@@ -49,41 +63,27 @@ pub fn lint_file(
     // Run lints based on file kind
     match file_kind {
         FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
-            // Get project files for linting
-            let project_files_opt = db.project_files();
-            tracing::debug!(uri = %uri, has_project_files = project_files_opt.is_some(), "Checking project_files");
+            tracing::debug!(uri = %uri, "Running standalone document lints");
+            diagnostics.extend(standalone_document_lints(
+                db,
+                file_id,
+                content,
+                metadata,
+                project_files,
+            ));
 
-            if let Some(project_files) = project_files_opt {
-                tracing::debug!(uri = %uri, "Running standalone document lints");
-                diagnostics.extend(standalone_document_lints(
-                    db,
-                    file_id,
-                    content,
-                    metadata,
-                    project_files,
-                ));
-
-                tracing::debug!(uri = %uri, "Running document+schema lints");
-                diagnostics.extend(document_schema_lints(
-                    db,
-                    file_id,
-                    content,
-                    metadata,
-                    project_files,
-                ));
-            } else {
-                tracing::warn!(uri = %uri, "project_files is None, skipping lints!");
-            }
+            tracing::debug!(uri = %uri, "Running document+schema lints");
+            diagnostics.extend(document_schema_lints(
+                db,
+                file_id,
+                content,
+                metadata,
+                project_files,
+            ));
         }
         FileKind::Schema => {
-            // Run schema lints (naming conventions, design patterns, etc.)
-            let project_files_opt = db.project_files();
-            if let Some(project_files) = project_files_opt {
-                tracing::debug!(uri = %uri, "Running schema lints");
-                diagnostics.extend(schema_lints(db, file_id, content, metadata, project_files));
-            } else {
-                tracing::debug!(uri = %uri, "project_files is None, skipping schema lints");
-            }
+            tracing::debug!(uri = %uri, "Running schema lints");
+            diagnostics.extend(schema_lints(db, file_id, content, metadata, project_files));
         }
     }
 
@@ -235,14 +235,27 @@ fn schema_lints(
     diagnostics
 }
 
-#[salsa::tracked]
+/// Run project-wide lint rules
+///
+/// When `project_files` is `None`, returns an empty map.
+/// Memoization happens at the inner function level.
 pub fn project_lint_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
+    project_files: Option<ProjectFiles>,
 ) -> Arc<HashMap<FileId, Vec<Diagnostic>>> {
-    let Some(project_files) = db.project_files() else {
+    let Some(project_files) = project_files else {
         return Arc::new(HashMap::new());
     };
 
+    project_lint_diagnostics_impl(db, project_files)
+}
+
+/// Internal tracked function for project-wide linting
+#[salsa::tracked]
+fn project_lint_diagnostics_impl(
+    db: &dyn GraphQLAnalysisDatabase,
+    project_files: ProjectFiles,
+) -> Arc<HashMap<FileId, Vec<Diagnostic>>> {
     let lint_config = db.lint_config();
     let mut diagnostics_by_file: HashMap<FileId, Vec<Diagnostic>> = HashMap::new();
 

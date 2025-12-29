@@ -27,9 +27,27 @@ impl GraphQLAnalysisDatabase for graphql_db::RootDatabase {}
 
 /// Get validation diagnostics for a file, including syntax errors and
 /// validation errors.
-#[salsa::tracked]
+///
+/// This is the public API that accepts an optional `ProjectFiles`.
+/// When `project_files` is `None`, only syntax errors are returned.
 #[allow(clippy::cast_possible_truncation)] // Line and column numbers won't exceed u32::MAX
 pub fn file_validation_diagnostics(
+    db: &dyn GraphQLAnalysisDatabase,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+    project_files: Option<graphql_db::ProjectFiles>,
+) -> Arc<Vec<Diagnostic>> {
+    // Without project files, we can only report syntax errors
+    project_files.map_or_else(
+        || syntax_diagnostics(db, content, metadata),
+        |pf| file_validation_diagnostics_impl(db, content, metadata, pf),
+    )
+}
+
+/// Get only syntax errors for a file (no validation against schema)
+#[salsa::tracked]
+#[allow(clippy::cast_possible_truncation)]
+fn syntax_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: graphql_db::FileContent,
     metadata: graphql_db::FileMetadata,
@@ -40,7 +58,6 @@ pub fn file_validation_diagnostics(
     let line_index = graphql_syntax::line_index(db, content);
 
     for error in &parse.errors {
-        // Convert byte offset to line/column position
         let (line, col) = line_index.line_col(error.offset);
 
         diagnostics.push(Diagnostic {
@@ -51,8 +68,6 @@ pub fn file_validation_diagnostics(
                     line: line as u32,
                     character: col as u32,
                 },
-                // For parse errors, we typically don't have an end position,
-                // so use the same position for start and end
                 end: Position {
                     line: line as u32,
                     character: col as u32,
@@ -63,41 +78,72 @@ pub fn file_validation_diagnostics(
         });
     }
 
-    let project_files_opt = db.project_files();
-    tracing::debug!(
-        has_project_files = project_files_opt.is_some(),
-        "Checking for project files"
-    );
-    if let Some(project_files) = project_files_opt {
-        use graphql_db::FileKind;
-        let file_kind = metadata.kind(db);
-        tracing::info!(
-            uri = ?metadata.uri(db),
-            ?file_kind,
-            "Determining validation path for file"
-        );
+    Arc::new(diagnostics)
+}
 
-        match file_kind {
-            FileKind::Schema => {
-                tracing::info!("Running schema validation");
-                let schema_diagnostics =
-                    schema_validation::validate_schema_file(db, content, metadata);
-                tracing::info!(
-                    schema_diagnostic_count = schema_diagnostics.len(),
-                    "Schema validation completed"
-                );
-                diagnostics.extend(schema_diagnostics.iter().cloned());
-            }
-            FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
-                tracing::info!("Running document validation");
-                let doc_diagnostics =
-                    validation::validate_document(db, content, metadata, project_files);
-                tracing::info!(
-                    document_diagnostic_count = doc_diagnostics.len(),
-                    "Document validation completed"
-                );
-                diagnostics.extend(doc_diagnostics.iter().cloned());
-            }
+/// Internal tracked function for validation with project files
+#[salsa::tracked]
+#[allow(clippy::cast_possible_truncation)]
+fn file_validation_diagnostics_impl(
+    db: &dyn GraphQLAnalysisDatabase,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+    project_files: graphql_db::ProjectFiles,
+) -> Arc<Vec<Diagnostic>> {
+    use graphql_db::FileKind;
+
+    let mut diagnostics = Vec::new();
+
+    let parse = graphql_syntax::parse(db, content, metadata);
+    let line_index = graphql_syntax::line_index(db, content);
+
+    for error in &parse.errors {
+        let (line, col) = line_index.line_col(error.offset);
+
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            message: error.message.clone().into(),
+            range: DiagnosticRange {
+                start: Position {
+                    line: line as u32,
+                    character: col as u32,
+                },
+                end: Position {
+                    line: line as u32,
+                    character: col as u32,
+                },
+            },
+            source: "graphql-parser".into(),
+            code: None,
+        });
+    }
+
+    let file_kind = metadata.kind(db);
+    tracing::info!(
+        uri = ?metadata.uri(db),
+        ?file_kind,
+        "Determining validation path for file"
+    );
+
+    match file_kind {
+        FileKind::Schema => {
+            tracing::info!("Running schema validation");
+            let schema_diagnostics = schema_validation::validate_schema_file(db, content, metadata);
+            tracing::info!(
+                schema_diagnostic_count = schema_diagnostics.len(),
+                "Schema validation completed"
+            );
+            diagnostics.extend(schema_diagnostics.iter().cloned());
+        }
+        FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
+            tracing::info!("Running document validation");
+            let doc_diagnostics =
+                validation::validate_document(db, content, metadata, project_files);
+            tracing::info!(
+                document_diagnostic_count = doc_diagnostics.len(),
+                "Document validation completed"
+            );
+            diagnostics.extend(doc_diagnostics.iter().cloned());
         }
     }
 
@@ -105,22 +151,25 @@ pub fn file_validation_diagnostics(
 }
 
 /// Get all diagnostics for a file (validation + linting)
-#[salsa::tracked]
+///
+/// This is the public API that accepts an optional `ProjectFiles`.
+/// Memoization happens at the inner function level.
 pub fn file_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: graphql_db::FileContent,
     metadata: graphql_db::FileMetadata,
+    project_files: Option<graphql_db::ProjectFiles>,
 ) -> Arc<Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
 
     diagnostics.extend(
-        file_validation_diagnostics(db, content, metadata)
+        file_validation_diagnostics(db, content, metadata, project_files)
             .iter()
             .cloned(),
     );
 
     diagnostics.extend(
-        lint_integration::lint_file(db, content, metadata)
+        lint_integration::lint_file(db, content, metadata, project_files)
             .iter()
             .cloned(),
     );
@@ -167,8 +216,8 @@ mod tests {
             FileKind::Schema,
         );
 
-        // Get diagnostics
-        let diagnostics = file_diagnostics(&db, content, metadata);
+        // Get diagnostics (no project_files, so only syntax errors would be reported)
+        let diagnostics = file_diagnostics(&db, content, metadata, None);
 
         // Should have no diagnostics for valid schema
         // Note: This will work once we implement the parse query properly
