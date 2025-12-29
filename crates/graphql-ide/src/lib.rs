@@ -605,8 +605,8 @@ impl AnalysisHost {
         let project_files = self.registry.read().unwrap().project_files();
 
         if let Some(ref project_files) = project_files {
-            let doc_count = project_files.document_files(&self.db).len();
-            let schema_count = project_files.schema_files(&self.db).len();
+            let doc_count = project_files.document_files(&self.db).files(&self.db).len();
+            let schema_count = project_files.schema_files(&self.db).files(&self.db).len();
             tracing::debug!(
                 "Snapshot project_files: {} schema files, {} document files",
                 schema_count,
@@ -1441,7 +1441,8 @@ impl Analysis {
         }
 
         // Search through all document files for fragment spreads
-        let document_files = project_files.document_files(&self.db);
+        let document_files_input = project_files.document_files(&self.db);
+        let document_files = document_files_input.files(&self.db);
 
         for (file_id, content, metadata) in document_files.iter() {
             // Parse the document
@@ -1526,7 +1527,8 @@ impl Analysis {
         }
 
         // Search through all schema files for type references
-        let schema_files = project_files.schema_files(&self.db);
+        let schema_files_input = project_files.schema_files(&self.db);
+        let schema_files = schema_files_input.files(&self.db);
 
         for (file_id, content, metadata) in schema_files.iter() {
             // Parse the schema file
@@ -1777,7 +1779,8 @@ impl Analysis {
         }
 
         // Search operations from document files
-        let document_files = project_files.document_files(&self.db);
+        let document_files_input = project_files.document_files(&self.db);
+        let document_files = document_files_input.files(&self.db);
         for (file_id, content, metadata) in document_files.iter() {
             let structure = graphql_hir::file_structure(&self.db, *file_id, *content, *metadata);
             for operation in &structure.operations {

@@ -234,11 +234,10 @@ mod tests {
         );
 
         // Set up project files
-        let project_files = graphql_db::ProjectFiles::new(
-            &db,
-            Arc::new(Vec::new()), // No schema files
-            Arc::new(vec![(file_id, content, metadata)]),
-        );
+        let schema_files = graphql_db::SchemaFiles::new(&db, Arc::new(Vec::new()));
+        let document_files =
+            graphql_db::DocumentFiles::new(&db, Arc::new(vec![(file_id, content, metadata)]));
+        let project_files = graphql_db::ProjectFiles::new(&db, schema_files, document_files);
         db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, content, metadata);
@@ -279,11 +278,15 @@ mod tests {
         );
 
         // Set up project files with schema and document
-        let project_files = graphql_db::ProjectFiles::new(
+        let schema_files = graphql_db::SchemaFiles::new(
             &db,
             Arc::new(vec![(schema_file_id, schema_fc, schema_metadata)]),
+        );
+        let document_files = graphql_db::DocumentFiles::new(
+            &db,
             Arc::new(vec![(doc_file_id, doc_fc, doc_metadata)]),
         );
+        let project_files = graphql_db::ProjectFiles::new(&db, schema_files, document_files);
         db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, doc_fc, doc_metadata);
@@ -312,11 +315,10 @@ mod tests {
         );
 
         // Set up project files
-        let project_files = graphql_db::ProjectFiles::new(
-            &db,
-            Arc::new(Vec::new()), // No schema files
-            Arc::new(vec![(file_id, content, metadata)]),
-        );
+        let schema_files = graphql_db::SchemaFiles::new(&db, Arc::new(Vec::new()));
+        let document_files =
+            graphql_db::DocumentFiles::new(&db, Arc::new(vec![(file_id, content, metadata)]));
+        let project_files = graphql_db::ProjectFiles::new(&db, schema_files, document_files);
         db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, content, metadata);
@@ -357,11 +359,15 @@ mod tests {
         );
 
         // Set up project files with schema and document
-        let project_files = graphql_db::ProjectFiles::new(
+        let schema_files = graphql_db::SchemaFiles::new(
             &db,
             Arc::new(vec![(schema_file_id, schema_fc, schema_metadata)]),
+        );
+        let document_files = graphql_db::DocumentFiles::new(
+            &db,
             Arc::new(vec![(doc_file_id, doc_fc, doc_metadata)]),
         );
+        let project_files = graphql_db::ProjectFiles::new(&db, schema_files, document_files);
         db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, doc_fc, doc_metadata);
@@ -391,11 +397,10 @@ mod tests {
         );
 
         // Set up project files
-        let project_files = graphql_db::ProjectFiles::new(
-            &db,
-            Arc::new(Vec::new()), // No schema files
-            Arc::new(vec![(file_id, content, metadata)]),
-        );
+        let schema_files = graphql_db::SchemaFiles::new(&db, Arc::new(Vec::new()));
+        let document_files =
+            graphql_db::DocumentFiles::new(&db, Arc::new(vec![(file_id, content, metadata)]));
+        let project_files = graphql_db::ProjectFiles::new(&db, schema_files, document_files);
         db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, content, metadata);
@@ -445,11 +450,15 @@ mod tests {
         );
 
         // Set up project files with schema and document
-        let project_files = graphql_db::ProjectFiles::new(
+        let schema_files = graphql_db::SchemaFiles::new(
             &db,
             Arc::new(vec![(schema_file_id, schema_fc, schema_metadata)]),
+        );
+        let document_files = graphql_db::DocumentFiles::new(
+            &db,
             Arc::new(vec![(doc_file_id, doc_fc, doc_metadata)]),
         );
+        let project_files = graphql_db::ProjectFiles::new(&db, schema_files, document_files);
         db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, doc_fc, doc_metadata);

@@ -227,7 +227,9 @@ mod tests {
     use std::sync::Arc;
 
     fn create_test_project_files(db: &RootDatabase) -> ProjectFiles {
-        ProjectFiles::new(db, Arc::new(vec![]), Arc::new(vec![]))
+        let schema_files = graphql_db::SchemaFiles::new(db, Arc::new(vec![]));
+        let document_files = graphql_db::DocumentFiles::new(db, Arc::new(vec![]));
+        ProjectFiles::new(db, schema_files, document_files)
     }
 
     #[test]

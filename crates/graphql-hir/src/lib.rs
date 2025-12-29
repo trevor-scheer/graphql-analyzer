@@ -86,16 +86,23 @@ pub trait GraphQLHirDatabase: graphql_syntax::GraphQLSyntaxDatabase {
         None
     }
 
+    /// Get the schema files input
+    fn schema_files_input(&self) -> Option<graphql_db::SchemaFiles> {
+        self.project_files().map(|pf| pf.schema_files(self))
+    }
+
+    /// Get the document files input
+    fn document_files_input(&self) -> Option<graphql_db::DocumentFiles> {
+        self.project_files().map(|pf| pf.document_files(self))
+    }
+
     /// Get all schema files in the project
     /// Returns tuples of (`FileId`, `FileContent`, `FileMetadata`)
     fn schema_files(
         &self,
     ) -> Arc<Vec<(FileId, graphql_db::FileContent, graphql_db::FileMetadata)>> {
-        let Some(project_files) = self.project_files() else {
-            return Arc::new(Vec::new());
-        };
-
-        project_files.schema_files(self)
+        self.schema_files_input()
+            .map_or_else(|| Arc::new(Vec::new()), |sf| sf.files(self))
     }
 
     /// Get all document files in the project
@@ -103,11 +110,8 @@ pub trait GraphQLHirDatabase: graphql_syntax::GraphQLSyntaxDatabase {
     fn document_files(
         &self,
     ) -> Arc<Vec<(FileId, graphql_db::FileContent, graphql_db::FileMetadata)>> {
-        let Some(project_files) = self.project_files() else {
-            return Arc::new(Vec::new());
-        };
-
-        project_files.document_files(self)
+        self.document_files_input()
+            .map_or_else(|| Arc::new(Vec::new()), |df| df.files(self))
     }
 }
 
@@ -117,17 +121,18 @@ impl GraphQLHirDatabase for graphql_db::RootDatabase {
     // Queries should accept ProjectFiles as a parameter instead
 }
 
-/// Get all types in the schema with explicit project files
-/// This query depends on all schema file structures
+/// Get all types in the schema with explicit schema files input
+/// This query depends ONLY on schema files, not document files.
+/// Changing document files will not invalidate this query.
 #[salsa::tracked]
-pub fn schema_types_with_project(
+pub fn schema_types(
     db: &dyn GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
+    schema_files: graphql_db::SchemaFiles,
 ) -> Arc<HashMap<Arc<str>, TypeDef>> {
-    let schema_files = project_files.schema_files(db);
+    let files = schema_files.files(db);
     let mut types = HashMap::new();
 
-    for (file_id, content, metadata) in schema_files.iter() {
+    for (file_id, content, metadata) in files.iter() {
         let structure = file_structure(db, *file_id, *content, *metadata);
         for type_def in &structure.type_defs {
             types.insert(type_def.name.clone(), type_def.clone());
@@ -137,17 +142,28 @@ pub fn schema_types_with_project(
     Arc::new(types)
 }
 
-/// Get all fragments in the project
-/// This query depends on all document file structures
+/// Get all types in the schema with explicit project files
+/// This is a convenience wrapper that extracts `SchemaFiles` from `ProjectFiles`
 #[salsa::tracked]
-pub fn all_fragments_with_project(
+pub fn schema_types_with_project(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, TypeDef>> {
+    schema_types(db, project_files.schema_files(db))
+}
+
+/// Get all fragments in the project with explicit document files input
+/// This query depends ONLY on document files, not schema files.
+/// Changing schema files will not invalidate this query.
+#[salsa::tracked]
+pub fn all_fragments(
+    db: &dyn GraphQLHirDatabase,
+    document_files: graphql_db::DocumentFiles,
 ) -> Arc<HashMap<Arc<str>, FragmentStructure>> {
-    let document_files = project_files.document_files(db);
+    let files = document_files.files(db);
     let mut fragments = HashMap::new();
 
-    for (file_id, content, metadata) in document_files.iter() {
+    for (file_id, content, metadata) in files.iter() {
         let structure = file_structure(db, *file_id, *content, *metadata);
         for fragment in &structure.fragments {
             fragments.insert(fragment.name.clone(), fragment.clone());
@@ -157,17 +173,28 @@ pub fn all_fragments_with_project(
     Arc::new(fragments)
 }
 
-/// Index mapping fragment names to their file content and metadata
-/// This allows O(1) lookup of fragment definitions without re-parsing files
+/// Get all fragments in the project with explicit project files
+/// This is a convenience wrapper that extracts `DocumentFiles` from `ProjectFiles`
 #[salsa::tracked]
-pub fn fragment_file_index(
+pub fn all_fragments_with_project(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, FragmentStructure>> {
+    all_fragments(db, project_files.document_files(db))
+}
+
+/// Index mapping fragment names to their file content and metadata (with `DocumentFiles` input)
+/// This allows O(1) lookup of fragment definitions without re-parsing files.
+/// Depends ONLY on document files, not schema files.
+#[salsa::tracked]
+pub fn fragment_file_index_with_docs(
+    db: &dyn GraphQLHirDatabase,
+    document_files: graphql_db::DocumentFiles,
 ) -> Arc<HashMap<Arc<str>, (graphql_db::FileContent, graphql_db::FileMetadata)>> {
-    let document_files = project_files.document_files(db);
+    let files = document_files.files(db);
     let mut index = HashMap::new();
 
-    for (_file_id, content, metadata) in document_files.iter() {
+    for (_file_id, content, metadata) in files.iter() {
         let structure = file_structure(db, metadata.file_id(db), *content, *metadata);
         for fragment in &structure.fragments {
             index.insert(fragment.name.clone(), (*content, *metadata));
@@ -177,17 +204,28 @@ pub fn fragment_file_index(
     Arc::new(index)
 }
 
-/// Index mapping fragment names to the fragments they reference (spread)
-/// This allows efficient transitive fragment resolution without re-parsing
+/// Index mapping fragment names to their file content and metadata
+/// Convenience wrapper that extracts `DocumentFiles` from `ProjectFiles`
 #[salsa::tracked]
-pub fn fragment_spreads_index(
+pub fn fragment_file_index(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, (graphql_db::FileContent, graphql_db::FileMetadata)>> {
+    fragment_file_index_with_docs(db, project_files.document_files(db))
+}
+
+/// Index mapping fragment names to the fragments they reference (with `DocumentFiles` input)
+/// This allows efficient transitive fragment resolution without re-parsing.
+/// Depends ONLY on document files, not schema files.
+#[salsa::tracked]
+pub fn fragment_spreads_index_with_docs(
+    db: &dyn GraphQLHirDatabase,
+    document_files: graphql_db::DocumentFiles,
 ) -> Arc<HashMap<Arc<str>, std::collections::HashSet<Arc<str>>>> {
-    let document_files = project_files.document_files(db);
+    let files = document_files.files(db);
     let mut index = HashMap::new();
 
-    for (_file_id, content, metadata) in document_files.iter() {
+    for (_file_id, content, metadata) in files.iter() {
         let structure = file_structure(db, metadata.file_id(db), *content, *metadata);
         for fragment in &structure.fragments {
             // Get the fragment body to find its spreads
@@ -197,6 +235,16 @@ pub fn fragment_spreads_index(
     }
 
     Arc::new(index)
+}
+
+/// Index mapping fragment names to the fragments they reference (spread)
+/// Convenience wrapper that extracts `DocumentFiles` from `ProjectFiles`
+#[salsa::tracked]
+pub fn fragment_spreads_index(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, std::collections::HashSet<Arc<str>>>> {
+    fragment_spreads_index_with_docs(db, project_files.document_files(db))
 }
 
 /// Get all operations in the project
@@ -238,8 +286,9 @@ mod tests {
     #[test]
     fn test_schema_types_empty() {
         let db = TestDatabase::default();
-        let project_files =
-            graphql_db::ProjectFiles::new(&db, Arc::new(Vec::new()), Arc::new(Vec::new()));
+        let schema_files = graphql_db::SchemaFiles::new(&db, Arc::new(Vec::new()));
+        let document_files = graphql_db::DocumentFiles::new(&db, Arc::new(Vec::new()));
+        let project_files = graphql_db::ProjectFiles::new(&db, schema_files, document_files);
         let types = schema_types_with_project(&db, project_files);
         assert_eq!(types.len(), 0);
     }

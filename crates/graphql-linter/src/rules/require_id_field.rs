@@ -349,7 +349,8 @@ fn fragment_contains_id(
 
     // We need to get the file content and metadata to parse it
     // Use project_files directly (not db.document_files() which uses db.project_files())
-    let document_files = context.project_files.document_files(context.db);
+    let document_files_input = context.project_files.document_files(context.db);
+    let document_files = document_files_input.files(context.db);
 
     let Some((file_content, file_metadata)) = document_files
         .iter()
@@ -494,11 +495,15 @@ mod tests {
             document_kind,
         );
 
-        let project_files = ProjectFiles::new(
+        let schema_files = graphql_db::SchemaFiles::new(
             db,
             Arc::new(vec![(schema_file_id, schema_content, schema_metadata)]),
+        );
+        let document_files = graphql_db::DocumentFiles::new(
+            db,
             Arc::new(vec![(doc_file_id, doc_content, doc_metadata)]),
         );
+        let project_files = ProjectFiles::new(db, schema_files, document_files);
 
         (doc_file_id, doc_content, doc_metadata, project_files)
     }

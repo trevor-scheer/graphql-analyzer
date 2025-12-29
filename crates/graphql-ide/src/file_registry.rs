@@ -3,7 +3,9 @@
 //! This module provides the bridge between editor file paths (strings/URIs)
 //! and salsa database file identifiers.
 
-use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+use graphql_db::{
+    DocumentFiles, FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles, SchemaFiles,
+};
 use salsa::Setter;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,6 +23,10 @@ pub struct FileRegistry {
     id_to_uri: HashMap<FileId, String>,
     id_to_content: HashMap<FileId, FileContent>,
     id_to_metadata: HashMap<FileId, FileMetadata>,
+    /// Separate input for schema files (enables fine-grained invalidation)
+    schema_files: Option<SchemaFiles>,
+    /// Separate input for document files (enables fine-grained invalidation)
+    document_files: Option<DocumentFiles>,
     /// The `ProjectFiles` input that tracks all files in the project
     project_files: Option<ProjectFiles>,
 }
@@ -146,8 +152,8 @@ impl FileRegistry {
     where
         DB: salsa::Database,
     {
-        let mut schema_files = Vec::new();
-        let mut document_files = Vec::new();
+        let mut schema_file_list = Vec::new();
+        let mut document_file_list = Vec::new();
 
         // Collect all file data first without calling db methods
         let file_data: Vec<_> = self
@@ -164,23 +170,40 @@ impl FileRegistry {
             let tuple = (file_id, content, metadata);
 
             match metadata.kind(db) {
-                FileKind::Schema => schema_files.push(tuple),
+                FileKind::Schema => schema_file_list.push(tuple),
                 FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
-                    document_files.push(tuple);
+                    document_file_list.push(tuple);
                 }
             }
         }
 
+        // Create or update the SchemaFiles input
+        let schema_files = if let Some(existing) = self.schema_files {
+            existing.set_files(db).to(Arc::new(schema_file_list));
+            existing
+        } else {
+            SchemaFiles::new(db, Arc::new(schema_file_list))
+        };
+        self.schema_files = Some(schema_files);
+
+        // Create or update the DocumentFiles input
+        let document_files = if let Some(existing) = self.document_files {
+            existing.set_files(db).to(Arc::new(document_file_list));
+            existing
+        } else {
+            DocumentFiles::new(db, Arc::new(document_file_list))
+        };
+        self.document_files = Some(document_files);
+
         // Create or update the ProjectFiles input
         let project_files = if let Some(existing) = self.project_files {
-            // Update existing input
-            use salsa::Setter;
-            existing.set_schema_files(db).to(Arc::new(schema_files));
-            existing.set_document_files(db).to(Arc::new(document_files));
+            // Update existing input to point to (potentially new) SchemaFiles/DocumentFiles
+            existing.set_schema_files(db).to(schema_files);
+            existing.set_document_files(db).to(document_files);
             existing
         } else {
             // Create new input
-            ProjectFiles::new(db, Arc::new(schema_files), Arc::new(document_files))
+            ProjectFiles::new(db, schema_files, document_files)
         };
 
         self.project_files = Some(project_files);

@@ -59,7 +59,8 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
 
         // Step 2: Collect all used fields from operations and fragments
         let mut used_fields: HashMap<String, HashSet<String>> = HashMap::new();
-        let document_files = project_files.document_files(db);
+        let document_files_input = project_files.document_files(db);
+        let document_files = document_files_input.files(db);
 
         // Determine root types for skipping
         let root_types = get_root_type_names(db, &schema_types);

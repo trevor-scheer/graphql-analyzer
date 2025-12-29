@@ -84,11 +84,11 @@ fn create_project_files(db: &RootDatabase) -> ProjectFiles {
         FileKind::ExecutableGraphQL,
     );
 
-    ProjectFiles::new(
-        db,
-        Arc::new(vec![(schema_id, schema_content, schema_meta)]),
-        Arc::new(vec![(doc_id, doc_content, doc_meta)]),
-    )
+    let schema_files =
+        graphql_db::SchemaFiles::new(db, Arc::new(vec![(schema_id, schema_content, schema_meta)]));
+    let document_files =
+        graphql_db::DocumentFiles::new(db, Arc::new(vec![(doc_id, doc_content, doc_meta)]));
+    ProjectFiles::new(db, schema_files, document_files)
 }
 
 /// Parse benchmarks
@@ -198,11 +198,15 @@ fn bench_golden_invariant(c: &mut Criterion) {
                     FileKind::ExecutableGraphQL,
                 );
 
-                let project_files = ProjectFiles::new(
+                let schema_files = graphql_db::SchemaFiles::new(
                     &db,
                     Arc::new(vec![(schema_id, schema_content, schema_meta)]),
+                );
+                let document_files = graphql_db::DocumentFiles::new(
+                    &db,
                     Arc::new(vec![(doc_id, doc_content, doc_meta)]),
                 );
+                let project_files = ProjectFiles::new(&db, schema_files, document_files);
 
                 // Cache schema types
                 let _ = graphql_hir::schema_types_with_project(&db, project_files);
@@ -261,11 +265,15 @@ fn bench_fragment_resolution_cold(c: &mut Criterion) {
                     FileKind::ExecutableGraphQL,
                 );
 
-                let project_files = ProjectFiles::new(
+                let schema_files = graphql_db::SchemaFiles::new(
                     &db,
                     Arc::new(vec![(schema_id, schema_content, schema_meta)]),
+                );
+                let document_files = graphql_db::DocumentFiles::new(
+                    &db,
                     Arc::new(vec![(doc_id, doc_content, doc_meta)]),
                 );
+                let project_files = ProjectFiles::new(&db, schema_files, document_files);
 
                 (db, project_files)
             },
@@ -301,11 +309,13 @@ fn bench_fragment_resolution_warm(c: &mut Criterion) {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
+        let schema_files = graphql_db::SchemaFiles::new(
             &db,
             Arc::new(vec![(schema_id, schema_content, schema_meta)]),
-            Arc::new(vec![(doc_id, doc_content, doc_meta)]),
         );
+        let document_files =
+            graphql_db::DocumentFiles::new(&db, Arc::new(vec![(doc_id, doc_content, doc_meta)]));
+        let project_files = ProjectFiles::new(&db, schema_files, document_files);
 
         let _ = graphql_hir::all_fragments_with_project(&db, project_files);
 
