@@ -29,7 +29,8 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
 
         // Step 1: Collect all fragment definitions
-        let document_files = project_files.document_files(db);
+        let document_files_input = project_files.document_files(db);
+        let document_files = document_files_input.files(db);
         let mut all_fragments: HashMap<String, Vec<FileId>> = HashMap::new();
 
         for (file_id, content, metadata) in document_files.iter() {

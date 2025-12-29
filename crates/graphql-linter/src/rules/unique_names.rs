@@ -29,7 +29,8 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
 
         // Collect all operations with their locations
-        let document_files = project_files.document_files(db);
+        let document_files_input = project_files.document_files(db);
+        let document_files = document_files_input.files(db);
         let mut operations_by_name: HashMap<String, Vec<(FileId, usize)>> = HashMap::new();
 
         for (file_id, content, metadata) in document_files.iter() {

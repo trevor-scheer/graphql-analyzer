@@ -176,7 +176,8 @@ pub fn operation_transitive_fragments(
         // Look up the fragment and get its body
         if all_fragments.contains_key(&frag_name) {
             // Find the fragment's file content and metadata
-            let document_files = project_files.document_files(db);
+            let document_files_input = project_files.document_files(db);
+            let document_files = document_files_input.files(db);
             for (_, content, metadata) in document_files.iter() {
                 let frag_body = fragment_body(db, *content, *metadata, frag_name.clone());
 
@@ -528,11 +529,10 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
-            &db,
-            Arc::new(Vec::new()),
-            Arc::new(vec![(file_id, content, metadata)]),
-        );
+        let schema_files = graphql_db::SchemaFiles::new(&db, Arc::new(Vec::new()));
+        let document_files =
+            graphql_db::DocumentFiles::new(&db, Arc::new(vec![(file_id, content, metadata)]));
+        let project_files = ProjectFiles::new(&db, schema_files, document_files);
 
         let transitive = operation_transitive_fragments(&db, content, metadata, 0, project_files);
 

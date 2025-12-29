@@ -36,7 +36,8 @@ pub fn find_unused_fragments(
         .project_files()
         .expect("project files must be set for project-wide analysis");
     let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
-    let document_files = project_files.document_files(db);
+    let document_files_input = project_files.document_files(db);
+    let document_files = document_files_input.files(db);
 
     let mut used_fragments = HashSet::new();
 

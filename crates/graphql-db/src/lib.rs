@@ -76,15 +76,38 @@ pub struct FileMetadata {
     pub line_offset: u32,
 }
 
+/// Input: Schema file list
+/// Tracks which schema files are in the project
+/// This is a separate input from DocumentFiles to enable fine-grained invalidation:
+/// changing document files won't invalidate queries that only depend on schema files
+#[salsa::input]
+pub struct SchemaFiles {
+    /// List of schema files with their content and metadata
+    pub files: Arc<Vec<(FileId, FileContent, FileMetadata)>>,
+}
+
+/// Input: Document file list
+/// Tracks which document files (operations/fragments) are in the project
+/// This is a separate input from SchemaFiles to enable fine-grained invalidation:
+/// changing schema files won't invalidate queries that only depend on document files
+#[salsa::input]
+pub struct DocumentFiles {
+    /// List of document files with their content and metadata
+    pub files: Arc<Vec<(FileId, FileContent, FileMetadata)>>,
+}
+
 /// Input: Project file lists
 /// Tracks which files are in the project, categorized by kind
 /// This is updated by the IDE layer when files are added/removed
+///
+/// Note: This struct now just holds references to the separate SchemaFiles and DocumentFiles
+/// inputs. Queries should prefer using the specific input they need to minimize invalidation scope.
 #[salsa::input]
 pub struct ProjectFiles {
-    /// List of schema files with their content and metadata
-    pub schema_files: Arc<Vec<(FileId, FileContent, FileMetadata)>>,
-    /// List of document files with their content and metadata
-    pub document_files: Arc<Vec<(FileId, FileContent, FileMetadata)>>,
+    /// Schema files input
+    pub schema_files: SchemaFiles,
+    /// Document files input
+    pub document_files: DocumentFiles,
 }
 
 /// The root salsa database

@@ -349,7 +349,9 @@ mod tests {
         );
 
         // Empty project files (no schema)
-        let project_files = ProjectFiles::new(&db, Arc::new(vec![]), Arc::new(vec![]));
+        let schema_files = graphql_db::SchemaFiles::new(&db, Arc::new(vec![]));
+        let document_files = graphql_db::DocumentFiles::new(&db, Arc::new(vec![]));
+        let project_files = ProjectFiles::new(&db, schema_files, document_files);
 
         let diagnostics = validate_document(&db, content, metadata, project_files);
         assert_eq!(
@@ -387,11 +389,15 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
+        let schema_files = graphql_db::SchemaFiles::new(
             &db,
             Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
+        );
+        let document_files = graphql_db::DocumentFiles::new(
+            &db,
             Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
         );
+        let project_files = ProjectFiles::new(&db, schema_files, document_files);
 
         let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
         assert_eq!(
@@ -429,11 +435,15 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
+        let schema_files = graphql_db::SchemaFiles::new(
             &db,
             Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
+        );
+        let document_files = graphql_db::DocumentFiles::new(
+            &db,
             Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
         );
+        let project_files = ProjectFiles::new(&db, schema_files, document_files);
 
         let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
         assert!(
@@ -472,11 +482,15 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
+        let schema_files = graphql_db::SchemaFiles::new(
             &db,
             Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
+        );
+        let document_files = graphql_db::DocumentFiles::new(
+            &db,
             Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
         );
+        let project_files = ProjectFiles::new(&db, schema_files, document_files);
 
         let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
         assert!(
@@ -515,11 +529,15 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
+        let schema_files = graphql_db::SchemaFiles::new(
             &db,
             Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
+        );
+        let document_files = graphql_db::DocumentFiles::new(
+            &db,
             Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
         );
+        let project_files = ProjectFiles::new(&db, schema_files, document_files);
 
         let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
         assert_eq!(
@@ -554,11 +572,15 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
+        let schema_files = graphql_db::SchemaFiles::new(
             &db,
             Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
+        );
+        let document_files = graphql_db::DocumentFiles::new(
+            &db,
             Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
         );
+        let project_files = ProjectFiles::new(&db, schema_files, document_files);
 
         let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
         assert!(
@@ -597,11 +619,15 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
+        let schema_files = graphql_db::SchemaFiles::new(
             &db,
             Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
+        );
+        let document_files = graphql_db::DocumentFiles::new(
+            &db,
             Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
         );
+        let project_files = ProjectFiles::new(&db, schema_files, document_files);
 
         let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
         assert!(
@@ -654,14 +680,18 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
+        let schema_files = graphql_db::SchemaFiles::new(
             &db,
             Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
+        );
+        let document_files = graphql_db::DocumentFiles::new(
+            &db,
             Arc::new(vec![
                 (frag_id, frag_content, frag_metadata),
                 (query_id, query_content, query_metadata),
             ]),
         );
+        let project_files = ProjectFiles::new(&db, schema_files, document_files);
 
         // Validate the query - it should find the fragment from the other file
         let diagnostics = validate_document(&db, query_content, query_metadata, project_files);
@@ -700,11 +730,15 @@ mod tests {
         // Set line offset to simulate extraction from line 10 in TypeScript file
         doc_metadata.set_line_offset(&mut db).to(10);
 
-        let project_files = ProjectFiles::new(
+        let schema_files = graphql_db::SchemaFiles::new(
             &db,
             Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
+        );
+        let document_files = graphql_db::DocumentFiles::new(
+            &db,
             Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
         );
+        let project_files = ProjectFiles::new(&db, schema_files, document_files);
 
         let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
         assert!(!diagnostics.is_empty(), "Expected validation errors");

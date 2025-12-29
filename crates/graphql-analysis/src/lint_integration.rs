@@ -326,14 +326,16 @@ fn find_file_content_and_metadata(
     file_id: FileId,
 ) -> Option<(FileContent, FileMetadata)> {
     // Search in document files
-    for (fid, content, metadata) in project_files.document_files(db).iter() {
+    let document_files = project_files.document_files(db).files(db);
+    for (fid, content, metadata) in document_files.iter() {
         if *fid == file_id {
             return Some((*content, *metadata));
         }
     }
 
     // Search in schema files
-    for (fid, content, metadata) in project_files.schema_files(db).iter() {
+    let schema_files = project_files.schema_files(db).files(db);
+    for (fid, content, metadata) in schema_files.iter() {
         if *fid == file_id {
             return Some((*content, *metadata));
         }
