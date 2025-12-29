@@ -63,7 +63,6 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
         // Create context for fragment resolution
         let check_context = CheckContext {
             db,
-            project_files,
             schema_types: &schema_types,
             types_with_id: &types_with_id,
             all_fragments: &all_fragments,
@@ -131,7 +130,6 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
 /// Context for checking selection sets with fragment resolution
 struct CheckContext<'a> {
     db: &'a dyn graphql_hir::GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
     schema_types: &'a HashMap<Arc<str>, graphql_hir::TypeDef>,
     types_with_id: &'a HashMap<String, bool>,
     all_fragments: &'a HashMap<Arc<str>, graphql_hir::FragmentStructure>,
@@ -322,8 +320,8 @@ fn fragment_contains_id(
     let file_id = fragment_info.file_id;
 
     // We need to get the file content and metadata to parse it
-    // Use project_files directly (not db.document_files() which uses db.project_files())
-    let document_files = context.project_files.document_files(context.db);
+    // Use the document_files from project_files to find this file
+    let document_files = context.db.document_files();
 
     let Some((file_content, file_metadata)) = document_files
         .iter()
