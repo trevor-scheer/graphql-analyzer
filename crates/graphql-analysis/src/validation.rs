@@ -59,9 +59,12 @@ pub fn validate_document(
     let doc_uri = metadata.uri(db);
 
     // Collect fragment names referenced by this document (transitively across files)
-    let document_files = project_files.document_files(db);
+    // Uses cached fragment indices for O(1) lookup instead of O(n) file scanning
     let referenced_fragments =
-        collect_referenced_fragments_transitive(&doc_text, &doc_uri, &document_files, db);
+        collect_referenced_fragments_transitive(&doc_text, &doc_uri, project_files, db);
+
+    // Get the fragment file index for efficient lookup of fragment definitions
+    let fragment_file_index = graphql_hir::fragment_file_index(db, project_files);
 
     // Use builder pattern to construct the executable document
     // This allows us to add fragments individually with proper source tracking
@@ -80,44 +83,45 @@ pub fn validate_document(
         .source_offset(offset)
         .parse_into_executable_builder(doc_text.as_ref(), doc_uri.as_str(), &mut builder);
 
-    // Add referenced fragments
-    if !referenced_fragments.is_empty() {
-        for (_file_id, file_content, file_metadata) in document_files.iter() {
-            let text = file_content.text(db);
+    // Add referenced fragments using the index for O(1) lookup
+    // Track which files we've already added to avoid duplicates
+    let mut added_files = std::collections::HashSet::new();
+    added_files.insert(doc_uri.as_str().to_string());
+
+    for fragment_name in &referenced_fragments {
+        let key: Arc<str> = Arc::from(fragment_name.as_str());
+        if let Some((file_content, file_metadata)) = fragment_file_index.get(&key) {
             let uri = file_metadata.uri(db);
 
-            // Skip the current document (already included)
-            if uri.as_str() == doc_uri.as_str() {
+            // Skip if we've already added this file
+            if !added_files.insert(uri.as_str().to_string()) {
                 continue;
             }
 
-            // Check if this file defines any referenced fragments
-            if file_defines_any_fragment(&text, &referenced_fragments) {
-                // Extract GraphQL if this is a TypeScript/JavaScript file
-                let fragment_text = if file_metadata.kind(db) == graphql_db::FileKind::TypeScript
-                    || file_metadata.kind(db) == graphql_db::FileKind::JavaScript
-                {
-                    // Parse and extract GraphQL blocks
-                    let fragment_parse = graphql_syntax::parse(db, *file_content, *file_metadata);
-                    // Combine all extracted blocks
-                    let combined = fragment_parse
-                        .blocks
-                        .iter()
-                        .map(|block| block.source.as_ref())
-                        .collect::<Vec<_>>()
-                        .join("\n\n");
-                    combined
-                } else {
-                    text.as_ref().to_string()
-                };
+            // Extract GraphQL if this is a TypeScript/JavaScript file
+            let fragment_text = if file_metadata.kind(db) == graphql_db::FileKind::TypeScript
+                || file_metadata.kind(db) == graphql_db::FileKind::JavaScript
+            {
+                // Parse and extract GraphQL blocks
+                let fragment_parse = graphql_syntax::parse(db, *file_content, *file_metadata);
+                // Combine all extracted blocks
+                let combined = fragment_parse
+                    .blocks
+                    .iter()
+                    .map(|block| block.source.as_ref())
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+                combined
+            } else {
+                file_content.text(db).as_ref().to_string()
+            };
 
-                // Extract and add only the specific fragments we need
-                apollo_compiler::parser::Parser::new().parse_into_executable_builder(
-                    &fragment_text,
-                    uri.as_str(),
-                    &mut builder,
-                );
-            }
+            // Add the fragment file to the builder
+            apollo_compiler::parser::Parser::new().parse_into_executable_builder(
+                &fragment_text,
+                uri.as_str(),
+                &mut builder,
+            );
         }
     }
 
@@ -202,47 +206,39 @@ pub fn validate_document(
 
 /// Collect all fragment names referenced by a document transitively across files
 /// This resolves fragment dependencies by following fragment spreads to their definitions
+///
+/// Uses the `fragment_spreads_index` for O(1) lookup instead of scanning all files
 fn collect_referenced_fragments_transitive(
     doc_text: &str,
-    doc_uri: &graphql_db::FileUri,
-    document_files: &Arc<Vec<(graphql_db::FileId, FileContent, FileMetadata)>>,
+    _doc_uri: &graphql_db::FileUri,
+    project_files: graphql_db::ProjectFiles,
     db: &dyn GraphQLAnalysisDatabase,
 ) -> std::collections::HashSet<String> {
     use std::collections::{HashSet, VecDeque};
+
+    // Get the fragment spreads index for efficient lookup
+    let spreads_index = graphql_hir::fragment_spreads_index(db, project_files);
 
     // Start with fragments directly referenced in the current document
     let mut all_referenced = collect_referenced_fragments(doc_text);
     let mut to_process: VecDeque<String> = all_referenced.iter().cloned().collect();
     let mut processed = HashSet::new();
 
-    // Process fragments transitively
+    // Process fragments transitively using the index
     while let Some(fragment_name) = to_process.pop_front() {
         if processed.contains(&fragment_name) {
             continue;
         }
         processed.insert(fragment_name.clone());
 
-        // Find the file that defines this fragment
-        for (_file_id, file_content, file_metadata) in document_files.iter() {
-            let text = file_content.text(db);
-            let uri = file_metadata.uri(db);
-
-            // Skip the current document
-            if uri.as_str() == doc_uri.as_str() {
-                continue;
-            }
-
-            // Check if this file defines the fragment
-            if let Some(fragment_refs) = get_fragment_references(&text, &fragment_name) {
-                // This file defines the fragment
-                // Collect fragments that THIS fragment references
-                for ref_name in fragment_refs {
-                    if all_referenced.insert(ref_name.clone()) {
-                        // New fragment found, add to processing queue
-                        to_process.push_back(ref_name);
-                    }
+        // Look up the fragment's spreads in the index (O(1) instead of O(n) file scan)
+        let key: Arc<str> = Arc::from(fragment_name.as_str());
+        if let Some(fragment_spreads) = spreads_index.get(&key) {
+            for spread_name in fragment_spreads {
+                let spread_str = spread_name.as_ref().to_string();
+                if all_referenced.insert(spread_str.clone()) {
+                    to_process.push_back(spread_str);
                 }
-                break; // Found the definition, no need to check other files
             }
         }
     }
@@ -282,39 +278,6 @@ fn collect_referenced_fragments(text: &str) -> std::collections::HashSet<String>
     referenced
 }
 
-/// Get the fragment names referenced by a specific fragment definition in a file
-/// Returns None if the fragment is not defined in this file
-fn get_fragment_references(text: &str, fragment_name: &str) -> Option<Vec<String>> {
-    let parser = apollo_parser::Parser::new(text);
-    let tree = parser.parse();
-
-    if tree.errors().next().is_some() {
-        return None;
-    }
-
-    let document = tree.document();
-
-    for definition in document.definitions() {
-        if let apollo_parser::cst::Definition::FragmentDefinition(frag) = definition {
-            if let Some(name) = frag.fragment_name() {
-                if let Some(name_node) = name.name() {
-                    if name_node.text() == fragment_name {
-                        // Found the fragment definition, collect its references
-                        let mut referenced = std::collections::HashSet::new();
-                        collect_fragment_spreads_from_selection_set(
-                            frag.selection_set(),
-                            &mut referenced,
-                        );
-                        return Some(referenced.into_iter().collect());
-                    }
-                }
-            }
-        }
-    }
-
-    None
-}
-
 /// Recursively collect fragment spreads from a selection set
 fn collect_fragment_spreads_from_selection_set(
     selection_set: Option<apollo_parser::cst::SelectionSet>,
@@ -347,38 +310,6 @@ fn collect_fragment_spreads_from_selection_set(
             }
         }
     }
-}
-
-/// Check if a file defines any of the given fragment names
-fn file_defines_any_fragment(
-    text: &str,
-    fragment_names: &std::collections::HashSet<String>,
-) -> bool {
-    let parser = apollo_parser::Parser::new(text);
-    let tree = parser.parse();
-
-    if tree.errors().next().is_some() {
-        // If there are parse errors, skip this file
-        return false;
-    }
-
-    let document = tree.document();
-
-    for definition in document.definitions() {
-        if let apollo_parser::cst::Definition::FragmentDefinition(frag) = definition {
-            if let Some(name) = frag.fragment_name() {
-                if let Some(name_node) = name.name() {
-                    let frag_name = name_node.text();
-                    let frag_name_str = frag_name.as_str();
-                    if fragment_names.contains(frag_name_str) {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-
-    false
 }
 
 #[cfg(test)]
