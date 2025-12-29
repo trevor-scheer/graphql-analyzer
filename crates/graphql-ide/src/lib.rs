@@ -415,11 +415,7 @@ impl graphql_syntax::GraphQLSyntaxDatabase for IdeDatabase {
 }
 
 #[salsa::db]
-impl graphql_hir::GraphQLHirDatabase for IdeDatabase {
-    fn project_files(&self) -> Option<graphql_db::ProjectFiles> {
-        *self.project_files.borrow()
-    }
-}
+impl graphql_hir::GraphQLHirDatabase for IdeDatabase {}
 
 #[salsa::db]
 impl graphql_analysis::GraphQLAnalysisDatabase for IdeDatabase {
@@ -667,7 +663,8 @@ impl Analysis {
         };
 
         // Get diagnostics from analysis layer (includes both validation and linting)
-        let analysis_diagnostics = graphql_analysis::file_diagnostics(&self.db, content, metadata);
+        let analysis_diagnostics =
+            graphql_analysis::file_diagnostics(&self.db, content, metadata, self.project_files);
 
         // Convert to IDE diagnostic format
         analysis_diagnostics
@@ -702,8 +699,12 @@ impl Analysis {
         };
 
         // Get only validation diagnostics from analysis layer
-        let analysis_diagnostics =
-            graphql_analysis::file_validation_diagnostics(&self.db, content, metadata);
+        let analysis_diagnostics = graphql_analysis::file_validation_diagnostics(
+            &self.db,
+            content,
+            metadata,
+            self.project_files,
+        );
 
         // Convert to IDE diagnostic format
         analysis_diagnostics
@@ -737,8 +738,12 @@ impl Analysis {
         };
 
         // Get only lint diagnostics from lint integration
-        let lint_diagnostics =
-            graphql_analysis::lint_integration::lint_file(&self.db, content, metadata);
+        let lint_diagnostics = graphql_analysis::lint_integration::lint_file(
+            &self.db,
+            content,
+            metadata,
+            self.project_files,
+        );
 
         // Convert to IDE diagnostic format
         lint_diagnostics.iter().map(convert_diagnostic).collect()
@@ -749,8 +754,10 @@ impl Analysis {
     /// Returns a map of file paths -> diagnostics for project-wide lint rules.
     /// These are expensive rules that analyze the entire project.
     pub fn project_lint_diagnostics(&self) -> HashMap<FilePath, Vec<Diagnostic>> {
-        let diagnostics_by_file_id =
-            graphql_analysis::lint_integration::project_lint_diagnostics(&self.db);
+        let diagnostics_by_file_id = graphql_analysis::lint_integration::project_lint_diagnostics(
+            &self.db,
+            self.project_files,
+        );
 
         let mut results = HashMap::new();
         let registry = self.registry.read().unwrap();
