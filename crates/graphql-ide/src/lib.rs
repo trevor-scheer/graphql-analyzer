@@ -386,6 +386,7 @@ struct IdeDatabase {
     storage: salsa::Storage<Self>,
     lint_config: std::cell::RefCell<Arc<graphql_linter::LintConfig>>,
     extract_config: std::cell::RefCell<Arc<graphql_extract::ExtractConfig>>,
+    project_files: std::cell::RefCell<Option<graphql_db::ProjectFiles>>,
 }
 
 impl Default for IdeDatabase {
@@ -396,6 +397,7 @@ impl Default for IdeDatabase {
             extract_config: std::cell::RefCell::new(Arc::new(
                 graphql_extract::ExtractConfig::default(),
             )),
+            project_files: std::cell::RefCell::new(None),
         }
     }
 }
@@ -414,8 +416,9 @@ impl graphql_syntax::GraphQLSyntaxDatabase for IdeDatabase {
 
 #[salsa::db]
 impl graphql_hir::GraphQLHirDatabase for IdeDatabase {
-    // Uses default implementation (returns None)
-    // ProjectFiles is managed by FileRegistry and passed to queries as parameters
+    fn project_files(&self) -> Option<graphql_db::ProjectFiles> {
+        *self.project_files.borrow()
+    }
 }
 
 #[salsa::db]
@@ -424,8 +427,6 @@ impl graphql_analysis::GraphQLAnalysisDatabase for IdeDatabase {
         self.lint_config.borrow().clone()
     }
 }
-
-// ProjectFiles is now managed by FileRegistry and passed as parameters to queries
 
 /// The main analysis host
 ///
@@ -609,6 +610,9 @@ impl AnalysisHost {
         } else {
             tracing::warn!("Snapshot project_files is None!");
         }
+
+        // Sync project_files to the database so queries can access it via db.project_files()
+        *self.db.project_files.borrow_mut() = project_files;
 
         Analysis {
             db: self.db.clone(),
