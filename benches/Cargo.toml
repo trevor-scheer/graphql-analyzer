@@ -18,3 +18,4 @@ graphql-hir = { path = "../crates/graphql-hir" }
 graphql-analysis = { path = "../crates/graphql-analysis" }
 graphql-ide = { path = "../crates/graphql-ide" }
 criterion = { workspace = true }
+salsa = { workspace = true }
