@@ -76,8 +76,14 @@ pub fn lint_file(
             }
         }
         FileKind::Schema => {
-            // TODO: Run schema lints (naming conventions, etc.)
-            tracing::trace!(uri = %uri, "Schema linting not yet implemented");
+            // Run schema lints (naming conventions, design patterns, etc.)
+            let project_files_opt = db.project_files();
+            if let Some(project_files) = project_files_opt {
+                tracing::debug!(uri = %uri, "Running schema lints");
+                diagnostics.extend(schema_lints(db, file_id, content, metadata, project_files));
+            } else {
+                tracing::debug!(uri = %uri, "project_files is None, skipping schema lints");
+            }
         }
     }
 
@@ -128,6 +134,7 @@ fn standalone_document_lints(
         diagnostics.extend(convert_lint_diagnostics(
             db,
             content,
+            metadata,
             lint_diags,
             rule.name(),
             severity,
@@ -179,11 +186,51 @@ fn document_schema_lints(
         diagnostics.extend(convert_lint_diagnostics(
             db,
             content,
+            metadata,
             lint_diags,
             rule.name(),
             severity,
         ));
     }
+
+    diagnostics
+}
+
+/// Run schema lint rules
+#[allow(clippy::unnecessary_wraps)] // Future schema rules will return diagnostics
+fn schema_lints(
+    db: &dyn GraphQLAnalysisDatabase,
+    _file_id: FileId,
+    _content: FileContent,
+    _metadata: FileMetadata,
+    _project_files: ProjectFiles,
+) -> Vec<Diagnostic> {
+    let _lint_config = db.lint_config(); // Will be used when schema rules are added
+    let diagnostics = Vec::new();
+
+    // Note: Currently there are no schema lint rules in graphql-linter
+    // This is a placeholder for future schema design rules like:
+    // - Type naming conventions (PascalCase)
+    // - Field naming conventions (camelCase)
+    // - Enum value naming conventions (SCREAMING_SNAKE_CASE)
+    // - Description requirements
+    // - Deprecation guidelines
+    // etc.
+
+    // When schema rules are added to graphql-linter, they would be called here:
+    // for rule in graphql_linter::schema_rules() {
+    //     if lint_config.is_enabled(rule.name()) {
+    //         let lint_diags = rule.check(db, file_id, content, metadata, project_files);
+    //         let severity = lint_config.get_severity(rule.name())
+    //             .map_or(Severity::Warning, convert_severity);
+    //         diagnostics.extend(convert_lint_diagnostics(db, content, lint_diags, rule.name(), severity));
+    //     }
+    // }
+
+    tracing::debug!(
+        enabled_rules = 0,
+        "Schema linting complete (no schema rules available yet)"
+    );
 
     diagnostics
 }
@@ -225,8 +272,10 @@ pub fn project_lint_diagnostics(
 
         // Merge into result
         for (file_id, file_lint_diags) in lint_diags {
-            // Find the FileContent for this FileId from project_files
-            let Some(content) = find_file_content(db, project_files, file_id) else {
+            // Find the FileContent and FileMetadata for this FileId from project_files
+            let Some((content, metadata)) =
+                find_file_content_and_metadata(db, project_files, file_id)
+            else {
                 tracing::warn!(?file_id, "Could not find content for file");
                 continue;
             };
@@ -234,8 +283,14 @@ pub fn project_lint_diagnostics(
             let severity = lint_config
                 .get_severity(rule.name())
                 .map_or(Severity::Warning, convert_severity);
-            let converted =
-                convert_lint_diagnostics(db, content, file_lint_diags, rule.name(), severity);
+            let converted = convert_lint_diagnostics(
+                db,
+                content,
+                metadata,
+                file_lint_diags,
+                rule.name(),
+                severity,
+            );
             diagnostics_by_file
                 .entry(file_id)
                 .or_default()
@@ -251,23 +306,23 @@ pub fn project_lint_diagnostics(
     Arc::new(diagnostics_by_file)
 }
 
-/// Helper to find `FileContent` for a given `FileId` from `ProjectFiles`
-fn find_file_content(
+/// Helper to find `FileContent` and `FileMetadata` for a given `FileId` from `ProjectFiles`
+fn find_file_content_and_metadata(
     db: &dyn GraphQLAnalysisDatabase,
     project_files: ProjectFiles,
     file_id: FileId,
-) -> Option<FileContent> {
+) -> Option<(FileContent, FileMetadata)> {
     // Search in document files
-    for (fid, content, _) in project_files.document_files(db).iter() {
+    for (fid, content, metadata) in project_files.document_files(db).iter() {
         if *fid == file_id {
-            return Some(*content);
+            return Some((*content, *metadata));
         }
     }
 
     // Search in schema files
-    for (fid, content, _) in project_files.schema_files(db).iter() {
+    for (fid, content, metadata) in project_files.schema_files(db).iter() {
         if *fid == file_id {
-            return Some(*content);
+            return Some((*content, *metadata));
         }
     }
 
@@ -275,10 +330,15 @@ fn find_file_content(
 }
 
 /// Convert `LintDiagnostic` (byte offsets) to `Diagnostic` (line/column)
+///
+/// For TypeScript/JavaScript files, `metadata.line_offset()` provides the line
+/// offset where the GraphQL content starts in the original file. This offset
+/// must be added to all line numbers to get correct positions in the source.
 #[allow(clippy::cast_possible_truncation)]
 fn convert_lint_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
+    metadata: FileMetadata,
     lint_diags: Vec<graphql_linter::LintDiagnostic>,
     rule_name: &str,
     configured_severity: Severity,
@@ -286,6 +346,7 @@ fn convert_lint_diagnostics(
     use graphql_linter::DiagnosticSeverity as LintSev;
 
     let line_index = graphql_syntax::line_index(db, content);
+    let line_offset = metadata.line_offset(db);
 
     lint_diags
         .into_iter()
@@ -306,11 +367,11 @@ fn convert_lint_diagnostics(
                 message: ld.message.into(),
                 range: DiagnosticRange {
                     start: Position {
-                        line: start_line as u32,
+                        line: start_line as u32 + line_offset,
                         character: start_col as u32,
                     },
                     end: Position {
-                        line: end_line as u32,
+                        line: end_line as u32 + line_offset,
                         character: end_col as u32,
                     },
                 },
