@@ -101,10 +101,7 @@ fn collect_fragment_spreads_recursive(
 
     for definition in &document.definitions {
         if let Definition::OperationDefinition(op) = definition {
-            collect_fragment_spreads_from_selection_set(
-                &op.selection_set,
-                &mut to_process,
-            );
+            collect_fragment_spreads_from_selection_set(&op.selection_set, &mut to_process);
         }
         // FragmentDefinitions and other definition types don't need processing here
         // Fragments will be processed when referenced by operations
@@ -158,10 +155,7 @@ fn collect_fragment_spreads_from_selection_set(
             }
             Selection::InlineFragment(inline) => {
                 // Recurse into inline fragment selection set
-                collect_fragment_spreads_from_selection_set(
-                    &inline.selection_set,
-                    fragment_names,
-                );
+                collect_fragment_spreads_from_selection_set(&inline.selection_set, fragment_names);
             }
         }
     }

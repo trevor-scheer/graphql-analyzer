@@ -80,13 +80,7 @@ pub fn lint_file(
             let project_files_opt = db.project_files();
             if let Some(project_files) = project_files_opt {
                 tracing::debug!(uri = %uri, "Running schema lints");
-                diagnostics.extend(schema_lints(
-                    db,
-                    file_id,
-                    content,
-                    metadata,
-                    project_files,
-                ));
+                diagnostics.extend(schema_lints(db, file_id, content, metadata, project_files));
             } else {
                 tracing::debug!(uri = %uri, "project_files is None, skipping schema lints");
             }
