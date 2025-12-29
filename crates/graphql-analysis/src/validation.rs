@@ -61,7 +61,7 @@ pub fn validate_document(
     // Collect fragment names referenced by this document (transitively across files)
     // Uses cached fragment indices for O(1) lookup instead of O(n) file scanning
     let referenced_fragments =
-        collect_referenced_fragments_transitive(&doc_text, &doc_uri, project_files, db);
+        collect_referenced_fragments_transitive(&doc_text, project_files, db);
 
     // Get the fragment file index for efficient lookup of fragment definitions
     let fragment_file_index = graphql_hir::fragment_file_index(db, project_files);
@@ -210,7 +210,6 @@ pub fn validate_document(
 /// Uses the `fragment_spreads_index` for O(1) lookup instead of scanning all files
 fn collect_referenced_fragments_transitive(
     doc_text: &str,
-    _doc_uri: &graphql_db::FileUri,
     project_files: graphql_db::ProjectFiles,
     db: &dyn GraphQLAnalysisDatabase,
 ) -> std::collections::HashSet<String> {
