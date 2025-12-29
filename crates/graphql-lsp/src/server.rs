@@ -877,8 +877,14 @@ impl LanguageServer for GraphQLLanguageServer {
                     let host = self.get_or_create_host(&workspace_uri, &project_name);
                     let file_path = graphql_ide::FilePath::new(uri.to_string());
                     let mut host_guard = host.lock().await;
-                    host_guard.add_file(&file_path, &final_content, final_kind, line_offset);
-                    host_guard.rebuild_project_files(); // Rebuild after single file change
+                    let is_new =
+                        host_guard.add_file(&file_path, &final_content, final_kind, line_offset);
+                    // Only rebuild ProjectFiles when a new file is added, not on content changes.
+                    // Content updates use Salsa's in-place setter which only invalidates
+                    // queries that depend on that specific file's content.
+                    if is_new {
+                        host_guard.rebuild_project_files();
+                    }
                 }
             }
 

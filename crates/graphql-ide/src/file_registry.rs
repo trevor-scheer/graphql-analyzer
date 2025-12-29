@@ -32,6 +32,10 @@ impl FileRegistry {
     }
 
     /// Add or update a file in the registry
+    ///
+    /// Returns the file ID, content, metadata, and a boolean indicating if this is a new file.
+    /// If `is_new` is true, the caller should call `rebuild_project_files()` to update the index.
+    /// If `is_new` is false (content-only update), rebuilding is NOT needed.
     pub fn add_file<DB>(
         &mut self,
         db: &mut DB,
@@ -39,29 +43,44 @@ impl FileRegistry {
         content: &str,
         kind: FileKind,
         line_offset: u32,
-    ) -> (FileId, FileContent, FileMetadata)
+    ) -> (FileId, FileContent, FileMetadata, bool)
     where
         DB: salsa::Database,
     {
         let uri_str = path.as_str();
-
-        // Get or create FileId
-        let file_id = if let Some(&existing_id) = self.uri_to_id.get(uri_str) {
-            existing_id
-        } else {
-            let new_id = FileId::new(self.next_id);
-            self.next_id += 1;
-            self.uri_to_id.insert(uri_str.to_string(), new_id);
-            self.id_to_uri.insert(new_id, uri_str.to_string());
-            new_id
-        };
-
-        // Create or update FileContent
         let content_arc: Arc<str> = Arc::from(content);
+
+        // Check if file already exists
+        if let Some(&existing_id) = self.uri_to_id.get(uri_str) {
+            // File exists - update content in place using Salsa setter
+            // This only invalidates queries that depend on this specific file's content
+            if let Some(&existing_content) = self.id_to_content.get(&existing_id) {
+                existing_content.set_text(db).to(content_arc);
+
+                // Update metadata if needed (kind or line_offset changed)
+                let metadata = self.id_to_metadata.get(&existing_id).copied().unwrap();
+                if metadata.kind(db) != kind {
+                    metadata.set_kind(db).to(kind);
+                }
+                if metadata.line_offset(db) != line_offset {
+                    metadata.set_line_offset(db).to(line_offset);
+                }
+
+                return (existing_id, existing_content, metadata, false);
+            }
+        }
+
+        // New file - create new FileId
+        let file_id = FileId::new(self.next_id);
+        self.next_id += 1;
+        self.uri_to_id.insert(uri_str.to_string(), file_id);
+        self.id_to_uri.insert(file_id, uri_str.to_string());
+
+        // Create new FileContent
         let file_content = FileContent::new(db, content_arc);
         self.id_to_content.insert(file_id, file_content);
 
-        // Create or update FileMetadata with line offset
+        // Create new FileMetadata
         let uri = FileUri::new(uri_str);
         let metadata = FileMetadata::new(db, file_id, uri, kind);
         if line_offset > 0 {
@@ -69,7 +88,7 @@ impl FileRegistry {
         }
         self.id_to_metadata.insert(file_id, metadata);
 
-        (file_id, file_content, metadata)
+        (file_id, file_content, metadata, true)
     }
 
     /// Look up file ID by path
@@ -182,13 +201,16 @@ mod tests {
         let mut registry = FileRegistry::new();
 
         let path = FilePath::new("file:///test.graphql");
-        let (file_id, _content, _metadata) = registry.add_file(
+        let (file_id, _content, _metadata, is_new) = registry.add_file(
             &mut db,
             &path,
             "type Query { hello: String }",
             FileKind::Schema,
             0,
         );
+
+        // Should indicate this is a new file
+        assert!(is_new);
 
         // Should be able to look up by path
         assert_eq!(registry.get_file_id(&path), Some(file_id));
@@ -209,22 +231,26 @@ mod tests {
         let path = FilePath::new("file:///test.graphql");
 
         // Add file
-        let (file_id1, _, _) = registry.add_file(
+        let (file_id1, _, _, is_new1) = registry.add_file(
             &mut db,
             &path,
             "type Query { hello: String }",
             FileKind::Schema,
             0,
         );
+        assert!(is_new1);
 
         // Update same file
-        let (file_id2, _content2, _) = registry.add_file(
+        let (file_id2, _content2, _, is_new2) = registry.add_file(
             &mut db,
             &path,
             "type Query { world: String }",
             FileKind::Schema,
             0,
         );
+
+        // Should indicate this is NOT a new file (just an update)
+        assert!(!is_new2);
 
         // Should reuse the same file ID
         assert_eq!(file_id1, file_id2);
@@ -243,7 +269,7 @@ mod tests {
         let mut registry = FileRegistry::new();
 
         let path = FilePath::new("file:///test.graphql");
-        let (file_id, _, _) = registry.add_file(
+        let (file_id, _, _, _) = registry.add_file(
             &mut db,
             &path,
             "type Query { hello: String }",
@@ -267,14 +293,14 @@ mod tests {
         let path1 = FilePath::new("file:///test1.graphql");
         let path2 = FilePath::new("file:///test2.graphql");
 
-        let (file_id1, _, _) = registry.add_file(
+        let (file_id1, _, _, _) = registry.add_file(
             &mut db,
             &path1,
             "type Query { hello: String }",
             FileKind::Schema,
             0,
         );
-        let (file_id2, _, _) = registry.add_file(
+        let (file_id2, _, _, _) = registry.add_file(
             &mut db,
             &path2,
             "type Mutation { update: Boolean }",

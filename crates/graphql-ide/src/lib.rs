@@ -451,11 +451,20 @@ impl AnalysisHost {
     /// The `line_offset` parameter is used for TypeScript/JavaScript files where GraphQL
     /// is extracted - it indicates the line number in the original source where the GraphQL starts.
     ///
-    /// **IMPORTANT**: This does NOT rebuild `ProjectFiles`. Caller must call `rebuild_project_files()`
-    /// after batch adding multiple files to avoid O(n²) performance.
-    pub fn add_file(&mut self, path: &FilePath, content: &str, kind: FileKind, line_offset: u32) {
+    /// Returns `true` if this is a new file, `false` if it's an update to an existing file.
+    ///
+    /// **IMPORTANT**: Only call `rebuild_project_files()` when this returns `true` (new file).
+    /// Content-only updates do NOT require rebuilding the project index.
+    pub fn add_file(
+        &mut self,
+        path: &FilePath,
+        content: &str,
+        kind: FileKind,
+        line_offset: u32,
+    ) -> bool {
         let mut registry = self.registry.write().unwrap();
-        registry.add_file(&mut self.db, path, content, kind, line_offset);
+        let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, kind, line_offset);
+        is_new
     }
 
     /// Rebuild the `ProjectFiles` index after adding/removing files
