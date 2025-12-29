@@ -2,6 +2,7 @@
 use crate::rules::{
     NoDeprecatedRuleImpl, OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl,
     RequireIdFieldRuleImpl, UniqueNamesRuleImpl, UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl,
+    UnusedVariablesRuleImpl,
 };
 use crate::traits::{DocumentSchemaLintRule, ProjectLintRule, StandaloneDocumentLintRule};
 use std::sync::Arc;
@@ -11,6 +12,7 @@ pub fn standalone_document_rules() -> Vec<Arc<dyn StandaloneDocumentLintRule>> {
     vec![
         Arc::new(OperationNameSuffixRuleImpl),
         Arc::new(RedundantFieldsRuleImpl),
+        Arc::new(UnusedVariablesRuleImpl),
     ]
 }
 

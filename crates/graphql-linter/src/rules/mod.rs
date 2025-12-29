@@ -11,6 +11,7 @@ mod require_id_field;
 mod unique_names;
 mod unused_fields;
 mod unused_fragments;
+mod unused_variables;
 
 pub use no_deprecated::NoDeprecatedRuleImpl;
 pub use operation_name_suffix::OperationNameSuffixRuleImpl;
@@ -19,3 +20,4 @@ pub use require_id_field::RequireIdFieldRuleImpl;
 pub use unique_names::UniqueNamesRuleImpl;
 pub use unused_fields::UnusedFieldsRuleImpl;
 pub use unused_fragments::UnusedFragmentsRuleImpl;
+pub use unused_variables::UnusedVariablesRuleImpl;
