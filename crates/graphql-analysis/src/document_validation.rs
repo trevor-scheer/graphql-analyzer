@@ -1,8 +1,38 @@
 // Document validation queries (operations and fragments)
 
-use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase};
+use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase, Position};
 use graphql_db::{FileContent, FileMetadata};
 use std::sync::Arc;
+use text_size::TextRange;
+
+/// Convert a `TextRange` (byte offsets) to `DiagnosticRange` (line/column)
+///
+/// Uses the `LineIndex` to convert byte offsets to line/column positions.
+/// Also applies `line_offset` for TypeScript/JavaScript files.
+#[allow(clippy::cast_possible_truncation)]
+fn text_range_to_diagnostic_range(
+    db: &dyn GraphQLAnalysisDatabase,
+    content: FileContent,
+    metadata: FileMetadata,
+    range: TextRange,
+) -> DiagnosticRange {
+    let line_index = graphql_syntax::line_index(db, content);
+    let line_offset = metadata.line_offset(db);
+
+    let (start_line, start_col) = line_index.line_col(range.start().into());
+    let (end_line, end_col) = line_index.line_col(range.end().into());
+
+    DiagnosticRange {
+        start: Position {
+            line: start_line as u32 + line_offset,
+            character: start_col as u32,
+        },
+        end: Position {
+            line: end_line as u32 + line_offset,
+            character: end_col as u32,
+        },
+    }
+}
 
 /// Validate a document file (operations and fragments)
 /// This checks for:
@@ -40,16 +70,24 @@ pub fn validate_document_file(
                 .count();
 
             if count > 1 {
+                // Use the name range if available, otherwise fall back to operation range
+                let range = op_structure
+                    .name_range
+                    .map(|r| text_range_to_diagnostic_range(db, content, metadata, r))
+                    .unwrap_or_default();
                 diagnostics.push(Diagnostic::error(
                     format!("Operation name '{name}' is not unique"),
-                    DiagnosticRange::default(), // TODO: Get actual position from HIR
+                    range,
                 ));
             }
         }
 
         // Validate variable types
+        // Note: VariableSignature doesn't have position info, so we use the operation range
+        let op_range =
+            text_range_to_diagnostic_range(db, content, metadata, op_structure.operation_range);
         for var in &op_structure.variables {
-            validate_variable_type(&var.type_ref, &schema, &mut diagnostics);
+            validate_variable_type(&var.type_ref, &schema, op_range, &mut diagnostics);
         }
 
         // Validate operation body
@@ -61,9 +99,11 @@ pub fn validate_document_file(
         };
 
         if !schema.contains_key(&Arc::from(root_type_name)) {
+            let range =
+                text_range_to_diagnostic_range(db, content, metadata, op_structure.operation_range);
             diagnostics.push(Diagnostic::error(
                 format!("Schema does not define a '{root_type_name}' type"),
-                DiagnosticRange::default(),
+                range,
             ));
         }
         // NOTE: Full body validation (field selections, arguments, fragment spreads)
@@ -83,17 +123,27 @@ pub fn validate_document_file(
             .count();
 
         if count > 1 {
+            let range =
+                text_range_to_diagnostic_range(db, content, metadata, frag_structure.name_range);
             diagnostics.push(Diagnostic::error(
                 format!("Fragment name '{}' is not unique", frag_structure.name),
-                DiagnosticRange::default(), // TODO: Get actual position from HIR
+                range,
             ));
         }
 
         // Validate fragment type condition exists in schema
-        validate_fragment_type_condition(frag_structure, &schema, &mut diagnostics);
-
-        // TODO: Validate fragment body (field selections)
-        // This requires parsing the fragment body and walking the selection set
+        let type_condition_range = text_range_to_diagnostic_range(
+            db,
+            content,
+            metadata,
+            frag_structure.type_condition_range,
+        );
+        validate_fragment_type_condition(
+            frag_structure,
+            &schema,
+            type_condition_range,
+            &mut diagnostics,
+        );
     }
 
     Arc::new(diagnostics)
@@ -103,6 +153,7 @@ pub fn validate_document_file(
 fn validate_variable_type(
     type_ref: &graphql_hir::TypeRef,
     schema: &std::collections::HashMap<Arc<str>, graphql_hir::TypeDef>,
+    range: DiagnosticRange,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     // Built-in scalars are valid
@@ -122,14 +173,14 @@ fn validate_variable_type(
                         "Variable type '{}' is not a valid input type",
                         type_ref.name
                     ),
-                    DiagnosticRange::default(),
+                    range,
                 ));
             }
         }
     } else {
         diagnostics.push(Diagnostic::error(
             format!("Unknown variable type: {}", type_ref.name),
-            DiagnosticRange::default(),
+            range,
         ));
     }
 }
@@ -138,6 +189,7 @@ fn validate_variable_type(
 fn validate_fragment_type_condition(
     fragment: &graphql_hir::FragmentStructure,
     schema: &std::collections::HashMap<Arc<str>, graphql_hir::TypeDef>,
+    range: DiagnosticRange,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     if !schema.contains_key(&fragment.type_condition) {
@@ -146,7 +198,7 @@ fn validate_fragment_type_condition(
                 "Fragment '{}' has unknown type condition '{}'",
                 fragment.name, fragment.type_condition
             ),
-            DiagnosticRange::default(),
+            range,
         ));
         return;
     }
@@ -164,7 +216,7 @@ fn validate_fragment_type_condition(
                         "Fragment '{}' type condition '{}' must be an object, interface, or union type",
                         fragment.name, fragment.type_condition
                     ),
-                    DiagnosticRange::default(),
+                    range,
                 ));
             }
         }

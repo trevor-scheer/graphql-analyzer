@@ -16,3 +16,4 @@ apollo-compiler = { workspace = true }
 apollo-parser = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+text-size = "1.1"
