@@ -486,6 +486,6 @@ mod tests {
         }
 
         // This test is just for exploration
-        assert!(!tree.errors().next().is_none());
+        assert!(tree.errors().next().is_some());
     }
 }

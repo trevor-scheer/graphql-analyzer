@@ -564,13 +564,13 @@ impl GraphQLLanguageServer {
         None
     }
 
-    /// Validate a document and publish diagnostics
+    /// Validate a file and publish diagnostics
     #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self), fields(path = ?uri.to_file_path().unwrap()))]
-    async fn validate_document(&self, uri: Uri) {
-        // Find the workspace for this document
+    async fn validate_file(&self, uri: Uri) {
+        // Find the workspace for this file
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
-            tracing::warn!("No workspace/project found for document");
+            tracing::warn!("No workspace/project found for file");
             return;
         };
 
@@ -603,12 +603,12 @@ impl GraphQLLanguageServer {
             .await;
     }
 
-    /// Validate a document using a pre-acquired snapshot
+    /// Validate a file using a pre-acquired snapshot
     ///
     /// This variant avoids acquiring the host lock again when we already have a snapshot.
     /// Used by `did_change` after updating a file to avoid double-locking.
     #[tracing::instrument(skip(self, snapshot), fields(path = ?uri.to_file_path().unwrap()))]
-    async fn validate_document_with_snapshot(&self, uri: &Uri, snapshot: graphql_ide::Analysis) {
+    async fn validate_file_with_snapshot(&self, uri: &Uri, snapshot: graphql_ide::Analysis) {
         let file_path = graphql_ide::FilePath::new(uri.as_str());
         let diagnostics = snapshot.diagnostics(&file_path);
 
@@ -624,12 +624,7 @@ impl GraphQLLanguageServer {
             .await;
     }
 }
-impl GraphQLLanguageServer {
-    // REMOVED: get_project_wide_diagnostics (old validation system)
-    // REMOVED: refresh_affected_files_diagnostics (old validation system)
-    // REMOVED: validate_graphql_document (old validation)
-    // REMOVED: validate_typescript_document (old validation)
-}
+impl GraphQLLanguageServer {}
 
 impl LanguageServer for GraphQLLanguageServer {
     #[tracing::instrument(skip(self, params))]
@@ -806,7 +801,7 @@ impl LanguageServer for GraphQLLanguageServer {
 
         // Add to AnalysisHost
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
-            self.validate_document(uri).await;
+            self.validate_file(uri).await;
             return;
         };
 
@@ -852,7 +847,7 @@ impl LanguageServer for GraphQLLanguageServer {
         };
 
         // === PHASE 4: Validate using pre-acquired snapshot (no lock needed) ===
-        self.validate_document_with_snapshot(&uri, snapshot).await;
+        self.validate_file_with_snapshot(&uri, snapshot).await;
     }
 
     #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
@@ -911,7 +906,7 @@ impl LanguageServer for GraphQLLanguageServer {
             };
 
             // === PHASE 4: Validate using pre-acquired snapshot (no lock needed) ===
-            self.validate_document_with_snapshot(&uri, snapshot).await;
+            self.validate_file_with_snapshot(&uri, snapshot).await;
         }
     }
 
@@ -1085,7 +1080,7 @@ impl LanguageServer for GraphQLLanguageServer {
         let lsp_position = params.text_document_position.position;
         let include_declaration = params.context.include_declaration;
 
-        // Find workspace for this document
+        // Find workspace for this file
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             return Ok(None);
         };

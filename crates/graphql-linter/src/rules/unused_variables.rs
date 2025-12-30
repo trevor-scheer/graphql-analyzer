@@ -238,13 +238,13 @@ mod tests {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser($id: ID!, $unused: String) {
   user(id: $id) {
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -270,13 +270,13 @@ query GetUser($id: ID!, $unused: String) {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser($id: ID!, $name: String) {
   user(id: $id, name: $name) {
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -298,13 +298,13 @@ query GetUser($id: ID!, $name: String) {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser($id: ID!, $skip: Boolean!) {
   user(id: $id) @skip(if: $skip) {
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -326,7 +326,7 @@ query GetUser($id: ID!, $skip: Boolean!) {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser($id: ID!, $postId: ID!) {
   user(id: $id) {
     name
@@ -335,7 +335,7 @@ query GetUser($id: ID!, $postId: ID!) {
     }
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -357,13 +357,13 @@ query GetUser($id: ID!, $postId: ID!) {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUsers($ids: [ID!]!, $id1: ID!, $id2: ID!) {
   users(ids: [$id1, $id2]) {
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -387,13 +387,13 @@ query GetUsers($ids: [ID!]!, $id1: ID!, $id2: ID!) {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query CreateUser($name: String!, $email: String!) {
   createUser(input: { name: $name, email: $email }) {
     id
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -415,13 +415,13 @@ query CreateUser($name: String!, $email: String!) {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser($id: ID!, $unused1: String, $unused2: Int, $limit: Int) {
   user(id: $id, limit: $limit) {
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -450,13 +450,13 @@ query GetUser($id: ID!, $unused1: String, $unused2: Int, $limit: Int) {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser {
   user {
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -478,14 +478,14 @@ query GetUser {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 mutation UpdateUser($id: ID!, $name: String!, $unused: Boolean) {
   updateUser(id: $id, name: $name) {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -508,7 +508,7 @@ mutation UpdateUser($id: ID!, $name: String!, $unused: Boolean) {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser($id: ID!, $include: Boolean!) {
   user(id: $id) {
     name
@@ -517,7 +517,7 @@ query GetUser($id: ID!, $include: Boolean!) {
     }
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));

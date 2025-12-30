@@ -502,7 +502,7 @@ mod tests {
         (doc_file_id, doc_content, doc_metadata, project_files)
     }
 
-    const TEST_SCHEMA: &str = r#"
+    const TEST_SCHEMA: &str = r"
 type Query {
     user(id: ID!): User
     users: [User!]!
@@ -533,7 +533,7 @@ type Stats {
     viewCount: Int!
     likeCount: Int!
 }
-"#;
+";
 
     #[test]
     fn test_missing_id_on_type_with_id() {
@@ -656,7 +656,7 @@ query GetUserPostComments {
         let db = graphql_db::RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
-        let schema = r#"
+        let schema = r"
 type Query {
     stats: Stats!
 }
@@ -665,16 +665,16 @@ type Stats {
     viewCount: Int!
     likeCount: Int!
 }
-"#;
+";
 
-        let source = r#"
+        let source = r"
 query GetStats {
     stats {
         viewCount
         likeCount
     }
 }
-"#;
+";
 
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
@@ -765,7 +765,7 @@ const GET_POSTS = gql`
         let db = graphql_db::RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
-        let source = r#"
+        let source = r"
 import { gql } from '@apollo/client';
 
 const QUERY = gql`
@@ -781,7 +781,7 @@ const QUERY = gql`
         }
     }
 `;
-"#;
+";
 
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, TEST_SCHEMA, source, FileKind::TypeScript);
@@ -849,7 +849,7 @@ query GetUser {
 
         // Should warn - both the fragment definition and the operation usage
         // The fragment itself is checked, and the operation using it is checked
-        assert!(diagnostics.len() >= 1);
+        assert!(!diagnostics.is_empty());
         assert!(diagnostics.iter().any(|d| d.message.contains("'User'")));
     }
 }

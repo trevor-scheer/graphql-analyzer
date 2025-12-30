@@ -98,11 +98,8 @@ mod tests {
             FileUri::new("schema.graphql"),
             FileKind::Schema,
         );
-        let project_files = graphql_db::test_utils::create_project_files(
-            &db,
-            vec![(file_id, content, metadata)],
-            vec![],
-        );
+        let schema_files = [(file_id, content, metadata)];
+        let project_files = graphql_db::test_utils::create_project_files(&db, &schema_files, &[]);
         let schema = merged_schema(&db, project_files);
         assert!(
             schema.is_some(),
@@ -138,14 +135,11 @@ mod tests {
             FileKind::Schema,
         );
 
-        let project_files = graphql_db::test_utils::create_project_files(
-            &db,
-            vec![
-                (file1_id, content1, metadata1),
-                (file2_id, content2, metadata2),
-            ],
-            vec![],
-        );
+        let schema_files = [
+            (file1_id, content1, metadata1),
+            (file2_id, content2, metadata2),
+        ];
+        let project_files = graphql_db::test_utils::create_project_files(&db, &schema_files, &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -186,14 +180,11 @@ mod tests {
             FileKind::Schema,
         );
 
-        let project_files = graphql_db::test_utils::create_project_files(
-            &db,
-            vec![
-                (file1_id, content1, metadata1),
-                (file2_id, content2, metadata2),
-            ],
-            vec![],
-        );
+        let schema_files = [
+            (file1_id, content1, metadata1),
+            (file2_id, content2, metadata2),
+        ];
+        let project_files = graphql_db::test_utils::create_project_files(&db, &schema_files, &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -228,7 +219,7 @@ mod tests {
     fn test_merged_schema_no_files() {
         let db = TestDatabase::default();
 
-        let project_files = graphql_db::test_utils::create_project_files(&db, vec![], vec![]);
+        let project_files = graphql_db::test_utils::create_project_files(&db, &[], &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(schema.is_none(), "Expected None when no schema files exist");
@@ -247,11 +238,8 @@ mod tests {
             FileKind::Schema,
         );
 
-        let project_files = graphql_db::test_utils::create_project_files(
-            &db,
-            vec![(file_id, content, metadata)],
-            vec![],
-        );
+        let schema_files = [(file_id, content, metadata)];
+        let project_files = graphql_db::test_utils::create_project_files(&db, &schema_files, &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -277,11 +265,8 @@ mod tests {
             FileKind::Schema,
         );
 
-        let project_files = graphql_db::test_utils::create_project_files(
-            &db,
-            vec![(file_id, content, metadata)],
-            vec![],
-        );
+        let schema_files = [(file_id, content, metadata)];
+        let project_files = graphql_db::test_utils::create_project_files(&db, &schema_files, &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(

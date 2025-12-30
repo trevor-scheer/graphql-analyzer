@@ -164,14 +164,14 @@ mod tests {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 query {
   user {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -195,14 +195,14 @@ query {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 {
   user {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -226,14 +226,14 @@ query {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 mutation {
-  updateUser(id: "123", name: "Alice") {
+  updateUser(id: \"123\", name: \"Alice\") {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -259,14 +259,14 @@ mutation {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 subscription {
   messageAdded {
     id
     content
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -292,14 +292,14 @@ subscription {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser {
   user {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -321,14 +321,14 @@ query GetUser {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 mutation UpdateUser {
-  updateUser(id: "123", name: "Alice") {
+  updateUser(id: \"123\", name: \"Alice\") {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -350,14 +350,14 @@ mutation UpdateUser {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 subscription OnMessageAdded {
   messageAdded {
     id
     content
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -379,7 +379,7 @@ subscription OnMessageAdded {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser {
   user {
     id
@@ -387,7 +387,7 @@ query GetUser {
 }
 
 mutation {
-  updateUser(id: "123") {
+  updateUser(id: \"123\") {
     id
   }
 }
@@ -397,7 +397,7 @@ query {
     id
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -426,7 +426,7 @@ query {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 fragment UserFields on User {
   id
   name
@@ -438,7 +438,7 @@ query GetUser {
     ...UserFields
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -461,14 +461,14 @@ query GetUser {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 query {
   user {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -492,14 +492,14 @@ query {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUserById($id: ID!) {
   user(id: $id) {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -521,14 +521,14 @@ query GetUserById($id: ID!) {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 query($id: ID!) {
   user(id: $id) {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
