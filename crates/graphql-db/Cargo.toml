@@ -6,5 +6,8 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+test-utils = []
+
 [dependencies]
 salsa = { workspace = true }

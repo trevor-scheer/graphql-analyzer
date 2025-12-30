@@ -84,11 +84,13 @@ fn create_project_files(db: &RootDatabase) -> ProjectFiles {
         FileKind::ExecutableGraphQL,
     );
 
-    let schema_files =
-        graphql_db::SchemaFiles::new(db, Arc::new(vec![(schema_id, schema_content, schema_meta)]));
-    let document_files =
-        graphql_db::DocumentFiles::new(db, Arc::new(vec![(doc_id, doc_content, doc_meta)]));
-    ProjectFiles::new(db, schema_files, document_files)
+    let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![schema_id]));
+    let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(vec![doc_id]));
+    let mut file_entries = std::collections::HashMap::new();
+    file_entries.insert(schema_id, (schema_content, schema_meta));
+    file_entries.insert(doc_id, (doc_content, doc_meta));
+    let file_map = graphql_db::FileMap::new(db, Arc::new(file_entries));
+    ProjectFiles::new(db, schema_file_ids, document_file_ids, file_map)
 }
 
 /// Parse benchmarks
@@ -198,15 +200,16 @@ fn bench_golden_invariant(c: &mut Criterion) {
                     FileKind::ExecutableGraphQL,
                 );
 
-                let schema_files = graphql_db::SchemaFiles::new(
-                    &db,
-                    Arc::new(vec![(schema_id, schema_content, schema_meta)]),
-                );
-                let document_files = graphql_db::DocumentFiles::new(
-                    &db,
-                    Arc::new(vec![(doc_id, doc_content, doc_meta)]),
-                );
-                let project_files = ProjectFiles::new(&db, schema_files, document_files);
+                let schema_file_ids =
+                    graphql_db::SchemaFileIds::new(&db, Arc::new(vec![schema_id]));
+                let document_file_ids =
+                    graphql_db::DocumentFileIds::new(&db, Arc::new(vec![doc_id]));
+                let mut file_entries = std::collections::HashMap::new();
+                file_entries.insert(schema_id, (schema_content, schema_meta));
+                file_entries.insert(doc_id, (doc_content, doc_meta));
+                let file_map = graphql_db::FileMap::new(&db, Arc::new(file_entries));
+                let project_files =
+                    ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_map);
 
                 // Cache schema types
                 let _ = graphql_hir::schema_types_with_project(&db, project_files);
@@ -265,15 +268,16 @@ fn bench_fragment_resolution_cold(c: &mut Criterion) {
                     FileKind::ExecutableGraphQL,
                 );
 
-                let schema_files = graphql_db::SchemaFiles::new(
-                    &db,
-                    Arc::new(vec![(schema_id, schema_content, schema_meta)]),
-                );
-                let document_files = graphql_db::DocumentFiles::new(
-                    &db,
-                    Arc::new(vec![(doc_id, doc_content, doc_meta)]),
-                );
-                let project_files = ProjectFiles::new(&db, schema_files, document_files);
+                let schema_file_ids =
+                    graphql_db::SchemaFileIds::new(&db, Arc::new(vec![schema_id]));
+                let document_file_ids =
+                    graphql_db::DocumentFileIds::new(&db, Arc::new(vec![doc_id]));
+                let mut file_entries = std::collections::HashMap::new();
+                file_entries.insert(schema_id, (schema_content, schema_meta));
+                file_entries.insert(doc_id, (doc_content, doc_meta));
+                let file_map = graphql_db::FileMap::new(&db, Arc::new(file_entries));
+                let project_files =
+                    ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_map);
 
                 (db, project_files)
             },
@@ -309,13 +313,13 @@ fn bench_fragment_resolution_warm(c: &mut Criterion) {
             FileKind::ExecutableGraphQL,
         );
 
-        let schema_files = graphql_db::SchemaFiles::new(
-            &db,
-            Arc::new(vec![(schema_id, schema_content, schema_meta)]),
-        );
-        let document_files =
-            graphql_db::DocumentFiles::new(&db, Arc::new(vec![(doc_id, doc_content, doc_meta)]));
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
+        let schema_file_ids = graphql_db::SchemaFileIds::new(&db, Arc::new(vec![schema_id]));
+        let document_file_ids = graphql_db::DocumentFileIds::new(&db, Arc::new(vec![doc_id]));
+        let mut file_entries = std::collections::HashMap::new();
+        file_entries.insert(schema_id, (schema_content, schema_meta));
+        file_entries.insert(doc_id, (doc_content, doc_meta));
+        let file_map = graphql_db::FileMap::new(&db, Arc::new(file_entries));
+        let project_files = ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_map);
 
         let _ = graphql_hir::all_fragments_with_project(&db, project_files);
 

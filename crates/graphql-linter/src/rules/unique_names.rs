@@ -29,11 +29,14 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
 
         // Collect all operations with their locations
-        let document_files_input = project_files.document_files(db);
-        let document_files = document_files_input.files(db);
+        let doc_ids = project_files.document_file_ids(db).ids(db);
+        let file_map = project_files.file_map(db).entries(db);
         let mut operations_by_name: HashMap<String, Vec<(FileId, usize)>> = HashMap::new();
 
-        for (file_id, content, metadata) in document_files.iter() {
+        for file_id in doc_ids.iter() {
+            let Some((content, metadata)) = file_map.get(file_id) else {
+                continue;
+            };
             let structure = graphql_hir::file_structure(db, *file_id, *content, *metadata);
             for operation in &structure.operations {
                 if let Some(ref name) = operation.name {
@@ -74,7 +77,10 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
         // Collect all fragments with their locations
         let mut fragments_by_name: HashMap<String, Vec<FileId>> = HashMap::new();
 
-        for (file_id, content, metadata) in document_files.iter() {
+        for file_id in doc_ids.iter() {
+            let Some((content, metadata)) = file_map.get(file_id) else {
+                continue;
+            };
             let structure = graphql_hir::file_structure(db, *file_id, *content, *metadata);
             for fragment in &structure.fragments {
                 fragments_by_name

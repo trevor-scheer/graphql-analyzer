@@ -349,9 +349,10 @@ mod tests {
         );
 
         // Empty project files (no schema)
-        let schema_files = graphql_db::SchemaFiles::new(&db, Arc::new(vec![]));
-        let document_files = graphql_db::DocumentFiles::new(&db, Arc::new(vec![]));
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
+        let schema_file_ids = graphql_db::SchemaFileIds::new(&db, Arc::new(vec![]));
+        let document_file_ids = graphql_db::DocumentFileIds::new(&db, Arc::new(vec![]));
+        let file_map = graphql_db::FileMap::new(&db, Arc::new(std::collections::HashMap::new()));
+        let project_files = ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_map);
 
         let diagnostics = validate_document(&db, content, metadata, project_files);
         assert_eq!(
@@ -389,15 +390,13 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let schema_files = graphql_db::SchemaFiles::new(
-            &db,
-            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
-        );
-        let document_files = graphql_db::DocumentFiles::new(
-            &db,
-            Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
-        );
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
+        let schema_file_ids = graphql_db::SchemaFileIds::new(&db, Arc::new(vec![schema_id]));
+        let document_file_ids = graphql_db::DocumentFileIds::new(&db, Arc::new(vec![doc_id]));
+        let mut file_entries = std::collections::HashMap::new();
+        file_entries.insert(schema_id, (schema_content, schema_metadata));
+        file_entries.insert(doc_id, (doc_content, doc_metadata));
+        let file_map = graphql_db::FileMap::new(&db, Arc::new(file_entries));
+        let project_files = ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_map);
 
         let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
         assert_eq!(
@@ -435,15 +434,13 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let schema_files = graphql_db::SchemaFiles::new(
-            &db,
-            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
-        );
-        let document_files = graphql_db::DocumentFiles::new(
-            &db,
-            Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
-        );
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
+        let schema_file_ids = graphql_db::SchemaFileIds::new(&db, Arc::new(vec![schema_id]));
+        let document_file_ids = graphql_db::DocumentFileIds::new(&db, Arc::new(vec![doc_id]));
+        let mut file_entries = std::collections::HashMap::new();
+        file_entries.insert(schema_id, (schema_content, schema_metadata));
+        file_entries.insert(doc_id, (doc_content, doc_metadata));
+        let file_map = graphql_db::FileMap::new(&db, Arc::new(file_entries));
+        let project_files = ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_map);
 
         let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
         assert!(
@@ -482,15 +479,13 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let schema_files = graphql_db::SchemaFiles::new(
-            &db,
-            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
-        );
-        let document_files = graphql_db::DocumentFiles::new(
-            &db,
-            Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
-        );
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
+        let schema_file_ids = graphql_db::SchemaFileIds::new(&db, Arc::new(vec![schema_id]));
+        let document_file_ids = graphql_db::DocumentFileIds::new(&db, Arc::new(vec![doc_id]));
+        let mut file_entries = std::collections::HashMap::new();
+        file_entries.insert(schema_id, (schema_content, schema_metadata));
+        file_entries.insert(doc_id, (doc_content, doc_metadata));
+        let file_map = graphql_db::FileMap::new(&db, Arc::new(file_entries));
+        let project_files = ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_map);
 
         let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
         assert!(
@@ -529,15 +524,13 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let schema_files = graphql_db::SchemaFiles::new(
-            &db,
-            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
-        );
-        let document_files = graphql_db::DocumentFiles::new(
-            &db,
-            Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
-        );
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
+        let schema_file_ids = graphql_db::SchemaFileIds::new(&db, Arc::new(vec![schema_id]));
+        let document_file_ids = graphql_db::DocumentFileIds::new(&db, Arc::new(vec![doc_id]));
+        let mut file_entries = std::collections::HashMap::new();
+        file_entries.insert(schema_id, (schema_content, schema_metadata));
+        file_entries.insert(doc_id, (doc_content, doc_metadata));
+        let file_map = graphql_db::FileMap::new(&db, Arc::new(file_entries));
+        let project_files = ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_map);
 
         let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
         assert_eq!(
@@ -572,15 +565,13 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let schema_files = graphql_db::SchemaFiles::new(
-            &db,
-            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
-        );
-        let document_files = graphql_db::DocumentFiles::new(
-            &db,
-            Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
-        );
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
+        let schema_file_ids = graphql_db::SchemaFileIds::new(&db, Arc::new(vec![schema_id]));
+        let document_file_ids = graphql_db::DocumentFileIds::new(&db, Arc::new(vec![doc_id]));
+        let mut file_entries = std::collections::HashMap::new();
+        file_entries.insert(schema_id, (schema_content, schema_metadata));
+        file_entries.insert(doc_id, (doc_content, doc_metadata));
+        let file_map = graphql_db::FileMap::new(&db, Arc::new(file_entries));
+        let project_files = ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_map);
 
         let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
         assert!(
@@ -619,15 +610,13 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let schema_files = graphql_db::SchemaFiles::new(
-            &db,
-            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
-        );
-        let document_files = graphql_db::DocumentFiles::new(
-            &db,
-            Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
-        );
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
+        let schema_file_ids = graphql_db::SchemaFileIds::new(&db, Arc::new(vec![schema_id]));
+        let document_file_ids = graphql_db::DocumentFileIds::new(&db, Arc::new(vec![doc_id]));
+        let mut file_entries = std::collections::HashMap::new();
+        file_entries.insert(schema_id, (schema_content, schema_metadata));
+        file_entries.insert(doc_id, (doc_content, doc_metadata));
+        let file_map = graphql_db::FileMap::new(&db, Arc::new(file_entries));
+        let project_files = ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_map);
 
         let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
         assert!(
@@ -680,18 +669,15 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let schema_files = graphql_db::SchemaFiles::new(
-            &db,
-            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
-        );
-        let document_files = graphql_db::DocumentFiles::new(
-            &db,
-            Arc::new(vec![
-                (frag_id, frag_content, frag_metadata),
-                (query_id, query_content, query_metadata),
-            ]),
-        );
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
+        let schema_file_ids = graphql_db::SchemaFileIds::new(&db, Arc::new(vec![schema_id]));
+        let document_file_ids =
+            graphql_db::DocumentFileIds::new(&db, Arc::new(vec![frag_id, query_id]));
+        let mut file_entries = std::collections::HashMap::new();
+        file_entries.insert(schema_id, (schema_content, schema_metadata));
+        file_entries.insert(frag_id, (frag_content, frag_metadata));
+        file_entries.insert(query_id, (query_content, query_metadata));
+        let file_map = graphql_db::FileMap::new(&db, Arc::new(file_entries));
+        let project_files = ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_map);
 
         // Validate the query - it should find the fragment from the other file
         let diagnostics = validate_document(&db, query_content, query_metadata, project_files);
@@ -730,15 +716,13 @@ mod tests {
         // Set line offset to simulate extraction from line 10 in TypeScript file
         doc_metadata.set_line_offset(&mut db).to(10);
 
-        let schema_files = graphql_db::SchemaFiles::new(
-            &db,
-            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
-        );
-        let document_files = graphql_db::DocumentFiles::new(
-            &db,
-            Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
-        );
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
+        let schema_file_ids = graphql_db::SchemaFileIds::new(&db, Arc::new(vec![schema_id]));
+        let document_file_ids = graphql_db::DocumentFileIds::new(&db, Arc::new(vec![doc_id]));
+        let mut file_entries = std::collections::HashMap::new();
+        file_entries.insert(schema_id, (schema_content, schema_metadata));
+        file_entries.insert(doc_id, (doc_content, doc_metadata));
+        let file_map = graphql_db::FileMap::new(&db, Arc::new(file_entries));
+        let project_files = ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_map);
 
         let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
         assert!(!diagnostics.is_empty(), "Expected validation errors");
