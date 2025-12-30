@@ -50,7 +50,7 @@ pub fn validate_file(
             // Collect fragment names referenced by this document (transitively across files)
             let referenced_fragments =
                 collect_referenced_fragments_transitive(doc_text, project_files, db);
-            let fragment_file_index = graphql_hir::fragment_file_index(db, project_files);
+            let fragment_source_index = graphql_hir::fragment_source_index(db, project_files);
 
             let valid_schema =
                 apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
@@ -62,34 +62,19 @@ pub fn validate_file(
                 .source_offset(offset)
                 .parse_into_executable_builder(doc_text, doc_uri.as_str(), &mut builder);
 
-            // Add referenced fragments using the index for O(1) lookup
-            let mut added_files = std::collections::HashSet::new();
-            added_files.insert(doc_uri.as_str().to_string());
+            // Add referenced fragments using the source index for O(1) lookup
+            // This adds only the specific block containing each fragment, not other
+            // unrelated operations/fragments from the same file
+            let mut added_fragments = std::collections::HashSet::new();
             for fragment_name in &referenced_fragments {
                 let key: Arc<str> = Arc::from(fragment_name.as_str());
-                if let Some((file_content, file_metadata)) = fragment_file_index.get(&key) {
-                    let uri = file_metadata.uri(db);
-                    if !added_files.insert(uri.as_str().to_string()) {
-                        continue;
-                    }
-                    let fragment_text = if file_metadata.kind(db)
-                        == graphql_db::FileKind::TypeScript
-                        || file_metadata.kind(db) == graphql_db::FileKind::JavaScript
-                    {
-                        let fragment_parse =
-                            graphql_syntax::parse(db, *file_content, *file_metadata);
-                        fragment_parse
-                            .blocks
-                            .iter()
-                            .map(|block| block.source.as_ref())
-                            .collect::<Vec<_>>()
-                            .join("\n\n")
-                    } else {
-                        file_content.text(db).as_ref().to_string()
-                    };
+                if !added_fragments.insert(key.clone()) {
+                    continue;
+                }
+                if let Some(fragment_source) = fragment_source_index.get(&key) {
                     apollo_compiler::parser::Parser::new().parse_into_executable_builder(
-                        &fragment_text,
-                        uri.as_str(),
+                        fragment_source.as_ref(),
+                        format!("fragment:{fragment_name}"),
                         &mut builder,
                     );
                 }
@@ -152,7 +137,7 @@ pub fn validate_file(
     let doc_text = content.text(db);
     let referenced_fragments =
         collect_referenced_fragments_transitive(&doc_text, project_files, db);
-    let fragment_file_index = graphql_hir::fragment_file_index(db, project_files);
+    let fragment_source_index = graphql_hir::fragment_source_index(db, project_files);
     let valid_schema = apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
     let mut errors = apollo_compiler::validation::DiagnosticList::new(Arc::default());
     let mut builder = apollo_compiler::ExecutableDocument::builder(Some(valid_schema), &mut errors);
@@ -165,31 +150,19 @@ pub fn validate_file(
     apollo_compiler::parser::Parser::new()
         .source_offset(offset)
         .parse_into_executable_builder(doc_text.as_ref(), doc_uri.as_str(), &mut builder);
-    let mut added_files = std::collections::HashSet::new();
-    added_files.insert(doc_uri.as_str().to_string());
+
+    // Add referenced fragments using the source index for O(1) lookup
+    // This adds only the specific block containing each fragment
+    let mut added_fragments = std::collections::HashSet::new();
     for fragment_name in &referenced_fragments {
         let key: Arc<str> = Arc::from(fragment_name.as_str());
-        if let Some((file_content, file_metadata)) = fragment_file_index.get(&key) {
-            let uri = file_metadata.uri(db);
-            if !added_files.insert(uri.as_str().to_string()) {
-                continue;
-            }
-            let fragment_text = if file_metadata.kind(db) == graphql_db::FileKind::TypeScript
-                || file_metadata.kind(db) == graphql_db::FileKind::JavaScript
-            {
-                let fragment_parse = graphql_syntax::parse(db, *file_content, *file_metadata);
-                fragment_parse
-                    .blocks
-                    .iter()
-                    .map(|block| block.source.as_ref())
-                    .collect::<Vec<_>>()
-                    .join("\n\n")
-            } else {
-                file_content.text(db).as_ref().to_string()
-            };
+        if !added_fragments.insert(key.clone()) {
+            continue;
+        }
+        if let Some(fragment_source) = fragment_source_index.get(&key) {
             apollo_compiler::parser::Parser::new().parse_into_executable_builder(
-                &fragment_text,
-                uri.as_str(),
+                fragment_source.as_ref(),
+                format!("fragment:{fragment_name}"),
                 &mut builder,
             );
         }

@@ -244,6 +244,51 @@ pub fn fragment_file_index(
     Arc::new(index)
 }
 
+/// Index mapping fragment names to their source text (the GraphQL block containing them).
+///
+/// For TS/JS files with multiple blocks, this returns only the specific block
+/// containing each fragment, not all blocks from the file. This is crucial for
+/// proper validation - we don't want to accidentally include unrelated operations
+/// or fragments from the same file.
+#[salsa::tracked]
+pub fn fragment_source_index(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, Arc<str>>> {
+    let doc_ids = project_files.document_file_ids(db).ids(db);
+    let file_map = project_files.file_map(db).entries(db);
+    let mut index = HashMap::new();
+
+    for file_id in doc_ids.iter() {
+        if let Some((content, metadata)) = file_map.get(file_id) {
+            let kind = metadata.kind(db);
+            let parse = graphql_syntax::parse(db, *content, *metadata);
+
+            if kind == graphql_db::FileKind::TypeScript || kind == graphql_db::FileKind::JavaScript
+            {
+                // For TS/JS files, map each fragment to its specific block
+                for block in &parse.blocks {
+                    for def in &block.ast.definitions {
+                        if let apollo_compiler::ast::Definition::FragmentDefinition(frag) = def {
+                            let name: Arc<str> = Arc::from(frag.name.as_str());
+                            index.insert(name, block.source.clone());
+                        }
+                    }
+                }
+            } else {
+                // For pure GraphQL files, use the entire file content
+                let file_frags = file_fragments(db, *file_id, *content, *metadata);
+                let text = content.text(db);
+                for fragment in file_frags.iter() {
+                    index.insert(fragment.name.clone(), text.clone());
+                }
+            }
+        }
+    }
+
+    Arc::new(index)
+}
+
 /// Index mapping fragment names to the fragments they reference (spread)
 /// Uses granular per-file caching for efficient invalidation.
 #[salsa::tracked]
