@@ -602,6 +602,27 @@ impl GraphQLLanguageServer {
             .publish_diagnostics(uri, lsp_diagnostics, None)
             .await;
     }
+
+    /// Validate a document using a pre-acquired snapshot
+    ///
+    /// This variant avoids acquiring the host lock again when we already have a snapshot.
+    /// Used by `did_change` after updating a file to avoid double-locking.
+    #[tracing::instrument(skip(self, snapshot), fields(path = ?uri.to_file_path().unwrap()))]
+    async fn validate_document_with_snapshot(&self, uri: &Uri, snapshot: graphql_ide::Analysis) {
+        let file_path = graphql_ide::FilePath::new(uri.as_str());
+        let diagnostics = snapshot.diagnostics(&file_path);
+
+        // Convert IDE diagnostics to LSP diagnostics
+        let lsp_diagnostics: Vec<Diagnostic> = diagnostics
+            .into_iter()
+            .map(convert_ide_diagnostic)
+            .collect();
+
+        // Publish diagnostics
+        self.client
+            .publish_diagnostics(uri.clone(), lsp_diagnostics, None)
+            .await;
+    }
 }
 impl GraphQLLanguageServer {
     // REMOVED: get_project_wide_diagnostics (old validation system)
@@ -784,52 +805,54 @@ impl LanguageServer for GraphQLLanguageServer {
         let content = params.text_document.text;
 
         // Add to AnalysisHost
-        if let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) {
-            let _file_path = uri.to_file_path();
+        let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
+            self.validate_document(uri).await;
+            return;
+        };
 
-            // Get extract config from host
-            let extract_config = if let Some(host_mutex) = self
-                .hosts
-                .get(&(workspace_uri.clone(), project_name.clone()))
+        // Get the host mutex
+        let host = self.get_or_create_host(&workspace_uri, &project_name);
+
+        // === PHASE 1: Get config (single lock acquisition) ===
+        let extract_config = {
+            let host_guard = host.lock().await;
+            host_guard.get_extract_config()
+        };
+
+        // === PHASE 2: Do expensive work OUTSIDE the lock ===
+        // Determine file kind by inspecting path and content
+        let file_kind =
+            graphql_syntax::determine_file_kind_from_content(uri.path().as_str(), &content);
+
+        // Extract GraphQL from TypeScript/JavaScript files (potentially expensive)
+        let (final_content, line_offset) =
+            Self::extract_graphql_from_source(uri.path().as_str(), &content, &extract_config);
+
+        // After extraction, the content is pure GraphQL, so change the kind to ExecutableGraphQL
+        let final_kind = match file_kind {
+            graphql_ide::FileKind::TypeScript | graphql_ide::FileKind::JavaScript
+                if !final_content.is_empty() =>
             {
-                let host = host_mutex.lock().await;
-                host.get_extract_config()
-            } else {
-                graphql_extract::ExtractConfig::default()
-            };
-
-            // Determine file kind by inspecting path and content
-            let file_kind =
-                graphql_syntax::determine_file_kind_from_content(uri.path().as_str(), &content);
-
-            // Extract GraphQL from TypeScript/JavaScript files
-            let (final_content, line_offset) =
-                Self::extract_graphql_from_source(uri.path().as_str(), &content, &extract_config);
-
-            // IMPORTANT: After extraction, the content is pure GraphQL, so change the kind to ExecutableGraphQL
-            // This prevents the syntax layer from trying to extract again
-            let final_kind = match file_kind {
-                graphql_ide::FileKind::TypeScript | graphql_ide::FileKind::JavaScript
-                    if !final_content.is_empty() =>
-                {
-                    graphql_ide::FileKind::ExecutableGraphQL
-                }
-                _ => file_kind,
-            };
-
-            {
-                let host = self.get_or_create_host(&workspace_uri, &project_name);
-                let file_path = graphql_ide::FilePath::new(uri.to_string());
-                let mut host_guard = host.lock().await;
-                let is_new =
-                    host_guard.add_file(&file_path, &final_content, final_kind, line_offset);
-                if is_new {
-                    host_guard.rebuild_project_files(); // Rebuild after single file add
-                }
+                graphql_ide::FileKind::ExecutableGraphQL
             }
-        }
+            _ => file_kind,
+        };
 
-        self.validate_document(uri).await;
+        // === PHASE 3: Update file and get snapshot in one lock (optimized path) ===
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
+        let snapshot = {
+            let mut host_guard = host.lock().await;
+            let (_is_new, snapshot) = host_guard.update_file_and_snapshot(
+                &file_path,
+                &final_content,
+                final_kind,
+                line_offset,
+            );
+            snapshot
+        };
+
+        // === PHASE 4: Validate using pre-acquired snapshot (no lock needed) ===
+        self.validate_document_with_snapshot(&uri, snapshot).await;
     }
 
     #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
@@ -839,57 +862,56 @@ impl LanguageServer for GraphQLLanguageServer {
         // Get the latest content from changes (full sync mode)
         for change in params.content_changes {
             // Update AnalysisHost
-            if let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) {
-                let _file_path = uri.to_file_path();
+            let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
+                continue;
+            };
 
-                // Get extract config from host
-                let extract_config = if let Some(host_mutex) = self
-                    .hosts
-                    .get(&(workspace_uri.clone(), project_name.clone()))
+            // Get the host mutex
+            let host = self.get_or_create_host(&workspace_uri, &project_name);
+
+            // === PHASE 1: Get config (single lock acquisition) ===
+            let extract_config = {
+                let host_guard = host.lock().await;
+                host_guard.get_extract_config()
+            };
+
+            // === PHASE 2: Do expensive work OUTSIDE the lock ===
+            // Determine file kind by inspecting path and content
+            let file_kind =
+                graphql_syntax::determine_file_kind_from_content(uri.path().as_str(), &change.text);
+
+            // Extract GraphQL from TypeScript/JavaScript files (potentially expensive)
+            let (final_content, line_offset) = Self::extract_graphql_from_source(
+                uri.path().as_str(),
+                &change.text,
+                &extract_config,
+            );
+
+            // After extraction, the content is pure GraphQL, so change the kind to ExecutableGraphQL
+            let final_kind = match file_kind {
+                graphql_ide::FileKind::TypeScript | graphql_ide::FileKind::JavaScript
+                    if !final_content.is_empty() =>
                 {
-                    let host = host_mutex.lock().await;
-                    host.get_extract_config()
-                } else {
-                    graphql_extract::ExtractConfig::default()
-                };
-
-                // Determine file kind by inspecting path and content
-                let file_kind = graphql_syntax::determine_file_kind_from_content(
-                    uri.path().as_str(),
-                    &change.text,
-                );
-
-                // Extract GraphQL from TypeScript/JavaScript files
-                let (final_content, line_offset) = Self::extract_graphql_from_source(
-                    uri.path().as_str(),
-                    &change.text,
-                    &extract_config,
-                );
-
-                // IMPORTANT: After extraction, the content is pure GraphQL, so change the kind to ExecutableGraphQL
-                let final_kind = match file_kind {
-                    graphql_ide::FileKind::TypeScript | graphql_ide::FileKind::JavaScript
-                        if !final_content.is_empty() =>
-                    {
-                        graphql_ide::FileKind::ExecutableGraphQL
-                    }
-                    _ => file_kind,
-                };
-
-                {
-                    let host = self.get_or_create_host(&workspace_uri, &project_name);
-                    let file_path = graphql_ide::FilePath::new(uri.to_string());
-                    let mut host_guard = host.lock().await;
-                    let is_new =
-                        host_guard.add_file(&file_path, &final_content, final_kind, line_offset);
-                    if is_new {
-                        host_guard.rebuild_project_files();
-                    }
+                    graphql_ide::FileKind::ExecutableGraphQL
                 }
-            }
+                _ => file_kind,
+            };
 
-            // Validate immediately - Salsa's incremental computation makes this fast
-            self.validate_document(uri.clone()).await;
+            // === PHASE 3: Update file and get snapshot in one lock (optimized path) ===
+            let file_path = graphql_ide::FilePath::new(uri.to_string());
+            let snapshot = {
+                let mut host_guard = host.lock().await;
+                let (_is_new, snapshot) = host_guard.update_file_and_snapshot(
+                    &file_path,
+                    &final_content,
+                    final_kind,
+                    line_offset,
+                );
+                snapshot
+            };
+
+            // === PHASE 4: Validate using pre-acquired snapshot (no lock needed) ===
+            self.validate_document_with_snapshot(&uri, snapshot).await;
         }
     }
 

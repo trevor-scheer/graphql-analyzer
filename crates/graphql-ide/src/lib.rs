@@ -477,6 +477,48 @@ impl AnalysisHost {
         registry.rebuild_project_files(&mut self.db);
     }
 
+    /// Update a file and optionally create a snapshot in a single lock acquisition
+    ///
+    /// This is optimized for the common case of editing an existing file. It:
+    /// 1. Updates the file content (cheap operation)
+    /// 2. Returns a snapshot for immediate analysis
+    ///
+    /// This avoids the overhead of multiple lock acquisitions per keystroke.
+    /// For new files, call `add_file()` followed by `rebuild_project_files()` instead.
+    ///
+    /// Returns `(is_new_file, Analysis)` tuple.
+    pub fn update_file_and_snapshot(
+        &mut self,
+        path: &FilePath,
+        content: &str,
+        kind: FileKind,
+        line_offset: u32,
+    ) -> (bool, Analysis) {
+        // Single lock acquisition for both operations
+        let mut registry = self.registry.write().unwrap();
+        let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, kind, line_offset);
+
+        // If this is a new file, rebuild the index before creating snapshot
+        if is_new {
+            registry.rebuild_project_files(&mut self.db);
+        }
+
+        let project_files = registry.project_files();
+        // Release the lock before creating the snapshot (no longer needed)
+        drop(registry);
+
+        // Sync project_files to the database
+        *self.db.project_files.borrow_mut() = project_files;
+
+        let snapshot = Analysis {
+            db: self.db.clone(),
+            registry: Arc::clone(&self.registry),
+            project_files,
+        };
+
+        (is_new, snapshot)
+    }
+
     /// Check if a file exists in this host's registry
     #[must_use]
     pub fn contains_file(&self, path: &FilePath) -> bool {
