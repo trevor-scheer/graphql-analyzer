@@ -144,25 +144,29 @@ impl RootDatabase {
 /// Test utilities for creating project files
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils {
-    use super::*;
+    use super::{
+        DocumentFileIds, FileContent, FileId, FileMap, FileMetadata, ProjectFiles, SchemaFileIds,
+    };
+    use std::collections::HashMap;
+    use std::sync::Arc;
 
-    /// Helper to create ProjectFiles for tests
+    /// Helper to create `ProjectFiles` for tests
     ///
     /// This function takes lists of schema and document files and creates
-    /// the proper granular Salsa inputs (SchemaFileIds, DocumentFileIds, FileMap).
+    /// the proper granular Salsa inputs (`SchemaFileIds`, `DocumentFileIds`, `FileMap`).
     pub fn create_project_files<DB: salsa::Database>(
         db: &DB,
-        schema_files: Vec<(FileId, FileContent, FileMetadata)>,
-        document_files: Vec<(FileId, FileContent, FileMetadata)>,
+        schema_files: &[(FileId, FileContent, FileMetadata)],
+        document_files: &[(FileId, FileContent, FileMetadata)],
     ) -> ProjectFiles {
         let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
         let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
 
         let mut entries = HashMap::new();
-        for (id, content, metadata) in &schema_files {
+        for (id, content, metadata) in schema_files {
             entries.insert(*id, (*content, *metadata));
         }
-        for (id, content, metadata) in &document_files {
+        for (id, content, metadata) in document_files {
             entries.insert(*id, (*content, *metadata));
         }
 

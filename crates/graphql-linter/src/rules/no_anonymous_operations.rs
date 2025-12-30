@@ -62,22 +62,32 @@ impl StandaloneDocumentLintRule for NoAnonymousOperationsRuleImpl {
             return diagnostics;
         }
 
-        let doc_cst = parse.tree.document();
-
-        // Check operations in the main document
-        for definition in doc_cst.definitions() {
-            if let cst::Definition::OperationDefinition(operation) = definition {
-                check_operation_has_name(&operation, &mut diagnostics);
-            }
-        }
-
-        // Also check operations in extracted blocks (TypeScript/JavaScript)
-        for block in &parse.blocks {
-            let block_doc = block.tree.document();
-            for definition in block_doc.definitions() {
+        // Check operations in the main document (for .graphql files only)
+        // For TS/JS files, parse.tree is the first block and we check all blocks below
+        let file_kind = metadata.kind(db);
+        if file_kind == graphql_db::FileKind::ExecutableGraphQL
+            || file_kind == graphql_db::FileKind::Schema
+        {
+            let doc_cst = parse.tree.document();
+            for definition in doc_cst.definitions() {
                 if let cst::Definition::OperationDefinition(operation) = definition {
                     check_operation_has_name(&operation, &mut diagnostics);
                 }
+            }
+        }
+
+        // Check operations in extracted blocks (TypeScript/JavaScript)
+        for block in &parse.blocks {
+            let block_doc = block.tree.document();
+            let mut block_diagnostics = Vec::new();
+            for definition in block_doc.definitions() {
+                if let cst::Definition::OperationDefinition(operation) = definition {
+                    check_operation_has_name(&operation, &mut block_diagnostics);
+                }
+            }
+            // Add block context to each diagnostic for proper position calculation
+            for diag in block_diagnostics {
+                diagnostics.push(diag.with_block_context(block.line, block.source.clone()));
             }
         }
 
@@ -120,12 +130,12 @@ fn check_operation_has_name(
             "Anonymous {operation_type} operation. All operations should have explicit names for better monitoring and debugging"
         );
 
-        diagnostics.push(LintDiagnostic {
-            offset_range: crate::diagnostics::OffsetRange::new(start_offset, end_offset),
-            severity: LintSeverity::Error,
+        diagnostics.push(LintDiagnostic::new(
+            crate::diagnostics::OffsetRange::new(start_offset, end_offset),
+            LintSeverity::Error,
             message,
-            rule: "no_anonymous_operations".to_string(),
-        });
+            "no_anonymous_operations".to_string(),
+        ));
     }
 }
 
@@ -164,14 +174,14 @@ mod tests {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 query {
   user {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -195,14 +205,14 @@ query {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 {
   user {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -226,14 +236,14 @@ query {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 mutation {
-  updateUser(id: "123", name: "Alice") {
+  updateUser(id: \"123\", name: \"Alice\") {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -259,14 +269,14 @@ mutation {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 subscription {
   messageAdded {
     id
     content
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -292,14 +302,14 @@ subscription {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser {
   user {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -321,14 +331,14 @@ query GetUser {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 mutation UpdateUser {
-  updateUser(id: "123", name: "Alice") {
+  updateUser(id: \"123\", name: \"Alice\") {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -350,14 +360,14 @@ mutation UpdateUser {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 subscription OnMessageAdded {
   messageAdded {
     id
     content
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -379,7 +389,7 @@ subscription OnMessageAdded {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser {
   user {
     id
@@ -387,7 +397,7 @@ query GetUser {
 }
 
 mutation {
-  updateUser(id: "123") {
+  updateUser(id: \"123\") {
     id
   }
 }
@@ -397,7 +407,7 @@ query {
     id
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -426,7 +436,7 @@ query {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 fragment UserFields on User {
   id
   name
@@ -438,7 +448,7 @@ query GetUser {
     ...UserFields
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -461,14 +471,14 @@ query GetUser {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 query {
   user {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -492,14 +502,14 @@ query {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUserById($id: ID!) {
   user(id: $id) {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -521,14 +531,14 @@ query GetUserById($id: ID!) {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
-        let source = r#"
+        let source = "
 query($id: ID!) {
   user(id: $id) {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));

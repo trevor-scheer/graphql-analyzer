@@ -69,28 +69,39 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
             all_fragments: &all_fragments,
         };
 
-        // Check the main document (for .graphql files)
-        let doc_cst = parse.tree.document();
-        check_document(
-            &doc_cst,
-            query_type.as_deref(),
-            mutation_type.as_deref(),
-            subscription_type.as_deref(),
-            &check_context,
-            &mut diagnostics,
-        );
-
-        // Also check operations in extracted blocks (TypeScript/JavaScript)
-        for block in &parse.blocks {
-            let block_doc = block.tree.document();
+        // Check the main document (for .graphql files only)
+        // For TS/JS files, parse.tree is the first block and we check all blocks below
+        let file_kind = metadata.kind(db);
+        if file_kind == graphql_db::FileKind::ExecutableGraphQL
+            || file_kind == graphql_db::FileKind::Schema
+        {
+            let doc_cst = parse.tree.document();
             check_document(
-                &block_doc,
+                &doc_cst,
                 query_type.as_deref(),
                 mutation_type.as_deref(),
                 subscription_type.as_deref(),
                 &check_context,
                 &mut diagnostics,
             );
+        }
+
+        // Check operations in extracted blocks (TypeScript/JavaScript)
+        for block in &parse.blocks {
+            let block_doc = block.tree.document();
+            let mut block_diagnostics = Vec::new();
+            check_document(
+                &block_doc,
+                query_type.as_deref(),
+                mutation_type.as_deref(),
+                subscription_type.as_deref(),
+                &check_context,
+                &mut block_diagnostics,
+            );
+            // Add block context to each diagnostic for proper position calculation
+            for diag in block_diagnostics {
+                diagnostics.push(diag.with_block_context(block.line, block.source.clone()));
+            }
         }
 
         diagnostics
@@ -502,7 +513,7 @@ mod tests {
         (doc_file_id, doc_content, doc_metadata, project_files)
     }
 
-    const TEST_SCHEMA: &str = r#"
+    const TEST_SCHEMA: &str = r"
 type Query {
     user(id: ID!): User
     users: [User!]!
@@ -533,7 +544,7 @@ type Stats {
     viewCount: Int!
     likeCount: Int!
 }
-"#;
+";
 
     #[test]
     fn test_missing_id_on_type_with_id() {
@@ -656,7 +667,7 @@ query GetUserPostComments {
         let db = graphql_db::RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
-        let schema = r#"
+        let schema = r"
 type Query {
     stats: Stats!
 }
@@ -665,16 +676,16 @@ type Stats {
     viewCount: Int!
     likeCount: Int!
 }
-"#;
+";
 
-        let source = r#"
+        let source = r"
 query GetStats {
     stats {
         viewCount
         likeCount
     }
 }
-"#;
+";
 
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
@@ -765,7 +776,7 @@ const GET_POSTS = gql`
         let db = graphql_db::RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
-        let source = r#"
+        let source = r"
 import { gql } from '@apollo/client';
 
 const QUERY = gql`
@@ -781,7 +792,7 @@ const QUERY = gql`
         }
     }
 `;
-"#;
+";
 
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, TEST_SCHEMA, source, FileKind::TypeScript);
@@ -849,7 +860,7 @@ query GetUser {
 
         // Should warn - both the fragment definition and the operation usage
         // The fragment itself is checked, and the operation using it is checked
-        assert!(diagnostics.len() >= 1);
+        assert!(!diagnostics.is_empty());
         assert!(diagnostics.iter().any(|d| d.message.contains("'User'")));
     }
 }

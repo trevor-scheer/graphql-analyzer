@@ -64,7 +64,7 @@ fragment UserFields on User {
 }
 ";
 
-/// Helper to create ProjectFiles with schema and document
+/// Helper to create `ProjectFiles` with schema and document
 fn create_project_files(db: &RootDatabase) -> ProjectFiles {
     let schema_id = FileId::new(0);
     let schema_content = FileContent::new(db, Arc::from(SAMPLE_SCHEMA));
@@ -378,17 +378,17 @@ fn bench_analysis_host_diagnostics(c: &mut Criterion) {
     });
 }
 
-/// Benchmark: warm edit using AnalysisHost (simulates real LSP keystroke)
+/// Benchmark: warm edit using `AnalysisHost` (simulates real LSP keystroke)
 ///
 /// NOTE: This benchmark is currently disabled due to a known Salsa deadlock issue
 /// when updating files and getting diagnostics in the same thread.
-/// See: test_diagnostics_after_file_update in graphql-ide/src/lib.rs
+/// See: `test_diagnostics_after_file_update` in graphql-ide/src/lib.rs
 ///
-/// The fix we implemented (not calling rebuild_project_files on content changes)
-/// is validated by the golden_invariant benchmark which tests the underlying
+/// The fix we implemented (not calling `rebuild_project_files` on content changes)
+/// is validated by the `golden_invariant` benchmark which tests the underlying
 /// Salsa caching behavior directly.
 #[allow(dead_code)]
-fn bench_analysis_host_warm_edit(_c: &mut Criterion) {
+const fn bench_analysis_host_warm_edit(_c: &mut Criterion) {
     // Disabled - see comment above
     // To re-enable, fix the Salsa update hang issue first
 }

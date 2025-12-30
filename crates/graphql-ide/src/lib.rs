@@ -874,18 +874,22 @@ impl Analysis {
             return Some(Vec::new());
         }
 
-        // Get line index for position conversion
-        let line_index = graphql_syntax::line_index(&self.db, content);
+        // Find which block contains the position and get adjusted position
+        let metadata_line_offset = metadata.line_offset(&self.db);
+        let (block_context, adjusted_position) =
+            find_block_for_position(&parse, position, metadata_line_offset)?;
 
-        // Adjust position for line_offset (for extracted GraphQL from TypeScript/JavaScript)
-        let line_offset = metadata.line_offset(&self.db);
-        let adjusted_position = adjust_position_for_line_offset(position, line_offset)?;
+        // Convert position to byte offset using appropriate line index
+        let offset = if let Some(block_source) = block_context.block_source {
+            let block_line_index = graphql_syntax::LineIndex::new(block_source);
+            position_to_offset(&block_line_index, adjusted_position)?
+        } else {
+            let line_index = graphql_syntax::line_index(&self.db, content);
+            position_to_offset(&line_index, adjusted_position)?
+        };
 
-        // Convert position to byte offset
-        let offset = position_to_offset(&line_index, adjusted_position)?;
-
-        // Find what symbol we're completing (or near)
-        let symbol = find_symbol_at_offset(&parse.tree, offset);
+        // Find what symbol we're completing (or near) using the correct tree
+        let symbol = find_symbol_at_offset(block_context.tree, offset);
 
         // Determine completion context and provide appropriate completions
         match symbol {
@@ -909,14 +913,14 @@ impl Analysis {
                     return Some(Vec::new());
                 };
 
-                let in_selection_set = is_in_selection_set(&parse.tree, offset);
+                let in_selection_set = is_in_selection_set(block_context.tree, offset);
 
                 if in_selection_set {
                     // We're in a selection set - determine the parent type
                     let types = graphql_hir::schema_types_with_project(&self.db, project_files);
 
                     // Find what type's fields we should complete
-                    let parent_ctx = find_parent_type_at_offset(&parse.tree, offset);
+                    let parent_ctx = find_parent_type_at_offset(block_context.tree, offset);
                     tracing::debug!("Completions: parent_ctx = {:?}", parent_ctx);
 
                     let parent_ctx = parent_ctx?;
@@ -992,7 +996,7 @@ impl Analysis {
                 let types = graphql_hir::schema_types_with_project(&self.db, project_files);
 
                 // Find what type's fields we should complete
-                let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
+                let parent_ctx = find_parent_type_at_offset(block_context.tree, offset)?;
 
                 // If immediate_parent looks like a field name, resolve it using root_type
                 let parent_type_name = if parent_ctx.immediate_parent.chars().next()?.is_lowercase()
@@ -1048,25 +1052,32 @@ impl Analysis {
         // Parse the file
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        // Get line index for position conversion
+        // Get line index for position conversion (for pure GraphQL files)
         let line_index = graphql_syntax::line_index(&self.db, content);
 
-        // Adjust position for line_offset (for extracted GraphQL from TypeScript/JavaScript)
-        let line_offset = metadata.line_offset(&self.db);
-        let adjusted_position = adjust_position_for_line_offset(position, line_offset)?;
+        // Find which block contains the position and get adjusted position
+        let metadata_line_offset = metadata.line_offset(&self.db);
+        let (block_context, adjusted_position) =
+            find_block_for_position(&parse, position, metadata_line_offset)?;
+
         tracing::debug!(
-            "Hover: original position {:?}, line_offset {}, adjusted position {:?}",
+            "Hover: original position {:?}, block line_offset {}, adjusted position {:?}",
             position,
-            line_offset,
+            block_context.line_offset,
             adjusted_position
         );
 
-        // Convert position to byte offset
-        let offset = position_to_offset(&line_index, adjusted_position)?;
+        // Convert position to byte offset using appropriate line index
+        let offset = if let Some(block_source) = block_context.block_source {
+            let block_line_index = graphql_syntax::LineIndex::new(block_source);
+            position_to_offset(&block_line_index, adjusted_position)?
+        } else {
+            position_to_offset(&line_index, adjusted_position)?
+        };
 
         // Try to find the symbol at the offset even if there are parse errors
         // This allows hover to work on valid parts of a file with syntax errors elsewhere
-        let symbol = find_symbol_at_offset(&parse.tree, offset);
+        let symbol = find_symbol_at_offset(block_context.tree, offset);
 
         // If we couldn't find a symbol and there are parse errors, show the errors
         if symbol.is_none() && !parse.errors.is_empty() {
@@ -1203,24 +1214,33 @@ impl Analysis {
         // Parse the file
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        // Get line index for position conversion
+        // Get line index for position conversion (for pure GraphQL files)
         let line_index = graphql_syntax::line_index(&self.db, content);
 
-        // Adjust position for line_offset (for extracted GraphQL from TypeScript/JavaScript)
-        let line_offset = metadata.line_offset(&self.db);
-        let adjusted_position = adjust_position_for_line_offset(position, line_offset)?;
+        // Find which block contains the position and get adjusted position
+        let metadata_line_offset = metadata.line_offset(&self.db);
+        let (block_context, adjusted_position) =
+            find_block_for_position(&parse, position, metadata_line_offset)?;
+
         tracing::debug!(
-            "Goto definition: original position {:?}, line_offset {}, adjusted position {:?}",
+            "Goto definition: original position {:?}, block line_offset {}, adjusted position {:?}",
             position,
-            line_offset,
+            block_context.line_offset,
             adjusted_position
         );
 
-        // Convert position to byte offset
-        let offset = position_to_offset(&line_index, adjusted_position)?;
+        // Convert position to byte offset using appropriate line index
+        let offset = if let Some(block_source) = block_context.block_source {
+            // For TS/JS blocks, use block's source for line index
+            let block_line_index = graphql_syntax::LineIndex::new(block_source);
+            position_to_offset(&block_line_index, adjusted_position)?
+        } else {
+            // For pure GraphQL, use file's line index
+            position_to_offset(&line_index, adjusted_position)?
+        };
 
-        // Find the symbol at the offset
-        let symbol = find_symbol_at_offset(&parse.tree, offset)?;
+        // Find the symbol at the offset using the correct tree
+        let symbol = find_symbol_at_offset(block_context.tree, offset)?;
 
         // Get project files for HIR queries
         let project_files = self.project_files?;
@@ -1266,32 +1286,18 @@ impl Analysis {
 
                 // Parse the definition file to find exact position
                 let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
+                let def_line_offset = def_metadata.line_offset(&self.db);
 
-                // Find the fragment definition range in the parsed tree
-                if let Some((start_offset, end_offset)) =
-                    find_fragment_definition_range(&def_parse.tree, &name)
-                {
-                    // Convert byte offsets to line/column positions
-                    let def_line_index = graphql_syntax::line_index(&self.db, def_content);
-                    let range = offset_range_to_range(&def_line_index, start_offset, end_offset);
+                // Find the fragment definition - search through blocks for TS/JS files
+                let range = find_fragment_definition_in_parse(
+                    &def_parse,
+                    &name,
+                    def_content,
+                    &self.db,
+                    def_line_offset,
+                )?;
 
-                    // Adjust for line offset (TypeScript/JavaScript files)
-                    let def_line_offset = def_metadata.line_offset(&self.db);
-                    let adjusted_range = adjust_range_for_line_offset(range, def_line_offset);
-
-                    Some(vec![Location::new(file_path, adjusted_range)])
-                } else {
-                    // Fallback to placeholder if we can't find exact position
-                    // Still need to account for line offset in fallback
-                    let def_line_offset = def_metadata.line_offset(&self.db);
-                    Some(vec![Location::new(
-                        file_path,
-                        Range::new(
-                            Position::new(def_line_offset, 0),
-                            Position::new(def_line_offset, 0),
-                        ),
-                    )])
-                }
+                Some(vec![Location::new(file_path, range)])
             }
             Symbol::TypeName { name } => {
                 // Query HIR for all types
@@ -1309,40 +1315,27 @@ impl Analysis {
 
                 // Parse the definition file to find exact position
                 let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
+                let def_line_offset = def_metadata.line_offset(&self.db);
 
-                // Find the type definition range in the parsed tree
-                if let Some((start_offset, end_offset)) =
-                    find_type_definition_range(&def_parse.tree, &name)
-                {
-                    // Convert byte offsets to line/column positions
-                    let def_line_index = graphql_syntax::line_index(&self.db, def_content);
-                    let range = offset_range_to_range(&def_line_index, start_offset, end_offset);
+                // Find the type definition - search through blocks for TS/JS files
+                let range = find_type_definition_in_parse(
+                    &def_parse,
+                    &name,
+                    def_content,
+                    &self.db,
+                    def_line_offset,
+                )?;
 
-                    // Adjust for line offset (TypeScript/JavaScript files)
-                    let def_line_offset = def_metadata.line_offset(&self.db);
-                    let adjusted_range = adjust_range_for_line_offset(range, def_line_offset);
-
-                    Some(vec![Location::new(file_path, adjusted_range)])
-                } else {
-                    // Fallback to placeholder if we can't find exact position
-                    // Still need to account for line offset in fallback
-                    let def_line_offset = def_metadata.line_offset(&self.db);
-                    Some(vec![Location::new(
-                        file_path,
-                        Range::new(
-                            Position::new(def_line_offset, 0),
-                            Position::new(def_line_offset, 0),
-                        ),
-                    )])
-                }
+                Some(vec![Location::new(file_path, range)])
             }
             Symbol::FieldName { name: field_name } => {
-                // Get parent type context
-                let parent_context = find_parent_type_at_offset(&parse.tree, offset)?;
+                // Get parent type context - use the correct block's tree
+                let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
                 let types = graphql_hir::schema_types_with_project(&self.db, project_files);
 
                 // Resolve the parent type by following the field path
-                let field_path = get_parent_field_path(&parse.tree, offset).unwrap_or_default();
+                let field_path =
+                    get_parent_field_path(block_context.tree, offset).unwrap_or_default();
                 let parent_type_name =
                     resolve_parent_type_for_field(&parent_context.root_type, &field_path, &types);
 
@@ -1358,22 +1351,19 @@ impl Analysis {
 
                 // Parse the schema file
                 let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
+                let def_line_offset = def_metadata.line_offset(&self.db);
 
-                // Find the field definition range
-                if let Some((start_offset, end_offset)) =
-                    find_field_definition_range(&def_parse.tree, &parent_type_name, &field_name)
-                {
-                    let def_line_index = graphql_syntax::line_index(&self.db, def_content);
-                    let range = offset_range_to_range(&def_line_index, start_offset, end_offset);
+                // Find the field definition range - handle TS/JS blocks
+                let range = find_field_definition_in_parse(
+                    &def_parse,
+                    &parent_type_name,
+                    &field_name,
+                    def_content,
+                    &self.db,
+                    def_line_offset,
+                )?;
 
-                    // Adjust for line offset (TypeScript/JavaScript files)
-                    let def_line_offset = def_metadata.line_offset(&self.db);
-                    let adjusted_range = adjust_range_for_line_offset(range, def_line_offset);
-
-                    Some(vec![Location::new(file_path, adjusted_range)])
-                } else {
-                    None
-                }
+                Some(vec![Location::new(file_path, range)])
             }
             _ => None,
         }
@@ -1405,24 +1395,31 @@ impl Analysis {
         // Parse the file
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        // Get line index for position conversion
+        // Get line index for position conversion (for pure GraphQL files)
         let line_index = graphql_syntax::line_index(&self.db, content);
 
-        // Adjust position for line_offset (for extracted GraphQL from TypeScript/JavaScript)
-        let line_offset = metadata.line_offset(&self.db);
-        let adjusted_position = adjust_position_for_line_offset(position, line_offset)?;
+        // Find which block contains the position and get adjusted position
+        let metadata_line_offset = metadata.line_offset(&self.db);
+        let (block_context, adjusted_position) =
+            find_block_for_position(&parse, position, metadata_line_offset)?;
+
         tracing::debug!(
-            "Find references: original position {:?}, line_offset {}, adjusted position {:?}",
+            "Find references: original position {:?}, block line_offset {}, adjusted position {:?}",
             position,
-            line_offset,
+            block_context.line_offset,
             adjusted_position
         );
 
-        // Convert position to byte offset
-        let offset = position_to_offset(&line_index, adjusted_position)?;
+        // Convert position to byte offset using appropriate line index
+        let offset = if let Some(block_source) = block_context.block_source {
+            let block_line_index = graphql_syntax::LineIndex::new(block_source);
+            position_to_offset(&block_line_index, adjusted_position)?
+        } else {
+            position_to_offset(&line_index, adjusted_position)?
+        };
 
-        // Find the symbol at the offset
-        let symbol = find_symbol_at_offset(&parse.tree, offset)?;
+        // Find the symbol at the offset using the correct tree
+        let symbol = find_symbol_at_offset(block_context.tree, offset)?;
 
         // Find all references based on symbol type
         match symbol {
@@ -1464,22 +1461,18 @@ impl Analysis {
                 if let (Some(file_path), Some(def_content), Some(def_metadata)) =
                     (file_path, def_content, def_metadata)
                 {
-                    // Parse the definition file to find exact position
+                    // Parse the definition file to find exact position (handles TS/JS blocks)
                     let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
+                    let def_line_offset = def_metadata.line_offset(&self.db);
 
-                    if let Some((start_offset, end_offset)) =
-                        find_fragment_definition_range(&def_parse.tree, fragment_name)
-                    {
-                        // Convert byte offsets to line/column positions
-                        let def_line_index = graphql_syntax::line_index(&self.db, def_content);
-                        let range =
-                            offset_range_to_range(&def_line_index, start_offset, end_offset);
-
-                        // Adjust for line offset (TypeScript/JavaScript files)
-                        let def_line_offset = def_metadata.line_offset(&self.db);
-                        let adjusted_range = adjust_range_for_line_offset(range, def_line_offset);
-
-                        locations.push(Location::new(file_path, adjusted_range));
+                    if let Some(range) = find_fragment_definition_in_parse(
+                        &def_parse,
+                        fragment_name,
+                        def_content,
+                        &self.db,
+                        def_line_offset,
+                    ) {
+                        locations.push(Location::new(file_path, range));
                     }
                 }
             }
@@ -1493,36 +1486,30 @@ impl Analysis {
             let Some((content, metadata)) = file_map.get(file_id) else {
                 continue;
             };
+
+            let registry = self.registry.read().unwrap();
+            let file_path = registry.get_path(*file_id);
+            drop(registry);
+
+            let Some(file_path) = file_path else {
+                continue;
+            };
+
             // Parse the document
             let parse = graphql_syntax::parse(&self.db, *content, *metadata);
+            let line_offset = metadata.line_offset(&self.db);
 
-            // Search for fragment spreads in the parse tree
-            if let Some(spread_offsets) = find_fragment_spreads(&parse.tree, fragment_name) {
-                let registry = self.registry.read().unwrap();
-                let file_path = registry.get_path(*file_id);
-                drop(registry);
+            // Search for fragment spreads in all blocks (handles TS/JS correctly)
+            let spread_ranges = find_fragment_spreads_in_parse(
+                &parse,
+                fragment_name,
+                *content,
+                &self.db,
+                line_offset,
+            );
 
-                if let Some(file_path) = file_path {
-                    // Get line index for position conversion
-                    let line_index = graphql_syntax::line_index(&self.db, *content);
-
-                    // Get line offset for TypeScript/JavaScript files
-                    let line_offset = metadata.line_offset(&self.db);
-
-                    // Convert each offset to a position range
-                    for spread_offset in spread_offsets {
-                        // For spreads, we want to highlight just the fragment name
-                        // The offset points to the start of the name
-                        // We'll create a range spanning the fragment name
-                        let end_offset = spread_offset + fragment_name.len();
-                        let range = offset_range_to_range(&line_index, spread_offset, end_offset);
-
-                        // Adjust for line offset
-                        let adjusted_range = adjust_range_for_line_offset(range, line_offset);
-
-                        locations.push(Location::new(file_path.clone(), adjusted_range));
-                    }
-                }
+            for range in spread_ranges {
+                locations.push(Location::new(file_path.clone(), range));
             }
         }
 
@@ -1553,22 +1540,18 @@ impl Analysis {
                 if let (Some(file_path), Some(def_content), Some(def_metadata)) =
                     (file_path, def_content, def_metadata)
                 {
-                    // Parse the definition file to find exact position
+                    // Parse the definition file to find exact position (handles TS/JS blocks)
                     let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
+                    let def_line_offset = def_metadata.line_offset(&self.db);
 
-                    if let Some((start_offset, end_offset)) =
-                        find_type_definition_range(&def_parse.tree, type_name)
-                    {
-                        // Convert byte offsets to line/column positions
-                        let def_line_index = graphql_syntax::line_index(&self.db, def_content);
-                        let range =
-                            offset_range_to_range(&def_line_index, start_offset, end_offset);
-
-                        // Adjust for line offset (TypeScript/JavaScript files)
-                        let def_line_offset = def_metadata.line_offset(&self.db);
-                        let adjusted_range = adjust_range_for_line_offset(range, def_line_offset);
-
-                        locations.push(Location::new(file_path, adjusted_range));
+                    if let Some(range) = find_type_definition_in_parse(
+                        &def_parse,
+                        type_name,
+                        def_content,
+                        &self.db,
+                        def_line_offset,
+                    ) {
+                        locations.push(Location::new(file_path, range));
                     }
                 }
             }
@@ -1582,36 +1565,25 @@ impl Analysis {
             let Some((content, metadata)) = file_map.get(file_id) else {
                 continue;
             };
+
+            let registry = self.registry.read().unwrap();
+            let file_path = registry.get_path(*file_id);
+            drop(registry);
+
+            let Some(file_path) = file_path else {
+                continue;
+            };
+
             // Parse the schema file
             let parse = graphql_syntax::parse(&self.db, *content, *metadata);
+            let line_offset = metadata.line_offset(&self.db);
 
-            // Search for type references in the parse tree
-            if let Some(type_offsets) = find_type_references_in_tree(&parse.tree, type_name) {
-                let registry = self.registry.read().unwrap();
-                let file_path = registry.get_path(*file_id);
-                drop(registry);
+            // Search for type references in all blocks (handles TS/JS correctly)
+            let type_ranges =
+                find_type_references_in_parse(&parse, type_name, *content, &self.db, line_offset);
 
-                if let Some(file_path) = file_path {
-                    // Get line index for position conversion
-                    let line_index = graphql_syntax::line_index(&self.db, *content);
-
-                    // Get line offset for TypeScript/JavaScript files
-                    let line_offset = metadata.line_offset(&self.db);
-
-                    // Convert each offset to a position range
-                    for type_offset in type_offsets {
-                        // For type references, we want to highlight just the type name
-                        // The offset points to the start of the name
-                        // We'll create a range spanning the type name
-                        let end_offset = type_offset + type_name.len();
-                        let range = offset_range_to_range(&line_index, type_offset, end_offset);
-
-                        // Adjust for line offset
-                        let adjusted_range = adjust_range_for_line_offset(range, line_offset);
-
-                        locations.push(Location::new(file_path.clone(), adjusted_range));
-                    }
-                }
+            for range in type_ranges {
+                locations.push(Location::new(file_path.clone(), range));
             }
         }
 
@@ -2056,6 +2028,259 @@ fn convert_diagnostic(diag: &graphql_analysis::Diagnostic) -> Diagnostic {
         code: diag.code.as_ref().map(ToString::to_string),
         source: diag.source.to_string(),
     }
+}
+
+/// Result of finding which block contains a position
+struct BlockContext<'a> {
+    /// The syntax tree for the block (or main document)
+    tree: &'a apollo_parser::SyntaxTree,
+    /// Line offset to add when returning positions (0 for pure GraphQL files)
+    line_offset: u32,
+    /// The block source for building `LineIndex` (None for pure GraphQL files)
+    block_source: Option<&'a str>,
+}
+
+/// Find which GraphQL block contains the given position
+///
+/// For pure GraphQL files, returns the main tree with `line_offset` from metadata.
+/// For TS/JS files, finds the block containing the position and returns it with
+/// the appropriate line offset.
+#[allow(clippy::cast_possible_truncation)]
+fn find_block_for_position(
+    parse: &graphql_syntax::Parse,
+    position: Position,
+    metadata_line_offset: u32,
+) -> Option<(BlockContext<'_>, Position)> {
+    // If no blocks, this is a pure GraphQL file - use main tree
+    if parse.blocks.is_empty() {
+        let adjusted_pos = adjust_position_for_line_offset(position, metadata_line_offset)?;
+        return Some((
+            BlockContext {
+                tree: &parse.tree,
+                line_offset: metadata_line_offset,
+                block_source: None,
+            },
+            adjusted_pos,
+        ));
+    }
+
+    // For TS/JS files, find which block contains the position
+    for block in &parse.blocks {
+        let block_start_line = block.line as u32;
+        // Calculate block end line by counting newlines in source
+        let block_lines = block.source.chars().filter(|&c| c == '\n').count() as u32;
+        let block_end_line = block_start_line + block_lines;
+
+        if position.line >= block_start_line && position.line <= block_end_line {
+            // Position is within this block
+            // Adjust position to be relative to block start
+            let adjusted_pos = Position::new(
+                position.line - block_start_line,
+                position.character, // Column stays the same (assuming block starts at column 0 for GraphQL content)
+            );
+
+            return Some((
+                BlockContext {
+                    tree: &block.tree,
+                    line_offset: block_start_line,
+                    block_source: Some(&block.source),
+                },
+                adjusted_pos,
+            ));
+        }
+    }
+
+    None
+}
+
+/// Find a fragment definition in a parsed file, handling TS/JS blocks correctly
+///
+/// For pure GraphQL files, searches the main tree.
+/// For TS/JS files, searches each block and returns the correct position with block offset applied.
+#[allow(clippy::cast_possible_truncation)]
+fn find_fragment_definition_in_parse(
+    parse: &graphql_syntax::Parse,
+    fragment_name: &str,
+    content: graphql_db::FileContent,
+    db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
+    metadata_line_offset: u32,
+) -> Option<Range> {
+    // For pure GraphQL files, search the main tree
+    if parse.blocks.is_empty() {
+        if let Some((start_offset, end_offset)) =
+            find_fragment_definition_range(&parse.tree, fragment_name)
+        {
+            let file_line_index = graphql_syntax::line_index(db, content);
+            let range = offset_range_to_range(&file_line_index, start_offset, end_offset);
+            return Some(adjust_range_for_line_offset(range, metadata_line_offset));
+        }
+        return None;
+    }
+
+    // For TS/JS files, search each block
+    for block in &parse.blocks {
+        if let Some((start_offset, end_offset)) =
+            find_fragment_definition_range(&block.tree, fragment_name)
+        {
+            // Convert offsets to line/column using block's source
+            let block_line_index = graphql_syntax::LineIndex::new(&block.source);
+            let range = offset_range_to_range(&block_line_index, start_offset, end_offset);
+
+            // Return range adjusted by block's line offset
+            return Some(adjust_range_for_line_offset(range, block.line as u32));
+        }
+    }
+
+    None
+}
+
+/// Find a type definition in a parsed file, handling TS/JS blocks correctly
+#[allow(clippy::cast_possible_truncation)]
+fn find_type_definition_in_parse(
+    parse: &graphql_syntax::Parse,
+    type_name: &str,
+    content: graphql_db::FileContent,
+    db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
+    metadata_line_offset: u32,
+) -> Option<Range> {
+    // For pure GraphQL files, search the main tree
+    if parse.blocks.is_empty() {
+        if let Some((start_offset, end_offset)) = find_type_definition_range(&parse.tree, type_name)
+        {
+            let file_line_index = graphql_syntax::line_index(db, content);
+            let range = offset_range_to_range(&file_line_index, start_offset, end_offset);
+            return Some(adjust_range_for_line_offset(range, metadata_line_offset));
+        }
+        return None;
+    }
+
+    // For TS/JS files, search each block
+    for block in &parse.blocks {
+        if let Some((start_offset, end_offset)) = find_type_definition_range(&block.tree, type_name)
+        {
+            let block_line_index = graphql_syntax::LineIndex::new(&block.source);
+            let range = offset_range_to_range(&block_line_index, start_offset, end_offset);
+            return Some(adjust_range_for_line_offset(range, block.line as u32));
+        }
+    }
+
+    None
+}
+
+/// Find a field definition in a parsed file, handling TS/JS blocks correctly
+#[allow(clippy::cast_possible_truncation)]
+fn find_field_definition_in_parse(
+    parse: &graphql_syntax::Parse,
+    type_name: &str,
+    field_name: &str,
+    content: graphql_db::FileContent,
+    db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
+    metadata_line_offset: u32,
+) -> Option<Range> {
+    // For pure GraphQL files, search the main tree
+    if parse.blocks.is_empty() {
+        if let Some((start_offset, end_offset)) =
+            find_field_definition_range(&parse.tree, type_name, field_name)
+        {
+            let file_line_index = graphql_syntax::line_index(db, content);
+            let range = offset_range_to_range(&file_line_index, start_offset, end_offset);
+            return Some(adjust_range_for_line_offset(range, metadata_line_offset));
+        }
+        return None;
+    }
+
+    // For TS/JS files, search each block
+    for block in &parse.blocks {
+        if let Some((start_offset, end_offset)) =
+            find_field_definition_range(&block.tree, type_name, field_name)
+        {
+            let block_line_index = graphql_syntax::LineIndex::new(&block.source);
+            let range = offset_range_to_range(&block_line_index, start_offset, end_offset);
+            return Some(adjust_range_for_line_offset(range, block.line as u32));
+        }
+    }
+
+    None
+}
+
+/// Find all fragment spreads in a parsed file, handling TS/JS blocks correctly
+///
+/// Returns a vector of ranges with correct positions for each block.
+#[allow(clippy::cast_possible_truncation)]
+fn find_fragment_spreads_in_parse(
+    parse: &graphql_syntax::Parse,
+    fragment_name: &str,
+    content: graphql_db::FileContent,
+    db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
+    metadata_line_offset: u32,
+) -> Vec<Range> {
+    let mut results = Vec::new();
+
+    // For pure GraphQL files, search the main tree
+    if parse.blocks.is_empty() {
+        if let Some(offsets) = find_fragment_spreads(&parse.tree, fragment_name) {
+            let file_line_index = graphql_syntax::line_index(db, content);
+            for offset in offsets {
+                let end_offset = offset + fragment_name.len();
+                let range = offset_range_to_range(&file_line_index, offset, end_offset);
+                results.push(adjust_range_for_line_offset(range, metadata_line_offset));
+            }
+        }
+        return results;
+    }
+
+    // For TS/JS files, search each block
+    for block in &parse.blocks {
+        if let Some(offsets) = find_fragment_spreads(&block.tree, fragment_name) {
+            let block_line_index = graphql_syntax::LineIndex::new(&block.source);
+            for offset in offsets {
+                let end_offset = offset + fragment_name.len();
+                let range = offset_range_to_range(&block_line_index, offset, end_offset);
+                results.push(adjust_range_for_line_offset(range, block.line as u32));
+            }
+        }
+    }
+
+    results
+}
+
+/// Find all type references in a parsed file, handling TS/JS blocks correctly
+#[allow(clippy::cast_possible_truncation)]
+fn find_type_references_in_parse(
+    parse: &graphql_syntax::Parse,
+    type_name: &str,
+    content: graphql_db::FileContent,
+    db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
+    metadata_line_offset: u32,
+) -> Vec<Range> {
+    let mut results = Vec::new();
+
+    // For pure GraphQL files, search the main tree
+    if parse.blocks.is_empty() {
+        if let Some(offsets) = find_type_references_in_tree(&parse.tree, type_name) {
+            let file_line_index = graphql_syntax::line_index(db, content);
+            for offset in offsets {
+                let end_offset = offset + type_name.len();
+                let range = offset_range_to_range(&file_line_index, offset, end_offset);
+                results.push(adjust_range_for_line_offset(range, metadata_line_offset));
+            }
+        }
+        return results;
+    }
+
+    // For TS/JS files, search each block
+    for block in &parse.blocks {
+        if let Some(offsets) = find_type_references_in_tree(&block.tree, type_name) {
+            let block_line_index = graphql_syntax::LineIndex::new(&block.source);
+            for offset in offsets {
+                let end_offset = offset + type_name.len();
+                let range = offset_range_to_range(&block_line_index, offset, end_offset);
+                results.push(adjust_range_for_line_offset(range, block.line as u32));
+            }
+        }
+    }
+
+    results
 }
 
 /// Format a type reference for display (e.g., "[String!]!")

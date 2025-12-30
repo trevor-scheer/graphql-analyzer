@@ -59,15 +59,12 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
                     );
 
                     // For now, use offset 0 - we'll need to extract position from AST
-                    let diag = LintDiagnostic {
+                    let diag = LintDiagnostic::new(
+                        crate::diagnostics::OffsetRange::new(0, name.len()),
+                        self.default_severity(),
                         message,
-                        offset_range: crate::diagnostics::OffsetRange {
-                            start: 0,
-                            end: name.len(),
-                        },
-                        severity: self.default_severity(),
-                        rule: self.name().to_string(),
-                    };
+                        self.name().to_string(),
+                    );
 
                     diagnostics_by_file.entry(*file_id).or_default().push(diag);
                 }
@@ -100,15 +97,12 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
                         file_ids.len()
                     );
 
-                    let diag = LintDiagnostic {
+                    let diag = LintDiagnostic::new(
+                        crate::diagnostics::OffsetRange::new(0, name.len()),
+                        self.default_severity(),
                         message,
-                        offset_range: crate::diagnostics::OffsetRange {
-                            start: 0,
-                            end: name.len(),
-                        },
-                        severity: self.default_severity(),
-                        rule: self.name().to_string(),
-                    };
+                        self.name().to_string(),
+                    );
 
                     diagnostics_by_file.entry(*file_id).or_default().push(diag);
                 }

@@ -13,7 +13,7 @@ mod schema_validation;
 pub mod validation;
 
 pub use diagnostics::*;
-pub use validation::validate_document;
+pub use validation::validate_file;
 
 #[salsa::db]
 pub trait GraphQLAnalysisDatabase: graphql_hir::GraphQLHirDatabase {
@@ -137,8 +137,7 @@ fn file_validation_diagnostics_impl(
         }
         FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
             tracing::info!("Running document validation");
-            let doc_diagnostics =
-                validation::validate_document(db, content, metadata, project_files);
+            let doc_diagnostics = validation::validate_file(db, content, metadata, project_files);
             tracing::info!(
                 document_diagnostic_count = doc_diagnostics.len(),
                 "Document validation completed"

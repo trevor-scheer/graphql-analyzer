@@ -108,13 +108,24 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
             }
         }
 
-        // Now check all selection sets for redundant fields in main document
-        check_document_for_redundancy(&doc_cst, &fragments, &mut diagnostics);
+        // Check main document for redundant fields (for .graphql files only)
+        // For TS/JS files, parse.tree is the first block and we check all blocks below
+        let file_kind = metadata.kind(db);
+        if file_kind == graphql_db::FileKind::ExecutableGraphQL
+            || file_kind == graphql_db::FileKind::Schema
+        {
+            check_document_for_redundancy(&doc_cst, &fragments, &mut diagnostics);
+        }
 
-        // Also check selection sets in extracted blocks (TypeScript/JavaScript)
+        // Check selection sets in extracted blocks (TypeScript/JavaScript)
         for block in &parse.blocks {
             let block_doc = block.tree.document();
-            check_document_for_redundancy(&block_doc, &fragments, &mut diagnostics);
+            let mut block_diagnostics = Vec::new();
+            check_document_for_redundancy(&block_doc, &fragments, &mut block_diagnostics);
+            // Add block context to each diagnostic for proper position calculation
+            for diag in block_diagnostics {
+                diagnostics.push(diag.with_block_context(block.line, block.source.clone()));
+            }
         }
 
         diagnostics

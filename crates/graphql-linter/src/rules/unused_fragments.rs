@@ -94,15 +94,12 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
                         "Fragment '{fragment_name}' is defined but never used in any operation"
                     );
 
-                    let diag = LintDiagnostic {
+                    let diag = LintDiagnostic::new(
+                        crate::diagnostics::OffsetRange::new(0, fragment_name.len()),
+                        self.default_severity(),
                         message,
-                        offset_range: crate::diagnostics::OffsetRange {
-                            start: 0,
-                            end: fragment_name.len(),
-                        },
-                        severity: self.default_severity(),
-                        rule: self.name().to_string(),
-                    };
+                        self.name().to_string(),
+                    );
 
                     diagnostics_by_file.entry(*file_id).or_default().push(diag);
                 }

@@ -405,20 +405,20 @@ mod tests {
     #[salsa::db]
     impl crate::GraphQLHirDatabase for TestDatabase {}
 
-    /// Helper to create ProjectFiles for tests
+    /// Helper to create `ProjectFiles` for tests
     fn create_project_files(
         db: &TestDatabase,
-        schema_files: Vec<(FileId, FileContent, FileMetadata)>,
-        document_files: Vec<(FileId, FileContent, FileMetadata)>,
+        schema_files: &[(FileId, FileContent, FileMetadata)],
+        document_files: &[(FileId, FileContent, FileMetadata)],
     ) -> graphql_db::ProjectFiles {
         let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
         let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
 
         let mut entries = HashMap::new();
-        for (id, content, metadata) in &schema_files {
+        for (id, content, metadata) in schema_files {
             entries.insert(*id, (*content, *metadata));
         }
-        for (id, content, metadata) in &document_files {
+        for (id, content, metadata) in document_files {
             entries.insert(*id, (*content, *metadata));
         }
 
@@ -531,11 +531,11 @@ mod tests {
         let content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                "
                 query GetUser { user { ...FragA } }
                 fragment FragA on User { id ...FragB }
                 fragment FragB on User { name }
-                "#,
+                ",
             ),
         );
         let metadata = FileMetadata::new(
@@ -545,7 +545,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = create_project_files(&db, vec![], vec![(file_id, content, metadata)]);
+        let project_files = create_project_files(&db, &[], &[(file_id, content, metadata)]);
 
         let transitive = operation_transitive_fragments(&db, content, metadata, 0, project_files);
 

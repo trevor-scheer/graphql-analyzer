@@ -87,56 +87,6 @@ impl GraphQLLanguageServer {
             graphql_ide::FileKind::ExecutableGraphQL
         }
     }
-
-    /// Extract GraphQL from TypeScript/JavaScript source code.
-    ///
-    /// Returns `(extracted_graphql, line_offset)` tuple.
-    /// For TS/JS files: Returns extracted GraphQL or empty string if none found.
-    /// For other files: Returns source as-is.
-    #[allow(clippy::case_sensitive_file_extension_comparisons)]
-    fn extract_graphql_from_source(
-        path: &str,
-        source: &str,
-        config: &graphql_extract::ExtractConfig,
-    ) -> (String, u32) {
-        use graphql_extract::{extract_from_source, Language};
-
-        // Determine language from file extension
-        let language = if path.ends_with(".ts") || path.ends_with(".tsx") {
-            Language::TypeScript
-        } else if path.ends_with(".js") || path.ends_with(".jsx") {
-            Language::JavaScript
-        } else {
-            // Not a TS/JS file, return as-is (for .graphql files)
-            return (source.to_string(), 0);
-        };
-
-        // Extract GraphQL from TS/JS using provided config
-        match extract_from_source(source, language, config) {
-            Ok(extracted) if !extracted.is_empty() => {
-                // Concatenate all extracted GraphQL blocks
-                let combined_graphql: Vec<String> =
-                    extracted.iter().map(|e| e.source.clone()).collect();
-
-                // Use the line offset from the first block (already 0-indexed)
-                #[allow(clippy::cast_possible_truncation)]
-                let line_offset = extracted[0].location.range.start.line as u32;
-
-                let result = combined_graphql.join("\n\n");
-                (result, line_offset)
-            }
-            Ok(_extracted) => {
-                // No GraphQL found in TS/JS file - return empty string
-                (String::new(), 0)
-            }
-            Err(e) => {
-                // Extraction failed - return empty string
-                tracing::error!("Failed to extract GraphQL from {}: {}", path, e);
-                (String::new(), 0)
-            }
-        }
-    }
-
     /// Expand brace patterns like `{ts,tsx}` into multiple patterns
     ///
     /// This is needed because the glob crate doesn't support brace expansion.
@@ -358,24 +308,11 @@ impl GraphQLLanguageServer {
                                                         &path_str, &content,
                                                     );
 
-                                                    // Extract GraphQL from TypeScript/JavaScript files
-                                                    let (final_content, line_offset) =
-                                                        Self::extract_graphql_from_source(
-                                                            &path_str,
-                                                            &content,
-                                                            &extract_config,
-                                                        );
-
-                                                    // IMPORTANT: After extraction, change TypeScript/JavaScript to ExecutableGraphQL
-                                                    let final_kind = match file_kind {
-                                                        graphql_ide::FileKind::TypeScript
-                                                        | graphql_ide::FileKind::JavaScript
-                                                            if !final_content.is_empty() =>
-                                                        {
-                                                            graphql_ide::FileKind::ExecutableGraphQL
-                                                        }
-                                                        _ => file_kind,
-                                                    };
+                                                    // Store original source - let parsing layer handle extraction
+                                                    // This preserves block boundaries for proper validation
+                                                    let final_content = content;
+                                                    let line_offset = 0;
+                                                    let final_kind = file_kind;
 
                                                     // Strip leading '/' from absolute paths to avoid file:////
                                                     let path_str = path_str.trim_start_matches('/');
@@ -564,13 +501,13 @@ impl GraphQLLanguageServer {
         None
     }
 
-    /// Validate a document and publish diagnostics
+    /// Validate a file and publish diagnostics
     #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self), fields(path = ?uri.to_file_path().unwrap()))]
-    async fn validate_document(&self, uri: Uri) {
-        // Find the workspace for this document
+    async fn validate_file(&self, uri: Uri) {
+        // Find the workspace for this file
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
-            tracing::warn!("No workspace/project found for document");
+            tracing::warn!("No workspace/project found for file");
             return;
         };
 
@@ -603,12 +540,12 @@ impl GraphQLLanguageServer {
             .await;
     }
 
-    /// Validate a document using a pre-acquired snapshot
+    /// Validate a file using a pre-acquired snapshot
     ///
     /// This variant avoids acquiring the host lock again when we already have a snapshot.
     /// Used by `did_change` after updating a file to avoid double-locking.
     #[tracing::instrument(skip(self, snapshot), fields(path = ?uri.to_file_path().unwrap()))]
-    async fn validate_document_with_snapshot(&self, uri: &Uri, snapshot: graphql_ide::Analysis) {
+    async fn validate_file_with_snapshot(&self, uri: &Uri, snapshot: graphql_ide::Analysis) {
         let file_path = graphql_ide::FilePath::new(uri.as_str());
         let diagnostics = snapshot.diagnostics(&file_path);
 
@@ -624,12 +561,7 @@ impl GraphQLLanguageServer {
             .await;
     }
 }
-impl GraphQLLanguageServer {
-    // REMOVED: get_project_wide_diagnostics (old validation system)
-    // REMOVED: refresh_affected_files_diagnostics (old validation system)
-    // REMOVED: validate_graphql_document (old validation)
-    // REMOVED: validate_typescript_document (old validation)
-}
+impl GraphQLLanguageServer {}
 
 impl LanguageServer for GraphQLLanguageServer {
     #[tracing::instrument(skip(self, params))]
@@ -806,37 +738,22 @@ impl LanguageServer for GraphQLLanguageServer {
 
         // Add to AnalysisHost
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
-            self.validate_document(uri).await;
+            self.validate_file(uri).await;
             return;
         };
 
         // Get the host mutex
         let host = self.get_or_create_host(&workspace_uri, &project_name);
 
-        // === PHASE 1: Get config (single lock acquisition) ===
-        let extract_config = {
-            let host_guard = host.lock().await;
-            host_guard.get_extract_config()
-        };
-
-        // === PHASE 2: Do expensive work OUTSIDE the lock ===
         // Determine file kind by inspecting path and content
         let file_kind =
             graphql_syntax::determine_file_kind_from_content(uri.path().as_str(), &content);
 
-        // Extract GraphQL from TypeScript/JavaScript files (potentially expensive)
-        let (final_content, line_offset) =
-            Self::extract_graphql_from_source(uri.path().as_str(), &content, &extract_config);
-
-        // After extraction, the content is pure GraphQL, so change the kind to ExecutableGraphQL
-        let final_kind = match file_kind {
-            graphql_ide::FileKind::TypeScript | graphql_ide::FileKind::JavaScript
-                if !final_content.is_empty() =>
-            {
-                graphql_ide::FileKind::ExecutableGraphQL
-            }
-            _ => file_kind,
-        };
+        // For TS/JS files, store the original source and let the parsing layer handle extraction.
+        // This preserves block boundaries and allows proper validation of separate documents.
+        let final_content = content;
+        let line_offset = 0;
+        let final_kind = file_kind;
 
         // === PHASE 3: Update file and get snapshot in one lock (optimized path) ===
         let file_path = graphql_ide::FilePath::new(uri.to_string());
@@ -852,7 +769,7 @@ impl LanguageServer for GraphQLLanguageServer {
         };
 
         // === PHASE 4: Validate using pre-acquired snapshot (no lock needed) ===
-        self.validate_document_with_snapshot(&uri, snapshot).await;
+        self.validate_file_with_snapshot(&uri, snapshot).await;
     }
 
     #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
@@ -869,33 +786,15 @@ impl LanguageServer for GraphQLLanguageServer {
             // Get the host mutex
             let host = self.get_or_create_host(&workspace_uri, &project_name);
 
-            // === PHASE 1: Get config (single lock acquisition) ===
-            let extract_config = {
-                let host_guard = host.lock().await;
-                host_guard.get_extract_config()
-            };
-
-            // === PHASE 2: Do expensive work OUTSIDE the lock ===
             // Determine file kind by inspecting path and content
             let file_kind =
                 graphql_syntax::determine_file_kind_from_content(uri.path().as_str(), &change.text);
 
-            // Extract GraphQL from TypeScript/JavaScript files (potentially expensive)
-            let (final_content, line_offset) = Self::extract_graphql_from_source(
-                uri.path().as_str(),
-                &change.text,
-                &extract_config,
-            );
-
-            // After extraction, the content is pure GraphQL, so change the kind to ExecutableGraphQL
-            let final_kind = match file_kind {
-                graphql_ide::FileKind::TypeScript | graphql_ide::FileKind::JavaScript
-                    if !final_content.is_empty() =>
-                {
-                    graphql_ide::FileKind::ExecutableGraphQL
-                }
-                _ => file_kind,
-            };
+            // For TS/JS files, store the original source and let the parsing layer handle extraction.
+            // This preserves block boundaries and allows proper validation of separate documents.
+            let final_content = change.text.clone();
+            let line_offset = 0;
+            let final_kind = file_kind;
 
             // === PHASE 3: Update file and get snapshot in one lock (optimized path) ===
             let file_path = graphql_ide::FilePath::new(uri.to_string());
@@ -911,7 +810,7 @@ impl LanguageServer for GraphQLLanguageServer {
             };
 
             // === PHASE 4: Validate using pre-acquired snapshot (no lock needed) ===
-            self.validate_document_with_snapshot(&uri, snapshot).await;
+            self.validate_file_with_snapshot(&uri, snapshot).await;
         }
     }
 
@@ -1085,7 +984,7 @@ impl LanguageServer for GraphQLLanguageServer {
         let lsp_position = params.text_document_position.position;
         let include_declaration = params.context.include_declaration;
 
-        // Find workspace for this document
+        // Find workspace for this file
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             return Ok(None);
         };
