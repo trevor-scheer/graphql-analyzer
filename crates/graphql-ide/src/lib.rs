@@ -647,8 +647,11 @@ impl AnalysisHost {
         let project_files = self.registry.read().unwrap().project_files();
 
         if let Some(ref project_files) = project_files {
-            let doc_count = project_files.document_files(&self.db).files(&self.db).len();
-            let schema_count = project_files.schema_files(&self.db).files(&self.db).len();
+            let doc_count = project_files
+                .document_file_ids(&self.db)
+                .ids(&self.db)
+                .len();
+            let schema_count = project_files.schema_file_ids(&self.db).ids(&self.db).len();
             tracing::debug!(
                 "Snapshot project_files: {} schema files, {} document files",
                 schema_count,
@@ -1483,10 +1486,13 @@ impl Analysis {
         }
 
         // Search through all document files for fragment spreads
-        let document_files_input = project_files.document_files(&self.db);
-        let document_files = document_files_input.files(&self.db);
+        let doc_ids = project_files.document_file_ids(&self.db).ids(&self.db);
+        let file_map = project_files.file_map(&self.db).entries(&self.db);
 
-        for (file_id, content, metadata) in document_files.iter() {
+        for file_id in doc_ids.iter() {
+            let Some((content, metadata)) = file_map.get(file_id) else {
+                continue;
+            };
             // Parse the document
             let parse = graphql_syntax::parse(&self.db, *content, *metadata);
 
@@ -1569,10 +1575,13 @@ impl Analysis {
         }
 
         // Search through all schema files for type references
-        let schema_files_input = project_files.schema_files(&self.db);
-        let schema_files = schema_files_input.files(&self.db);
+        let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
+        let file_map = project_files.file_map(&self.db).entries(&self.db);
 
-        for (file_id, content, metadata) in schema_files.iter() {
+        for file_id in schema_ids.iter() {
+            let Some((content, metadata)) = file_map.get(file_id) else {
+                continue;
+            };
             // Parse the schema file
             let parse = graphql_syntax::parse(&self.db, *content, *metadata);
 
@@ -1821,9 +1830,12 @@ impl Analysis {
         }
 
         // Search operations from document files
-        let document_files_input = project_files.document_files(&self.db);
-        let document_files = document_files_input.files(&self.db);
-        for (file_id, content, metadata) in document_files.iter() {
+        let doc_ids = project_files.document_file_ids(&self.db).ids(&self.db);
+        let file_map = project_files.file_map(&self.db).entries(&self.db);
+        for file_id in doc_ids.iter() {
+            let Some((content, metadata)) = file_map.get(file_id) else {
+                continue;
+            };
             let structure = graphql_hir::file_structure(&self.db, *file_id, *content, *metadata);
             for operation in &structure.operations {
                 if let Some(op_name) = &operation.name {

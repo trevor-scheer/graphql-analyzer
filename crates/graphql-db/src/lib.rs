@@ -2,6 +2,7 @@
 // This crate defines the salsa database and input queries for the GraphQL LSP.
 // It provides the foundation for incremental, query-based computation.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Input file identifier in the project
@@ -76,38 +77,49 @@ pub struct FileMetadata {
     pub line_offset: u32,
 }
 
-/// Input: Schema file list
-/// Tracks which schema files are in the project
-/// This is a separate input from DocumentFiles to enable fine-grained invalidation:
-/// changing document files won't invalidate queries that only depend on schema files
+/// Input: Schema file ID list (identity only)
+/// This input changes ONLY when schema files are added or removed.
+/// Content changes do NOT affect this input, enabling fine-grained cache invalidation.
 #[salsa::input]
-pub struct SchemaFiles {
-    /// List of schema files with their content and metadata
-    pub files: Arc<Vec<(FileId, FileContent, FileMetadata)>>,
+pub struct SchemaFileIds {
+    /// List of schema file IDs - stable across content changes
+    pub ids: Arc<Vec<FileId>>,
 }
 
-/// Input: Document file list
-/// Tracks which document files (operations/fragments) are in the project
-/// This is a separate input from SchemaFiles to enable fine-grained invalidation:
-/// changing schema files won't invalidate queries that only depend on document files
+/// Input: Document file ID list (identity only)
+/// This input changes ONLY when document files are added or removed.
+/// Content changes do NOT affect this input, enabling fine-grained cache invalidation.
 #[salsa::input]
-pub struct DocumentFiles {
-    /// List of document files with their content and metadata
-    pub files: Arc<Vec<(FileId, FileContent, FileMetadata)>>,
+pub struct DocumentFileIds {
+    /// List of document file IDs - stable across content changes
+    pub ids: Arc<Vec<FileId>>,
 }
 
-/// Input: Project file lists
-/// Tracks which files are in the project, categorized by kind
-/// This is updated by the IDE layer when files are added/removed
+/// Input: File lookup map
+/// Maps FileId to (FileContent, FileMetadata) for O(1) lookup.
+/// This input changes when any file's content changes, but queries that only
+/// need the file list (not content) should depend on SchemaFileIds/DocumentFileIds instead.
+#[salsa::input]
+pub struct FileMap {
+    /// Mapping from FileId to file content and metadata
+    pub entries: Arc<HashMap<FileId, (FileContent, FileMetadata)>>,
+}
+
+/// Input: Project file tracking with granular inputs
+/// This struct provides access to both file identity (stable) and file content (dynamic).
 ///
-/// Note: This struct now just holds references to the separate SchemaFiles and DocumentFiles
-/// inputs. Queries should prefer using the specific input they need to minimize invalidation scope.
+/// Queries should choose their dependencies carefully:
+/// - Depend on `schema_file_ids` or `document_file_ids` for "what files exist" (stable)
+/// - Depend on `file_map` for "what's in the files" (changes on content edit)
+/// - Call per-file queries with specific FileContent to get per-file caching
 #[salsa::input]
 pub struct ProjectFiles {
-    /// Schema files input
-    pub schema_files: SchemaFiles,
-    /// Document files input
-    pub document_files: DocumentFiles,
+    /// Schema file IDs - only changes when schema files are added/removed
+    pub schema_file_ids: SchemaFileIds,
+    /// Document file IDs - only changes when document files are added/removed
+    pub document_file_ids: DocumentFileIds,
+    /// File content/metadata map - changes when any file content changes
+    pub file_map: FileMap,
 }
 
 /// The root salsa database
@@ -126,6 +138,39 @@ impl RootDatabase {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+}
+
+/// Test utilities for creating project files
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils {
+    use super::*;
+
+    /// Helper to create ProjectFiles for tests
+    ///
+    /// This function takes lists of schema and document files and creates
+    /// the proper granular Salsa inputs (SchemaFileIds, DocumentFileIds, FileMap).
+    pub fn create_project_files<DB: salsa::Database>(
+        db: &DB,
+        schema_files: Vec<(FileId, FileContent, FileMetadata)>,
+        document_files: Vec<(FileId, FileContent, FileMetadata)>,
+    ) -> ProjectFiles {
+        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
+        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
+
+        let mut entries = HashMap::new();
+        for (id, content, metadata) in &schema_files {
+            entries.insert(*id, (*content, *metadata));
+        }
+        for (id, content, metadata) in &document_files {
+            entries.insert(*id, (*content, *metadata));
+        }
+
+        let schema_file_ids = SchemaFileIds::new(db, Arc::new(schema_ids));
+        let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
+        let file_map = FileMap::new(db, Arc::new(entries));
+
+        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_map)
     }
 }
 

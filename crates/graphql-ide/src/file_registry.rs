@@ -4,7 +4,8 @@
 //! and salsa database file identifiers.
 
 use graphql_db::{
-    DocumentFiles, FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles, SchemaFiles,
+    DocumentFileIds, FileContent, FileId, FileKind, FileMap, FileMetadata, FileUri, ProjectFiles,
+    SchemaFileIds,
 };
 use salsa::Setter;
 use std::collections::HashMap;
@@ -23,10 +24,12 @@ pub struct FileRegistry {
     id_to_uri: HashMap<FileId, String>,
     id_to_content: HashMap<FileId, FileContent>,
     id_to_metadata: HashMap<FileId, FileMetadata>,
-    /// Separate input for schema files (enables fine-grained invalidation)
-    schema_files: Option<SchemaFiles>,
-    /// Separate input for document files (enables fine-grained invalidation)
-    document_files: Option<DocumentFiles>,
+    /// Granular input tracking schema file IDs only - changes on file add/remove
+    schema_file_ids: Option<SchemaFileIds>,
+    /// Granular input tracking document file IDs only - changes on file add/remove
+    document_file_ids: Option<DocumentFileIds>,
+    /// Maps `FileId` -> (`FileContent`, `FileMetadata`) for O(1) lookup - changes on any file edit
+    file_map: Option<FileMap>,
     /// The `ProjectFiles` input that tracks all files in the project
     project_files: Option<ProjectFiles>,
 }
@@ -152,8 +155,9 @@ impl FileRegistry {
     where
         DB: salsa::Database,
     {
-        let mut schema_file_list = Vec::new();
-        let mut document_file_list = Vec::new();
+        let mut schema_ids = Vec::new();
+        let mut document_ids = Vec::new();
+        let mut file_entries: HashMap<FileId, (FileContent, FileMetadata)> = HashMap::new();
 
         // Collect all file data first without calling db methods
         let file_data: Vec<_> = self
@@ -167,43 +171,55 @@ impl FileRegistry {
 
         // Now query kinds and categorize - this may trigger salsa queries
         for (file_id, content, metadata) in file_data {
-            let tuple = (file_id, content, metadata);
+            // Add to file entries map (for O(1) lookup)
+            file_entries.insert(file_id, (content, metadata));
 
+            // Categorize by kind for ID lists
             match metadata.kind(db) {
-                FileKind::Schema => schema_file_list.push(tuple),
+                FileKind::Schema => schema_ids.push(file_id),
                 FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
-                    document_file_list.push(tuple);
+                    document_ids.push(file_id);
                 }
             }
         }
 
-        // Create or update the SchemaFiles input
-        let schema_files = if let Some(existing) = self.schema_files {
-            existing.set_files(db).to(Arc::new(schema_file_list));
+        // Create or update the SchemaFileIds input
+        let schema_file_ids = if let Some(existing) = self.schema_file_ids {
+            existing.set_ids(db).to(Arc::new(schema_ids));
             existing
         } else {
-            SchemaFiles::new(db, Arc::new(schema_file_list))
+            SchemaFileIds::new(db, Arc::new(schema_ids))
         };
-        self.schema_files = Some(schema_files);
+        self.schema_file_ids = Some(schema_file_ids);
 
-        // Create or update the DocumentFiles input
-        let document_files = if let Some(existing) = self.document_files {
-            existing.set_files(db).to(Arc::new(document_file_list));
+        // Create or update the DocumentFileIds input
+        let document_file_ids = if let Some(existing) = self.document_file_ids {
+            existing.set_ids(db).to(Arc::new(document_ids));
             existing
         } else {
-            DocumentFiles::new(db, Arc::new(document_file_list))
+            DocumentFileIds::new(db, Arc::new(document_ids))
         };
-        self.document_files = Some(document_files);
+        self.document_file_ids = Some(document_file_ids);
+
+        // Create or update the FileMap input
+        let file_map = if let Some(existing) = self.file_map {
+            existing.set_entries(db).to(Arc::new(file_entries));
+            existing
+        } else {
+            FileMap::new(db, Arc::new(file_entries))
+        };
+        self.file_map = Some(file_map);
 
         // Create or update the ProjectFiles input
         let project_files = if let Some(existing) = self.project_files {
-            // Update existing input to point to (potentially new) SchemaFiles/DocumentFiles
-            existing.set_schema_files(db).to(schema_files);
-            existing.set_document_files(db).to(document_files);
+            // Update existing input to point to (potentially new) granular inputs
+            existing.set_schema_file_ids(db).to(schema_file_ids);
+            existing.set_document_file_ids(db).to(document_file_ids);
+            existing.set_file_map(db).to(file_map);
             existing
         } else {
             // Create new input
-            ProjectFiles::new(db, schema_files, document_files)
+            ProjectFiles::new(db, schema_file_ids, document_file_ids, file_map)
         };
 
         self.project_files = Some(project_files);

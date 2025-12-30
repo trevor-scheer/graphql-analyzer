@@ -29,11 +29,14 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
 
         // Step 1: Collect all fragment definitions
-        let document_files_input = project_files.document_files(db);
-        let document_files = document_files_input.files(db);
+        let doc_ids = project_files.document_file_ids(db).ids(db);
+        let file_map = project_files.file_map(db).entries(db);
         let mut all_fragments: HashMap<String, Vec<FileId>> = HashMap::new();
 
-        for (file_id, content, metadata) in document_files.iter() {
+        for file_id in doc_ids.iter() {
+            let Some((content, metadata)) = file_map.get(file_id) else {
+                continue;
+            };
             let structure = graphql_hir::file_structure(db, *file_id, *content, *metadata);
             for fragment in &structure.fragments {
                 all_fragments
@@ -46,7 +49,10 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
         // Step 2: Collect all used fragment names from operations and fragments
         let mut used_fragments = HashSet::new();
 
-        for (_file_id, content, metadata) in document_files.iter() {
+        for file_id in doc_ids.iter() {
+            let Some((content, metadata)) = file_map.get(file_id) else {
+                continue;
+            };
             let parse = graphql_syntax::parse(db, *content, *metadata);
 
             // Scan operations and fragments in the main AST

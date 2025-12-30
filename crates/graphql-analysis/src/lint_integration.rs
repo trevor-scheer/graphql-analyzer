@@ -325,23 +325,9 @@ fn find_file_content_and_metadata(
     project_files: ProjectFiles,
     file_id: FileId,
 ) -> Option<(FileContent, FileMetadata)> {
-    // Search in document files
-    let document_files = project_files.document_files(db).files(db);
-    for (fid, content, metadata) in document_files.iter() {
-        if *fid == file_id {
-            return Some((*content, *metadata));
-        }
-    }
-
-    // Search in schema files
-    let schema_files = project_files.schema_files(db).files(db);
-    for (fid, content, metadata) in schema_files.iter() {
-        if *fid == file_id {
-            return Some((*content, *metadata));
-        }
-    }
-
-    None
+    // O(1) lookup using file_map
+    let file_map = project_files.file_map(db).entries(db);
+    file_map.get(&file_id).copied()
 }
 
 /// Convert `LintDiagnostic` (byte offsets) to `Diagnostic` (line/column)

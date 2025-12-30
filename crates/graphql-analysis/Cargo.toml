@@ -16,3 +16,6 @@ apollo-compiler = { workspace = true }
 apollo-parser = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+graphql-db = { path = "../graphql-db", features = ["test-utils"] }

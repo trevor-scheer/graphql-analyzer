@@ -3,18 +3,19 @@ use apollo_compiler::parser::Parser;
 use std::sync::Arc;
 
 /// Merge all schema files into a single `apollo_compiler::Schema`
-/// This query depends ONLY on `SchemaFiles`, not `DocumentFiles`.
+/// This query depends ONLY on schema file IDs and their content, not `DocumentFiles`.
 /// Changing document files will not invalidate this query.
 #[salsa::tracked]
 pub fn merged_schema_from_files(
     db: &dyn GraphQLAnalysisDatabase,
-    schema_files: graphql_db::SchemaFiles,
+    project_files: graphql_db::ProjectFiles,
 ) -> Option<Arc<apollo_compiler::Schema>> {
     tracing::info!("merged_schema: Starting schema merge");
-    let files = schema_files.files(db);
-    tracing::info!(schema_file_count = files.len(), "Found schema files");
+    let schema_ids = project_files.schema_file_ids(db).ids(db);
+    let file_map = project_files.file_map(db).entries(db);
+    tracing::info!(schema_file_count = schema_ids.len(), "Found schema files");
 
-    if files.is_empty() {
+    if schema_ids.is_empty() {
         tracing::info!("No schema files found in project - returning None");
         return None;
     }
@@ -22,7 +23,10 @@ pub fn merged_schema_from_files(
     let mut builder = apollo_compiler::schema::SchemaBuilder::new();
     let mut parser = Parser::new();
 
-    for (_file_id, content, metadata) in files.iter() {
+    for file_id in schema_ids.iter() {
+        let Some((content, metadata)) = file_map.get(file_id) else {
+            continue;
+        };
         let text = content.text(db);
         let uri = metadata.uri(db);
 
@@ -56,13 +60,13 @@ pub fn merged_schema(
     db: &dyn GraphQLAnalysisDatabase,
     project_files: graphql_db::ProjectFiles,
 ) -> Option<Arc<apollo_compiler::Schema>> {
-    merged_schema_from_files(db, project_files.schema_files(db))
+    merged_schema_from_files(db, project_files)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
 
     #[salsa::db]
     #[derive(Clone, Default)]
@@ -94,12 +98,11 @@ mod tests {
             FileUri::new("schema.graphql"),
             FileKind::Schema,
         );
-
-        let schema_files =
-            graphql_db::SchemaFiles::new(&db, Arc::new(vec![(file_id, content, metadata)]));
-        let document_files = graphql_db::DocumentFiles::new(&db, Arc::new(vec![]));
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
-
+        let project_files = graphql_db::test_utils::create_project_files(
+            &db,
+            vec![(file_id, content, metadata)],
+            vec![],
+        );
         let schema = merged_schema(&db, project_files);
         assert!(
             schema.is_some(),
@@ -135,15 +138,14 @@ mod tests {
             FileKind::Schema,
         );
 
-        let schema_files = graphql_db::SchemaFiles::new(
+        let project_files = graphql_db::test_utils::create_project_files(
             &db,
-            Arc::new(vec![
+            vec![
                 (file1_id, content1, metadata1),
                 (file2_id, content2, metadata2),
-            ]),
+            ],
+            vec![],
         );
-        let document_files = graphql_db::DocumentFiles::new(&db, Arc::new(vec![]));
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -184,15 +186,14 @@ mod tests {
             FileKind::Schema,
         );
 
-        let schema_files = graphql_db::SchemaFiles::new(
+        let project_files = graphql_db::test_utils::create_project_files(
             &db,
-            Arc::new(vec![
+            vec![
                 (file1_id, content1, metadata1),
                 (file2_id, content2, metadata2),
-            ]),
+            ],
+            vec![],
         );
-        let document_files = graphql_db::DocumentFiles::new(&db, Arc::new(vec![]));
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -227,9 +228,7 @@ mod tests {
     fn test_merged_schema_no_files() {
         let db = TestDatabase::default();
 
-        let schema_files = graphql_db::SchemaFiles::new(&db, Arc::new(vec![]));
-        let document_files = graphql_db::DocumentFiles::new(&db, Arc::new(vec![]));
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
+        let project_files = graphql_db::test_utils::create_project_files(&db, vec![], vec![]);
 
         let schema = merged_schema(&db, project_files);
         assert!(schema.is_none(), "Expected None when no schema files exist");
@@ -248,10 +247,11 @@ mod tests {
             FileKind::Schema,
         );
 
-        let schema_files =
-            graphql_db::SchemaFiles::new(&db, Arc::new(vec![(file_id, content, metadata)]));
-        let document_files = graphql_db::DocumentFiles::new(&db, Arc::new(vec![]));
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
+        let project_files = graphql_db::test_utils::create_project_files(
+            &db,
+            vec![(file_id, content, metadata)],
+            vec![],
+        );
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -277,10 +277,11 @@ mod tests {
             FileKind::Schema,
         );
 
-        let schema_files =
-            graphql_db::SchemaFiles::new(&db, Arc::new(vec![(file_id, content, metadata)]));
-        let document_files = graphql_db::DocumentFiles::new(&db, Arc::new(vec![]));
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
+        let project_files = graphql_db::test_utils::create_project_files(
+            &db,
+            vec![(file_id, content, metadata)],
+            vec![],
+        );
 
         let schema = merged_schema(&db, project_files);
         assert!(

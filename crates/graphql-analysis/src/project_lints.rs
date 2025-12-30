@@ -10,7 +10,7 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
         .project_files()
         .expect("project files must be set for project-wide analysis");
     let _schema = graphql_hir::schema_types_with_project(db, project_files);
-    let _operations = graphql_hir::all_operations(db);
+    let _operations = graphql_hir::all_operations(db, project_files);
 
     let unused = Vec::new();
 
@@ -36,14 +36,17 @@ pub fn find_unused_fragments(
         .project_files()
         .expect("project files must be set for project-wide analysis");
     let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
-    let document_files_input = project_files.document_files(db);
-    let document_files = document_files_input.files(db);
+    let doc_ids = project_files.document_file_ids(db).ids(db);
+    let file_map = project_files.file_map(db).entries(db);
 
     let mut used_fragments = HashSet::new();
 
     // First, collect all ASTs for cross-file fragment resolution
     let mut all_documents = Vec::new();
-    for (_file_id, file_content, file_metadata) in document_files.iter() {
+    for file_id in doc_ids.iter() {
+        let Some((file_content, file_metadata)) = file_map.get(file_id) else {
+            continue;
+        };
         let parse = graphql_syntax::parse(db, *file_content, *file_metadata);
 
         // For TypeScript/JavaScript files, add each extracted block

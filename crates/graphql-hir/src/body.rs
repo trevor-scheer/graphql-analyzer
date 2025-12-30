@@ -165,31 +165,22 @@ pub fn operation_transitive_fragments(
     let mut visited = HashSet::new();
     let mut to_visit: Vec<Arc<str>> = body.fragment_spreads.iter().cloned().collect();
 
-    // Get all fragments in the project for lookup
-    let all_fragments = crate::all_fragments_with_project(db, project_files);
+    // Use fragment_file_index for O(1) lookup of fragment files
+    let fragment_index = crate::fragment_file_index(db, project_files);
 
     while let Some(frag_name) = to_visit.pop() {
         if !visited.insert(frag_name.clone()) {
             continue; // Already visited (handles cycles)
         }
 
-        // Look up the fragment and get its body
-        if all_fragments.contains_key(&frag_name) {
-            // Find the fragment's file content and metadata
-            let document_files_input = project_files.document_files(db);
-            let document_files = document_files_input.files(db);
-            for (_, content, metadata) in document_files.iter() {
-                let frag_body = fragment_body(db, *content, *metadata, frag_name.clone());
+        // Look up the fragment's file directly using the index
+        if let Some((content, metadata)) = fragment_index.get(&frag_name) {
+            let frag_body = fragment_body(db, *content, *metadata, frag_name.clone());
 
-                // If this fragment has spreads, they're non-empty
-                if !frag_body.fragment_spreads.is_empty() {
-                    // Add any new fragment spreads to visit
-                    for spread in &frag_body.fragment_spreads {
-                        if !visited.contains(spread) {
-                            to_visit.push(spread.clone());
-                        }
-                    }
-                    break; // Found the fragment, move on
+            // Add any new fragment spreads to visit
+            for spread in &frag_body.fragment_spreads {
+                if !visited.contains(spread) {
+                    to_visit.push(spread.clone());
                 }
             }
         }
@@ -395,7 +386,8 @@ fn extract_selection(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+    use std::collections::HashMap;
 
     // Test database
     #[salsa::db]
@@ -412,6 +404,30 @@ mod tests {
 
     #[salsa::db]
     impl crate::GraphQLHirDatabase for TestDatabase {}
+
+    /// Helper to create ProjectFiles for tests
+    fn create_project_files(
+        db: &TestDatabase,
+        schema_files: Vec<(FileId, FileContent, FileMetadata)>,
+        document_files: Vec<(FileId, FileContent, FileMetadata)>,
+    ) -> graphql_db::ProjectFiles {
+        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
+        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
+
+        let mut entries = HashMap::new();
+        for (id, content, metadata) in &schema_files {
+            entries.insert(*id, (*content, *metadata));
+        }
+        for (id, content, metadata) in &document_files {
+            entries.insert(*id, (*content, *metadata));
+        }
+
+        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(schema_ids));
+        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_ids));
+        let file_map = graphql_db::FileMap::new(db, Arc::new(entries));
+
+        graphql_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_map)
+    }
 
     #[test]
     fn test_operation_body_extraction() {
@@ -529,10 +545,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let schema_files = graphql_db::SchemaFiles::new(&db, Arc::new(Vec::new()));
-        let document_files =
-            graphql_db::DocumentFiles::new(&db, Arc::new(vec![(file_id, content, metadata)]));
-        let project_files = ProjectFiles::new(&db, schema_files, document_files);
+        let project_files = create_project_files(&db, vec![], vec![(file_id, content, metadata)]);
 
         let transitive = operation_transitive_fragments(&db, content, metadata, 0, project_files);
 

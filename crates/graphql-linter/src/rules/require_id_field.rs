@@ -347,16 +347,12 @@ fn fragment_contains_id(
     // Get the fragment's file and parse it (cached by Salsa)
     let file_id = fragment_info.file_id;
 
-    // We need to get the file content and metadata to parse it
-    // Use project_files directly (not db.document_files() which uses db.project_files())
-    let document_files_input = context.project_files.document_files(context.db);
-    let document_files = document_files_input.files(context.db);
-
-    let Some((file_content, file_metadata)) = document_files
-        .iter()
-        .find(|(fid, _, _)| *fid == file_id)
-        .map(|(_, c, m)| (*c, *m))
-    else {
+    // Get the file content and metadata from file_map (O(1) lookup)
+    let file_map = context
+        .project_files
+        .file_map(context.db)
+        .entries(context.db);
+    let Some((file_content, file_metadata)) = file_map.get(&file_id).copied() else {
         return false;
     };
 
@@ -495,15 +491,13 @@ mod tests {
             document_kind,
         );
 
-        let schema_files = graphql_db::SchemaFiles::new(
-            db,
-            Arc::new(vec![(schema_file_id, schema_content, schema_metadata)]),
-        );
-        let document_files = graphql_db::DocumentFiles::new(
-            db,
-            Arc::new(vec![(doc_file_id, doc_content, doc_metadata)]),
-        );
-        let project_files = ProjectFiles::new(db, schema_files, document_files);
+        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
+        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(vec![doc_file_id]));
+        let mut file_entries = std::collections::HashMap::new();
+        file_entries.insert(schema_file_id, (schema_content, schema_metadata));
+        file_entries.insert(doc_file_id, (doc_content, doc_metadata));
+        let file_map = graphql_db::FileMap::new(db, Arc::new(file_entries));
+        let project_files = ProjectFiles::new(db, schema_file_ids, document_file_ids, file_map);
 
         (doc_file_id, doc_content, doc_metadata, project_files)
     }
