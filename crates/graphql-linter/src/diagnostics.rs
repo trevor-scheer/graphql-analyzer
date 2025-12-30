@@ -2,7 +2,7 @@
 /// This makes it compatible with Salsa and avoids premature position conversion
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LintDiagnostic {
-    /// Byte offset range in the file
+    /// Byte offset range in the file (or block for TS/JS files)
     pub offset_range: OffsetRange,
     /// Severity (from rule default or config override)
     pub severity: LintSeverity,
@@ -10,6 +10,12 @@ pub struct LintDiagnostic {
     pub message: String,
     /// Rule identifier (e.g., `"deprecated_field"`)
     pub rule: String,
+    /// For TS/JS files: line offset where the GraphQL block starts (0-based)
+    /// This is used to adjust the final line position when converting to Diagnostic
+    pub block_line_offset: Option<usize>,
+    /// For TS/JS files: the GraphQL block source (for building `LineIndex`)
+    /// When set, `offset_range` is relative to this source, not the full file
+    pub block_source: Option<std::sync::Arc<str>>,
 }
 
 impl LintDiagnostic {
@@ -26,6 +32,8 @@ impl LintDiagnostic {
             severity,
             message,
             rule,
+            block_line_offset: None,
+            block_source: None,
         }
     }
 
@@ -42,6 +50,8 @@ impl LintDiagnostic {
             severity: LintSeverity::Warning,
             message: message.into(),
             rule: rule.into(),
+            block_line_offset: None,
+            block_source: None,
         }
     }
 
@@ -58,6 +68,8 @@ impl LintDiagnostic {
             severity: LintSeverity::Error,
             message: message.into(),
             rule: rule.into(),
+            block_line_offset: None,
+            block_source: None,
         }
     }
 
@@ -74,7 +86,18 @@ impl LintDiagnostic {
             severity: LintSeverity::Info,
             message: message.into(),
             rule: rule.into(),
+            block_line_offset: None,
+            block_source: None,
         }
+    }
+
+    /// Set the block context for TS/JS files
+    /// This allows proper position calculation when the diagnostic is from an extracted block
+    #[must_use]
+    pub fn with_block_context(mut self, line_offset: usize, source: std::sync::Arc<str>) -> Self {
+        self.block_line_offset = Some(line_offset);
+        self.block_source = Some(source);
+        self
     }
 }
 

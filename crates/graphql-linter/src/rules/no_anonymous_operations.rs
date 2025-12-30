@@ -62,22 +62,32 @@ impl StandaloneDocumentLintRule for NoAnonymousOperationsRuleImpl {
             return diagnostics;
         }
 
-        let doc_cst = parse.tree.document();
-
-        // Check operations in the main document
-        for definition in doc_cst.definitions() {
-            if let cst::Definition::OperationDefinition(operation) = definition {
-                check_operation_has_name(&operation, &mut diagnostics);
-            }
-        }
-
-        // Also check operations in extracted blocks (TypeScript/JavaScript)
-        for block in &parse.blocks {
-            let block_doc = block.tree.document();
-            for definition in block_doc.definitions() {
+        // Check operations in the main document (for .graphql files only)
+        // For TS/JS files, parse.tree is the first block and we check all blocks below
+        let file_kind = metadata.kind(db);
+        if file_kind == graphql_db::FileKind::ExecutableGraphQL
+            || file_kind == graphql_db::FileKind::Schema
+        {
+            let doc_cst = parse.tree.document();
+            for definition in doc_cst.definitions() {
                 if let cst::Definition::OperationDefinition(operation) = definition {
                     check_operation_has_name(&operation, &mut diagnostics);
                 }
+            }
+        }
+
+        // Check operations in extracted blocks (TypeScript/JavaScript)
+        for block in &parse.blocks {
+            let block_doc = block.tree.document();
+            let mut block_diagnostics = Vec::new();
+            for definition in block_doc.definitions() {
+                if let cst::Definition::OperationDefinition(operation) = definition {
+                    check_operation_has_name(&operation, &mut block_diagnostics);
+                }
+            }
+            // Add block context to each diagnostic for proper position calculation
+            for diag in block_diagnostics {
+                diagnostics.push(diag.with_block_context(block.line, block.source.clone()));
             }
         }
 
@@ -120,12 +130,12 @@ fn check_operation_has_name(
             "Anonymous {operation_type} operation. All operations should have explicit names for better monitoring and debugging"
         );
 
-        diagnostics.push(LintDiagnostic {
-            offset_range: crate::diagnostics::OffsetRange::new(start_offset, end_offset),
-            severity: LintSeverity::Error,
+        diagnostics.push(LintDiagnostic::new(
+            crate::diagnostics::OffsetRange::new(start_offset, end_offset),
+            LintSeverity::Error,
             message,
-            rule: "no_anonymous_operations".to_string(),
-        });
+            "no_anonymous_operations".to_string(),
+        ));
     }
 }
 

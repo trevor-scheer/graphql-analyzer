@@ -69,28 +69,39 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
             all_fragments: &all_fragments,
         };
 
-        // Check the main document (for .graphql files)
-        let doc_cst = parse.tree.document();
-        check_document(
-            &doc_cst,
-            query_type.as_deref(),
-            mutation_type.as_deref(),
-            subscription_type.as_deref(),
-            &check_context,
-            &mut diagnostics,
-        );
-
-        // Also check operations in extracted blocks (TypeScript/JavaScript)
-        for block in &parse.blocks {
-            let block_doc = block.tree.document();
+        // Check the main document (for .graphql files only)
+        // For TS/JS files, parse.tree is the first block and we check all blocks below
+        let file_kind = metadata.kind(db);
+        if file_kind == graphql_db::FileKind::ExecutableGraphQL
+            || file_kind == graphql_db::FileKind::Schema
+        {
+            let doc_cst = parse.tree.document();
             check_document(
-                &block_doc,
+                &doc_cst,
                 query_type.as_deref(),
                 mutation_type.as_deref(),
                 subscription_type.as_deref(),
                 &check_context,
                 &mut diagnostics,
             );
+        }
+
+        // Check operations in extracted blocks (TypeScript/JavaScript)
+        for block in &parse.blocks {
+            let block_doc = block.tree.document();
+            let mut block_diagnostics = Vec::new();
+            check_document(
+                &block_doc,
+                query_type.as_deref(),
+                mutation_type.as_deref(),
+                subscription_type.as_deref(),
+                &check_context,
+                &mut block_diagnostics,
+            );
+            // Add block context to each diagnostic for proper position calculation
+            for diag in block_diagnostics {
+                diagnostics.push(diag.with_block_context(block.line, block.source.clone()));
+            }
         }
 
         diagnostics
