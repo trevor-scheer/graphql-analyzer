@@ -1387,6 +1387,42 @@ impl Analysis {
 
                 Some(vec![Location::new(file_path, range)])
             }
+            Symbol::TypeName { name } => {
+                // Search through all schema files for the type definition
+                let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
+                let registry = self.registry.read().unwrap();
+
+                for file_id in schema_ids.iter() {
+                    let Some(schema_content) = registry.get_content(*file_id) else {
+                        continue;
+                    };
+                    let Some(schema_metadata) = registry.get_metadata(*file_id) else {
+                        continue;
+                    };
+                    let Some(file_path) = registry.get_path(*file_id) else {
+                        continue;
+                    };
+
+                    // Parse the schema file
+                    let schema_parse =
+                        graphql_syntax::parse(&self.db, schema_content, schema_metadata);
+                    let schema_line_offset = schema_metadata.line_offset(&self.db);
+
+                    // Find the type definition in this schema file
+                    if let Some(range) = find_type_definition_in_parse(
+                        &schema_parse,
+                        &name,
+                        schema_content,
+                        &self.db,
+                        schema_line_offset,
+                    ) {
+                        return Some(vec![Location::new(file_path, range)]);
+                    }
+                }
+
+                // Type definition not found
+                None
+            }
             _ => None,
         }
     }
@@ -2746,7 +2782,6 @@ fragment AttackActionInfo on AttackAction {
     }
 
     #[test]
-    #[ignore = "goto_definition not yet implemented for Symbol::TypeName - see issue #221"]
     fn test_goto_definition_type_name() {
         let mut host = AnalysisHost::new();
 
@@ -2781,7 +2816,6 @@ fragment AttackActionInfo on AttackAction {
     }
 
     #[test]
-    #[ignore = "goto_definition not yet implemented for Symbol::FieldName - see issue #221"]
     fn test_goto_definition_field_on_root_type() {
         let mut host = AnalysisHost::new();
 
@@ -2811,7 +2845,6 @@ fragment AttackActionInfo on AttackAction {
     }
 
     #[test]
-    #[ignore = "goto_definition not yet implemented for Symbol::FieldName - see issue #221"]
     fn test_goto_definition_nested_field() {
         let mut host = AnalysisHost::new();
 
@@ -2824,7 +2857,7 @@ fragment AttackActionInfo on AttackAction {
         );
 
         let query_file = FilePath::new("file:///query.graphql");
-        let (query_text, cursor_pos) = extract_cursor("query { user { name *} }");
+        let (query_text, cursor_pos) = extract_cursor("query { user { na*me } }");
         host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
         host.rebuild_project_files();
 
@@ -2840,7 +2873,6 @@ fragment AttackActionInfo on AttackAction {
     }
 
     #[test]
-    #[ignore = "goto_definition not yet implemented for Symbol::TypeName - see issue #221"]
     fn test_goto_definition_schema_field_type() {
         let mut host = AnalysisHost::new();
 
