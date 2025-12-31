@@ -65,7 +65,7 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
         let root_types = get_root_type_names(db, &schema_types);
 
         for file_id in doc_ids.iter() {
-            // Use per-file lookup to avoid depending on entire file_map
+            // Use per-file lookup for granular caching
             let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
             else {
                 continue;

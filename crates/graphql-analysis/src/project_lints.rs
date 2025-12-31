@@ -43,7 +43,7 @@ pub fn find_unused_fragments(
     // First, collect all ASTs for cross-file fragment resolution
     let mut all_documents = Vec::new();
     for file_id in doc_ids.iter() {
-        // Use per-file lookup to avoid depending on entire file_map
+        // Use per-file lookup for granular caching
         let Some((file_content, file_metadata)) =
             graphql_db::file_lookup(db, project_files, *file_id)
         else {

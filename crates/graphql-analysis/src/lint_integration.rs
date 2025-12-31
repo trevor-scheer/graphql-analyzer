@@ -325,7 +325,7 @@ fn find_file_content_and_metadata(
     project_files: ProjectFiles,
     file_id: FileId,
 ) -> Option<(FileContent, FileMetadata)> {
-    // Use per-file lookup to avoid depending on entire file_map
+    // Use per-file lookup for granular caching
     graphql_db::file_lookup(db, project_files, file_id)
 }
 

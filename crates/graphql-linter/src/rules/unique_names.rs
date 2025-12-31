@@ -33,7 +33,7 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
         let mut operations_by_name: HashMap<String, Vec<(FileId, usize)>> = HashMap::new();
 
         for file_id in doc_ids.iter() {
-            // Use per-file lookup to avoid depending on entire file_map
+            // Use per-file lookup for granular caching
             let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
             else {
                 continue;
@@ -76,7 +76,7 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
         let mut fragments_by_name: HashMap<String, Vec<FileId>> = HashMap::new();
 
         for file_id in doc_ids.iter() {
-            // Use per-file lookup to avoid depending on entire file_map
+            // Use per-file lookup for granular caching
             let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
             else {
                 continue;

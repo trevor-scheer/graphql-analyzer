@@ -85,7 +85,7 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
             // Get the file content and metadata for this fragment
             let fragment_file_id = fragment_info.file_id;
 
-            // Use per-file lookup to avoid depending on entire file_map
+            // Use per-file lookup for granular caching
             if let Some((file_content, file_metadata)) =
                 graphql_db::file_lookup(db, project_files, fragment_file_id)
             {

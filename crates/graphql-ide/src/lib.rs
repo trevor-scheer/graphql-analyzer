@@ -1502,10 +1502,11 @@ impl Analysis {
 
         // Search through all document files for fragment spreads
         let doc_ids = project_files.document_file_ids(&self.db).ids(&self.db);
-        let file_map = project_files.file_map(&self.db).entries(&self.db);
 
         for file_id in doc_ids.iter() {
-            let Some((content, metadata)) = file_map.get(file_id) else {
+            let Some((content, metadata)) =
+                graphql_db::file_lookup(&self.db, project_files, *file_id)
+            else {
                 continue;
             };
 
@@ -1518,14 +1519,14 @@ impl Analysis {
             };
 
             // Parse the document
-            let parse = graphql_syntax::parse(&self.db, *content, *metadata);
+            let parse = graphql_syntax::parse(&self.db, content, metadata);
             let line_offset = metadata.line_offset(&self.db);
 
             // Search for fragment spreads in all blocks (handles TS/JS correctly)
             let spread_ranges = find_fragment_spreads_in_parse(
                 &parse,
                 fragment_name,
-                *content,
+                content,
                 &self.db,
                 line_offset,
             );
@@ -1581,10 +1582,11 @@ impl Analysis {
 
         // Search through all schema files for type references
         let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
-        let file_map = project_files.file_map(&self.db).entries(&self.db);
 
         for file_id in schema_ids.iter() {
-            let Some((content, metadata)) = file_map.get(file_id) else {
+            let Some((content, metadata)) =
+                graphql_db::file_lookup(&self.db, project_files, *file_id)
+            else {
                 continue;
             };
 
@@ -1597,12 +1599,12 @@ impl Analysis {
             };
 
             // Parse the schema file
-            let parse = graphql_syntax::parse(&self.db, *content, *metadata);
+            let parse = graphql_syntax::parse(&self.db, content, metadata);
             let line_offset = metadata.line_offset(&self.db);
 
             // Search for type references in all blocks (handles TS/JS correctly)
             let type_ranges =
-                find_type_references_in_parse(&parse, type_name, *content, &self.db, line_offset);
+                find_type_references_in_parse(&parse, type_name, content, &self.db, line_offset);
 
             for range in type_ranges {
                 locations.push(Location::new(file_path.clone(), range));
@@ -1825,12 +1827,13 @@ impl Analysis {
 
         // Search operations from document files
         let doc_ids = project_files.document_file_ids(&self.db).ids(&self.db);
-        let file_map = project_files.file_map(&self.db).entries(&self.db);
         for file_id in doc_ids.iter() {
-            let Some((content, metadata)) = file_map.get(file_id) else {
+            let Some((content, metadata)) =
+                graphql_db::file_lookup(&self.db, project_files, *file_id)
+            else {
                 continue;
             };
-            let structure = graphql_hir::file_structure(&self.db, *file_id, *content, *metadata);
+            let structure = graphql_hir::file_structure(&self.db, *file_id, content, metadata);
             for operation in &structure.operations {
                 if let Some(op_name) = &operation.name {
                     if op_name.to_lowercase().contains(&query_lower) {

@@ -358,12 +358,10 @@ fn fragment_contains_id(
     // Get the fragment's file and parse it (cached by Salsa)
     let file_id = fragment_info.file_id;
 
-    // Get the file content and metadata from file_map (O(1) lookup)
-    let file_map = context
-        .project_files
-        .file_map(context.db)
-        .entries(context.db);
-    let Some((file_content, file_metadata)) = file_map.get(&file_id).copied() else {
+    // Get the file content and metadata via file_lookup (granular per-file caching)
+    let Some((file_content, file_metadata)) =
+        graphql_db::file_lookup(context.db, context.project_files, file_id)
+    else {
         return false;
     };
 
@@ -505,10 +503,13 @@ mod tests {
         let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
         let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(vec![doc_file_id]));
         let mut file_entries = std::collections::HashMap::new();
-        file_entries.insert(schema_file_id, (schema_content, schema_metadata));
-        file_entries.insert(doc_file_id, (doc_content, doc_metadata));
-        let file_map = graphql_db::FileMap::new(db, Arc::new(file_entries));
-        let project_files = ProjectFiles::new(db, schema_file_ids, document_file_ids, file_map);
+        let schema_entry = graphql_db::FileEntry::new(db, schema_content, schema_metadata);
+        let doc_entry = graphql_db::FileEntry::new(db, doc_content, doc_metadata);
+        file_entries.insert(schema_file_id, schema_entry);
+        file_entries.insert(doc_file_id, doc_entry);
+        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(file_entries));
+        let project_files =
+            ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map);
 
         (doc_file_id, doc_content, doc_metadata, project_files)
     }

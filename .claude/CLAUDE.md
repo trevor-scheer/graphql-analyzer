@@ -4,6 +4,8 @@
 
 This document provides context and guidance for working with the GraphQL LSP codebase. It's designed to help future iterations of Claude understand the project quickly and work effectively.
 
+> **Note**: This project is not stable yet. The codebase can be aggressively refactored and rearchitected as needed while it's still early. Breaking changes are expected - don't hesitate to rewrite code paths that aren't working well.
+
 ---
 
 ## Table of Contents

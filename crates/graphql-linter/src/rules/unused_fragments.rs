@@ -33,7 +33,7 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
         let mut all_fragments: HashMap<String, Vec<FileId>> = HashMap::new();
 
         for file_id in doc_ids.iter() {
-            // Use per-file lookup to avoid depending on entire file_map
+            // Use per-file lookup for granular caching
             let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
             else {
                 continue;
@@ -51,7 +51,7 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
         let mut used_fragments = HashSet::new();
 
         for file_id in doc_ids.iter() {
-            // Use per-file lookup to avoid depending on entire file_map
+            // Use per-file lookup for granular caching
             let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
             else {
                 continue;

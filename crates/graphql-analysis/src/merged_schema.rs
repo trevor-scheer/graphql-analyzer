@@ -23,7 +23,7 @@ pub fn merged_schema_from_files(
     let mut parser = Parser::new();
 
     for file_id in schema_ids.iter() {
-        // Use per-file lookup to avoid depending on entire file_map
+        // Use per-file lookup for granular caching
         let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) else {
             continue;
         };
@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn test_merged_schema_single_file() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
         let file_id = FileId::new(0);
 
         let content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
@@ -99,7 +99,8 @@ mod tests {
             FileKind::Schema,
         );
         let schema_files = [(file_id, content, metadata)];
-        let project_files = graphql_db::test_utils::create_project_files(&db, &schema_files, &[]);
+        let project_files =
+            graphql_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
         let schema = merged_schema(&db, project_files);
         assert!(
             schema.is_some(),
@@ -115,7 +116,7 @@ mod tests {
 
     #[test]
     fn test_merged_schema_multiple_files() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         let file1_id = FileId::new(0);
         let content1 = FileContent::new(&db, Arc::from("type Query { hello: String }"));
@@ -139,7 +140,8 @@ mod tests {
             (file1_id, content1, metadata1),
             (file2_id, content2, metadata2),
         ];
-        let project_files = graphql_db::test_utils::create_project_files(&db, &schema_files, &[]);
+        let project_files =
+            graphql_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -160,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_merged_schema_with_extensions() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         let file1_id = FileId::new(0);
         let content1 = FileContent::new(&db, Arc::from("type Query { hello: String }"));
@@ -184,7 +186,8 @@ mod tests {
             (file1_id, content1, metadata1),
             (file2_id, content2, metadata2),
         ];
-        let project_files = graphql_db::test_utils::create_project_files(&db, &schema_files, &[]);
+        let project_files =
+            graphql_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -217,9 +220,9 @@ mod tests {
 
     #[test]
     fn test_merged_schema_no_files() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
-        let project_files = graphql_db::test_utils::create_project_files(&db, &[], &[]);
+        let project_files = graphql_db::test_utils::create_project_files(&mut db, &[], &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(schema.is_none(), "Expected None when no schema files exist");
@@ -227,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_merged_schema_invalid_syntax() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
         let file_id = FileId::new(0);
 
         let content = FileContent::new(&db, Arc::from("type Query { invalid syntax here"));
@@ -239,7 +242,8 @@ mod tests {
         );
 
         let schema_files = [(file_id, content, metadata)];
-        let project_files = graphql_db::test_utils::create_project_files(&db, &schema_files, &[]);
+        let project_files =
+            graphql_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -250,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_merged_schema_validation_error() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
         let file_id = FileId::new(0);
 
         // Valid syntax but invalid semantics (duplicate type definition)
@@ -266,7 +270,8 @@ mod tests {
         );
 
         let schema_files = [(file_id, content, metadata)];
-        let project_files = graphql_db::test_utils::create_project_files(&db, &schema_files, &[]);
+        let project_files =
+            graphql_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(
