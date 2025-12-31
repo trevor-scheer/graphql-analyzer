@@ -1387,7 +1387,150 @@ impl Analysis {
 
                 Some(vec![Location::new(file_path, range)])
             }
-            _ => None,
+            Symbol::TypeName { name } => {
+                // Search through all schema files for the type definition
+                let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
+                let registry = self.registry.read().unwrap();
+
+                for file_id in schema_ids.iter() {
+                    let Some(schema_content) = registry.get_content(*file_id) else {
+                        continue;
+                    };
+                    let Some(schema_metadata) = registry.get_metadata(*file_id) else {
+                        continue;
+                    };
+                    let Some(file_path) = registry.get_path(*file_id) else {
+                        continue;
+                    };
+
+                    // Parse the schema file
+                    let schema_parse =
+                        graphql_syntax::parse(&self.db, schema_content, schema_metadata);
+                    let schema_line_offset = schema_metadata.line_offset(&self.db);
+
+                    // Find the type definition in this schema file
+                    if let Some(range) = find_type_definition_in_parse(
+                        &schema_parse,
+                        &name,
+                        schema_content,
+                        &self.db,
+                        schema_line_offset,
+                    ) {
+                        return Some(vec![Location::new(file_path, range)]);
+                    }
+                }
+
+                // Type definition not found
+                None
+            }
+            Symbol::VariableReference { name } => {
+                // Find the variable definition in the same operation
+                // The variable is defined in the operation's variable definitions list
+                let range = if let Some(block_source) = block_context.block_source {
+                    let block_line_index = graphql_syntax::LineIndex::new(block_source);
+                    find_variable_definition_in_tree(
+                        block_context.tree,
+                        &name,
+                        &block_line_index,
+                        block_context.line_offset,
+                    )
+                } else {
+                    let file_line_index = graphql_syntax::line_index(&self.db, content);
+                    find_variable_definition_in_tree(
+                        block_context.tree,
+                        &name,
+                        &file_line_index,
+                        block_context.line_offset,
+                    )
+                };
+
+                if let Some(range) = range {
+                    let registry = self.registry.read().unwrap();
+                    let file_id = registry.get_file_id(file)?;
+                    let file_path = registry.get_path(file_id)?;
+                    return Some(vec![Location::new(file_path, range)]);
+                }
+                None
+            }
+            Symbol::ArgumentName { name } => {
+                // Find the argument definition in the schema for this field
+                // First, we need to find the parent field and its type
+                let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
+                let schema_types = graphql_hir::schema_types_with_project(&self.db, project_files);
+
+                // Get the field name that contains this argument
+                let field_name = find_field_name_at_offset(block_context.tree, offset)?;
+
+                // Resolve the parent type using the type stack
+                let parent_type_name = symbol::walk_type_stack_to_offset(
+                    block_context.tree,
+                    &schema_types,
+                    offset,
+                    &parent_context.root_type,
+                )?;
+
+                // Search through schema files for the argument definition
+                let registry = self.registry.read().unwrap();
+                let schema_file_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
+
+                for file_id in schema_file_ids.iter() {
+                    let Some(schema_content) = registry.get_content(*file_id) else {
+                        continue;
+                    };
+                    let Some(schema_metadata) = registry.get_metadata(*file_id) else {
+                        continue;
+                    };
+                    let Some(file_path) = registry.get_path(*file_id) else {
+                        continue;
+                    };
+
+                    let schema_parse =
+                        graphql_syntax::parse(&self.db, schema_content, schema_metadata);
+                    let schema_line_index = graphql_syntax::line_index(&self.db, schema_content);
+                    let schema_line_offset = schema_metadata.line_offset(&self.db);
+
+                    if let Some(range) = find_argument_definition_in_tree(
+                        &schema_parse.tree,
+                        &parent_type_name,
+                        &field_name,
+                        &name,
+                        &schema_line_index,
+                        schema_line_offset,
+                    ) {
+                        return Some(vec![Location::new(file_path, range)]);
+                    }
+                }
+                None
+            }
+            Symbol::OperationName { name } => {
+                // The operation name definition is in the current file at the operation itself
+                // Find the operation definition by name
+                let range = if let Some(block_source) = block_context.block_source {
+                    let block_line_index = graphql_syntax::LineIndex::new(block_source);
+                    find_operation_definition_in_tree(
+                        block_context.tree,
+                        &name,
+                        &block_line_index,
+                        block_context.line_offset,
+                    )
+                } else {
+                    let file_line_index = graphql_syntax::line_index(&self.db, content);
+                    find_operation_definition_in_tree(
+                        block_context.tree,
+                        &name,
+                        &file_line_index,
+                        block_context.line_offset,
+                    )
+                };
+
+                if let Some(range) = range {
+                    let registry = self.registry.read().unwrap();
+                    let file_id = registry.get_file_id(file)?;
+                    let file_path = registry.get_path(file_id)?;
+                    return Some(vec![Location::new(file_path, range)]);
+                }
+                None
+            }
         }
     }
 
@@ -2250,6 +2393,177 @@ fn find_type_references_in_parse(
     results
 }
 
+/// Find variable definition in an operation by name
+fn find_variable_definition_in_tree(
+    tree: &apollo_parser::SyntaxTree,
+    var_name: &str,
+    line_index: &graphql_syntax::LineIndex,
+    line_offset: u32,
+) -> Option<Range> {
+    use apollo_parser::cst::{CstNode, Definition};
+
+    let doc = tree.document();
+    for definition in doc.definitions() {
+        if let Definition::OperationDefinition(op) = definition {
+            if let Some(var_defs) = op.variable_definitions() {
+                for var_def in var_defs.variable_definitions() {
+                    if let Some(variable) = var_def.variable() {
+                        if let Some(name) = variable.name() {
+                            if name.text() == var_name {
+                                let range = name.syntax().text_range();
+                                let start: usize = range.start().into();
+                                let end: usize = range.end().into();
+                                let pos_range = offset_range_to_range(line_index, start, end);
+                                return Some(adjust_range_for_line_offset(pos_range, line_offset));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Find operation definition by name
+fn find_operation_definition_in_tree(
+    tree: &apollo_parser::SyntaxTree,
+    op_name: &str,
+    line_index: &graphql_syntax::LineIndex,
+    line_offset: u32,
+) -> Option<Range> {
+    use apollo_parser::cst::{CstNode, Definition};
+
+    let doc = tree.document();
+    for definition in doc.definitions() {
+        if let Definition::OperationDefinition(op) = definition {
+            if let Some(name) = op.name() {
+                if name.text() == op_name {
+                    let range = name.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+                    let pos_range = offset_range_to_range(line_index, start, end);
+                    return Some(adjust_range_for_line_offset(pos_range, line_offset));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Find argument definition in schema type's field
+fn find_argument_definition_in_tree(
+    tree: &apollo_parser::SyntaxTree,
+    type_name: &str,
+    field_name: &str,
+    arg_name: &str,
+    line_index: &graphql_syntax::LineIndex,
+    line_offset: u32,
+) -> Option<Range> {
+    use apollo_parser::cst::{CstNode, Definition};
+
+    let doc = tree.document();
+    for definition in doc.definitions() {
+        let (name_node, fields_def) = match &definition {
+            Definition::ObjectTypeDefinition(obj) => (obj.name(), obj.fields_definition()),
+            Definition::InterfaceTypeDefinition(iface) => (iface.name(), iface.fields_definition()),
+            _ => continue,
+        };
+
+        let Some(name) = name_node else { continue };
+        if name.text() != type_name {
+            continue;
+        }
+
+        let Some(fields) = fields_def else { continue };
+        for field in fields.field_definitions() {
+            let Some(fname) = field.name() else { continue };
+            if fname.text() != field_name {
+                continue;
+            }
+
+            // Found the field, now find the argument
+            if let Some(args_def) = field.arguments_definition() {
+                for input_val in args_def.input_value_definitions() {
+                    if let Some(aname) = input_val.name() {
+                        if aname.text() == arg_name {
+                            let range = aname.syntax().text_range();
+                            let start: usize = range.start().into();
+                            let end: usize = range.end().into();
+                            let pos_range = offset_range_to_range(line_index, start, end);
+                            return Some(adjust_range_for_line_offset(pos_range, line_offset));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Find the field name at a given offset (for argument context)
+fn find_field_name_at_offset(
+    tree: &apollo_parser::SyntaxTree,
+    byte_offset: usize,
+) -> Option<String> {
+    use apollo_parser::cst::{CstNode, Definition, Selection};
+
+    fn check_selection_set(
+        selection_set: &apollo_parser::cst::SelectionSet,
+        byte_offset: usize,
+    ) -> Option<String> {
+        for selection in selection_set.selections() {
+            if let Selection::Field(field) = selection {
+                let range = field.syntax().text_range();
+                let start: usize = range.start().into();
+                let end: usize = range.end().into();
+
+                if byte_offset >= start && byte_offset <= end {
+                    // Check if we're in the arguments
+                    if let Some(args) = field.arguments() {
+                        let args_range = args.syntax().text_range();
+                        let args_start: usize = args_range.start().into();
+                        let args_end: usize = args_range.end().into();
+                        if byte_offset >= args_start && byte_offset <= args_end {
+                            return field.name().map(|n| n.text().to_string());
+                        }
+                    }
+
+                    // Check nested selection set
+                    if let Some(nested) = field.selection_set() {
+                        if let Some(name) = check_selection_set(&nested, byte_offset) {
+                            return Some(name);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    let doc = tree.document();
+    for definition in doc.definitions() {
+        match definition {
+            Definition::OperationDefinition(op) => {
+                if let Some(selection_set) = op.selection_set() {
+                    if let Some(name) = check_selection_set(&selection_set, byte_offset) {
+                        return Some(name);
+                    }
+                }
+            }
+            Definition::FragmentDefinition(frag) => {
+                if let Some(selection_set) = frag.selection_set() {
+                    if let Some(name) = check_selection_set(&selection_set, byte_offset) {
+                        return Some(name);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Format a type reference for display (e.g., "[String!]!")
 /// Unwrap a `TypeRef` to get just the base type name (without List or `NonNull` wrappers)
 fn unwrap_type_to_name(type_ref: &graphql_hir::TypeRef) -> String {
@@ -2746,7 +3060,6 @@ fragment AttackActionInfo on AttackAction {
     }
 
     #[test]
-    #[ignore = "goto_definition not yet implemented for Symbol::TypeName - see issue #221"]
     fn test_goto_definition_type_name() {
         let mut host = AnalysisHost::new();
 
@@ -2781,7 +3094,6 @@ fragment AttackActionInfo on AttackAction {
     }
 
     #[test]
-    #[ignore = "goto_definition not yet implemented for Symbol::FieldName - see issue #221"]
     fn test_goto_definition_field_on_root_type() {
         let mut host = AnalysisHost::new();
 
@@ -2811,7 +3123,6 @@ fragment AttackActionInfo on AttackAction {
     }
 
     #[test]
-    #[ignore = "goto_definition not yet implemented for Symbol::FieldName - see issue #221"]
     fn test_goto_definition_nested_field() {
         let mut host = AnalysisHost::new();
 
@@ -2824,7 +3135,7 @@ fragment AttackActionInfo on AttackAction {
         );
 
         let query_file = FilePath::new("file:///query.graphql");
-        let (query_text, cursor_pos) = extract_cursor("query { user { name *} }");
+        let (query_text, cursor_pos) = extract_cursor("query { user { na*me } }");
         host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
         host.rebuild_project_files();
 
@@ -2840,7 +3151,6 @@ fragment AttackActionInfo on AttackAction {
     }
 
     #[test]
-    #[ignore = "goto_definition not yet implemented for Symbol::TypeName - see issue #221"]
     fn test_goto_definition_schema_field_type() {
         let mut host = AnalysisHost::new();
 
@@ -2895,6 +3205,103 @@ fragment AttackActionInfo on AttackAction {
         assert_eq!(locations[0].file.as_str(), schema_file.as_str());
         // Should point to "currentHP" field in BattlePokemon type (line 2)
         assert_eq!(locations[0].range.start.line, 2);
+    }
+
+    #[test]
+    fn test_goto_definition_variable_reference() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user(id: ID!): User }\ntype User { id: ID! name: String! }",
+            FileKind::Schema,
+            0,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        // Cursor on $id in the argument value
+        let (query_text, cursor_pos) =
+            extract_cursor("query GetUser($id: ID!) { user(id: $i*d) { name } }");
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&query_file, cursor_pos);
+
+        assert!(
+            locations.is_some(),
+            "Should find variable definition from usage"
+        );
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), query_file.as_str());
+        // Should point to the variable name (id) in the definition
+        // "query GetUser($" = 15 chars, and we point to "id" not "$id"
+        assert_eq!(locations[0].range.start.line, 0);
+        assert_eq!(locations[0].range.start.character, 15);
+    }
+
+    #[test]
+    fn test_goto_definition_argument_name() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user(id: ID!, name: String): User }\ntype User { id: ID! }",
+            FileKind::Schema,
+            0,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        // Cursor on "id" argument name in the query
+        let (query_text, cursor_pos) = extract_cursor("query { user(i*d: \"123\") { id } }");
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&query_file, cursor_pos);
+
+        assert!(
+            locations.is_some(),
+            "Should find argument definition in schema"
+        );
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), schema_file.as_str());
+        // Should point to "id" argument in Query.user field definition
+        assert_eq!(locations[0].range.start.line, 0);
+    }
+
+    #[test]
+    fn test_goto_definition_operation_name() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { hello: String }",
+            FileKind::Schema,
+            0,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        // Cursor on the operation name "GetHello"
+        let (query_text, cursor_pos) = extract_cursor("query GetH*ello { hello }");
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&query_file, cursor_pos);
+
+        assert!(locations.is_some(), "Should find operation definition");
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), query_file.as_str());
+        // Should point to the operation name in the same file
+        assert_eq!(locations[0].range.start.line, 0);
+        assert_eq!(locations[0].range.start.character, 6); // "query " = 6 chars
     }
 
     #[test]

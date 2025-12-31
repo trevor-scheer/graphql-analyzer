@@ -187,7 +187,6 @@ pub enum Symbol {
     /// An operation name
     OperationName { name: String },
     /// A variable reference ($varName)
-    #[allow(dead_code)] // Some variants are for future implementation
     VariableReference { name: String },
     /// An argument name in a field or directive
     ArgumentName { name: String },
@@ -603,6 +602,57 @@ fn check_fragment_definition(frag: &cst::FragmentDefinition, byte_offset: usize)
     None
 }
 
+fn check_arguments(arguments: &cst::Arguments, byte_offset: usize) -> Option<Symbol> {
+    for arg in arguments.arguments() {
+        // Check argument name
+        if let Some(name) = arg.name() {
+            if is_within_range(&name, byte_offset) {
+                return Some(Symbol::ArgumentName {
+                    name: name.text().to_string(),
+                });
+            }
+        }
+        // Check argument value for variable references
+        if let Some(value) = arg.value() {
+            if let Some(symbol) = check_value(&value, byte_offset) {
+                return Some(symbol);
+            }
+        }
+    }
+    None
+}
+
+fn check_value(value: &cst::Value, byte_offset: usize) -> Option<Symbol> {
+    match value {
+        cst::Value::Variable(var) => {
+            if is_within_range(var, byte_offset) {
+                // Extract variable name (without the $ prefix)
+                let name = var.name()?.text().to_string();
+                return Some(Symbol::VariableReference { name });
+            }
+        }
+        cst::Value::ListValue(list) => {
+            for val in list.values() {
+                if let Some(symbol) = check_value(&val, byte_offset) {
+                    return Some(symbol);
+                }
+            }
+        }
+        cst::Value::ObjectValue(obj) => {
+            for field in obj.object_fields() {
+                if let Some(val) = field.value() {
+                    if let Some(symbol) = check_value(&val, byte_offset) {
+                        return Some(symbol);
+                    }
+                }
+            }
+        }
+        // Other value types don't contain symbols we care about
+        _ => {}
+    }
+    None
+}
+
 fn check_selection_set(selection_set: &cst::SelectionSet, byte_offset: usize) -> Option<Symbol> {
     for selection in selection_set.selections() {
         match selection {
@@ -618,14 +668,8 @@ fn check_selection_set(selection_set: &cst::SelectionSet, byte_offset: usize) ->
 
                 // Check arguments
                 if let Some(arguments) = field.arguments() {
-                    for arg in arguments.arguments() {
-                        if let Some(name) = arg.name() {
-                            if is_within_range(&name, byte_offset) {
-                                return Some(Symbol::ArgumentName {
-                                    name: name.text().to_string(),
-                                });
-                            }
-                        }
+                    if let Some(symbol) = check_arguments(&arguments, byte_offset) {
+                        return Some(symbol);
                     }
                 }
 
