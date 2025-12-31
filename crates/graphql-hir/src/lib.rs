@@ -159,7 +159,7 @@ pub fn schema_types(
     let mut types = HashMap::new();
 
     for file_id in schema_ids.iter() {
-        // Use per-file lookup to avoid depending on entire file_map
+        // Use per-file lookup for granular caching
         if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
             // Per-file query - cached independently
             let file_types = file_type_defs(db, *file_id, content, metadata);
@@ -198,7 +198,7 @@ pub fn all_fragments(
     let mut fragments = HashMap::new();
 
     for file_id in doc_ids.iter() {
-        // Use per-file lookup to avoid depending on entire file_map
+        // Use per-file lookup for granular caching
         if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
             // Per-file query - cached independently
             let file_frags = file_fragments(db, *file_id, content, metadata);
@@ -231,7 +231,7 @@ pub fn fragment_file_index(
     let mut index = HashMap::new();
 
     for file_id in doc_ids.iter() {
-        // Use per-file lookup to avoid depending on entire file_map
+        // Use per-file lookup for granular caching
         if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
             // Per-file query for fragments
             let file_frags = file_fragments(db, *file_id, content, metadata);
@@ -259,7 +259,7 @@ pub fn fragment_source_index(
     let mut index = HashMap::new();
 
     for file_id in doc_ids.iter() {
-        // Use per-file lookup to avoid depending on entire file_map
+        // Use per-file lookup for granular caching
         if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
             let kind = metadata.kind(db);
             let parse = graphql_syntax::parse(db, content, metadata);
@@ -300,7 +300,7 @@ pub fn fragment_spreads_index(
     let mut index = HashMap::new();
 
     for file_id in doc_ids.iter() {
-        // Use per-file lookup to avoid depending on entire file_map
+        // Use per-file lookup for granular caching
         if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
             // Per-file query for fragments
             let file_frags = file_fragments(db, *file_id, content, metadata);
@@ -326,7 +326,7 @@ pub fn all_operations(
     let mut operations = Vec::new();
 
     for file_id in doc_ids.iter() {
-        // Use per-file lookup to avoid depending on entire file_map
+        // Use per-file lookup for granular caching
         if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
             // Per-file query for operations
             let file_ops = file_operations(db, *file_id, content, metadata);

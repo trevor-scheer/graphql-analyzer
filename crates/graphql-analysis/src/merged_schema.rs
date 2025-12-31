@@ -23,7 +23,7 @@ pub fn merged_schema_from_files(
     let mut parser = Parser::new();
 
     for file_id in schema_ids.iter() {
-        // Use per-file lookup to avoid depending on entire file_map
+        // Use per-file lookup for granular caching
         let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) else {
             continue;
         };

@@ -13,6 +13,11 @@ The `graphql-db` crate defines:
 - **FileKind**: Discriminator for different file types (Schema, ExecutableGraphQL, TypeScript, JavaScript)
 - **FileContent**: Salsa input for file content
 - **FileMetadata**: Salsa input for file metadata
+- **FileEntry**: Bundles FileContent and FileMetadata for a single file (for granular caching)
+- **FileEntryMap**: Maps FileId to FileEntry for per-file granular invalidation
+- **SchemaFileIds / DocumentFileIds**: Track file IDs by type (stable across content changes)
+- **ProjectFiles**: Top-level input combining all file tracking
+- **file_lookup**: Query to look up a single file's content and metadata
 - **RootDatabase**: The main salsa database
 
 ## Architecture
@@ -46,9 +51,46 @@ graphql-db      ← Salsa database (YOU ARE HERE)
 - [x] All tests passing
 
 ### In Progress
-- [ ] FileRegistry for URI → FileId mapping
-- [ ] Complete Change application logic
 - [ ] Additional utility methods
+
+## Granular Per-File Caching
+
+The crate implements true per-file granular caching using `FileEntry` and `FileEntryMap`:
+
+### How It Works
+
+1. **FileEntry**: Each file has its own `FileEntry` Salsa input bundling `FileContent` and `FileMetadata`
+2. **FileEntryMap**: A `HashMap<FileId, FileEntry>` stored in a Salsa input
+3. **file_lookup query**: Looks up a single file's content and metadata
+
+### Key Insight: Content Updates Don't Change the Map
+
+When a file's content changes:
+- Only `FileContent.set_text()` is called
+- The `FileEntryMap` HashMap reference stays the **same** (same `Arc`)
+- The `FileEntry` struct still points to the same `FileContent` (which has updated text)
+- Result: Only queries depending on THIS file's content are invalidated
+
+```rust
+// In FileRegistry::add_file for existing files:
+if let Some(&existing_content) = self.id_to_content.get(&existing_id) {
+    existing_content.set_text(db).to(new_content);  // Only this changes!
+    // FileEntryMap is NOT updated - same Arc reference
+    return (existing_id, existing_content, metadata, false);
+}
+```
+
+### Why This Matters
+
+Without granular caching, editing file A would invalidate queries for ALL files:
+- Old approach: `FileMap` stored all files in one HashMap
+- Any content change created a new HashMap Arc
+- ALL file queries would re-run
+
+With granular caching:
+- Editing file A only invalidates file A's queries
+- File B's queries remain fully cached
+- Enables O(1) incremental updates instead of O(n)
 
 ### Lessons Learned
 
