@@ -1278,6 +1278,95 @@ impl Analysis {
 
         // Look up the definition based on symbol type
         match symbol {
+            Symbol::FieldName { name } => {
+                // Find the parent type context to determine which type this field belongs to
+                let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
+
+                tracing::debug!(
+                    "Field '{}' - parent type context: root={}, immediate={}",
+                    name,
+                    parent_context.root_type,
+                    parent_context.immediate_parent
+                );
+
+                // Get the schema types to verify the parent type exists
+                let schema_types = graphql_hir::schema_types_with_project(&self.db, project_files);
+
+                // Verify the parent type exists in the schema
+                schema_types.get(parent_context.immediate_parent.as_str())?;
+
+                tracing::debug!(
+                    "Found parent type '{}' in schema, looking for field '{}'",
+                    parent_context.immediate_parent,
+                    name
+                );
+
+                // Search through all schema files for the field definition
+                let registry = self.registry.read().unwrap();
+                let schema_file_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
+
+                for file_id in schema_file_ids.iter() {
+                    let Some(schema_content) = registry.get_content(*file_id) else {
+                        continue;
+                    };
+                    let Some(schema_metadata) = registry.get_metadata(*file_id) else {
+                        continue;
+                    };
+                    let Some(file_path) = registry.get_path(*file_id) else {
+                        continue;
+                    };
+
+                    // Parse the schema file
+                    let schema_parse =
+                        graphql_syntax::parse(&self.db, schema_content, schema_metadata);
+                    let schema_line_index = graphql_syntax::line_index(&self.db, schema_content);
+                    let schema_line_offset = schema_metadata.line_offset(&self.db);
+
+                    // Search for the field definition in this schema file
+                    if schema_parse.blocks.is_empty() {
+                        // Pure GraphQL schema file
+                        if let Some(ranges) = find_field_definition_full_range(
+                            &schema_parse.tree,
+                            &parent_context.immediate_parent,
+                            &name,
+                        ) {
+                            let range = offset_range_to_range(
+                                &schema_line_index,
+                                ranges.name_start,
+                                ranges.name_end,
+                            );
+                            let adjusted_range =
+                                adjust_range_for_line_offset(range, schema_line_offset);
+                            return Some(vec![Location::new(file_path, adjusted_range)]);
+                        }
+                    } else {
+                        // TS/JS file with embedded schema (unlikely but handle it)
+                        for block in &schema_parse.blocks {
+                            if let Some(ranges) = find_field_definition_full_range(
+                                &block.tree,
+                                &parent_context.immediate_parent,
+                                &name,
+                            ) {
+                                let block_line_index =
+                                    graphql_syntax::LineIndex::new(&block.source);
+                                let range = offset_range_to_range(
+                                    &block_line_index,
+                                    ranges.name_start,
+                                    ranges.name_end,
+                                );
+                                #[allow(clippy::cast_possible_truncation)]
+                                let block_line_offset = block.line as u32;
+                                let adjusted_range =
+                                    adjust_range_for_line_offset(range, block_line_offset);
+                                return Some(vec![Location::new(file_path, adjusted_range)]);
+                            }
+                        }
+                    }
+                }
+
+                // Field definition not found
+                None
+            }
             Symbol::FragmentSpread { name } => {
                 // Query HIR for all fragments
                 let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
