@@ -1,348 +1,3 @@
-#[test]
-fn test_battle_graphql_attack_action_pokemon_completions() {
-    // Simulate a GraphQL file similar to battle.graphql
-    let (graphql, cursor_pos) = extract_cursor(
-        r#"
-fragment AttackActionInfo on AttackAction {
-    pokemon {
-*        ...TeamPokemonBasic
-    }
-    move {
-        ...MoveInfo
-    }
-    damage
-    wasEffective
-}
-"#,
-    );
-
-    // Minimal schema for the test
-    let schema = r#"
-type AttackAction {
-    pokemon: TeamPokemon
-    move: Move
-    damage: Int
-    wasEffective: Boolean
-}
-type TeamPokemon {
-    id: ID!
-    name: String!
-    hp: Int
-}
-type Move {
-    id: ID!
-    name: String!
-}
-"#;
-
-    let mut host = AnalysisHost::new();
-    let schema_path = FilePath::new("file:///schema.graphql");
-    host.add_file(&schema_path, schema, FileKind::Schema, 0);
-    let gql_path = FilePath::new("file:///battle.graphql");
-    host.add_file(&gql_path, &graphql, FileKind::ExecutableGraphQL, 0);
-    host.rebuild_project_files();
-
-    let snapshot = host.snapshot();
-    let completions = snapshot
-        .completions(&gql_path, cursor_pos)
-        .unwrap_or_default();
-    let labels: Vec<_> = completions.iter().map(|i| i.label.as_str()).collect();
-
-    // Should only suggest fields of TeamPokemon, not AttackAction
-    assert!(
-        labels.contains(&"id"),
-        "Should suggest 'id' for TeamPokemon: got {labels:?}"
-    );
-    assert!(
-        labels.contains(&"name"),
-        "Should suggest 'name' for TeamPokemon: got {labels:?}"
-    );
-    assert!(
-        labels.contains(&"hp"),
-        "Should suggest 'hp' for TeamPokemon: got {labels:?}"
-    );
-    assert!(
-        !labels.contains(&"damage"),
-        "Should NOT suggest 'damage' for TeamPokemon: got {labels:?}"
-    );
-    assert!(
-        !labels.contains(&"move"),
-        "Should NOT suggest 'move' for TeamPokemon: got {labels:?}"
-    );
-    assert!(
-        !labels.contains(&"pokemon"),
-        "Should NOT suggest 'pokemon' for TeamPokemon: got {labels:?}"
-    );
-    assert!(
-        !labels.contains(&"wasEffective"),
-        "Should NOT suggest 'wasEffective' for TeamPokemon: got {labels:?}"
-    );
-}
-#[test]
-fn test_typescript_off_by_one_parent_completions() {
-    let schema = r#"
-type Query { allPokemon(region: Region!, limit: Int): PokemonConnection }
-type PokemonConnection { nodes: [Pokemon!]! }
-type Pokemon {
-    id: ID!
-    name: String!
-    evolution: Evolution
-}
-type Evolution {
-    evolvesTo: [EvolutionEdge]
-}
-type EvolutionEdge {
-    pokemon: Pokemon
-    requirement: Requirement
-}
-interface Requirement { }
-type LevelRequirement implements Requirement { level: Int }
-enum Region { KANTO JOHTO }
-"#;
-
-    // Test 1: Inside 'requirement' selection set
-    {
-        let mut host = AnalysisHost::new();
-        let schema_path = FilePath::new("file:///schema.graphql");
-        host.add_file(&schema_path, schema, FileKind::Schema, 0);
-
-        let (graphql1, pos1) = extract_cursor(
-            r#"
-    query GetStarterPokemon($region: Region!) {
-        allPokemon(region: $region, limit: 3) {
-            nodes {
-                evolution {
-                    evolvesTo {
-                        pokemon {
-                            id
-                            name
-                        }
-                        requirement {
-                            ... on LevelRequirement {
-*                                level
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-"#,
-        );
-        let ts_path1 = FilePath::new("file:///test1.graphql");
-        host.add_file(&ts_path1, &graphql1, FileKind::ExecutableGraphQL, 0);
-        host.rebuild_project_files();
-
-        let snapshot = host.snapshot();
-        let items = snapshot.completions(&ts_path1, pos1).unwrap_or_default();
-        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
-        assert!(
-            labels.contains(&"level"),
-            "Should suggest 'level' inside LevelRequirement: got {labels:?}"
-        );
-        assert!(
-            !labels.contains(&"requirement"),
-            "Should NOT suggest 'requirement' inside requirement: got {labels:?}"
-        );
-        assert!(
-            !labels.contains(&"pokemon"),
-            "Should NOT suggest 'pokemon' inside requirement: got {labels:?}"
-        );
-    }
-
-    // Test 2: Inside 'evolvesTo' selection set
-    {
-        let mut host = AnalysisHost::new();
-        let schema_path = FilePath::new("file:///schema.graphql");
-        host.add_file(&schema_path, schema, FileKind::Schema, 0);
-
-        let (graphql2, pos2) = extract_cursor(
-            r#"
-    query GetStarterPokemon($region: Region!) {
-        allPokemon(region: $region, limit: 3) {
-            nodes {
-                evolution {
-                    evolvesTo {
-*                        pokemon {
-                            id
-                            name
-                        }
-                        requirement {
-                            ... on LevelRequirement {
-                                level
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-"#,
-        );
-        let ts_path2 = FilePath::new("file:///test2.graphql");
-        host.add_file(&ts_path2, &graphql2, FileKind::ExecutableGraphQL, 0);
-        host.rebuild_project_files();
-
-        let snapshot = host.snapshot();
-        let items = snapshot.completions(&ts_path2, pos2).unwrap_or_default();
-        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
-        assert!(
-            labels.contains(&"pokemon"),
-            "Should suggest 'pokemon' inside evolvesTo: got {labels:?}"
-        );
-        assert!(
-            labels.contains(&"requirement"),
-            "Should suggest 'requirement' inside evolvesTo: got {labels:?}"
-        );
-        assert!(
-            !labels.contains(&"evolvesTo"),
-            "Should NOT suggest 'evolvesTo' inside evolvesTo: got {labels:?}"
-        );
-        assert!(
-            !labels.contains(&"evolvesFrom"),
-            "Should NOT suggest 'evolvesFrom' inside evolvesTo: got {labels:?}"
-        );
-    }
-}
-#[test]
-fn test_typescript_deeply_nested_completions() {
-    let schema = r#"
-type Query { allPokemon(region: Region!, limit: Int): PokemonConnection }
-type PokemonConnection { nodes: [Pokemon!]! }
-type Pokemon {
-    id: ID!
-    name: String!
-    evolution: Evolution
-}
-type Evolution {
-    evolvesTo: [EvolutionEdge]
-}
-type EvolutionEdge {
-    pokemon: Pokemon
-    requirement: Requirement
-}
-interface Requirement { }
-type LevelRequirement implements Requirement { level: Int }
-enum Region { KANTO JOHTO }
-"#;
-
-    // Test completions inside 'evolution' selection set
-    {
-        let mut host = AnalysisHost::new();
-        let schema_path = FilePath::new("file:///schema.graphql");
-        host.add_file(&schema_path, schema, FileKind::Schema, 0);
-
-        let (graphql1, pos1) = extract_cursor(
-            r#"
-    query GetStarterPokemon($region: Region!) {
-        allPokemon(region: $region, limit: 3) {
-            nodes {
-                evolution {
-*                    evolvesTo {
-                        pokemon {
-                            id
-                            name
-                        }
-                    }
-                }
-            }
-        }
-    }
-"#,
-        );
-        let path1 = FilePath::new("file:///test1.graphql");
-        host.add_file(&path1, &graphql1, FileKind::ExecutableGraphQL, 0);
-        host.rebuild_project_files();
-
-        let snapshot = host.snapshot();
-        let items = snapshot.completions(&path1, pos1).unwrap_or_default();
-        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
-        assert!(
-            labels.contains(&"evolvesTo"),
-            "Should suggest 'evolvesTo' inside evolution: got {labels:?}"
-        );
-    }
-
-    // Test completions inside 'evolvesTo' selection set
-    {
-        let mut host = AnalysisHost::new();
-        let schema_path = FilePath::new("file:///schema.graphql");
-        host.add_file(&schema_path, schema, FileKind::Schema, 0);
-
-        let (graphql2, pos2) = extract_cursor(
-            r#"
-    query GetStarterPokemon($region: Region!) {
-        allPokemon(region: $region, limit: 3) {
-            nodes {
-                evolution {
-                    evolvesTo {
-*                        pokemon {
-                            id
-                            name
-                        }
-                    }
-                }
-            }
-        }
-    }
-"#,
-        );
-        let path2 = FilePath::new("file:///test2.graphql");
-        host.add_file(&path2, &graphql2, FileKind::ExecutableGraphQL, 0);
-        host.rebuild_project_files();
-
-        let snapshot = host.snapshot();
-        let items = snapshot.completions(&path2, pos2).unwrap_or_default();
-        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
-        assert!(
-            labels.contains(&"pokemon"),
-            "Should suggest 'pokemon' inside evolvesTo: got {labels:?}"
-        );
-        assert!(
-            labels.contains(&"requirement"),
-            "Should suggest 'requirement' inside evolvesTo: got {labels:?}"
-        );
-    }
-
-    // Test completions inside 'requirement' selection set with inline fragment
-    {
-        let mut host = AnalysisHost::new();
-        let schema_path = FilePath::new("file:///schema.graphql");
-        host.add_file(&schema_path, schema, FileKind::Schema, 0);
-
-        let (graphql3, pos3) = extract_cursor(
-            r#"
-    query GetStarterPokemon($region: Region!) {
-        allPokemon(region: $region, limit: 3) {
-            nodes {
-                evolution {
-                    evolvesTo {
-                        requirement {
-                            ... on LevelRequirement {
-*                                level
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-"#,
-        );
-        let path3 = FilePath::new("file:///test3.graphql");
-        host.add_file(&path3, &graphql3, FileKind::ExecutableGraphQL, 0);
-        host.rebuild_project_files();
-
-        let snapshot = host.snapshot();
-        let items = snapshot.completions(&path3, pos3).unwrap_or_default();
-        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
-        assert!(
-            labels.contains(&"level"),
-            "Should suggest 'level' inside requirement: got {labels:?}"
-        );
-    }
-}
-
 /// # graphql-ide
 ///
 /// This crate provides editor-facing IDE features for GraphQL language support.
@@ -3467,6 +3122,353 @@ mutation ForfeitBattle($battleId: ID!, $trainerId: ID!) {
             field_names.contains(&"winner"),
             "Expected 'winner' field in completions, got: {field_names:?}"
         );
+    }
+
+    #[test]
+    fn test_battle_graphql_attack_action_pokemon_completions() {
+        // Simulate a GraphQL file similar to battle.graphql
+        let (graphql, cursor_pos) = extract_cursor(
+            r#"
+fragment AttackActionInfo on AttackAction {
+    pokemon {
+*        ...TeamPokemonBasic
+    }
+    move {
+        ...MoveInfo
+    }
+    damage
+    wasEffective
+}
+"#,
+        );
+
+        // Minimal schema for the test
+        let schema = r#"
+type AttackAction {
+    pokemon: TeamPokemon
+    move: Move
+    damage: Int
+    wasEffective: Boolean
+}
+type TeamPokemon {
+    id: ID!
+    name: String!
+    hp: Int
+}
+type Move {
+    id: ID!
+    name: String!
+}
+"#;
+
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(&schema_path, schema, FileKind::Schema, 0);
+        let gql_path = FilePath::new("file:///battle.graphql");
+        host.add_file(&gql_path, &graphql, FileKind::ExecutableGraphQL, 0);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let completions = snapshot
+            .completions(&gql_path, cursor_pos)
+            .unwrap_or_default();
+        let labels: Vec<_> = completions.iter().map(|i| i.label.as_str()).collect();
+
+        // Should only suggest fields of TeamPokemon, not AttackAction
+        assert!(
+            labels.contains(&"id"),
+            "Should suggest 'id' for TeamPokemon: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"name"),
+            "Should suggest 'name' for TeamPokemon: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"hp"),
+            "Should suggest 'hp' for TeamPokemon: got {labels:?}"
+        );
+        assert!(
+            !labels.contains(&"damage"),
+            "Should NOT suggest 'damage' for TeamPokemon: got {labels:?}"
+        );
+        assert!(
+            !labels.contains(&"move"),
+            "Should NOT suggest 'move' for TeamPokemon: got {labels:?}"
+        );
+        assert!(
+            !labels.contains(&"pokemon"),
+            "Should NOT suggest 'pokemon' for TeamPokemon: got {labels:?}"
+        );
+        assert!(
+            !labels.contains(&"wasEffective"),
+            "Should NOT suggest 'wasEffective' for TeamPokemon: got {labels:?}"
+        );
+    }
+
+    #[test]
+    fn test_typescript_off_by_one_parent_completions() {
+        let schema = r#"
+type Query { allPokemon(region: Region!, limit: Int): PokemonConnection }
+type PokemonConnection { nodes: [Pokemon!]! }
+type Pokemon {
+    id: ID!
+    name: String!
+    evolution: Evolution
+}
+type Evolution {
+    evolvesTo: [EvolutionEdge]
+}
+type EvolutionEdge {
+    pokemon: Pokemon
+    requirement: Requirement
+}
+interface Requirement { }
+type LevelRequirement implements Requirement { level: Int }
+enum Region { KANTO JOHTO }
+"#;
+
+        // Test 1: Inside 'requirement' selection set
+        {
+            let mut host = AnalysisHost::new();
+            let schema_path = FilePath::new("file:///schema.graphql");
+            host.add_file(&schema_path, schema, FileKind::Schema, 0);
+
+            let (graphql1, pos1) = extract_cursor(
+                r#"
+    query GetStarterPokemon($region: Region!) {
+        allPokemon(region: $region, limit: 3) {
+            nodes {
+                evolution {
+                    evolvesTo {
+                        pokemon {
+                            id
+                            name
+                        }
+                        requirement {
+                            ... on LevelRequirement {
+*                                level
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+"#,
+            );
+            let ts_path1 = FilePath::new("file:///test1.graphql");
+            host.add_file(&ts_path1, &graphql1, FileKind::ExecutableGraphQL, 0);
+            host.rebuild_project_files();
+
+            let snapshot = host.snapshot();
+            let items = snapshot.completions(&ts_path1, pos1).unwrap_or_default();
+            let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+            assert!(
+                labels.contains(&"level"),
+                "Should suggest 'level' inside LevelRequirement: got {labels:?}"
+            );
+            assert!(
+                !labels.contains(&"requirement"),
+                "Should NOT suggest 'requirement' inside requirement: got {labels:?}"
+            );
+            assert!(
+                !labels.contains(&"pokemon"),
+                "Should NOT suggest 'pokemon' inside requirement: got {labels:?}"
+            );
+        }
+
+        // Test 2: Inside 'evolvesTo' selection set
+        {
+            let mut host = AnalysisHost::new();
+            let schema_path = FilePath::new("file:///schema.graphql");
+            host.add_file(&schema_path, schema, FileKind::Schema, 0);
+
+            let (graphql2, pos2) = extract_cursor(
+                r#"
+    query GetStarterPokemon($region: Region!) {
+        allPokemon(region: $region, limit: 3) {
+            nodes {
+                evolution {
+                    evolvesTo {
+*                        pokemon {
+                            id
+                            name
+                        }
+                        requirement {
+                            ... on LevelRequirement {
+                                level
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+"#,
+            );
+            let ts_path2 = FilePath::new("file:///test2.graphql");
+            host.add_file(&ts_path2, &graphql2, FileKind::ExecutableGraphQL, 0);
+            host.rebuild_project_files();
+
+            let snapshot = host.snapshot();
+            let items = snapshot.completions(&ts_path2, pos2).unwrap_or_default();
+            let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+            assert!(
+                labels.contains(&"pokemon"),
+                "Should suggest 'pokemon' inside evolvesTo: got {labels:?}"
+            );
+            assert!(
+                labels.contains(&"requirement"),
+                "Should suggest 'requirement' inside evolvesTo: got {labels:?}"
+            );
+            assert!(
+                !labels.contains(&"evolvesTo"),
+                "Should NOT suggest 'evolvesTo' inside evolvesTo: got {labels:?}"
+            );
+            assert!(
+                !labels.contains(&"evolvesFrom"),
+                "Should NOT suggest 'evolvesFrom' inside evolvesTo: got {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_typescript_deeply_nested_completions() {
+        let schema = r#"
+type Query { allPokemon(region: Region!, limit: Int): PokemonConnection }
+type PokemonConnection { nodes: [Pokemon!]! }
+type Pokemon {
+    id: ID!
+    name: String!
+    evolution: Evolution
+}
+type Evolution {
+    evolvesTo: [EvolutionEdge]
+}
+type EvolutionEdge {
+    pokemon: Pokemon
+    requirement: Requirement
+}
+interface Requirement { }
+type LevelRequirement implements Requirement { level: Int }
+enum Region { KANTO JOHTO }
+"#;
+
+        // Test completions inside 'evolution' selection set
+        {
+            let mut host = AnalysisHost::new();
+            let schema_path = FilePath::new("file:///schema.graphql");
+            host.add_file(&schema_path, schema, FileKind::Schema, 0);
+
+            let (graphql1, pos1) = extract_cursor(
+                r#"
+    query GetStarterPokemon($region: Region!) {
+        allPokemon(region: $region, limit: 3) {
+            nodes {
+                evolution {
+*                    evolvesTo {
+                        pokemon {
+                            id
+                            name
+                        }
+                    }
+                }
+            }
+        }
+    }
+"#,
+            );
+            let path1 = FilePath::new("file:///test1.graphql");
+            host.add_file(&path1, &graphql1, FileKind::ExecutableGraphQL, 0);
+            host.rebuild_project_files();
+
+            let snapshot = host.snapshot();
+            let items = snapshot.completions(&path1, pos1).unwrap_or_default();
+            let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+            assert!(
+                labels.contains(&"evolvesTo"),
+                "Should suggest 'evolvesTo' inside evolution: got {labels:?}"
+            );
+        }
+
+        // Test completions inside 'evolvesTo' selection set
+        {
+            let mut host = AnalysisHost::new();
+            let schema_path = FilePath::new("file:///schema.graphql");
+            host.add_file(&schema_path, schema, FileKind::Schema, 0);
+
+            let (graphql2, pos2) = extract_cursor(
+                r#"
+    query GetStarterPokemon($region: Region!) {
+        allPokemon(region: $region, limit: 3) {
+            nodes {
+                evolution {
+                    evolvesTo {
+*                        pokemon {
+                            id
+                            name
+                        }
+                    }
+                }
+            }
+        }
+    }
+"#,
+            );
+            let path2 = FilePath::new("file:///test2.graphql");
+            host.add_file(&path2, &graphql2, FileKind::ExecutableGraphQL, 0);
+            host.rebuild_project_files();
+
+            let snapshot = host.snapshot();
+            let items = snapshot.completions(&path2, pos2).unwrap_or_default();
+            let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+            assert!(
+                labels.contains(&"pokemon"),
+                "Should suggest 'pokemon' inside evolvesTo: got {labels:?}"
+            );
+            assert!(
+                labels.contains(&"requirement"),
+                "Should suggest 'requirement' inside evolvesTo: got {labels:?}"
+            );
+        }
+
+        // Test completions inside 'requirement' selection set with inline fragment
+        {
+            let mut host = AnalysisHost::new();
+            let schema_path = FilePath::new("file:///schema.graphql");
+            host.add_file(&schema_path, schema, FileKind::Schema, 0);
+
+            let (graphql3, pos3) = extract_cursor(
+                r#"
+    query GetStarterPokemon($region: Region!) {
+        allPokemon(region: $region, limit: 3) {
+            nodes {
+                evolution {
+                    evolvesTo {
+                        requirement {
+                            ... on LevelRequirement {
+*                                level
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+"#,
+            );
+            let path3 = FilePath::new("file:///test3.graphql");
+            host.add_file(&path3, &graphql3, FileKind::ExecutableGraphQL, 0);
+            host.rebuild_project_files();
+
+            let snapshot = host.snapshot();
+            let items = snapshot.completions(&path3, pos3).unwrap_or_default();
+            let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+            assert!(
+                labels.contains(&"level"),
+                "Should suggest 'level' inside requirement: got {labels:?}"
+            );
+        }
     }
 
     #[test]
