@@ -358,44 +358,6 @@ fn find_parent_field_type(selection_set: &cst::SelectionSet, byte_offset: usize)
     find_parent_field_path(selection_set, byte_offset).and_then(|path| path.last().cloned())
 }
 
-/// Public wrapper to get the full field path for a position
-/// Returns a vector of field names from outermost to innermost
-pub fn get_parent_field_path(
-    tree: &apollo_parser::SyntaxTree,
-    byte_offset: usize,
-) -> Option<Vec<String>> {
-    let doc = tree.document();
-
-    // Check all definitions
-    for definition in doc.definitions() {
-        match definition {
-            cst::Definition::OperationDefinition(op) => {
-                if let Some(selection_set) = op.selection_set() {
-                    let start: usize = selection_set.syntax().text_range().start().into();
-                    let end: usize = selection_set.syntax().text_range().end().into();
-
-                    if byte_offset >= start && byte_offset <= end {
-                        return find_parent_field_path(&selection_set, byte_offset);
-                    }
-                }
-            }
-            cst::Definition::FragmentDefinition(frag) => {
-                if let Some(selection_set) = frag.selection_set() {
-                    let start: usize = selection_set.syntax().text_range().start().into();
-                    let end: usize = selection_set.syntax().text_range().end().into();
-
-                    if byte_offset >= start && byte_offset <= end {
-                        return find_parent_field_path(&selection_set, byte_offset);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    None
-}
-
 /// Check if the byte offset is within a selection set (for field completions)
 pub fn is_in_selection_set(tree: &apollo_parser::SyntaxTree, byte_offset: usize) -> bool {
     let doc = tree.document();
