@@ -48,8 +48,9 @@ mod symbol;
 use symbol::{
     extract_all_definitions, find_field_definition_full_range, find_fragment_definition_full_range,
     find_fragment_definition_range, find_fragment_spreads, find_operation_definition_ranges,
-    find_parent_type_at_offset, find_symbol_at_offset, find_type_definition_full_range,
-    find_type_definition_range, find_type_references_in_tree, is_in_selection_set, Symbol,
+    find_parent_type_at_offset, find_schema_field_parent_type, find_symbol_at_offset,
+    find_type_definition_full_range, find_type_definition_range, find_type_references_in_tree,
+    is_in_selection_set, Symbol,
 };
 
 // Re-export database types that IDE layer needs
@@ -1594,6 +1595,11 @@ impl Analysis {
             Symbol::TypeName { name } => {
                 Some(self.find_type_references(&name, include_declaration))
             }
+            Symbol::FieldName { name } => {
+                // Find the parent type to know which type's field we're looking for
+                let parent_type = find_schema_field_parent_type(block_context.tree, offset)?;
+                Some(self.find_field_references(&parent_type, &name, include_declaration))
+            }
             _ => None,
         }
     }
@@ -1750,6 +1756,100 @@ impl Analysis {
                 find_type_references_in_parse(&parse, type_name, content, &self.db, line_offset);
 
             for range in type_ranges {
+                locations.push(Location::new(file_path.clone(), range));
+            }
+        }
+
+        locations
+    }
+
+    /// Find all references to a field on a specific type
+    fn find_field_references(
+        &self,
+        type_name: &str,
+        field_name: &str,
+        include_declaration: bool,
+    ) -> Vec<Location> {
+        let mut locations = Vec::new();
+
+        // Get project files for HIR queries
+        let Some(project_files) = self.project_files else {
+            return locations;
+        };
+
+        // Get schema types to resolve field usage contexts
+        let schema_types = graphql_hir::schema_types_with_project(&self.db, project_files);
+
+        // Include the declaration if requested (the field definition in the schema)
+        if include_declaration {
+            let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
+
+            for file_id in schema_ids.iter() {
+                let Some((content, metadata)) =
+                    graphql_db::file_lookup(&self.db, project_files, *file_id)
+                else {
+                    continue;
+                };
+
+                let registry = self.registry.read().unwrap();
+                let file_path = registry.get_path(*file_id);
+                drop(registry);
+
+                let Some(file_path) = file_path else {
+                    continue;
+                };
+
+                let parse = graphql_syntax::parse(&self.db, content, metadata);
+                let line_index = graphql_syntax::line_index(&self.db, content);
+                let line_offset = metadata.line_offset(&self.db);
+
+                // Find the field definition in this schema file
+                if let Some(ranges) =
+                    find_field_definition_full_range(&parse.tree, type_name, field_name)
+                {
+                    let range =
+                        offset_range_to_range(&line_index, ranges.name_start, ranges.name_end);
+                    let adjusted_range = adjust_range_for_line_offset(range, line_offset);
+                    locations.push(Location::new(file_path, adjusted_range));
+                    break; // Field definition found
+                }
+            }
+        }
+
+        // Search through all document files for field usages
+        let doc_ids = project_files.document_file_ids(&self.db).ids(&self.db);
+
+        for file_id in doc_ids.iter() {
+            let Some((content, metadata)) =
+                graphql_db::file_lookup(&self.db, project_files, *file_id)
+            else {
+                continue;
+            };
+
+            let registry = self.registry.read().unwrap();
+            let file_path = registry.get_path(*file_id);
+            drop(registry);
+
+            let Some(file_path) = file_path else {
+                continue;
+            };
+
+            // Parse the document
+            let parse = graphql_syntax::parse(&self.db, content, metadata);
+            let line_offset = metadata.line_offset(&self.db);
+
+            // Search for field usages in all blocks (handles TS/JS correctly)
+            let field_ranges = find_field_usages_in_parse(
+                &parse,
+                type_name,
+                field_name,
+                &schema_types,
+                content,
+                &self.db,
+                line_offset,
+            );
+
+            for range in field_ranges {
                 locations.push(Location::new(file_path.clone(), range));
             }
         }
@@ -2387,6 +2487,174 @@ fn find_type_references_in_parse(
                 let range = offset_range_to_range(&block_line_index, offset, end_offset);
                 results.push(adjust_range_for_line_offset(range, block.line as u32));
             }
+        }
+    }
+
+    results
+}
+
+/// Find field usages in a parsed file that match the given type and field name
+#[allow(clippy::cast_possible_truncation)]
+fn find_field_usages_in_parse(
+    parse: &graphql_syntax::Parse,
+    type_name: &str,
+    field_name: &str,
+    schema_types: &std::collections::HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
+    content: graphql_db::FileContent,
+    db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
+    metadata_line_offset: u32,
+) -> Vec<Range> {
+    let mut results = Vec::new();
+
+    // For pure GraphQL files, search the main tree
+    if parse.blocks.is_empty() {
+        let file_line_index = graphql_syntax::line_index(db, content);
+        let ranges = find_field_usages_in_tree(&parse.tree, type_name, field_name, schema_types);
+        for (start, end) in ranges {
+            let range = offset_range_to_range(&file_line_index, start, end);
+            results.push(adjust_range_for_line_offset(range, metadata_line_offset));
+        }
+        return results;
+    }
+
+    // For TS/JS files, search each block
+    for block in &parse.blocks {
+        let block_line_index = graphql_syntax::LineIndex::new(&block.source);
+        let ranges = find_field_usages_in_tree(&block.tree, type_name, field_name, schema_types);
+        for (start, end) in ranges {
+            let range = offset_range_to_range(&block_line_index, start, end);
+            results.push(adjust_range_for_line_offset(range, block.line as u32));
+        }
+    }
+
+    results
+}
+
+/// Find all field usages in a tree that match the given type and field name
+#[allow(clippy::too_many_lines)]
+fn find_field_usages_in_tree(
+    tree: &apollo_parser::SyntaxTree,
+    target_type: &str,
+    target_field: &str,
+    schema_types: &std::collections::HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
+) -> Vec<(usize, usize)> {
+    use apollo_parser::cst::{CstNode, Definition, Selection};
+
+    fn search_selection_set(
+        selection_set: &apollo_parser::cst::SelectionSet,
+        current_type: &str,
+        target_type: &str,
+        target_field: &str,
+        schema_types: &std::collections::HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
+        results: &mut Vec<(usize, usize)>,
+    ) {
+        for selection in selection_set.selections() {
+            match selection {
+                Selection::Field(field) => {
+                    if let Some(name) = field.name() {
+                        let field_name = name.text();
+
+                        // Check if this field matches our target
+                        if current_type == target_type && field_name == target_field {
+                            let range = name.syntax().text_range();
+                            results.push((range.start().into(), range.end().into()));
+                        }
+
+                        // Recurse into nested selection sets with the field's return type
+                        if let Some(nested) = field.selection_set() {
+                            if let Some(type_def) = schema_types.get(current_type) {
+                                if let Some(field_def) = type_def
+                                    .fields
+                                    .iter()
+                                    .find(|f| f.name.as_ref() == field_name)
+                                {
+                                    let field_type = field_def.type_ref.name.as_ref();
+                                    search_selection_set(
+                                        &nested,
+                                        field_type,
+                                        target_type,
+                                        target_field,
+                                        schema_types,
+                                        results,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                Selection::InlineFragment(inline_frag) => {
+                    // Get type condition if present, otherwise use current type
+                    let fragment_type = inline_frag
+                        .type_condition()
+                        .and_then(|tc| tc.named_type())
+                        .and_then(|nt| nt.name())
+                        .map_or_else(|| current_type.to_string(), |n| n.text().to_string());
+
+                    if let Some(nested) = inline_frag.selection_set() {
+                        search_selection_set(
+                            &nested,
+                            &fragment_type,
+                            target_type,
+                            target_field,
+                            schema_types,
+                            results,
+                        );
+                    }
+                }
+                Selection::FragmentSpread(_) => {
+                    // Fragment spreads would require resolving the fragment definition
+                    // For now, we skip them - fragment usages will be found when
+                    // searching the fragment definition files directly
+                }
+            }
+        }
+    }
+
+    let mut results = Vec::new();
+    let doc = tree.document();
+
+    for definition in doc.definitions() {
+        match definition {
+            Definition::OperationDefinition(op) => {
+                let root_type = match op.operation_type() {
+                    Some(op_type) if op_type.mutation_token().is_some() => "Mutation",
+                    Some(op_type) if op_type.subscription_token().is_some() => "Subscription",
+                    _ => "Query",
+                };
+
+                if let Some(selection_set) = op.selection_set() {
+                    search_selection_set(
+                        &selection_set,
+                        root_type,
+                        target_type,
+                        target_field,
+                        schema_types,
+                        &mut results,
+                    );
+                }
+            }
+            Definition::FragmentDefinition(frag) => {
+                // Get the type condition for the fragment
+                let fragment_type = frag
+                    .type_condition()
+                    .and_then(|tc| tc.named_type())
+                    .and_then(|nt| nt.name())
+                    .map(|n| n.text().to_string());
+
+                if let (Some(fragment_type), Some(selection_set)) =
+                    (fragment_type, frag.selection_set())
+                {
+                    search_selection_set(
+                        &selection_set,
+                        &fragment_type,
+                        target_type,
+                        target_field,
+                        schema_types,
+                        &mut results,
+                    );
+                }
+            }
+            _ => {}
         }
     }
 
@@ -3445,6 +3713,136 @@ fragment AttackActionInfo on AttackAction {
         assert!(locations.is_some());
         let locations = locations.unwrap();
         assert_eq!(locations.len(), 2);
+    }
+
+    #[test]
+    fn test_find_references_field_in_queries() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema with a type that has a name field
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User }\ntype User { id: ID! name: String! }",
+            FileKind::Schema,
+            0,
+        );
+
+        // Add a query that uses the name field
+        let query_file = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &query_file,
+            "query { user { id name } }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        // Add a fragment that also uses the name field
+        let fragment_file = FilePath::new("file:///fragments.graphql");
+        host.add_file(
+            &fragment_file,
+            "fragment UserFields on User { name }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        // Find references to "name" field on User type
+        // Schema line 2: "type User { id: ID! name: String! }"
+        // "type User { id: ID! " = 20 chars, so "name" starts at position 20
+        let snapshot = host.snapshot();
+        let locations = snapshot.find_references(&schema_file, Position::new(1, 20), false);
+
+        assert!(
+            locations.is_some(),
+            "Should find field references in documents"
+        );
+        let locations = locations.unwrap();
+        // Should find: query usage + fragment usage = 2
+        assert_eq!(
+            locations.len(),
+            2,
+            "Expected 2 usages (query + fragment), got {}",
+            locations.len()
+        );
+    }
+
+    #[test]
+    fn test_find_references_field_with_declaration() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User }\ntype User { name: String! }",
+            FileKind::Schema,
+            0,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &query_file,
+            "query { user { name } }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        // Find references including declaration
+        // Line 1: "type User { " = 12 chars, so "name" starts at position 12
+        let snapshot = host.snapshot();
+        let locations = snapshot.find_references(&schema_file, Position::new(1, 12), true);
+
+        assert!(locations.is_some());
+        let locations = locations.unwrap();
+        // Should find: declaration + query usage = 2
+        assert_eq!(locations.len(), 2);
+
+        // Verify one location is in schema, one in query
+        let schema_refs: Vec<_> = locations
+            .iter()
+            .filter(|l| l.file.as_str() == schema_file.as_str())
+            .collect();
+        let query_refs: Vec<_> = locations
+            .iter()
+            .filter(|l| l.file.as_str() == query_file.as_str())
+            .collect();
+        assert_eq!(schema_refs.len(), 1, "Should have 1 schema reference");
+        assert_eq!(query_refs.len(), 1, "Should have 1 query reference");
+    }
+
+    #[test]
+    fn test_find_references_field_nested() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User }\ntype User { profile: Profile }\ntype Profile { bio: String! }",
+            FileKind::Schema,
+            0,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &query_file,
+            "query { user { profile { bio } } }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        // Find references to "bio" field on Profile type
+        // Line 2: "type Profile { " = 15 chars, "bio" starts at 15
+        let snapshot = host.snapshot();
+        let locations = snapshot.find_references(&schema_file, Position::new(2, 15), false);
+
+        assert!(locations.is_some());
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1, "Should find nested field usage");
     }
 
     #[test]
