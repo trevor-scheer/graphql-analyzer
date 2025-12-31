@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+description = "GraphQL validation and analysis layer"
+keywords = ["graphql", "validation", "analysis"]
+categories = ["development-tools", "parser-implementations"]
 
 [dependencies]
 graphql-db = { path = "../graphql-db" }

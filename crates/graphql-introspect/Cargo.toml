@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+description = "GraphQL introspection query executor and SDL converter"
+keywords = ["graphql", "introspection", "schema"]
+categories = ["development-tools", "web-programming"]
 
 [dependencies]
 serde = { workspace = true }

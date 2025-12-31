@@ -2,9 +2,11 @@
 rustflags = [
     "-Dwarnings",
     "-Dclippy::all",
+    "-Dclippy::cargo",
+    "-Dclippy::correctness",
+    "-Dclippy::suspicious",
     "-Dclippy::pedantic",
-    "-Dclippy::nursery",
-    # Global allows for overly pedantic lints
     "-Aclippy::missing_errors_doc",
     "-Aclippy::missing_panics_doc",
+    "-Aclippy::multiple_crate_versions",
 ]

@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+description = "Salsa database foundation for GraphQL LSP"
+keywords = ["graphql", "salsa", "incremental"]
+categories = ["development-tools"]
 
 [features]
 test-utils = []

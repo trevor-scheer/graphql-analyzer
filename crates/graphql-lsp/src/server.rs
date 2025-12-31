@@ -1,8 +1,3 @@
-// Allow nursery clippy lints that are too pedantic for our use case
-#![allow(clippy::significant_drop_tightening)]
-#![allow(clippy::significant_drop_in_scrutinee)]
-#![allow(dead_code)] // Temporary - during Phase 6 cleanup
-
 use crate::conversions::{
     convert_ide_completion_item, convert_ide_diagnostic, convert_ide_document_symbol,
     convert_ide_hover, convert_ide_location, convert_ide_workspace_symbol, convert_lsp_position,
@@ -519,13 +514,9 @@ impl GraphQLLanguageServer {
             tracing::warn!("No analysis host found for workspace/project");
             return;
         };
-        let host = host_mutex.lock().await;
 
-        // Get the file path
+        let snapshot = host_mutex.lock().await.snapshot();
         let file_path = graphql_ide::FilePath::new(uri.as_str());
-
-        // Get diagnostics from the IDE layer
-        let snapshot = host.snapshot();
         let diagnostics = snapshot.diagnostics(&file_path);
 
         // Convert IDE diagnostics to LSP diagnostics

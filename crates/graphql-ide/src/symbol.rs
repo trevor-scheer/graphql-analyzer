@@ -167,77 +167,7 @@ pub fn walk_type_stack_to_offset(
     }
     type_stack.last().cloned()
 }
-#[allow(dead_code)]
-/// Find the type condition of an inline fragment at a given byte offset
-pub fn find_inline_fragment_type_at_offset(
-    tree: &apollo_parser::SyntaxTree,
-    byte_offset: usize,
-) -> Option<String> {
-    let doc = tree.document();
-    for definition in doc.definitions() {
-        match definition {
-            cst::Definition::OperationDefinition(op) => {
-                if let Some(selection_set) = op.selection_set() {
-                    if let Some(type_name) =
-                        find_inline_fragment_type_in_selection_set(&selection_set, byte_offset)
-                    {
-                        return Some(type_name);
-                    }
-                }
-            }
-            cst::Definition::FragmentDefinition(frag) => {
-                if let Some(selection_set) = frag.selection_set() {
-                    if let Some(type_name) =
-                        find_inline_fragment_type_in_selection_set(&selection_set, byte_offset)
-                    {
-                        return Some(type_name);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
 
-#[allow(dead_code)]
-fn find_inline_fragment_type_in_selection_set(
-    selection_set: &cst::SelectionSet,
-    byte_offset: usize,
-) -> Option<String> {
-    for selection in selection_set.selections() {
-        if let cst::Selection::InlineFragment(inline_frag) = selection {
-            let start: usize = inline_frag.syntax().text_range().start().into();
-            let end: usize = inline_frag.syntax().text_range().end().into();
-            if byte_offset >= start && byte_offset <= end {
-                if let Some(type_cond) = inline_frag.type_condition() {
-                    if let Some(named_type) = type_cond.named_type() {
-                        if let Some(name) = named_type.name() {
-                            return Some(name.text().to_string());
-                        }
-                    }
-                }
-            }
-            // Recurse into nested selection sets
-            if let Some(nested) = inline_frag.selection_set() {
-                if let Some(type_name) =
-                    find_inline_fragment_type_in_selection_set(&nested, byte_offset)
-                {
-                    return Some(type_name);
-                }
-            }
-        } else if let cst::Selection::Field(field) = selection {
-            if let Some(nested) = field.selection_set() {
-                if let Some(type_name) =
-                    find_inline_fragment_type_in_selection_set(&nested, byte_offset)
-                {
-                    return Some(type_name);
-                }
-            }
-        }
-    }
-    None
-}
 // Symbol identification at positions
 //
 // This module provides utilities for finding GraphQL symbols at specific positions
@@ -247,7 +177,6 @@ use apollo_parser::cst::{self, CstNode};
 
 /// A GraphQL symbol identified at a specific position
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)] // Some variants are for future implementation
 pub enum Symbol {
     /// A type name reference (in type positions, implements clauses, etc.)
     TypeName { name: String },
@@ -258,6 +187,7 @@ pub enum Symbol {
     /// An operation name
     OperationName { name: String },
     /// A variable reference ($varName)
+    #[allow(dead_code)] // Some variants are for future implementation
     VariableReference { name: String },
     /// An argument name in a field or directive
     ArgumentName { name: String },
@@ -832,60 +762,6 @@ pub fn find_type_definition_range(
                 let range = name.syntax().text_range();
                 return Some((range.start().into(), range.end().into()));
             }
-        }
-    }
-
-    None
-}
-
-/// Find the byte offset range of a field definition within a type
-#[allow(dead_code)]
-pub fn find_field_definition_range(
-    tree: &apollo_parser::SyntaxTree,
-    type_name: &str,
-    field_name: &str,
-) -> Option<(usize, usize)> {
-    let doc = tree.document();
-
-    for definition in doc.definitions() {
-        match definition {
-            cst::Definition::ObjectTypeDefinition(obj) => {
-                if obj.name().is_some_and(|n| n.text() == type_name) {
-                    if let Some(fields) = obj.fields_definition() {
-                        for field in fields.field_definitions() {
-                            if field.name().is_some_and(|n| n.text() == field_name) {
-                                let range = field.name().unwrap().syntax().text_range();
-                                return Some((range.start().into(), range.end().into()));
-                            }
-                        }
-                    }
-                }
-            }
-            cst::Definition::InterfaceTypeDefinition(iface) => {
-                if iface.name().is_some_and(|n| n.text() == type_name) {
-                    if let Some(fields) = iface.fields_definition() {
-                        for field in fields.field_definitions() {
-                            if field.name().is_some_and(|n| n.text() == field_name) {
-                                let range = field.name().unwrap().syntax().text_range();
-                                return Some((range.start().into(), range.end().into()));
-                            }
-                        }
-                    }
-                }
-            }
-            cst::Definition::InputObjectTypeDefinition(input) => {
-                if input.name().is_some_and(|n| n.text() == type_name) {
-                    if let Some(fields) = input.input_fields_definition() {
-                        for field in fields.input_value_definitions() {
-                            if field.name().is_some_and(|n| n.text() == field_name) {
-                                let range = field.name().unwrap().syntax().text_range();
-                                return Some((range.start().into(), range.end().into()));
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {}
         }
     }
 

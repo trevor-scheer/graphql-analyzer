@@ -20,15 +20,13 @@ pub struct CliAnalysisHost {
     host: AnalysisHost,
     /// Track all loaded files for diagnostics collection
     loaded_files: Vec<PathBuf>,
-    #[allow(dead_code)]
-    base_dir: PathBuf,
 }
 
 impl CliAnalysisHost {
     /// Create from a project configuration
     ///
     /// Loads all schema and document files from the project config.
-    pub fn from_project_config(project_config: &ProjectConfig, base_dir: PathBuf) -> Result<Self> {
+    pub fn from_project_config(project_config: &ProjectConfig, base_dir: &Path) -> Result<Self> {
         let mut host = AnalysisHost::new();
         let mut loaded_files = Vec::new();
 
@@ -91,12 +89,12 @@ impl CliAnalysisHost {
         }
 
         // Load schema files using centralized method
-        let _schema_count = host.load_schemas_from_config(project_config, &base_dir)?;
+        let _schema_count = host.load_schemas_from_config(project_config, base_dir)?;
 
         // Load document files (if configured)
         if let Some(ref documents_config) = project_config.documents {
             let document_files =
-                Self::load_document_files(documents_config, &base_dir, project_config)?;
+                Self::load_document_files(documents_config, base_dir, project_config)?;
 
             for (path, content) in document_files {
                 // Determine file kind based on extension
@@ -118,11 +116,7 @@ impl CliAnalysisHost {
 
         host.rebuild_project_files();
 
-        Ok(Self {
-            host,
-            loaded_files,
-            base_dir,
-        })
+        Ok(Self { host, loaded_files })
     }
 
     /// Load document files from config
@@ -191,28 +185,6 @@ impl CliAnalysisHost {
         }
 
         vec![pattern.to_string()]
-    }
-
-    /// Get diagnostics for all loaded files (validation + linting)
-    ///
-    /// Returns a map of file path -> diagnostics.
-    /// Only includes files that have diagnostics.
-    /// Note: Currently unused in CLI but kept for potential LSP use.
-    #[allow(dead_code)]
-    pub fn all_diagnostics(&self) -> HashMap<PathBuf, Vec<Diagnostic>> {
-        let snapshot = self.host.snapshot();
-        let mut results = HashMap::new();
-
-        for path in &self.loaded_files {
-            let file_path = FilePath::new(path.to_string_lossy().to_string());
-            let diagnostics = snapshot.diagnostics(&file_path);
-
-            if !diagnostics.is_empty() {
-                results.insert(path.clone(), diagnostics);
-            }
-        }
-
-        results
     }
 
     /// Get only validation diagnostics for all loaded files (excludes custom lint rules)
@@ -294,37 +266,6 @@ impl CliAnalysisHost {
             "Lint diagnostics collection complete"
         );
         results
-    }
-
-    /// Get the number of schema files loaded
-    #[allow(dead_code)]
-    pub fn schema_file_count(&self) -> usize {
-        // For now, approximate based on file extensions
-        // In a full implementation, we'd track this separately
-        self.loaded_files
-            .iter()
-            .filter(|p| {
-                p.extension()
-                    .and_then(|e| e.to_str())
-                    .is_some_and(|e| matches!(e, "graphql" | "gql" | "graphqls"))
-            })
-            .count()
-    }
-
-    /// Get the number of operation and fragment definitions
-    ///
-    /// This queries the HIR layer to count operations and fragments.
-    #[allow(dead_code)]
-    pub fn definition_counts(&self) -> (usize, usize) {
-        let _snapshot = self.host.snapshot();
-
-        // Count operations and fragments across all files
-        // For simplicity, we'll count from the loaded files
-        // In the full implementation, we'd query the HIR layer
-
-        // For now, return approximate counts
-        // A full implementation would use graphql-hir queries
-        (0, 0) // TODO: Query HIR for actual counts
     }
 
     /// Update a file (for watch mode - future enhancement)
