@@ -70,30 +70,16 @@ pub fn operation_body(
 ) -> Arc<OperationBody> {
     let parse = graphql_syntax::parse(db, file_content, file_metadata);
 
-    // Find the operation at the given index
+    // Find the operation at the given index across all documents
     let mut op_count = 0;
 
-    // For pure GraphQL files, look in the main AST
-    // For TS/JS files, look in the extracted blocks
-    if parse.blocks.is_empty() {
-        for definition in &parse.ast.definitions {
+    for doc in parse.documents() {
+        for definition in &doc.ast.definitions {
             if let apollo_compiler::ast::Definition::OperationDefinition(op) = definition {
                 if op_count == operation_index {
                     return Arc::new(extract_operation_body_from_ast(op));
                 }
                 op_count += 1;
-            }
-        }
-    } else {
-        // For TypeScript/JavaScript, search through blocks
-        for block in &parse.blocks {
-            for definition in &block.ast.definitions {
-                if let apollo_compiler::ast::Definition::OperationDefinition(op) = definition {
-                    if op_count == operation_index {
-                        return Arc::new(extract_operation_body_from_ast(op));
-                    }
-                    op_count += 1;
-                }
             }
         }
     }
@@ -119,23 +105,12 @@ pub fn fragment_body(
 ) -> Arc<FragmentBody> {
     let parse = graphql_syntax::parse(db, file_content, file_metadata);
 
-    // For pure GraphQL files, look in the main AST
-    if parse.blocks.is_empty() {
-        for definition in &parse.ast.definitions {
+    // Search for the fragment across all documents
+    for doc in parse.documents() {
+        for definition in &doc.ast.definitions {
             if let apollo_compiler::ast::Definition::FragmentDefinition(frag) = definition {
                 if frag.name.as_str() == fragment_name.as_ref() {
                     return Arc::new(extract_fragment_body_from_ast(frag));
-                }
-            }
-        }
-    } else {
-        // For TypeScript/JavaScript, search through blocks
-        for block in &parse.blocks {
-            for definition in &block.ast.definitions {
-                if let apollo_compiler::ast::Definition::FragmentDefinition(frag) = definition {
-                    if frag.name.as_str() == fragment_name.as_ref() {
-                        return Arc::new(extract_fragment_body_from_ast(frag));
-                    }
                 }
             }
         }

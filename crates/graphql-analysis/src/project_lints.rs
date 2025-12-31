@@ -49,15 +49,9 @@ pub fn find_unused_fragments(
         };
         let parse = graphql_syntax::parse(db, *file_content, *file_metadata);
 
-        // For TypeScript/JavaScript files, add each extracted block
-        if parse.blocks.is_empty() {
-            // For pure GraphQL files, add the main AST
-            all_documents.push(parse.ast.clone());
-        } else {
-            // For extracted blocks, add each block's AST
-            for block in &parse.blocks {
-                all_documents.push(block.ast.clone());
-            }
+        // Collect ASTs from all documents (works for both pure GraphQL and TS/JS)
+        for doc in parse.documents() {
+            all_documents.push(Arc::new(doc.ast.clone()));
         }
     }
 
