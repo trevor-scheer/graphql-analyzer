@@ -175,20 +175,21 @@ pub fn parse(
     content: FileContent,
     metadata: FileMetadata,
 ) -> Parse {
+    let uri = metadata.uri(db);
     match metadata.kind(db) {
         FileKind::Schema | FileKind::ExecutableGraphQL => {
             // Use apollo-parser for pure GraphQL files
-            parse_graphql(&content.text(db))
+            parse_graphql(&content.text(db), uri.as_str())
         }
         FileKind::TypeScript | FileKind::JavaScript => {
             // Use graphql-extract to get blocks, then parse each
-            extract_and_parse(db, &content.text(db))
+            extract_and_parse(db, &content.text(db), uri.as_str())
         }
     }
 }
 
 /// Parse pure GraphQL content
-fn parse_graphql(content: &str) -> Parse {
+fn parse_graphql(content: &str, uri: &str) -> Parse {
     let parser = apollo_parser::Parser::new(content);
     let tree = parser.parse();
 
@@ -201,7 +202,8 @@ fn parse_graphql(content: &str) -> Parse {
         .collect();
 
     // Parse with apollo-compiler to get AST
-    let ast = match apollo_compiler::ast::Document::parse(content, "document.graphql") {
+    // Use the actual file URI for proper error source tracking
+    let ast = match apollo_compiler::ast::Document::parse(content, uri) {
         Ok(doc) => doc,
         Err(with_errors) => {
             // Collect parse errors from apollo-compiler
@@ -225,7 +227,7 @@ fn parse_graphql(content: &str) -> Parse {
 }
 
 /// Extract GraphQL from TypeScript/JavaScript and parse each block
-fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str) -> Parse {
+fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -> Parse {
     use graphql_extract::{extract_from_source, ExtractConfig, Language};
 
     tracing::debug!(content_len = content.len(), "extract_and_parse called");
@@ -257,6 +259,7 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str) -> Parse {
     let mut all_errors = Vec::new();
 
     // For the main tree, we'll use the first block or create an empty document
+    // Use the actual file URI for proper error source tracking
     let (main_tree, main_ast) = extracted.first().map_or_else(
         || {
             let tree = apollo_parser::Parser::new("").parse();
@@ -266,10 +269,7 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str) -> Parse {
         |first_block| {
             let parser = apollo_parser::Parser::new(&first_block.source);
             let tree = parser.parse();
-            let ast = match apollo_compiler::ast::Document::parse(
-                &first_block.source,
-                "document.graphql",
-            ) {
+            let ast = match apollo_compiler::ast::Document::parse(&first_block.source, uri) {
                 Ok(doc) => doc,
                 Err(with_errors) => with_errors.partial,
             };
@@ -298,7 +298,8 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str) -> Parse {
         }));
 
         // Parse with apollo-compiler to get AST
-        let ast = match apollo_compiler::ast::Document::parse(&block.source, "document.graphql") {
+        // Use the actual file URI for proper error source tracking
+        let ast = match apollo_compiler::ast::Document::parse(&block.source, uri) {
             Ok(doc) => doc,
             Err(with_errors) => {
                 // Collect parse errors from apollo-compiler
@@ -492,7 +493,7 @@ mod tests {
     #[test]
     fn test_parse_graphql() {
         let content = "type User { id: ID! }";
-        let parse = parse_graphql(content);
+        let parse = parse_graphql(content, "test.graphql");
 
         assert!(parse.errors.is_empty());
         assert!(parse.blocks.is_empty());
@@ -502,7 +503,7 @@ mod tests {
     #[test]
     fn test_parse_graphql_with_error() {
         let content = "type User {";
-        let parse = parse_graphql(content);
+        let parse = parse_graphql(content, "test.graphql");
 
         assert!(!parse.errors.is_empty());
     }
@@ -615,7 +616,7 @@ mod tests {
     #[test]
     fn test_documents_iterator_pure_graphql() {
         let content = "type User { id: ID! }\ntype Post { id: ID! }";
-        let parse = parse_graphql(content);
+        let parse = parse_graphql(content, "test.graphql");
 
         let docs: Vec<_> = parse.documents().collect();
         assert_eq!(docs.len(), 1);
@@ -672,7 +673,7 @@ mod tests {
     fn test_documents_iterator_empty_blocks() {
         // Edge case: empty blocks vector should behave like pure GraphQL
         let content = "type User { id: ID! }";
-        let parse = parse_graphql(content);
+        let parse = parse_graphql(content, "test.graphql");
 
         let docs: Vec<_> = parse.documents().collect();
         assert_eq!(docs.len(), 1);
