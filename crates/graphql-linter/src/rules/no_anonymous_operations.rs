@@ -165,8 +165,9 @@ mod tests {
     fn create_test_project_files(db: &RootDatabase) -> ProjectFiles {
         let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![]));
         let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(vec![]));
-        let file_map = graphql_db::FileMap::new(db, Arc::new(std::collections::HashMap::new()));
-        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_map)
+        let file_entry_map =
+            graphql_db::FileEntryMap::new(db, Arc::new(std::collections::HashMap::new()));
+        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
     }
 
     #[test]

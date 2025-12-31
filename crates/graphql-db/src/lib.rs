@@ -95,16 +95,6 @@ pub struct DocumentFileIds {
     pub ids: Arc<Vec<FileId>>,
 }
 
-/// Input: File lookup map (DEPRECATED - use FileEntryMap for granular caching)
-/// Maps FileId to (FileContent, FileMetadata) for O(1) lookup.
-/// This input changes when any file's content changes, but queries that only
-/// need the file list (not content) should depend on SchemaFileIds/DocumentFileIds instead.
-#[salsa::input]
-pub struct FileMap {
-    /// Mapping from FileId to file content and metadata
-    pub entries: Arc<HashMap<FileId, (FileContent, FileMetadata)>>,
-}
-
 /// A single file's entry - bundles content and metadata as one Salsa input.
 /// This enables true per-file granular caching: when file A changes, only
 /// file A's FileEntry is updated, and queries for file B remain cached.
@@ -135,49 +125,36 @@ pub struct FileEntryMap {
 ///
 /// Queries should choose their dependencies carefully:
 /// - Depend on `schema_file_ids` or `document_file_ids` for "what files exist" (stable)
-/// - Depend on `file_entry_map` for per-file granular lookup (preferred)
-/// - Call per-file queries with specific FileContent to get per-file caching
+/// - Depend on `file_entry_map` for per-file granular lookup
+/// - Call per-file queries with specific `FileContent` to get per-file caching
 #[salsa::input]
 pub struct ProjectFiles {
     /// Schema file IDs - only changes when schema files are added/removed
     pub schema_file_ids: SchemaFileIds,
     /// Document file IDs - only changes when document files are added/removed
     pub document_file_ids: DocumentFileIds,
-    /// File content/metadata map (DEPRECATED - use file_entry_map)
-    pub file_map: FileMap,
     /// Per-file entry map for granular invalidation
-    /// Each FileEntry can be updated independently without invalidating other files
-    #[default]
-    pub file_entry_map: Option<FileEntryMap>,
+    /// Each `FileEntry` can be updated independently without invalidating other files
+    pub file_entry_map: FileEntryMap,
 }
 
 /// Query to look up a single file's content and metadata.
 ///
-/// When using `FileEntryMap` (the new granular approach):
+/// Uses `FileEntryMap` for granular per-file caching:
 /// - Each file has its own `FileEntry` input
 /// - Updating file A's content doesn't invalidate queries for file B
 /// - The `HashMap` lookup creates a dependency only on the specific `FileEntry`
-///
-/// Falls back to `FileMap` for backward compatibility.
 #[salsa::tracked]
 pub fn file_lookup(
     db: &dyn salsa::Database,
     project_files: ProjectFiles,
     file_id: FileId,
 ) -> Option<(FileContent, FileMetadata)> {
-    // Prefer the new granular FileEntryMap if available
-    if let Some(file_entry_map) = project_files.file_entry_map(db) {
-        let entries = file_entry_map.entries(db);
-        if let Some(entry) = entries.get(&file_id) {
-            // Access the FileEntry's fields - this creates a dependency on THIS entry only
-            return Some((entry.content(db), entry.metadata(db)));
-        }
-        return None;
-    }
-
-    // Fallback to old FileMap (DEPRECATED path)
-    let file_map = project_files.file_map(db).entries(db);
-    file_map.get(&file_id).copied()
+    let file_entry_map = project_files.file_entry_map(db);
+    let entries = file_entry_map.entries(db);
+    let entry = entries.get(&file_id)?;
+    // Access the FileEntry's fields - this creates a dependency on THIS entry only
+    Some((entry.content(db), entry.metadata(db)))
 }
 
 /// The root salsa database
@@ -203,8 +180,8 @@ impl RootDatabase {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils {
     use super::{
-        DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileMap, FileMetadata,
-        ProjectFiles, SchemaFileIds,
+        DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileMetadata, ProjectFiles,
+        SchemaFileIds,
     };
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -214,47 +191,31 @@ pub mod test_utils {
     /// This function takes lists of schema and document files and creates
     /// the proper granular Salsa inputs (`SchemaFileIds`, `DocumentFileIds`, `FileEntryMap`).
     ///
-    /// Uses the new granular `FileEntryMap` pattern for per-file caching.
+    /// Uses `FileEntryMap` for per-file granular caching.
     pub fn create_project_files<DB: salsa::Database>(
         db: &mut DB,
         schema_files: &[(FileId, FileContent, FileMetadata)],
         document_files: &[(FileId, FileContent, FileMetadata)],
     ) -> ProjectFiles {
-        use salsa::Setter;
-
         let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
         let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
 
-        // Create legacy FileMap for backward compatibility
-        let mut old_entries = HashMap::new();
-        for (id, content, metadata) in schema_files {
-            old_entries.insert(*id, (*content, *metadata));
-        }
-        for (id, content, metadata) in document_files {
-            old_entries.insert(*id, (*content, *metadata));
-        }
-
-        // Create new granular FileEntryMap
-        let mut new_entries = HashMap::new();
+        // Create granular FileEntryMap
+        let mut entries = HashMap::new();
         for (id, content, metadata) in schema_files {
             let entry = FileEntry::new(db, *content, *metadata);
-            new_entries.insert(*id, entry);
+            entries.insert(*id, entry);
         }
         for (id, content, metadata) in document_files {
             let entry = FileEntry::new(db, *content, *metadata);
-            new_entries.insert(*id, entry);
+            entries.insert(*id, entry);
         }
 
         let schema_file_ids = SchemaFileIds::new(db, Arc::new(schema_ids));
         let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
-        let file_map = FileMap::new(db, Arc::new(old_entries));
-        let file_entry_map = FileEntryMap::new(db, Arc::new(new_entries));
+        let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
 
-        let project_files = ProjectFiles::new(db, schema_file_ids, document_file_ids, file_map);
-        project_files
-            .set_file_entry_map(db)
-            .to(Some(file_entry_map));
-        project_files
+        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
     }
 }
 

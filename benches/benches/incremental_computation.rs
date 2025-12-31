@@ -87,10 +87,12 @@ fn create_project_files(db: &mut RootDatabase) -> ProjectFiles {
     let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![schema_id]));
     let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(vec![doc_id]));
     let mut file_entries = std::collections::HashMap::new();
-    file_entries.insert(schema_id, (schema_content, schema_meta));
-    file_entries.insert(doc_id, (doc_content, doc_meta));
-    let file_map = graphql_db::FileMap::new(db, Arc::new(file_entries));
-    ProjectFiles::new(db, schema_file_ids, document_file_ids, file_map)
+    let schema_entry = graphql_db::FileEntry::new(db, schema_content, schema_meta);
+    let doc_entry = graphql_db::FileEntry::new(db, doc_content, doc_meta);
+    file_entries.insert(schema_id, schema_entry);
+    file_entries.insert(doc_id, doc_entry);
+    let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(file_entries));
+    ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
 }
 
 /// Parse benchmarks
@@ -205,11 +207,13 @@ fn bench_golden_invariant(c: &mut Criterion) {
                 let document_file_ids =
                     graphql_db::DocumentFileIds::new(&db, Arc::new(vec![doc_id]));
                 let mut file_entries = std::collections::HashMap::new();
-                file_entries.insert(schema_id, (schema_content, schema_meta));
-                file_entries.insert(doc_id, (doc_content, doc_meta));
-                let file_map = graphql_db::FileMap::new(&db, Arc::new(file_entries));
+                let schema_entry = graphql_db::FileEntry::new(&db, schema_content, schema_meta);
+                let doc_entry = graphql_db::FileEntry::new(&db, doc_content, doc_meta);
+                file_entries.insert(schema_id, schema_entry);
+                file_entries.insert(doc_id, doc_entry);
+                let file_entry_map = graphql_db::FileEntryMap::new(&db, Arc::new(file_entries));
                 let project_files =
-                    ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_map);
+                    ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_entry_map);
 
                 // Cache schema types
                 let _ = graphql_hir::schema_types_with_project(&db, project_files);
@@ -299,18 +303,8 @@ fn bench_per_file_granular_caching(c: &mut Criterion) {
                     graphql_db::DocumentFileIds::new(&db, Arc::new(vec![doc1_id, doc2_id]));
                 let file_entry_map = graphql_db::FileEntryMap::new(&db, Arc::new(entry_map));
 
-                // Also create legacy FileMap for compatibility
-                let mut file_entries = std::collections::HashMap::new();
-                file_entries.insert(schema_id, (schema_content, schema_meta));
-                file_entries.insert(doc1_id, (doc1_content, doc1_meta));
-                file_entries.insert(doc2_id, (doc2_content, doc2_meta));
-                let file_map = graphql_db::FileMap::new(&db, Arc::new(file_entries));
-
                 let project_files =
-                    ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_map);
-                project_files
-                    .set_file_entry_map(&mut db)
-                    .to(Some(file_entry_map));
+                    ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_entry_map);
 
                 // Warm caches for all files
                 let _ = graphql_hir::all_fragments_with_project(&db, project_files);
@@ -369,11 +363,13 @@ fn bench_fragment_resolution_cold(c: &mut Criterion) {
                 let document_file_ids =
                     graphql_db::DocumentFileIds::new(&db, Arc::new(vec![doc_id]));
                 let mut file_entries = std::collections::HashMap::new();
-                file_entries.insert(schema_id, (schema_content, schema_meta));
-                file_entries.insert(doc_id, (doc_content, doc_meta));
-                let file_map = graphql_db::FileMap::new(&db, Arc::new(file_entries));
+                let schema_entry = graphql_db::FileEntry::new(&db, schema_content, schema_meta);
+                let doc_entry = graphql_db::FileEntry::new(&db, doc_content, doc_meta);
+                file_entries.insert(schema_id, schema_entry);
+                file_entries.insert(doc_id, doc_entry);
+                let file_entry_map = graphql_db::FileEntryMap::new(&db, Arc::new(file_entries));
                 let project_files =
-                    ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_map);
+                    ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_entry_map);
 
                 (db, project_files)
             },
@@ -412,10 +408,13 @@ fn bench_fragment_resolution_warm(c: &mut Criterion) {
         let schema_file_ids = graphql_db::SchemaFileIds::new(&db, Arc::new(vec![schema_id]));
         let document_file_ids = graphql_db::DocumentFileIds::new(&db, Arc::new(vec![doc_id]));
         let mut file_entries = std::collections::HashMap::new();
-        file_entries.insert(schema_id, (schema_content, schema_meta));
-        file_entries.insert(doc_id, (doc_content, doc_meta));
-        let file_map = graphql_db::FileMap::new(&db, Arc::new(file_entries));
-        let project_files = ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_map);
+        let schema_entry = graphql_db::FileEntry::new(&db, schema_content, schema_meta);
+        let doc_entry = graphql_db::FileEntry::new(&db, doc_content, doc_meta);
+        file_entries.insert(schema_id, schema_entry);
+        file_entries.insert(doc_id, doc_entry);
+        let file_entry_map = graphql_db::FileEntryMap::new(&db, Arc::new(file_entries));
+        let project_files =
+            ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_entry_map);
 
         let _ = graphql_hir::all_fragments_with_project(&db, project_files);
 

@@ -391,17 +391,19 @@ mod tests {
 
         let mut entries = HashMap::new();
         for (id, content, metadata) in schema_files {
-            entries.insert(*id, (*content, *metadata));
+            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
         }
         for (id, content, metadata) in document_files {
-            entries.insert(*id, (*content, *metadata));
+            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
         }
 
         let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(schema_ids));
         let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_ids));
-        let file_map = graphql_db::FileMap::new(db, Arc::new(entries));
+        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(entries));
 
-        graphql_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_map)
+        graphql_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
     }
 
     #[test]

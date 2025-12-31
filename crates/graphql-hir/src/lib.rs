@@ -372,17 +372,19 @@ mod tests {
 
         let mut entries = HashMap::new();
         for (id, content, metadata) in schema_files {
-            entries.insert(*id, (*content, *metadata));
+            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
         }
         for (id, content, metadata) in document_files {
-            entries.insert(*id, (*content, *metadata));
+            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
         }
 
         let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(schema_ids));
         let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_ids));
-        let file_map = graphql_db::FileMap::new(db, Arc::new(entries));
+        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(entries));
 
-        graphql_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_map)
+        graphql_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
     }
 
     #[test]
@@ -487,18 +489,11 @@ mod tests {
         FILE_STRUCTURE_CALL_COUNT.store(0, Ordering::SeqCst);
 
         // Now edit ONLY file2's content
+        // With the new granular architecture, we only update the FileContent.text
+        // The FileEntryMap HashMap stays the same (same keys, same Arc)
         file2_content
             .set_text(&mut db)
             .to(Arc::from("fragment FragmentB on User { email phone }"));
-
-        // Also need to update the FileMap to reflect the new content
-        let mut new_entries = HashMap::new();
-        new_entries.insert(file1_id, (file1_content, file1_metadata));
-        new_entries.insert(file2_id, (file2_content, file2_metadata));
-        project_files
-            .file_map(&db)
-            .set_entries(&mut db)
-            .to(Arc::new(new_entries));
 
         // Query file1's structure - this should come from cache
         let _ = counted_file_structure(&db, file1_id, file1_content, file1_metadata);
@@ -564,20 +559,14 @@ mod tests {
         let frags1 = all_fragments_with_project(&db, project_files);
         assert_eq!(frags1.len(), 2);
         assert!(frags1.contains_key("F1"));
-        let doc_files = [
-            (file1_id, file1_content, file1_metadata),
-            (file2_id, file2_content, file2_metadata),
-        ];
-        let project_files = create_project_files(&db, &[], &doc_files);
-        let mut new_entries = HashMap::new();
-        new_entries.insert(file1_id, (file1_content, file1_metadata));
-        new_entries.insert(file2_id, (file2_content, file2_metadata));
-        project_files
-            .file_map(&db)
-            .set_entries(&mut db)
-            .to(Arc::new(new_entries));
+        assert!(frags1.contains_key("F2"));
 
-        // Query again
+        // Edit file2's content - with new granular architecture, only update FileContent.text
+        file2_content
+            .set_text(&mut db)
+            .to(Arc::from("fragment F2 on User { name email }"));
+
+        // Query again - file1's data should come from cache
         let frags2 = all_fragments_with_project(&db, project_files);
         assert_eq!(frags2.len(), 2);
 
@@ -587,11 +576,10 @@ mod tests {
 
         // The structural data should be correct
         let _f1 = frags2.get("F1").unwrap();
-        let doc_files = [
-            (file1_id, file1_content, file1_metadata),
-            (file2_id, file2_content, file2_metadata),
-        ];
-        let _project_files = create_project_files(&db, &[], &doc_files);
+        // With the new granular architecture:
+        // - DocumentFileIds didn't change (same files)
+        // - Only file2's FileContent changed
+        // - So only file2's file_fragments query should recompute
         // - file1's file_fragments should come from cache
     }
 }

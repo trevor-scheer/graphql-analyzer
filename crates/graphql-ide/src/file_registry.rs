@@ -16,8 +16,8 @@
 //! any file change would invalidate queries for ALL files.
 
 use graphql_db::{
-    DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileKind, FileMap, FileMetadata,
-    FileUri, ProjectFiles, SchemaFileIds,
+    DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileKind, FileMetadata, FileUri,
+    ProjectFiles, SchemaFileIds,
 };
 use salsa::Setter;
 use std::collections::HashMap;
@@ -44,9 +44,7 @@ pub struct FileRegistry {
     schema_file_ids: Option<SchemaFileIds>,
     /// Granular input tracking document file IDs only - changes on file add/remove
     document_file_ids: Option<DocumentFileIds>,
-    /// Maps `FileId` -> (`FileContent`, `FileMetadata`) for O(1) lookup (DEPRECATED)
-    file_map: Option<FileMap>,
-    /// Per-file entry map for granular invalidation (NEW)
+    /// Per-file entry map for granular invalidation
     file_entry_map: Option<FileEntryMap>,
     /// The `ProjectFiles` input that tracks all files in the project
     project_files: Option<ProjectFiles>,
@@ -197,25 +195,22 @@ impl FileRegistry {
     {
         let mut schema_ids = Vec::new();
         let mut document_ids = Vec::new();
-        let mut old_file_entries: HashMap<FileId, (FileContent, FileMetadata)> = HashMap::new();
-        let mut new_file_entries: HashMap<FileId, FileEntry> = HashMap::new();
+        let mut file_entries: HashMap<FileId, FileEntry> = HashMap::new();
 
         // Collect all file data first without calling db methods
         let file_data: Vec<_> = self
             .id_to_content
             .iter()
-            .filter_map(|(&file_id, content)| {
+            .filter_map(|(&file_id, _content)| {
                 let metadata = self.id_to_metadata.get(&file_id)?;
                 let entry = self.id_to_entry.get(&file_id)?;
-                Some((file_id, *content, *metadata, *entry))
+                Some((file_id, *metadata, *entry))
             })
             .collect();
 
         // Now query kinds and categorize - this may trigger salsa queries
-        for (file_id, content, metadata, entry) in file_data {
-            // Add to file entries maps
-            old_file_entries.insert(file_id, (content, metadata));
-            new_file_entries.insert(file_id, entry);
+        for (file_id, metadata, entry) in file_data {
+            file_entries.insert(file_id, entry);
 
             // Categorize by kind for ID lists
             match metadata.kind(db) {
@@ -244,43 +239,26 @@ impl FileRegistry {
         };
         self.document_file_ids = Some(document_file_ids);
 
-        // Create or update the FileMap input (DEPRECATED - kept for backward compatibility)
-        let file_map = if let Some(existing) = self.file_map {
-            existing.set_entries(db).to(Arc::new(old_file_entries));
-            existing
-        } else {
-            FileMap::new(db, Arc::new(old_file_entries))
-        };
-        self.file_map = Some(file_map);
-
-        // Create or update the FileEntryMap input (NEW - enables granular caching)
+        // Create or update the FileEntryMap input
         let file_entry_map = if let Some(existing) = self.file_entry_map {
-            existing.set_entries(db).to(Arc::new(new_file_entries));
+            existing.set_entries(db).to(Arc::new(file_entries));
             existing
         } else {
-            FileEntryMap::new(db, Arc::new(new_file_entries))
+            FileEntryMap::new(db, Arc::new(file_entries))
         };
         self.file_entry_map = Some(file_entry_map);
 
         // Create or update the ProjectFiles input
         let project_files = if let Some(existing) = self.project_files {
-            // Update existing input to point to (potentially new) granular inputs
             existing.set_schema_file_ids(db).to(schema_file_ids);
             existing.set_document_file_ids(db).to(document_file_ids);
-            existing.set_file_map(db).to(file_map);
-            existing.set_file_entry_map(db).to(Some(file_entry_map));
+            existing.set_file_entry_map(db).to(file_entry_map);
             existing
         } else {
-            // Create new input
-            let pf = ProjectFiles::new(db, schema_file_ids, document_file_ids, file_map);
-            pf.set_file_entry_map(db).to(Some(file_entry_map));
-            pf
+            ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
         };
 
         self.project_files = Some(project_files);
-
-        // ProjectFiles is now managed by the registry.
-        // Queries that need ProjectFiles should accept it as a parameter.
     }
 
     /// Get the `FileEntry` for a file ID
