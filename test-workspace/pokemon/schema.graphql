@@ -261,6 +261,51 @@ type ItemAction {
   targetPokemon: TeamPokemon!
 }
 
+"""
+Interface for entities that can participate in or be affected by battles
+"""
+interface BattleParticipant {
+  id: ID!
+  name: String!
+  displayName: String!
+}
+
+"""
+A Pokemon participating in a battle
+"""
+type BattlePokemon implements BattleParticipant {
+  id: ID!
+  name: String!
+  displayName: String!
+  species: String!
+  level: Int!
+  currentHP: Int!
+  maxHP: Int!
+  status: String
+}
+
+"""
+A trainer participating in a battle
+"""
+type BattleTrainer implements BattleParticipant {
+  id: ID!
+  name: String!
+  displayName: String!
+  badgeCount: Int!
+  activePokemon: BattlePokemon
+}
+
+"""
+An NPC or wild Pokemon in a battle
+"""
+type WildEncounter implements BattleParticipant {
+  id: ID!
+  name: String!
+  displayName: String!
+  pokemon: BattlePokemon!
+  encounterType: String!
+}
+
 type Query {
   pokemon(id: ID!): Pokemon
   pokemonByName(name: String!): Pokemon
@@ -281,6 +326,9 @@ type Query {
   battle(id: ID!): Battle
   activeBattles: [Battle!]!
   trainerBattles(trainerId: ID!): [Battle!]!
+
+  battleParticipant(id: ID!): BattleParticipant
+  battleParticipants(battleId: ID!): [BattleParticipant!]!
 
   item(id: ID!): Item
   allItems(category: ItemCategory): [Item!]!

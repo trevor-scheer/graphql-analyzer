@@ -1,7 +1,247 @@
-//! Symbol identification at positions
-//!
-//! This module provides utilities for finding GraphQL symbols at specific positions
-//! in source code, using apollo-parser's CST for position lookups.
+/// Walks the CST from the root to the cursor, maintaining a stack of type context.
+/// Returns the type at the cursor position for completions, following the field chain and fragments.
+#[allow(clippy::too_many_lines)]
+pub fn walk_type_stack_to_offset(
+    tree: &apollo_parser::SyntaxTree,
+    schema_types: &std::collections::HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
+    byte_offset: usize,
+    root_type: &str,
+) -> Option<String> {
+    fn walk_selection_set(
+        selection_set: &cst::SelectionSet,
+        offset: usize,
+        schema_types: &std::collections::HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
+        type_stack: &mut Vec<String>,
+        found: &mut bool,
+        entered: &mut bool,
+    ) {
+        let start: usize = selection_set.syntax().text_range().start().into();
+        let end: usize = selection_set.syntax().text_range().end().into();
+        if offset < start || offset > end {
+            return;
+        }
+        // Mark that we've entered the selection set containing the cursor
+        *entered = true;
+        for selection in selection_set.selections() {
+            if let cst::Selection::Field(field) = selection {
+                if let Some(nested) = field.selection_set() {
+                    let nstart: usize = nested.syntax().text_range().start().into();
+                    let nend: usize = nested.syntax().text_range().end().into();
+                    if offset >= nstart && offset <= nend {
+                        // Descend into this field's selection set
+                        if let Some(field_name) = field.name().map(|n| n.text().to_string()) {
+                            if let Some(parent_type) = type_stack.last().cloned() {
+                                if let Some(type_def) = schema_types.get(parent_type.as_str()) {
+                                    if let Some(field_def) = type_def
+                                        .fields
+                                        .iter()
+                                        .find(|f| f.name.as_ref() == field_name)
+                                    {
+                                        let field_type =
+                                            crate::unwrap_type_to_name(&field_def.type_ref);
+                                        tracing::debug!(
+                                            "PUSH field {} type {}",
+                                            field_name,
+                                            field_type
+                                        );
+                                        type_stack.push(field_type);
+                                        walk_selection_set(
+                                            &nested,
+                                            offset,
+                                            schema_types,
+                                            type_stack,
+                                            found,
+                                            entered,
+                                        );
+                                        if *found {
+                                            return;
+                                        }
+                                        type_stack.pop();
+                                    }
+                                }
+                            }
+                        }
+                        // Once we descend, don't mark this set as the cursor's set
+                        *entered = false;
+                    }
+                }
+            } else if let cst::Selection::InlineFragment(inline_frag) = selection {
+                if let Some(nested) = inline_frag.selection_set() {
+                    let nstart: usize = nested.syntax().text_range().start().into();
+                    let nend: usize = nested.syntax().text_range().end().into();
+                    if offset >= nstart && offset <= nend {
+                        if let Some(type_cond) = inline_frag.type_condition() {
+                            if let Some(named_type) = type_cond.named_type() {
+                                if let Some(name) = named_type.name() {
+                                    tracing::debug!("PUSH inline fragment type {}", name.text());
+                                    type_stack.push(name.text().to_string());
+                                    walk_selection_set(
+                                        &nested,
+                                        offset,
+                                        schema_types,
+                                        type_stack,
+                                        found,
+                                        entered,
+                                    );
+                                    if *found {
+                                        return;
+                                    }
+                                    type_stack.pop();
+                                }
+                            }
+                        } else {
+                            walk_selection_set(
+                                &nested,
+                                offset,
+                                schema_types,
+                                type_stack,
+                                found,
+                                entered,
+                            );
+                            if *found {
+                                return;
+                            }
+                        }
+                        *entered = false;
+                    }
+                }
+            }
+        }
+        // If we reach here and entered is true, this is the selection set at the cursor
+        if *entered {
+            *found = true;
+        }
+    }
+    // (Removed duplicate unreachable code block)
+
+    let doc = tree.document();
+    let mut type_stack = vec![root_type.to_string()];
+    let mut found = false;
+    let mut entered = false;
+    for definition in doc.definitions() {
+        match definition {
+            cst::Definition::OperationDefinition(op) => {
+                if let Some(selection_set) = op.selection_set() {
+                    let start: usize = selection_set.syntax().text_range().start().into();
+                    let end: usize = selection_set.syntax().text_range().end().into();
+                    if byte_offset >= start && byte_offset <= end {
+                        walk_selection_set(
+                            &selection_set,
+                            byte_offset,
+                            schema_types,
+                            &mut type_stack,
+                            &mut found,
+                            &mut entered,
+                        );
+                        break;
+                    }
+                }
+            }
+            cst::Definition::FragmentDefinition(frag) => {
+                if let Some(selection_set) = frag.selection_set() {
+                    let start: usize = selection_set.syntax().text_range().start().into();
+                    let end: usize = selection_set.syntax().text_range().end().into();
+                    if byte_offset >= start && byte_offset <= end {
+                        // Use fragment type condition as root
+                        if let Some(type_cond) = frag.type_condition() {
+                            if let Some(named_type) = type_cond.named_type() {
+                                if let Some(name) = named_type.name() {
+                                    type_stack[0] = name.text().to_string();
+                                }
+                            }
+                        }
+                        walk_selection_set(
+                            &selection_set,
+                            byte_offset,
+                            schema_types,
+                            &mut type_stack,
+                            &mut found,
+                            &mut entered,
+                        );
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    type_stack.last().cloned()
+}
+#[allow(dead_code)]
+/// Find the type condition of an inline fragment at a given byte offset
+pub fn find_inline_fragment_type_at_offset(
+    tree: &apollo_parser::SyntaxTree,
+    byte_offset: usize,
+) -> Option<String> {
+    let doc = tree.document();
+    for definition in doc.definitions() {
+        match definition {
+            cst::Definition::OperationDefinition(op) => {
+                if let Some(selection_set) = op.selection_set() {
+                    if let Some(type_name) =
+                        find_inline_fragment_type_in_selection_set(&selection_set, byte_offset)
+                    {
+                        return Some(type_name);
+                    }
+                }
+            }
+            cst::Definition::FragmentDefinition(frag) => {
+                if let Some(selection_set) = frag.selection_set() {
+                    if let Some(type_name) =
+                        find_inline_fragment_type_in_selection_set(&selection_set, byte_offset)
+                    {
+                        return Some(type_name);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+#[allow(dead_code)]
+fn find_inline_fragment_type_in_selection_set(
+    selection_set: &cst::SelectionSet,
+    byte_offset: usize,
+) -> Option<String> {
+    for selection in selection_set.selections() {
+        if let cst::Selection::InlineFragment(inline_frag) = selection {
+            let start: usize = inline_frag.syntax().text_range().start().into();
+            let end: usize = inline_frag.syntax().text_range().end().into();
+            if byte_offset >= start && byte_offset <= end {
+                if let Some(type_cond) = inline_frag.type_condition() {
+                    if let Some(named_type) = type_cond.named_type() {
+                        if let Some(name) = named_type.name() {
+                            return Some(name.text().to_string());
+                        }
+                    }
+                }
+            }
+            // Recurse into nested selection sets
+            if let Some(nested) = inline_frag.selection_set() {
+                if let Some(type_name) =
+                    find_inline_fragment_type_in_selection_set(&nested, byte_offset)
+                {
+                    return Some(type_name);
+                }
+            }
+        } else if let cst::Selection::Field(field) = selection {
+            if let Some(nested) = field.selection_set() {
+                if let Some(type_name) =
+                    find_inline_fragment_type_in_selection_set(&nested, byte_offset)
+                {
+                    return Some(type_name);
+                }
+            }
+        }
+    }
+    None
+}
+// Symbol identification at positions
+//
+// This module provides utilities for finding GraphQL symbols at specific positions
+// in source code, using apollo-parser's CST for position lookups.
 
 use apollo_parser::cst::{self, CstNode};
 
@@ -126,60 +366,61 @@ fn find_parent_field_path(
     selection_set: &cst::SelectionSet,
     byte_offset: usize,
 ) -> Option<Vec<String>> {
+    let mut best_path: Option<Vec<String>> = None;
     for selection in selection_set.selections() {
         if let cst::Selection::Field(field) = selection {
-            // Check if this field has a nested selection set that contains our offset
             if let Some(nested) = field.selection_set() {
                 let start: usize = nested.syntax().text_range().start().into();
                 let end: usize = nested.syntax().text_range().end().into();
-
                 if byte_offset >= start && byte_offset <= end {
-                    // Get this field's name
+                    // Cursor is inside the nested selection set, so add this field to the path
                     let field_name = field.name()?.text().to_string();
-
-                    // Recursively check for deeper nesting
+                    // The path should be [field_name] + path inside nested
                     if let Some(mut deeper_path) = find_parent_field_path(&nested, byte_offset) {
-                        // Prepend this field to the path
                         let mut path = vec![field_name];
                         path.append(&mut deeper_path);
-                        return Some(path);
+                        if best_path.as_ref().is_none_or(|p| path.len() > p.len()) {
+                            best_path = Some(path);
+                        }
+                    } else {
+                        // If we're directly in the selection set, the path is just this field
+                        let path = vec![field_name];
+                        if best_path.as_ref().is_none_or(|p| path.len() > p.len()) {
+                            best_path = Some(path);
+                        }
                     }
-
-                    // We're directly in this field's selection set - return just this field
-                    return Some(vec![field_name]);
                 }
             }
         } else if let cst::Selection::InlineFragment(inline_frag) = selection {
             if let Some(nested) = inline_frag.selection_set() {
                 let start: usize = nested.syntax().text_range().start().into();
                 let end: usize = nested.syntax().text_range().end().into();
-
                 if byte_offset >= start && byte_offset <= end {
-                    // For inline fragments, check type condition
-                    if let Some(type_cond) = inline_frag.type_condition() {
-                        if let Some(named_type) = type_cond.named_type() {
-                            if let Some(name) = named_type.name() {
-                                let _type_name = name.text().to_string();
-
-                                // Recursively check for deeper nesting
-                                if let Some(deeper_path) =
-                                    find_parent_field_path(&nested, byte_offset)
-                                {
-                                    return Some(deeper_path);
-                                }
-
-                                // Return empty path but signal we found the location
-                                // The type name will be used as-is (not a field path)
-                                return Some(vec![]);
-                            }
+                    // For inline fragments, recurse but do NOT add to the path (fragments don't add a field)
+                    if let Some(deeper_path) = find_parent_field_path(&nested, byte_offset) {
+                        if best_path
+                            .as_ref()
+                            .is_none_or(|p| deeper_path.len() > p.len())
+                        {
+                            best_path = Some(deeper_path);
                         }
+                    } else if best_path.is_none() {
+                        best_path = Some(vec![]);
                     }
                 }
             }
         }
     }
-
-    None
+    // If the cursor is directly in this selection set (not in any nested set), return empty path
+    if best_path.is_none() {
+        // But only if the offset is actually inside this selection set
+        let start: usize = selection_set.syntax().text_range().start().into();
+        let end: usize = selection_set.syntax().text_range().end().into();
+        if byte_offset >= start && byte_offset <= end {
+            return Some(vec![]);
+        }
+    }
+    best_path
 }
 
 /// Find the parent field's type name within a selection set (legacy wrapper)
@@ -598,6 +839,7 @@ pub fn find_type_definition_range(
 }
 
 /// Find the byte offset range of a field definition within a type
+#[allow(dead_code)]
 pub fn find_field_definition_range(
     tree: &apollo_parser::SyntaxTree,
     type_name: &str,
@@ -1199,7 +1441,7 @@ pub fn extract_all_definitions(
     let mut results = Vec::new();
 
     for definition in doc.definitions() {
-        match &definition {
+        match definition {
             cst::Definition::ObjectTypeDefinition(obj) => {
                 if let Some(name) = obj.name() {
                     let name_range = name.syntax().text_range();
