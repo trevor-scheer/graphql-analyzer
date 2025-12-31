@@ -30,14 +30,15 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
 
         // Collect all operations with their locations
         let doc_ids = project_files.document_file_ids(db).ids(db);
-        let file_map = project_files.file_map(db).entries(db);
         let mut operations_by_name: HashMap<String, Vec<(FileId, usize)>> = HashMap::new();
 
         for file_id in doc_ids.iter() {
-            let Some((content, metadata)) = file_map.get(file_id) else {
+            // Use per-file lookup to avoid depending on entire file_map
+            let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
+            else {
                 continue;
             };
-            let structure = graphql_hir::file_structure(db, *file_id, *content, *metadata);
+            let structure = graphql_hir::file_structure(db, *file_id, content, metadata);
             for operation in &structure.operations {
                 if let Some(ref name) = operation.name {
                     operations_by_name
@@ -75,10 +76,12 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
         let mut fragments_by_name: HashMap<String, Vec<FileId>> = HashMap::new();
 
         for file_id in doc_ids.iter() {
-            let Some((content, metadata)) = file_map.get(file_id) else {
+            // Use per-file lookup to avoid depending on entire file_map
+            let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
+            else {
                 continue;
             };
-            let structure = graphql_hir::file_structure(db, *file_id, *content, *metadata);
+            let structure = graphql_hir::file_structure(db, *file_id, content, metadata);
             for fragment in &structure.fragments {
                 fragments_by_name
                     .entry(fragment.name.to_string())

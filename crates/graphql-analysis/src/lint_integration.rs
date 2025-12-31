@@ -325,9 +325,8 @@ fn find_file_content_and_metadata(
     project_files: ProjectFiles,
     file_id: FileId,
 ) -> Option<(FileContent, FileMetadata)> {
-    // O(1) lookup using file_map
-    let file_map = project_files.file_map(db).entries(db);
-    file_map.get(&file_id).copied()
+    // Use per-file lookup to avoid depending on entire file_map
+    graphql_db::file_lookup(db, project_files, file_id)
 }
 
 /// Convert `LintDiagnostic` (byte offsets) to `Diagnostic` (line/column)

@@ -12,7 +12,6 @@ pub fn merged_schema_from_files(
 ) -> Option<Arc<apollo_compiler::Schema>> {
     tracing::info!("merged_schema: Starting schema merge");
     let schema_ids = project_files.schema_file_ids(db).ids(db);
-    let file_map = project_files.file_map(db).entries(db);
     tracing::info!(schema_file_count = schema_ids.len(), "Found schema files");
 
     if schema_ids.is_empty() {
@@ -24,7 +23,8 @@ pub fn merged_schema_from_files(
     let mut parser = Parser::new();
 
     for file_id in schema_ids.iter() {
-        let Some((content, metadata)) = file_map.get(file_id) else {
+        // Use per-file lookup to avoid depending on entire file_map
+        let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) else {
             continue;
         };
         let text = content.text(db);

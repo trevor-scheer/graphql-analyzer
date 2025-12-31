@@ -85,11 +85,12 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
             // Get the file content and metadata for this fragment
             let fragment_file_id = fragment_info.file_id;
 
-            // Get the file from file_map (O(1) lookup)
-            let file_map = project_files.file_map(db).entries(db);
-            if let Some((file_content, file_metadata)) = file_map.get(&fragment_file_id) {
+            // Use per-file lookup to avoid depending on entire file_map
+            if let Some((file_content, file_metadata)) =
+                graphql_db::file_lookup(db, project_files, fragment_file_id)
+            {
                 // Parse the file (cached by Salsa)
-                let fragment_parse = graphql_syntax::parse(db, *file_content, *file_metadata);
+                let fragment_parse = graphql_syntax::parse(db, file_content, file_metadata);
                 if fragment_parse.errors.is_empty() {
                     let fragment_doc_cst = fragment_parse.tree.document();
 
