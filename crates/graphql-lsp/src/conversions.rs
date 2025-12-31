@@ -59,6 +59,11 @@ pub fn convert_ide_completion_item(item: graphql_ide::CompletionItem) -> lsp_typ
         }),
         deprecated: Some(item.deprecated),
         insert_text: item.insert_text,
+        insert_text_format: item.insert_text_format.map(|format| match format {
+            graphql_ide::InsertTextFormat::PlainText => lsp_types::InsertTextFormat::PLAIN_TEXT,
+            graphql_ide::InsertTextFormat::Snippet => lsp_types::InsertTextFormat::SNIPPET,
+        }),
+        sort_text: item.sort_text,
         ..Default::default()
     }
 }

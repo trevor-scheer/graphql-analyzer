@@ -206,6 +206,13 @@ pub enum CompletionKind {
     Variable,
 }
 
+/// Insert text format for completion items
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertTextFormat {
+    PlainText,
+    Snippet,
+}
+
 /// Completion item
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompletionItem {
@@ -214,6 +221,8 @@ pub struct CompletionItem {
     pub detail: Option<String>,
     pub documentation: Option<String>,
     pub insert_text: Option<String>,
+    pub insert_text_format: Option<InsertTextFormat>,
+    pub sort_text: Option<String>,
     pub deprecated: bool,
 }
 
@@ -225,6 +234,8 @@ impl CompletionItem {
             detail: None,
             documentation: None,
             insert_text: None,
+            insert_text_format: None,
+            sort_text: None,
             deprecated: false,
         }
     }
@@ -244,6 +255,18 @@ impl CompletionItem {
     #[must_use]
     pub fn with_insert_text(mut self, text: impl Into<String>) -> Self {
         self.insert_text = Some(text.into());
+        self
+    }
+
+    #[must_use]
+    pub const fn with_insert_text_format(mut self, format: InsertTextFormat) -> Self {
+        self.insert_text_format = Some(format);
+        self
+    }
+
+    #[must_use]
+    pub fn with_sort_text(mut self, sort_text: impl Into<String>) -> Self {
+        self.sort_text = Some(sort_text.into());
         self
     }
 
@@ -916,11 +939,6 @@ impl Analysis {
         // Parse the file
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        // Return empty if there are syntax errors
-        if !parse.errors.is_empty() {
-            return Some(Vec::new());
-        }
-
         // Find which block contains the position and get adjusted position
         let metadata_line_offset = metadata.line_offset(&self.db);
         let (block_context, adjusted_position) =
@@ -972,10 +990,27 @@ impl Analysis {
                         &parent_ctx.root_type,
                     )?;
 
-                    // If parent_type is an interface, suggest fields from all implementing types as well
                     types.get(parent_type_name.as_str()).map_or_else(
                         || Some(Vec::new()),
                         |parent_type| {
+                            // For union types, suggest inline fragments for each union member
+                            if parent_type.kind == graphql_hir::TypeDefKind::Union {
+                                let items: Vec<CompletionItem> = parent_type
+                                    .union_members
+                                    .iter()
+                                    .map(|member| {
+                                        CompletionItem::new(
+                                            format!("... on {member}"),
+                                            CompletionKind::Type,
+                                        )
+                                        .with_insert_text(format!("... on {member} {{\n  $0\n}}"))
+                                        .with_insert_text_format(InsertTextFormat::Snippet)
+                                    })
+                                    .collect();
+                                return Some(items);
+                            }
+
+                            // For object types and interfaces, suggest fields
                             let mut items: Vec<CompletionItem> = parent_type
                                 .fields
                                 .iter()
@@ -988,23 +1023,29 @@ impl Analysis {
                                 })
                                 .collect();
 
-                            // If interface, add fields from implementing types
+                            // If interface, add inline fragment suggestions for implementing types
+                            // (fields from implementing types are only accessible via inline fragments)
                             if parent_type.kind == graphql_hir::TypeDefKind::Interface {
                                 for type_def in types.values() {
                                     if type_def.implements.contains(&parent_type.name) {
-                                        for field in &type_def.fields {
-                                            if !items
-                                                .iter()
-                                                .any(|i| i.label.as_str() == field.name.as_ref())
-                                            {
-                                                items.push(
-                                                    CompletionItem::new(
-                                                        field.name.to_string(),
-                                                        CompletionKind::Field,
-                                                    )
-                                                    .with_detail(format_type_ref(&field.type_ref)),
-                                                );
-                                            }
+                                        // Add inline fragment suggestion for this implementing type
+                                        let type_name = &type_def.name;
+                                        let inline_fragment_label = format!("... on {type_name}");
+                                        if !items
+                                            .iter()
+                                            .any(|i| i.label.as_str() == inline_fragment_label)
+                                        {
+                                            items.push(
+                                                CompletionItem::new(
+                                                    inline_fragment_label,
+                                                    CompletionKind::Type,
+                                                )
+                                                .with_insert_text(format!(
+                                                    "... on {type_name} {{\n  $0\n}}"
+                                                ))
+                                                .with_insert_text_format(InsertTextFormat::Snippet)
+                                                .with_sort_text(format!("z_{type_name}")), // Sort after fields
+                                            );
                                         }
                                     }
                                 }
@@ -3467,6 +3508,235 @@ enum Region { KANTO JOHTO }
             assert!(
                 labels.contains(&"level"),
                 "Should suggest 'level' inside requirement: got {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_completions_for_union_type_suggest_inline_fragments() {
+        let schema = r#"
+type Query { evolution: EvolutionEdge }
+type EvolutionEdge {
+    pokemon: Pokemon
+    requirement: EvolutionRequirement
+}
+type Pokemon { id: ID! name: String! }
+union EvolutionRequirement = LevelRequirement | ItemRequirement | TradeRequirement | FriendshipRequirement
+type LevelRequirement { level: Int }
+type ItemRequirement { item: Item }
+type TradeRequirement { withItem: Item }
+type FriendshipRequirement { minimumFriendship: Int }
+type Item { id: ID! name: String! }
+"#;
+
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(&schema_path, schema, FileKind::Schema, 0);
+
+        let (graphql, pos) = extract_cursor(
+            r#"
+query TestEvolution {
+    evolution {
+        requirement {
+*
+        }
+    }
+}
+"#,
+        );
+        let path = FilePath::new("file:///test.graphql");
+        host.add_file(&path, &graphql, FileKind::ExecutableGraphQL, 0);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let items = snapshot.completions(&path, pos).unwrap_or_default();
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        let kinds: Vec<_> = items.iter().map(|i| i.kind).collect();
+
+        // Should suggest inline fragments for union member types
+        assert!(
+            labels.contains(&"... on LevelRequirement"),
+            "Should suggest '... on LevelRequirement' inline fragment: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"... on ItemRequirement"),
+            "Should suggest '... on ItemRequirement' inline fragment: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"... on TradeRequirement"),
+            "Should suggest '... on TradeRequirement' inline fragment: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"... on FriendshipRequirement"),
+            "Should suggest '... on FriendshipRequirement' inline fragment: got {labels:?}"
+        );
+
+        // Should be Type kind
+        for kind in kinds {
+            assert_eq!(
+                kind,
+                CompletionKind::Type,
+                "Union member completions should be Type kind"
+            );
+        }
+
+        // Should NOT suggest any fields (unions have no fields)
+        assert_eq!(
+            labels.len(),
+            4,
+            "Should only suggest 4 union member types: got {labels:?}"
+        );
+
+        // Verify insert_text includes braces, newline, and cursor placeholder
+        for item in &items {
+            assert!(
+                item.insert_text.is_some(),
+                "Inline fragment should have insert_text"
+            );
+            let insert_text = item.insert_text.as_ref().unwrap();
+            assert!(
+                insert_text.contains("{\n  $0\n}"),
+                "Insert text should contain braces with $0 cursor placeholder: got {insert_text}"
+            );
+            assert_eq!(
+                item.insert_text_format,
+                Some(InsertTextFormat::Snippet),
+                "Inline fragment should use snippet format"
+            );
+        }
+    }
+
+    #[test]
+    fn test_completions_for_interface_type_suggest_fields_and_inline_fragments() {
+        let schema = r#"
+type Query { evolution: EvolutionEdge }
+type EvolutionEdge {
+    pokemon: Pokemon
+    requirement: Requirement
+}
+type Pokemon { id: ID! name: String! }
+interface Requirement {
+    description: String
+}
+type LevelRequirement implements Requirement {
+    description: String
+    level: Int
+}
+type ItemRequirement implements Requirement {
+    description: String
+    item: Item
+}
+type TradeRequirement implements Requirement {
+    description: String
+    withItem: Item
+}
+type Item { id: ID! name: String! }
+"#;
+
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(&schema_path, schema, FileKind::Schema, 0);
+
+        let (graphql, pos) = extract_cursor(
+            r#"
+query TestEvolution {
+    evolution {
+        requirement {
+*
+        }
+    }
+}
+"#,
+        );
+        let path = FilePath::new("file:///test.graphql");
+        host.add_file(&path, &graphql, FileKind::ExecutableGraphQL, 0);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let items = snapshot.completions(&path, pos).unwrap_or_default();
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+
+        // Should suggest inline fragments for implementing types
+        assert!(
+            labels.contains(&"... on LevelRequirement"),
+            "Should suggest '... on LevelRequirement' inline fragment: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"... on ItemRequirement"),
+            "Should suggest '... on ItemRequirement' inline fragment: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"... on TradeRequirement"),
+            "Should suggest '... on TradeRequirement' inline fragment: got {labels:?}"
+        );
+
+        // Should be 3 type suggestions (inline fragments) total
+        let type_completions: Vec<_> = items
+            .iter()
+            .filter(|i| i.kind == CompletionKind::Type)
+            .collect();
+        assert_eq!(
+            type_completions.len(),
+            3,
+            "Should suggest 3 inline fragment types: got {labels:?}"
+        );
+
+        // Should only suggest fields from the interface itself, not implementing types
+        let field_completions: Vec<_> = items
+            .iter()
+            .filter(|i| i.kind == CompletionKind::Field)
+            .collect();
+        assert_eq!(
+            field_completions.len(),
+            1,
+            "Should have 1 field completion from interface: got {labels:?}"
+        );
+
+        // Check interface field is suggested
+        assert!(
+            labels.contains(&"description"),
+            "Should suggest 'description' from interface"
+        );
+
+        // Should NOT suggest fields specific to implementing types
+        assert!(
+            !labels.contains(&"level"),
+            "Should NOT suggest 'level' (specific to LevelRequirement)"
+        );
+        assert!(
+            !labels.contains(&"item"),
+            "Should NOT suggest 'item' (specific to ItemRequirement)"
+        );
+        assert!(
+            !labels.contains(&"withItem"),
+            "Should NOT suggest 'withItem' (specific to TradeRequirement)"
+        );
+
+        // Verify inline fragment insert_text includes braces, newline, and cursor placeholder
+        for item in type_completions {
+            assert!(
+                item.insert_text.is_some(),
+                "Inline fragment should have insert_text"
+            );
+            let insert_text = item.insert_text.as_ref().unwrap();
+            assert!(
+                insert_text.contains("{\n  $0\n}"),
+                "Insert text should contain braces with $0 cursor placeholder: got {insert_text}"
+            );
+            assert_eq!(
+                item.insert_text_format,
+                Some(InsertTextFormat::Snippet),
+                "Inline fragment should use snippet format"
+            );
+            // Verify sort_text is set to push inline fragments after fields
+            assert!(
+                item.sort_text.is_some(),
+                "Inline fragment should have sort_text"
+            );
+            assert!(
+                item.sort_text.as_ref().unwrap().starts_with("z_"),
+                "Inline fragment sort_text should start with 'z_' to sort after fields: got {:?}",
+                item.sort_text
             );
         }
     }
