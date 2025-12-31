@@ -250,30 +250,55 @@ fn check_selection_set(
                         .and_then(|nt| nt.name())
                         .map_or_else(|| parent_type_name.to_string(), |n| n.text().to_string());
 
-                    // Check for id in inline fragment's direct fields (only if type has id)
+                    // Check for id in inline fragment's selections (only if type has id)
                     for nested_selection in nested_selection_set.selections() {
-                        if let cst::Selection::Field(nested_field) = nested_selection {
-                            if let Some(field_name) = nested_field.name() {
-                                if has_id_field && field_name.text() == "id" {
-                                    has_id_in_selection = true;
-                                }
+                        match nested_selection {
+                            cst::Selection::Field(nested_field) => {
+                                if let Some(field_name) = nested_field.name() {
+                                    if has_id_field && field_name.text() == "id" {
+                                        has_id_in_selection = true;
+                                    }
 
-                                // ALWAYS recurse into nested object selections
-                                if let Some(field_selection_set) = nested_field.selection_set() {
-                                    if let Some(field_type) = get_field_type(
-                                        &inline_type,
-                                        &field_name.text(),
-                                        context.schema_types,
-                                    ) {
-                                        check_selection_set(
-                                            &field_selection_set,
-                                            &field_type,
-                                            context,
-                                            visited_fragments,
-                                            diagnostics,
-                                        );
+                                    // ALWAYS recurse into nested object selections
+                                    if let Some(field_selection_set) = nested_field.selection_set()
+                                    {
+                                        if let Some(field_type) = get_field_type(
+                                            &inline_type,
+                                            &field_name.text(),
+                                            context.schema_types,
+                                        ) {
+                                            check_selection_set(
+                                                &field_selection_set,
+                                                &field_type,
+                                                context,
+                                                visited_fragments,
+                                                diagnostics,
+                                            );
+                                        }
                                     }
                                 }
+                            }
+                            cst::Selection::FragmentSpread(fragment_spread) => {
+                                // Check if the fragment contains the id field (only relevant if type has id)
+                                if has_id_field {
+                                    if let Some(fragment_name) = fragment_spread.fragment_name() {
+                                        if let Some(name) = fragment_name.name() {
+                                            let name_str = name.text().to_string();
+                                            if fragment_contains_id(
+                                                &name_str,
+                                                parent_type_name,
+                                                context,
+                                                visited_fragments,
+                                            ) {
+                                                has_id_in_selection = true;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            cst::Selection::InlineFragment(_) => {
+                                // Nested inline fragments are handled by recursion in check_selection_set
+                                // if we were to call it here. For now, we rely on the parent logic.
                             }
                         }
                     }
@@ -371,28 +396,31 @@ fn fragment_contains_id(
         return false;
     }
 
-    // Find the fragment definition in the CST
-    let doc_cst = parse.tree.document();
-    for definition in doc_cst.definitions() {
-        if let cst::Definition::FragmentDefinition(frag) = definition {
-            // Check if this is the fragment we're looking for
-            let is_target_fragment = frag
-                .fragment_name()
-                .and_then(|name| name.name())
-                .is_some_and(|name| name.text() == fragment_name);
+    // Find the fragment definition in all CST documents
+    // For TypeScript/JavaScript files, we need to check all blocks, not just parse.tree
+    for doc_ref in parse.documents() {
+        let doc_cst = doc_ref.tree.document();
+        for definition in doc_cst.definitions() {
+            if let cst::Definition::FragmentDefinition(frag) = definition {
+                // Check if this is the fragment we're looking for
+                let is_target_fragment = frag
+                    .fragment_name()
+                    .and_then(|name| name.name())
+                    .is_some_and(|name| name.text() == fragment_name);
 
-            if !is_target_fragment {
-                continue;
-            }
+                if !is_target_fragment {
+                    continue;
+                }
 
-            // Found the fragment, check its selection set for id
-            if let Some(selection_set) = frag.selection_set() {
-                return check_fragment_selection_for_id(
-                    &selection_set,
-                    parent_type_name,
-                    context,
-                    visited_fragments,
-                );
+                // Found the fragment, check its selection set for id
+                if let Some(selection_set) = frag.selection_set() {
+                    return check_fragment_selection_for_id(
+                        &selection_set,
+                        parent_type_name,
+                        context,
+                        visited_fragments,
+                    );
+                }
             }
         }
     }
@@ -863,5 +891,259 @@ query GetUser {
         // The fragment itself is checked, and the operation using it is checked
         assert!(!diagnostics.is_empty());
         assert!(diagnostics.iter().any(|d| d.message.contains("'User'")));
+    }
+
+    /// Helper to create test project with multiple document files
+    fn create_multi_file_project(
+        db: &dyn GraphQLHirDatabase,
+        schema_source: &str,
+        documents: &[(&str, &str, FileKind)], // (uri, source, kind)
+    ) -> (FileId, FileContent, FileMetadata, ProjectFiles) {
+        // Create schema file
+        let schema_file_id = FileId::new(0);
+        let schema_content = FileContent::new(db, Arc::from(schema_source));
+        let schema_metadata = FileMetadata::new(
+            db,
+            schema_file_id,
+            FileUri::new("file:///schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let mut file_entries = std::collections::HashMap::new();
+        let schema_entry = graphql_db::FileEntry::new(db, schema_content, schema_metadata);
+        file_entries.insert(schema_file_id, schema_entry);
+
+        let mut doc_file_ids = Vec::new();
+        let mut first_doc: Option<(FileId, FileContent, FileMetadata)> = None;
+
+        for (i, (uri, source, kind)) in documents.iter().enumerate() {
+            let file_id = FileId::new((i + 1) as u32);
+            let content = FileContent::new(db, Arc::from(*source));
+            let metadata = FileMetadata::new(db, file_id, FileUri::new(*uri), *kind);
+
+            let entry = graphql_db::FileEntry::new(db, content, metadata);
+            file_entries.insert(file_id, entry);
+            doc_file_ids.push(file_id);
+
+            if first_doc.is_none() {
+                first_doc = Some((file_id, content, metadata));
+            }
+        }
+
+        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
+        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_file_ids));
+        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(file_entries));
+        let project_files =
+            ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map);
+
+        let (file_id, content, metadata) = first_doc.expect("At least one document required");
+        (file_id, content, metadata, project_files)
+    }
+
+    #[test]
+    fn test_cross_file_fragment_with_id_no_warning() {
+        // Test case for issue #195: Fragment defined in separate file should be checked for id
+        let db = graphql_db::RootDatabase::default();
+        let rule = RequireIdFieldRuleImpl;
+
+        let fragment_source = r"
+fragment UserBasic on User {
+    id
+    name
+}
+";
+
+        let query_source = r#"
+query GetUser {
+    user(id: "1") {
+        ...UserBasic
+    }
+}
+"#;
+
+        let documents = [
+            (
+                "file:///fragments.graphql",
+                fragment_source,
+                FileKind::ExecutableGraphQL,
+            ),
+            (
+                "file:///query.graphql",
+                query_source,
+                FileKind::ExecutableGraphQL,
+            ),
+        ];
+
+        let (_, _, _, project_files) = create_multi_file_project(&db, TEST_SCHEMA, &documents);
+
+        // Check the query file (second file, so we need to get it from project_files)
+        let query_file_id = FileId::new(2);
+        let (query_content, query_metadata) =
+            graphql_db::file_lookup(&db, project_files, query_file_id)
+                .expect("Query file should exist");
+
+        let diagnostics = rule.check(
+            &db,
+            query_file_id,
+            query_content,
+            query_metadata,
+            project_files,
+        );
+
+        // No warning because fragment includes id
+        assert_eq!(
+            diagnostics.len(),
+            0,
+            "Should not warn when fragment contains id: {:?}",
+            diagnostics
+        );
+    }
+
+    #[test]
+    fn test_cross_file_fragment_without_id_warning() {
+        // Test case for issue #195: Fragment defined in separate file should be checked for id
+        let db = graphql_db::RootDatabase::default();
+        let rule = RequireIdFieldRuleImpl;
+
+        let fragment_source = r"
+fragment UserBasic on User {
+    name
+    email
+}
+";
+
+        let query_source = r#"
+query GetUser {
+    user(id: "1") {
+        ...UserBasic
+    }
+}
+"#;
+
+        let documents = [
+            (
+                "file:///fragments.graphql",
+                fragment_source,
+                FileKind::ExecutableGraphQL,
+            ),
+            (
+                "file:///query.graphql",
+                query_source,
+                FileKind::ExecutableGraphQL,
+            ),
+        ];
+
+        let (_, _, _, project_files) = create_multi_file_project(&db, TEST_SCHEMA, &documents);
+
+        // Check the query file (second file, so we need to get it from project_files)
+        let query_file_id = FileId::new(2);
+        let (query_content, query_metadata) =
+            graphql_db::file_lookup(&db, project_files, query_file_id)
+                .expect("Query file should exist");
+
+        let diagnostics = rule.check(
+            &db,
+            query_file_id,
+            query_content,
+            query_metadata,
+            project_files,
+        );
+
+        // Should warn because fragment does not include id
+        assert!(
+            !diagnostics.is_empty(),
+            "Should warn when fragment does not contain id"
+        );
+        assert!(diagnostics.iter().any(|d| d.message.contains("'User'")));
+    }
+
+    #[test]
+    fn test_typescript_cross_file_fragment_with_id() {
+        // Test case for issue #195: TypeScript file using fragment from another file
+        let db = graphql_db::RootDatabase::default();
+        let rule = RequireIdFieldRuleImpl;
+
+        let fragment_source = r"
+fragment UserBasic on User {
+    id
+    name
+}
+";
+
+        let ts_source = r#"
+import { gql } from '@apollo/client';
+
+export const GET_USER = gql`
+    query GetUser {
+        user(id: "1") {
+            ...UserBasic
+        }
+    }
+`;
+"#;
+
+        let documents = [
+            (
+                "file:///fragments.graphql",
+                fragment_source,
+                FileKind::ExecutableGraphQL,
+            ),
+            ("file:///query.ts", ts_source, FileKind::TypeScript),
+        ];
+
+        let (_, _, _, project_files) = create_multi_file_project(&db, TEST_SCHEMA, &documents);
+
+        // Check the TypeScript file (second file)
+        let ts_file_id = FileId::new(2);
+        let (ts_content, ts_metadata) = graphql_db::file_lookup(&db, project_files, ts_file_id)
+            .expect("TypeScript file should exist");
+
+        let diagnostics = rule.check(&db, ts_file_id, ts_content, ts_metadata, project_files);
+
+        // No warning because fragment includes id
+        assert_eq!(
+            diagnostics.len(),
+            0,
+            "Should not warn when fragment contains id: {:?}",
+            diagnostics
+        );
+    }
+
+    #[test]
+    fn test_inline_fragment_with_fragment_spread_containing_id() {
+        // Test that fragment spreads inside inline fragments are checked for id
+        let db = graphql_db::RootDatabase::default();
+        let rule = RequireIdFieldRuleImpl;
+
+        let source = r#"
+fragment UserFields on User {
+    id
+    name
+}
+
+query GetPost {
+    post(id: "1") {
+        id
+        author {
+            ... on User {
+                ...UserFields
+            }
+        }
+    }
+}
+"#;
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+
+        // No warning because fragment includes id and is used inside inline fragment
+        assert_eq!(
+            diagnostics.len(),
+            0,
+            "Should not warn when fragment in inline fragment contains id: {:?}",
+            diagnostics
+        );
     }
 }
