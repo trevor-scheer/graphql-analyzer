@@ -49,8 +49,7 @@ use symbol::{
     extract_all_definitions, find_field_definition_full_range, find_fragment_definition_full_range,
     find_fragment_definition_range, find_fragment_spreads, find_operation_definition_ranges,
     find_parent_type_at_offset, find_symbol_at_offset, find_type_definition_full_range,
-    find_type_definition_range, find_type_references_in_tree, get_parent_field_path,
-    is_in_selection_set, Symbol,
+    find_type_definition_range, find_type_references_in_tree, is_in_selection_set, Symbol,
 };
 
 // Re-export database types that IDE layer needs
@@ -900,23 +899,6 @@ impl Analysis {
         results
     }
 
-    /// Resolve a field name in a parent type to get its return type name.
-    /// Handles unwrapping List and `NonNull` types to get the base type.
-    fn resolve_field_type(
-        parent_type_name: &str,
-        field_name: &str,
-        types: &std::collections::HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
-    ) -> Option<String> {
-        let parent_type = types.get(parent_type_name)?;
-        let field = parent_type
-            .fields
-            .iter()
-            .find(|f| f.name.as_ref() == field_name)?;
-
-        // Unwrap the type to get the base type name
-        Some(unwrap_type_to_name(&field.type_ref))
-    }
-
     /// Get completions at a position
     ///
     /// Returns a list of completion items appropriate for the context.
@@ -1134,37 +1116,20 @@ impl Analysis {
                 let types = graphql_hir::schema_types_with_project(&self.db, project_files);
                 let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
 
-                // Get the full field path to properly resolve nested fields
-                let field_path = get_parent_field_path(&parse.tree, offset);
-
-                // Resolve the parent type by walking the field path
-                let parent_type_name = if let Some(path) = field_path {
-                    let mut current_type = parent_ctx.root_type;
-                    for field_name in path.iter().take(path.len().saturating_sub(1)) {
-                        current_type = Self::resolve_field_type(&current_type, field_name, &types)?;
-                    }
-                    current_type
-                } else {
-                    // No field path, check if immediate_parent is a type or field
-                    if let Some(first_char) = parent_ctx.immediate_parent.chars().next() {
-                        if first_char.is_lowercase() {
-                            Self::resolve_field_type(
-                                &parent_ctx.root_type,
-                                &parent_ctx.immediate_parent,
-                                &types,
-                            )?
-                        } else {
-                            parent_ctx.immediate_parent
-                        }
-                    } else {
-                        parent_ctx.root_type
-                    }
-                };
+                // Use walk_type_stack_to_offset to properly resolve the parent type,
+                // which handles inline fragments correctly
+                let parent_type_name = symbol::walk_type_stack_to_offset(
+                    &parse.tree,
+                    &types,
+                    offset,
+                    &parent_ctx.root_type,
+                )?;
 
                 tracing::debug!(
-                    "Hover: resolved parent type '{}' for field '{}'",
+                    "Hover: resolved parent type '{}' for field '{}' (root: {})",
                     parent_type_name,
-                    name
+                    name,
+                    parent_ctx.root_type
                 );
 
                 // Look up the field in the parent type
@@ -2588,6 +2553,37 @@ fragment AttackActionInfo on AttackAction {
         let hover = hover.unwrap();
         assert!(hover.contents.contains("Query"));
         assert!(hover.contents.contains("Type"));
+    }
+
+    #[test]
+    fn test_hover_field_in_inline_fragment() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { battleParticipant(id: ID!): BattleParticipant }\ninterface BattleParticipant { id: ID! name: String! displayName: String! }\ntype BattlePokemon implements BattleParticipant { id: ID! name: String! displayName: String! currentHP: Int! }",
+            FileKind::Schema,
+            0,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        let (query_text, cursor_pos) = extract_cursor(
+            "query { battleParticipant(id: \"1\") { id name ... on BattlePokemon { current*HP } } }",
+        );
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let hover = snapshot.hover(&query_file, cursor_pos);
+
+        assert!(
+            hover.is_some(),
+            "Should show hover info for field in inline fragment type"
+        );
+        let hover = hover.unwrap();
+        assert!(hover.contents.contains("currentHP"));
+        assert!(hover.contents.contains("Int!"));
     }
 
     #[test]
