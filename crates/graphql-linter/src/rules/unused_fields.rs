@@ -60,16 +60,17 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
         // Step 2: Collect all used fields from operations and fragments
         let mut used_fields: HashMap<String, HashSet<String>> = HashMap::new();
         let doc_ids = project_files.document_file_ids(db).ids(db);
-        let file_map = project_files.file_map(db).entries(db);
 
         // Determine root types for skipping
         let root_types = get_root_type_names(db, &schema_types);
 
         for file_id in doc_ids.iter() {
-            let Some((content, metadata)) = file_map.get(file_id) else {
+            // Use per-file lookup to avoid depending on entire file_map
+            let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
+            else {
                 continue;
             };
-            let parse = graphql_syntax::parse(db, *content, *metadata);
+            let parse = graphql_syntax::parse(db, content, metadata);
 
             // Scan operations and fragments in main AST
             for definition in &parse.ast.definitions {

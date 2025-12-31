@@ -37,17 +37,19 @@ pub fn find_unused_fragments(
         .expect("project files must be set for project-wide analysis");
     let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
     let doc_ids = project_files.document_file_ids(db).ids(db);
-    let file_map = project_files.file_map(db).entries(db);
 
     let mut used_fragments = HashSet::new();
 
     // First, collect all ASTs for cross-file fragment resolution
     let mut all_documents = Vec::new();
     for file_id in doc_ids.iter() {
-        let Some((file_content, file_metadata)) = file_map.get(file_id) else {
+        // Use per-file lookup to avoid depending on entire file_map
+        let Some((file_content, file_metadata)) =
+            graphql_db::file_lookup(db, project_files, *file_id)
+        else {
             continue;
         };
-        let parse = graphql_syntax::parse(db, *file_content, *file_metadata);
+        let parse = graphql_syntax::parse(db, file_content, file_metadata);
 
         // Collect ASTs from all documents (works for both pure GraphQL and TS/JS)
         for doc in parse.documents() {

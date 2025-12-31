@@ -156,13 +156,13 @@ pub fn schema_types(
     project_files: graphql_db::ProjectFiles,
 ) -> Arc<HashMap<Arc<str>, TypeDef>> {
     let schema_ids = project_files.schema_file_ids(db).ids(db);
-    let file_map = project_files.file_map(db).entries(db);
     let mut types = HashMap::new();
 
     for file_id in schema_ids.iter() {
-        if let Some((content, metadata)) = file_map.get(file_id) {
+        // Use per-file lookup to avoid depending on entire file_map
+        if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
             // Per-file query - cached independently
-            let file_types = file_type_defs(db, *file_id, *content, *metadata);
+            let file_types = file_type_defs(db, *file_id, content, metadata);
             for type_def in file_types.iter() {
                 types.insert(type_def.name.clone(), type_def.clone());
             }
@@ -195,13 +195,13 @@ pub fn all_fragments(
     project_files: graphql_db::ProjectFiles,
 ) -> Arc<HashMap<Arc<str>, FragmentStructure>> {
     let doc_ids = project_files.document_file_ids(db).ids(db);
-    let file_map = project_files.file_map(db).entries(db);
     let mut fragments = HashMap::new();
 
     for file_id in doc_ids.iter() {
-        if let Some((content, metadata)) = file_map.get(file_id) {
+        // Use per-file lookup to avoid depending on entire file_map
+        if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
             // Per-file query - cached independently
-            let file_frags = file_fragments(db, *file_id, *content, *metadata);
+            let file_frags = file_fragments(db, *file_id, content, metadata);
             for fragment in file_frags.iter() {
                 fragments.insert(fragment.name.clone(), fragment.clone());
             }
@@ -228,15 +228,15 @@ pub fn fragment_file_index(
     project_files: graphql_db::ProjectFiles,
 ) -> Arc<HashMap<Arc<str>, (graphql_db::FileContent, graphql_db::FileMetadata)>> {
     let doc_ids = project_files.document_file_ids(db).ids(db);
-    let file_map = project_files.file_map(db).entries(db);
     let mut index = HashMap::new();
 
     for file_id in doc_ids.iter() {
-        if let Some((content, metadata)) = file_map.get(file_id) {
+        // Use per-file lookup to avoid depending on entire file_map
+        if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
             // Per-file query for fragments
-            let file_frags = file_fragments(db, *file_id, *content, *metadata);
+            let file_frags = file_fragments(db, *file_id, content, metadata);
             for fragment in file_frags.iter() {
-                index.insert(fragment.name.clone(), (*content, *metadata));
+                index.insert(fragment.name.clone(), (content, metadata));
             }
         }
     }
@@ -256,13 +256,13 @@ pub fn fragment_source_index(
     project_files: graphql_db::ProjectFiles,
 ) -> Arc<HashMap<Arc<str>, Arc<str>>> {
     let doc_ids = project_files.document_file_ids(db).ids(db);
-    let file_map = project_files.file_map(db).entries(db);
     let mut index = HashMap::new();
 
     for file_id in doc_ids.iter() {
-        if let Some((content, metadata)) = file_map.get(file_id) {
+        // Use per-file lookup to avoid depending on entire file_map
+        if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
             let kind = metadata.kind(db);
-            let parse = graphql_syntax::parse(db, *content, *metadata);
+            let parse = graphql_syntax::parse(db, content, metadata);
 
             if kind == graphql_db::FileKind::TypeScript || kind == graphql_db::FileKind::JavaScript
             {
@@ -277,7 +277,7 @@ pub fn fragment_source_index(
                 }
             } else {
                 // For pure GraphQL files, use the entire file content
-                let file_frags = file_fragments(db, *file_id, *content, *metadata);
+                let file_frags = file_fragments(db, *file_id, content, metadata);
                 let text = content.text(db);
                 for fragment in file_frags.iter() {
                     index.insert(fragment.name.clone(), text.clone());
@@ -297,16 +297,16 @@ pub fn fragment_spreads_index(
     project_files: graphql_db::ProjectFiles,
 ) -> Arc<HashMap<Arc<str>, std::collections::HashSet<Arc<str>>>> {
     let doc_ids = project_files.document_file_ids(db).ids(db);
-    let file_map = project_files.file_map(db).entries(db);
     let mut index = HashMap::new();
 
     for file_id in doc_ids.iter() {
-        if let Some((content, metadata)) = file_map.get(file_id) {
+        // Use per-file lookup to avoid depending on entire file_map
+        if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
             // Per-file query for fragments
-            let file_frags = file_fragments(db, *file_id, *content, *metadata);
+            let file_frags = file_fragments(db, *file_id, content, metadata);
             for fragment in file_frags.iter() {
                 // Get the fragment body to find its spreads
-                let body = fragment_body(db, *content, *metadata, fragment.name.clone());
+                let body = fragment_body(db, content, metadata, fragment.name.clone());
                 index.insert(fragment.name.clone(), body.fragment_spreads.clone());
             }
         }
@@ -323,13 +323,13 @@ pub fn all_operations(
     project_files: graphql_db::ProjectFiles,
 ) -> Arc<Vec<OperationStructure>> {
     let doc_ids = project_files.document_file_ids(db).ids(db);
-    let file_map = project_files.file_map(db).entries(db);
     let mut operations = Vec::new();
 
     for file_id in doc_ids.iter() {
-        if let Some((content, metadata)) = file_map.get(file_id) {
+        // Use per-file lookup to avoid depending on entire file_map
+        if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
             // Per-file query for operations
-            let file_ops = file_operations(db, *file_id, *content, *metadata);
+            let file_ops = file_operations(db, *file_id, content, metadata);
             operations.extend(file_ops.iter().cloned());
         }
     }

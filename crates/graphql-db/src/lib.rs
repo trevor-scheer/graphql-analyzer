@@ -122,6 +122,20 @@ pub struct ProjectFiles {
     pub file_map: FileMap,
 }
 
+/// Query to look up a single file's content and metadata
+/// This is granular - it only depends on the specific file's entry in the map,
+/// not the entire map contents. When file A changes, this query for file B
+/// remains cached.
+#[salsa::tracked]
+pub fn file_lookup(
+    db: &dyn salsa::Database,
+    project_files: ProjectFiles,
+    file_id: FileId,
+) -> Option<(FileContent, FileMetadata)> {
+    let file_map = project_files.file_map(db).entries(db);
+    file_map.get(&file_id).copied()
+}
+
 /// The root salsa database
 /// This is the main entry point for all queries
 #[salsa::db]

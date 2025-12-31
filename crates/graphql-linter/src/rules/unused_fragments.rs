@@ -30,14 +30,15 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
 
         // Step 1: Collect all fragment definitions
         let doc_ids = project_files.document_file_ids(db).ids(db);
-        let file_map = project_files.file_map(db).entries(db);
         let mut all_fragments: HashMap<String, Vec<FileId>> = HashMap::new();
 
         for file_id in doc_ids.iter() {
-            let Some((content, metadata)) = file_map.get(file_id) else {
+            // Use per-file lookup to avoid depending on entire file_map
+            let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
+            else {
                 continue;
             };
-            let structure = graphql_hir::file_structure(db, *file_id, *content, *metadata);
+            let structure = graphql_hir::file_structure(db, *file_id, content, metadata);
             for fragment in &structure.fragments {
                 all_fragments
                     .entry(fragment.name.to_string())
@@ -50,10 +51,12 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
         let mut used_fragments = HashSet::new();
 
         for file_id in doc_ids.iter() {
-            let Some((content, metadata)) = file_map.get(file_id) else {
+            // Use per-file lookup to avoid depending on entire file_map
+            let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
+            else {
                 continue;
             };
-            let parse = graphql_syntax::parse(db, *content, *metadata);
+            let parse = graphql_syntax::parse(db, content, metadata);
 
             // Scan operations and fragments in the main AST
             for definition in &parse.ast.definitions {
