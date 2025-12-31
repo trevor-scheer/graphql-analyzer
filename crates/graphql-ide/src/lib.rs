@@ -1,38 +1,140 @@
-//! # graphql-ide
-//!
-//! This crate provides editor-facing IDE features for GraphQL language support.
-//! It serves as the API boundary between the analysis layer and the LSP layer.
-//!
-//! ## Core Principle: POD Types with Public Fields
-//!
-//! Following rust-analyzer's design:
-//! - All types are Plain Old Data (POD) structs
-//! - All fields are public
-//! - Types use editor coordinates (file paths, line/column positions)
-//! - No GraphQL domain knowledge leaks to LSP layer
-//!
-//! ## Architecture
-//!
-//! ```text
-//! LSP Layer (tower-lsp)
-//!     ↓
-//! graphql-ide (this crate) ← POD types, editor API
-//!     ↓
-//! graphql-analysis ← Query-based validation and linting
-//!     ↓
-//! graphql-hir ← Semantic queries
-//!     ↓
-//! graphql-syntax ← Parsing
-//!     ↓
-//! graphql-db ← Salsa database
-//! ```
-//!
-//! ## Main Types
-//!
-//! - [`AnalysisHost`] - The main entry point, owns the database
-//! - [`Analysis`] - Immutable snapshot for querying IDE features
-//! - POD types: [`Position`], [`Range`], [`Location`], [`FilePath`]
-//! - Feature types: [`CompletionItem`], [`HoverResult`], [`Diagnostic`]
+#[test]
+fn test_typescript_deeply_nested_completions() {
+    use graphql_extract::{extract_from_source, ExtractConfig, Language};
+
+    // Simulate a TypeScript file with a deeply nested GraphQL template literal
+    let typescript_source = r#"import { gql } from '@apollo/client';
+
+export const GET_STARTER_POKEMON = gql`
+    query GetStarterPokemon($region: Region!) {
+        allPokemon(region: $region, limit: 3) {
+            nodes {
+                evolution {
+                    evolvesTo {
+                        pokemon {
+                            id
+                            name
+                        }
+                        requirement {
+                            ... on LevelRequirement {
+                                level
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+`;
+"#;
+
+    // Extract GraphQL blocks
+    let config = ExtractConfig::default();
+    let blocks = extract_from_source(typescript_source, Language::TypeScript, &config).unwrap();
+    assert!(
+        !blocks.is_empty(),
+        "Should extract at least one GraphQL block"
+    );
+    let graphql = &blocks[0].source;
+
+    // Build a schema for the test
+    let schema = r#"
+type Query { allPokemon(region: Region!, limit: Int): PokemonConnection }
+type PokemonConnection { nodes: [Pokemon!]! }
+type Pokemon {
+    id: ID!
+    name: String!
+    evolution: Evolution
+}
+type Evolution {
+    evolvesTo: [EvolutionEdge]
+}
+type EvolutionEdge {
+    pokemon: Pokemon
+    requirement: Requirement
+}
+interface Requirement { }
+type LevelRequirement implements Requirement { level: Int }
+enum Region { KANTO JOHTO }
+"#;
+
+    // Add schema and extracted block to the analysis host
+    let mut host = AnalysisHost::new();
+    let schema_path = FilePath::new("file:///schema.graphql");
+    host.add_file(&schema_path, schema, FileKind::Schema, 0);
+    let ts_path = FilePath::new("file:///pokemon-service.ts");
+    host.add_file(&ts_path, graphql, FileKind::ExecutableGraphQL, 0);
+    host.rebuild_project_files();
+
+    let snapshot = host.snapshot();
+
+    // Helper to get completions at a line/col in the extracted block
+    let completions_at = |line, col| snapshot.completions(&ts_path, Position::new(line, col));
+
+    // Try completions inside 'evolution' selection set (should suggest evolvesTo)
+    let items = completions_at(6, 10).unwrap_or_default();
+    let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+    assert!(
+        labels.contains(&"evolvesTo"),
+        "Should suggest 'evolvesTo' inside evolution: got {labels:?}"
+    );
+
+    // Try completions inside 'evolvesTo' selection set (should suggest pokemon, requirement)
+    let items = completions_at(8, 12).unwrap_or_default();
+    let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+    assert!(
+        labels.contains(&"pokemon"),
+        "Should suggest 'pokemon' inside evolvesTo: got {labels:?}"
+    );
+    assert!(
+        labels.contains(&"requirement"),
+        "Should suggest 'requirement' inside evolvesTo: got {labels:?}"
+    );
+
+    // Try completions inside 'requirement' selection set (should suggest level for LevelRequirement)
+    let items = completions_at(13, 16).unwrap_or_default();
+    let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+    assert!(
+        labels.contains(&"level"),
+        "Should suggest 'level' inside requirement: got {labels:?}"
+    );
+}
+
+/// # graphql-ide
+///
+/// This crate provides editor-facing IDE features for GraphQL language support.
+/// It serves as the API boundary between the analysis layer and the LSP layer.
+///
+/// ## Core Principle: POD Types with Public Fields
+///
+/// Following rust-analyzer's design:
+/// - All types are Plain Old Data (POD) structs
+/// - All fields are public
+/// - Types use editor coordinates (file paths, line/column positions)
+/// - No GraphQL domain knowledge leaks to LSP layer
+///
+/// ## Architecture
+///
+/// ```text
+/// LSP Layer (tower-lsp)
+///     ↓
+/// graphql-ide (this crate) ← POD types, editor API
+///     ↓
+/// graphql-analysis ← Query-based validation and linting
+///     ↓
+/// graphql-hir ← Semantic queries
+///     ↓
+/// graphql-syntax ← Parsing
+///     ↓
+/// graphql-db ← Salsa database
+/// ```
+///
+/// ## Main Types
+///
+/// - [`AnalysisHost`] - The main entry point, owns the database
+/// - [`Analysis`] - Immutable snapshot for querying IDE features
+/// - POD types: [`Position`], [`Range`], [`Location`], [`FilePath`]
+/// - Feature types: [`CompletionItem`], [`HoverResult`], [`Diagnostic`]
 
 #[cfg(test)]
 mod analysis_host_isolation;
@@ -907,61 +1009,54 @@ impl Analysis {
 
                 Some(items)
             }
-            None => {
-                // No specific symbol - check if we're in a selection set
+            None | Some(Symbol::FieldName { .. }) => {
+                // Show fields from parent type in selection set or on field name
                 let Some(project_files) = self.project_files else {
                     return Some(Vec::new());
                 };
+                let types = graphql_hir::schema_types_with_project(&self.db, project_files);
 
                 let in_selection_set = is_in_selection_set(block_context.tree, offset);
-
                 if in_selection_set {
-                    // We're in a selection set - determine the parent type
-                    let types = graphql_hir::schema_types_with_project(&self.db, project_files);
-
-                    // Find what type's fields we should complete
-                    let parent_ctx = find_parent_type_at_offset(block_context.tree, offset);
-                    tracing::debug!("Completions: parent_ctx = {:?}", parent_ctx);
-
-                    let parent_ctx = parent_ctx?;
-
-                    // If immediate_parent looks like a field name, resolve it using root_type
-                    let parent_type_name =
-                        if parent_ctx.immediate_parent.chars().next()?.is_lowercase() {
-                            // This is a field name - resolve it using the root type
-                            let resolved = Self::resolve_field_type(
+                    // Use the full parent field path to resolve the parent type, mirroring hover logic
+                    let parent_ctx = find_parent_type_at_offset(block_context.tree, offset)?;
+                    let field_path = get_parent_field_path(block_context.tree, offset);
+                    // For selection set completions, use field path up to (but not including) the current field
+                    let parent_type_name = if let Some(inline_type) =
+                        symbol::find_inline_fragment_type_at_offset(block_context.tree, offset)
+                    {
+                        inline_type
+                    } else if let Some(path) = field_path {
+                        let path_for_parent = if path.is_empty() {
+                            path
+                        } else {
+                            path[..path.len() - 1].to_vec()
+                        };
+                        let mut current_type = parent_ctx.root_type;
+                        for field_name in &path_for_parent {
+                            current_type =
+                                Self::resolve_field_type(&current_type, field_name, &types)?;
+                        }
+                        current_type
+                    } else if let Some(first_char) = parent_ctx.immediate_parent.chars().next() {
+                        if first_char.is_lowercase() {
+                            Self::resolve_field_type(
                                 &parent_ctx.root_type,
                                 &parent_ctx.immediate_parent,
                                 &types,
-                            );
-                            tracing::debug!(
-                                "Completions: resolving field '{}' on '{}' -> {:?}",
-                                parent_ctx.immediate_parent,
-                                parent_ctx.root_type,
-                                resolved
-                            );
-                            resolved?
+                            )?
                         } else {
-                            // This is already a type name
-                            tracing::debug!(
-                                "Completions: immediate_parent '{}' is already a type name",
-                                parent_ctx.immediate_parent
-                            );
-                            parent_ctx.immediate_parent
-                        };
+                            parent_ctx.immediate_parent.clone()
+                        }
+                    } else {
+                        parent_ctx.root_type.clone()
+                    };
 
-                    tracing::debug!("Completions: final parent_type_name = {}", parent_type_name);
-
+                    // If parent_type is an interface, suggest fields from all implementing types as well
                     types.get(parent_type_name.as_str()).map_or_else(
-                        || {
-                            tracing::debug!(
-                                "Completions: parent type '{}' not found in schema",
-                                parent_type_name
-                            );
-                            Some(Vec::new())
-                        },
+                        || Some(Vec::new()),
                         |parent_type| {
-                            let items: Vec<CompletionItem> = parent_type
+                            let mut items: Vec<CompletionItem> = parent_type
                                 .fields
                                 .iter()
                                 .map(|field| {
@@ -973,58 +1068,34 @@ impl Analysis {
                                 })
                                 .collect();
 
-                            tracing::debug!(
-                                "Completions: returning {} fields for type '{}'",
-                                items.len(),
-                                parent_type_name
-                            );
+                            // If interface, add fields from implementing types
+                            if parent_type.kind == graphql_hir::TypeDefKind::Interface {
+                                for type_def in types.values() {
+                                    if type_def.implements.contains(&parent_type.name) {
+                                        for field in &type_def.fields {
+                                            if !items
+                                                .iter()
+                                                .any(|i| i.label.as_str() == field.name.as_ref())
+                                            {
+                                                items.push(
+                                                    CompletionItem::new(
+                                                        field.name.to_string(),
+                                                        CompletionKind::Field,
+                                                    )
+                                                    .with_detail(format_type_ref(&field.type_ref)),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             Some(items)
                         },
                     )
                 } else {
                     // Not in a selection set - we're at document level
-                    // Don't show fragment names here; user would type keywords like "query", "mutation", "fragment"
-                    // TODO: In the future, consider showing operation/fragment definition keywords
                     Some(Vec::new())
                 }
-            }
-            Some(Symbol::FieldName { .. }) => {
-                // User is on an existing field name - show fields from parent type
-                let Some(project_files) = self.project_files else {
-                    return Some(Vec::new());
-                };
-                let types = graphql_hir::schema_types_with_project(&self.db, project_files);
-
-                // Find what type's fields we should complete
-                let parent_ctx = find_parent_type_at_offset(block_context.tree, offset)?;
-
-                // If immediate_parent looks like a field name, resolve it using root_type
-                let parent_type_name = if parent_ctx.immediate_parent.chars().next()?.is_lowercase()
-                {
-                    Self::resolve_field_type(
-                        &parent_ctx.root_type,
-                        &parent_ctx.immediate_parent,
-                        &types,
-                    )?
-                } else {
-                    parent_ctx.immediate_parent
-                };
-
-                types.get(parent_type_name.as_str()).map_or_else(
-                    || Some(Vec::new()),
-                    |parent_type| {
-                        let items: Vec<CompletionItem> = parent_type
-                            .fields
-                            .iter()
-                            .map(|field| {
-                                CompletionItem::new(field.name.to_string(), CompletionKind::Field)
-                                    .with_detail(format_type_ref(&field.type_ref))
-                            })
-                            .collect();
-
-                        Some(items)
-                    },
-                )
             }
             _ => Some(Vec::new()),
         }
@@ -1107,9 +1178,8 @@ impl Analysis {
 
                 // Resolve the parent type by walking the field path
                 let parent_type_name = if let Some(path) = field_path {
-                    // Start from root type and resolve each field in the path
                     let mut current_type = parent_ctx.root_type;
-                    for field_name in &path {
+                    for field_name in path.iter().take(path.len().saturating_sub(1)) {
                         current_type = Self::resolve_field_type(&current_type, field_name, &types)?;
                     }
                     current_type
@@ -1292,72 +1362,6 @@ impl Analysis {
                 let range = find_fragment_definition_in_parse(
                     &def_parse,
                     &name,
-                    def_content,
-                    &self.db,
-                    def_line_offset,
-                )?;
-
-                Some(vec![Location::new(file_path, range)])
-            }
-            Symbol::TypeName { name } => {
-                // Query HIR for all types
-                let types = graphql_hir::schema_types_with_project(&self.db, project_files);
-
-                // Find the type by name
-                let type_def = types.get(name.as_str())?;
-
-                // Get the file content, metadata, and path for this type
-                let registry = self.registry.read().unwrap();
-                let file_path = registry.get_path(type_def.file_id)?;
-                let def_content = registry.get_content(type_def.file_id)?;
-                let def_metadata = registry.get_metadata(type_def.file_id)?;
-                drop(registry);
-
-                // Parse the definition file to find exact position
-                let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
-                let def_line_offset = def_metadata.line_offset(&self.db);
-
-                // Find the type definition - search through blocks for TS/JS files
-                let range = find_type_definition_in_parse(
-                    &def_parse,
-                    &name,
-                    def_content,
-                    &self.db,
-                    def_line_offset,
-                )?;
-
-                Some(vec![Location::new(file_path, range)])
-            }
-            Symbol::FieldName { name: field_name } => {
-                // Get parent type context - use the correct block's tree
-                let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
-                let types = graphql_hir::schema_types_with_project(&self.db, project_files);
-
-                // Resolve the parent type by following the field path
-                let field_path =
-                    get_parent_field_path(block_context.tree, offset).unwrap_or_default();
-                let parent_type_name =
-                    resolve_parent_type_for_field(&parent_context.root_type, &field_path, &types);
-
-                // Find the parent type definition
-                let parent_type = types.get(parent_type_name.as_str())?;
-
-                // Get the schema file info
-                let registry = self.registry.read().unwrap();
-                let file_path = registry.get_path(parent_type.file_id)?;
-                let def_content = registry.get_content(parent_type.file_id)?;
-                let def_metadata = registry.get_metadata(parent_type.file_id)?;
-                drop(registry);
-
-                // Parse the schema file
-                let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
-                let def_line_offset = def_metadata.line_offset(&self.db);
-
-                // Find the field definition range - handle TS/JS blocks
-                let range = find_field_definition_in_parse(
-                    &def_parse,
-                    &parent_type_name,
-                    &field_name,
                     def_content,
                     &self.db,
                     def_line_offset,
@@ -1968,6 +1972,7 @@ fn offset_range_to_range(
 }
 
 /// Resolve the parent type for a field by walking the field path
+#[allow(dead_code)]
 fn resolve_parent_type_for_field(
     root_type: &str,
     field_path: &[String],
@@ -2067,17 +2072,22 @@ fn find_block_for_position(
     // For TS/JS files, find which block contains the position
     for block in &parse.blocks {
         let block_start_line = block.line as u32;
+        let block_start_col = block.column as u32;
         // Calculate block end line by counting newlines in source
         let block_lines = block.source.chars().filter(|&c| c == '\n').count() as u32;
         let block_end_line = block_start_line + block_lines;
 
         if position.line >= block_start_line && position.line <= block_end_line {
             // Position is within this block
-            // Adjust position to be relative to block start
-            let adjusted_pos = Position::new(
-                position.line - block_start_line,
-                position.character, // Column stays the same (assuming block starts at column 0 for GraphQL content)
-            );
+            // Adjust position to be relative to block start (subtract both line and column)
+            let adjusted_line = position.line - block_start_line;
+            let adjusted_col = if adjusted_line == 0 {
+                // Only subtract column offset on the first line of the block
+                position.character.saturating_sub(block_start_col)
+            } else {
+                position.character
+            };
+            let adjusted_pos = Position::new(adjusted_line, adjusted_col);
 
             return Some((
                 BlockContext {
@@ -2169,6 +2179,7 @@ fn find_type_definition_in_parse(
 
 /// Find a field definition in a parsed file, handling TS/JS blocks correctly
 #[allow(clippy::cast_possible_truncation)]
+#[allow(dead_code)]
 fn find_field_definition_in_parse(
     parse: &graphql_syntax::Parse,
     type_name: &str,

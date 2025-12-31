@@ -1,7 +1,76 @@
-//! Symbol identification at positions
-//!
-//! This module provides utilities for finding GraphQL symbols at specific positions
-//! in source code, using apollo-parser's CST for position lookups.
+/// Find the type condition of an inline fragment at a given byte offset
+pub fn find_inline_fragment_type_at_offset(
+    tree: &apollo_parser::SyntaxTree,
+    byte_offset: usize,
+) -> Option<String> {
+    let doc = tree.document();
+    for definition in doc.definitions() {
+        match definition {
+            cst::Definition::OperationDefinition(op) => {
+                if let Some(selection_set) = op.selection_set() {
+                    if let Some(type_name) =
+                        find_inline_fragment_type_in_selection_set(&selection_set, byte_offset)
+                    {
+                        return Some(type_name);
+                    }
+                }
+            }
+            cst::Definition::FragmentDefinition(frag) => {
+                if let Some(selection_set) = frag.selection_set() {
+                    if let Some(type_name) =
+                        find_inline_fragment_type_in_selection_set(&selection_set, byte_offset)
+                    {
+                        return Some(type_name);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn find_inline_fragment_type_in_selection_set(
+    selection_set: &cst::SelectionSet,
+    byte_offset: usize,
+) -> Option<String> {
+    for selection in selection_set.selections() {
+        if let cst::Selection::InlineFragment(inline_frag) = selection {
+            let start: usize = inline_frag.syntax().text_range().start().into();
+            let end: usize = inline_frag.syntax().text_range().end().into();
+            if byte_offset >= start && byte_offset <= end {
+                if let Some(type_cond) = inline_frag.type_condition() {
+                    if let Some(named_type) = type_cond.named_type() {
+                        if let Some(name) = named_type.name() {
+                            return Some(name.text().to_string());
+                        }
+                    }
+                }
+            }
+            // Recurse into nested selection sets
+            if let Some(nested) = inline_frag.selection_set() {
+                if let Some(type_name) =
+                    find_inline_fragment_type_in_selection_set(&nested, byte_offset)
+                {
+                    return Some(type_name);
+                }
+            }
+        } else if let cst::Selection::Field(field) = selection {
+            if let Some(nested) = field.selection_set() {
+                if let Some(type_name) =
+                    find_inline_fragment_type_in_selection_set(&nested, byte_offset)
+                {
+                    return Some(type_name);
+                }
+            }
+        }
+    }
+    None
+}
+// Symbol identification at positions
+//
+// This module provides utilities for finding GraphQL symbols at specific positions
+// in source code, using apollo-parser's CST for position lookups.
 
 use apollo_parser::cst::{self, CstNode};
 
@@ -126,51 +195,49 @@ fn find_parent_field_path(
     selection_set: &cst::SelectionSet,
     byte_offset: usize,
 ) -> Option<Vec<String>> {
+    let mut best_path: Option<Vec<String>> = None;
     for selection in selection_set.selections() {
         if let cst::Selection::Field(field) = selection {
-            // Check if this field has a nested selection set that contains our offset
             if let Some(nested) = field.selection_set() {
                 let start: usize = nested.syntax().text_range().start().into();
                 let end: usize = nested.syntax().text_range().end().into();
-
                 if byte_offset >= start && byte_offset <= end {
-                    // Get this field's name
+                    // Cursor is inside the nested selection set, so add this field to the path
                     let field_name = field.name()?.text().to_string();
-
-                    // Recursively check for deeper nesting
                     if let Some(mut deeper_path) = find_parent_field_path(&nested, byte_offset) {
-                        // Prepend this field to the path
                         let mut path = vec![field_name];
                         path.append(&mut deeper_path);
-                        return Some(path);
+                        if best_path.as_ref().is_none_or(|p| path.len() > p.len()) {
+                            best_path = Some(path);
+                        }
+                    } else {
+                        let path = vec![field_name];
+                        if best_path.as_ref().is_none_or(|p| path.len() > p.len()) {
+                            best_path = Some(path);
+                        }
                     }
-
-                    // We're directly in this field's selection set - return just this field
-                    return Some(vec![field_name]);
                 }
             }
         } else if let cst::Selection::InlineFragment(inline_frag) = selection {
             if let Some(nested) = inline_frag.selection_set() {
                 let start: usize = nested.syntax().text_range().start().into();
                 let end: usize = nested.syntax().text_range().end().into();
-
                 if byte_offset >= start && byte_offset <= end {
-                    // For inline fragments, check type condition
                     if let Some(type_cond) = inline_frag.type_condition() {
                         if let Some(named_type) = type_cond.named_type() {
-                            if let Some(name) = named_type.name() {
-                                let _type_name = name.text().to_string();
-
-                                // Recursively check for deeper nesting
+                            if let Some(_name) = named_type.name() {
                                 if let Some(deeper_path) =
                                     find_parent_field_path(&nested, byte_offset)
                                 {
-                                    return Some(deeper_path);
+                                    if best_path
+                                        .as_ref()
+                                        .is_none_or(|p| deeper_path.len() > p.len())
+                                    {
+                                        best_path = Some(deeper_path);
+                                    }
+                                } else if best_path.is_none() {
+                                    best_path = Some(vec![]);
                                 }
-
-                                // Return empty path but signal we found the location
-                                // The type name will be used as-is (not a field path)
-                                return Some(vec![]);
                             }
                         }
                     }
@@ -178,8 +245,7 @@ fn find_parent_field_path(
             }
         }
     }
-
-    None
+    best_path
 }
 
 /// Find the parent field's type name within a selection set (legacy wrapper)
@@ -598,6 +664,7 @@ pub fn find_type_definition_range(
 }
 
 /// Find the byte offset range of a field definition within a type
+#[allow(dead_code)]
 pub fn find_field_definition_range(
     tree: &apollo_parser::SyntaxTree,
     type_name: &str,
