@@ -1282,24 +1282,27 @@ impl Analysis {
                 // Find the parent type context to determine which type this field belongs to
                 let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
 
-                tracing::debug!(
-                    "Field '{}' - parent type context: root={}, immediate={}",
-                    name,
-                    parent_context.root_type,
-                    parent_context.immediate_parent
-                );
-
-                // Get the schema types to verify the parent type exists
+                // Get the schema types
                 let schema_types = graphql_hir::schema_types_with_project(&self.db, project_files);
 
-                // Verify the parent type exists in the schema
-                schema_types.get(parent_context.immediate_parent.as_str())?;
+                // Use walk_type_stack_to_offset to properly resolve the parent type,
+                // which handles inline fragments correctly
+                let parent_type_name = symbol::walk_type_stack_to_offset(
+                    block_context.tree,
+                    &schema_types,
+                    offset,
+                    &parent_context.root_type,
+                )?;
 
                 tracing::debug!(
-                    "Found parent type '{}' in schema, looking for field '{}'",
-                    parent_context.immediate_parent,
-                    name
+                    "Field '{}' - resolved parent type '{}' (root: {})",
+                    name,
+                    parent_type_name,
+                    parent_context.root_type
                 );
+
+                // Verify the parent type exists in the schema
+                schema_types.get(parent_type_name.as_str())?;
 
                 // Search through all schema files for the field definition
                 let registry = self.registry.read().unwrap();
@@ -1327,7 +1330,7 @@ impl Analysis {
                         // Pure GraphQL schema file
                         if let Some(ranges) = find_field_definition_full_range(
                             &schema_parse.tree,
-                            &parent_context.immediate_parent,
+                            &parent_type_name,
                             &name,
                         ) {
                             let range = offset_range_to_range(
@@ -1344,7 +1347,7 @@ impl Analysis {
                         for block in &schema_parse.blocks {
                             if let Some(ranges) = find_field_definition_full_range(
                                 &block.tree,
-                                &parent_context.immediate_parent,
+                                &parent_type_name,
                                 &name,
                             ) {
                                 let block_line_index =
@@ -2860,6 +2863,39 @@ fragment AttackActionInfo on AttackAction {
         assert_eq!(locations[0].file.as_str(), schema_file.as_str());
         // Should point to "User" type definition (line 1)
         assert_eq!(locations[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn test_goto_definition_field_in_inline_fragment() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { battleParticipant(id: ID!): BattleParticipant }\ninterface BattleParticipant { id: ID! name: String! displayName: String! }\ntype BattlePokemon implements BattleParticipant { id: ID! name: String! displayName: String! currentHP: Int! }",
+            FileKind::Schema,
+            0,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        let (query_text, cursor_pos) = extract_cursor(
+            "query { battleParticipant(id: \"1\") { id name ... on BattlePokemon { current*HP } } }",
+        );
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&query_file, cursor_pos);
+
+        assert!(
+            locations.is_some(),
+            "Should find field definition in inline fragment type"
+        );
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), schema_file.as_str());
+        // Should point to "currentHP" field in BattlePokemon type (line 2)
+        assert_eq!(locations[0].range.start.line, 2);
     }
 
     #[test]
