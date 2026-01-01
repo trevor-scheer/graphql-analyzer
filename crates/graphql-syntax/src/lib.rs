@@ -258,32 +258,11 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -
     let mut blocks = Vec::new();
     let mut all_errors = Vec::new();
 
-    // For the main tree, we'll use the first block or create an empty document
-    // Use the actual file URI for proper error source tracking
-    let (main_tree, main_ast) = extracted.first().map_or_else(
-        || {
-            let tree = apollo_parser::Parser::new("").parse();
-            let ast = apollo_compiler::ast::Document::default();
-            (tree, ast)
-        },
-        |first_block| {
-            let parser = apollo_parser::Parser::new(&first_block.source);
-            let tree = parser.parse();
-            let ast = match apollo_compiler::ast::Document::parse(&first_block.source, uri) {
-                Ok(doc) => doc,
-                Err(with_errors) => with_errors.partial,
-            };
-            (tree, ast)
-        },
-    );
-
-    // Collect errors from main tree (only if we actually extracted blocks)
-    if !extracted.is_empty() {
-        all_errors.extend(main_tree.errors().map(|e| ParseError {
-            message: e.message().to_string(),
-            offset: e.index(),
-        }));
-    }
+    // For TS/JS files with blocks, use empty tree/ast for main_tree/main_ast
+    // since callers should use blocks via documents() iterator.
+    // This avoids parsing the first block twice.
+    let main_tree = apollo_parser::Parser::new("").parse();
+    let main_ast = apollo_compiler::ast::Document::default();
 
     // Parse each extracted block
     for block in extracted {

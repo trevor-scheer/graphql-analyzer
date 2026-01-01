@@ -38,9 +38,8 @@ pub fn validate_file(
 
     if kind == graphql_db::FileKind::TypeScript || kind == graphql_db::FileKind::JavaScript {
         // Validate each extracted block as a separate document
-        #[allow(clippy::cast_possible_truncation)]
         for block in &parse.blocks {
-            let line_offset_val = block.line as u32;
+            let line_offset_val = block.line;
 
             // Collect fragment names referenced by this document (transitively across files)
             // Uses the already-parsed tree to avoid redundant parsing
@@ -59,8 +58,6 @@ pub fn validate_file(
             builder.add_ast_document(&block.ast, true);
 
             // Add referenced fragments using the source index for O(1) lookup
-            // This adds only the specific block containing each fragment, not other
-            // unrelated operations/fragments from the same file
             let mut added_fragments = std::collections::HashSet::new();
             for fragment_name in &referenced_fragments {
                 let key: Arc<str> = Arc::from(fragment_name.as_str());
@@ -104,20 +101,12 @@ pub fn validate_file(
                             DiagnosticRange::default,
                             |loc_range| DiagnosticRange {
                                 start: Position {
-                                    line: loc_range
-                                        .start
-                                        .line
-                                        .saturating_sub(1)
-                                        .saturating_add(line_offset_val as usize)
+                                    line: (loc_range.start.line.saturating_sub(1) + line_offset_val)
                                         as u32,
                                     character: loc_range.start.column.saturating_sub(1) as u32,
                                 },
                                 end: Position {
-                                    line: loc_range
-                                        .end
-                                        .line
-                                        .saturating_sub(1)
-                                        .saturating_add(line_offset_val as usize)
+                                    line: (loc_range.end.line.saturating_sub(1) + line_offset_val)
                                         as u32,
                                     character: loc_range.end.column.saturating_sub(1) as u32,
                                 },
@@ -140,8 +129,7 @@ pub fn validate_file(
         }
         return Arc::new(diagnostics);
     }
-    // else branch for pure GraphQL files
-    // Pure GraphQL file: original logic
+    // Pure GraphQL file validation
     // Use the already-parsed tree to avoid redundant parsing
     let referenced_fragments =
         collect_referenced_fragments_transitive(&parse.tree, project_files, db);
@@ -149,7 +137,9 @@ pub fn validate_file(
     let valid_schema = apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
     let mut errors = apollo_compiler::validation::DiagnosticList::new(Arc::default());
     let mut builder = apollo_compiler::ExecutableDocument::builder(Some(valid_schema), &mut errors);
-    #[allow(clippy::cast_possible_truncation)]
+
+    // Line offset is typically 0 for pure GraphQL files, but may be non-zero
+    // when content is pre-extracted (e.g., from tests or embedded sources)
     let line_offset_val = metadata.line_offset(db) as usize;
 
     // Use the already-parsed AST instead of re-parsing
@@ -157,7 +147,6 @@ pub fn validate_file(
     builder.add_ast_document(&parse.ast, true);
 
     // Add referenced fragments using the source index for O(1) lookup
-    // This adds only the specific block containing each fragment
     let mut added_fragments = std::collections::HashSet::new();
     for fragment_name in &referenced_fragments {
         let key: Arc<str> = Arc::from(fragment_name.as_str());
@@ -172,6 +161,7 @@ pub fn validate_file(
             );
         }
     }
+
     let doc = builder.build();
     match if errors.is_empty() {
         doc.validate(valid_schema)
@@ -200,21 +190,11 @@ pub fn validate_file(
                     DiagnosticRange::default,
                     |loc_range| DiagnosticRange {
                         start: Position {
-                            line: loc_range
-                                .start
-                                .line
-                                .saturating_sub(1)
-                                .saturating_add(line_offset_val)
-                                as u32,
+                            line: (loc_range.start.line.saturating_sub(1) + line_offset_val) as u32,
                             character: loc_range.start.column.saturating_sub(1) as u32,
                         },
                         end: Position {
-                            line: loc_range
-                                .end
-                                .line
-                                .saturating_sub(1)
-                                .saturating_add(line_offset_val)
-                                as u32,
+                            line: (loc_range.end.line.saturating_sub(1) + line_offset_val) as u32,
                             character: loc_range.end.column.saturating_sub(1) as u32,
                         },
                     },
