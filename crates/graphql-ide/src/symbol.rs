@@ -1307,16 +1307,17 @@ pub fn find_field_definition_full_range(
                 if obj.name().is_some_and(|n| n.text() == type_name) {
                     if let Some(fields) = obj.fields_definition() {
                         for field in fields.field_definitions() {
-                            if field.name().is_some_and(|n| n.text() == field_name) {
-                                let name = field.name().unwrap();
-                                let name_range = name.syntax().text_range();
-                                let def_range = field.syntax().text_range();
-                                return Some(SymbolRanges {
-                                    name_start: name_range.start().into(),
-                                    name_end: name_range.end().into(),
-                                    def_start: def_range.start().into(),
-                                    def_end: def_range.end().into(),
-                                });
+                            if let Some(name) = field.name() {
+                                if name.text() == field_name {
+                                    let name_range = name.syntax().text_range();
+                                    let def_range = field.syntax().text_range();
+                                    return Some(SymbolRanges {
+                                        name_start: name_range.start().into(),
+                                        name_end: name_range.end().into(),
+                                        def_start: def_range.start().into(),
+                                        def_end: def_range.end().into(),
+                                    });
+                                }
                             }
                         }
                     }
@@ -1326,16 +1327,17 @@ pub fn find_field_definition_full_range(
                 if iface.name().is_some_and(|n| n.text() == type_name) {
                     if let Some(fields) = iface.fields_definition() {
                         for field in fields.field_definitions() {
-                            if field.name().is_some_and(|n| n.text() == field_name) {
-                                let name = field.name().unwrap();
-                                let name_range = name.syntax().text_range();
-                                let def_range = field.syntax().text_range();
-                                return Some(SymbolRanges {
-                                    name_start: name_range.start().into(),
-                                    name_end: name_range.end().into(),
-                                    def_start: def_range.start().into(),
-                                    def_end: def_range.end().into(),
-                                });
+                            if let Some(name) = field.name() {
+                                if name.text() == field_name {
+                                    let name_range = name.syntax().text_range();
+                                    let def_range = field.syntax().text_range();
+                                    return Some(SymbolRanges {
+                                        name_start: name_range.start().into(),
+                                        name_end: name_range.end().into(),
+                                        def_start: def_range.start().into(),
+                                        def_end: def_range.end().into(),
+                                    });
+                                }
                             }
                         }
                     }
@@ -1345,16 +1347,17 @@ pub fn find_field_definition_full_range(
                 if input.name().is_some_and(|n| n.text() == type_name) {
                     if let Some(fields) = input.input_fields_definition() {
                         for field in fields.input_value_definitions() {
-                            if field.name().is_some_and(|n| n.text() == field_name) {
-                                let name = field.name().unwrap();
-                                let name_range = name.syntax().text_range();
-                                let def_range = field.syntax().text_range();
-                                return Some(SymbolRanges {
-                                    name_start: name_range.start().into(),
-                                    name_end: name_range.end().into(),
-                                    def_start: def_range.start().into(),
-                                    def_end: def_range.end().into(),
-                                });
+                            if let Some(name) = field.name() {
+                                if name.text() == field_name {
+                                    let name_range = name.syntax().text_range();
+                                    let def_range = field.syntax().text_range();
+                                    return Some(SymbolRanges {
+                                        name_start: name_range.start().into(),
+                                        name_end: name_range.end().into(),
+                                        def_start: def_range.start().into(),
+                                        def_end: def_range.end().into(),
+                                    });
+                                }
                             }
                         }
                     }

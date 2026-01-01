@@ -2530,6 +2530,26 @@ fn find_field_usages_in_parse(
     results
 }
 
+/// Check if `current_type` matches `target_type` directly or implements it as an interface
+fn type_matches_or_implements(
+    current_type: &str,
+    target_type: &str,
+    schema_types: &std::collections::HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
+) -> bool {
+    if current_type == target_type {
+        return true;
+    }
+    // Check if current_type implements target_type (interface inheritance)
+    if let Some(type_def) = schema_types.get(current_type) {
+        type_def
+            .implements
+            .iter()
+            .any(|i| i.as_ref() == target_type)
+    } else {
+        false
+    }
+}
+
 /// Find all field usages in a tree that match the given type and field name
 #[allow(clippy::too_many_lines)]
 fn find_field_usages_in_tree(
@@ -2554,8 +2574,10 @@ fn find_field_usages_in_tree(
                     if let Some(name) = field.name() {
                         let field_name = name.text();
 
-                        // Check if this field matches our target
-                        if current_type == target_type && field_name == target_field {
+                        // Check if this field matches our target (directly or via interface)
+                        if type_matches_or_implements(current_type, target_type, schema_types)
+                            && field_name == target_field
+                        {
                             let range = name.syntax().text_range();
                             results.push((range.start().into(), range.end().into()));
                         }
@@ -2602,9 +2624,9 @@ fn find_field_usages_in_tree(
                     }
                 }
                 Selection::FragmentSpread(_) => {
-                    // Fragment spreads would require resolving the fragment definition
-                    // For now, we skip them - fragment usages will be found when
-                    // searching the fragment definition files directly
+                    // Fragment definitions are searched separately in the main loop,
+                    // so fields inside fragments will be found when we iterate over
+                    // FragmentDefinition. We don't need to follow the spread here.
                 }
             }
         }
@@ -3843,6 +3865,48 @@ fragment AttackActionInfo on AttackAction {
         assert!(locations.is_some());
         let locations = locations.unwrap();
         assert_eq!(locations.len(), 1, "Should find nested field usage");
+    }
+
+    #[test]
+    fn test_find_references_field_via_interface() {
+        let mut host = AnalysisHost::new();
+
+        // Schema with interface and implementing type
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { node: Node }\ninterface Node { id: ID! }\ntype User implements Node { id: ID! name: String }",
+            FileKind::Schema,
+            0,
+        );
+
+        // Query that uses the field on the implementing type
+        let query_file = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &query_file,
+            "query { node { ... on User { id } } }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        // Find references to "id" field on Node interface
+        // Line 1: "interface Node { " = 17 chars, "id" starts at 17
+        let snapshot = host.snapshot();
+        let locations = snapshot.find_references(&schema_file, Position::new(1, 17), false);
+
+        assert!(
+            locations.is_some(),
+            "Should find field references via interface"
+        );
+        let locations = locations.unwrap();
+        // Should find the usage in the query (User implements Node, so User.id matches Node.id)
+        assert_eq!(
+            locations.len(),
+            1,
+            "Should find field usage via interface implementation"
+        );
     }
 
     #[test]
