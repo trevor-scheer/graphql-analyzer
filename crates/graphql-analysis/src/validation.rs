@@ -38,18 +38,13 @@ pub fn validate_file(
 
     if kind == graphql_db::FileKind::TypeScript || kind == graphql_db::FileKind::JavaScript {
         // Validate each extracted block as a separate document
-        #[allow(clippy::cast_possible_truncation)]
         for block in &parse.blocks {
-            let doc_text = block.source.as_ref();
-            let line_offset_val = block.line as u32;
-            let offset = apollo_compiler::parser::SourceOffset {
-                line: (line_offset_val + 1) as usize, // Convert to 1-indexed
-                column: 1,
-            };
+            let line_offset_val = block.line;
 
             // Collect fragment names referenced by this document (transitively across files)
+            // Uses the already-parsed tree to avoid redundant parsing
             let referenced_fragments =
-                collect_referenced_fragments_transitive(doc_text, project_files, db);
+                collect_referenced_fragments_transitive(&block.tree, project_files, db);
             let fragment_source_index = graphql_hir::fragment_source_index(db, project_files);
 
             let valid_schema =
@@ -58,13 +53,11 @@ pub fn validate_file(
             let mut builder =
                 apollo_compiler::ExecutableDocument::builder(Some(valid_schema), &mut errors);
 
-            apollo_compiler::parser::Parser::new()
-                .source_offset(offset)
-                .parse_into_executable_builder(doc_text, doc_uri.as_str(), &mut builder);
+            // Use the already-parsed AST instead of re-parsing
+            // The AST is cached via graphql_syntax::parse()
+            builder.add_ast_document(&block.ast, true);
 
             // Add referenced fragments using the source index for O(1) lookup
-            // This adds only the specific block containing each fragment, not other
-            // unrelated operations/fragments from the same file
             let mut added_fragments = std::collections::HashSet::new();
             for fragment_name in &referenced_fragments {
                 let key: Arc<str> = Arc::from(fragment_name.as_str());
@@ -101,16 +94,20 @@ pub fn validate_file(
                                 }
                             }
                         }
+                        // Adjust line positions by adding the block's line offset
+                        // since the AST was parsed without source offset
                         #[allow(clippy::cast_possible_truncation)]
                         let range = apollo_diag.line_column_range().map_or_else(
                             DiagnosticRange::default,
                             |loc_range| DiagnosticRange {
                                 start: Position {
-                                    line: loc_range.start.line.saturating_sub(1) as u32,
+                                    line: (loc_range.start.line.saturating_sub(1) + line_offset_val)
+                                        as u32,
                                     character: loc_range.start.column.saturating_sub(1) as u32,
                                 },
                                 end: Position {
-                                    line: loc_range.end.line.saturating_sub(1) as u32,
+                                    line: (loc_range.end.line.saturating_sub(1) + line_offset_val)
+                                        as u32,
                                     character: loc_range.end.column.saturating_sub(1) as u32,
                                 },
                             },
@@ -132,27 +129,24 @@ pub fn validate_file(
         }
         return Arc::new(diagnostics);
     }
-    // else branch for pure GraphQL files
-    // Pure GraphQL file: original logic
-    let doc_text = content.text(db);
+    // Pure GraphQL file validation
+    // Use the already-parsed tree to avoid redundant parsing
     let referenced_fragments =
-        collect_referenced_fragments_transitive(&doc_text, project_files, db);
+        collect_referenced_fragments_transitive(&parse.tree, project_files, db);
     let fragment_source_index = graphql_hir::fragment_source_index(db, project_files);
     let valid_schema = apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
     let mut errors = apollo_compiler::validation::DiagnosticList::new(Arc::default());
     let mut builder = apollo_compiler::ExecutableDocument::builder(Some(valid_schema), &mut errors);
-    #[allow(clippy::cast_possible_truncation)]
-    let line_offset_val = metadata.line_offset(db);
-    let offset = apollo_compiler::parser::SourceOffset {
-        line: (line_offset_val + 1) as usize,
-        column: 1,
-    };
-    apollo_compiler::parser::Parser::new()
-        .source_offset(offset)
-        .parse_into_executable_builder(doc_text.as_ref(), doc_uri.as_str(), &mut builder);
+
+    // Line offset is typically 0 for pure GraphQL files, but may be non-zero
+    // when content is pre-extracted (e.g., from tests or embedded sources)
+    let line_offset_val = metadata.line_offset(db) as usize;
+
+    // Use the already-parsed AST instead of re-parsing
+    // The AST is cached via graphql_syntax::parse()
+    builder.add_ast_document(&parse.ast, true);
 
     // Add referenced fragments using the source index for O(1) lookup
-    // This adds only the specific block containing each fragment
     let mut added_fragments = std::collections::HashSet::new();
     for fragment_name in &referenced_fragments {
         let key: Arc<str> = Arc::from(fragment_name.as_str());
@@ -167,6 +161,7 @@ pub fn validate_file(
             );
         }
     }
+
     let doc = builder.build();
     match if errors.is_empty() {
         doc.validate(valid_schema)
@@ -188,16 +183,18 @@ pub fn validate_file(
                         }
                     }
                 }
+                // Adjust line positions by adding the line offset
+                // since the AST was parsed without source offset
                 #[allow(clippy::cast_possible_truncation)]
                 let range = apollo_diag.line_column_range().map_or_else(
                     DiagnosticRange::default,
                     |loc_range| DiagnosticRange {
                         start: Position {
-                            line: loc_range.start.line.saturating_sub(1) as u32,
+                            line: (loc_range.start.line.saturating_sub(1) + line_offset_val) as u32,
                             character: loc_range.start.column.saturating_sub(1) as u32,
                         },
                         end: Position {
-                            line: loc_range.end.line.saturating_sub(1) as u32,
+                            line: (loc_range.end.line.saturating_sub(1) + line_offset_val) as u32,
                             character: loc_range.end.column.saturating_sub(1) as u32,
                         },
                     },
@@ -224,7 +221,7 @@ pub fn validate_file(
 ///
 /// Uses the `fragment_spreads_index` for O(1) lookup instead of scanning all files
 fn collect_referenced_fragments_transitive(
-    doc_text: &str,
+    tree: &apollo_parser::SyntaxTree,
     project_files: graphql_db::ProjectFiles,
     db: &dyn GraphQLAnalysisDatabase,
 ) -> std::collections::HashSet<String> {
@@ -234,7 +231,8 @@ fn collect_referenced_fragments_transitive(
     let spreads_index = graphql_hir::fragment_spreads_index(db, project_files);
 
     // Start with fragments directly referenced in the current document
-    let mut all_referenced = collect_referenced_fragments(doc_text);
+    // Use the already-parsed tree instead of re-parsing
+    let mut all_referenced = collect_referenced_fragments_from_tree(tree);
     let mut to_process: VecDeque<String> = all_referenced.iter().cloned().collect();
     let mut processed = HashSet::new();
 
@@ -262,11 +260,11 @@ fn collect_referenced_fragments_transitive(
 
 /// Collect all fragment names referenced by a document (in the same file only)
 /// This includes fragments directly referenced in operations and fragments referenced by other fragments
-fn collect_referenced_fragments(text: &str) -> std::collections::HashSet<String> {
+/// Uses an already-parsed syntax tree to avoid redundant parsing
+fn collect_referenced_fragments_from_tree(
+    tree: &apollo_parser::SyntaxTree,
+) -> std::collections::HashSet<String> {
     use std::collections::HashSet;
-
-    let parser = apollo_parser::Parser::new(text);
-    let tree = parser.parse();
 
     if tree.errors().next().is_some() {
         // If there are parse errors, return empty set (apollo-compiler will report the errors)
