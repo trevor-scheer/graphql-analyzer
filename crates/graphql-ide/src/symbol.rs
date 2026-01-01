@@ -357,6 +357,52 @@ fn find_parent_field_type(selection_set: &cst::SelectionSet, byte_offset: usize)
     find_parent_field_path(selection_set, byte_offset).and_then(|path| path.last().cloned())
 }
 
+/// Find the parent type name for a field at the given offset in a schema definition.
+/// Returns the name of the type (object, interface, or input) that contains the field.
+pub fn find_schema_field_parent_type(
+    tree: &apollo_parser::SyntaxTree,
+    byte_offset: usize,
+) -> Option<String> {
+    let doc = tree.document();
+
+    for definition in doc.definitions() {
+        match definition {
+            cst::Definition::ObjectTypeDefinition(obj) => {
+                if let Some(fields) = obj.fields_definition() {
+                    let range = fields.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+                    if byte_offset >= start && byte_offset <= end {
+                        return obj.name().map(|n| n.text().to_string());
+                    }
+                }
+            }
+            cst::Definition::InterfaceTypeDefinition(iface) => {
+                if let Some(fields) = iface.fields_definition() {
+                    let range = fields.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+                    if byte_offset >= start && byte_offset <= end {
+                        return iface.name().map(|n| n.text().to_string());
+                    }
+                }
+            }
+            cst::Definition::InputObjectTypeDefinition(input) => {
+                if let Some(fields) = input.input_fields_definition() {
+                    let range = fields.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+                    if byte_offset >= start && byte_offset <= end {
+                        return input.name().map(|n| n.text().to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Check if the byte offset is within a selection set (for field completions)
 pub fn is_in_selection_set(tree: &apollo_parser::SyntaxTree, byte_offset: usize) -> bool {
     let doc = tree.document();
@@ -465,6 +511,14 @@ fn check_fields_definition(
 ) -> Option<Symbol> {
     let fields = fields?;
     for field in fields.field_definitions() {
+        // Check the field name itself
+        if let Some(name) = field.name() {
+            if is_within_range(&name, byte_offset) {
+                return Some(Symbol::FieldName {
+                    name: name.text().to_string(),
+                });
+            }
+        }
         // Check the field's return type
         if let Some(ty) = field.ty() {
             if let Some(symbol) = check_type_reference(&ty, byte_offset) {
@@ -1253,16 +1307,17 @@ pub fn find_field_definition_full_range(
                 if obj.name().is_some_and(|n| n.text() == type_name) {
                     if let Some(fields) = obj.fields_definition() {
                         for field in fields.field_definitions() {
-                            if field.name().is_some_and(|n| n.text() == field_name) {
-                                let name = field.name().unwrap();
-                                let name_range = name.syntax().text_range();
-                                let def_range = field.syntax().text_range();
-                                return Some(SymbolRanges {
-                                    name_start: name_range.start().into(),
-                                    name_end: name_range.end().into(),
-                                    def_start: def_range.start().into(),
-                                    def_end: def_range.end().into(),
-                                });
+                            if let Some(name) = field.name() {
+                                if name.text() == field_name {
+                                    let name_range = name.syntax().text_range();
+                                    let def_range = field.syntax().text_range();
+                                    return Some(SymbolRanges {
+                                        name_start: name_range.start().into(),
+                                        name_end: name_range.end().into(),
+                                        def_start: def_range.start().into(),
+                                        def_end: def_range.end().into(),
+                                    });
+                                }
                             }
                         }
                     }
@@ -1272,16 +1327,17 @@ pub fn find_field_definition_full_range(
                 if iface.name().is_some_and(|n| n.text() == type_name) {
                     if let Some(fields) = iface.fields_definition() {
                         for field in fields.field_definitions() {
-                            if field.name().is_some_and(|n| n.text() == field_name) {
-                                let name = field.name().unwrap();
-                                let name_range = name.syntax().text_range();
-                                let def_range = field.syntax().text_range();
-                                return Some(SymbolRanges {
-                                    name_start: name_range.start().into(),
-                                    name_end: name_range.end().into(),
-                                    def_start: def_range.start().into(),
-                                    def_end: def_range.end().into(),
-                                });
+                            if let Some(name) = field.name() {
+                                if name.text() == field_name {
+                                    let name_range = name.syntax().text_range();
+                                    let def_range = field.syntax().text_range();
+                                    return Some(SymbolRanges {
+                                        name_start: name_range.start().into(),
+                                        name_end: name_range.end().into(),
+                                        def_start: def_range.start().into(),
+                                        def_end: def_range.end().into(),
+                                    });
+                                }
                             }
                         }
                     }
@@ -1291,16 +1347,17 @@ pub fn find_field_definition_full_range(
                 if input.name().is_some_and(|n| n.text() == type_name) {
                     if let Some(fields) = input.input_fields_definition() {
                         for field in fields.input_value_definitions() {
-                            if field.name().is_some_and(|n| n.text() == field_name) {
-                                let name = field.name().unwrap();
-                                let name_range = name.syntax().text_range();
-                                let def_range = field.syntax().text_range();
-                                return Some(SymbolRanges {
-                                    name_start: name_range.start().into(),
-                                    name_end: name_range.end().into(),
-                                    def_start: def_range.start().into(),
-                                    def_end: def_range.end().into(),
-                                });
+                            if let Some(name) = field.name() {
+                                if name.text() == field_name {
+                                    let name_range = name.syntax().text_range();
+                                    let def_range = field.syntax().text_range();
+                                    return Some(SymbolRanges {
+                                        name_start: name_range.start().into(),
+                                        name_end: name_range.end().into(),
+                                        def_start: def_range.start().into(),
+                                        def_end: def_range.end().into(),
+                                    });
+                                }
                             }
                         }
                     }
