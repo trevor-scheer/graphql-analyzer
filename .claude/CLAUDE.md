@@ -20,6 +20,7 @@ This document provides context and guidance for working with the GraphQL LSP cod
 - [Common Tasks](#common-tasks)
 - [Troubleshooting](#troubleshooting)
 - [Instructions for Claude](#instructions-for-claude)
+- [Expert Agents](#expert-agents)
 
 ---
 
@@ -734,9 +735,10 @@ Overhead: ~1-2% CPU when enabled, zero when disabled.
 
 1. **Read before acting**: Always check relevant README.md files and this document before starting work
 2. **Understand the architecture**: Know which layer you're working in (db → syntax → hir → analysis → ide → lsp)
-3. **Follow the patterns**: Study existing code in the same layer before adding new features
-4. **Test incrementally**: Write tests as you go, don't batch at the end
-5. **Keep it simple**: Don't over-engineer or add unnecessary abstractions
+3. **Consult expert agents**: Use the SME agents in `.claude/agents/` for domain-specific guidance
+4. **Follow the patterns**: Study existing code in the same layer before adding new features
+5. **Test incrementally**: Write tests as you go, don't batch at the end
+6. **Keep it simple**: Don't over-engineer or add unnecessary abstractions
 
 ### Code Style
 
@@ -863,6 +865,57 @@ Each crate has a detailed README:
 - [Salsa Documentation](https://salsa-rs.github.io/salsa/) - Incremental computation framework
 - [LSP Specification](https://microsoft.github.io/language-server-protocol/) - Protocol reference
 - [GraphQL Specification](https://spec.graphql.org/) - Language reference
+
+---
+
+## Expert Agents
+
+This project includes Subject Matter Expert (SME) agents in `.claude/agents/` that provide opinionated guidance on specific domains. These agents encourage proper API usage, enforce best practices, and propose solutions with tradeoffs.
+
+### Available Agents
+
+| Agent | File | Domain |
+|-------|------|--------|
+| **GraphQL Specification** | `graphql.md` | GraphQL spec compliance, validation rules, type system |
+| **Apollo Client** | `apollo-client.md` | Apollo Client patterns, caching, fragment colocation |
+| **rust-analyzer** | `rust-analyzer.md` | Query-based architecture, Salsa, incremental computation |
+| **Rust** | `rust.md` | Idiomatic Rust, ownership, error handling, API design |
+| **Language Server Protocol** | `lsp.md` | LSP specification, protocol messages, client compatibility |
+| **GraphiQL** | `graphiql.md` | IDE features, graphql-language-service, UX patterns |
+| **GraphQL CLI** | `graphql-cli.md` | CLI design, graphql-config, ecosystem tooling |
+| **VSCode Extension** | `vscode-extension.md` | Extension development, activation, language client |
+| **Apollo-rs** | `apollo-rs.md` | apollo-parser, apollo-compiler, error-tolerant parsing |
+
+### When to Consult Agents
+
+Consult the relevant agent when:
+
+- **Designing a feature**: Get architectural guidance before implementation
+- **Debugging issues**: Understand expected behavior and common pitfalls
+- **Making tradeoff decisions**: Get pros/cons for different approaches
+- **Ensuring correctness**: Validate against specification/best practices
+
+### Agent Philosophy
+
+All agents share these traits:
+
+- **Opinionated**: They have strong views on correctness and best practices
+- **Thorough**: They provide comprehensive analysis, not quick answers
+- **Tradeoff-aware**: They present multiple solutions with clear pros/cons
+- **Challenging**: They respectfully correct misconceptions and anti-patterns
+
+### Example Usage
+
+When implementing a new LSP feature:
+1. Consult `lsp.md` for protocol correctness
+2. Consult `rust-analyzer.md` for architectural patterns
+3. Consult `graphiql.md` for UX expectations
+4. Consult `rust.md` for implementation idioms
+
+When adding GraphQL validation:
+1. Consult `graphql.md` for spec compliance
+2. Consult `apollo-rs.md` for parser usage
+3. Consult `rust-analyzer.md` for query design
 
 ---
 
