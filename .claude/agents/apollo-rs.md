@@ -94,6 +94,10 @@ for def in &ast.definitions {
 
 ### apollo-compiler: Validation with ExecutableDocument Builder
 
+> **Note**: The `ExecutableDocument::builder()` API is from our fork of apollo-rs.
+> There's an upstream PR for this feature, but it hasn't been published yet.
+> See the fork at `https://github.com/trevor-scheer/apollo-rs.git`.
+
 ```rust
 use apollo_compiler::{ExecutableDocument, validation};
 
@@ -253,6 +257,10 @@ fn collect_fragment_spreads(selection_set: Option<apollo_parser::cst::SelectionS
 
 ## Resources
 
-- [Apollo-rs GitHub](https://github.com/apollographql/apollo-rs)
-- Local fork: `https://github.com/trevor-scheer/apollo-rs.git` (branch: `parse_with_offset`)
+- [Apollo-rs GitHub](https://github.com/apollographql/apollo-rs) - upstream repository
+- **This project uses a fork**: `https://github.com/trevor-scheer/apollo-rs.git`
+  - Branch `parse_with_offset` adds APIs not yet in upstream:
+    - `ExecutableDocument::builder()` for incremental document building
+    - `parse_into_executable_builder()` for adding fragments to a builder
+  - These APIs have upstream PRs pending but aren't published yet
 - Build local docs: `cargo doc --package apollo-parser --package apollo-compiler`
