@@ -289,8 +289,31 @@ pub fn fragment_source_index(
     Arc::new(index)
 }
 
+/// Per-file query for fragment spreads mapping
+/// This enables fine-grained incremental computation - editing fragment A
+/// only invalidates file A's spreads, not the entire project index.
+#[salsa::tracked]
+pub fn file_fragment_spreads(
+    db: &dyn GraphQLHirDatabase,
+    file_id: graphql_db::FileId,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+) -> Arc<HashMap<Arc<str>, std::collections::HashSet<Arc<str>>>> {
+    let file_frags = file_fragments(db, file_id, content, metadata);
+    let mut spreads = HashMap::new();
+
+    for fragment in file_frags.iter() {
+        // Get the fragment body to find its spreads
+        let body = fragment_body(db, content, metadata, fragment.name.clone());
+        spreads.insert(fragment.name.clone(), body.fragment_spreads.clone());
+    }
+
+    Arc::new(spreads)
+}
+
 /// Index mapping fragment names to the fragments they reference (spread)
-/// Uses granular per-file caching for efficient invalidation.
+/// Uses per-file queries for fine-grained incremental computation.
+/// Editing one fragment file only rebuilds that file's spreads, not the entire index.
 #[salsa::tracked]
 pub fn fragment_spreads_index(
     db: &dyn GraphQLHirDatabase,
@@ -302,13 +325,9 @@ pub fn fragment_spreads_index(
     for file_id in doc_ids.iter() {
         // Use per-file lookup for granular caching
         if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
-            // Per-file query for fragments
-            let file_frags = file_fragments(db, *file_id, content, metadata);
-            for fragment in file_frags.iter() {
-                // Get the fragment body to find its spreads
-                let body = fragment_body(db, content, metadata, fragment.name.clone());
-                index.insert(fragment.name.clone(), body.fragment_spreads.clone());
-            }
+            // Per-file query - only rebuilds when THIS file changes
+            let file_spreads = file_fragment_spreads(db, *file_id, content, metadata);
+            index.extend(file_spreads.iter().map(|(k, v)| (k.clone(), v.clone())));
         }
     }
 
