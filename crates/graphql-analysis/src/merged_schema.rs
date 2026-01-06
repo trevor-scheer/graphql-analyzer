@@ -464,4 +464,95 @@ mod tests {
             result.diagnostics
         );
     }
+
+    #[test]
+    fn test_union_non_object_member() {
+        let mut db = TestDatabase::default();
+        let file_id = FileId::new(0);
+
+        // Union with non-object member (scalar and interface are invalid)
+        let content = FileContent::new(
+            &db,
+            Arc::from(
+                r#"
+                scalar DateTime
+                interface Node { id: ID! }
+                union SearchResult = DateTime | Node
+                type Query { search: SearchResult }
+            "#,
+            ),
+        );
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let schema_files = [(file_id, content, metadata)];
+        let project_files =
+            graphql_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+
+        let result = merged_schema_with_diagnostics(&db, project_files);
+
+        // apollo-compiler should catch union member validation
+        // If it doesn't, this test documents the limitation
+        assert!(
+            !result.diagnostics.is_empty(),
+            "Expected diagnostics for non-object union members (scalar DateTime and interface Node). \
+            If this assertion fails, apollo-compiler may not validate union member types."
+        );
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.message.to_lowercase().contains("union")
+                    || d.message.to_lowercase().contains("object")
+                    || d.message.to_lowercase().contains("datetime")
+                    || d.message.to_lowercase().contains("node")),
+            "Expected error about non-object union members. Got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn test_valid_union() {
+        let mut db = TestDatabase::default();
+        let file_id = FileId::new(0);
+
+        // Valid union with object type members
+        let content = FileContent::new(
+            &db,
+            Arc::from(
+                r#"
+                type User { id: ID! name: String! }
+                type Post { id: ID! title: String! }
+                union SearchResult = User | Post
+                type Query { search: SearchResult }
+            "#,
+            ),
+        );
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let schema_files = [(file_id, content, metadata)];
+        let project_files =
+            graphql_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+
+        let result = merged_schema_with_diagnostics(&db, project_files);
+
+        assert!(
+            result.schema.is_some(),
+            "Expected valid schema for correct union definition"
+        );
+        assert!(
+            result.diagnostics.is_empty(),
+            "Expected no diagnostics. Got: {:?}",
+            result.diagnostics
+        );
+    }
 }
