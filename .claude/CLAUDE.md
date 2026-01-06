@@ -20,6 +20,7 @@ This document provides context and guidance for working with the GraphQL LSP cod
 - [Common Tasks](#common-tasks)
 - [Troubleshooting](#troubleshooting)
 - [Instructions for Claude](#instructions-for-claude)
+  - [Operating Guidelines](#operating-guidelines)
 - [Expert Agents](#expert-agents)
 
 ---
@@ -780,12 +781,23 @@ Overhead: ~1-2% CPU when enabled, zero when disabled.
 3. If LSP changes: Test with VSCode extension
 4. If extension changes: Rebuild with `npm run compile`
 
+### Operating Guidelines
+
+Claude must follow these guidelines when working on this project:
+
+1. **Always branch from `main`**: Unless explicitly told otherwise, create new branches from `main`
+2. **Always open PRs against `main`**: Unless a different target branch is specified
+3. **Always use the PR template**: When creating PRs with `gh pr create`, the template at `.github/PULL_REQUEST_TEMPLATE.md` will be used automatically
+4. **Use descriptive branch names**: `feat/goto-definition`, `fix/fragment-resolution`, `docs/update-readme`
+5. **Use conventional commits**: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`
+
 ### Branching and PRs
 
-- **Default approach**: Create new branch, make changes, open PR
+- **Default approach**: Create new branch from `main`, make changes, open PR against `main`
 - Use descriptive branch names: `feat/goto-definition`, `fix/fragment-resolution`
 - Target `main` unless specifically told otherwise (e.g., "open PR against lsp-rearchitecture branch")
 - Follow PR guidelines above
+- PRs will automatically use the template in `.github/PULL_REQUEST_TEMPLATE.md`
 
 ### Working with Git Worktrees
 
