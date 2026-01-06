@@ -3,31 +3,36 @@ use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 
-/// Lint rule that requires all GraphQL operations to have explicit names
+/// Lint rule that ensures anonymous operations are only used when they are the sole operation
 ///
-/// Anonymous operations are allowed by the GraphQL specification but are
-/// discouraged in production code. Named operations provide several benefits:
-/// - Better monitoring and debugging (operation names appear in logs and APM tools)
-/// - Improved caching strategies in GraphQL clients
-/// - Self-documenting code that describes what each operation does
-/// - Easier security auditing and operation tracking
+/// Per the GraphQL specification (Section 5.2.2.1 "Lone Anonymous Operation"):
+/// > GraphQL allows a short-hand form for defining query operations when only that one
+/// > operation exists in the document.
 ///
-/// Example:
+/// This rule is spec-compliant and only flags anonymous operations when:
+/// - A document contains multiple operations, AND
+/// - At least one operation is anonymous
+///
+/// A single anonymous operation IS valid GraphQL:
 /// ```graphql
-/// # Bad - anonymous operation
-/// query {
+/// # Valid - single anonymous operation
+/// {
 ///   user {
 ///     id
 ///     name
 ///   }
 /// }
+/// ```
 ///
-/// # Good - named operation
-/// query GetUser {
-///   user {
-///     id
-///     name
-///   }
+/// Multiple operations with anonymous is invalid:
+/// ```graphql
+/// # Invalid - anonymous operation with named operation
+/// {
+///   user { id }
+/// }
+///
+/// query GetPosts {
+///   posts { id }
 /// }
 /// ```
 pub struct NoAnonymousOperationsRuleImpl;
@@ -38,7 +43,7 @@ impl LintRule for NoAnonymousOperationsRuleImpl {
     }
 
     fn description(&self) -> &'static str {
-        "Requires all operations to have explicit names for better monitoring and debugging"
+        "Ensures anonymous operations are only used when they are the sole operation in a document (per GraphQL spec)"
     }
 
     fn default_severity(&self) -> LintSeverity {
@@ -69,22 +74,14 @@ impl StandaloneDocumentLintRule for NoAnonymousOperationsRuleImpl {
             || file_kind == graphql_db::FileKind::Schema
         {
             let doc_cst = parse.tree.document();
-            for definition in doc_cst.definitions() {
-                if let cst::Definition::OperationDefinition(operation) = definition {
-                    check_operation_has_name(&operation, &mut diagnostics);
-                }
-            }
+            check_document_operations(&doc_cst, &mut diagnostics);
         }
 
         // Check operations in extracted blocks (TypeScript/JavaScript)
         for block in &parse.blocks {
             let block_doc = block.tree.document();
             let mut block_diagnostics = Vec::new();
-            for definition in block_doc.definitions() {
-                if let cst::Definition::OperationDefinition(operation) = definition {
-                    check_operation_has_name(&operation, &mut block_diagnostics);
-                }
-            }
+            check_document_operations(&block_doc, &mut block_diagnostics);
             // Add block context to each diagnostic for proper position calculation
             for diag in block_diagnostics {
                 diagnostics.push(diag.with_block_context(block.line, block.source.clone()));
@@ -95,48 +92,73 @@ impl StandaloneDocumentLintRule for NoAnonymousOperationsRuleImpl {
     }
 }
 
-/// Check if an operation has a name, and report a diagnostic if it doesn't
-fn check_operation_has_name(
+/// Check operations in a document and report anonymous operations only when there are multiple operations
+fn check_document_operations(doc_cst: &cst::Document, diagnostics: &mut Vec<LintDiagnostic>) {
+    // Collect all operations
+    let operations: Vec<_> = doc_cst
+        .definitions()
+        .filter_map(|def| {
+            if let cst::Definition::OperationDefinition(op) = def {
+                Some(op)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Per GraphQL spec 5.2.2.1: A single anonymous operation is valid
+    // Only flag anonymous operations when there are multiple operations
+    if operations.len() <= 1 {
+        return;
+    }
+
+    // Multiple operations - all anonymous ones should be flagged
+    for operation in operations {
+        if operation.name().is_none() {
+            report_anonymous_operation(&operation, diagnostics);
+        }
+    }
+}
+
+/// Report a diagnostic for an anonymous operation in a multi-operation document
+fn report_anonymous_operation(
     operation: &cst::OperationDefinition,
     diagnostics: &mut Vec<LintDiagnostic>,
 ) {
-    // Check if the operation has a name
-    if operation.name().is_none() {
-        // Determine the operation type for the error message
-        let operation_type = get_operation_type(operation);
+    // Determine the operation type for the error message
+    let operation_type = get_operation_type(operation);
 
-        // Get the position for the diagnostic
-        // For anonymous operations, we'll point to the operation type keyword or the selection set
-        let (start_offset, end_offset) = operation.operation_type().map_or_else(
-            || {
-                // If there's no operation type (shorthand query syntax), point to the selection set
-                operation.selection_set().map_or((0, 1), |selection_set| {
-                    let syntax_node = selection_set.syntax();
-                    let start: usize = syntax_node.text_range().start().into();
-                    // Just highlight the opening brace
-                    (start, start + 1)
-                })
-            },
-            |op_type| {
-                // If there's an operation type keyword (query, mutation, subscription), point to it
-                let syntax_node = op_type.syntax();
+    // Get the position for the diagnostic
+    // For anonymous operations, we'll point to the operation type keyword or the selection set
+    let (start_offset, end_offset) = operation.operation_type().map_or_else(
+        || {
+            // If there's no operation type (shorthand query syntax), point to the selection set
+            operation.selection_set().map_or((0, 1), |selection_set| {
+                let syntax_node = selection_set.syntax();
                 let start: usize = syntax_node.text_range().start().into();
-                let end: usize = syntax_node.text_range().end().into();
-                (start, end)
-            },
-        );
+                // Just highlight the opening brace
+                (start, start + 1)
+            })
+        },
+        |op_type| {
+            // If there's an operation type keyword (query, mutation, subscription), point to it
+            let syntax_node = op_type.syntax();
+            let start: usize = syntax_node.text_range().start().into();
+            let end: usize = syntax_node.text_range().end().into();
+            (start, end)
+        },
+    );
 
-        let message = format!(
-            "Anonymous {operation_type} operation. All operations should have explicit names for better monitoring and debugging"
-        );
+    let message = format!(
+        "Anonymous {operation_type} operation in document with multiple operations. Per GraphQL spec, anonymous operations are only valid when they are the sole operation"
+    );
 
-        diagnostics.push(LintDiagnostic::new(
-            crate::diagnostics::OffsetRange::new(start_offset, end_offset),
-            LintSeverity::Error,
-            message,
-            "no_anonymous_operations".to_string(),
-        ));
-    }
+    diagnostics.push(LintDiagnostic::new(
+        crate::diagnostics::OffsetRange::new(start_offset, end_offset),
+        LintSeverity::Error,
+        message,
+        "no_anonymous_operations".to_string(),
+    ));
 }
 
 /// Determine the operation type (query, mutation, or subscription)
@@ -171,10 +193,11 @@ mod tests {
     }
 
     #[test]
-    fn test_anonymous_query_with_keyword() {
+    fn test_single_anonymous_query_with_keyword_is_valid() {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
+        // Per GraphQL spec 5.2.2.1, a single anonymous operation IS valid
         let source = "
 query {
   user {
@@ -196,16 +219,16 @@ query {
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
 
-        assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Anonymous query operation"));
-        assert_eq!(diagnostics[0].severity, LintSeverity::Error);
+        // Single anonymous operation is valid per spec
+        assert_eq!(diagnostics.len(), 0);
     }
 
     #[test]
-    fn test_anonymous_query_shorthand() {
+    fn test_single_anonymous_query_shorthand_is_valid() {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
+        // Per GraphQL spec, the shorthand syntax is allowed for single anonymous queries
         let source = "
 {
   user {
@@ -227,16 +250,16 @@ query {
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
 
-        assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Anonymous query operation"));
-        assert_eq!(diagnostics[0].severity, LintSeverity::Error);
+        // Single anonymous operation is valid per spec
+        assert_eq!(diagnostics.len(), 0);
     }
 
     #[test]
-    fn test_anonymous_mutation() {
+    fn test_single_anonymous_mutation_is_valid() {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
+        // Per GraphQL spec, a single anonymous mutation IS valid
         let source = "
 mutation {
   updateUser(id: \"123\", name: \"Alice\") {
@@ -258,18 +281,16 @@ mutation {
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
 
-        assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0]
-            .message
-            .contains("Anonymous mutation operation"));
-        assert_eq!(diagnostics[0].severity, LintSeverity::Error);
+        // Single anonymous operation is valid per spec
+        assert_eq!(diagnostics.len(), 0);
     }
 
     #[test]
-    fn test_anonymous_subscription() {
+    fn test_single_anonymous_subscription_is_valid() {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
+        // Per GraphQL spec, a single anonymous subscription IS valid
         let source = "
 subscription {
   messageAdded {
@@ -291,11 +312,8 @@ subscription {
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
 
-        assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0]
-            .message
-            .contains("Anonymous subscription operation"));
-        assert_eq!(diagnostics[0].severity, LintSeverity::Error);
+        // Single anonymous operation is valid per spec
+        assert_eq!(diagnostics.len(), 0);
     }
 
     #[test]
@@ -468,15 +486,20 @@ query GetUser {
     }
 
     #[test]
-    fn test_single_anonymous_operation() {
+    fn test_anonymous_with_fragment_is_valid() {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
+        // A document with a single anonymous operation and fragments is valid
         let source = "
-query {
+fragment UserFields on User {
+  id
+  name
+}
+
+{
   user {
-    id
-    name
+    ...UserFields
   }
 }
 ";
@@ -493,9 +516,8 @@ query {
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
 
-        // Even a single anonymous operation should fail (per user's request)
-        assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Anonymous query operation"));
+        // Single anonymous operation with fragments is valid per spec
+        assert_eq!(diagnostics.len(), 0);
     }
 
     #[test]
@@ -528,10 +550,11 @@ query GetUserById($id: ID!) {
     }
 
     #[test]
-    fn test_anonymous_query_with_variables() {
+    fn test_single_anonymous_query_with_variables_is_valid() {
         let db = RootDatabase::default();
         let rule = NoAnonymousOperationsRuleImpl;
 
+        // A single anonymous operation with variables is valid per spec
         let source = "
 query($id: ID!) {
   user(id: $id) {
@@ -553,7 +576,41 @@ query($id: ID!) {
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
 
+        // Single anonymous operation is valid per spec
+        assert_eq!(diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn test_anonymous_query_with_named_query_is_invalid() {
+        let db = RootDatabase::default();
+        let rule = NoAnonymousOperationsRuleImpl;
+
+        // Anonymous operation with another named operation is INVALID
+        let source = "
+{
+  user { id }
+}
+
+query GetPosts {
+  posts { id }
+}
+";
+
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+        let project_files = create_test_project_files(&db);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+
+        // Anonymous operation in multi-operation document is invalid
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("Anonymous query operation"));
+        assert!(diagnostics[0].message.contains("multiple operations"));
     }
 }
