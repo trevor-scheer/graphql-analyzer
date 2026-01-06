@@ -17,10 +17,16 @@ use lsp_types::{
     WorkspaceSymbol, WorkspaceSymbolParams,
 };
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::{Client, LanguageServer, UriExt};
+
+/// Debounce delay for diagnostics after document changes.
+/// This prevents diagnostic flickering during rapid typing.
+const DIAGNOSTICS_DEBOUNCE_MS: u64 = 300;
 
 pub struct GraphQLLanguageServer {
     client: Client,
@@ -35,6 +41,9 @@ pub struct GraphQLLanguageServer {
     /// `AnalysisHost` per (workspace URI, project name) tuple
     #[allow(clippy::type_complexity)]
     hosts: Arc<DashMap<(String, String), Arc<Mutex<AnalysisHost>>>>,
+    /// Version counter for debounced diagnostics per document URI.
+    /// Each change increments the version; validation only runs if the version matches.
+    pending_validation_versions: Arc<DashMap<String, Arc<AtomicU64>>>,
 }
 
 impl GraphQLLanguageServer {
@@ -46,7 +55,16 @@ impl GraphQLLanguageServer {
             config_paths: Arc::new(DashMap::new()),
             configs: Arc::new(DashMap::new()),
             hosts: Arc::new(DashMap::new()),
+            pending_validation_versions: Arc::new(DashMap::new()),
         }
+    }
+
+    /// Get or create a version counter for debounced validation of a URI
+    fn get_or_create_version_counter(&self, uri: &str) -> Arc<AtomicU64> {
+        self.pending_validation_versions
+            .entry(uri.to_string())
+            .or_insert_with(|| Arc::new(AtomicU64::new(0)))
+            .clone()
     }
 
     /// Get or create an `AnalysisHost` for a workspace/project
@@ -787,21 +805,69 @@ impl LanguageServer for GraphQLLanguageServer {
             let line_offset = 0;
             let final_kind = file_kind;
 
-            // === PHASE 3: Update file and get snapshot in one lock (optimized path) ===
+            // === PHASE 3: Update file immediately (no debounce for content updates) ===
             let file_path = graphql_ide::FilePath::new(uri.to_string());
-            let snapshot = {
+            {
                 let mut host_guard = host.lock().await;
-                let (_is_new, snapshot) = host_guard.update_file_and_snapshot(
+                host_guard.update_file_and_snapshot(
                     &file_path,
                     &final_content,
                     final_kind,
                     line_offset,
                 );
-                snapshot
-            };
+            }
 
-            // === PHASE 4: Validate using pre-acquired snapshot (no lock needed) ===
-            self.validate_file_with_snapshot(&uri, snapshot).await;
+            // === PHASE 4: Debounced diagnostics ===
+            // Increment version and schedule validation after delay
+            let version_counter = self.get_or_create_version_counter(uri.as_str());
+            let current_version = version_counter.fetch_add(1, Ordering::SeqCst) + 1;
+
+            // Clone values needed for the spawned task
+            let client = self.client.clone();
+            let hosts = self.hosts.clone();
+            let uri_clone = uri.clone();
+            let workspace_uri_clone = workspace_uri.clone();
+            let project_name_clone = project_name.clone();
+            let version_counter_clone = version_counter.clone();
+
+            // Spawn debounced validation task
+            tokio::spawn(async move {
+                // Wait for debounce period
+                tokio::time::sleep(Duration::from_millis(DIAGNOSTICS_DEBOUNCE_MS)).await;
+
+                // Check if this is still the latest version
+                if version_counter_clone.load(Ordering::SeqCst) != current_version {
+                    // A newer change came in, skip this validation
+                    tracing::debug!(
+                        "Skipping debounced validation (version {} != current)",
+                        current_version
+                    );
+                    return;
+                }
+
+                // Get snapshot and validate
+                let Some(host_mutex) = hosts.get(&(workspace_uri_clone, project_name_clone)) else {
+                    return;
+                };
+
+                let snapshot = {
+                    let host_guard = host_mutex.lock().await;
+                    host_guard.snapshot()
+                };
+
+                let file_path = graphql_ide::FilePath::new(uri_clone.as_str());
+                let diagnostics = snapshot.diagnostics(&file_path);
+
+                // Convert and publish diagnostics
+                let lsp_diagnostics: Vec<Diagnostic> = diagnostics
+                    .into_iter()
+                    .map(convert_ide_diagnostic)
+                    .collect();
+
+                client
+                    .publish_diagnostics(uri_clone, lsp_diagnostics, None)
+                    .await;
+            });
         }
     }
 
