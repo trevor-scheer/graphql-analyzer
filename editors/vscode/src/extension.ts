@@ -43,16 +43,16 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
     debug: run,
   };
 
+  // Document selector only includes GraphQL files to avoid performance overhead
+  // TS/JS files use grammar injection for embedded GraphQL syntax highlighting
+  // but LSP features only apply to pure GraphQL files
   const clientOptions: LanguageClientOptions = {
     documentSelector: [
       { scheme: "file", language: "graphql" },
       { scheme: "file", pattern: "**/*.{graphql,gql}" },
-      { scheme: "file", language: "typescript" },
-      { scheme: "file", language: "typescriptreact" },
-      { scheme: "file", language: "javascript" },
-      { scheme: "file", language: "javascriptreact" },
     ],
     synchronize: {
+      // Still watch TS/JS files for project-wide analysis (fragment references, etc.)
       fileEvents: workspace.createFileSystemWatcher("**/*.{graphql,gql,ts,tsx,js,jsx}"),
     },
     outputChannel: outputChannel,
