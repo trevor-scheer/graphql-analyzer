@@ -647,39 +647,15 @@ impl LanguageServer for GraphQLLanguageServer {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
-                completion_provider: if supports_completion {
-                    Some(CompletionOptions {
-                        trigger_characters: Some(vec!["{".to_string(), "@".to_string()]),
-                        ..Default::default()
-                    })
-                } else {
-                    None
-                },
-                hover_provider: if supports_hover {
-                    Some(HoverProviderCapability::Simple(true))
-                } else {
-                    None
-                },
-                definition_provider: if supports_definition {
-                    Some(OneOf::Left(true))
-                } else {
-                    None
-                },
-                references_provider: if supports_references {
-                    Some(OneOf::Left(true))
-                } else {
-                    None
-                },
-                document_symbol_provider: if supports_document_symbols {
-                    Some(OneOf::Left(true))
-                } else {
-                    None
-                },
-                workspace_symbol_provider: if supports_workspace_symbols {
-                    Some(OneOf::Left(true))
-                } else {
-                    None
-                },
+                completion_provider: supports_completion.then(|| CompletionOptions {
+                    trigger_characters: Some(vec!["{".to_string(), "@".to_string()]),
+                    ..Default::default()
+                }),
+                hover_provider: supports_hover.then_some(HoverProviderCapability::Simple(true)),
+                definition_provider: supports_definition.then_some(OneOf::Left(true)),
+                references_provider: supports_references.then_some(OneOf::Left(true)),
+                document_symbol_provider: supports_document_symbols.then_some(OneOf::Left(true)),
+                workspace_symbol_provider: supports_workspace_symbols.then_some(OneOf::Left(true)),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["graphql.checkStatus".to_string()],
                     work_done_progress_options: WorkDoneProgressOptions::default(),
