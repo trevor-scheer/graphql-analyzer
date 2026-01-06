@@ -244,12 +244,98 @@ pub fn fragment_file_index(
     Arc::new(index)
 }
 
+/// Per-file query for fragment sources in a single file.
+/// Returns a map of fragment name -> source text for all fragments in this file.
+/// This enables fine-grained caching: editing file A only invalidates file A's sources.
+#[salsa::tracked]
+pub fn file_fragment_sources(
+    db: &dyn GraphQLHirDatabase,
+    file_id: graphql_db::FileId,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+) -> Arc<HashMap<Arc<str>, Arc<str>>> {
+    let kind = metadata.kind(db);
+    let parse = graphql_syntax::parse(db, content, metadata);
+    let mut sources = HashMap::new();
+
+    if kind == graphql_db::FileKind::TypeScript || kind == graphql_db::FileKind::JavaScript {
+        // For TS/JS files, map each fragment to its specific block
+        for block in &parse.blocks {
+            for def in &block.ast.definitions {
+                if let apollo_compiler::ast::Definition::FragmentDefinition(frag) = def {
+                    let name: Arc<str> = Arc::from(frag.name.as_str());
+                    sources.insert(name, block.source.clone());
+                }
+            }
+        }
+    } else {
+        // For pure GraphQL files, use the entire file content
+        let file_frags = file_fragments(db, file_id, content, metadata);
+        let text = content.text(db);
+        for fragment in file_frags.iter() {
+            sources.insert(fragment.name.clone(), text.clone());
+        }
+    }
+
+    Arc::new(sources)
+}
+
+/// Index mapping fragment names to their file location.
+/// Used by `fragment_source` to find which file contains a fragment.
+#[salsa::tracked]
+pub fn fragment_file_location_index(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, graphql_db::FileId>> {
+    let doc_ids = project_files.document_file_ids(db).ids(db);
+    let mut index = HashMap::new();
+
+    for file_id in doc_ids.iter() {
+        if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
+            let file_frags = file_fragments(db, *file_id, content, metadata);
+            for fragment in file_frags.iter() {
+                index.insert(fragment.name.clone(), *file_id);
+            }
+        }
+    }
+
+    Arc::new(index)
+}
+
+/// Get the source text for a single fragment by name.
+/// This creates a fine-grained Salsa dependency: if you query fragment "Foo",
+/// you only depend on the file containing "Foo", not all fragment files.
+///
+/// When fragment "Foo" changes, only queries that called `fragment_source(db, "Foo")`
+/// are invalidated, not queries that depend on other fragments.
+#[salsa::tracked]
+#[allow(clippy::needless_pass_by_value)] // Salsa tracked functions require owned arguments
+pub fn fragment_source(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_db::ProjectFiles,
+    fragment_name: Arc<str>,
+) -> Option<Arc<str>> {
+    // First, find which file contains this fragment
+    let location_index = fragment_file_location_index(db, project_files);
+    let file_id = location_index.get(&fragment_name)?;
+
+    // Get the file's content and metadata
+    let (content, metadata) = graphql_db::file_lookup(db, project_files, *file_id)?;
+
+    // Query just this file's fragment sources (fine-grained dependency)
+    let file_sources = file_fragment_sources(db, *file_id, content, metadata);
+    file_sources.get(&fragment_name).cloned()
+}
+
 /// Index mapping fragment names to their source text (the GraphQL block containing them).
 ///
 /// For TS/JS files with multiple blocks, this returns only the specific block
 /// containing each fragment, not all blocks from the file. This is crucial for
 /// proper validation - we don't want to accidentally include unrelated operations
 /// or fragments from the same file.
+///
+/// NOTE: This is a convenience query for bulk access. For fine-grained invalidation,
+/// use `fragment_source(db, project_files, fragment_name)` instead.
 #[salsa::tracked]
 pub fn fragment_source_index(
     db: &dyn GraphQLHirDatabase,
@@ -259,30 +345,10 @@ pub fn fragment_source_index(
     let mut index = HashMap::new();
 
     for file_id in doc_ids.iter() {
-        // Use per-file lookup for granular caching
         if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
-            let kind = metadata.kind(db);
-            let parse = graphql_syntax::parse(db, content, metadata);
-
-            if kind == graphql_db::FileKind::TypeScript || kind == graphql_db::FileKind::JavaScript
-            {
-                // For TS/JS files, map each fragment to its specific block
-                for block in &parse.blocks {
-                    for def in &block.ast.definitions {
-                        if let apollo_compiler::ast::Definition::FragmentDefinition(frag) = def {
-                            let name: Arc<str> = Arc::from(frag.name.as_str());
-                            index.insert(name, block.source.clone());
-                        }
-                    }
-                }
-            } else {
-                // For pure GraphQL files, use the entire file content
-                let file_frags = file_fragments(db, *file_id, content, metadata);
-                let text = content.text(db);
-                for fragment in file_frags.iter() {
-                    index.insert(fragment.name.clone(), text.clone());
-                }
-            }
+            // Use per-file query for granular caching
+            let file_sources = file_fragment_sources(db, *file_id, content, metadata);
+            index.extend(file_sources.iter().map(|(k, v)| (k.clone(), v.clone())));
         }
     }
 
@@ -600,5 +666,118 @@ mod tests {
         // - Only file2's FileContent changed
         // - So only file2's file_fragments query should recompute
         // - file1's file_fragments should come from cache
+    }
+
+    #[test]
+    fn test_fragment_source_per_fragment_lookup() {
+        let db = TestDatabase::default();
+
+        // Create two document files with different fragments
+        let file1_id = FileId::new(0);
+        let file1_content =
+            FileContent::new(&db, Arc::from("fragment UserFields on User { id name }"));
+        let file1_metadata = FileMetadata::new(
+            &db,
+            file1_id,
+            FileUri::new("user-fragment.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let file2_id = FileId::new(1);
+        let file2_content =
+            FileContent::new(&db, Arc::from("fragment PostFields on Post { title body }"));
+        let file2_metadata = FileMetadata::new(
+            &db,
+            file2_id,
+            FileUri::new("post-fragment.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let doc_files = [
+            (file1_id, file1_content, file1_metadata),
+            (file2_id, file2_content, file2_metadata),
+        ];
+        let project_files = create_project_files(&db, &[], &doc_files);
+
+        // Query individual fragment sources
+        let user_source = fragment_source(&db, project_files, Arc::from("UserFields"));
+        let post_source = fragment_source(&db, project_files, Arc::from("PostFields"));
+        let nonexistent = fragment_source(&db, project_files, Arc::from("NonExistent"));
+
+        // Verify correct sources are returned
+        assert!(user_source.is_some(), "UserFields should exist");
+        assert!(post_source.is_some(), "PostFields should exist");
+        assert!(nonexistent.is_none(), "NonExistent should not exist");
+
+        assert!(
+            user_source.unwrap().contains("UserFields"),
+            "UserFields source should contain the fragment"
+        );
+        assert!(
+            post_source.unwrap().contains("PostFields"),
+            "PostFields source should contain the fragment"
+        );
+    }
+
+    #[test]
+    fn test_fragment_source_granular_invalidation() {
+        let mut db = TestDatabase::default();
+
+        // Create two document files with different fragments
+        let file1_id = FileId::new(0);
+        let file1_content = FileContent::new(&db, Arc::from("fragment UserFields on User { id }"));
+        let file1_metadata = FileMetadata::new(
+            &db,
+            file1_id,
+            FileUri::new("user-fragment.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let file2_id = FileId::new(1);
+        let file2_content =
+            FileContent::new(&db, Arc::from("fragment PostFields on Post { title }"));
+        let file2_metadata = FileMetadata::new(
+            &db,
+            file2_id,
+            FileUri::new("post-fragment.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let doc_files = [
+            (file1_id, file1_content, file1_metadata),
+            (file2_id, file2_content, file2_metadata),
+        ];
+        let project_files = create_project_files(&db, &[], &doc_files);
+
+        // Warm the cache by querying both fragments
+        let user_source_1 = fragment_source(&db, project_files, Arc::from("UserFields"));
+        let post_source_1 = fragment_source(&db, project_files, Arc::from("PostFields"));
+
+        assert!(user_source_1.is_some());
+        assert!(post_source_1.is_some());
+
+        // Modify file2 (PostFields)
+        file2_content
+            .set_text(&mut db)
+            .to(Arc::from("fragment PostFields on Post { title body }"));
+
+        // Query UserFields again - should come from cache since file1 didn't change
+        let user_source_2 = fragment_source(&db, project_files, Arc::from("UserFields"));
+
+        // Query PostFields again - should reflect the update
+        let post_source_2 = fragment_source(&db, project_files, Arc::from("PostFields"));
+
+        // UserFields should be unchanged (same Arc)
+        assert_eq!(
+            user_source_1.as_ref().map(|s| s.as_ref()),
+            user_source_2.as_ref().map(|s| s.as_ref()),
+            "UserFields source should be unchanged"
+        );
+
+        // PostFields should be updated
+        assert!(
+            post_source_2.as_ref().unwrap().contains("body"),
+            "PostFields should be updated with 'body' field"
+        );
     }
 }

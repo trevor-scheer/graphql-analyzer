@@ -45,7 +45,6 @@ pub fn validate_file(
             // Uses the already-parsed tree to avoid redundant parsing
             let referenced_fragments =
                 collect_referenced_fragments_transitive(&block.tree, project_files, db);
-            let fragment_source_index = graphql_hir::fragment_source_index(db, project_files);
 
             let valid_schema =
                 apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
@@ -57,14 +56,17 @@ pub fn validate_file(
             // The AST is cached via graphql_syntax::parse()
             builder.add_ast_document(&block.ast, true);
 
-            // Add referenced fragments using the source index for O(1) lookup
+            // Add referenced fragments using per-fragment queries for fine-grained invalidation
+            // This ensures that changing fragment A only invalidates files that actually use A
             let mut added_fragments = std::collections::HashSet::new();
             for fragment_name in &referenced_fragments {
                 let key: Arc<str> = Arc::from(fragment_name.as_str());
                 if !added_fragments.insert(key.clone()) {
                     continue;
                 }
-                if let Some(fragment_source) = fragment_source_index.get(&key) {
+                // Fine-grained query: only creates dependency on this specific fragment
+                if let Some(fragment_source) = graphql_hir::fragment_source(db, project_files, key)
+                {
                     apollo_compiler::parser::Parser::new().parse_into_executable_builder(
                         fragment_source.as_ref(),
                         format!("fragment:{fragment_name}"),
@@ -133,7 +135,6 @@ pub fn validate_file(
     // Use the already-parsed tree to avoid redundant parsing
     let referenced_fragments =
         collect_referenced_fragments_transitive(&parse.tree, project_files, db);
-    let fragment_source_index = graphql_hir::fragment_source_index(db, project_files);
     let valid_schema = apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
     let mut errors = apollo_compiler::validation::DiagnosticList::new(Arc::default());
     let mut builder = apollo_compiler::ExecutableDocument::builder(Some(valid_schema), &mut errors);
@@ -146,14 +147,16 @@ pub fn validate_file(
     // The AST is cached via graphql_syntax::parse()
     builder.add_ast_document(&parse.ast, true);
 
-    // Add referenced fragments using the source index for O(1) lookup
+    // Add referenced fragments using per-fragment queries for fine-grained invalidation
+    // This ensures that changing fragment A only invalidates files that actually use A
     let mut added_fragments = std::collections::HashSet::new();
     for fragment_name in &referenced_fragments {
         let key: Arc<str> = Arc::from(fragment_name.as_str());
         if !added_fragments.insert(key.clone()) {
             continue;
         }
-        if let Some(fragment_source) = fragment_source_index.get(&key) {
+        // Fine-grained query: only creates dependency on this specific fragment
+        if let Some(fragment_source) = graphql_hir::fragment_source(db, project_files, key) {
             apollo_compiler::parser::Parser::new().parse_into_executable_builder(
                 fragment_source.as_ref(),
                 format!("fragment:{fragment_name}"),
