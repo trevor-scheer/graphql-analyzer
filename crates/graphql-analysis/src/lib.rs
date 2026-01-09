@@ -219,8 +219,11 @@ mod tests {
         // Get diagnostics (no project_files, so only syntax errors would be reported)
         let diagnostics = file_diagnostics(&db, content, metadata, None);
 
-        // Should have no diagnostics for valid schema
-        // Note: This will work once we implement the parse query properly
-        assert!(diagnostics.is_empty() || !diagnostics.is_empty()); // Placeholder assertion
+        // Valid schema should have no syntax errors
+        assert!(
+            diagnostics.is_empty(),
+            "Valid schema should have no diagnostics, got: {:?}",
+            diagnostics
+        );
     }
 }
