@@ -14,8 +14,17 @@ fi
 
 echo "Installing gh CLI..."
 
-# Install gh from default Ubuntu repositories
-# gh is available in Ubuntu 24.04 default repos
-sudo apt-get update && sudo apt-get install -y gh
+# Download gh binary directly from GitHub releases
+# This avoids apt which may not work in restricted network environments
+GH_VERSION="2.67.0"
+GH_ARCHIVE="gh_${GH_VERSION}_linux_amd64.tar.gz"
+GH_URL="https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE}"
+
+cd /tmp
+curl -fsSL "$GH_URL" -o "$GH_ARCHIVE"
+tar -xzf "$GH_ARCHIVE"
+sudo mv "gh_${GH_VERSION}_linux_amd64/bin/gh" /usr/local/bin/gh
+sudo chmod +x /usr/local/bin/gh
+rm -rf "$GH_ARCHIVE" "gh_${GH_VERSION}_linux_amd64"
 
 echo "✓ gh CLI installed successfully: $(gh --version | head -1)"
