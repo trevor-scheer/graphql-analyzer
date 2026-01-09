@@ -306,7 +306,10 @@ documents: "**/*.graphql"
                     .map(std::string::ToString::to_string)
                     .collect();
 
-                let mut total_files_loaded = 0;
+                // === PHASE 1: Collect all files without holding the lock ===
+                // This batching approach avoids lock contention during file I/O
+                let mut collected_files: Vec<(graphql_ide::FilePath, String, graphql_ide::FileKind)> = Vec::new();
+                let mut files_scanned = 0;
 
                 for pattern in patterns {
                     // Skip negation patterns (starting with !)
@@ -335,17 +338,18 @@ documents: "**/*.graphql"
                                             }
 
                                             // Log progress every 100 files
-                                            if total_files_loaded > 0
-                                                && total_files_loaded % 100 == 0
+                                            files_scanned += 1;
+                                            if files_scanned > 0
+                                                && files_scanned % 100 == 0
                                             {
                                                 tracing::info!(
-                                                    "Loaded {} files so far (pattern: {})",
-                                                    total_files_loaded,
+                                                    "Scanned {} files so far (pattern: {})",
+                                                    files_scanned,
                                                     pattern
                                                 );
 
                                                 // Show warning at threshold
-                                                if total_files_loaded == MAX_FILES_WARNING_THRESHOLD
+                                                if files_scanned == MAX_FILES_WARNING_THRESHOLD
                                                 {
                                                     tracing::warn!(
                                                         "Loading large number of files ({}+), this may take a while...",
@@ -363,7 +367,7 @@ documents: "**/*.graphql"
                                                 }
                                             }
 
-                                            // Read file content
+                                            // Read file content (no lock held)
                                             match std::fs::read_to_string(&path) {
                                                 Ok(content) => {
                                                     let path_str = path.display().to_string();
@@ -371,28 +375,14 @@ documents: "**/*.graphql"
                                                         &path_str, &content,
                                                     );
 
-                                                    // Store original source - let parsing layer handle extraction
-                                                    // This preserves block boundaries for proper validation
-                                                    let final_content = content;
-                                                    let line_offset = 0;
-                                                    let final_kind = file_kind;
-
                                                     // Strip leading '/' from absolute paths to avoid file:////
                                                     let path_str = path_str.trim_start_matches('/');
                                                     let uri = format!("file:///{path_str}");
                                                     let file_path =
                                                         graphql_ide::FilePath::new(uri.clone());
-                                                    // Release host lock for each file to allow concurrent access
-                                                    let mut host_guard = host.lock().await;
-                                                    host_guard.add_file(
-                                                        &file_path,
-                                                        &final_content,
-                                                        final_kind,
-                                                        line_offset,
-                                                    );
-                                                    drop(host_guard); // Explicitly drop to release lock
 
-                                                    total_files_loaded += 1;
+                                                    // Collect file data for batch addition
+                                                    collected_files.push((file_path, content, file_kind));
                                                 }
                                                 Err(e) => {
                                                     tracing::warn!(
@@ -418,6 +408,22 @@ documents: "**/*.graphql"
                                 );
                             }
                         }
+                    }
+                }
+
+                let total_files_loaded = collected_files.len();
+                tracing::info!(
+                    "Collected {} document files for project '{}', adding to host in batch...",
+                    total_files_loaded,
+                    project_name
+                );
+
+                // === PHASE 2: Add all files to host in single lock acquisition ===
+                // This significantly reduces lock contention compared to locking per-file
+                {
+                    let mut host_guard = host.lock().await;
+                    for (file_path, content, file_kind) in collected_files {
+                        host_guard.add_file(&file_path, &content, file_kind, 0);
                     }
                 }
 
