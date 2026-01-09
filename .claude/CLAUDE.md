@@ -1,6 +1,6 @@
 # GraphQL LSP Project Guide
 
-**Last Updated**: December 2025
+**Last Updated**: January 2026
 
 This document provides context and guidance for working with the GraphQL LSP codebase. It's designed to help future iterations of Claude understand the project quickly and work effectively.
 
@@ -12,9 +12,11 @@ This document provides context and guidance for working with the GraphQL LSP cod
 
 - [Quick Reference](#quick-reference)
 - [Project Overview](#project-overview)
+  - [Protected Core Features](#protected-core-features)
 - [Architecture](#architecture)
 - [Development Workflow](#development-workflow)
 - [Key Concepts](#key-concepts)
+  - [VSCode Extension Architecture (Critical)](#vscode-extension-architecture-critical)
 - [Configuration](#configuration)
 - [Testing](#testing)
 - [Common Tasks](#common-tasks)
@@ -91,6 +93,23 @@ This is a **GraphQL Language Server Protocol (LSP)** implementation written in R
 3. **Project-Wide Analysis**: Validates across all files with proper fragment resolution
 4. **Extensible Linting**: Plugin-based linting system with tool-specific configuration
 5. **Remote Schema Support**: Introspects remote GraphQL endpoints and converts to SDL
+
+### Protected Core Features
+
+These features are fundamental to the project's value proposition and must NOT be removed or degraded:
+
+| Feature | Why It's Critical | What Enables It |
+|---------|-------------------|-----------------|
+| **Embedded GraphQL in TS/JS** | Most GraphQL users write queries in TS/JS files, not `.graphql` files | `documentSelector` includes TS/JS languages in VSCode extension |
+| **Real-time diagnostics** | Users expect immediate feedback while typing | LSP `textDocument/didChange` notifications |
+| **Project-wide fragment resolution** | Fragments are defined across many files | `all_fragments()` query indexes entire project |
+| **Schema validation** | Invalid schemas break everything downstream | `graphql-analysis` validates before use |
+
+**Performance concerns are valid but must be solved without removing features.** Acceptable solutions:
+- Server-side filtering (only process files containing GraphQL)
+- Lazy/deferred processing
+- Debouncing rapid changes
+- User configuration to opt-out
 
 ### Key Technologies
 
@@ -328,6 +347,52 @@ All features work in:
 
 - Pure GraphQL files (`.graphql`, `.gql`)
 - Embedded GraphQL in TypeScript/JavaScript
+
+### VSCode Extension Architecture (Critical)
+
+The VSCode extension has two separate systems that are often confused:
+
+#### Document Selector (LSP Features)
+
+```typescript
+documentSelector: [
+  { scheme: "file", language: "graphql" },
+  { scheme: "file", language: "typescript" },
+  { scheme: "file", language: "typescriptreact" },
+  // etc.
+]
+```
+
+The `documentSelector` controls which files receive **LSP features**:
+- `textDocument/didOpen` and `textDocument/didChange` notifications
+- Diagnostics, hover, goto definition, find references, completion
+- Real-time feedback as the user types
+
+**Without a language in `documentSelector`, that language gets NO LSP features.**
+
+#### Grammar Injection (Syntax Highlighting Only)
+
+Grammar injection (via TextMate grammars) provides **syntax highlighting only**:
+- Colorizes GraphQL inside template literals
+- Purely visual - no semantic understanding
+- Completely separate from LSP
+
+#### File Watcher (Disk Events Only)
+
+```typescript
+fileEvents: workspace.createFileSystemWatcher("**/*.{graphql,gql,ts,tsx}")
+```
+
+The file watcher fires `workspace/didChangeWatchedFiles` **only on disk saves**:
+- Does NOT provide real-time editing feedback
+- Does NOT send document content to the server
+- Only useful for detecting file creation/deletion/rename
+
+#### Common Misconception
+
+**WRONG**: "Grammar injection provides embedded GraphQL support, so we can remove TS/JS from documentSelector"
+
+**RIGHT**: Grammar injection only provides colors. The documentSelector is required for all actual LSP features (diagnostics, hover, goto def, etc.) in TS/JS files.
 
 ---
 
@@ -838,6 +903,8 @@ This preserves notes and local settings.
 - ❌ Don't mention "tests pass" in PR descriptions (expected)
 - ❌ Don't use excessive emoji
 - ❌ Don't commit without running `cargo fmt` and `cargo clippy`
+- ❌ Don't remove TS/JS from VSCode extension's `documentSelector` - this breaks embedded GraphQL support (see [VSCode Extension Architecture](#vscode-extension-architecture-critical))
+- ❌ Don't solve performance problems by removing core features - find smarter solutions (filtering, lazy evaluation, configuration options)
 
 ### Things to Always Do
 
