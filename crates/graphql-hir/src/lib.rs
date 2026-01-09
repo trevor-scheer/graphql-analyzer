@@ -280,6 +280,44 @@ pub fn file_fragment_sources(
     Arc::new(sources)
 }
 
+/// Per-file query for fragment ASTs in a single file.
+/// Returns a map of fragment name -> AST document containing that fragment.
+/// This enables caching of parsed ASTs to avoid re-parsing during validation.
+///
+/// For TS/JS files, returns the block's AST. For pure GraphQL files, returns the file's AST.
+/// This mirrors the behavior of `file_fragment_sources` but returns ASTs instead of source text.
+#[salsa::tracked]
+pub fn file_fragment_asts(
+    db: &dyn GraphQLHirDatabase,
+    file_id: graphql_db::FileId,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+) -> Arc<HashMap<Arc<str>, Arc<apollo_compiler::ast::Document>>> {
+    let kind = metadata.kind(db);
+    let parse = graphql_syntax::parse(db, content, metadata);
+    let mut asts = HashMap::new();
+
+    if kind == graphql_db::FileKind::TypeScript || kind == graphql_db::FileKind::JavaScript {
+        // For TS/JS files, map each fragment to its specific block's AST
+        for block in &parse.blocks {
+            for def in &block.ast.definitions {
+                if let apollo_compiler::ast::Definition::FragmentDefinition(frag) = def {
+                    let name: Arc<str> = Arc::from(frag.name.as_str());
+                    asts.insert(name, block.ast.clone());
+                }
+            }
+        }
+    } else {
+        // For pure GraphQL files, use the file's AST for all fragments
+        let file_frags = file_fragments(db, file_id, content, metadata);
+        for fragment in file_frags.iter() {
+            asts.insert(fragment.name.clone(), parse.ast.clone());
+        }
+    }
+
+    Arc::new(asts)
+}
+
 /// Index mapping fragment names to their file location.
 /// Used by `fragment_source` to find which file contains a fragment.
 #[salsa::tracked]
@@ -325,6 +363,34 @@ pub fn fragment_source(
     // Query just this file's fragment sources (fine-grained dependency)
     let file_sources = file_fragment_sources(db, *file_id, content, metadata);
     file_sources.get(&fragment_name).cloned()
+}
+
+/// Get the parsed AST document containing a single fragment by name.
+/// This creates a fine-grained Salsa dependency and enables caching of parsed ASTs.
+///
+/// Unlike `fragment_source` which returns source text (requiring re-parsing),
+/// this returns the already-parsed AST document, avoiding redundant parsing
+/// during validation.
+///
+/// When fragment "Foo" changes, only queries that called `fragment_ast(db, "Foo")`
+/// are invalidated, not queries that depend on other fragments.
+#[salsa::tracked]
+#[allow(clippy::needless_pass_by_value)] // Salsa tracked functions require owned arguments
+pub fn fragment_ast(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_db::ProjectFiles,
+    fragment_name: Arc<str>,
+) -> Option<Arc<apollo_compiler::ast::Document>> {
+    // First, find which file contains this fragment
+    let location_index = fragment_file_location_index(db, project_files);
+    let file_id = location_index.get(&fragment_name)?;
+
+    // Get the file's content and metadata
+    let (content, metadata) = graphql_db::file_lookup(db, project_files, *file_id)?;
+
+    // Query just this file's fragment ASTs (fine-grained dependency)
+    let file_asts = file_fragment_asts(db, *file_id, content, metadata);
+    file_asts.get(&fragment_name).cloned()
 }
 
 /// Index mapping fragment names to their source text (the GraphQL block containing them).
