@@ -39,7 +39,9 @@ mod analysis_host_isolation;
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+
+use parking_lot::RwLock;
 
 mod file_registry;
 pub use file_registry::FileRegistry;
@@ -532,7 +534,7 @@ impl AnalysisHost {
         kind: FileKind,
         line_offset: u32,
     ) -> bool {
-        let mut registry = self.registry.write().unwrap();
+        let mut registry = self.registry.write();
         let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, kind, line_offset);
         is_new
     }
@@ -543,7 +545,7 @@ impl AnalysisHost {
     /// It's relatively expensive as it iterates through all files, so avoid calling
     /// it in a loop.
     pub fn rebuild_project_files(&mut self) {
-        let mut registry = self.registry.write().unwrap();
+        let mut registry = self.registry.write();
         registry.rebuild_project_files(&mut self.db);
     }
 
@@ -565,7 +567,7 @@ impl AnalysisHost {
         line_offset: u32,
     ) -> (bool, Analysis) {
         // Single lock acquisition for both operations
-        let mut registry = self.registry.write().unwrap();
+        let mut registry = self.registry.write();
         let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, kind, line_offset);
 
         // If this is a new file, rebuild the index before creating snapshot
@@ -592,23 +594,23 @@ impl AnalysisHost {
     /// Check if a file exists in this host's registry
     #[must_use]
     pub fn contains_file(&self, path: &FilePath) -> bool {
-        let registry = self.registry.read().unwrap();
+        let registry = self.registry.read();
         registry.get_file_id(path).is_some()
     }
 
     /// Remove a file from the host
     pub fn remove_file(&mut self, path: &FilePath) {
         let file_id = {
-            let registry = self.registry.read().unwrap();
+            let registry = self.registry.read();
             registry.get_file_id(path)
         };
 
         if let Some(file_id) = file_id {
             {
-                let mut registry = self.registry.write().unwrap();
+                let mut registry = self.registry.write();
                 registry.remove_file(file_id);
             } // Drop lock before rebuilding ProjectFiles
-            let mut registry = self.registry.write().unwrap();
+            let mut registry = self.registry.write();
             registry.rebuild_project_files(&mut self.db);
         }
     }
@@ -714,7 +716,7 @@ impl AnalysisHost {
     /// This snapshot can be used from multiple threads and provides all IDE features.
     /// It's cheap to create and clone (`RootDatabase` implements Clone via salsa).
     pub fn snapshot(&self) -> Analysis {
-        let project_files = self.registry.read().unwrap().project_files();
+        let project_files = self.registry.read().project_files();
 
         if let Some(ref project_files) = project_files {
             let doc_count = project_files
@@ -767,7 +769,7 @@ impl Analysis {
     /// Returns syntax errors, validation errors, and lint warnings.
     pub fn diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
         let (content, metadata) = {
-            let registry = self.registry.read().unwrap();
+            let registry = self.registry.read();
 
             // Look up FileId from FilePath
             let Some(file_id) = registry.get_file_id(file) else {
@@ -803,7 +805,7 @@ impl Analysis {
     /// Use this for the `validate` command to avoid duplicating lint checks.
     pub fn validation_diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
         let (content, metadata) = {
-            let registry = self.registry.read().unwrap();
+            let registry = self.registry.read();
 
             // Look up FileId from FilePath
             let Some(file_id) = registry.get_file_id(file) else {
@@ -842,7 +844,7 @@ impl Analysis {
     /// Returns only custom lint rule violations, not GraphQL spec validation errors.
     pub fn lint_diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
         let (content, metadata) = {
-            let registry = self.registry.read().unwrap();
+            let registry = self.registry.read();
 
             // Look up FileId from FilePath
             let Some(file_id) = registry.get_file_id(file) else {
@@ -884,7 +886,7 @@ impl Analysis {
         );
 
         let mut results = HashMap::new();
-        let registry = self.registry.read().unwrap();
+        let registry = self.registry.read();
 
         for (file_id, diagnostics) in diagnostics_by_file_id.iter() {
             if let Some(file_path) = registry.get_path(*file_id) {
@@ -906,7 +908,7 @@ impl Analysis {
     #[allow(clippy::too_many_lines)]
     pub fn completions(&self, file: &FilePath, position: Position) -> Option<Vec<CompletionItem>> {
         let (content, metadata) = {
-            let registry = self.registry.read().unwrap();
+            let registry = self.registry.read();
 
             // Look up FileId from FilePath
             let file_id = registry.get_file_id(file)?;
@@ -1051,7 +1053,7 @@ impl Analysis {
     #[allow(clippy::too_many_lines)]
     pub fn hover(&self, file: &FilePath, position: Position) -> Option<HoverResult> {
         let (content, metadata) = {
-            let registry = self.registry.read().unwrap();
+            let registry = self.registry.read();
 
             // Look up FileId from FilePath
             let file_id = registry.get_file_id(file)?;
@@ -1195,7 +1197,7 @@ impl Analysis {
     #[allow(clippy::too_many_lines)]
     pub fn goto_definition(&self, file: &FilePath, position: Position) -> Option<Vec<Location>> {
         let (content, metadata) = {
-            let registry = self.registry.read().unwrap();
+            let registry = self.registry.read();
 
             // Look up FileId from FilePath
             let file_id = registry.get_file_id(file)?;
@@ -1271,7 +1273,7 @@ impl Analysis {
                 schema_types.get(parent_type_name.as_str())?;
 
                 // Search through all schema files for the field definition
-                let registry = self.registry.read().unwrap();
+                let registry = self.registry.read();
                 let schema_file_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
 
                 for file_id in schema_file_ids.iter() {
@@ -1350,7 +1352,7 @@ impl Analysis {
                 let fragment = fragments.get(name.as_str())?;
 
                 // Get the file content, metadata, and path for this fragment
-                let registry = self.registry.read().unwrap();
+                let registry = self.registry.read();
 
                 tracing::debug!(
                     "Looking up path for fragment '{}' with FileId {:?}",
@@ -1391,7 +1393,7 @@ impl Analysis {
             Symbol::TypeName { name } => {
                 // Search through all schema files for the type definition
                 let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
-                let registry = self.registry.read().unwrap();
+                let registry = self.registry.read();
 
                 for file_id in schema_ids.iter() {
                     let Some(schema_content) = registry.get_content(*file_id) else {
@@ -1446,7 +1448,7 @@ impl Analysis {
                 };
 
                 if let Some(range) = range {
-                    let registry = self.registry.read().unwrap();
+                    let registry = self.registry.read();
                     let file_id = registry.get_file_id(file)?;
                     let file_path = registry.get_path(file_id)?;
                     return Some(vec![Location::new(file_path, range)]);
@@ -1471,7 +1473,7 @@ impl Analysis {
                 )?;
 
                 // Search through schema files for the argument definition
-                let registry = self.registry.read().unwrap();
+                let registry = self.registry.read();
                 let schema_file_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
 
                 for file_id in schema_file_ids.iter() {
@@ -1525,7 +1527,7 @@ impl Analysis {
                 };
 
                 if let Some(range) = range {
-                    let registry = self.registry.read().unwrap();
+                    let registry = self.registry.read();
                     let file_id = registry.get_file_id(file)?;
                     let file_path = registry.get_path(file_id)?;
                     return Some(vec![Location::new(file_path, range)]);
@@ -1545,7 +1547,7 @@ impl Analysis {
         include_declaration: bool,
     ) -> Option<Vec<Location>> {
         let (content, metadata) = {
-            let registry = self.registry.read().unwrap();
+            let registry = self.registry.read();
 
             // Look up FileId from FilePath
             let file_id = registry.get_file_id(file)?;
@@ -1623,7 +1625,7 @@ impl Analysis {
         // Include the declaration if requested
         if include_declaration {
             if let Some(fragment) = fragments.get(fragment_name) {
-                let registry = self.registry.read().unwrap();
+                let registry = self.registry.read();
                 let file_path = registry.get_path(fragment.file_id);
                 let def_content = registry.get_content(fragment.file_id);
                 let def_metadata = registry.get_metadata(fragment.file_id);
@@ -1659,7 +1661,7 @@ impl Analysis {
                 continue;
             };
 
-            let registry = self.registry.read().unwrap();
+            let registry = self.registry.read();
             let file_path = registry.get_path(*file_id);
             drop(registry);
 
@@ -1703,7 +1705,7 @@ impl Analysis {
         // Include the declaration if requested
         if include_declaration {
             if let Some(type_def) = types.get(type_name) {
-                let registry = self.registry.read().unwrap();
+                let registry = self.registry.read();
                 let file_path = registry.get_path(type_def.file_id);
                 let def_content = registry.get_content(type_def.file_id);
                 let def_metadata = registry.get_metadata(type_def.file_id);
@@ -1739,7 +1741,7 @@ impl Analysis {
                 continue;
             };
 
-            let registry = self.registry.read().unwrap();
+            let registry = self.registry.read();
             let file_path = registry.get_path(*file_id);
             drop(registry);
 
@@ -1791,7 +1793,7 @@ impl Analysis {
                     continue;
                 };
 
-                let registry = self.registry.read().unwrap();
+                let registry = self.registry.read();
                 let file_path = registry.get_path(*file_id);
                 drop(registry);
 
@@ -1826,7 +1828,7 @@ impl Analysis {
                 continue;
             };
 
-            let registry = self.registry.read().unwrap();
+            let registry = self.registry.read();
             let file_path = registry.get_path(*file_id);
             drop(registry);
 
@@ -1863,7 +1865,7 @@ impl Analysis {
     /// This powers the "Go to Symbol in Editor" (Cmd+Shift+O) feature.
     pub fn document_symbols(&self, file: &FilePath) -> Vec<DocumentSymbol> {
         let (content, metadata, file_id) = {
-            let registry = self.registry.read().unwrap();
+            let registry = self.registry.read();
 
             let Some(file_id) = registry.get_file_id(file) else {
                 return Vec::new();
@@ -2101,7 +2103,7 @@ impl Analysis {
 
     /// Get location for a type definition
     fn get_type_location(&self, type_def: &graphql_hir::TypeDef) -> Option<Location> {
-        let registry = self.registry.read().unwrap();
+        let registry = self.registry.read();
         let file_path = registry.get_path(type_def.file_id)?;
         let content = registry.get_content(type_def.file_id)?;
         let metadata = registry.get_metadata(type_def.file_id)?;
@@ -2122,7 +2124,7 @@ impl Analysis {
 
     /// Get location for a fragment definition
     fn get_fragment_location(&self, fragment: &graphql_hir::FragmentStructure) -> Option<Location> {
-        let registry = self.registry.read().unwrap();
+        let registry = self.registry.read();
         let file_path = registry.get_path(fragment.file_id)?;
         let content = registry.get_content(fragment.file_id)?;
         let metadata = registry.get_metadata(fragment.file_id)?;
@@ -2148,7 +2150,7 @@ impl Analysis {
     ) -> Option<Location> {
         let op_name = operation.name.as_ref()?;
 
-        let registry = self.registry.read().unwrap();
+        let registry = self.registry.read();
         let file_path = registry.get_path(operation.file_id)?;
         let content = registry.get_content(operation.file_id)?;
         let metadata = registry.get_metadata(operation.file_id)?;

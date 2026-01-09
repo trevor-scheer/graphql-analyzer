@@ -1023,6 +1023,7 @@ dependencies = [
  "graphql-hir",
  "graphql-linter",
  "graphql-syntax",
+ "parking_lot",
  "salsa",
  "tracing",
 ]
