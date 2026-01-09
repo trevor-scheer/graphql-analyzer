@@ -452,24 +452,29 @@ impl WorkspaceSymbol {
 }
 
 /// Custom database that implements config traits
+///
+/// Uses `parking_lot::RwLock` for interior mutability to ensure thread-safety
+/// when `Analysis` snapshots are accessed from multiple threads concurrently.
 #[salsa::db]
 #[derive(Clone)]
 struct IdeDatabase {
     storage: salsa::Storage<Self>,
-    lint_config: std::cell::RefCell<Arc<graphql_linter::LintConfig>>,
-    extract_config: std::cell::RefCell<Arc<graphql_extract::ExtractConfig>>,
-    project_files: std::cell::RefCell<Option<graphql_db::ProjectFiles>>,
+    lint_config: Arc<RwLock<Arc<graphql_linter::LintConfig>>>,
+    extract_config: Arc<RwLock<Arc<graphql_extract::ExtractConfig>>>,
+    project_files: Arc<RwLock<Option<graphql_db::ProjectFiles>>>,
 }
 
 impl Default for IdeDatabase {
     fn default() -> Self {
         Self {
             storage: salsa::Storage::default(),
-            lint_config: std::cell::RefCell::new(Arc::new(graphql_linter::LintConfig::default())),
-            extract_config: std::cell::RefCell::new(Arc::new(
+            lint_config: Arc::new(RwLock::new(Arc::new(
+                graphql_linter::LintConfig::default(),
+            ))),
+            extract_config: Arc::new(RwLock::new(Arc::new(
                 graphql_extract::ExtractConfig::default(),
-            )),
-            project_files: std::cell::RefCell::new(None),
+            ))),
+            project_files: Arc::new(RwLock::new(None)),
         }
     }
 }
@@ -482,7 +487,7 @@ impl salsa::Database for IdeDatabase {}
 #[salsa::db]
 impl graphql_syntax::GraphQLSyntaxDatabase for IdeDatabase {
     fn extract_config(&self) -> Option<Arc<graphql_extract::ExtractConfig>> {
-        Some(self.extract_config.borrow().clone())
+        Some(self.extract_config.read().clone())
     }
 }
 
@@ -492,7 +497,7 @@ impl graphql_hir::GraphQLHirDatabase for IdeDatabase {}
 #[salsa::db]
 impl graphql_analysis::GraphQLAnalysisDatabase for IdeDatabase {
     fn lint_config(&self) -> Arc<graphql_linter::LintConfig> {
-        self.lint_config.borrow().clone()
+        self.lint_config.read().clone()
     }
 }
 
@@ -580,7 +585,7 @@ impl AnalysisHost {
         drop(registry);
 
         // Sync project_files to the database
-        *self.db.project_files.borrow_mut() = project_files;
+        *self.db.project_files.write() = project_files;
 
         let snapshot = Analysis {
             db: self.db.clone(),
@@ -698,17 +703,17 @@ impl AnalysisHost {
 
     /// Set the lint configuration for the project
     pub fn set_lint_config(&mut self, config: graphql_linter::LintConfig) {
-        *self.db.lint_config.borrow_mut() = Arc::new(config);
+        *self.db.lint_config.write() = Arc::new(config);
     }
 
     /// Set the extract configuration for the project
     pub fn set_extract_config(&mut self, config: graphql_extract::ExtractConfig) {
-        *self.db.extract_config.borrow_mut() = Arc::new(config);
+        *self.db.extract_config.write() = Arc::new(config);
     }
 
     /// Get the extract configuration for the project
     pub fn get_extract_config(&self) -> graphql_extract::ExtractConfig {
-        (**self.db.extract_config.borrow()).clone()
+        (**self.db.extract_config.read()).clone()
     }
 
     /// Get an immutable snapshot for analysis
@@ -734,7 +739,7 @@ impl AnalysisHost {
         }
 
         // Sync project_files to the database so queries can access it via db.project_files()
-        *self.db.project_files.borrow_mut() = project_files;
+        *self.db.project_files.write() = project_files;
 
         Analysis {
             db: self.db.clone(),
