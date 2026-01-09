@@ -12,10 +12,11 @@ use lsp_types::{
     DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, FileChangeType,
     FileSystemWatcher, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
     HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
-    MessageType, OneOf, ReferenceParams, ServerCapabilities, ServerInfo, SymbolInformation,
-    TextDocumentSyncCapability, TextDocumentSyncKind, Uri, WorkDoneProgressOptions,
-    WorkspaceSymbol, WorkspaceSymbolParams,
+    MessageActionItem, MessageType, OneOf, ReferenceParams, ServerCapabilities, ServerInfo,
+    SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
+    WorkDoneProgressOptions, WorkspaceSymbol, WorkspaceSymbolParams,
 };
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -150,15 +151,75 @@ impl GraphQLLanguageServer {
                 }
             }
             Ok(None) => {
-                self.client
-                    .log_message(
+                // Show a prominent notification with action to create config
+                let actions = vec![
+                    MessageActionItem {
+                        title: "Create Config".to_string(),
+                        properties: HashMap::default(),
+                    },
+                    MessageActionItem {
+                        title: "Dismiss".to_string(),
+                        properties: HashMap::default(),
+                    },
+                ];
+
+                let response = self
+                    .client
+                    .show_message_request(
                         MessageType::WARNING,
-                        "No graphql.config found. Place a graphql.config.yaml in your workspace root.",
+                        "No GraphQL config found. Schema validation and full IDE features require a config file.",
+                        Some(actions),
+                    )
+                    .await;
+
+                // Handle "Create Config" action
+                if let Ok(Some(action)) = response {
+                    if action.title == "Create Config" {
+                        self.create_default_config(workspace_path).await;
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!("Error searching for config: {}", e);
+            }
+        }
+    }
+
+    /// Create a default GraphQL config file in the workspace root
+    async fn create_default_config(&self, workspace_path: &Path) {
+        let config_path = workspace_path.join("graphql.config.yaml");
+
+        // Don't overwrite existing config
+        if config_path.exists() {
+            self.client
+                .show_message(
+                    MessageType::INFO,
+                    "Config file already exists at graphql.config.yaml",
+                )
+                .await;
+            return;
+        }
+
+        let default_config = r#"# GraphQL configuration
+# See: https://the-guild.dev/graphql/config/docs
+
+schema: "schema.graphql"
+documents: "**/*.graphql"
+"#;
+
+        match std::fs::write(&config_path, default_config) {
+            Ok(()) => {
+                self.client
+                    .show_message(
+                        MessageType::INFO,
+                        "Created graphql.config.yaml. Update the schema path and reload the window.",
                     )
                     .await;
             }
             Err(e) => {
-                tracing::error!("Error searching for config: {}", e);
+                self.client
+                    .show_message(MessageType::ERROR, format!("Failed to create config: {e}"))
+                    .await;
             }
         }
     }
