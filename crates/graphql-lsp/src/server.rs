@@ -6,24 +6,27 @@ use dashmap::DashMap;
 use graphql_config::find_config;
 use graphql_ide::AnalysisHost;
 use lsp_types::{
-    CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
+    ClientCapabilities, CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
     DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, FileChangeType,
     FileSystemWatcher, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
     HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
-    MessageType, OneOf, ReferenceParams, ServerCapabilities, ServerInfo, SymbolInformation,
-    TextDocumentSyncCapability, TextDocumentSyncKind, Uri, WorkDoneProgressOptions,
-    WorkspaceSymbol, WorkspaceSymbolParams,
+    MessageActionItem, MessageType, OneOf, ReferenceParams, ServerCapabilities, ServerInfo,
+    SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
+    WorkDoneProgressOptions, WorkspaceSymbol, WorkspaceSymbolParams,
 };
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::{Client, LanguageServer, UriExt};
 
 pub struct GraphQLLanguageServer {
     client: Client,
+    /// Client capabilities received during initialization
+    client_capabilities: Arc<RwLock<Option<ClientCapabilities>>>,
     /// Workspace folders from initialization (stored temporarily until we load configs)
     init_workspace_folders: Arc<DashMap<String, PathBuf>>,
     /// Workspace roots indexed by workspace folder URI string
@@ -41,6 +44,7 @@ impl GraphQLLanguageServer {
     pub fn new(client: Client) -> Self {
         Self {
             client,
+            client_capabilities: Arc::new(RwLock::new(None)),
             init_workspace_folders: Arc::new(DashMap::new()),
             workspace_roots: Arc::new(DashMap::new()),
             config_paths: Arc::new(DashMap::new()),
@@ -150,15 +154,75 @@ impl GraphQLLanguageServer {
                 }
             }
             Ok(None) => {
-                self.client
-                    .log_message(
+                // Show a prominent notification with action to create config
+                let actions = vec![
+                    MessageActionItem {
+                        title: "Create Config".to_string(),
+                        properties: HashMap::default(),
+                    },
+                    MessageActionItem {
+                        title: "Dismiss".to_string(),
+                        properties: HashMap::default(),
+                    },
+                ];
+
+                let response = self
+                    .client
+                    .show_message_request(
                         MessageType::WARNING,
-                        "No graphql.config found. Place a graphql.config.yaml in your workspace root.",
+                        "No GraphQL config found. Schema validation and full IDE features require a config file.",
+                        Some(actions),
+                    )
+                    .await;
+
+                // Handle "Create Config" action
+                if let Ok(Some(action)) = response {
+                    if action.title == "Create Config" {
+                        self.create_default_config(workspace_path).await;
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!("Error searching for config: {}", e);
+            }
+        }
+    }
+
+    /// Create a default GraphQL config file in the workspace root
+    async fn create_default_config(&self, workspace_path: &Path) {
+        let config_path = workspace_path.join("graphql.config.yaml");
+
+        // Don't overwrite existing config
+        if config_path.exists() {
+            self.client
+                .show_message(
+                    MessageType::INFO,
+                    "Config file already exists at graphql.config.yaml",
+                )
+                .await;
+            return;
+        }
+
+        let default_config = r#"# GraphQL configuration
+# See: https://the-guild.dev/graphql/config/docs
+
+schema: "schema.graphql"
+documents: "**/*.graphql"
+"#;
+
+        match std::fs::write(&config_path, default_config) {
+            Ok(()) => {
+                self.client
+                    .show_message(
+                        MessageType::INFO,
+                        "Created graphql.config.yaml. Update the schema path and reload the window.",
                     )
                     .await;
             }
             Err(e) => {
-                tracing::error!("Error searching for config: {}", e);
+                self.client
+                    .show_message(MessageType::ERROR, format!("Failed to create config: {e}"))
+                    .await;
             }
         }
     }
@@ -555,9 +619,67 @@ impl GraphQLLanguageServer {
 impl GraphQLLanguageServer {}
 
 impl LanguageServer for GraphQLLanguageServer {
+    #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self, params))]
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         tracing::info!("Initializing GraphQL Language Server");
+
+        // Store client capabilities for later use
+        {
+            let mut caps = self.client_capabilities.write().await;
+            *caps = Some(params.capabilities.clone());
+        }
+
+        // Extract client capability information for negotiation
+        let text_document_caps = params.capabilities.text_document.as_ref();
+
+        // Check if client supports incremental text document sync
+        let supports_incremental_sync = text_document_caps
+            .and_then(|td| td.synchronization.as_ref())
+            .is_some();
+        tracing::debug!(
+            supports_incremental_sync,
+            "Client text document sync capability"
+        );
+
+        // Check if client supports hover
+        let supports_hover = text_document_caps
+            .and_then(|td| td.hover.as_ref())
+            .is_some();
+
+        // Check if client supports completion
+        let supports_completion = text_document_caps
+            .and_then(|td| td.completion.as_ref())
+            .is_some();
+
+        // Check if client supports goto definition
+        let supports_definition = text_document_caps
+            .and_then(|td| td.definition.as_ref())
+            .is_some();
+
+        // Check if client supports find references
+        let supports_references = text_document_caps
+            .and_then(|td| td.references.as_ref())
+            .is_some();
+
+        // Check if client supports document symbols
+        let supports_document_symbols = text_document_caps
+            .and_then(|td| td.document_symbol.as_ref())
+            .is_some();
+
+        // Check workspace capabilities
+        let workspace_caps = params.capabilities.workspace.as_ref();
+        let supports_workspace_symbols = workspace_caps.and_then(|ws| ws.symbol.as_ref()).is_some();
+
+        tracing::info!(
+            supports_hover,
+            supports_completion,
+            supports_definition,
+            supports_references,
+            supports_document_symbols,
+            supports_workspace_symbols,
+            "Client capabilities detected"
+        );
 
         // Store workspace folders for later config loading
         if let Some(ref folders) = params.workspace_folders {
@@ -580,20 +702,21 @@ impl LanguageServer for GraphQLLanguageServer {
             tracing::warn!("No workspace folders provided in initialization");
         }
 
+        // Build server capabilities based on client support
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
-                completion_provider: Some(CompletionOptions {
+                completion_provider: supports_completion.then(|| CompletionOptions {
                     trigger_characters: Some(vec!["{".to_string(), "@".to_string()]),
                     ..Default::default()
                 }),
-                hover_provider: Some(HoverProviderCapability::Simple(true)),
-                definition_provider: Some(OneOf::Left(true)),
-                references_provider: Some(OneOf::Left(true)),
-                document_symbol_provider: Some(OneOf::Left(true)),
-                workspace_symbol_provider: Some(OneOf::Left(true)),
+                hover_provider: supports_hover.then_some(HoverProviderCapability::Simple(true)),
+                definition_provider: supports_definition.then_some(OneOf::Left(true)),
+                references_provider: supports_references.then_some(OneOf::Left(true)),
+                document_symbol_provider: supports_document_symbols.then_some(OneOf::Left(true)),
+                workspace_symbol_provider: supports_workspace_symbols.then_some(OneOf::Left(true)),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["graphql.checkStatus".to_string()],
                     work_done_progress_options: WorkDoneProgressOptions::default(),

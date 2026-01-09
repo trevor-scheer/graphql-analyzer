@@ -45,7 +45,6 @@ pub fn validate_file(
             // Uses the already-parsed tree to avoid redundant parsing
             let referenced_fragments =
                 collect_referenced_fragments_transitive(&block.tree, project_files, db);
-            let fragment_source_index = graphql_hir::fragment_source_index(db, project_files);
 
             let valid_schema =
                 apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
@@ -57,14 +56,17 @@ pub fn validate_file(
             // The AST is cached via graphql_syntax::parse()
             builder.add_ast_document(&block.ast, true);
 
-            // Add referenced fragments using the source index for O(1) lookup
+            // Add referenced fragments using per-fragment queries for fine-grained invalidation
+            // This ensures that changing fragment A only invalidates files that actually use A
             let mut added_fragments = std::collections::HashSet::new();
             for fragment_name in &referenced_fragments {
                 let key: Arc<str> = Arc::from(fragment_name.as_str());
                 if !added_fragments.insert(key.clone()) {
                     continue;
                 }
-                if let Some(fragment_source) = fragment_source_index.get(&key) {
+                // Fine-grained query: only creates dependency on this specific fragment
+                if let Some(fragment_source) = graphql_hir::fragment_source(db, project_files, key)
+                {
                     apollo_compiler::parser::Parser::new().parse_into_executable_builder(
                         fragment_source.as_ref(),
                         format!("fragment:{fragment_name}"),
@@ -133,7 +135,6 @@ pub fn validate_file(
     // Use the already-parsed tree to avoid redundant parsing
     let referenced_fragments =
         collect_referenced_fragments_transitive(&parse.tree, project_files, db);
-    let fragment_source_index = graphql_hir::fragment_source_index(db, project_files);
     let valid_schema = apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
     let mut errors = apollo_compiler::validation::DiagnosticList::new(Arc::default());
     let mut builder = apollo_compiler::ExecutableDocument::builder(Some(valid_schema), &mut errors);
@@ -146,14 +147,16 @@ pub fn validate_file(
     // The AST is cached via graphql_syntax::parse()
     builder.add_ast_document(&parse.ast, true);
 
-    // Add referenced fragments using the source index for O(1) lookup
+    // Add referenced fragments using per-fragment queries for fine-grained invalidation
+    // This ensures that changing fragment A only invalidates files that actually use A
     let mut added_fragments = std::collections::HashSet::new();
     for fragment_name in &referenced_fragments {
         let key: Arc<str> = Arc::from(fragment_name.as_str());
         if !added_fragments.insert(key.clone()) {
             continue;
         }
-        if let Some(fragment_source) = fragment_source_index.get(&key) {
+        // Fine-grained query: only creates dependency on this specific fragment
+        if let Some(fragment_source) = graphql_hir::fragment_source(db, project_files, key) {
             apollo_compiler::parser::Parser::new().parse_into_executable_builder(
                 fragment_source.as_ref(),
                 format!("fragment:{fragment_name}"),
@@ -261,16 +264,18 @@ fn collect_referenced_fragments_transitive(
 /// Collect all fragment names referenced by a document (in the same file only)
 /// This includes fragments directly referenced in operations and fragments referenced by other fragments
 /// Uses an already-parsed syntax tree to avoid redundant parsing
+///
+/// Note: We always attempt to collect fragments regardless of parse errors because
+/// apollo-parser is error-tolerant and produces a usable CST even with syntax errors.
+/// This ensures cross-file fragment resolution works even when files have parse errors.
 fn collect_referenced_fragments_from_tree(
     tree: &apollo_parser::SyntaxTree,
 ) -> std::collections::HashSet<String> {
     use std::collections::HashSet;
 
-    if tree.errors().next().is_some() {
-        // If there are parse errors, return empty set (apollo-compiler will report the errors)
-        return HashSet::new();
-    }
-
+    // Always collect fragments, even with parse errors.
+    // apollo-parser is error-tolerant and produces a CST that may contain
+    // valid fragment spreads even when other parts of the document have errors.
     let mut referenced = HashSet::new();
     let document = tree.document();
 
@@ -758,5 +763,72 @@ mod tests {
                 diag.range.start.line
             );
         }
+    }
+
+    #[test]
+    fn test_fragment_collection_with_parse_errors() {
+        let db = TestDatabase::default();
+
+        // Create schema
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from("type Query { user: User } type User { id: ID! name: String! }"),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        // Create fragment file
+        let frag_id = FileId::new(1);
+        let frag_content =
+            FileContent::new(&db, Arc::from("fragment UserFields on User { id name }"));
+        let frag_metadata = FileMetadata::new(
+            &db,
+            frag_id,
+            FileUri::new("fragments.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        // Create query that uses the fragment but has a syntax error elsewhere
+        // The fragment spread is valid, but the document has a parse error (missing closing brace)
+        let query_id = FileId::new(2);
+        let query_content = FileContent::new(
+            &db,
+            Arc::from("query GetUser {\n  user {\n    ...UserFields\n    invalidSyntax{\n}\n"),
+        );
+        let query_metadata = FileMetadata::new(
+            &db,
+            query_id,
+            FileUri::new("query.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let project_files = create_project_files(
+            &db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[
+                (frag_id, frag_content, frag_metadata),
+                (query_id, query_content, query_metadata),
+            ],
+        );
+
+        // Validate the query - it should have syntax errors but NOT "unknown fragment" errors
+        // Because apollo-parser is error-tolerant and we should still collect fragment references
+        let diagnostics = validate_file(&db, query_content, query_metadata, project_files);
+
+        // We expect syntax errors, but NOT "unknown fragment UserFields" error
+        // The fragment should resolve correctly despite the parse errors
+        let has_unknown_fragment_error = diagnostics.iter().any(|d| {
+            d.message.contains("unknown fragment") || d.message.contains("Unknown fragment")
+        });
+
+        assert!(
+            !has_unknown_fragment_error,
+            "Fragment 'UserFields' should resolve even with parse errors in the document. Diagnostics: {diagnostics:?}"
+        );
     }
 }
