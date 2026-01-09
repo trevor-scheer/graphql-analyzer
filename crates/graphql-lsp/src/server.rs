@@ -38,6 +38,9 @@ pub struct GraphQLLanguageServer {
     /// `AnalysisHost` per (workspace URI, project name) tuple
     #[allow(clippy::type_complexity)]
     hosts: Arc<DashMap<(String, String), Arc<Mutex<AnalysisHost>>>>,
+    /// Document versions indexed by document URI string
+    /// Used to detect out-of-order updates and avoid race conditions
+    document_versions: Arc<DashMap<String, i32>>,
 }
 
 impl GraphQLLanguageServer {
@@ -50,6 +53,7 @@ impl GraphQLLanguageServer {
             config_paths: Arc::new(DashMap::new()),
             configs: Arc::new(DashMap::new()),
             hosts: Arc::new(DashMap::new()),
+            document_versions: Arc::new(DashMap::new()),
         }
     }
 
@@ -855,6 +859,10 @@ impl LanguageServer for GraphQLLanguageServer {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
         let content = params.text_document.text;
+        let version = params.text_document.version;
+
+        // Track the initial document version
+        self.document_versions.insert(uri.to_string(), version);
 
         // Add to AnalysisHost
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
@@ -895,6 +903,22 @@ impl LanguageServer for GraphQLLanguageServer {
     #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
+        let version = params.text_document.version;
+
+        // Check document version to detect out-of-order updates
+        let uri_string = uri.to_string();
+        if let Some(current_version) = self.document_versions.get(&uri_string) {
+            if version <= *current_version {
+                tracing::warn!(
+                    "Ignoring stale document update: version {} <= current {}",
+                    version,
+                    *current_version
+                );
+                return;
+            }
+        }
+        // Update tracked version
+        self.document_versions.insert(uri_string, version);
 
         // Get the latest content from changes (full sync mode)
         for change in params.content_changes {
@@ -947,6 +971,9 @@ impl LanguageServer for GraphQLLanguageServer {
         // The file is still part of the project on disk, and other files may reference
         // fragments/types defined in it. Only files that are deleted from disk should be
         // removed from the analysis.
+
+        // Remove version tracking for closed document
+        self.document_versions.remove(&params.text_document.uri.to_string());
 
         // Clear diagnostics for the closed file
         self.client
