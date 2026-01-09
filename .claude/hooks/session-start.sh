@@ -16,7 +16,7 @@ echo "Installing gh CLI..."
 
 # Download gh binary directly from GitHub releases
 # This avoids apt which may not work in restricted network environments
-GH_VERSION="2.67.0"
+GH_VERSION=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest | grep -oP '"tag_name":\s*"v\K[^"]+')
 GH_ARCHIVE="gh_${GH_VERSION}_linux_amd64.tar.gz"
 GH_URL="https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE}"
 
