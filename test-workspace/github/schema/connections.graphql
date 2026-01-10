@@ -1,0 +1,1004 @@
+"""
+Information about pagination in a connection.
+"""
+type PageInfo {
+  """
+  When paginating forwards, the cursor to continue.
+  """
+  endCursor: String
+
+  """
+  When paginating forwards, are there more items?
+  """
+  hasNextPage: Boolean!
+
+  """
+  When paginating backwards, are there more items?
+  """
+  hasPreviousPage: Boolean!
+
+  """
+  When paginating backwards, the cursor to continue.
+  """
+  startCursor: String
+}
+
+"""
+The connection type for User.
+"""
+type UserConnection {
+  """
+  A list of edges.
+  """
+  edges: [UserEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [User]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type UserEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: User
+}
+
+"""
+The connection type for Repository.
+"""
+type RepositoryConnection {
+  """
+  A list of edges.
+  """
+  edges: [RepositoryEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Repository]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+
+  """
+  The total size in kilobytes of all repositories.
+  """
+  totalDiskUsage: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type RepositoryEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Repository
+}
+
+"""
+The connection type for Issue.
+"""
+type IssueConnection {
+  """
+  A list of edges.
+  """
+  edges: [IssueEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Issue]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type IssueEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Issue
+}
+
+"""
+The connection type for PullRequest.
+"""
+type PullRequestConnection {
+  """
+  A list of edges.
+  """
+  edges: [PullRequestEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [PullRequest]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type PullRequestEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: PullRequest
+}
+
+"""
+The connection type for Commit.
+"""
+type CommitConnection {
+  """
+  A list of edges.
+  """
+  edges: [CommitEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Commit]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type CommitEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Commit
+}
+
+"""
+The connection type for Ref.
+"""
+type RefConnection {
+  """
+  A list of edges.
+  """
+  edges: [RefEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Ref]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type RefEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Ref
+}
+
+"""
+The connection type for Label.
+"""
+type LabelConnection {
+  """
+  A list of edges.
+  """
+  edges: [LabelEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Label]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type LabelEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Label
+}
+
+"""
+The connection type for Milestone.
+"""
+type MilestoneConnection {
+  """
+  A list of edges.
+  """
+  edges: [MilestoneEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Milestone]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type MilestoneEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Milestone
+}
+
+"""
+The connection type for Reaction.
+"""
+type ReactionConnection {
+  """
+  A list of edges.
+  """
+  edges: [ReactionEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Reaction]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+
+  """
+  Whether the viewer can react.
+  """
+  viewerHasReacted: Boolean!
+}
+
+"""
+An edge in a connection.
+"""
+type ReactionEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Reaction
+}
+
+"""
+The connection type for IssueComment.
+"""
+type IssueCommentConnection {
+  """
+  A list of edges.
+  """
+  edges: [IssueCommentEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [IssueComment]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type IssueCommentEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: IssueComment
+}
+
+"""
+The connection type for PullRequestReview.
+"""
+type PullRequestReviewConnection {
+  """
+  A list of edges.
+  """
+  edges: [PullRequestReviewEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [PullRequestReview]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type PullRequestReviewEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: PullRequestReview
+}
+
+"""
+The connection type for Team.
+"""
+type TeamConnection {
+  """
+  A list of edges.
+  """
+  edges: [TeamEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Team]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type TeamEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Team
+}
+
+"""
+The connection type for Organization.
+"""
+type OrganizationConnection {
+  """
+  A list of edges.
+  """
+  edges: [OrganizationEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Organization]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type OrganizationEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Organization
+}
+
+"""
+The connection type for Release.
+"""
+type ReleaseConnection {
+  """
+  A list of edges.
+  """
+  edges: [ReleaseEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Release]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type ReleaseEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Release
+}
+
+"""
+The connection type for Deployment.
+"""
+type DeploymentConnection {
+  """
+  A list of edges.
+  """
+  edges: [DeploymentEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Deployment]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type DeploymentEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Deployment
+}
+
+"""
+The connection type for Stargazer.
+"""
+type StargazerConnection {
+  """
+  A list of edges.
+  """
+  edges: [StargazerEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [User]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type StargazerEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: User
+
+  """
+  When the item was starred.
+  """
+  starredAt: DateTime!
+}
+
+"""
+The connection type for Contributor.
+"""
+type ContributorConnection {
+  """
+  A list of edges.
+  """
+  edges: [ContributorEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [User]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type ContributorEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: User
+
+  """
+  The number of contributions.
+  """
+  contributions: Int!
+}
+
+"""
+The connection type for Discussion.
+"""
+type DiscussionConnection {
+  """
+  A list of edges.
+  """
+  edges: [DiscussionEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Discussion]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type DiscussionEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Discussion
+}
+
+"""
+The connection type for ProjectV2.
+"""
+type ProjectV2Connection {
+  """
+  A list of edges.
+  """
+  edges: [ProjectV2Edge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [ProjectV2]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type ProjectV2Edge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: ProjectV2
+}
+
+"""
+The connection type for ProjectV2Item.
+"""
+type ProjectV2ItemConnection {
+  """
+  A list of edges.
+  """
+  edges: [ProjectV2ItemEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [ProjectV2Item]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type ProjectV2ItemEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: ProjectV2Item
+}
+
+"""
+The connection type for Workflow.
+"""
+type WorkflowConnection {
+  """
+  A list of edges.
+  """
+  edges: [WorkflowEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Workflow]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type WorkflowEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Workflow
+}
+
+"""
+The connection type for WorkflowRun.
+"""
+type WorkflowRunConnection {
+  """
+  A list of edges.
+  """
+  edges: [WorkflowRunEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [WorkflowRun]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type WorkflowRunEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: WorkflowRun
+}
+
+"""
+The connection type for CheckRun.
+"""
+type CheckRunConnection {
+  """
+  A list of edges.
+  """
+  edges: [CheckRunEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [CheckRun]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type CheckRunEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: CheckRun
+}
+
+"""
+The connection type for CheckSuite.
+"""
+type CheckSuiteConnection {
+  """
+  A list of edges.
+  """
+  edges: [CheckSuiteEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [CheckSuite]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type CheckSuiteEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: CheckSuite
+}

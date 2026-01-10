@@ -1,0 +1,47 @@
+# Fragment-only file - no operations
+# Tests extraction of fragment definitions
+
+fragment UserBasic on User {
+  id
+  login
+  name
+  avatarUrl
+  url
+}
+
+fragment UserProfile on User {
+  ...UserBasic
+  bio
+  company
+  location
+  email
+  websiteUrl
+  twitterUsername
+  createdAt
+  updatedAt
+}
+
+fragment UserStats on User {
+  followers {
+    totalCount
+  }
+  following {
+    totalCount
+  }
+  repositories {
+    totalCount
+  }
+  starredRepositories {
+    totalCount
+  }
+}
+
+fragment UserWithOrgs on User {
+  ...UserProfile
+  ...UserStats
+  organizations(first: 10) {
+    nodes {
+      ...OrganizationBasic
+    }
+  }
+}

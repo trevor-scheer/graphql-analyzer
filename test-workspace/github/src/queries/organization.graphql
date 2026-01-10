@@ -1,0 +1,125 @@
+# Organization queries
+
+query GetOrganization($login: String!) {
+  organization(login: $login) {
+    ...OrganizationFull
+  }
+}
+
+query GetOrganizationMembers(
+  $login: String!
+  $first: Int = 30
+  $after: String
+) {
+  organization(login: $login) {
+    membersWithRole(first: $first, after: $after) {
+      totalCount
+      pageInfo {
+        ...PageInfoFull
+      }
+      edges {
+        role
+        hasTwoFactorEnabled
+        node {
+          ...UserProfile
+        }
+      }
+    }
+  }
+}
+
+query GetOrganizationTeams(
+  $login: String!
+  $first: Int = 30
+  $after: String
+  $query: String
+  $privacy: TeamPrivacy
+) {
+  organization(login: $login) {
+    teams(first: $first, after: $after, query: $query, privacy: $privacy, rootTeamsOnly: true) {
+      totalCount
+      pageInfo {
+        ...PageInfoFull
+      }
+      nodes {
+        ...TeamDetails
+      }
+    }
+  }
+}
+
+query GetOrganizationRepositories(
+  $login: String!
+  $first: Int = 30
+  $after: String
+  $orderBy: RepositoryOrder
+  $privacy: RepositoryPrivacy
+) {
+  organization(login: $login) {
+    repositories(first: $first, after: $after, orderBy: $orderBy, privacy: $privacy) {
+      totalCount
+      pageInfo {
+        ...PageInfoFull
+      }
+      nodes {
+        ...RepositoryDetails
+      }
+    }
+  }
+}
+
+query GetOrganizationProjects(
+  $login: String!
+  $first: Int = 20
+  $after: String
+) {
+  organization(login: $login) {
+    projectsV2(first: $first, after: $after) {
+      totalCount
+      pageInfo {
+        ...PageInfoFull
+      }
+      nodes {
+        id
+        number
+        title
+        shortDescription
+        public
+        closed
+        createdAt
+        updatedAt
+        creator {
+          ...ActorBasic
+        }
+      }
+    }
+  }
+}
+
+query GetTeam($login: String!, $slug: String!) {
+  organization(login: $login) {
+    team(slug: $slug) {
+      ...TeamDetails
+      ancestors(first: 10) {
+        nodes {
+          ...TeamBasic
+        }
+      }
+      discussions(first: 10) {
+        totalCount
+        nodes {
+          id
+          number
+          title
+          author {
+            ...ActorBasic
+          }
+          createdAt
+          comments {
+            totalCount
+          }
+        }
+      }
+    }
+  }
+}

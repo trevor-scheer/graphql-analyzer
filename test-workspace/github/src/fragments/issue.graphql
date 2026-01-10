@@ -1,0 +1,77 @@
+# Fragment-only file for Issue types
+
+fragment IssueBasic on Issue {
+  id
+  number
+  title
+  state
+  url
+  createdAt
+  updatedAt
+}
+
+fragment IssueDetails on Issue {
+  ...IssueBasic
+  body
+  bodyHTML
+  closedAt
+  stateReason
+  locked
+  activeLockReason
+  author {
+    ...ActorBasic
+  }
+}
+
+fragment IssueWithLabels on Issue {
+  ...IssueDetails
+  labels(first: 10) {
+    nodes {
+      ...LabelBasic
+    }
+  }
+}
+
+fragment IssueWithAssignees on Issue {
+  ...IssueWithLabels
+  assignees(first: 10) {
+    nodes {
+      ...UserBasic
+    }
+  }
+}
+
+fragment IssueFull on Issue {
+  ...IssueWithAssignees
+  milestone {
+    ...MilestoneBasic
+  }
+  comments(first: 20) {
+    totalCount
+    nodes {
+      ...IssueCommentBasic
+    }
+  }
+  reactions {
+    totalCount
+  }
+  projectItems(first: 5) {
+    nodes {
+      ...ProjectItemBasic
+    }
+  }
+}
+
+fragment IssueCommentBasic on IssueComment {
+  id
+  body
+  bodyHTML
+  createdAt
+  updatedAt
+  author {
+    ...ActorBasic
+  }
+  reactions {
+    totalCount
+  }
+}

@@ -1,0 +1,62 @@
+# Admin-specific mutations
+# Tests mutations that use extended schema
+
+mutation SuspendUser($userId: ID!, $reason: String!, $duration: Int) {
+  suspendUser(input: { userId: $userId, reason: $reason, duration: $duration }) {
+    clientMutationId
+    user {
+      id
+      login
+      name
+    }
+  }
+}
+
+mutation UnsuspendUser($userId: ID!) {
+  unsuspendUser(input: { userId: $userId }) {
+    clientMutationId
+    user {
+      id
+      login
+      name
+    }
+  }
+}
+
+mutation AdminDeleteRepository($repositoryId: ID!, $reason: String!) {
+  adminDeleteRepository(input: { repositoryId: $repositoryId, reason: $reason }) {
+    clientMutationId
+    success
+  }
+}
+
+mutation AdminTransferRepository($repositoryId: ID!, $newOwnerId: ID!, $reason: String) {
+  adminTransferRepository(
+    input: { repositoryId: $repositoryId, newOwnerId: $newOwnerId, reason: $reason }
+  ) {
+    clientMutationId
+    repository {
+      id
+      nameWithOwner
+      owner {
+        login
+      }
+    }
+  }
+}
+
+mutation BulkRemoveMembers($organizationId: ID!, $userIds: [ID!]!, $reason: String) {
+  bulkRemoveOrganizationMembers(
+    input: { organizationId: $organizationId, userIds: $userIds, reason: $reason }
+  ) {
+    clientMutationId
+    removedUsers {
+      id
+      login
+    }
+    failedUsers {
+      id
+      login
+    }
+  }
+}

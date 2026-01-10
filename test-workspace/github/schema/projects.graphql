@@ -1,0 +1,655 @@
+"""
+A project for organizing issues and pull requests.
+"""
+type ProjectV2 implements Node & Closable & Updatable {
+  """
+  Whether the project is closed.
+  """
+  closed: Boolean!
+
+  """
+  Identifies the date and time when the object was closed.
+  """
+  closedAt: DateTime
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  The actor who created the project.
+  """
+  creator: Actor
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  A field by name.
+  """
+  field(name: String!): ProjectV2FieldConfiguration
+
+  """
+  A list of fields in the project.
+  """
+  fields(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2FieldOrder): ProjectV2FieldConfigurationConnection!
+
+  id: ID!
+
+  """
+  A list of items in the project.
+  """
+  items(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2ItemOrder): ProjectV2ItemConnection!
+
+  """
+  The project number.
+  """
+  number: Int!
+
+  """
+  The project owner.
+  """
+  owner: ProjectV2Owner!
+
+  """
+  Whether the project is public.
+  """
+  public: Boolean!
+
+  """
+  The project's README.
+  """
+  readme: String
+
+  """
+  The repositories linked to the project.
+  """
+  repositories(first: Int, after: String, last: Int, before: String, orderBy: RepositoryOrder): RepositoryConnection!
+
+  """
+  The HTTP path for the project.
+  """
+  resourcePath: URI!
+
+  """
+  The project's short description.
+  """
+  shortDescription: String
+
+  """
+  The teams linked to the project.
+  """
+  teams(first: Int, after: String, last: Int, before: String, orderBy: TeamOrder): TeamConnection!
+
+  """
+  The project's template.
+  """
+  template: Boolean!
+
+  """
+  The project's title.
+  """
+  title: String!
+
+  """
+  Identifies the date and time when the object was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The HTTP URL for the project.
+  """
+  url: URI!
+
+  """
+  Whether the viewer can close the project.
+  """
+  viewerCanClose: Boolean!
+
+  """
+  Whether the viewer can reopen the project.
+  """
+  viewerCanReopen: Boolean!
+
+  """
+  Whether the viewer can update the project.
+  """
+  viewerCanUpdate: Boolean!
+
+  """
+  A list of views in the project.
+  """
+  views(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2ViewOrder): ProjectV2ViewConnection!
+
+  """
+  A list of workflows in the project.
+  """
+  workflows(first: Int, after: String, last: Int, before: String): ProjectV2WorkflowConnection!
+}
+
+union ProjectV2Owner = Organization | Repository | User
+
+"""
+An item in a project.
+"""
+type ProjectV2Item implements Node {
+  """
+  The content of the item.
+  """
+  content: ProjectV2ItemContent
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  The actor who created the item.
+  """
+  creator: Actor
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  A field value by name.
+  """
+  fieldValueByName(name: String!): ProjectV2ItemFieldValue
+
+  """
+  A list of field values for the item.
+  """
+  fieldValues(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2ItemFieldValueOrder): ProjectV2ItemFieldValueConnection!
+
+  id: ID!
+
+  """
+  Whether the item is archived.
+  """
+  isArchived: Boolean!
+
+  """
+  The project containing this item.
+  """
+  project: ProjectV2!
+
+  """
+  The type of the item.
+  """
+  type: ProjectV2ItemType!
+
+  """
+  Identifies the date and time when the object was last updated.
+  """
+  updatedAt: DateTime!
+}
+
+union ProjectV2ItemContent = DraftIssue | Issue | PullRequest
+
+enum ProjectV2ItemType {
+  ISSUE
+  PULL_REQUEST
+  DRAFT_ISSUE
+  REDACTED
+}
+
+type DraftIssue implements Node {
+  assignees(first: Int, after: String, last: Int, before: String): UserConnection!
+  body: String!
+  bodyHTML: HTML!
+  bodyText: String!
+  createdAt: DateTime!
+  creator: Actor
+  id: ID!
+  projectV2Items(first: Int, after: String, last: Int, before: String): ProjectV2ItemConnection!
+  projectsV2(first: Int, after: String, last: Int, before: String, query: String): ProjectV2Connection!
+  title: String!
+  updatedAt: DateTime!
+}
+
+"""
+A field in a project.
+"""
+union ProjectV2FieldConfiguration = ProjectV2Field | ProjectV2IterationField | ProjectV2SingleSelectField
+
+type ProjectV2Field implements Node & ProjectV2FieldCommon {
+  createdAt: DateTime!
+  dataType: ProjectV2FieldType!
+  databaseId: Int
+  id: ID!
+  name: String!
+  project: ProjectV2!
+  updatedAt: DateTime!
+}
+
+type ProjectV2IterationField implements Node & ProjectV2FieldCommon {
+  configuration: ProjectV2IterationFieldConfiguration!
+  createdAt: DateTime!
+  dataType: ProjectV2FieldType!
+  databaseId: Int
+  id: ID!
+  name: String!
+  project: ProjectV2!
+  updatedAt: DateTime!
+}
+
+type ProjectV2IterationFieldConfiguration {
+  completedIterations: [ProjectV2IterationFieldIteration!]!
+  duration: Int!
+  iterations: [ProjectV2IterationFieldIteration!]!
+  startDay: Int!
+}
+
+type ProjectV2IterationFieldIteration {
+  duration: Int!
+  id: String!
+  startDate: Date!
+  title: String!
+  titleHTML: String!
+}
+
+type ProjectV2SingleSelectField implements Node & ProjectV2FieldCommon {
+  createdAt: DateTime!
+  dataType: ProjectV2FieldType!
+  databaseId: Int
+  id: ID!
+  name: String!
+  options(names: [String!]): [ProjectV2SingleSelectFieldOption!]!
+  project: ProjectV2!
+  updatedAt: DateTime!
+}
+
+type ProjectV2SingleSelectFieldOption {
+  color: ProjectV2SingleSelectFieldOptionColor!
+  description: String!
+  descriptionHTML: String!
+  id: String!
+  name: String!
+  nameHTML: String!
+}
+
+enum ProjectV2SingleSelectFieldOptionColor {
+  GRAY
+  BLUE
+  GREEN
+  YELLOW
+  ORANGE
+  RED
+  PINK
+  PURPLE
+}
+
+interface ProjectV2FieldCommon {
+  createdAt: DateTime!
+  dataType: ProjectV2FieldType!
+  databaseId: Int
+  id: ID!
+  name: String!
+  project: ProjectV2!
+  updatedAt: DateTime!
+}
+
+type ProjectV2FieldConfigurationConnection {
+  edges: [ProjectV2FieldConfigurationEdge]
+  nodes: [ProjectV2FieldConfiguration]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ProjectV2FieldConfigurationEdge {
+  cursor: String!
+  node: ProjectV2FieldConfiguration
+}
+
+input ProjectV2FieldOrder {
+  field: ProjectV2FieldOrderField!
+  direction: OrderDirection!
+}
+
+enum ProjectV2FieldOrderField {
+  POSITION
+  CREATED_AT
+  NAME
+}
+
+"""
+A field value in a project item.
+"""
+union ProjectV2ItemFieldValue = ProjectV2ItemFieldDateValue | ProjectV2ItemFieldIterationValue | ProjectV2ItemFieldNumberValue | ProjectV2ItemFieldSingleSelectValue | ProjectV2ItemFieldTextValue | ProjectV2ItemFieldMilestoneValue | ProjectV2ItemFieldLabelValue | ProjectV2ItemFieldPullRequestValue | ProjectV2ItemFieldRepositoryValue | ProjectV2ItemFieldReviewerValue | ProjectV2ItemFieldUserValue
+
+type ProjectV2ItemFieldDateValue implements Node & ProjectV2ItemFieldValueCommon {
+  createdAt: DateTime!
+  creator: Actor
+  databaseId: Int
+  date: Date
+  field: ProjectV2FieldConfiguration!
+  id: ID!
+  item: ProjectV2Item!
+  updatedAt: DateTime!
+}
+
+type ProjectV2ItemFieldIterationValue implements Node & ProjectV2ItemFieldValueCommon {
+  createdAt: DateTime!
+  creator: Actor
+  databaseId: Int
+  duration: Int!
+  field: ProjectV2FieldConfiguration!
+  id: ID!
+  item: ProjectV2Item!
+  iterationId: String!
+  startDate: Date!
+  title: String!
+  titleHTML: String!
+  updatedAt: DateTime!
+}
+
+type ProjectV2ItemFieldNumberValue implements Node & ProjectV2ItemFieldValueCommon {
+  createdAt: DateTime!
+  creator: Actor
+  databaseId: Int
+  field: ProjectV2FieldConfiguration!
+  id: ID!
+  item: ProjectV2Item!
+  number: Float
+  updatedAt: DateTime!
+}
+
+type ProjectV2ItemFieldSingleSelectValue implements Node & ProjectV2ItemFieldValueCommon {
+  color: ProjectV2SingleSelectFieldOptionColor!
+  createdAt: DateTime!
+  creator: Actor
+  databaseId: Int
+  description: String
+  descriptionHTML: String
+  field: ProjectV2FieldConfiguration!
+  id: ID!
+  item: ProjectV2Item!
+  name: String
+  nameHTML: String
+  optionId: String
+  updatedAt: DateTime!
+}
+
+type ProjectV2ItemFieldTextValue implements Node & ProjectV2ItemFieldValueCommon {
+  createdAt: DateTime!
+  creator: Actor
+  databaseId: Int
+  field: ProjectV2FieldConfiguration!
+  id: ID!
+  item: ProjectV2Item!
+  text: String
+  updatedAt: DateTime!
+}
+
+type ProjectV2ItemFieldMilestoneValue implements Node {
+  field: ProjectV2FieldConfiguration!
+  id: ID!
+  milestone: Milestone
+}
+
+type ProjectV2ItemFieldLabelValue implements Node {
+  field: ProjectV2FieldConfiguration!
+  id: ID!
+  labels(first: Int, after: String, last: Int, before: String): LabelConnection
+}
+
+type ProjectV2ItemFieldPullRequestValue implements Node {
+  field: ProjectV2FieldConfiguration!
+  id: ID!
+  pullRequests(first: Int, after: String, last: Int, before: String, orderBy: PullRequestOrder): PullRequestConnection
+}
+
+type ProjectV2ItemFieldRepositoryValue implements Node {
+  field: ProjectV2FieldConfiguration!
+  id: ID!
+  repository: Repository
+}
+
+type ProjectV2ItemFieldReviewerValue implements Node {
+  field: ProjectV2FieldConfiguration!
+  id: ID!
+  reviewers(first: Int, after: String, last: Int, before: String): RequestedReviewerConnection
+}
+
+type RequestedReviewerConnection {
+  edges: [RequestedReviewerEdge]
+  nodes: [RequestedReviewer]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type RequestedReviewerEdge {
+  cursor: String!
+  node: RequestedReviewer
+}
+
+type ProjectV2ItemFieldUserValue implements Node {
+  field: ProjectV2FieldConfiguration!
+  id: ID!
+  users(first: Int, after: String, last: Int, before: String): UserConnection
+}
+
+type ProjectV2ItemFieldValueConnection {
+  edges: [ProjectV2ItemFieldValueEdge]
+  nodes: [ProjectV2ItemFieldValue]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ProjectV2ItemFieldValueEdge {
+  cursor: String!
+  node: ProjectV2ItemFieldValue
+}
+
+input ProjectV2ItemFieldValueOrder {
+  field: ProjectV2ItemFieldValueOrderField!
+  direction: OrderDirection!
+}
+
+enum ProjectV2ItemFieldValueOrderField {
+  POSITION
+}
+
+input ProjectV2ItemOrder {
+  field: ProjectV2ItemOrderField!
+  direction: OrderDirection!
+}
+
+enum ProjectV2ItemOrderField {
+  POSITION
+}
+
+"""
+A view in a project.
+"""
+type ProjectV2View implements Node {
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  The filter for the view.
+  """
+  filter: String
+
+  """
+  The fields in the view.
+  """
+  fields(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2FieldOrder): ProjectV2FieldConfigurationConnection
+
+  """
+  The group-by fields for the view.
+  """
+  groupByFields(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2FieldOrder): ProjectV2FieldConfigurationConnection
+
+  id: ID!
+
+  """
+  The layout of the view.
+  """
+  layout: ProjectV2ViewLayout!
+
+  """
+  The view name.
+  """
+  name: String!
+
+  """
+  The view number.
+  """
+  number: Int!
+
+  """
+  The project containing this view.
+  """
+  project: ProjectV2!
+
+  """
+  The sort-by fields for the view.
+  """
+  sortByFields(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2FieldOrder): ProjectV2SortByFieldConnection
+
+  """
+  Identifies the date and time when the object was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The vertical group-by fields for the view.
+  """
+  verticalGroupByFields(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2FieldOrder): ProjectV2FieldConfigurationConnection
+}
+
+type ProjectV2ViewConnection {
+  edges: [ProjectV2ViewEdge]
+  nodes: [ProjectV2View]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ProjectV2ViewEdge {
+  cursor: String!
+  node: ProjectV2View
+}
+
+input ProjectV2ViewOrder {
+  field: ProjectV2ViewOrderField!
+  direction: OrderDirection!
+}
+
+enum ProjectV2ViewOrderField {
+  POSITION
+  CREATED_AT
+  NAME
+}
+
+enum ProjectV2ViewLayout {
+  BOARD_LAYOUT
+  TABLE_LAYOUT
+  ROADMAP_LAYOUT
+}
+
+type ProjectV2SortBy implements Node {
+  direction: OrderDirection!
+  field: ProjectV2FieldConfiguration!
+  id: ID!
+}
+
+type ProjectV2SortByConnection {
+  edges: [ProjectV2SortByEdge]
+  nodes: [ProjectV2SortBy]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ProjectV2SortByEdge {
+  cursor: String!
+  node: ProjectV2SortBy
+}
+
+type ProjectV2SortByFieldConnection {
+  edges: [ProjectV2SortByFieldEdge]
+  nodes: [ProjectV2SortByField]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ProjectV2SortByFieldEdge {
+  cursor: String!
+  node: ProjectV2SortByField
+}
+
+type ProjectV2SortByField implements Node {
+  direction: OrderDirection!
+  field: ProjectV2FieldConfiguration!
+  id: ID!
+}
+
+"""
+A workflow in a project.
+"""
+type ProjectV2Workflow implements Node {
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  Whether the workflow is enabled.
+  """
+  enabled: Boolean!
+
+  id: ID!
+
+  """
+  The workflow name.
+  """
+  name: String!
+
+  """
+  The workflow number.
+  """
+  number: Int!
+
+  """
+  The project containing this workflow.
+  """
+  project: ProjectV2!
+
+  """
+  Identifies the date and time when the object was last updated.
+  """
+  updatedAt: DateTime!
+}
+
+type ProjectV2WorkflowConnection {
+  edges: [ProjectV2WorkflowEdge]
+  nodes: [ProjectV2Workflow]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ProjectV2WorkflowEdge {
+  cursor: String!
+  node: ProjectV2Workflow
+}
+
+interface Updatable {
+  viewerCanUpdate: Boolean!
+}

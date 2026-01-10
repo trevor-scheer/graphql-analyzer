@@ -1,0 +1,879 @@
+"""
+The query root of GitHub's GraphQL interface.
+"""
+type Query {
+  """
+  Look up a code of conduct by its key.
+  """
+  codeOfConduct(key: String!): CodeOfConduct
+
+  """
+  Look up a code of conduct by its key.
+  """
+  codesOfConduct: [CodeOfConduct]
+
+  """
+  Look up an enterprise by URL slug.
+  """
+  enterprise(slug: String!, invitationToken: String): Enterprise
+
+  """
+  Look up an enterprise administrator invitation by token.
+  """
+  enterpriseAdministratorInvitation(enterpriseSlug: String!, role: EnterpriseAdministratorRole!, userLogin: String!): EnterpriseAdministratorInvitation
+
+  """
+  Look up an enterprise administrator invitation by token.
+  """
+  enterpriseAdministratorInvitationByToken(invitationToken: String!): EnterpriseAdministratorInvitation
+
+  """
+  Look up open license details by license key.
+  """
+  license(key: String!): License
+
+  """
+  Return a list of known open source licenses.
+  """
+  licenses: [License]!
+
+  """
+  Get alphabetically sorted list of Marketplace categories.
+  """
+  marketplaceCategories(includeCategories: [String!], excludeEmpty: Boolean, excludeSubcategories: Boolean): [MarketplaceCategory!]!
+
+  """
+  Look up a Marketplace category by its slug.
+  """
+  marketplaceCategory(slug: String!, useTopicAliases: Boolean): MarketplaceCategory
+
+  """
+  Look up a single Marketplace listing.
+  """
+  marketplaceListing(slug: String!): MarketplaceListing
+
+  """
+  Look up Marketplace listings.
+  """
+  marketplaceListings(first: Int, after: String, last: Int, before: String, categorySlug: String, useTopicAliases: Boolean, viewerCanAdmin: Boolean, adminId: ID, organizationId: ID, allStates: Boolean, slugs: [String], primaryCategoryOnly: Boolean = false, withFreeTrialsOnly: Boolean = false): MarketplaceListingConnection!
+
+  """
+  Return information about the GitHub instance.
+  """
+  meta: GitHubMetadata!
+
+  """
+  Fetches an object given its ID.
+  """
+  node(id: ID!): Node
+
+  """
+  Lookup nodes by a list of IDs.
+  """
+  nodes(ids: [ID!]!): [Node]!
+
+  """
+  Lookup an organization by login.
+  """
+  organization(login: String!): Organization
+
+  """
+  The client's rate limit information.
+  """
+  rateLimit(dryRun: Boolean = false): RateLimit
+
+  """
+  Hack to workaround https://github.com/facebook/relay/issues/112 re-resolving interfaces.
+  """
+  relay: Query!
+
+  """
+  Lookup a given repository by the owner and repository name.
+  """
+  repository(owner: String!, name: String!, followRenames: Boolean = true): Repository
+
+  """
+  Lookup a repository owner (a user or an organization) by login.
+  """
+  repositoryOwner(login: String!): RepositoryOwner
+
+  """
+  Lookup resource by a URL.
+  """
+  resource(url: URI!): UniformResourceLocatable
+
+  """
+  Perform a search across resources.
+  """
+  search(first: Int, after: String, last: Int, before: String, query: String!, type: SearchType!): SearchResultItemConnection!
+
+  """
+  GitHub Security Advisories.
+  """
+  securityAdvisories(first: Int, after: String, last: Int, before: String, orderBy: SecurityAdvisoryOrder, identifier: SecurityAdvisoryIdentifierFilter, publishedSince: DateTime, updatedSince: DateTime, classifications: [SecurityAdvisoryClassification!]): SecurityAdvisoryConnection!
+
+  """
+  Fetch a Security Advisory by its GHSA ID.
+  """
+  securityAdvisory(ghsaId: String!): SecurityAdvisory
+
+  """
+  Software Vulnerabilities documented by GitHub Security Advisories.
+  """
+  securityVulnerabilities(first: Int, after: String, last: Int, before: String, orderBy: SecurityVulnerabilityOrder, ecosystem: SecurityAdvisoryEcosystem, package: String, severities: [SecurityAdvisorySeverity!], classifications: [SecurityAdvisoryClassification!]): SecurityVulnerabilityConnection!
+
+  """
+  Look up a topic by name.
+  """
+  topic(name: String!): Topic
+
+  """
+  Lookup a user by login.
+  """
+  user(login: String!): User
+
+  """
+  The currently authenticated user.
+  """
+  viewer: User!
+}
+
+"""
+Represents information about the GitHub instance.
+"""
+type GitHubMetadata {
+  """
+  Returns the current Git commit SHA.
+  """
+  gitHubServicesSha: GitObjectID!
+
+  """
+  IP addresses that users connect to for Git operations.
+  """
+  gitIpAddresses: [String!]
+
+  """
+  IP addresses that service hooks are sent from.
+  """
+  hookIpAddresses: [String!]
+
+  """
+  IP addresses that the importer connects from.
+  """
+  importerIpAddresses: [String!]
+
+  """
+  Whether or not users are verified.
+  """
+  isPasswordAuthenticationVerifiable: Boolean!
+
+  """
+  IP addresses for GitHub Pages' A records.
+  """
+  pagesIpAddresses: [String!]
+}
+
+"""
+Represents the client's rate limit.
+"""
+type RateLimit {
+  """
+  The point cost for the current query counting against the rate limit.
+  """
+  cost: Int!
+
+  """
+  The maximum number of points the client is permitted to consume in a 60 minute window.
+  """
+  limit: Int!
+
+  """
+  The maximum number of nodes this query may return.
+  """
+  nodeCount: Int!
+
+  """
+  The number of points remaining in the current rate limit window.
+  """
+  remaining: Int!
+
+  """
+  The time at which the current rate limit window resets in UTC epoch seconds.
+  """
+  resetAt: DateTime!
+
+  """
+  The number of points used in the current rate limit window.
+  """
+  used: Int!
+}
+
+"""
+A list of results that matched against a search query.
+"""
+type SearchResultItemConnection {
+  """
+  The number of pieces of code that matched the search query.
+  """
+  codeCount: Int!
+
+  """
+  The number of discussions that matched the search query.
+  """
+  discussionCount: Int!
+
+  """
+  A list of edges.
+  """
+  edges: [SearchResultItemEdge]
+
+  """
+  The number of issues that matched the search query.
+  """
+  issueCount: Int!
+
+  """
+  A list of nodes.
+  """
+  nodes: [SearchResultItem]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  The number of repositories that matched the search query.
+  """
+  repositoryCount: Int!
+
+  """
+  The number of users that matched the search query.
+  """
+  userCount: Int!
+
+  """
+  The number of wiki pages that matched the search query.
+  """
+  wikiCount: Int!
+}
+
+"""
+An edge in a connection.
+"""
+type SearchResultItemEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: SearchResultItem
+
+  """
+  Text matches on the result found.
+  """
+  textMatches: [TextMatch]
+}
+
+"""
+The results of a search.
+"""
+union SearchResultItem = App | Discussion | Issue | MarketplaceListing | Organization | PullRequest | Repository | User
+
+"""
+A text match within a search result.
+"""
+type TextMatch {
+  """
+  The specific text fragment within the property matched on.
+  """
+  fragment: String!
+
+  """
+  Highlights within the matched fragment.
+  """
+  highlights: [TextMatchHighlight!]!
+
+  """
+  The property matched on.
+  """
+  property: String!
+}
+
+"""
+Represents a single highlight in a search result match.
+"""
+type TextMatchHighlight {
+  """
+  The indice in the fragment where the matched text begins.
+  """
+  beginIndice: Int!
+
+  """
+  The indice in the fragment where the matched text ends.
+  """
+  endIndice: Int!
+
+  """
+  The text matched.
+  """
+  text: String!
+}
+
+"""
+A GitHub Marketplace category.
+"""
+type MarketplaceCategory implements Node {
+  """
+  The category's description.
+  """
+  description: String
+
+  """
+  The technical description of how apps listed in this category work with GitHub.
+  """
+  howItWorks: String
+
+  id: ID!
+
+  """
+  The category's name.
+  """
+  name: String!
+
+  """
+  How many Marketplace listings have this as a primary category.
+  """
+  primaryListingCount: Int!
+
+  """
+  The HTTP path for this Marketplace category.
+  """
+  resourcePath: URI!
+
+  """
+  How many Marketplace listings have this as a secondary category.
+  """
+  secondaryListingCount: Int!
+
+  """
+  The short name of the category used in its URL.
+  """
+  slug: String!
+
+  """
+  The HTTP URL for this Marketplace category.
+  """
+  url: URI!
+}
+
+"""
+A listing in the GitHub integration marketplace.
+  """
+type MarketplaceListing implements Node {
+  """
+  The GitHub App this listing represents.
+  """
+  app: App
+
+  """
+  URL to the listing owner's company site.
+  """
+  companyUrl: URI
+
+  """
+  The HTTP path for configuring access to the listing's integration or OAuth app.
+  """
+  configurationResourcePath: URI!
+
+  """
+  The HTTP URL for configuring access to the listing's integration or OAuth app.
+  """
+  configurationUrl: URI!
+
+  """
+  URL to the listing's documentation.
+  """
+  documentationUrl: URI
+
+  """
+  The listing's detailed description.
+  """
+  extendedDescription: String
+
+  """
+  The listing's detailed description rendered to HTML.
+  """
+  extendedDescriptionHTML: HTML!
+
+  """
+  The listing's introductory description.
+  """
+  fullDescription: String!
+
+  """
+  The listing's introductory description rendered to HTML.
+  """
+  fullDescriptionHTML: HTML!
+
+  """
+  Does this listing have any plans with a free trial?
+  """
+  hasPublishedFreeTrialPlans: Boolean!
+
+  """
+  Does this listing have a terms of service link?
+  """
+  hasTermsOfService: Boolean!
+
+  """
+  A technical description of how this app works with GitHub.
+  """
+  howItWorks: String
+
+  """
+  The listing's technical description rendered to HTML.
+  """
+  howItWorksHTML: HTML!
+
+  id: ID!
+
+  """
+  URL to install the product to the viewer's account or organization.
+  """
+  installationUrl: URI
+
+  """
+  Whether this listing's app has been installed for the current viewer.
+  """
+  installedForViewer: Boolean!
+
+  """
+  Whether this listing has been removed from the Marketplace.
+  """
+  isArchived: Boolean!
+
+  """
+  Whether this listing is still an editable draft that has not been submitted for review and is not publicly visible in the Marketplace.
+  """
+  isDraft: Boolean!
+
+  """
+  Whether the product this listing represents is available as part of a paid plan.
+  """
+  isPaid: Boolean!
+
+  """
+  Whether this listing has been approved for display in the Marketplace.
+  """
+  isPublic: Boolean!
+
+  """
+  Whether this listing has been rejected by GitHub for display in the Marketplace.
+  """
+  isRejected: Boolean!
+
+  """
+  Whether this listing has been approved for unverified display in the Marketplace.
+  """
+  isUnverified: Boolean!
+
+  """
+  Whether this draft listing has been submitted for review for approval to be unverified in the Marketplace.
+  """
+  isUnverifiedPending: Boolean!
+
+  """
+  Whether this draft listing has been submitted for review from GitHub for approval to be verified in the Marketplace.
+  """
+  isVerificationPendingFromDraft: Boolean!
+
+  """
+  Whether this unverified listing has been submitted for review from GitHub for approval to be verified in the Marketplace.
+  """
+  isVerificationPendingFromUnverified: Boolean!
+
+  """
+  Whether this listing has been approved for verified display in the Marketplace.
+  """
+  isVerified: Boolean!
+
+  """
+  The hex color code, without the leading '#', for the logo background.
+  """
+  logoBackgroundColor: String!
+
+  """
+  URL for the listing's logo image.
+  """
+  logoUrl(size: Int = 400): URI
+
+  """
+  The listing's full name.
+  """
+  name: String!
+
+  """
+  The listing's very short description without a trailing period or ampersands.
+  """
+  normalizedShortDescription: String!
+
+  """
+  URL to the listing's detailed pricing.
+  """
+  pricingUrl: URI
+
+  """
+  The category that best describes the listing.
+  """
+  primaryCategory: MarketplaceCategory!
+
+  """
+  URL to the listing's privacy policy.
+  """
+  privacyPolicyUrl: URI!
+
+  """
+  The HTTP path for the Marketplace listing.
+  """
+  resourcePath: URI!
+
+  """
+  The URLs for the listing's screenshots.
+  """
+  screenshotUrls: [String]!
+
+  """
+  An alternate category that describes the listing.
+  """
+  secondaryCategory: MarketplaceCategory
+
+  """
+  The listing's very short description.
+  """
+  shortDescription: String!
+
+  """
+  The short name of the listing used in its URL.
+  """
+  slug: String!
+
+  """
+  URL to the listing's status page.
+  """
+  statusUrl: URI
+
+  """
+  An email address for support for this listing's app.
+  """
+  supportEmail: String
+
+  """
+  Either a URL or an email address for support for this listing's app.
+  """
+  supportUrl: URI!
+
+  """
+  URL to the listing's terms of service.
+  """
+  termsOfServiceUrl: URI
+
+  """
+  The HTTP URL for the Marketplace listing.
+  """
+  url: URI!
+
+  """
+  Can the current viewer add plans for this Marketplace listing.
+  """
+  viewerCanAddPlans: Boolean!
+
+  """
+  Can the current viewer approve this Marketplace listing.
+  """
+  viewerCanApprove: Boolean!
+
+  """
+  Can the current viewer delist this Marketplace listing.
+  """
+  viewerCanDelist: Boolean!
+
+  """
+  Can the current viewer edit this Marketplace listing.
+  """
+  viewerCanEdit: Boolean!
+
+  """
+  Can the current viewer edit the primary and secondary category of this Marketplace listing.
+  """
+  viewerCanEditCategories: Boolean!
+
+  """
+  Can the current viewer edit the plans for this Marketplace listing.
+  """
+  viewerCanEditPlans: Boolean!
+
+  """
+  Can the current viewer return this Marketplace listing to draft state so it becomes editable again.
+  """
+  viewerCanRedraft: Boolean!
+
+  """
+  Can the current viewer reject this Marketplace listing by returning it to an editable draft state or rejecting it entirely.
+  """
+  viewerCanReject: Boolean!
+
+  """
+  Can the current viewer request this listing be reviewed for display in the Marketplace as verified.
+  """
+  viewerCanRequestApproval: Boolean!
+
+  """
+  Indicates whether the current user has an active subscription to this Marketplace listing.
+  """
+  viewerHasPurchased: Boolean!
+
+  """
+  Indicates if the current user has purchased a subscription to this Marketplace listing for all of the organizations the user owns.
+  """
+  viewerHasPurchasedForAllOrganizations: Boolean!
+
+  """
+  Does the current viewer role allow them to administer this Marketplace listing.
+  """
+  viewerIsListingAdmin: Boolean!
+}
+
+type MarketplaceListingConnection {
+  edges: [MarketplaceListingEdge]
+  nodes: [MarketplaceListing]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type MarketplaceListingEdge {
+  cursor: String!
+  node: MarketplaceListing
+}
+
+"""
+A GitHub Security Advisory.
+"""
+type SecurityAdvisory implements Node {
+  """
+  The CVSS score of the advisory.
+  """
+  cvss: CVSS!
+
+  """
+  CWEs associated with this advisory.
+  """
+  cwes(first: Int, after: String, last: Int, before: String): CWEConnection!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  This is a long description of the advisory.
+  """
+  description: String!
+
+  """
+  The GitHub Security Advisory ID.
+  """
+  ghsaId: String!
+
+  id: ID!
+
+  """
+  A list of identifiers for the advisory.
+  """
+  identifiers: [SecurityAdvisoryIdentifier!]!
+
+  """
+  The permalink for the advisory's dependabot alerts page.
+  """
+  notificationsPermalink: URI
+
+  """
+  The organization that published this advisory.
+  """
+  origin: String!
+
+  """
+  The date and time when this advisory was published.
+  """
+  permalink: URI
+
+  """
+  When the advisory was published.
+  """
+  publishedAt: DateTime!
+
+  """
+  A list of references for the advisory.
+  """
+  references: [SecurityAdvisoryReference!]!
+
+  """
+  The severity of the advisory.
+  """
+  severity: SecurityAdvisorySeverity!
+
+  """
+  A short, plain-text summary of the advisory.
+  """
+  summary: String!
+
+  """
+  When the advisory was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  Vulnerabilities associated with this advisory.
+  """
+  vulnerabilities(first: Int, after: String, last: Int, before: String, ecosystem: SecurityAdvisoryEcosystem, package: String, severities: [SecurityAdvisorySeverity!], classifications: [SecurityAdvisoryClassification!], orderBy: SecurityVulnerabilityOrder): SecurityVulnerabilityConnection!
+
+  """
+  When the advisory was withdrawn, if ever.
+  """
+  withdrawnAt: DateTime
+}
+
+type SecurityAdvisoryConnection {
+  edges: [SecurityAdvisoryEdge]
+  nodes: [SecurityAdvisory]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type SecurityAdvisoryEdge {
+  cursor: String!
+  node: SecurityAdvisory
+}
+
+input SecurityAdvisoryOrder {
+  field: SecurityAdvisoryOrderField!
+  direction: OrderDirection!
+}
+
+enum SecurityAdvisoryOrderField {
+  PUBLISHED_AT
+  UPDATED_AT
+}
+
+input SecurityAdvisoryIdentifierFilter {
+  type: SecurityAdvisoryIdentifierType!
+  value: String!
+}
+
+enum SecurityAdvisoryIdentifierType {
+  CVE
+  GHSA
+}
+
+type SecurityAdvisoryIdentifier {
+  type: String!
+  value: String!
+}
+
+type SecurityAdvisoryReference {
+  url: URI!
+}
+
+enum SecurityAdvisorySeverity {
+  LOW
+  MODERATE
+  HIGH
+  CRITICAL
+}
+
+enum SecurityAdvisoryClassification {
+  GENERAL
+  MALWARE
+}
+
+enum SecurityAdvisoryEcosystem {
+  RUBYGEMS
+  NPM
+  PIP
+  MAVEN
+  NUGET
+  COMPOSER
+  GO
+  RUST
+  ERLANG
+  ACTIONS
+  PUB
+  OTHER
+  SWIFT
+}
+
+type CVSS {
+  score: Float!
+  vectorString: String
+}
+
+type CWE implements Node {
+  cweId: String!
+  description: String!
+  id: ID!
+  name: String!
+}
+
+type CWEConnection {
+  edges: [CWEEdge]
+  nodes: [CWE]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CWEEdge {
+  cursor: String!
+  node: CWE
+}
+
+type SecurityVulnerability {
+  advisory: SecurityAdvisory!
+  firstPatchedVersion: SecurityAdvisoryPackageVersion
+  package: SecurityAdvisoryPackage!
+  severity: SecurityAdvisorySeverity!
+  updatedAt: DateTime!
+  vulnerableVersionRange: String!
+}
+
+type SecurityVulnerabilityConnection {
+  edges: [SecurityVulnerabilityEdge]
+  nodes: [SecurityVulnerability]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type SecurityVulnerabilityEdge {
+  cursor: String!
+  node: SecurityVulnerability
+}
+
+input SecurityVulnerabilityOrder {
+  field: SecurityVulnerabilityOrderField!
+  direction: OrderDirection!
+}
+
+enum SecurityVulnerabilityOrderField {
+  UPDATED_AT
+}
+
+type SecurityAdvisoryPackage {
+  ecosystem: SecurityAdvisoryEcosystem!
+  name: String!
+}
+
+type SecurityAdvisoryPackageVersion {
+  identifier: String!
+}

@@ -1,0 +1,649 @@
+"""
+A Git commit.
+"""
+type Commit implements Node & GitObject & Subscribable & UniformResourceLocatable {
+  """
+  An abbreviated version of the Git object ID.
+  """
+  abbreviatedOid: String!
+
+  """
+  The number of additions in this commit.
+  """
+  additions: Int!
+
+  """
+  The merged pull requests associated with this commit.
+  """
+  associatedPullRequests(first: Int, after: String, last: Int, before: String, orderBy: PullRequestOrder): PullRequestConnection
+
+  """
+  The author of the commit.
+  """
+  author: GitActor
+
+  """
+  Whether this commit was authored by a verified signature.
+  """
+  authoredByCommitter: Boolean!
+
+  """
+  The datetime when this commit was authored.
+  """
+  authoredDate: DateTime!
+
+  """
+  The author's email.
+  """
+  authors(first: Int, after: String, last: Int, before: String): GitActorConnection!
+
+  """
+  Fetches the blame information.
+  """
+  blame(path: String!): Blame!
+
+  """
+  The number of changed files in this commit.
+  """
+  changedFilesIfAvailable: Int
+
+  """
+  The check suites associated with a commit.
+  """
+  checkSuites(first: Int, after: String, last: Int, before: String, filterBy: CheckSuiteFilter): CheckSuiteConnection
+
+  """
+  Comments on the commit.
+  """
+  comments(first: Int, after: String, last: Int, before: String): CommitCommentConnection!
+
+  """
+  The HTTP path for the Git object.
+  """
+  commitResourcePath: URI!
+
+  """
+  The HTTP URL for the Git object.
+  """
+  commitUrl: URI!
+
+  """
+  The datetime when this commit was committed.
+  """
+  committedDate: DateTime!
+
+  """
+  Whether the commit was via email.
+  """
+  committedViaWeb: Boolean!
+
+  """
+  The committer of the commit.
+  """
+  committer: GitActor
+
+  """
+  The number of deletions in this commit.
+  """
+  deletions: Int!
+
+  """
+  Deployments associated with the commit.
+  """
+  deployments(first: Int, after: String, last: Int, before: String, environments: [String!], orderBy: DeploymentOrder): DeploymentConnection
+
+  """
+  The linear commit history starting from this commit.
+  """
+  history(first: Int, after: String, last: Int, before: String, path: String, author: CommitAuthor, since: GitTimestamp, until: GitTimestamp): CommitHistoryConnection!
+
+  id: ID!
+
+  """
+  The commit message.
+  """
+  message: String!
+
+  """
+  The commit message body.
+  """
+  messageBody: String!
+
+  """
+  The commit message body as HTML.
+  """
+  messageBodyHTML: HTML!
+
+  """
+  The commit message headline.
+  """
+  messageHeadline: String!
+
+  """
+  The commit message headline as HTML.
+  """
+  messageHeadlineHTML: HTML!
+
+  """
+  The Git object ID.
+  """
+  oid: GitObjectID!
+
+  """
+  The organization this commit was made on behalf of.
+  """
+  onBehalfOf: Organization
+
+  """
+  The parents of the commit.
+  """
+  parents(first: Int, after: String, last: Int, before: String): CommitConnection!
+
+  """
+  The repository containing the commit.
+  """
+  repository: Repository!
+
+  """
+  The HTTP path for the commit.
+  """
+  resourcePath: URI!
+
+  """
+  The commit signature.
+  """
+  signature: GitSignature
+
+  """
+  Status check contexts for the commit.
+  """
+  status: Status
+
+  """
+  Check and status contexts for the commit.
+  """
+  statusCheckRollup: StatusCheckRollup
+
+  """
+  The file viewed states for this commit.
+  """
+  submodules(first: Int, after: String, last: Int, before: String): SubmoduleConnection!
+
+  """
+  The tree tarball URL.
+  """
+  tarballUrl: URI!
+
+  """
+  The tree for this commit.
+  """
+  tree: Tree!
+
+  """
+  The tree OID for this commit.
+  """
+  treeResourcePath: URI!
+
+  """
+  The HTTP URL for the tree.
+  """
+  treeUrl: URI!
+
+  """
+  The HTTP URL for the commit.
+  """
+  url: URI!
+
+  """
+  Whether the viewer can subscribe.
+  """
+  viewerCanSubscribe: Boolean!
+
+  """
+  The viewer's subscription state.
+  """
+  viewerSubscription: SubscriptionState
+
+  """
+  The zip tarball URL.
+  """
+  zipballUrl: URI!
+}
+
+"""
+A Git actor.
+"""
+type GitActor {
+  """
+  URL of the avatar.
+  """
+  avatarUrl(size: Int): URI!
+
+  """
+  The timestamp of the signature.
+  """
+  date: GitTimestamp
+
+  """
+  The email of the actor.
+  """
+  email: String
+
+  """
+  The name of the actor.
+  """
+  name: String
+
+  """
+  The GitHub user corresponding to the email.
+  """
+  user: User
+}
+
+type GitActorConnection {
+  edges: [GitActorEdge]
+  nodes: [GitActor]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type GitActorEdge {
+  cursor: String!
+  node: GitActor
+}
+
+"""
+A Git tree.
+"""
+type Tree implements Node & GitObject {
+  abbreviatedOid: String!
+  commitResourcePath: URI!
+  commitUrl: URI!
+  entries: [TreeEntry!]
+  id: ID!
+  oid: GitObjectID!
+  repository: Repository!
+}
+
+"""
+A Git tree entry.
+"""
+type TreeEntry {
+  extension: String
+  isGenerated: Boolean!
+  language: Language
+  lineCount: Int
+  mode: Int!
+  name: String!
+  nameRaw: Base64String!
+  object: GitObject
+  oid: GitObjectID!
+  path: String
+  pathRaw: Base64String
+  repository: Repository!
+  size: Int!
+  submodule: Submodule
+  type: String!
+}
+
+"""
+A Git blob.
+"""
+type Blob implements Node & GitObject {
+  abbreviatedOid: String!
+  byteSize: Int!
+  commitResourcePath: URI!
+  commitUrl: URI!
+  id: ID!
+  isBinary: Boolean
+  isTruncated: Boolean!
+  oid: GitObjectID!
+  repository: Repository!
+  text: String
+}
+
+"""
+A Git tag.
+"""
+type Tag implements Node & GitObject {
+  abbreviatedOid: String!
+  commitResourcePath: URI!
+  commitUrl: URI!
+  id: ID!
+  message: String
+  name: String!
+  oid: GitObjectID!
+  repository: Repository!
+  tagger: GitActor
+  target: GitObject!
+}
+
+"""
+Blame information.
+"""
+type Blame {
+  ranges: [BlameRange!]!
+}
+
+"""
+A range of lines in a blame.
+"""
+type BlameRange {
+  age: Int!
+  commit: Commit!
+  endingLine: Int!
+  startingLine: Int!
+}
+
+"""
+Commit history.
+"""
+type CommitHistoryConnection {
+  edges: [CommitEdge]
+  nodes: [Commit]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+"""
+Filter for commit author.
+"""
+input CommitAuthor {
+  id: ID
+  emails: [String!]
+}
+
+"""
+Input for ordering pull requests.
+"""
+input PullRequestOrder {
+  field: PullRequestOrderField!
+  direction: OrderDirection!
+}
+
+enum PullRequestOrderField {
+  CREATED_AT
+  UPDATED_AT
+}
+
+"""
+Commit status.
+"""
+type Status implements Node {
+  combinedContexts(first: Int, after: String, last: Int, before: String): StatusCheckRollupContextConnection!
+  commit: Commit
+  context(name: String!): StatusContext
+  contexts: [StatusContext!]!
+  id: ID!
+  state: StatusState!
+}
+
+"""
+A status context.
+"""
+type StatusContext implements Node & RequirableByPullRequest {
+  avatarUrl(size: Int = 40): URI
+  commit: Commit
+  context: String!
+  createdAt: DateTime!
+  creator: Actor
+  description: String
+  id: ID!
+  isRequired(pullRequestId: ID, pullRequestNumber: Int): Boolean!
+  state: StatusState!
+  targetUrl: URI
+}
+
+"""
+Status check rollup.
+"""
+type StatusCheckRollup implements Node {
+  commit: Commit
+  contexts(first: Int, after: String, last: Int, before: String): StatusCheckRollupContextConnection!
+  id: ID!
+  state: StatusState!
+}
+
+type StatusCheckRollupContextConnection {
+  checkRunCount: Int!
+  checkRunCountsByState: [CheckRunStateCount!]
+  edges: [StatusCheckRollupContextEdge]
+  nodes: [StatusCheckRollupContext]
+  pageInfo: PageInfo!
+  statusContextCount: Int!
+  statusContextCountsByState: [StatusContextStateCount!]
+  totalCount: Int!
+}
+
+type StatusCheckRollupContextEdge {
+  cursor: String!
+  node: StatusCheckRollupContext
+}
+
+union StatusCheckRollupContext = CheckRun | StatusContext
+
+type CheckRunStateCount {
+  count: Int!
+  state: CheckRunState!
+}
+
+enum CheckRunState {
+  ACTION_REQUIRED
+  CANCELLED
+  COMPLETED
+  FAILURE
+  IN_PROGRESS
+  NEUTRAL
+  PENDING
+  QUEUED
+  SKIPPED
+  STALE
+  STARTUP_FAILURE
+  SUCCESS
+  TIMED_OUT
+  WAITING
+}
+
+type StatusContextStateCount {
+  count: Int!
+  state: StatusState!
+}
+
+"""
+Check suite.
+"""
+type CheckSuite implements Node {
+  app: App
+  branch: Ref
+  checkRuns(first: Int, after: String, last: Int, before: String, filterBy: CheckRunFilter): CheckRunConnection
+  commit: Commit!
+  conclusion: CheckConclusionState
+  createdAt: DateTime!
+  creator: User
+  databaseId: Int
+  id: ID!
+  matchingPullRequests(first: Int, after: String, last: Int, before: String, states: [PullRequestState!], labels: [String!], headRefName: String, baseRefName: String, orderBy: IssueOrder): PullRequestConnection
+  push: Push
+  repository: Repository!
+  resourcePath: URI!
+  status: CheckStatusState!
+  updatedAt: DateTime!
+  url: URI!
+  workflowRun: WorkflowRun
+}
+
+input CheckSuiteFilter {
+  appId: Int
+  checkName: String
+}
+
+input CheckRunFilter {
+  checkType: CheckRunType
+  appId: Int
+  checkName: String
+  status: CheckStatusState
+  statuses: [CheckStatusState!]
+  conclusions: [CheckConclusionState!]
+}
+
+enum CheckRunType {
+  ALL
+  LATEST
+}
+
+"""
+A check run.
+"""
+type CheckRun implements Node & RequirableByPullRequest & UniformResourceLocatable {
+  annotations(first: Int, after: String, last: Int, before: String): CheckAnnotationConnection
+  checkSuite: CheckSuite!
+  completedAt: DateTime
+  conclusion: CheckConclusionState
+  databaseId: Int
+  deployment: Deployment
+  detailsUrl: URI
+  externalId: String
+  id: ID!
+  isRequired(pullRequestId: ID, pullRequestNumber: Int): Boolean!
+  name: String!
+  pendingDeploymentRequest: DeploymentRequest
+  permalink: URI!
+  repository: Repository!
+  resourcePath: URI!
+  startedAt: DateTime
+  status: CheckStatusState!
+  steps(first: Int, after: String, last: Int, before: String, number: Int): CheckStepConnection
+  summary: String
+  text: String
+  title: String
+  url: URI!
+}
+
+type CheckAnnotation {
+  annotationLevel: CheckAnnotationLevel
+  blobUrl: URI!
+  databaseId: Int
+  location: CheckAnnotationSpan!
+  message: String!
+  path: String!
+  rawDetails: String
+  title: String
+}
+
+type CheckAnnotationConnection {
+  edges: [CheckAnnotationEdge]
+  nodes: [CheckAnnotation]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CheckAnnotationEdge {
+  cursor: String!
+  node: CheckAnnotation
+}
+
+enum CheckAnnotationLevel {
+  FAILURE
+  NOTICE
+  WARNING
+}
+
+type CheckAnnotationSpan {
+  end: CheckAnnotationPosition!
+  start: CheckAnnotationPosition!
+}
+
+type CheckAnnotationPosition {
+  column: Int
+  line: Int!
+}
+
+type CheckStep {
+  completedAt: DateTime
+  conclusion: CheckConclusionState
+  externalId: String
+  name: String!
+  number: Int!
+  secondsToCompletion: Int
+  startedAt: DateTime
+  status: CheckStatusState!
+}
+
+type CheckStepConnection {
+  edges: [CheckStepEdge]
+  nodes: [CheckStep]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CheckStepEdge {
+  cursor: String!
+  node: CheckStep
+}
+
+"""
+A GitHub App.
+"""
+type App implements Node {
+  createdAt: DateTime!
+  databaseId: Int
+  description: String
+  id: ID!
+  ipAllowListEntries(first: Int, after: String, last: Int, before: String, orderBy: IpAllowListEntryOrder): IpAllowListEntryConnection!
+  logoBackgroundColor: String!
+  logoUrl(size: Int): URI!
+  name: String!
+  slug: String!
+  updatedAt: DateTime!
+  url: URI!
+}
+
+type IpAllowListEntry implements Node {
+  allowListValue: String!
+  createdAt: DateTime!
+  id: ID!
+  isActive: Boolean!
+  name: String
+  owner: IpAllowListOwner!
+  updatedAt: DateTime!
+}
+
+type IpAllowListEntryConnection {
+  edges: [IpAllowListEntryEdge]
+  nodes: [IpAllowListEntry]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type IpAllowListEntryEdge {
+  cursor: String!
+  node: IpAllowListEntry
+}
+
+input IpAllowListEntryOrder {
+  field: IpAllowListEntryOrderField!
+  direction: OrderDirection!
+}
+
+enum IpAllowListEntryOrderField {
+  CREATED_AT
+  ALLOW_LIST_VALUE
+}
+
+union IpAllowListOwner = App | Enterprise | Organization
+
+"""
+A push to a repository.
+"""
+type Push implements Node {
+  id: ID!
+  nextSha: GitObjectID
+  permalink: URI!
+  previousSha: GitObjectID
+  pusher: Actor!
+  repository: Repository!
+}
+
+interface RequirableByPullRequest {
+  isRequired(pullRequestId: ID, pullRequestNumber: Int): Boolean!
+}

@@ -1,0 +1,105 @@
+# User queries
+
+query GetUser($login: String!) {
+  user(login: $login) {
+    ...UserWithOrgs
+  }
+}
+
+query GetUserRepositories(
+  $login: String!
+  $first: Int = 30
+  $after: String
+  $orderBy: RepositoryOrder
+  $privacy: RepositoryPrivacy
+  $isFork: Boolean
+) {
+  user(login: $login) {
+    repositories(
+      first: $first
+      after: $after
+      orderBy: $orderBy
+      privacy: $privacy
+      isFork: $isFork
+    ) {
+      totalCount
+      pageInfo {
+        ...PageInfoFull
+      }
+      nodes {
+        ...RepositoryDetails
+      }
+    }
+  }
+}
+
+query GetUserContributions(
+  $login: String!
+  $first: Int = 30
+  $after: String
+) {
+  user(login: $login) {
+    repositoriesContributedTo(
+      first: $first
+      after: $after
+      contributionTypes: [COMMIT, ISSUE, PULL_REQUEST, REPOSITORY]
+    ) {
+      totalCount
+      pageInfo {
+        ...PageInfoFull
+      }
+      nodes {
+        ...RepositoryBasic
+      }
+    }
+  }
+}
+
+query GetUserFollowers(
+  $login: String!
+  $first: Int = 30
+  $after: String
+) {
+  user(login: $login) {
+    followers(first: $first, after: $after) {
+      totalCount
+      pageInfo {
+        ...PageInfoFull
+      }
+      nodes {
+        ...UserBasic
+      }
+    }
+  }
+}
+
+query GetUserFollowing(
+  $login: String!
+  $first: Int = 30
+  $after: String
+) {
+  user(login: $login) {
+    following(first: $first, after: $after) {
+      totalCount
+      pageInfo {
+        ...PageInfoFull
+      }
+      nodes {
+        ...UserBasic
+      }
+    }
+  }
+}
+
+query GetUserSponsoring($login: String!) {
+  user(login: $login) {
+    isSponsoringViewer
+    viewerIsSponsoring
+    sponsorsListing {
+      id
+      name
+      shortDescription
+      fullDescription
+    }
+  }
+}

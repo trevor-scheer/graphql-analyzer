@@ -1,0 +1,177 @@
+# Mixed file: repository explorer with multiple fragments and operations
+# Tests complex nesting and fragment composition
+
+fragment ExplorerTreeEntry on TreeEntry {
+  name
+  type
+  mode
+  oid
+  path
+  extension
+  object {
+    ... on Blob {
+      id
+      byteSize
+      isBinary
+      isTruncated
+    }
+    ... on Tree {
+      id
+      entries {
+        name
+        type
+        oid
+      }
+    }
+  }
+}
+
+fragment ExplorerCommitInfo on Commit {
+  oid
+  abbreviatedOid
+  messageHeadline
+  committedDate
+  author {
+    name
+    email
+    avatarUrl
+    user {
+      login
+    }
+  }
+}
+
+fragment ExplorerBlobContent on Blob {
+  id
+  text
+  byteSize
+  isBinary
+  isTruncated
+}
+
+query ExploreRepository($owner: String!, $name: String!, $expression: String!) {
+  repository(owner: $owner, name: $name) {
+    id
+    nameWithOwner
+    defaultBranchRef {
+      name
+    }
+    object(expression: $expression) {
+      ... on Tree {
+        id
+        entries {
+          ...ExplorerTreeEntry
+        }
+      }
+      ... on Blob {
+        ...ExplorerBlobContent
+      }
+      ... on Commit {
+        ...ExplorerCommitInfo
+        tree {
+          entries {
+            ...ExplorerTreeEntry
+          }
+        }
+      }
+    }
+  }
+}
+
+query ExploreFileHistory(
+  $owner: String!
+  $name: String!
+  $ref: String!
+  $path: String!
+  $first: Int = 20
+) {
+  repository(owner: $owner, name: $name) {
+    ref(qualifiedName: $ref) {
+      target {
+        ... on Commit {
+          history(first: $first, path: $path) {
+            nodes {
+              ...ExplorerCommitInfo
+              additions
+              deletions
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+query ExploreBlame($owner: String!, $name: String!, $ref: String!, $path: String!) {
+  repository(owner: $owner, name: $name) {
+    ref(qualifiedName: $ref) {
+      target {
+        ... on Commit {
+          blame(path: $path) {
+            ranges {
+              startingLine
+              endingLine
+              age
+              commit {
+                ...ExplorerCommitInfo
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+# Multiple fragments in one block - edge case
+fragment ExplorerBranchInfo on Ref {
+  name
+  prefix
+  target {
+    ... on Commit {
+      ...ExplorerCommitInfo
+    }
+  }
+}
+
+fragment ExplorerTagInfo on Ref {
+  name
+  target {
+    ... on Tag {
+      name
+      message
+      tagger {
+        name
+        email
+      }
+      target {
+        ... on Commit {
+          ...ExplorerCommitInfo
+        }
+      }
+    }
+    ... on Commit {
+      ...ExplorerCommitInfo
+    }
+  }
+}
+
+query ExploreBranches($owner: String!, $name: String!, $first: Int = 30) {
+  repository(owner: $owner, name: $name) {
+    refs(refPrefix: "refs/heads/", first: $first) {
+      nodes {
+        ...ExplorerBranchInfo
+      }
+    }
+  }
+}
+
+query ExploreTags($owner: String!, $name: String!, $first: Int = 30) {
+  repository(owner: $owner, name: $name) {
+    refs(refPrefix: "refs/tags/", first: $first, orderBy: { field: TAG_COMMIT_DATE, direction: DESC }) {
+      nodes {
+        ...ExplorerTagInfo
+      }
+    }
+  }
+}

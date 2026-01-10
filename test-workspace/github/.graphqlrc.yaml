@@ -1,0 +1,30 @@
+# GitHub-style GraphQL LSP Test Workspace
+# This is a multi-project configuration for testing LSP features
+
+projects:
+  # Main GitHub API project
+  github:
+    schema: "schema/*.graphql"
+    documents:
+      - "src/**/*.graphql"
+      - "src/**/*.ts"
+      - "src/**/*.tsx"
+    extensions:
+      lsp:
+        lint:
+          recommended: warn
+          rules:
+            no_deprecated: warn
+
+  # Admin-specific operations (separate schema extensions)
+  admin:
+    schema:
+      - "schema/*.graphql"
+      - "admin/schema/*.graphql"
+    documents: "admin/src/**/*.graphql"
+    extensions:
+      lsp:
+        lint:
+          recommended: error
+          rules:
+            no_deprecated: error

@@ -1,0 +1,125 @@
+# Admin-specific queries
+# Tests operations that use extended schema
+
+fragment AdminAuditEntry on AuditLogEntry {
+  id
+  action
+  actor {
+    ...ActorBasic
+  }
+  actorIp
+  actorLocation {
+    city
+    country
+    countryCode
+  }
+  createdAt
+  operationType
+  user {
+    ...UserBasic
+  }
+  repository {
+    nameWithOwner
+  }
+  organization {
+    login
+  }
+}
+
+query GetAuditLog(
+  $first: Int = 50
+  $after: String
+  $query: String
+  $orderBy: AuditLogOrder
+) {
+  auditLogEntries(first: $first, after: $after, query: $query, orderBy: $orderBy) {
+    totalCount
+    pageInfo {
+      ...PageInfoFull
+    }
+    nodes {
+      ...AdminAuditEntry
+    }
+  }
+}
+
+query GetEnterpriseBilling($slug: String!) {
+  enterpriseBilling(slug: $slug) {
+    totalSeats
+    usedSeats
+    pendingInvitations
+    monthlyBill
+    annualBill
+    billingEmail
+    nextBillingDate
+    plan {
+      name
+      pricePerSeat
+      features
+    }
+  }
+}
+
+query GetPendingInvitations($first: Int = 50, $after: String, $orgId: ID) {
+  pendingInvitations(first: $first, after: $after, organizationId: $orgId) {
+    totalCount
+    pageInfo {
+      ...PageInfoFull
+    }
+    nodes {
+      id
+      email
+      invitedAt
+      invitedBy {
+        ...UserBasic
+      }
+      role
+      organization {
+        login
+      }
+      expiresAt
+    }
+  }
+}
+
+query GetFlaggedContent($first: Int = 30, $after: String, $contentType: FlaggedContentType) {
+  flaggedContent(first: $first, after: $after, contentType: $contentType) {
+    totalCount
+    pageInfo {
+      ...PageInfoFull
+    }
+    nodes {
+      id
+      contentType
+      flaggedAt
+      flaggedBy {
+        ...UserBasic
+      }
+      reason
+      status
+      reviewedAt
+      reviewedBy {
+        ...UserBasic
+      }
+      content {
+        ... on Issue {
+          ...IssueBasic
+        }
+        ... on PullRequest {
+          ...PullRequestBasic
+        }
+        ... on IssueComment {
+          id
+          body
+          url
+        }
+        ... on Repository {
+          ...RepositoryBasic
+        }
+        ... on User {
+          ...UserBasic
+        }
+      }
+    }
+  }
+}

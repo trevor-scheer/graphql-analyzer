@@ -1,0 +1,240 @@
+# Admin-specific schema extensions
+# Tests multi-project with schema extensions
+
+extend type Query {
+  """
+  Admin-only: Get all audit log entries.
+  """
+  auditLogEntries(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: AuditLogOrder
+    query: String
+  ): AuditLogEntryConnection!
+
+  """
+  Admin-only: Get enterprise billing info.
+  """
+  enterpriseBilling(slug: String!): EnterpriseBillingDetails
+
+  """
+  Admin-only: Get pending invitations.
+  """
+  pendingInvitations(
+    first: Int
+    after: String
+    organizationId: ID
+  ): PendingInvitationConnection!
+
+  """
+  Admin-only: Get flagged content.
+  """
+  flaggedContent(
+    first: Int
+    after: String
+    contentType: FlaggedContentType
+  ): FlaggedContentConnection!
+}
+
+extend type Mutation {
+  """
+  Admin-only: Suspend a user.
+  """
+  suspendUser(input: SuspendUserInput!): SuspendUserPayload
+
+  """
+  Admin-only: Unsuspend a user.
+  """
+  unsuspendUser(input: UnsuspendUserInput!): UnsuspendUserPayload
+
+  """
+  Admin-only: Delete a repository.
+  """
+  adminDeleteRepository(input: AdminDeleteRepositoryInput!): AdminDeleteRepositoryPayload
+
+  """
+  Admin-only: Transfer repository ownership.
+  """
+  adminTransferRepository(input: AdminTransferRepositoryInput!): AdminTransferRepositoryPayload
+
+  """
+  Admin-only: Bulk remove users from organization.
+  """
+  bulkRemoveOrganizationMembers(input: BulkRemoveOrganizationMembersInput!): BulkRemoveOrganizationMembersPayload
+}
+
+type AuditLogEntry implements Node {
+  id: ID!
+  action: String!
+  actor: Actor
+  actorIp: String
+  actorLocation: ActorLocation
+  createdAt: DateTime!
+  operationType: OperationType
+  data: String
+  user: User
+  repository: Repository
+  organization: Organization
+}
+
+type AuditLogEntryConnection {
+  edges: [AuditLogEntryEdge]
+  nodes: [AuditLogEntry]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type AuditLogEntryEdge {
+  cursor: String!
+  node: AuditLogEntry
+}
+
+input AuditLogOrder {
+  field: AuditLogOrderField!
+  direction: OrderDirection!
+}
+
+enum AuditLogOrderField {
+  CREATED_AT
+}
+
+type EnterpriseBillingDetails {
+  totalSeats: Int!
+  usedSeats: Int!
+  pendingInvitations: Int!
+  monthlyBill: Float!
+  annualBill: Float!
+  billingEmail: String!
+  nextBillingDate: DateTime!
+  plan: EnterprisePlan!
+}
+
+type EnterprisePlan {
+  name: String!
+  pricePerSeat: Float!
+  features: [String!]!
+}
+
+type PendingInvitation implements Node {
+  id: ID!
+  email: String!
+  invitedAt: DateTime!
+  invitedBy: User!
+  role: OrganizationInvitationRole!
+  organization: Organization
+  expiresAt: DateTime!
+}
+
+type PendingInvitationConnection {
+  edges: [PendingInvitationEdge]
+  nodes: [PendingInvitation]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type PendingInvitationEdge {
+  cursor: String!
+  node: PendingInvitation
+}
+
+enum FlaggedContentType {
+  ISSUE
+  PULL_REQUEST
+  COMMENT
+  REPOSITORY
+  USER
+  GIST
+}
+
+type FlaggedContent implements Node {
+  id: ID!
+  contentType: FlaggedContentType!
+  content: FlaggedContentItem!
+  flaggedAt: DateTime!
+  flaggedBy: User!
+  reason: String!
+  status: FlaggedContentStatus!
+  reviewedAt: DateTime
+  reviewedBy: User
+}
+
+union FlaggedContentItem = Issue | PullRequest | IssueComment | Repository | User | Gist
+
+enum FlaggedContentStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
+  ACTIONED
+}
+
+type FlaggedContentConnection {
+  edges: [FlaggedContentEdge]
+  nodes: [FlaggedContent]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type FlaggedContentEdge {
+  cursor: String!
+  node: FlaggedContent
+}
+
+input SuspendUserInput {
+  userId: ID!
+  reason: String!
+  duration: Int
+  clientMutationId: String
+}
+
+type SuspendUserPayload {
+  clientMutationId: String
+  user: User
+}
+
+input UnsuspendUserInput {
+  userId: ID!
+  clientMutationId: String
+}
+
+type UnsuspendUserPayload {
+  clientMutationId: String
+  user: User
+}
+
+input AdminDeleteRepositoryInput {
+  repositoryId: ID!
+  reason: String!
+  clientMutationId: String
+}
+
+type AdminDeleteRepositoryPayload {
+  clientMutationId: String
+  success: Boolean!
+}
+
+input AdminTransferRepositoryInput {
+  repositoryId: ID!
+  newOwnerId: ID!
+  reason: String
+  clientMutationId: String
+}
+
+type AdminTransferRepositoryPayload {
+  clientMutationId: String
+  repository: Repository
+}
+
+input BulkRemoveOrganizationMembersInput {
+  organizationId: ID!
+  userIds: [ID!]!
+  reason: String
+  clientMutationId: String
+}
+
+type BulkRemoveOrganizationMembersPayload {
+  clientMutationId: String
+  removedUsers: [User!]
+  failedUsers: [User!]
+}

@@ -1,0 +1,192 @@
+# Repository queries
+
+query GetRepository($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    ...RepositoryDetails
+    ...RepositoryTopics
+    ...RepositoryLanguages
+  }
+}
+
+query GetRepositoryWithOwner($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    ...RepositoryWithOwner
+  }
+}
+
+query GetRepositoryIssues(
+  $owner: String!
+  $name: String!
+  $first: Int = 30
+  $after: String
+  $states: [IssueState!]
+  $labels: [String!]
+  $orderBy: IssueOrder
+) {
+  repository(owner: $owner, name: $name) {
+    issues(first: $first, after: $after, states: $states, labels: $labels, orderBy: $orderBy) {
+      totalCount
+      pageInfo {
+        ...PageInfoFull
+      }
+      nodes {
+        ...IssueWithLabels
+      }
+    }
+  }
+}
+
+query GetRepositoryPullRequests(
+  $owner: String!
+  $name: String!
+  $first: Int = 30
+  $after: String
+  $states: [PullRequestState!]
+  $baseRefName: String
+  $headRefName: String
+) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(
+      first: $first
+      after: $after
+      states: $states
+      baseRefName: $baseRefName
+      headRefName: $headRefName
+    ) {
+      totalCount
+      pageInfo {
+        ...PageInfoFull
+      }
+      nodes {
+        ...PullRequestDetails
+      }
+    }
+  }
+}
+
+query GetRepositoryReleases(
+  $owner: String!
+  $name: String!
+  $first: Int = 10
+  $after: String
+  $orderBy: ReleaseOrder
+) {
+  repository(owner: $owner, name: $name) {
+    releases(first: $first, after: $after, orderBy: $orderBy) {
+      totalCount
+      pageInfo {
+        ...PageInfoFull
+      }
+      nodes {
+        id
+        name
+        tagName
+        description
+        isDraft
+        isPrerelease
+        isLatest
+        publishedAt
+        author {
+          ...UserBasic
+        }
+        releaseAssets(first: 10) {
+          nodes {
+            name
+            size
+            downloadCount
+            downloadUrl
+          }
+        }
+      }
+    }
+  }
+}
+
+query GetRepositoryBranches(
+  $owner: String!
+  $name: String!
+  $first: Int = 30
+  $after: String
+  $query: String
+) {
+  repository(owner: $owner, name: $name) {
+    refs(refPrefix: "refs/heads/", first: $first, after: $after, query: $query) {
+      totalCount
+      pageInfo {
+        ...PageInfoFull
+      }
+      nodes {
+        name
+        prefix
+        target {
+          ... on Commit {
+            ...CommitBasic
+          }
+        }
+        branchProtectionRule {
+          pattern
+          requiresApprovingReviews
+          requiredApprovingReviewCount
+          requiresStatusChecks
+          isAdminEnforced
+        }
+      }
+    }
+  }
+}
+
+query GetRepositoryCommits(
+  $owner: String!
+  $name: String!
+  $first: Int = 30
+  $after: String
+  $since: GitTimestamp
+  $until: GitTimestamp
+  $path: String
+) {
+  repository(owner: $owner, name: $name) {
+    defaultBranchRef {
+      target {
+        ... on Commit {
+          history(first: $first, after: $after, since: $since, until: $until, path: $path) {
+            totalCount
+            pageInfo {
+              ...PageInfoFull
+            }
+            nodes {
+              ...CommitBasic
+              additions
+              deletions
+              changedFilesIfAvailable
+              statusCheckRollup {
+                state
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+query GetRepositoryCollaborators(
+  $owner: String!
+  $name: String!
+  $first: Int = 30
+  $after: String
+) {
+  repository(owner: $owner, name: $name) {
+    collaborators(first: $first, after: $after) {
+      totalCount
+      pageInfo {
+        ...PageInfoFull
+      }
+      edges {
+        permission
+        node {
+          ...UserBasic
+        }
+      }
+    }
+  }
+}

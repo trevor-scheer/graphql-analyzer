@@ -1,0 +1,84 @@
+# Common fragments used across multiple files
+# Tests cross-file fragment resolution
+
+fragment ActorBasic on Actor {
+  login
+  avatarUrl
+  url
+}
+
+fragment LabelBasic on Label {
+  id
+  name
+  color
+  description
+}
+
+fragment MilestoneBasic on Milestone {
+  id
+  number
+  title
+  description
+  state
+  dueOn
+  progressPercentage
+}
+
+fragment OrganizationBasic on Organization {
+  id
+  login
+  name
+  avatarUrl
+  url
+  description
+}
+
+fragment TeamBasic on Team {
+  id
+  name
+  slug
+  description
+  privacy
+  url
+}
+
+fragment CommitBasic on Commit {
+  oid
+  abbreviatedOid
+  message
+  messageHeadline
+  committedDate
+  author {
+    name
+    email
+    user {
+      ...UserBasic
+    }
+  }
+}
+
+fragment ProjectItemBasic on ProjectV2Item {
+  id
+  type
+  createdAt
+  updatedAt
+  isArchived
+}
+
+fragment PageInfoFull on PageInfo {
+  hasNextPage
+  hasPreviousPage
+  startCursor
+  endCursor
+}
+
+fragment ReactionGroupFull on ReactionConnection {
+  totalCount
+  viewerHasReacted
+  nodes {
+    content
+    user {
+      login
+    }
+  }
+}

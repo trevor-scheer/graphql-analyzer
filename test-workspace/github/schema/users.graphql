@@ -1,0 +1,633 @@
+"""
+A user is an individual's account on GitHub.
+"""
+type User implements Node & Actor & RepositoryOwner & Sponsor & Sponsorable & UniformResourceLocatable {
+  """
+  URL of the user's avatar.
+  """
+  avatarUrl(size: Int): URI!
+
+  """
+  The user's public profile bio.
+  """
+  bio: String
+
+  """
+  The user's public profile bio as HTML.
+  """
+  bioHTML: HTML!
+
+  """
+  The user's public profile company.
+  """
+  company: String
+
+  """
+  The user's public profile company as HTML.
+  """
+  companyHTML: HTML!
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  The user's public profile email.
+  """
+  email: String!
+
+  """
+  The estimated next GitHub Sponsors payout in cents.
+  """
+  estimatedNextSponsorsPayoutInCents: Int!
+
+  """
+  A list of users the viewer is following.
+  """
+  followers(first: Int, after: String, last: Int, before: String): UserConnection!
+
+  """
+  A list of users the viewer is following.
+  """
+  following(first: Int, after: String, last: Int, before: String): UserConnection!
+
+  """
+  Whether this user has a GitHub Sponsors listing.
+  """
+  hasSponsorsListing: Boolean!
+
+  id: ID!
+
+  """
+  Whether the viewer is following this user.
+  """
+  isFollowingViewer: Boolean!
+
+  """
+  Whether the viewer is sponsoring this user.
+  """
+  isSponsoringViewer: Boolean!
+
+  """
+  The user's public profile location.
+  """
+  location: String
+
+  """
+  The username used to login.
+  """
+  login: String!
+
+  """
+  The user's public profile name.
+  """
+  name: String
+
+  """
+  A list of organizations the user belongs to.
+  """
+  organizations(first: Int, after: String, last: Int, before: String): OrganizationConnection!
+
+  """
+  A list of repositories that the user recently contributed to.
+  """
+  repositoriesContributedTo(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    contributionTypes: [RepositoryContributionType]
+    includeUserRepositories: Boolean
+    isLocked: Boolean
+    orderBy: RepositoryOrder
+    privacy: RepositoryPrivacy
+  ): RepositoryConnection!
+
+  """
+  A list of repositories that the user owns.
+  """
+  repositories(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: RepositoryOrder
+    privacy: RepositoryPrivacy
+    isFork: Boolean
+    isLocked: Boolean
+    affiliations: [RepositoryAffiliation]
+  ): RepositoryConnection!
+
+  """
+  Find a repository owned by the user.
+  """
+  repository(name: String!): Repository
+
+  """
+  The HTTP path for the owner.
+  """
+  resourcePath: URI!
+
+  """
+  The GitHub Sponsors listing for this user.
+  """
+  sponsorsListing: SponsorsListing
+
+  """
+  Lookup a sponsorship by sponsor.
+  """
+  sponsorshipForViewerAsSponsorable: Sponsorship
+
+  """
+  A list of repositories the user has starred.
+  """
+  starredRepositories(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: StarOrder
+    ownedByViewer: Boolean
+  ): StarredRepositoryConnection!
+
+  """
+  The user's description of what they're currently doing.
+  """
+  status: UserStatus
+
+  """
+  Repositories the user has contributed to, ordered by contribution rank.
+  """
+  topRepositories(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: RepositoryOrder!
+    since: DateTime
+  ): RepositoryConnection!
+
+  """
+  Total amount received on GitHub Sponsors in cents.
+  """
+  totalSponsorshipAmountAsSponsorInCents(
+    since: DateTime
+    until: DateTime
+  ): Int
+
+  """
+  The user's Twitter username.
+  """
+  twitterUsername: String
+
+  """
+  Identifies the date and time when the object was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The HTTP URL for the user.
+  """
+  url: URI!
+
+  """
+  Whether the viewer is following this user.
+  """
+  viewerCanFollow: Boolean!
+
+  """
+  Whether the viewer is sponsoring this user.
+  """
+  viewerIsFollowing: Boolean!
+
+  """
+  Whether the viewer is sponsoring this user.
+  """
+  viewerIsSponsoring: Boolean!
+
+  """
+  A list of repositories the user is watching.
+  """
+  watching(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: RepositoryOrder
+    privacy: RepositoryPrivacy
+    isLocked: Boolean
+  ): RepositoryConnection!
+
+  """
+  A URL pointing to the user's public website/blog.
+  """
+  websiteUrl: URI
+}
+
+"""
+A bot account.
+"""
+type Bot implements Node & Actor & UniformResourceLocatable {
+  """
+  URL of the bot's avatar.
+  """
+  avatarUrl(size: Int): URI!
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  id: ID!
+
+  """
+  The username of the bot.
+  """
+  login: String!
+
+  """
+  The HTTP path for the bot.
+  """
+  resourcePath: URI!
+
+  """
+  Identifies the date and time when the object was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The HTTP URL for the bot.
+  """
+  url: URI!
+}
+
+"""
+Represents a Mannequin (placeholder for a user).
+"""
+type Mannequin implements Node & Actor & UniformResourceLocatable {
+  """
+  URL of the mannequin's avatar.
+  """
+  avatarUrl(size: Int): URI!
+
+  """
+  The mannequin's email on the source instance.
+  """
+  email: String
+
+  id: ID!
+
+  """
+  The username of the mannequin.
+  """
+  login: String!
+
+  """
+  The HTTP path for the mannequin.
+  """
+  resourcePath: URI!
+
+  """
+  Identifies the date and time when the object was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The HTTP URL for the mannequin.
+  """
+  url: URI!
+}
+
+"""
+The user's description of what they're currently doing.
+"""
+type UserStatus implements Node {
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  An emoji summarizing the user's status.
+  """
+  emoji: String
+
+  """
+  The status emoji as HTML.
+  """
+  emojiHTML: HTML
+
+  """
+  When the status expires.
+  """
+  expiresAt: DateTime
+
+  id: ID!
+
+  """
+  Whether this status indicates the user is not fully available.
+  """
+  indicatesLimitedAvailability: Boolean!
+
+  """
+  A brief message describing what the user is doing.
+  """
+  message: String
+
+  """
+  The organization whose members can see this status.
+  """
+  organization: Organization
+
+  """
+  Identifies the date and time when the object was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The user who owns this status.
+  """
+  user: User!
+}
+
+"""
+A GitHub Sponsors listing.
+"""
+type SponsorsListing implements Node {
+  """
+  The current goal the maintainer is working toward.
+  """
+  activeGoal: SponsorsGoal
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  The full description of the listing.
+  """
+  fullDescription: String!
+
+  """
+  The full description of the listing as HTML.
+  """
+  fullDescriptionHTML: HTML!
+
+  id: ID!
+
+  """
+  Whether the listing is publicly visible.
+  """
+  isPublic: Boolean!
+
+  """
+  The listing's name.
+  """
+  name: String!
+
+  """
+  The short description of the listing.
+  """
+  shortDescription: String!
+
+  """
+  The slug of the listing.
+  """
+  slug: String!
+
+  """
+  The entity this listing is for.
+  """
+  sponsorable: Sponsorable!
+}
+
+"""
+A goal for sponsorship.
+"""
+type SponsorsGoal {
+  """
+  The goal description.
+  """
+  description: String
+
+  """
+  The goal value in cents.
+  """
+  percentComplete: Int!
+
+  """
+  The target value in cents.
+  """
+  targetValue: Int!
+
+  """
+  The goal title.
+  """
+  title: String!
+}
+
+"""
+A sponsorship between a user and a maintainer.
+"""
+type Sponsorship implements Node {
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  id: ID!
+
+  """
+  Whether the sponsorship is active.
+  """
+  isActive: Boolean!
+
+  """
+  Whether the sponsorship is one-time.
+  """
+  isOneTimePayment: Boolean!
+
+  """
+  Whether the sponsor can see the maintainer's updates.
+  """
+  isSponsorOptedIntoEmail: Boolean!
+
+  """
+  The tier associated with the sponsorship.
+  """
+  maintainer: User!
+
+  """
+  The privacy level of the sponsorship.
+  """
+  privacyLevel: SponsorshipPrivacy!
+
+  """
+  The entity sponsoring the maintainer.
+  """
+  sponsor: Sponsor
+
+  """
+  The entity receiving sponsorship.
+  """
+  sponsorable: Sponsorable!
+
+  """
+  The associated tier.
+  """
+  tier: SponsorsTier
+}
+
+"""
+A tier in a GitHub Sponsors listing.
+"""
+type SponsorsTier implements Node {
+  """
+  The description of the tier.
+  """
+  description: String!
+
+  """
+  The description of the tier as HTML.
+  """
+  descriptionHTML: HTML!
+
+  id: ID!
+
+  """
+  Whether the tier is custom amount.
+  """
+  isCustomAmount: Boolean!
+
+  """
+  Whether the tier is one-time.
+  """
+  isOneTime: Boolean!
+
+  """
+  The monthly price in cents.
+  """
+  monthlyPriceInCents: Int!
+
+  """
+  The monthly price in dollars.
+  """
+  monthlyPriceInDollars: Int!
+
+  """
+  The name of the tier.
+  """
+  name: String!
+
+  """
+  The associated listing.
+  """
+  sponsorsListing: SponsorsListing!
+}
+
+"""
+Sponsorship privacy.
+"""
+enum SponsorshipPrivacy {
+  """
+  Public sponsorship.
+  """
+  PUBLIC
+
+  """
+  Private sponsorship.
+  """
+  PRIVATE
+}
+
+"""
+The connection type for StarredRepository.
+"""
+type StarredRepositoryConnection {
+  """
+  A list of edges.
+  """
+  edges: [StarredRepositoryEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Repository]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+
+  """
+  Identifies the total count of items in the connection.
+  """
+  totalCount: Int!
+
+  """
+  Whether the viewer has starred any repositories.
+  """
+  isOverLimit: Boolean!
+}
+
+"""
+An edge in a connection.
+"""
+type StarredRepositoryEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Repository!
+
+  """
+  When the item was starred.
+  """
+  starredAt: DateTime!
+}
+
+"""
+Repository contribution type.
+"""
+enum RepositoryContributionType {
+  """
+  User committed to a repository.
+  """
+  COMMIT
+
+  """
+  User opened an issue in a repository.
+  """
+  ISSUE
+
+  """
+  User opened a pull request in a repository.
+  """
+  PULL_REQUEST
+
+  """
+  User created a repository.
+  """
+  REPOSITORY
+
+  """
+  User reviewed a pull request in a repository.
+  """
+  PULL_REQUEST_REVIEW
+}
