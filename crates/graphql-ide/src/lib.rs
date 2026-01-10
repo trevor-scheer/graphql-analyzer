@@ -468,9 +468,7 @@ impl Default for IdeDatabase {
     fn default() -> Self {
         Self {
             storage: salsa::Storage::default(),
-            lint_config: Arc::new(RwLock::new(Arc::new(
-                graphql_linter::LintConfig::default(),
-            ))),
+            lint_config: Arc::new(RwLock::new(Arc::new(graphql_linter::LintConfig::default()))),
             extract_config: Arc::new(RwLock::new(Arc::new(
                 graphql_extract::ExtractConfig::default(),
             ))),
