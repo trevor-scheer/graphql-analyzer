@@ -308,7 +308,11 @@ documents: "**/*.graphql"
 
                 // === PHASE 1: Collect all files without holding the lock ===
                 // This batching approach avoids lock contention during file I/O
-                let mut collected_files: Vec<(graphql_ide::FilePath, String, graphql_ide::FileKind)> = Vec::new();
+                let mut collected_files: Vec<(
+                    graphql_ide::FilePath,
+                    String,
+                    graphql_ide::FileKind,
+                )> = Vec::new();
                 let mut files_scanned = 0;
 
                 for pattern in patterns {
@@ -339,9 +343,7 @@ documents: "**/*.graphql"
 
                                             // Log progress every 100 files
                                             files_scanned += 1;
-                                            if files_scanned > 0
-                                                && files_scanned % 100 == 0
-                                            {
+                                            if files_scanned > 0 && files_scanned % 100 == 0 {
                                                 tracing::info!(
                                                     "Scanned {} files so far (pattern: {})",
                                                     files_scanned,
@@ -349,8 +351,7 @@ documents: "**/*.graphql"
                                                 );
 
                                                 // Show warning at threshold
-                                                if files_scanned == MAX_FILES_WARNING_THRESHOLD
-                                                {
+                                                if files_scanned == MAX_FILES_WARNING_THRESHOLD {
                                                     tracing::warn!(
                                                         "Loading large number of files ({}+), this may take a while...",
                                                         MAX_FILES_WARNING_THRESHOLD
@@ -382,7 +383,8 @@ documents: "**/*.graphql"
                                                         graphql_ide::FilePath::new(uri.clone());
 
                                                     // Collect file data for batch addition
-                                                    collected_files.push((file_path, content, file_kind));
+                                                    collected_files
+                                                        .push((file_path, content, file_kind));
                                                 }
                                                 Err(e) => {
                                                     tracing::warn!(
@@ -973,7 +975,8 @@ impl LanguageServer for GraphQLLanguageServer {
         // removed from the analysis.
 
         // Remove version tracking for closed document
-        self.document_versions.remove(&params.text_document.uri.to_string());
+        self.document_versions
+            .remove(&params.text_document.uri.to_string());
 
         // Clear diagnostics for the closed file
         self.client

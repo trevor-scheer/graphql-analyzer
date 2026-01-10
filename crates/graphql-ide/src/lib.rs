@@ -33,7 +33,6 @@
 /// - [`Analysis`] - Immutable snapshot for querying IDE features
 /// - POD types: [`Position`], [`Range`], [`Location`], [`FilePath`]
 /// - Feature types: [`CompletionItem`], [`HoverResult`], [`Diagnostic`]
-
 #[cfg(test)]
 mod analysis_host_isolation;
 
@@ -112,9 +111,7 @@ fn extract_cursor(input: &str) -> (String, Position) {
         result.push(ch);
     }
 
-    if !found {
-        panic!("No cursor marker '*' found in input");
-    }
+    assert!(found, "No cursor marker '*' found in input");
 
     (result, Position::new(line, character))
 }
@@ -468,9 +465,7 @@ impl Default for IdeDatabase {
     fn default() -> Self {
         Self {
             storage: salsa::Storage::default(),
-            lint_config: Arc::new(RwLock::new(Arc::new(
-                graphql_linter::LintConfig::default(),
-            ))),
+            lint_config: Arc::new(RwLock::new(Arc::new(graphql_linter::LintConfig::default()))),
             extract_config: Arc::new(RwLock::new(Arc::new(
                 graphql_extract::ExtractConfig::default(),
             ))),
@@ -2885,6 +2880,7 @@ fn format_type_ref(type_ref: &graphql_hir::TypeRef) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::needless_raw_string_hashes)]
 mod tests {
     use super::*;
 
@@ -4247,6 +4243,7 @@ type Move {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn test_typescript_off_by_one_parent_completions() {
         let schema = r#"
 type Query { allPokemon(region: Region!, limit: Int): PokemonConnection }
@@ -4374,6 +4371,7 @@ enum Region { KANTO JOHTO }
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn test_typescript_deeply_nested_completions() {
         let schema = r#"
 type Query { allPokemon(region: Region!, limit: Int): PokemonConnection }
@@ -4607,6 +4605,7 @@ query TestEvolution {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn test_completions_for_interface_type_suggest_fields_and_inline_fragments() {
         let schema = r#"
 type Query { evolution: EvolutionEdge }
