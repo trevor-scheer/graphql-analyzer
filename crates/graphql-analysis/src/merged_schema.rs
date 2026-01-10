@@ -160,6 +160,7 @@ pub fn merged_schema(
 }
 
 #[cfg(test)]
+#[allow(clippy::needless_raw_string_hashes)]
 mod tests {
     use super::*;
     use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};

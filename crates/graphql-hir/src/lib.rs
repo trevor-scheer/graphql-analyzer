@@ -769,8 +769,8 @@ mod tests {
 
         // UserFields should be unchanged (same Arc)
         assert_eq!(
-            user_source_1.as_ref().map(|s| s.as_ref()),
-            user_source_2.as_ref().map(|s| s.as_ref()),
+            user_source_1.as_ref().map(AsRef::as_ref),
+            user_source_2.as_ref().map(AsRef::as_ref),
             "UserFields source should be unchanged"
         );
 

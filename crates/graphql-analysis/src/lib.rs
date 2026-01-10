@@ -178,6 +178,7 @@ pub fn file_diagnostics(
 }
 
 #[cfg(test)]
+#[allow(clippy::needless_raw_string_hashes)]
 mod tests {
     use super::*;
     use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
@@ -222,8 +223,7 @@ mod tests {
         // Valid schema should have no syntax errors
         assert!(
             diagnostics.is_empty(),
-            "Valid schema should have no diagnostics, got: {:?}",
-            diagnostics
+            "Valid schema should have no diagnostics, got: {diagnostics:?}"
         );
     }
 }
