@@ -1,7 +1,12 @@
 // Apollo-compiler validation integration
 // This module provides comprehensive GraphQL validation using apollo-compiler
+//
+// Performance optimization: Uses hash-based caching to avoid re-running
+// apollo-compiler validation on every keystroke. Validation only re-runs
+// when the document, schema, or fragment dependencies actually change.
 
-use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase, Position, Severity};
+use crate::validation_cache;
+use crate::{Diagnostic, GraphQLAnalysisDatabase};
 use graphql_db::{FileContent, FileMetadata};
 use std::sync::Arc;
 
@@ -15,6 +20,10 @@ use std::sync::Arc;
 /// - Variable usage and type validation
 /// - Circular fragment detection
 /// - Type coercion validation
+///
+/// Performance: Uses hash-based caching to avoid re-running validation
+/// when inputs haven't changed. This is critical for responsive LSP
+/// feedback during typing.
 #[allow(clippy::too_many_lines)]
 #[salsa::tracked]
 pub fn validate_file(
@@ -42,181 +51,75 @@ pub fn validate_file(
             let line_offset_val = block.line;
 
             // Collect fragment names referenced by this document (transitively across files)
-            // Uses the already-parsed tree to avoid redundant parsing
             let referenced_fragments =
                 collect_referenced_fragments_transitive(&block.tree, project_files, db);
 
-            let valid_schema =
-                apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
-            let mut errors = apollo_compiler::validation::DiagnosticList::new(Arc::default());
-            let mut builder =
-                apollo_compiler::ExecutableDocument::builder(Some(valid_schema), &mut errors);
+            // Collect fragment sources for caching
+            let fragment_sources =
+                collect_fragment_sources(&referenced_fragments, project_files, db);
 
-            // Use the already-parsed AST instead of re-parsing
-            // The AST is cached via graphql_syntax::parse()
-            builder.add_ast_document(&block.ast, true);
+            // Use cached validation
+            let result = validation_cache::cached_validate(
+                db,
+                block.source.as_ref(),
+                &schema,
+                &fragment_sources,
+                doc_uri.as_str(),
+                line_offset_val,
+            );
 
-            // Add referenced fragments using per-fragment queries for fine-grained invalidation
-            // This ensures that changing fragment A only invalidates files that actually use A
-            let mut added_fragments = std::collections::HashSet::new();
-            for fragment_name in &referenced_fragments {
-                let key: Arc<str> = Arc::from(fragment_name.as_str());
-                if !added_fragments.insert(key.clone()) {
-                    continue;
-                }
-                // Fine-grained query: only creates dependency on this specific fragment
-                if let Some(fragment_source) = graphql_hir::fragment_source(db, project_files, key)
-                {
-                    apollo_compiler::parser::Parser::new().parse_into_executable_builder(
-                        fragment_source.as_ref(),
-                        format!("fragment:{fragment_name}"),
-                        &mut builder,
-                    );
-                }
-            }
-
-            let doc = builder.build();
-            match if errors.is_empty() {
-                doc.validate(valid_schema)
-                    .map(|_| ())
-                    .map_err(|with_errors| with_errors.errors)
-            } else {
-                Err(errors)
-            } {
-                Ok(_valid_document) => {}
-                Err(error_list) => {
-                    for apollo_diag in error_list.iter() {
-                        use apollo_compiler::diagnostic::ToCliReport;
-                        if let Some(location) = apollo_diag.error.location() {
-                            let file_id = location.file_id();
-                            if let Some(source_file) = apollo_diag.sources.get(&file_id) {
-                                let diag_file_path = source_file.path();
-                                if diag_file_path != doc_uri.as_str() {
-                                    continue;
-                                }
-                            }
-                        }
-                        // Adjust line positions by adding the block's line offset
-                        // since the AST was parsed without source offset
-                        #[allow(clippy::cast_possible_truncation)]
-                        let range = apollo_diag.line_column_range().map_or_else(
-                            DiagnosticRange::default,
-                            |loc_range| DiagnosticRange {
-                                start: Position {
-                                    line: (loc_range.start.line.saturating_sub(1) + line_offset_val)
-                                        as u32,
-                                    character: loc_range.start.column.saturating_sub(1) as u32,
-                                },
-                                end: Position {
-                                    line: (loc_range.end.line.saturating_sub(1) + line_offset_val)
-                                        as u32,
-                                    character: loc_range.end.column.saturating_sub(1) as u32,
-                                },
-                            },
-                        );
-                        let message: Arc<str> = Arc::from(apollo_diag.error.to_string());
-                        if message.contains("must be used in an operation") {
-                            continue;
-                        }
-                        diagnostics.push(Diagnostic {
-                            severity: Severity::Error,
-                            message,
-                            range,
-                            source: "apollo-compiler".into(),
-                            code: None,
-                        });
-                    }
-                }
-            }
+            diagnostics.extend(result.diagnostics.iter().cloned());
         }
         return Arc::new(diagnostics);
     }
+
     // Pure GraphQL file validation
-    // Use the already-parsed tree to avoid redundant parsing
     let referenced_fragments =
         collect_referenced_fragments_transitive(&parse.tree, project_files, db);
-    let valid_schema = apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
-    let mut errors = apollo_compiler::validation::DiagnosticList::new(Arc::default());
-    let mut builder = apollo_compiler::ExecutableDocument::builder(Some(valid_schema), &mut errors);
+
+    // Collect fragment sources for caching
+    let fragment_sources = collect_fragment_sources(&referenced_fragments, project_files, db);
 
     // Line offset is typically 0 for pure GraphQL files, but may be non-zero
     // when content is pre-extracted (e.g., from tests or embedded sources)
     let line_offset_val = metadata.line_offset(db) as usize;
 
-    // Use the already-parsed AST instead of re-parsing
-    // The AST is cached via graphql_syntax::parse()
-    builder.add_ast_document(&parse.ast, true);
+    let text = content.text(db);
 
-    // Add referenced fragments using per-fragment queries for fine-grained invalidation
-    // This ensures that changing fragment A only invalidates files that actually use A
-    let mut added_fragments = std::collections::HashSet::new();
-    for fragment_name in &referenced_fragments {
+    // Use cached validation
+    let result = validation_cache::cached_validate(
+        db,
+        text.as_ref(),
+        &schema,
+        &fragment_sources,
+        doc_uri.as_str(),
+        line_offset_val,
+    );
+
+    Arc::new(result.diagnostics.clone())
+}
+
+/// Collect fragment sources (name, source) pairs for the given fragment names
+fn collect_fragment_sources(
+    fragment_names: &std::collections::HashSet<String>,
+    project_files: graphql_db::ProjectFiles,
+    db: &dyn GraphQLAnalysisDatabase,
+) -> Vec<(Arc<str>, Arc<str>)> {
+    let mut sources = Vec::new();
+    let mut added = std::collections::HashSet::new();
+
+    for fragment_name in fragment_names {
         let key: Arc<str> = Arc::from(fragment_name.as_str());
-        if !added_fragments.insert(key.clone()) {
+        if !added.insert(key.clone()) {
             continue;
         }
-        // Fine-grained query: only creates dependency on this specific fragment
-        if let Some(fragment_source) = graphql_hir::fragment_source(db, project_files, key) {
-            apollo_compiler::parser::Parser::new().parse_into_executable_builder(
-                fragment_source.as_ref(),
-                format!("fragment:{fragment_name}"),
-                &mut builder,
-            );
+        if let Some(fragment_source) = graphql_hir::fragment_source(db, project_files, key.clone())
+        {
+            sources.push((key, fragment_source));
         }
     }
 
-    let doc = builder.build();
-    match if errors.is_empty() {
-        doc.validate(valid_schema)
-            .map(|_| ())
-            .map_err(|with_errors| with_errors.errors)
-    } else {
-        Err(errors)
-    } {
-        Ok(_valid_document) => {}
-        Err(error_list) => {
-            for apollo_diag in error_list.iter() {
-                use apollo_compiler::diagnostic::ToCliReport;
-                if let Some(location) = apollo_diag.error.location() {
-                    let file_id = location.file_id();
-                    if let Some(source_file) = apollo_diag.sources.get(&file_id) {
-                        let diag_file_path = source_file.path();
-                        if diag_file_path != doc_uri.as_str() {
-                            continue;
-                        }
-                    }
-                }
-                // Adjust line positions by adding the line offset
-                // since the AST was parsed without source offset
-                #[allow(clippy::cast_possible_truncation)]
-                let range = apollo_diag.line_column_range().map_or_else(
-                    DiagnosticRange::default,
-                    |loc_range| DiagnosticRange {
-                        start: Position {
-                            line: (loc_range.start.line.saturating_sub(1) + line_offset_val) as u32,
-                            character: loc_range.start.column.saturating_sub(1) as u32,
-                        },
-                        end: Position {
-                            line: (loc_range.end.line.saturating_sub(1) + line_offset_val) as u32,
-                            character: loc_range.end.column.saturating_sub(1) as u32,
-                        },
-                    },
-                );
-                let message: Arc<str> = Arc::from(apollo_diag.error.to_string());
-                if message.contains("must be used in an operation") {
-                    continue;
-                }
-                diagnostics.push(Diagnostic {
-                    severity: Severity::Error,
-                    message,
-                    range,
-                    source: "apollo-compiler".into(),
-                    code: None,
-                });
-            }
-        }
-    }
-    Arc::new(diagnostics)
+    sources
 }
 
 /// Collect all fragment names referenced by a document transitively across files

@@ -11,6 +11,7 @@ pub mod merged_schema;
 mod project_lints;
 mod schema_validation;
 pub mod validation;
+mod validation_cache;
 
 pub use diagnostics::*;
 pub use merged_schema::{merged_schema_with_diagnostics, MergedSchemaResult};
