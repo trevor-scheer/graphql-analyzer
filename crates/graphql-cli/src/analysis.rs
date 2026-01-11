@@ -251,4 +251,107 @@ impl CliAnalysisHost {
         );
         results
     }
+
+    /// Get a snapshot of the analysis
+    pub fn snapshot(&self) -> graphql_ide::Analysis {
+        self.host.snapshot()
+    }
+
+    /// Get file count and total field count from schema types
+    pub fn file_and_field_stats(&self) -> (usize, usize) {
+        let file_count = self.loaded_files.len();
+
+        // Get field count from the analysis snapshot
+        // workspace_symbols returns types, but we need field counts too
+        // For now we count fields by querying document symbols for each schema file
+        let snapshot = self.host.snapshot();
+        let mut field_count = 0;
+
+        // Get all type symbols and count their children (fields)
+        let symbols = snapshot.workspace_symbols("");
+        for symbol in &symbols {
+            // For each type, query document symbols to count fields
+            if matches!(
+                symbol.kind,
+                graphql_ide::SymbolKind::Type
+                    | graphql_ide::SymbolKind::Interface
+                    | graphql_ide::SymbolKind::Input
+            ) {
+                // Try to get document symbols from the type's file
+                let doc_symbols = snapshot.document_symbols(&symbol.location.file);
+                // Find this type in the document symbols and count its children (fields)
+                for doc_symbol in doc_symbols {
+                    if doc_symbol.name == symbol.name {
+                        field_count += doc_symbol.children.len();
+                        break;
+                    }
+                }
+            }
+        }
+
+        (file_count, field_count)
+    }
+
+    /// Get complexity statistics for operations
+    pub fn complexity_stats(&self) -> (Vec<usize>, Vec<usize>) {
+        let snapshot = self.host.snapshot();
+        let mut depths = Vec::new();
+        let mut spreads = Vec::new();
+
+        // Get all operations from workspace symbols
+        let symbols = snapshot.workspace_symbols("");
+        for symbol in &symbols {
+            if matches!(
+                symbol.kind,
+                graphql_ide::SymbolKind::Query
+                    | graphql_ide::SymbolKind::Mutation
+                    | graphql_ide::SymbolKind::Subscription
+            ) {
+                // Get document symbols for this file to analyze operation structure
+                let doc_symbols = snapshot.document_symbols(&symbol.location.file);
+                for doc_symbol in doc_symbols {
+                    if doc_symbol.name == symbol.name {
+                        // Calculate depth from nested children
+                        let depth = calculate_depth(&doc_symbol);
+                        depths.push(depth);
+
+                        // Count fragment spreads (children named with "...")
+                        let spread_count = count_fragment_spreads(&doc_symbol);
+                        spreads.push(spread_count);
+                        break;
+                    }
+                }
+            }
+        }
+
+        (depths, spreads)
+    }
+}
+
+/// Calculate the maximum depth of a document symbol tree
+fn calculate_depth(symbol: &graphql_ide::DocumentSymbol) -> usize {
+    if symbol.children.is_empty() {
+        return 1;
+    }
+    1 + symbol
+        .children
+        .iter()
+        .map(calculate_depth)
+        .max()
+        .unwrap_or(0)
+}
+
+/// Count fragment spreads in a document symbol tree
+fn count_fragment_spreads(symbol: &graphql_ide::DocumentSymbol) -> usize {
+    let mut count = 0;
+
+    // Fragment spreads are represented as children with names starting with "..."
+    for child in &symbol.children {
+        if child.name.starts_with("...") {
+            count += 1;
+        }
+        count += count_fragment_spreads(child);
+    }
+
+    count
 }

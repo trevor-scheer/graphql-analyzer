@@ -65,6 +65,13 @@ enum Commands {
         #[command(subcommand)]
         command: commands::schema::SchemaCommands,
     },
+
+    /// Display statistics about the GraphQL project
+    Stats {
+        /// Output format
+        #[arg(short, long, value_enum, default_value = "human")]
+        format: OutputFormat,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -96,6 +103,9 @@ async fn main() -> anyhow::Result<()> {
             commands::check::run(cli.config, cli.project.as_deref(), format, watch)
         }
         Commands::Schema { command } => commands::schema::run(command).await,
+        Commands::Stats { format } => {
+            commands::stats::run(cli.config, cli.project.as_deref(), format)
+        }
     };
 
     #[cfg(feature = "otel")]
