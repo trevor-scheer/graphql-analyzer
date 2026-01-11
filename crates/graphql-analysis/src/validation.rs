@@ -61,6 +61,9 @@ pub fn validate_file(
             // Using fragment_ast instead of fragment_source avoids re-parsing
             let mut added_fragments = std::collections::HashSet::new();
             let mut added_ast_ptrs = std::collections::HashSet::new();
+            // Pre-populate with current block's AST to avoid adding it again when fragments
+            // in the same block reference each other
+            added_ast_ptrs.insert(Arc::as_ptr(&block.ast) as usize);
             for fragment_name in &referenced_fragments {
                 let key: Arc<str> = Arc::from(fragment_name.as_str());
                 if !added_fragments.insert(key.clone()) {
@@ -155,6 +158,9 @@ pub fn validate_file(
     // Using fragment_ast instead of fragment_source avoids re-parsing
     let mut added_fragments = std::collections::HashSet::new();
     let mut added_ast_ptrs = std::collections::HashSet::new();
+    // Pre-populate with current file's AST to avoid adding it again when fragments
+    // in the same file reference each other (e.g., IssueDetails spreads IssueBasic)
+    added_ast_ptrs.insert(Arc::as_ptr(&parse.ast) as usize);
     for fragment_name in &referenced_fragments {
         let key: Arc<str> = Arc::from(fragment_name.as_str());
         if !added_fragments.insert(key.clone()) {
