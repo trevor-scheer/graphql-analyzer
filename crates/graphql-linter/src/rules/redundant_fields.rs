@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeFix, LintDiagnostic, LintSeverity, TextEdit};
 use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
@@ -248,6 +248,7 @@ impl FragmentRegistry {
 }
 
 /// Check a selection set for redundant fields
+#[allow(clippy::too_many_lines)]
 fn check_selection_set_for_redundancy(
     selection_set: &cst::SelectionSet,
     fragments: &FragmentRegistry,
@@ -293,9 +294,15 @@ fn check_selection_set_for_redundancy(
         if fields.len() > 1 {
             for field in fields.iter().skip(1) {
                 if let Some(field_name) = field.name() {
-                    let syntax_node = field_name.syntax();
-                    let start_offset: usize = syntax_node.text_range().start().into();
-                    let end_offset: usize = syntax_node.text_range().end().into();
+                    let name_syntax = field_name.syntax();
+                    let start_offset: usize = name_syntax.text_range().start().into();
+                    let end_offset: usize = name_syntax.text_range().end().into();
+
+                    // Get full field range for the fix
+                    let field_syntax = field.syntax();
+                    let field_start: usize = field_syntax.text_range().start().into();
+                    let field_end: usize = field_syntax.text_range().end().into();
+
                     let field_desc = field_key.alias.as_ref().map_or_else(
                         || format!("'{}'", field_key.field_name),
                         |alias| format!("'{}: {}'", alias, field_key.field_name),
@@ -303,12 +310,21 @@ fn check_selection_set_for_redundancy(
                     let message = format!(
                         "Field {field_desc} is selected multiple times in the same selection set"
                     );
-                    diagnostics.push(LintDiagnostic::warning(
-                        start_offset,
-                        end_offset,
-                        message,
-                        "redundant_fields",
-                    ));
+
+                    let fix = CodeFix::new(
+                        format!("Remove duplicate field {field_desc}"),
+                        vec![TextEdit::delete(field_start, field_end)],
+                    );
+
+                    diagnostics.push(
+                        LintDiagnostic::warning(
+                            start_offset,
+                            end_offset,
+                            message,
+                            "redundant_fields",
+                        )
+                        .with_fix(fix),
+                    );
                 }
             }
         }
@@ -320,9 +336,14 @@ fn check_selection_set_for_redundancy(
             if let Some(field_key) = FieldKey::from_field(field) {
                 if fields_from_fragments.contains(&field_key) {
                     let field_name = field.name().unwrap();
-                    let syntax_node = field_name.syntax();
-                    let start_offset: usize = syntax_node.text_range().start().into();
-                    let end_offset: usize = syntax_node.text_range().end().into();
+                    let name_syntax = field_name.syntax();
+                    let start_offset: usize = name_syntax.text_range().start().into();
+                    let end_offset: usize = name_syntax.text_range().end().into();
+
+                    // Get full field range for the fix
+                    let field_syntax = field.syntax();
+                    let field_start: usize = field_syntax.text_range().start().into();
+                    let field_end: usize = field_syntax.text_range().end().into();
 
                     let fragment_list = if fragment_spreads.len() == 1 {
                         format!("fragment '{}'", fragment_spreads[0])
@@ -347,12 +368,20 @@ fn check_selection_set_for_redundancy(
                         "Field {field_desc} is redundant - already included in {fragment_list}"
                     );
 
-                    diagnostics.push(LintDiagnostic::warning(
-                        start_offset,
-                        end_offset,
-                        message,
-                        "redundant_fields",
-                    ));
+                    let fix = CodeFix::new(
+                        format!("Remove redundant field {field_desc}"),
+                        vec![TextEdit::delete(field_start, field_end)],
+                    );
+
+                    diagnostics.push(
+                        LintDiagnostic::warning(
+                            start_offset,
+                            end_offset,
+                            message,
+                            "redundant_fields",
+                        )
+                        .with_fix(fix),
+                    );
                 }
             }
 

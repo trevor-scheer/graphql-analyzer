@@ -6,15 +6,16 @@ use dashmap::DashMap;
 use graphql_config::find_config;
 use graphql_ide::AnalysisHost;
 use lsp_types::{
-    ClientCapabilities, CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
-    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
-    DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, FileChangeType,
-    FileSystemWatcher, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
-    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
-    MessageActionItem, MessageType, OneOf, ReferenceParams, ServerCapabilities, ServerInfo,
-    SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
-    WorkDoneProgressOptions, WorkspaceSymbol, WorkspaceSymbolParams,
+    ClientCapabilities, CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand,
+    CodeActionParams, CodeActionResponse, CompletionOptions, CompletionParams, CompletionResponse,
+    Diagnostic, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams,
+    FileChangeType, FileSystemWatcher, GotoDefinitionParams, GotoDefinitionResponse, Hover,
+    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
+    Location, MessageActionItem, MessageType, OneOf, ReferenceParams, ServerCapabilities,
+    ServerInfo, SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri,
+    WorkDoneProgressOptions, WorkspaceEdit, WorkspaceSymbol, WorkspaceSymbolParams,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -689,6 +690,13 @@ impl LanguageServer for GraphQLLanguageServer {
                 references_provider: supports_references.then_some(OneOf::Left(true)),
                 document_symbol_provider: supports_document_symbols.then_some(OneOf::Left(true)),
                 workspace_symbol_provider: supports_workspace_symbols.then_some(OneOf::Left(true)),
+                code_action_provider: Some(lsp_types::CodeActionProviderCapability::Options(
+                    CodeActionOptions {
+                        code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
+                        work_done_progress_options: WorkDoneProgressOptions::default(),
+                        resolve_provider: None,
+                    },
+                )),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["graphql.checkStatus".to_string()],
                     work_done_progress_options: WorkDoneProgressOptions::default(),
@@ -1273,6 +1281,131 @@ impl LanguageServer for GraphQLLanguageServer {
         } else {
             tracing::warn!("Unknown command: {}", params.command);
             Ok(None)
+        }
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::mutable_key_type)]
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        let uri = params.text_document.uri;
+        let range = params.range;
+
+        let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
+            return Ok(None);
+        };
+
+        let host = self.get_or_create_host(&workspace_uri, &project_name);
+        let analysis = {
+            let host_guard = host.lock().await;
+            host_guard.snapshot()
+        };
+
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
+
+        // Get lint diagnostics with fixes for this file
+        let lint_diagnostics = analysis.lint_diagnostics_with_fixes(&file_path);
+
+        if lint_diagnostics.is_empty() {
+            return Ok(None);
+        }
+
+        // Convert LSP range to line/column for comparison
+        let start_line = range.start.line as usize;
+        let end_line = range.end.line as usize;
+
+        // Filter diagnostics that overlap with the requested range
+        // and have fixes available
+        let mut actions: Vec<CodeActionOrCommand> = Vec::new();
+
+        // Get file content for line index
+        let Some(content) = analysis.file_content(&file_path) else {
+            return Ok(None);
+        };
+
+        let line_index = graphql_syntax::LineIndex::new(&content);
+
+        for diag in lint_diagnostics {
+            // Skip diagnostics without fixes
+            let Some(ref fix) = diag.fix else {
+                continue;
+            };
+
+            // Convert diagnostic offset to line/column
+            let (diag_start_line, _) = line_index.line_col(diag.offset_range.start);
+            let (diag_end_line, _) = line_index.line_col(diag.offset_range.end);
+
+            // Check if diagnostic overlaps with requested range
+            if diag_end_line < start_line || diag_start_line > end_line {
+                continue;
+            }
+
+            // Convert fix edits to LSP TextEdits
+            let edits: Vec<TextEdit> = fix
+                .edits
+                .iter()
+                .map(|edit| {
+                    let (start_line, start_col) = line_index.line_col(edit.offset_range.start);
+                    let (end_line, end_col) = line_index.line_col(edit.offset_range.end);
+
+                    TextEdit {
+                        range: lsp_types::Range {
+                            start: lsp_types::Position {
+                                line: start_line as u32,
+                                character: start_col as u32,
+                            },
+                            end: lsp_types::Position {
+                                line: end_line as u32,
+                                character: end_col as u32,
+                            },
+                        },
+                        new_text: edit.new_text.clone(),
+                    }
+                })
+                .collect();
+
+            // Create the workspace edit
+            let mut changes = HashMap::new();
+            changes.insert(uri.clone(), edits);
+
+            let workspace_edit = WorkspaceEdit {
+                changes: Some(changes),
+                document_changes: None,
+                change_annotations: None,
+            };
+
+            // Create the code action
+            let action = CodeAction {
+                title: fix.label.clone(),
+                kind: Some(CodeActionKind::QUICKFIX),
+                diagnostics: Some(vec![convert_ide_diagnostic(graphql_ide::Diagnostic {
+                    range: graphql_ide::Range {
+                        start: graphql_ide::Position {
+                            line: diag_start_line as u32,
+                            character: 0,
+                        },
+                        end: graphql_ide::Position {
+                            line: diag_end_line as u32,
+                            character: 0,
+                        },
+                    },
+                    severity: graphql_ide::DiagnosticSeverity::Warning,
+                    message: diag.message.clone(),
+                    code: Some(diag.rule.clone()),
+                    source: "graphql-linter".to_string(),
+                })]),
+                edit: Some(workspace_edit),
+                command: None,
+                is_preferred: Some(true),
+                disabled: None,
+                data: None,
+            };
+
+            actions.push(CodeActionOrCommand::CodeAction(action));
+        }
+
+        if actions.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(actions))
         }
     }
 }

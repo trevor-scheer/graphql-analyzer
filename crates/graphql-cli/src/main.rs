@@ -46,6 +46,21 @@ enum Commands {
         watch: bool,
     },
 
+    /// Automatically fix lint issues that have safe fixes
+    Fix {
+        /// Dry run mode - show what would be fixed without modifying files
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Only fix specific rule(s), comma-separated
+        #[arg(long, value_delimiter = ',')]
+        rule: Option<Vec<String>>,
+
+        /// Output format
+        #[arg(short, long, value_enum, default_value = "human")]
+        format: OutputFormat,
+    },
+
     /// Run all checks (validate + lint) in a single pass
     ///
     /// This command combines GraphQL spec validation and custom lint rules,
@@ -99,6 +114,11 @@ async fn main() -> anyhow::Result<()> {
         Commands::Lint { format, watch } => {
             commands::lint::run(cli.config, cli.project.as_deref(), format, watch)
         }
+        Commands::Fix {
+            dry_run,
+            rule,
+            format,
+        } => commands::fix::run(cli.config, cli.project.as_deref(), dry_run, rule, format),
         Commands::Check { format, watch } => {
             commands::check::run(cli.config, cli.project.as_deref(), format, watch)
         }

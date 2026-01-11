@@ -326,6 +326,55 @@ impl CliAnalysisHost {
 
         (depths, usages)
     }
+
+    /// Update a file (for watch mode - future enhancement)
+    #[allow(dead_code)]
+    pub fn update_file(&mut self, path: &Path, content: &str) {
+        let file_path = FilePath::new(path.to_string_lossy().to_string());
+
+        // Determine file kind based on whether it's in our loaded files
+        // For simplicity, default to ExecutableGraphQL kind
+        let kind = FileKind::ExecutableGraphQL;
+
+        self.host.add_file(&file_path, content, kind, 0);
+
+        // Update loaded files list if this is a new file
+        if !self.loaded_files.contains(&path.to_path_buf()) {
+            self.loaded_files.push(path.to_path_buf());
+        }
+    }
+
+    /// Get raw lint diagnostics with fix information for all loaded files
+    ///
+    /// This method returns `LintDiagnostic` objects that include fix information,
+    /// which is needed for the `fix` command to apply auto-fixes.
+    pub fn all_lint_diagnostics_with_fixes(
+        &self,
+    ) -> HashMap<PathBuf, Vec<graphql_linter::LintDiagnostic>> {
+        let snapshot = self.host.snapshot();
+        let mut results = HashMap::new();
+
+        // Get file-level lint diagnostics with fixes
+        for path in &self.loaded_files {
+            let file_path = FilePath::new(path.to_string_lossy().to_string());
+            let diagnostics = snapshot.lint_diagnostics_with_fixes(&file_path);
+
+            if !diagnostics.is_empty() {
+                results.insert(path.clone(), diagnostics);
+            }
+        }
+
+        // Get project-wide lint diagnostics with fixes
+        let project_diagnostics = snapshot.project_lint_diagnostics_with_fixes();
+        for (file_path, diagnostics) in project_diagnostics {
+            let path = PathBuf::from(file_path.as_str());
+            if !diagnostics.is_empty() {
+                results.entry(path).or_default().extend(diagnostics);
+            }
+        }
+
+        results
+    }
 }
 
 /// Count fragment spreads in a selection set

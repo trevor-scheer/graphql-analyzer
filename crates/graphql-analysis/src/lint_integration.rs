@@ -309,6 +309,112 @@ fn find_file_content_and_metadata(
     graphql_db::file_lookup(db, project_files, file_id)
 }
 
+/// Get raw lint diagnostics for a file (with fix information preserved)
+///
+/// This function returns the raw `LintDiagnostic` objects from the linter,
+/// which include fix information. Use this for implementing auto-fix functionality.
+pub fn lint_file_with_fixes(
+    db: &dyn GraphQLAnalysisDatabase,
+    content: FileContent,
+    metadata: FileMetadata,
+    project_files: Option<ProjectFiles>,
+) -> Vec<graphql_linter::LintDiagnostic> {
+    let Some(project_files) = project_files else {
+        return Vec::new();
+    };
+
+    let lint_config = db.lint_config();
+    let mut all_diagnostics = Vec::new();
+    let file_id = metadata.file_id(db);
+    let file_kind = metadata.kind(db);
+
+    // Parse and check for errors
+    let parse = graphql_syntax::parse(db, content, metadata);
+    if !parse.errors.is_empty() {
+        return all_diagnostics;
+    }
+
+    // Run lints based on file kind
+    match file_kind {
+        FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
+            // Standalone document lints
+            for rule in graphql_linter::standalone_document_rules() {
+                if lint_config.is_enabled(rule.name()) {
+                    all_diagnostics.extend(rule.check(
+                        db,
+                        file_id,
+                        content,
+                        metadata,
+                        project_files,
+                    ));
+                }
+            }
+
+            // Document+schema lints
+            for rule in graphql_linter::document_schema_rules() {
+                if lint_config.is_enabled(rule.name()) {
+                    all_diagnostics.extend(rule.check(
+                        db,
+                        file_id,
+                        content,
+                        metadata,
+                        project_files,
+                    ));
+                }
+            }
+        }
+        FileKind::Schema => {
+            // Schema lints (none currently)
+        }
+    }
+
+    all_diagnostics
+}
+
+/// Get project-wide raw lint diagnostics (with fix information preserved)
+pub fn project_lint_diagnostics_with_fixes(
+    db: &dyn GraphQLAnalysisDatabase,
+    project_files: Option<ProjectFiles>,
+) -> HashMap<FileId, Vec<graphql_linter::LintDiagnostic>> {
+    let Some(project_files) = project_files else {
+        return HashMap::new();
+    };
+
+    let lint_config = db.lint_config();
+    let mut diagnostics_by_file: HashMap<FileId, Vec<graphql_linter::LintDiagnostic>> =
+        HashMap::new();
+
+    // Get all project rules from registry
+    for rule in graphql_linter::project_rules() {
+        if !lint_config.is_enabled(rule.name()) {
+            continue;
+        }
+
+        // Run the project-wide rule
+        let lint_diags = rule.check(db, project_files);
+
+        // Merge into result
+        for (file_id, file_lint_diags) in lint_diags {
+            diagnostics_by_file
+                .entry(file_id)
+                .or_default()
+                .extend(file_lint_diags);
+        }
+    }
+
+    diagnostics_by_file
+}
+
+/// Convert `LintDiagnostic` (byte offsets) to `Diagnostic` (line/column)
+///
+/// For TypeScript/JavaScript files with extracted blocks, each `LintDiagnostic` may have
+/// `block_line_offset` and `block_source` set. When present:
+/// - `offset_range` is relative to `block_source`, not the full file
+/// - We build a `LineIndex` from `block_source` to convert byte offsets to line/column
+/// - We add `block_line_offset` to get the correct position in the original file
+///
+/// For pure GraphQL files (no block context), we use the full file's `LineIndex`
+/// and `metadata.line_offset()`.
 #[allow(clippy::cast_possible_truncation)]
 fn convert_lint_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
