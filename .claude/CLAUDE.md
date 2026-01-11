@@ -249,14 +249,16 @@ npm run lint             # Lint TypeScript
 
 - Write clear, descriptive PR titles
 - Explain what changed and why
-- Call out new and updated tests
+- Call out new and updated tests in the Changes section
 - Reference related issues
 - Document which SME agents were consulted (see [SME Consultation Requirements](#sme-consultation-requirements))
+- Use "Manual Testing" section for steps reviewers can follow to verify changes
 
 **Don't:**
 
 - Use excessive emoji in titles or descriptions
-- Mention that tests or linting passed (expected baseline)
+- Mention that tests or linting passed (expected baseline, CI enforces this)
+- Put automated test/lint results in "Manual Testing" section (that's for manual verification steps only)
 
 ---
 
