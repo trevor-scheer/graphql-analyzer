@@ -72,11 +72,39 @@ This separation enables fine-grained incremental recomputation via Salsa.
    - `field_data()` - Get detailed field information
    - `type_by_name()` - Look up types by name
 
-5. **Testing**:
-   - Unit tests for structure extraction
-   - Unit tests for body extraction
-   - Integration tests comparing with current `SchemaIndex`/`DocumentIndex`
-   - Incremental recomputation tests
+## Caching Verification Tests
+
+The crate includes comprehensive tests that verify Salsa's incremental computation is working correctly. These tests use `TrackedHirDatabase` (a local database type with query tracking) to make deterministic assertions about caching behavior.
+
+### Tests Included
+
+| Test | What It Verifies |
+|------|------------------|
+| `test_cache_hit_on_repeated_query` | Repeated queries don't re-execute (served from cache) |
+| `test_granular_caching_editing_one_file` | Editing file A doesn't invalidate queries for file B |
+| `test_unrelated_file_edit_doesnt_invalidate_schema` | Document changes don't affect schema queries |
+| `test_editing_one_of_many_files_is_o1_not_on` | O(1) recomputation when editing 1 of N files |
+| `test_fragment_index_not_invalidated_by_unrelated_edit` | Fragment cache stable across non-fragment edits |
+| `test_golden_invariant_schema_stable_across_operation_edits` | **Critical**: Schema queries never re-run on operation edits |
+| `test_executions_since_for_debugging` | Debugging helper works correctly |
+
+### Golden Invariant Test
+
+The most important test verifies the architectural invariant:
+
+```rust
+// Edit BOTH operation files (simulating active development)
+op1_content.set_text(&mut db).to(Arc::from("query GetUsers { users { id name } }"));
+op2_content.set_text(&mut db).to(Arc::from("query GetUserNames { users { name email } }"));
+
+// Re-query schema - should be COMPLETELY cached
+let types_after = schema_types(&db, project_files);
+
+// GOLDEN INVARIANT: schema_types should NOT re-execute
+assert_eq!(db.count_since(queries::SCHEMA_TYPES, checkpoint), 0);
+```
+
+This ensures IDE responsiveness: users edit operations frequently, and we must NOT re-compute schema knowledge on every keystroke.
 
 ## Design Principles
 
