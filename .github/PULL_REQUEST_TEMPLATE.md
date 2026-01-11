@@ -8,6 +8,19 @@
 
 -
 
+## Consulted SME Agents
+
+<!--
+List which SME agents from .claude/agents/ were consulted for this PR.
+Format: **agent-name.md**: Key guidance received
+
+Example:
+- **lsp.md**: Confirmed response format for textDocument/definition
+- **rust-analyzer.md**: Recommended query-based architecture
+-->
+
+-
+
 ## Test Plan
 
 <!-- How were these changes tested? What should the reviewer test manually? -->
