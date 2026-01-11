@@ -10,11 +10,10 @@
 
 ## Test Plan
 
-<!-- How were these changes tested? -->
+<!-- How were these changes tested? What should the reviewer test manually? -->
 
 -
 
 ## Related Issues
 
 <!-- Link to related issues if any (e.g., Fixes #123, Closes #456) -->
-
