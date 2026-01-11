@@ -856,6 +856,21 @@ Claude must follow these guidelines when working on this project:
 4. **Use descriptive branch names**: `feat/goto-definition`, `fix/fragment-resolution`, `docs/update-readme`
 5. **Use conventional commits**: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`
 
+### GitHub CLI (gh) Usage
+
+When running as a Claude web instance, the git remote uses a local proxy that `gh` doesn't recognize as a GitHub host. **Always use the `--repo` flag** with all `gh` commands:
+
+```bash
+# Correct - always specify the repo explicitly
+gh issue list --repo trevor-scheer/graphql-lsp
+gh pr create --repo trevor-scheer/graphql-lsp
+gh pr view 123 --repo trevor-scheer/graphql-lsp
+
+# Incorrect - will fail with "none of the git remotes configured for this repository point to a known GitHub host"
+gh issue list
+gh pr create
+```
+
 ### Branching and PRs
 
 - **Default approach**: Create new branch from `main`, make changes, open PR against `main`
