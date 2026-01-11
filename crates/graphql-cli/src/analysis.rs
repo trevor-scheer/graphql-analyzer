@@ -30,12 +30,10 @@ impl CliAnalysisHost {
         let mut host = AnalysisHost::new();
         let mut loaded_files = Vec::new();
 
-        // Parse and set lint configuration
         if let Some(ref lint_value) = project_config.lint {
             tracing::debug!("Raw lint configuration: {lint_value:?}");
             match serde_json::from_value::<graphql_linter::LintConfig>(lint_value.clone()) {
                 Ok(lint_config) => {
-                    // Validate the configuration
                     if let Err(validation_error) = lint_config.validate() {
                         return Err(anyhow::anyhow!(
                             "Invalid lint configuration:\n\n{validation_error}"
@@ -63,7 +61,6 @@ impl CliAnalysisHost {
             tracing::debug!("No lint configuration found in project config, using defaults");
         }
 
-        // Parse and set extract configuration
         if let Some(ref extensions) = project_config.extensions {
             if let Some(extract_config_value) = extensions.get("extractConfig") {
                 tracing::debug!("Raw extract configuration: {extract_config_value:?}");
@@ -88,16 +85,13 @@ impl CliAnalysisHost {
             }
         }
 
-        // Load schema files using centralized method
         let _schema_count = host.load_schemas_from_config(project_config, base_dir)?;
 
-        // Load document files (if configured)
         if let Some(ref documents_config) = project_config.documents {
             let document_files =
                 Self::load_document_files(documents_config, base_dir, project_config)?;
 
             for (path, content) in document_files {
-                // Determine file kind based on extension
                 let kind = match path.extension().and_then(|e| e.to_str()) {
                     Some("ts" | "tsx") => FileKind::TypeScript,
                     Some("js" | "jsx") => FileKind::JavaScript,
@@ -131,7 +125,6 @@ impl CliAnalysisHost {
         let mut file_paths = std::collections::HashSet::new();
 
         for pattern in patterns {
-            // Expand brace patterns like {ts,tsx}
             let expanded = Self::expand_braces(pattern);
 
             for expanded_pattern in expanded {
@@ -142,7 +135,6 @@ impl CliAnalysisHost {
                 {
                     match entry {
                         Ok(path) if path.is_file() => {
-                            // Skip node_modules
                             if path.components().any(|c| c.as_os_str() == "node_modules") {
                                 continue;
                             }
@@ -157,7 +149,6 @@ impl CliAnalysisHost {
             }
         }
 
-        // Read file contents
         let mut files = Vec::new();
         for path in file_paths {
             let content = std::fs::read_to_string(&path)
@@ -222,7 +213,6 @@ impl CliAnalysisHost {
         let snapshot = self.host.snapshot();
         let mut results = HashMap::new();
 
-        // Get file-level lint diagnostics
         for (idx, path) in self.loaded_files.iter().enumerate() {
             tracing::debug!(
                 file = %path.display(),
@@ -242,7 +232,6 @@ impl CliAnalysisHost {
             }
         }
 
-        // Get project-wide lint diagnostics (e.g., unused fields, unique names)
         tracing::info!("Collecting project-wide lint diagnostics");
         let project_diagnostics = snapshot.project_lint_diagnostics();
         tracing::info!(
@@ -272,14 +261,10 @@ impl CliAnalysisHost {
     #[allow(dead_code)]
     pub fn update_file(&mut self, path: &Path, content: &str) {
         let file_path = FilePath::new(path.to_string_lossy().to_string());
-
-        // Determine file kind based on whether it's in our loaded files
-        // For simplicity, default to ExecutableGraphQL kind
         let kind = FileKind::ExecutableGraphQL;
 
         self.host.add_file(&file_path, content, kind, 0);
 
-        // Update loaded files list if this is a new file
         if !self.loaded_files.contains(&path.to_path_buf()) {
             self.loaded_files.push(path.to_path_buf());
         }

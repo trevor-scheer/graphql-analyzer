@@ -607,16 +607,13 @@ impl LanguageServer for GraphQLLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         tracing::info!("Initializing GraphQL Language Server");
 
-        // Store client capabilities for later use
         {
             let mut caps = self.client_capabilities.write().await;
             *caps = Some(params.capabilities.clone());
         }
 
-        // Extract client capability information for negotiation
         let text_document_caps = params.capabilities.text_document.as_ref();
 
-        // Check if client supports incremental text document sync
         let supports_incremental_sync = text_document_caps
             .and_then(|td| td.synchronization.as_ref())
             .is_some();
@@ -625,32 +622,26 @@ impl LanguageServer for GraphQLLanguageServer {
             "Client text document sync capability"
         );
 
-        // Check if client supports hover
         let supports_hover = text_document_caps
             .and_then(|td| td.hover.as_ref())
             .is_some();
 
-        // Check if client supports completion
         let supports_completion = text_document_caps
             .and_then(|td| td.completion.as_ref())
             .is_some();
 
-        // Check if client supports goto definition
         let supports_definition = text_document_caps
             .and_then(|td| td.definition.as_ref())
             .is_some();
 
-        // Check if client supports find references
         let supports_references = text_document_caps
             .and_then(|td| td.references.as_ref())
             .is_some();
 
-        // Check if client supports document symbols
         let supports_document_symbols = text_document_caps
             .and_then(|td| td.document_symbol.as_ref())
             .is_some();
 
-        // Check workspace capabilities
         let workspace_caps = params.capabilities.workspace.as_ref();
         let supports_workspace_symbols = workspace_caps.and_then(|ws| ws.symbol.as_ref()).is_some();
 
@@ -664,7 +655,6 @@ impl LanguageServer for GraphQLLanguageServer {
             "Client capabilities detected"
         );
 
-        // Store workspace folders for later config loading
         if let Some(ref folders) = params.workspace_folders {
             tracing::info!(count = folders.len(), "Workspace folders received");
             for folder in folders {
@@ -685,7 +675,6 @@ impl LanguageServer for GraphQLLanguageServer {
             tracing::warn!("No workspace folders provided in initialization");
         }
 
-        // Build server capabilities based on client support
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -834,25 +823,20 @@ impl LanguageServer for GraphQLLanguageServer {
         let content = params.text_document.text;
         let version = params.text_document.version;
 
-        // Track the initial document version
         self.document_versions.insert(uri.to_string(), version);
 
-        // Add to AnalysisHost
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             self.validate_file(uri).await;
             return;
         };
 
-        // Update file_to_project index for files opened after initialization
         self.file_to_project.insert(
             uri.to_string(),
             (workspace_uri.clone(), project_name.clone()),
         );
 
-        // Get the host mutex
         let host = self.get_or_create_host(&workspace_uri, &project_name);
 
-        // Determine file kind by inspecting path and content
         let file_kind =
             graphql_syntax::determine_file_kind_from_content(uri.path().as_str(), &content);
 
@@ -884,7 +868,6 @@ impl LanguageServer for GraphQLLanguageServer {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
 
-        // Check document version to detect out-of-order updates
         let uri_string = uri.to_string();
         if let Some(current_version) = self.document_versions.get(&uri_string) {
             if version <= *current_version {
@@ -896,20 +879,15 @@ impl LanguageServer for GraphQLLanguageServer {
                 return;
             }
         }
-        // Update tracked version
         self.document_versions.insert(uri_string, version);
 
-        // Get the latest content from changes (full sync mode)
         for change in params.content_changes {
-            // Update AnalysisHost
             let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
                 continue;
             };
 
-            // Get the host mutex
             let host = self.get_or_create_host(&workspace_uri, &project_name);
 
-            // Determine file kind by inspecting path and content
             let file_kind =
                 graphql_syntax::determine_file_kind_from_content(uri.path().as_str(), &change.text);
 
@@ -964,18 +942,15 @@ impl LanguageServer for GraphQLLanguageServer {
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         tracing::debug!("Watched files changed: {} file(s)", params.changes.len());
 
-        // Process each file change
         for change in params.changes {
             let uri = change.uri;
             tracing::debug!("File changed: {:?} (type: {:?})", uri, change.typ);
 
-            // Find which workspace this config belongs to
             let Some(config_path) = uri.to_file_path() else {
                 tracing::warn!("Failed to convert URI to file path: {:?}", uri);
                 continue;
             };
 
-            // Find the workspace for this config file
             let workspace_uri = self
                 .config_paths
                 .iter()
@@ -1009,28 +984,23 @@ impl LanguageServer for GraphQLLanguageServer {
         let uri = params.text_document_position.text_document.uri;
         let lsp_position = params.text_document_position.position;
 
-        // Find workspace for this document
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             return Ok(None);
         };
 
-        // Get AnalysisHost and create snapshot (new architecture)
         let host = self.get_or_create_host(&workspace_uri, &project_name);
         let analysis = {
             let host_guard = host.lock().await;
             host_guard.snapshot()
         };
 
-        // Convert LSP position to graphql-ide position
         let position = convert_lsp_position(lsp_position);
         let file_path = graphql_ide::FilePath::new(uri.to_string());
 
-        // Get completions from Analysis
         let Some(items) = analysis.completions(&file_path, position) else {
             return Ok(None);
         };
 
-        // Convert graphql-ide completion items to LSP completion items
         let lsp_items: Vec<lsp_types::CompletionItem> =
             items.into_iter().map(convert_ide_completion_item).collect();
 
@@ -1041,28 +1011,23 @@ impl LanguageServer for GraphQLLanguageServer {
         let uri = params.text_document_position_params.text_document.uri;
         let lsp_position = params.text_document_position_params.position;
 
-        // Find workspace for this document
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             return Ok(None);
         };
 
-        // Get AnalysisHost and create snapshot (new architecture)
         let host = self.get_or_create_host(&workspace_uri, &project_name);
         let analysis = {
             let host_guard = host.lock().await;
             host_guard.snapshot()
         };
 
-        // Convert LSP position to graphql-ide position
         let position = convert_lsp_position(lsp_position);
         let file_path = graphql_ide::FilePath::new(uri.to_string());
 
-        // Get hover from Analysis
         let Some(hover_result) = analysis.hover(&file_path, position) else {
             return Ok(None);
         };
 
-        // Convert graphql-ide HoverResult to LSP Hover
         let hover = convert_ide_hover(hover_result);
 
         Ok(Some(hover))
@@ -1075,28 +1040,23 @@ impl LanguageServer for GraphQLLanguageServer {
         let uri = params.text_document_position_params.text_document.uri;
         let lsp_position = params.text_document_position_params.position;
 
-        // Find workspace for this document
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             return Ok(None);
         };
 
-        // Get AnalysisHost and create snapshot (new architecture)
         let host = self.get_or_create_host(&workspace_uri, &project_name);
         let analysis = {
             let host_guard = host.lock().await;
             host_guard.snapshot()
         };
 
-        // Convert LSP position to graphql-ide position
         let position = convert_lsp_position(lsp_position);
         let file_path = graphql_ide::FilePath::new(uri.to_string());
 
-        // Get goto definition from Analysis
         let Some(locations) = analysis.goto_definition(&file_path, position) else {
             return Ok(None);
         };
 
-        // Convert graphql-ide Locations to LSP Locations
         let lsp_locations: Vec<Location> = locations.iter().map(convert_ide_location).collect();
 
         if lsp_locations.is_empty() {
@@ -1111,29 +1071,24 @@ impl LanguageServer for GraphQLLanguageServer {
         let lsp_position = params.text_document_position.position;
         let include_declaration = params.context.include_declaration;
 
-        // Find workspace for this file
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             return Ok(None);
         };
 
-        // Get AnalysisHost and create snapshot (new architecture)
         let host = self.get_or_create_host(&workspace_uri, &project_name);
         let analysis = {
             let host_guard = host.lock().await;
             host_guard.snapshot()
         };
 
-        // Convert LSP position to graphql-ide position
         let position = convert_lsp_position(lsp_position);
         let file_path = graphql_ide::FilePath::new(uri.to_string());
 
-        // Find references from Analysis
         let Some(locations) = analysis.find_references(&file_path, position, include_declaration)
         else {
             return Ok(None);
         };
 
-        // Convert graphql-ide Locations to LSP Locations
         let lsp_locations: Vec<Location> = locations
             .into_iter()
             .map(|loc| convert_ide_location(&loc))
@@ -1153,13 +1108,11 @@ impl LanguageServer for GraphQLLanguageServer {
         let uri = params.text_document.uri;
         tracing::debug!("Document symbols requested: {:?}", uri);
 
-        // Find workspace for this document
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
-        // Get AnalysisHost and create snapshot
         let host = self.get_or_create_host(&workspace_uri, &project_name);
         let analysis = {
             let host_guard = host.lock().await;
@@ -1168,7 +1121,6 @@ impl LanguageServer for GraphQLLanguageServer {
 
         let file_path = graphql_ide::FilePath::new(uri.to_string());
 
-        // Get document symbols from Analysis
         let symbols = analysis.document_symbols(&file_path);
 
         if symbols.is_empty() {
@@ -1176,7 +1128,6 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         }
 
-        // Convert to LSP types
         let lsp_symbols: Vec<lsp_types::DocumentSymbol> = symbols
             .into_iter()
             .map(convert_ide_document_symbol)
@@ -1192,7 +1143,6 @@ impl LanguageServer for GraphQLLanguageServer {
     ) -> Result<Option<OneOf<Vec<SymbolInformation>, Vec<WorkspaceSymbol>>>> {
         tracing::debug!("Workspace symbols requested: {}", params.query);
 
-        // Search across all projects in all workspaces
         let mut all_symbols = Vec::new();
 
         for entry in self.hosts.iter() {
@@ -1233,14 +1183,12 @@ impl LanguageServer for GraphQLLanguageServer {
         if params.command.as_str() == "graphql.checkStatus" {
             let mut status_lines = Vec::new();
 
-            // Collect status information
             for workspace_entry in self.workspace_roots.iter() {
                 let workspace_uri = workspace_entry.key();
                 let workspace_path = workspace_entry.value();
 
                 status_lines.push(format!("Workspace: {}", workspace_path.display()));
 
-                // Get config path
                 if let Some(config_path) = self.config_paths.get(workspace_uri) {
                     status_lines.push(format!(
                         "  Config: {}",
@@ -1256,7 +1204,6 @@ impl LanguageServer for GraphQLLanguageServer {
 
             let status_report = status_lines.join("\n");
 
-            // Log detailed status to both tracing and LSP output
             let full_report = format!("\n=== GraphQL LSP Status ===\n{}\n", status_report);
             tracing::info!("{}", full_report);
 
@@ -1264,7 +1211,6 @@ impl LanguageServer for GraphQLLanguageServer {
                 .log_message(MessageType::INFO, full_report)
                 .await;
 
-            // Show a simple notification
             let summary = if self.workspace_roots.is_empty() {
                 "No workspaces loaded".to_string()
             } else {
