@@ -322,7 +322,7 @@ mod tests {
         let schema_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 type Query {
                     user: User
                 }
@@ -332,7 +332,7 @@ mod tests {
                     name: String!
                     email: String!
                 }
-                "#,
+                ",
             ),
         );
         let schema_metadata = FileMetadata::new(
@@ -347,14 +347,14 @@ mod tests {
         let doc_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 query GetUser {
                     user {
                         id
                         name
                     }
                 }
-                "#,
+                ",
             ),
         );
         let doc_metadata = FileMetadata::new(
@@ -387,7 +387,7 @@ mod tests {
         let schema_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 type Query {
                     user: User
                 }
@@ -398,7 +398,7 @@ mod tests {
                     email: String!
                     age: Int
                 }
-                "#,
+                ",
             ),
         );
         let schema_metadata = FileMetadata::new(
@@ -413,7 +413,7 @@ mod tests {
         let doc_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 query GetUser {
                     user {
                         ...UserFields
@@ -425,7 +425,7 @@ mod tests {
                     name
                     email
                 }
-                "#,
+                ",
             ),
         );
         let doc_metadata = FileMetadata::new(
@@ -458,7 +458,7 @@ mod tests {
         let schema_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 type Query {
                     user: User
                 }
@@ -474,7 +474,7 @@ mod tests {
                     title: String!
                     content: String!
                 }
-                "#,
+                ",
             ),
         );
         let schema_metadata = FileMetadata::new(
@@ -489,7 +489,7 @@ mod tests {
         let doc_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 query GetUser {
                     user {
                         id
@@ -499,7 +499,7 @@ mod tests {
                         }
                     }
                 }
-                "#,
+                ",
             ),
         );
         let doc_metadata = FileMetadata::new(
@@ -534,7 +534,7 @@ mod tests {
         let schema_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 type Query {
                     user: User
                 }
@@ -545,7 +545,7 @@ mod tests {
                     email: String!
                     phone: String
                 }
-                "#,
+                ",
             ),
         );
         let schema_metadata = FileMetadata::new(
@@ -560,7 +560,7 @@ mod tests {
         let doc_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 query GetUser {
                     user {
                         ...UserBasic
@@ -575,7 +575,7 @@ mod tests {
                 fragment UserContact on User {
                     email
                 }
-                "#,
+                ",
             ),
         );
         let doc_metadata = FileMetadata::new(

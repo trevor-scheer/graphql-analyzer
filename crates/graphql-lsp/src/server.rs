@@ -599,7 +599,6 @@ documents: "**/*.graphql"
             .await;
     }
 }
-impl GraphQLLanguageServer {}
 
 impl LanguageServer for GraphQLLanguageServer {
     #[allow(clippy::too_many_lines)]

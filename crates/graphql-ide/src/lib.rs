@@ -474,8 +474,6 @@ impl Default for IdeDatabase {
     }
 }
 
-impl IdeDatabase {}
-
 #[salsa::db]
 impl salsa::Database for IdeDatabase {}
 
