@@ -14,6 +14,10 @@ fi
 
 echo "Installing gh CLI..."
 
+# Install to user's local bin directory (no sudo required)
+LOCAL_BIN="${HOME}/.local/bin"
+mkdir -p "$LOCAL_BIN"
+
 # Download gh binary directly from GitHub releases
 # This avoids apt which may not work in restricted network environments
 GH_VERSION=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest | grep -oP '"tag_name":\s*"v\K[^"]+')
@@ -23,8 +27,13 @@ GH_URL="https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE
 cd /tmp
 curl -fsSL "$GH_URL" -o "$GH_ARCHIVE"
 tar -xzf "$GH_ARCHIVE"
-sudo mv "gh_${GH_VERSION}_linux_amd64/bin/gh" /usr/local/bin/gh
-sudo chmod +x /usr/local/bin/gh
+mv "gh_${GH_VERSION}_linux_amd64/bin/gh" "$LOCAL_BIN/gh"
+chmod +x "$LOCAL_BIN/gh"
 rm -rf "$GH_ARCHIVE" "gh_${GH_VERSION}_linux_amd64"
 
-echo "✓ gh CLI installed successfully: $(gh --version | head -1)"
+# Ensure ~/.local/bin is in PATH for this session
+if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
+  export PATH="$LOCAL_BIN:$PATH"
+fi
+
+echo "✓ gh CLI installed successfully: $($LOCAL_BIN/gh --version | head -1)"
