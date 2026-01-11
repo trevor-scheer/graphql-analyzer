@@ -61,7 +61,7 @@ pub fn validate_document_file(
     for op_structure in &structure.operations {
         // Check operation name uniqueness (structural check - cheap)
         if let Some(name) = &op_structure.name {
-            let all_ops = graphql_hir::all_operations(db);
+            let all_ops = graphql_hir::all_operations(db, project_files);
 
             // Count how many operations have this name
             let count = all_ops
@@ -271,6 +271,34 @@ mod tests {
     #[salsa::db]
     impl crate::GraphQLAnalysisDatabase for TestDatabase {}
 
+    /// Helper to create `ProjectFiles` for tests using the new granular structure
+    fn create_project_files(
+        db: &TestDatabase,
+        schema_files: &[(graphql_db::FileId, FileContent, FileMetadata)],
+        document_files: &[(graphql_db::FileId, FileContent, FileMetadata)],
+    ) -> graphql_db::ProjectFiles {
+        let schema_ids: Vec<graphql_db::FileId> =
+            schema_files.iter().map(|(id, _, _)| *id).collect();
+        let doc_ids: Vec<graphql_db::FileId> =
+            document_files.iter().map(|(id, _, _)| *id).collect();
+
+        let mut entries = std::collections::HashMap::new();
+        for (id, content, metadata) in schema_files {
+            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+        for (id, content, metadata) in document_files {
+            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+
+        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(schema_ids));
+        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_ids));
+        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(entries));
+
+        graphql_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+    }
+
     #[test]
     fn test_unknown_variable_type() {
         let db = TestDatabase::default();
@@ -286,11 +314,7 @@ mod tests {
         );
 
         // Set up project files
-        let project_files = graphql_db::ProjectFiles::new(
-            &db,
-            Arc::new(Vec::new()), // No schema files
-            Arc::new(vec![(file_id, content, metadata)]),
-        );
+        let project_files = create_project_files(&db, &[], &[(file_id, content, metadata)]);
         db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, content, metadata);
@@ -330,11 +354,10 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        // Set up project files with schema and document
-        let project_files = graphql_db::ProjectFiles::new(
+        let project_files = create_project_files(
             &db,
-            Arc::new(vec![(schema_file_id, schema_fc, schema_metadata)]),
-            Arc::new(vec![(doc_file_id, doc_fc, doc_metadata)]),
+            &[(schema_file_id, schema_fc, schema_metadata)],
+            &[(doc_file_id, doc_fc, doc_metadata)],
         );
         db.set_project_files(Some(project_files));
 
@@ -363,12 +386,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        // Set up project files
-        let project_files = graphql_db::ProjectFiles::new(
-            &db,
-            Arc::new(Vec::new()), // No schema files
-            Arc::new(vec![(file_id, content, metadata)]),
-        );
+        let project_files = create_project_files(&db, &[], &[(file_id, content, metadata)]);
         db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, content, metadata);
@@ -408,11 +426,10 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        // Set up project files with schema and document
-        let project_files = graphql_db::ProjectFiles::new(
+        let project_files = create_project_files(
             &db,
-            Arc::new(vec![(schema_file_id, schema_fc, schema_metadata)]),
-            Arc::new(vec![(doc_file_id, doc_fc, doc_metadata)]),
+            &[(schema_file_id, schema_fc, schema_metadata)],
+            &[(doc_file_id, doc_fc, doc_metadata)],
         );
         db.set_project_files(Some(project_files));
 
@@ -442,12 +459,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        // Set up project files
-        let project_files = graphql_db::ProjectFiles::new(
-            &db,
-            Arc::new(Vec::new()), // No schema files
-            Arc::new(vec![(file_id, content, metadata)]),
-        );
+        let project_files = create_project_files(&db, &[], &[(file_id, content, metadata)]);
         db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, content, metadata);
@@ -496,11 +508,10 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        // Set up project files with schema and document
-        let project_files = graphql_db::ProjectFiles::new(
+        let project_files = create_project_files(
             &db,
-            Arc::new(vec![(schema_file_id, schema_fc, schema_metadata)]),
-            Arc::new(vec![(doc_file_id, doc_fc, doc_metadata)]),
+            &[(schema_file_id, schema_fc, schema_metadata)],
+            &[(doc_file_id, doc_fc, doc_metadata)],
         );
         db.set_project_files(Some(project_files));
 

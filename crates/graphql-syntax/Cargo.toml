@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+description = "GraphQL parsing layer with TypeScript/JavaScript support"
+keywords = ["graphql", "parser", "syntax"]
+categories = ["parser-implementations", "development-tools"]
 
 [dependencies]
 graphql-db = { path = "../graphql-db" }

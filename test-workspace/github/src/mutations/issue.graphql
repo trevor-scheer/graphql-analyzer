@@ -1,0 +1,69 @@
+# Issue mutations
+
+mutation CreateIssue($input: CreateIssueInput!) {
+  createIssue(input: $input) {
+    clientMutationId
+    issue {
+      ...IssueFull
+    }
+  }
+}
+
+mutation UpdateIssue($input: UpdateIssueInput!) {
+  updateIssue(input: $input) {
+    clientMutationId
+    issue {
+      ...IssueDetails
+    }
+  }
+}
+
+mutation CloseIssue($issueId: ID!, $stateReason: IssueClosedStateReason) {
+  closeIssue(input: { issueId: $issueId, stateReason: $stateReason }) {
+    clientMutationId
+    issue {
+      id
+      state
+      stateReason
+      closedAt
+    }
+  }
+}
+
+mutation ReopenIssue($issueId: ID!) {
+  reopenIssue(input: { issueId: $issueId }) {
+    clientMutationId
+    issue {
+      id
+      state
+      stateReason
+    }
+  }
+}
+
+mutation AddIssueComment($subjectId: ID!, $body: String!) {
+  addComment(input: { subjectId: $subjectId, body: $body }) {
+    clientMutationId
+    commentEdge {
+      cursor
+      node {
+        ...IssueCommentBasic
+      }
+    }
+  }
+}
+
+mutation UpdateIssueComment($id: ID!, $body: String!) {
+  updateIssueComment(input: { id: $id, body: $body }) {
+    clientMutationId
+    issueComment {
+      ...IssueCommentBasic
+    }
+  }
+}
+
+mutation DeleteIssueComment($id: ID!) {
+  deleteIssueComment(input: { id: $id }) {
+    clientMutationId
+  }
+}

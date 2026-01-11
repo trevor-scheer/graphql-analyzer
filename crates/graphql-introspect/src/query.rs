@@ -1,6 +1,7 @@
 //! GraphQL introspection query execution.
 
 use crate::{IntrospectionError, IntrospectionResponse, Result};
+use std::time::Duration;
 
 /// Standard GraphQL introspection query.
 ///
@@ -141,8 +142,12 @@ fragment TypeRef on __Type {
 /// ```
 #[tracing::instrument]
 pub async fn execute_introspection(url: &str) -> Result<IntrospectionResponse> {
-    tracing::debug!("Creating HTTP client");
-    let client = reqwest::Client::new();
+    tracing::debug!("Creating HTTP client with timeouts");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| IntrospectionError::Network(format!("Failed to create HTTP client: {e}")))?;
 
     let query_body = serde_json::json!({
         "query": INTROSPECTION_QUERY

@@ -1,0 +1,241 @@
+"""
+The root mutation type.
+"""
+type Mutation {
+  """
+  Create a new issue.
+  """
+  createIssue(input: CreateIssueInput!): CreateIssuePayload
+
+  """
+  Update an issue.
+  """
+  updateIssue(input: UpdateIssueInput!): UpdateIssuePayload
+
+  """
+  Close an issue.
+  """
+  closeIssue(input: CloseIssueInput!): CloseIssuePayload
+
+  """
+  Reopen an issue.
+  """
+  reopenIssue(input: ReopenIssueInput!): ReopenIssuePayload
+
+  """
+  Create a new pull request.
+  """
+  createPullRequest(input: CreatePullRequestInput!): CreatePullRequestPayload
+
+  """
+  Update a pull request.
+  """
+  updatePullRequest(input: UpdatePullRequestInput!): UpdatePullRequestPayload
+
+  """
+  Merge a pull request.
+  """
+  mergePullRequest(input: MergePullRequestInput!): MergePullRequestPayload
+
+  """
+  Add a comment to an issue or pull request.
+  """
+  addComment(input: AddCommentInput!): AddCommentPayload
+
+  """
+  Update an issue comment.
+  """
+  updateIssueComment(input: UpdateIssueCommentInput!): UpdateIssueCommentPayload
+
+  """
+  Delete an issue comment.
+  """
+  deleteIssueComment(input: DeleteIssueCommentInput!): DeleteIssueCommentPayload
+
+  """
+  Add a reaction to a subject.
+  """
+  addReaction(input: AddReactionInput!): AddReactionPayload
+
+  """
+  Remove a reaction from a subject.
+  """
+  removeReaction(input: RemoveReactionInput!): RemoveReactionPayload
+
+  """
+  Create a new repository.
+  """
+  createRepository(input: CreateRepositoryInput!): CreateRepositoryPayload
+
+  """
+  Update a repository.
+  """
+  updateRepository(input: UpdateRepositoryInput!): UpdateRepositoryPayload
+
+  """
+  Add a star to a starrable.
+  """
+  addStar(input: AddStarInput!): AddStarPayload
+
+  """
+  Remove a star from a starrable.
+  """
+  removeStar(input: RemoveStarInput!): RemoveStarPayload
+
+  """
+  Create a branch protection rule.
+  """
+  createBranchProtectionRule(input: CreateBranchProtectionRuleInput!): CreateBranchProtectionRulePayload
+
+  """
+  Add a pull request review.
+  """
+  addPullRequestReview(input: AddPullRequestReviewInput!): AddPullRequestReviewPayload
+
+  """
+  Submit a pull request review.
+  """
+  submitPullRequestReview(input: SubmitPullRequestReviewInput!): SubmitPullRequestReviewPayload
+
+  """
+  Create a project v2.
+  """
+  createProjectV2(input: CreateProjectV2Input!): CreateProjectV2Payload
+
+  """
+  Follow a user.
+  """
+  followUser(input: FollowUserInput!): FollowUserPayload
+
+  """
+  Unfollow a user.
+  """
+  unfollowUser(input: UnfollowUserInput!): UnfollowUserPayload
+
+  """
+  Request reviews on a pull request.
+  """
+  requestReviews(input: RequestReviewsInput!): RequestReviewsPayload
+}
+
+type CreateIssuePayload {
+  clientMutationId: String
+  issue: Issue
+}
+
+type UpdateIssuePayload {
+  clientMutationId: String
+  issue: Issue
+}
+
+type CloseIssuePayload {
+  clientMutationId: String
+  issue: Issue
+}
+
+type ReopenIssuePayload {
+  clientMutationId: String
+  issue: Issue
+}
+
+type CreatePullRequestPayload {
+  clientMutationId: String
+  pullRequest: PullRequest
+}
+
+type UpdatePullRequestPayload {
+  clientMutationId: String
+  pullRequest: PullRequest
+}
+
+type MergePullRequestPayload {
+  clientMutationId: String
+  pullRequest: PullRequest
+  actor: Actor
+}
+
+type AddCommentPayload {
+  clientMutationId: String
+  commentEdge: IssueCommentEdge
+  subject: Node
+  timelineEdge: IssueTimelineItemsEdge
+}
+
+type UpdateIssueCommentPayload {
+  clientMutationId: String
+  issueComment: IssueComment
+}
+
+type DeleteIssueCommentPayload {
+  clientMutationId: String
+}
+
+type AddReactionPayload {
+  clientMutationId: String
+  reaction: Reaction
+  subject: Reactable
+}
+
+type RemoveReactionPayload {
+  clientMutationId: String
+  reaction: Reaction
+  subject: Reactable
+}
+
+type CreateRepositoryPayload {
+  clientMutationId: String
+  repository: Repository
+}
+
+type UpdateRepositoryPayload {
+  clientMutationId: String
+  repository: Repository
+}
+
+type AddStarPayload {
+  clientMutationId: String
+  starrable: Starrable
+}
+
+type RemoveStarPayload {
+  clientMutationId: String
+  starrable: Starrable
+}
+
+type CreateBranchProtectionRulePayload {
+  clientMutationId: String
+  branchProtectionRule: BranchProtectionRule
+}
+
+type AddPullRequestReviewPayload {
+  clientMutationId: String
+  pullRequestReview: PullRequestReview
+  reviewEdge: PullRequestReviewEdge
+}
+
+type SubmitPullRequestReviewPayload {
+  clientMutationId: String
+  pullRequestReview: PullRequestReview
+}
+
+type CreateProjectV2Payload {
+  clientMutationId: String
+  projectV2: ProjectV2
+}
+
+type FollowUserPayload {
+  clientMutationId: String
+  user: User
+}
+
+type UnfollowUserPayload {
+  clientMutationId: String
+  user: User
+}
+
+type RequestReviewsPayload {
+  clientMutationId: String
+  actor: Actor
+  pullRequest: PullRequest
+  requestedReviewersEdge: UserEdge
+}

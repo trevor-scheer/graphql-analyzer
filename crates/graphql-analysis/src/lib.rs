@@ -13,7 +13,8 @@ mod schema_validation;
 pub mod validation;
 
 pub use diagnostics::*;
-pub use validation::validate_document;
+pub use merged_schema::{merged_schema_with_diagnostics, MergedSchemaResult};
+pub use validation::validate_file;
 
 #[salsa::db]
 pub trait GraphQLAnalysisDatabase: graphql_hir::GraphQLHirDatabase {
@@ -137,8 +138,7 @@ fn file_validation_diagnostics_impl(
         }
         FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
             tracing::info!("Running document validation");
-            let doc_diagnostics =
-                validation::validate_document(db, content, metadata, project_files);
+            let doc_diagnostics = validation::validate_file(db, content, metadata, project_files);
             tracing::info!(
                 document_diagnostic_count = doc_diagnostics.len(),
                 "Document validation completed"
@@ -178,6 +178,7 @@ pub fn file_diagnostics(
 }
 
 #[cfg(test)]
+#[allow(clippy::needless_raw_string_hashes)]
 mod tests {
     use super::*;
     use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
@@ -219,8 +220,10 @@ mod tests {
         // Get diagnostics (no project_files, so only syntax errors would be reported)
         let diagnostics = file_diagnostics(&db, content, metadata, None);
 
-        // Should have no diagnostics for valid schema
-        // Note: This will work once we implement the parse query properly
-        assert!(diagnostics.is_empty() || !diagnostics.is_empty()); // Placeholder assertion
+        // Valid schema should have no syntax errors
+        assert!(
+            diagnostics.is_empty(),
+            "Valid schema should have no diagnostics, got: {diagnostics:?}"
+        );
     }
 }

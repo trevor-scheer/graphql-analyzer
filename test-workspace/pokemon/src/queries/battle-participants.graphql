@@ -1,0 +1,20 @@
+# Queries for battle participants using the BattleParticipant interface
+
+query GetBattleParticipants($battleId: ID!) {
+  battleParticipants(battleId: $battleId) {
+    id
+    name
+    displayName
+  }
+}
+
+query GetBattleParticipant($id: ID!) {
+  battleParticipant(id: $id) {
+    id
+    name
+    displayName
+    ... on BattlePokemon {
+      currentHP
+    }
+  }
+}

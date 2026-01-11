@@ -1,6 +1,6 @@
 use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase};
 use graphql_hir::{FieldId, FragmentId};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
 // TODO(trevor): implement these queries
@@ -10,7 +10,7 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
         .project_files()
         .expect("project files must be set for project-wide analysis");
     let _schema = graphql_hir::schema_types_with_project(db, project_files);
-    let _operations = graphql_hir::all_operations(db);
+    let _operations = graphql_hir::all_operations(db, project_files);
 
     let unused = Vec::new();
 
@@ -28,6 +28,9 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
 }
 
 /// Find unused fragments (project-wide analysis)
+///
+/// Uses HIR queries for fragment data instead of cloning ASTs.
+/// This avoids massive memory allocation when processing large projects.
 #[salsa::tracked]
 pub fn find_unused_fragments(
     db: &dyn GraphQLAnalysisDatabase,
@@ -36,36 +39,34 @@ pub fn find_unused_fragments(
         .project_files()
         .expect("project files must be set for project-wide analysis");
     let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
-    let document_files = project_files.document_files(db);
+
+    // Use the fragment spreads index from HIR (cached, no AST cloning needed)
+    let fragment_spreads_index = graphql_hir::fragment_spreads_index(db, project_files);
 
     let mut used_fragments = HashSet::new();
 
-    // First, collect all ASTs for cross-file fragment resolution
-    let mut all_documents = Vec::new();
-    for (_file_id, file_content, file_metadata) in document_files.iter() {
-        let parse = graphql_syntax::parse(db, *file_content, *file_metadata);
+    // Collect fragment spreads from operations (using HIR data, not ASTs)
+    let doc_ids = project_files.document_file_ids(db).ids(db);
+    for file_id in doc_ids.iter() {
+        let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) else {
+            continue;
+        };
 
-        // For TypeScript/JavaScript files, add each extracted block
-        if parse.blocks.is_empty() {
-            // For pure GraphQL files, add the main AST
-            all_documents.push(parse.ast.clone());
-        } else {
-            // For extracted blocks, add each block's AST
-            for block in &parse.blocks {
-                all_documents.push(block.ast.clone());
+        // Get operation bodies from cached HIR queries
+        let file_ops = graphql_hir::file_operations(db, *file_id, content, metadata);
+        for (op_index, _op) in file_ops.iter().enumerate() {
+            let body = graphql_hir::operation_body(db, content, metadata, op_index);
+            // Add direct fragment spreads from this operation
+            for spread in &body.fragment_spreads {
+                collect_fragment_transitive(spread, &fragment_spreads_index, &mut used_fragments);
             }
         }
     }
 
-    // Collect fragment spreads from all documents
-    for document in &all_documents {
-        collect_fragment_spreads_recursive(
-            document,
-            &all_documents,
-            &all_fragments,
-            &mut used_fragments,
-        );
-    }
+    // Fragment spreads from fragment-to-fragment references are already handled
+    // by the transitive collection above. The fragment_spreads_index contains
+    // the direct spreads for each fragment, and collect_fragment_transitive
+    // follows them recursively.
 
     let mut unused = Vec::new();
     for (fragment_name, _fragment_structure) in all_fragments.iter() {
@@ -87,75 +88,27 @@ pub fn find_unused_fragments(
     Arc::new(unused)
 }
 
-/// Collect fragment spreads from an AST document recursively (including transitive dependencies)
-fn collect_fragment_spreads_recursive(
-    document: &apollo_compiler::ast::Document,
-    all_documents: &[Arc<apollo_compiler::ast::Document>],
-    all_fragments: &HashMap<Arc<str>, graphql_hir::FragmentStructure>,
+/// Collect a fragment and all fragments it transitively spreads
+fn collect_fragment_transitive(
+    fragment_name: &Arc<str>,
+    fragment_spreads_index: &std::collections::HashMap<Arc<str>, HashSet<Arc<str>>>,
     used_fragments: &mut HashSet<Arc<str>>,
 ) {
-    use apollo_compiler::ast::Definition;
-
-    // Collect direct fragment spreads from operations
     let mut to_process: VecDeque<Arc<str>> = VecDeque::new();
+    to_process.push_back(fragment_name.clone());
 
-    for definition in &document.definitions {
-        if let Definition::OperationDefinition(op) = definition {
-            collect_fragment_spreads_from_selection_set(&op.selection_set, &mut to_process);
-        }
-        // FragmentDefinitions and other definition types don't need processing here
-        // Fragments will be processed when referenced by operations
-    }
-
-    // Process fragments transitively
-    while let Some(fragment_name) = to_process.pop_front() {
-        // Skip if already processed
-        if used_fragments.contains(&fragment_name) {
+    while let Some(name) = to_process.pop_front() {
+        if used_fragments.contains(&name) {
             continue;
         }
+        used_fragments.insert(name.clone());
 
-        used_fragments.insert(fragment_name.clone());
-
-        // Find the fragment definition across all documents
-        if all_fragments.contains_key(&fragment_name) {
-            // Look for the fragment definition in all documents
-            for doc in all_documents {
-                for definition in &doc.definitions {
-                    if let Definition::FragmentDefinition(frag) = definition {
-                        if frag.name.as_str() == fragment_name.as_ref() {
-                            collect_fragment_spreads_from_selection_set(
-                                &frag.selection_set,
-                                &mut to_process,
-                            );
-                            break; // Found the fragment, no need to check more definitions
-                        }
-                    }
+        // Add transitive dependencies from the index
+        if let Some(spreads) = fragment_spreads_index.get(&name) {
+            for spread in spreads {
+                if !used_fragments.contains(spread) {
+                    to_process.push_back(spread.clone());
                 }
-            }
-        }
-    }
-}
-
-/// Collect fragment spreads from a selection set (`ast::Selection`)
-fn collect_fragment_spreads_from_selection_set(
-    selections: &[apollo_compiler::ast::Selection],
-    fragment_names: &mut VecDeque<Arc<str>>,
-) {
-    use apollo_compiler::ast::Selection;
-
-    for selection in selections {
-        match selection {
-            Selection::Field(field) => {
-                // Recurse into nested selection sets
-                collect_fragment_spreads_from_selection_set(&field.selection_set, fragment_names);
-            }
-            Selection::FragmentSpread(spread) => {
-                // Add fragment name to the list
-                fragment_names.push_back(Arc::from(spread.fragment_name.as_str()));
-            }
-            Selection::InlineFragment(inline) => {
-                // Recurse into inline fragment selection set
-                collect_fragment_spreads_from_selection_set(&inline.selection_set, fragment_names);
             }
         }
     }

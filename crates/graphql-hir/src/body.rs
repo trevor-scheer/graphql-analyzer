@@ -70,30 +70,16 @@ pub fn operation_body(
 ) -> Arc<OperationBody> {
     let parse = graphql_syntax::parse(db, file_content, file_metadata);
 
-    // Find the operation at the given index
+    // Find the operation at the given index across all documents
     let mut op_count = 0;
 
-    // For pure GraphQL files, look in the main AST
-    // For TS/JS files, look in the extracted blocks
-    if parse.blocks.is_empty() {
-        for definition in &parse.ast.definitions {
+    for doc in parse.documents() {
+        for definition in &doc.ast.definitions {
             if let apollo_compiler::ast::Definition::OperationDefinition(op) = definition {
                 if op_count == operation_index {
                     return Arc::new(extract_operation_body_from_ast(op));
                 }
                 op_count += 1;
-            }
-        }
-    } else {
-        // For TypeScript/JavaScript, search through blocks
-        for block in &parse.blocks {
-            for definition in &block.ast.definitions {
-                if let apollo_compiler::ast::Definition::OperationDefinition(op) = definition {
-                    if op_count == operation_index {
-                        return Arc::new(extract_operation_body_from_ast(op));
-                    }
-                    op_count += 1;
-                }
             }
         }
     }
@@ -119,23 +105,12 @@ pub fn fragment_body(
 ) -> Arc<FragmentBody> {
     let parse = graphql_syntax::parse(db, file_content, file_metadata);
 
-    // For pure GraphQL files, look in the main AST
-    if parse.blocks.is_empty() {
-        for definition in &parse.ast.definitions {
+    // Search for the fragment across all documents
+    for doc in parse.documents() {
+        for definition in &doc.ast.definitions {
             if let apollo_compiler::ast::Definition::FragmentDefinition(frag) = definition {
                 if frag.name.as_str() == fragment_name.as_ref() {
                     return Arc::new(extract_fragment_body_from_ast(frag));
-                }
-            }
-        }
-    } else {
-        // For TypeScript/JavaScript, search through blocks
-        for block in &parse.blocks {
-            for definition in &block.ast.definitions {
-                if let apollo_compiler::ast::Definition::FragmentDefinition(frag) = definition {
-                    if frag.name.as_str() == fragment_name.as_ref() {
-                        return Arc::new(extract_fragment_body_from_ast(frag));
-                    }
                 }
             }
         }
@@ -165,30 +140,22 @@ pub fn operation_transitive_fragments(
     let mut visited = HashSet::new();
     let mut to_visit: Vec<Arc<str>> = body.fragment_spreads.iter().cloned().collect();
 
-    // Get all fragments in the project for lookup
-    let all_fragments = crate::all_fragments_with_project(db, project_files);
+    // Use fragment_file_index for O(1) lookup of fragment files
+    let fragment_index = crate::fragment_file_index(db, project_files);
 
     while let Some(frag_name) = to_visit.pop() {
         if !visited.insert(frag_name.clone()) {
             continue; // Already visited (handles cycles)
         }
 
-        // Look up the fragment and get its body
-        if all_fragments.contains_key(&frag_name) {
-            // Find the fragment's file content and metadata
-            let document_files = project_files.document_files(db);
-            for (_, content, metadata) in document_files.iter() {
-                let frag_body = fragment_body(db, *content, *metadata, frag_name.clone());
+        // Look up the fragment's file directly using the index
+        if let Some((content, metadata)) = fragment_index.get(&frag_name) {
+            let frag_body = fragment_body(db, *content, *metadata, frag_name.clone());
 
-                // If this fragment has spreads, they're non-empty
-                if !frag_body.fragment_spreads.is_empty() {
-                    // Add any new fragment spreads to visit
-                    for spread in &frag_body.fragment_spreads {
-                        if !visited.contains(spread) {
-                            to_visit.push(spread.clone());
-                        }
-                    }
-                    break; // Found the fragment, move on
+            // Add any new fragment spreads to visit
+            for spread in &frag_body.fragment_spreads {
+                if !visited.contains(spread) {
+                    to_visit.push(spread.clone());
                 }
             }
         }
@@ -394,7 +361,8 @@ fn extract_selection(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+    use std::collections::HashMap;
 
     // Test database
     #[salsa::db]
@@ -411,6 +379,32 @@ mod tests {
 
     #[salsa::db]
     impl crate::GraphQLHirDatabase for TestDatabase {}
+
+    /// Helper to create `ProjectFiles` for tests
+    fn create_project_files(
+        db: &TestDatabase,
+        schema_files: &[(FileId, FileContent, FileMetadata)],
+        document_files: &[(FileId, FileContent, FileMetadata)],
+    ) -> graphql_db::ProjectFiles {
+        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
+        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
+
+        let mut entries = HashMap::new();
+        for (id, content, metadata) in schema_files {
+            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+        for (id, content, metadata) in document_files {
+            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+
+        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(schema_ids));
+        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_ids));
+        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(entries));
+
+        graphql_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+    }
 
     #[test]
     fn test_operation_body_extraction() {
@@ -514,11 +508,11 @@ mod tests {
         let content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                "
                 query GetUser { user { ...FragA } }
                 fragment FragA on User { id ...FragB }
                 fragment FragB on User { name }
-                "#,
+                ",
             ),
         );
         let metadata = FileMetadata::new(
@@ -528,11 +522,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
-            &db,
-            Arc::new(Vec::new()),
-            Arc::new(vec![(file_id, content, metadata)]),
-        );
+        let project_files = create_project_files(&db, &[], &[(file_id, content, metadata)]);
 
         let transitive = operation_transitive_fragments(&db, content, metadata, 0, project_files);
 

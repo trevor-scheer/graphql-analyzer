@@ -13,6 +13,7 @@
     "Programming Languages"
   ],
   "activationEvents": [
+    "onLanguage:graphql",
     "workspaceContains:**/graphql.config.{yaml,yml,json}",
     "workspaceContains:**/.graphqlrc{.yaml,.yml,.json,}"
   ],

@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+description = "GraphQL Language Server Protocol implementation"
+keywords = ["graphql", "lsp", "language-server"]
+categories = ["development-tools", "parser-implementations"]
 
 [package.metadata.dist]
 dist = true

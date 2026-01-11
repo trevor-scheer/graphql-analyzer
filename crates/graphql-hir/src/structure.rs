@@ -170,27 +170,17 @@ pub fn file_structure(
     let mut operations = Vec::new();
     let mut fragments = Vec::new();
 
-    // For pure GraphQL files, extract from main AST
-    // For TypeScript/JavaScript files, only extract from blocks to avoid double-counting
-    if parse.blocks.is_empty() {
+    // Extract from all documents (works for both pure GraphQL and TS/JS files)
+    for (block_idx, doc) in parse.documents().enumerate() {
         extract_from_document(
-            &parse.ast,
+            doc.ast,
             file_id,
             &mut type_defs,
             &mut operations,
             &mut fragments,
         );
-    } else {
-        // Extract from extracted blocks (TypeScript/JavaScript)
-        for (block_idx, block) in parse.blocks.iter().enumerate() {
-            extract_from_document(
-                &block.ast,
-                file_id,
-                &mut type_defs,
-                &mut operations,
-                &mut fragments,
-            );
-            // Update operation indices to be unique per block
+        // Update operation indices to be unique per block (for TS/JS files with multiple blocks)
+        if block_idx > 0 {
             let ops_len = operations.len();
             for op in operations.iter_mut().skip(ops_len.saturating_sub(1)) {
                 op.index += block_idx * 1000; // Simple offset to make unique

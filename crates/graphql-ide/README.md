@@ -317,7 +317,8 @@ impl LanguageServer for Backend {
 1. **Decoupling**: LSP uses URIs, salsa uses FileIds
 2. **Type Safety**: FileId is a newtype, prevents mixing with offsets
 3. **Efficiency**: O(1) bidirectional lookups
-4. **Future**: Can be replaced with project configuration
+4. **Granular Caching**: Uses `FileEntryMap` for per-file invalidation (editing file A doesn't invalidate file B's queries)
+5. **Future**: Can be replaced with project configuration
 
 ## Future Work
 

@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+description = "GraphQL configuration file parser for .graphqlrc.yaml"
+keywords = ["graphql", "config", "parser"]
+categories = ["config", "parser-implementations"]
 
 [dependencies]
 serde = { workspace = true }

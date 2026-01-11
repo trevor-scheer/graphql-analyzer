@@ -1,0 +1,98 @@
+# Mixed file: dashboard-related queries with inline fragments
+# Tests multiple operations and fragments in one file
+
+fragment DashboardRepo on Repository {
+  id
+  name
+  nameWithOwner
+  url
+  stargazerCount
+  issues(states: [OPEN]) {
+    totalCount
+  }
+  pullRequests(states: [OPEN]) {
+    totalCount
+  }
+  pushedAt
+}
+
+fragment DashboardActivity on Issue {
+  id
+  number
+  title
+  createdAt
+  author {
+    login
+    avatarUrl
+  }
+}
+
+fragment DashboardPRActivity on PullRequest {
+  id
+  number
+  title
+  createdAt
+  author {
+    login
+    avatarUrl
+  }
+  isDraft
+  reviewDecision
+}
+
+query GetDashboardOverview {
+  viewer {
+    login
+    name
+    avatarUrl
+    repositories(first: 10, orderBy: { field: PUSHED_AT, direction: DESC }) {
+      nodes {
+        ...DashboardRepo
+      }
+    }
+  }
+}
+
+query GetDashboardRecentActivity($login: String!) {
+  user(login: $login) {
+    repositories(first: 5, orderBy: { field: PUSHED_AT, direction: DESC }) {
+      nodes {
+        ...DashboardRepo
+        issues(first: 5, orderBy: { field: CREATED_AT, direction: DESC }) {
+          nodes {
+            ...DashboardActivity
+          }
+        }
+        pullRequests(first: 5, orderBy: { field: CREATED_AT, direction: DESC }) {
+          nodes {
+            ...DashboardPRActivity
+          }
+        }
+      }
+    }
+  }
+}
+
+query GetDashboardWatched($first: Int = 20, $after: String) {
+  viewer {
+    watching(first: $first, after: $after) {
+      pageInfo {
+        ...PageInfoFull
+      }
+      nodes {
+        ...DashboardRepo
+      }
+    }
+  }
+}
+
+mutation StarFromDashboard($repoId: ID!) {
+  addStar(input: { starrableId: $repoId }) {
+    starrable {
+      ... on Repository {
+        ...DashboardRepo
+        viewerHasStarred
+      }
+    }
+  }
+}

@@ -1,0 +1,77 @@
+# Queries related to the authenticated viewer
+
+query GetViewer {
+  viewer {
+    ...UserProfile
+    ...UserStats
+  }
+}
+
+query GetViewerRepositories(
+  $first: Int = 30
+  $after: String
+  $orderBy: RepositoryOrder
+  $privacy: RepositoryPrivacy
+) {
+  viewer {
+    repositories(first: $first, after: $after, orderBy: $orderBy, privacy: $privacy) {
+      totalCount
+      pageInfo {
+        ...PageInfoFull
+      }
+      nodes {
+        ...RepositoryDetails
+      }
+    }
+  }
+}
+
+query GetViewerOrganizations($first: Int = 10, $after: String) {
+  viewer {
+    organizations(first: $first, after: $after) {
+      totalCount
+      pageInfo {
+        ...PageInfoFull
+      }
+      nodes {
+        ...OrganizationDetails
+      }
+    }
+  }
+}
+
+query GetViewerStarredRepositories(
+  $first: Int = 30
+  $after: String
+  $orderBy: StarOrder
+) {
+  viewer {
+    starredRepositories(first: $first, after: $after, orderBy: $orderBy) {
+      totalCount
+      isOverLimit
+      pageInfo {
+        ...PageInfoFull
+      }
+      edges {
+        starredAt
+        node {
+          ...RepositoryDetails
+        }
+      }
+    }
+  }
+}
+
+query GetViewerWatching($first: Int = 30, $after: String) {
+  viewer {
+    watching(first: $first, after: $after) {
+      totalCount
+      pageInfo {
+        ...PageInfoFull
+      }
+      nodes {
+        ...RepositoryBasic
+      }
+    }
+  }
+}

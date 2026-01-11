@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+description = "Pluggable linting engine for GraphQL"
+keywords = ["graphql", "linter", "validation"]
+categories = ["development-tools"]
 
 [dependencies]
 # Internal dependencies - NEW ARCHITECTURE

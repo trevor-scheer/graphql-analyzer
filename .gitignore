@@ -36,3 +36,4 @@
 !.claude/settings.json
 !.claude/CLAUDE.md
 !.claude/hooks/
+!.claude/agents/

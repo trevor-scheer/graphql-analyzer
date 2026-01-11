@@ -2,18 +2,35 @@
 //!
 //! This module provides the bridge between editor file paths (strings/URIs)
 //! and salsa database file identifiers.
+//!
+//! ## Granular Caching Architecture
+//!
+//! The registry now uses `FileEntryMap` for true per-file granular caching:
+//!
+//! - Each file has its own `FileEntry` Salsa input
+//! - When file A's content changes, only `FileEntry(A).content` is updated
+//! - The `FileEntryMap` `HashMap` reference stays the same (same `Arc`)
+//! - Queries for file B remain fully cached
+//!
+//! This is a significant improvement over the old `FileMap` approach where
+//! any file change would invalidate queries for ALL files.
 
-use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+use graphql_db::{
+    DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileKind, FileMetadata, FileUri,
+    ProjectFiles, SchemaFileIds,
+};
 use salsa::Setter;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::FilePath;
 
-/// Maps file paths to database file IDs and metadata
+/// Maps file paths to database file IDs and metadata.
 ///
-/// This is a temporary implementation for Phase 4. A more sophisticated
-/// implementation will be added when we integrate with project configuration.
+/// Implements granular per-file caching using `FileEntryMap`:
+/// - Each file has its own `FileEntry` Salsa input
+/// - Content updates only invalidate that specific file's queries
+/// - The `HashMap` structure remains stable across content changes
 #[derive(Default)]
 pub struct FileRegistry {
     next_id: u32,
@@ -21,6 +38,14 @@ pub struct FileRegistry {
     id_to_uri: HashMap<FileId, String>,
     id_to_content: HashMap<FileId, FileContent>,
     id_to_metadata: HashMap<FileId, FileMetadata>,
+    /// Per-file `FileEntry` for granular invalidation
+    id_to_entry: HashMap<FileId, FileEntry>,
+    /// Granular input tracking schema file IDs only - changes on file add/remove
+    schema_file_ids: Option<SchemaFileIds>,
+    /// Granular input tracking document file IDs only - changes on file add/remove
+    document_file_ids: Option<DocumentFileIds>,
+    /// Per-file entry map for granular invalidation
+    file_entry_map: Option<FileEntryMap>,
     /// The `ProjectFiles` input that tracks all files in the project
     project_files: Option<ProjectFiles>,
 }
@@ -32,6 +57,17 @@ impl FileRegistry {
     }
 
     /// Add or update a file in the registry
+    ///
+    /// Returns the file ID, content, metadata, and a boolean indicating if this is a new file.
+    /// If `is_new` is true, the caller should call `rebuild_project_files()` to update the index.
+    /// If `is_new` is false (content-only update), rebuilding is NOT needed.
+    ///
+    /// ## Granular Caching
+    ///
+    /// For existing files, only the specific `FileContent.text` is updated. This means:
+    /// - The `FileEntryMap` `HashMap` stays the same (no new `Arc` created)
+    /// - Only queries depending on THIS file's content are invalidated
+    /// - Queries for other files remain fully cached
     pub fn add_file<DB>(
         &mut self,
         db: &mut DB,
@@ -39,29 +75,48 @@ impl FileRegistry {
         content: &str,
         kind: FileKind,
         line_offset: u32,
-    ) -> (FileId, FileContent, FileMetadata)
+    ) -> (FileId, FileContent, FileMetadata, bool)
     where
         DB: salsa::Database,
     {
         let uri_str = path.as_str();
-
-        // Get or create FileId
-        let file_id = if let Some(&existing_id) = self.uri_to_id.get(uri_str) {
-            existing_id
-        } else {
-            let new_id = FileId::new(self.next_id);
-            self.next_id += 1;
-            self.uri_to_id.insert(uri_str.to_string(), new_id);
-            self.id_to_uri.insert(new_id, uri_str.to_string());
-            new_id
-        };
-
-        // Create or update FileContent
         let content_arc: Arc<str> = Arc::from(content);
+
+        // Check if file already exists
+        if let Some(&existing_id) = self.uri_to_id.get(uri_str) {
+            // File exists - update content in place using Salsa setter
+            // This only invalidates queries that depend on this specific file's content
+            if let Some(&existing_content) = self.id_to_content.get(&existing_id) {
+                existing_content.set_text(db).to(content_arc);
+
+                // Update metadata if needed (kind or line_offset changed)
+                let metadata = self.id_to_metadata.get(&existing_id).copied().unwrap();
+                if metadata.kind(db) != kind {
+                    metadata.set_kind(db).to(kind);
+                }
+                if metadata.line_offset(db) != line_offset {
+                    metadata.set_line_offset(db).to(line_offset);
+                }
+
+                // Note: FileEntry is NOT updated here - it still points to the same
+                // FileContent struct, which has been updated in-place. This is the key
+                // to granular caching: the FileEntryMap HashMap doesn't change.
+
+                return (existing_id, existing_content, metadata, false);
+            }
+        }
+
+        // New file - create new FileId
+        let file_id = FileId::new(self.next_id);
+        self.next_id += 1;
+        self.uri_to_id.insert(uri_str.to_string(), file_id);
+        self.id_to_uri.insert(file_id, uri_str.to_string());
+
+        // Create new FileContent
         let file_content = FileContent::new(db, content_arc);
         self.id_to_content.insert(file_id, file_content);
 
-        // Create or update FileMetadata with line offset
+        // Create new FileMetadata
         let uri = FileUri::new(uri_str);
         let metadata = FileMetadata::new(db, file_id, uri, kind);
         if line_offset > 0 {
@@ -69,7 +124,11 @@ impl FileRegistry {
         }
         self.id_to_metadata.insert(file_id, metadata);
 
-        (file_id, file_content, metadata)
+        // Create new FileEntry (for granular caching)
+        let file_entry = FileEntry::new(db, file_content, metadata);
+        self.id_to_entry.insert(file_id, file_entry);
+
+        (file_id, file_content, metadata, true)
     }
 
     /// Look up file ID by path
@@ -123,51 +182,89 @@ impl FileRegistry {
     /// This should be called after files are added or removed
     ///
     /// Note: This method should be called WITHOUT holding any locks to avoid deadlocks
+    ///
+    /// ## Granular Caching
+    ///
+    /// This method creates/updates the `FileEntryMap` which enables granular per-file caching.
+    /// The key insight is that when a file's content changes later (via `add_file` with `is_new=false`),
+    /// we only update the `FileContent.text` field - NOT the `FileEntryMap` `HashMap`.
+    /// This means the `HashMap` `Arc` stays the same, and queries for other files remain cached.
     pub fn rebuild_project_files<DB>(&mut self, db: &mut DB)
     where
         DB: salsa::Database,
     {
-        let mut schema_files = Vec::new();
-        let mut document_files = Vec::new();
+        let mut schema_ids = Vec::new();
+        let mut document_ids = Vec::new();
+        let mut file_entries: HashMap<FileId, FileEntry> = HashMap::new();
 
         // Collect all file data first without calling db methods
         let file_data: Vec<_> = self
             .id_to_content
             .iter()
-            .filter_map(|(&file_id, content)| {
+            .filter_map(|(&file_id, _content)| {
                 let metadata = self.id_to_metadata.get(&file_id)?;
-                Some((file_id, *content, *metadata))
+                let entry = self.id_to_entry.get(&file_id)?;
+                Some((file_id, *metadata, *entry))
             })
             .collect();
 
         // Now query kinds and categorize - this may trigger salsa queries
-        for (file_id, content, metadata) in file_data {
-            let tuple = (file_id, content, metadata);
+        for (file_id, metadata, entry) in file_data {
+            file_entries.insert(file_id, entry);
 
+            // Categorize by kind for ID lists
             match metadata.kind(db) {
-                FileKind::Schema => schema_files.push(tuple),
+                FileKind::Schema => schema_ids.push(file_id),
                 FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
-                    document_files.push(tuple);
+                    document_ids.push(file_id);
                 }
             }
         }
 
-        // Create or update the ProjectFiles input
-        let project_files = if let Some(existing) = self.project_files {
-            // Update existing input
-            use salsa::Setter;
-            existing.set_schema_files(db).to(Arc::new(schema_files));
-            existing.set_document_files(db).to(Arc::new(document_files));
+        // Create or update the SchemaFileIds input
+        let schema_file_ids = if let Some(existing) = self.schema_file_ids {
+            existing.set_ids(db).to(Arc::new(schema_ids));
             existing
         } else {
-            // Create new input
-            ProjectFiles::new(db, Arc::new(schema_files), Arc::new(document_files))
+            SchemaFileIds::new(db, Arc::new(schema_ids))
+        };
+        self.schema_file_ids = Some(schema_file_ids);
+
+        // Create or update the DocumentFileIds input
+        let document_file_ids = if let Some(existing) = self.document_file_ids {
+            existing.set_ids(db).to(Arc::new(document_ids));
+            existing
+        } else {
+            DocumentFileIds::new(db, Arc::new(document_ids))
+        };
+        self.document_file_ids = Some(document_file_ids);
+
+        // Create or update the FileEntryMap input
+        let file_entry_map = if let Some(existing) = self.file_entry_map {
+            existing.set_entries(db).to(Arc::new(file_entries));
+            existing
+        } else {
+            FileEntryMap::new(db, Arc::new(file_entries))
+        };
+        self.file_entry_map = Some(file_entry_map);
+
+        // Create or update the ProjectFiles input
+        let project_files = if let Some(existing) = self.project_files {
+            existing.set_schema_file_ids(db).to(schema_file_ids);
+            existing.set_document_file_ids(db).to(document_file_ids);
+            existing.set_file_entry_map(db).to(file_entry_map);
+            existing
+        } else {
+            ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
         };
 
         self.project_files = Some(project_files);
+    }
 
-        // ProjectFiles is now managed by the registry.
-        // Queries that need ProjectFiles should accept it as a parameter.
+    /// Get the `FileEntry` for a file ID
+    #[must_use]
+    pub fn get_entry(&self, file_id: FileId) -> Option<FileEntry> {
+        self.id_to_entry.get(&file_id).copied()
     }
 }
 
@@ -182,13 +279,16 @@ mod tests {
         let mut registry = FileRegistry::new();
 
         let path = FilePath::new("file:///test.graphql");
-        let (file_id, _content, _metadata) = registry.add_file(
+        let (file_id, _content, _metadata, is_new) = registry.add_file(
             &mut db,
             &path,
             "type Query { hello: String }",
             FileKind::Schema,
             0,
         );
+
+        // Should indicate this is a new file
+        assert!(is_new);
 
         // Should be able to look up by path
         assert_eq!(registry.get_file_id(&path), Some(file_id));
@@ -209,22 +309,26 @@ mod tests {
         let path = FilePath::new("file:///test.graphql");
 
         // Add file
-        let (file_id1, _, _) = registry.add_file(
+        let (file_id1, _, _, is_new1) = registry.add_file(
             &mut db,
             &path,
             "type Query { hello: String }",
             FileKind::Schema,
             0,
         );
+        assert!(is_new1);
 
         // Update same file
-        let (file_id2, _content2, _) = registry.add_file(
+        let (file_id2, _content2, _, is_new2) = registry.add_file(
             &mut db,
             &path,
             "type Query { world: String }",
             FileKind::Schema,
             0,
         );
+
+        // Should indicate this is NOT a new file (just an update)
+        assert!(!is_new2);
 
         // Should reuse the same file ID
         assert_eq!(file_id1, file_id2);
@@ -243,7 +347,7 @@ mod tests {
         let mut registry = FileRegistry::new();
 
         let path = FilePath::new("file:///test.graphql");
-        let (file_id, _, _) = registry.add_file(
+        let (file_id, _, _, _) = registry.add_file(
             &mut db,
             &path,
             "type Query { hello: String }",
@@ -267,14 +371,14 @@ mod tests {
         let path1 = FilePath::new("file:///test1.graphql");
         let path2 = FilePath::new("file:///test2.graphql");
 
-        let (file_id1, _, _) = registry.add_file(
+        let (file_id1, _, _, _) = registry.add_file(
             &mut db,
             &path1,
             "type Query { hello: String }",
             FileKind::Schema,
             0,
         );
-        let (file_id2, _, _) = registry.add_file(
+        let (file_id2, _, _, _) = registry.add_file(
             &mut db,
             &path2,
             "type Mutation { update: Boolean }",

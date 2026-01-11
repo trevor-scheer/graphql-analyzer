@@ -119,7 +119,6 @@ fn init_tracing() {
 /// Initialize OpenTelemetry tracing with OTLP exporter
 #[cfg(feature = "otel")]
 #[allow(clippy::too_many_lines)]
-#[allow(unused_imports)]
 fn init_telemetry() -> Option<opentelemetry_sdk::trace::TracerProvider> {
     use opentelemetry::trace::TracerProvider as _;
     use opentelemetry::KeyValue;

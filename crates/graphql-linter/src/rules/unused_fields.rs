@@ -59,13 +59,18 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
 
         // Step 2: Collect all used fields from operations and fragments
         let mut used_fields: HashMap<String, HashSet<String>> = HashMap::new();
-        let document_files = project_files.document_files(db);
+        let doc_ids = project_files.document_file_ids(db).ids(db);
 
         // Determine root types for skipping
         let root_types = get_root_type_names(db, &schema_types);
 
-        for (_file_id, content, metadata) in document_files.iter() {
-            let parse = graphql_syntax::parse(db, *content, *metadata);
+        for file_id in doc_ids.iter() {
+            // Use per-file lookup for granular caching
+            let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
+            else {
+                continue;
+            };
+            let parse = graphql_syntax::parse(db, content, metadata);
 
             // Scan operations and fragments in main AST
             for definition in &parse.ast.definitions {
@@ -171,15 +176,12 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
                             "Field '{type_name}.{field_name}' is defined in the schema but never used in any operation or fragment"
                         );
 
-                        let diag = LintDiagnostic {
+                        let diag = LintDiagnostic::new(
+                            crate::diagnostics::OffsetRange::new(0, field_name.len()),
+                            self.default_severity(),
                             message,
-                            offset_range: crate::diagnostics::OffsetRange {
-                                start: 0,
-                                end: field_name.len(),
-                            },
-                            severity: self.default_severity(),
-                            rule: self.name().to_string(),
-                        };
+                            self.name().to_string(),
+                        );
 
                         diagnostics_by_file.entry(file_id).or_default().push(diag);
                     }

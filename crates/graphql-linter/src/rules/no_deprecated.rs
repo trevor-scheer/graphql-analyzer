@@ -47,39 +47,83 @@ impl DocumentSchemaLintRule for NoDeprecatedRuleImpl {
         // Get schema types from HIR
         let schema_types = graphql_hir::schema_types_with_project(db, project_files);
 
-        // Walk the CST for position info
-        let doc_cst = parse.tree.document();
+        // Check main document (for .graphql files only)
+        // For TS/JS files, parse.tree is the first block and we check all blocks below
+        let file_kind = metadata.kind(db);
+        if file_kind == graphql_db::FileKind::ExecutableGraphQL
+            || file_kind == graphql_db::FileKind::Schema
+        {
+            let doc_cst = parse.tree.document();
+            check_document_for_deprecated(&doc_cst, &schema_types, &mut diagnostics);
+        }
 
-        for definition in doc_cst.definitions() {
-            match definition {
-                cst::Definition::OperationDefinition(op) => {
-                    if let Some(selection_set) = op.selection_set() {
-                        // Operations don't have type condition, pass None
-                        check_selection_set(&selection_set, None, &schema_types, &mut diagnostics);
-                    }
-                }
-                cst::Definition::FragmentDefinition(frag) => {
-                    // Get the type condition from the fragment
-                    let type_condition = frag
-                        .type_condition()
-                        .and_then(|tc| tc.named_type())
-                        .and_then(|nt| nt.name())
-                        .map(|name| name.text().to_string());
-
-                    if let Some(selection_set) = frag.selection_set() {
-                        check_selection_set(
-                            &selection_set,
-                            type_condition.as_deref(),
-                            &schema_types,
-                            &mut diagnostics,
-                        );
-                    }
-                }
-                _ => {}
+        // Check operations in extracted blocks (TypeScript/JavaScript)
+        for block in &parse.blocks {
+            let block_doc = block.tree.document();
+            let mut block_diagnostics = Vec::new();
+            check_document_for_deprecated(&block_doc, &schema_types, &mut block_diagnostics);
+            // Add block context to each diagnostic for proper position calculation
+            for diag in block_diagnostics {
+                diagnostics.push(diag.with_block_context(block.line, block.source.clone()));
             }
         }
 
         diagnostics
+    }
+}
+
+/// Check a document for deprecated field, argument, and enum usage
+fn check_document_for_deprecated(
+    doc_cst: &cst::Document,
+    schema_types: &HashMap<Arc<str>, graphql_hir::TypeDef>,
+    diagnostics: &mut Vec<LintDiagnostic>,
+) {
+    for definition in doc_cst.definitions() {
+        match definition {
+            cst::Definition::OperationDefinition(operation) => {
+                // Determine root type based on operation type
+                let root_type_name = operation.operation_type().map_or("Query", |op_type| {
+                    if op_type.query_token().is_some() {
+                        "Query"
+                    } else if op_type.mutation_token().is_some() {
+                        "Mutation"
+                    } else if op_type.subscription_token().is_some() {
+                        "Subscription"
+                    } else {
+                        "Query"
+                    }
+                });
+
+                if let Some(selection_set) = operation.selection_set() {
+                    check_selection_set(
+                        &selection_set,
+                        Some(root_type_name),
+                        schema_types,
+                        diagnostics,
+                    );
+                }
+            }
+            cst::Definition::FragmentDefinition(fragment) => {
+                // Get the type condition for the fragment
+                let type_name = fragment
+                    .type_condition()
+                    .and_then(|tc| tc.named_type())
+                    .and_then(|nt| nt.name())
+                    .map(|name| name.text().to_string());
+
+                if let Some(selection_set) = fragment.selection_set() {
+                    check_selection_set(
+                        &selection_set,
+                        type_name.as_deref(),
+                        schema_types,
+                        diagnostics,
+                    );
+                }
+            }
+            _ => {
+                // Schema definitions don't need deprecation checks here
+            }
+        }
     }
 }
 
@@ -128,15 +172,12 @@ fn check_selection_set(
                                 },
                             );
 
-                            diagnostics.push(LintDiagnostic {
-                                offset_range: OffsetRange::new(
-                                    offset,
-                                    offset + field_name.as_ref().len(),
-                                ),
-                                severity: LintSeverity::Warning,
+                            diagnostics.push(LintDiagnostic::new(
+                                OffsetRange::new(offset, offset + field_name.as_ref().len()),
+                                LintSeverity::Warning,
                                 message,
-                                rule: "no_deprecated".to_string(),
-                            });
+                                "no_deprecated".to_string(),
+                            ));
                         }
 
                         // Check arguments for deprecation
@@ -172,15 +213,15 @@ fn check_selection_set(
                                                     },
                                                 );
 
-                                            diagnostics.push(LintDiagnostic {
-                                                offset_range: OffsetRange::new(
+                                            diagnostics.push(LintDiagnostic::new(
+                                                OffsetRange::new(
                                                     offset,
                                                     offset + arg_name.as_ref().len(),
                                                 ),
-                                                severity: LintSeverity::Warning,
+                                                LintSeverity::Warning,
                                                 message,
-                                                rule: "no_deprecated".to_string(),
-                                            });
+                                                "no_deprecated".to_string(),
+                                            ));
                                         }
                                     }
 
@@ -267,15 +308,12 @@ fn check_value_for_deprecated_enum(
                                     },
                                 );
 
-                                diagnostics.push(LintDiagnostic {
-                                    offset_range: OffsetRange::new(
-                                        offset,
-                                        offset + enum_name.as_ref().len(),
-                                    ),
-                                    severity: LintSeverity::Warning,
+                                diagnostics.push(LintDiagnostic::new(
+                                    OffsetRange::new(offset, offset + enum_name.as_ref().len()),
+                                    LintSeverity::Warning,
                                     message,
-                                    rule: "no_deprecated".to_string(),
-                                });
+                                    "no_deprecated".to_string(),
+                                ));
                                 // Found the enum, no need to check other types
                                 break;
                             }

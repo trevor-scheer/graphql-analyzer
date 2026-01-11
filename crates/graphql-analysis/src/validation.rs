@@ -17,7 +17,7 @@ use std::sync::Arc;
 /// - Type coercion validation
 #[allow(clippy::too_many_lines)]
 #[salsa::tracked]
-pub fn validate_document(
+pub fn validate_file(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
     metadata: FileMetadata,
@@ -32,98 +32,153 @@ pub fn validate_document(
         return Arc::new(diagnostics);
     };
 
-    // Get the document text
-    // For TypeScript/JavaScript files, we need to use the extracted GraphQL, not the full file
     let parse = graphql_syntax::parse(db, content, metadata);
-    let doc_text: Arc<str> = if metadata.kind(db) == graphql_db::FileKind::TypeScript
-        || metadata.kind(db) == graphql_db::FileKind::JavaScript
-    {
-        // Skip files with no GraphQL blocks
-        if parse.blocks.is_empty() {
-            return Arc::new(diagnostics);
-        }
-
-        // Combine all extracted GraphQL blocks into a single document
-        let combined = parse
-            .blocks
-            .iter()
-            .map(|block| block.source.as_ref())
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        Arc::from(combined)
-    } else {
-        // For pure GraphQL files, use the content as-is
-        content.text(db)
-    };
-
+    let kind = metadata.kind(db);
     let doc_uri = metadata.uri(db);
 
-    // Collect fragment names referenced by this document (transitively across files)
-    let document_files = project_files.document_files(db);
-    let referenced_fragments =
-        collect_referenced_fragments_transitive(&doc_text, &doc_uri, &document_files, db);
+    if kind == graphql_db::FileKind::TypeScript || kind == graphql_db::FileKind::JavaScript {
+        // Validate each extracted block as a separate document
+        for block in &parse.blocks {
+            let line_offset_val = block.line;
 
-    // Use builder pattern to construct the executable document
-    // This allows us to add fragments individually with proper source tracking
+            // Collect fragment names referenced by this document (transitively across files)
+            // Uses the already-parsed tree to avoid redundant parsing
+            let referenced_fragments =
+                collect_referenced_fragments_transitive(&block.tree, project_files, db);
+
+            let valid_schema =
+                apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
+            let mut errors = apollo_compiler::validation::DiagnosticList::new(Arc::default());
+            let mut builder =
+                apollo_compiler::ExecutableDocument::builder(Some(valid_schema), &mut errors);
+
+            // Use the already-parsed AST instead of re-parsing
+            // The AST is cached via graphql_syntax::parse()
+            builder.add_ast_document(&block.ast, true);
+
+            // Add referenced fragments using cached ASTs for fine-grained invalidation
+            // This ensures that changing fragment A only invalidates files that actually use A
+            // Using fragment_ast instead of fragment_source avoids re-parsing
+            let mut added_fragments = std::collections::HashSet::new();
+            let mut added_ast_ptrs = std::collections::HashSet::new();
+            // Pre-populate with current block's AST to avoid adding it again when fragments
+            // in the same block reference each other
+            added_ast_ptrs.insert(Arc::as_ptr(&block.ast) as usize);
+            for fragment_name in &referenced_fragments {
+                let key: Arc<str> = Arc::from(fragment_name.as_str());
+                if !added_fragments.insert(key.clone()) {
+                    continue;
+                }
+                // Fine-grained query: only creates dependency on this specific fragment
+                // Uses cached AST instead of re-parsing source text
+                if let Some(fragment_ast) = graphql_hir::fragment_ast(db, project_files, key) {
+                    // Track by AST pointer to avoid adding the same document twice
+                    // (multiple fragments may share the same AST document)
+                    let ptr = Arc::as_ptr(&fragment_ast) as usize;
+                    if added_ast_ptrs.insert(ptr) {
+                        builder.add_ast_document(&fragment_ast, false);
+                    }
+                }
+            }
+
+            let doc = builder.build();
+            match if errors.is_empty() {
+                doc.validate(valid_schema)
+                    .map(|_| ())
+                    .map_err(|with_errors| with_errors.errors)
+            } else {
+                Err(errors)
+            } {
+                Ok(_valid_document) => {}
+                Err(error_list) => {
+                    for apollo_diag in error_list.iter() {
+                        use apollo_compiler::diagnostic::ToCliReport;
+                        if let Some(location) = apollo_diag.error.location() {
+                            let file_id = location.file_id();
+                            if let Some(source_file) = apollo_diag.sources.get(&file_id) {
+                                let diag_file_path = source_file.path();
+                                if diag_file_path != doc_uri.as_str() {
+                                    continue;
+                                }
+                            }
+                        }
+                        // Adjust line positions by adding the block's line offset
+                        // since the AST was parsed without source offset
+                        #[allow(clippy::cast_possible_truncation)]
+                        let range = apollo_diag.line_column_range().map_or_else(
+                            DiagnosticRange::default,
+                            |loc_range| DiagnosticRange {
+                                start: Position {
+                                    line: (loc_range.start.line.saturating_sub(1) + line_offset_val)
+                                        as u32,
+                                    character: loc_range.start.column.saturating_sub(1) as u32,
+                                },
+                                end: Position {
+                                    line: (loc_range.end.line.saturating_sub(1) + line_offset_val)
+                                        as u32,
+                                    character: loc_range.end.column.saturating_sub(1) as u32,
+                                },
+                            },
+                        );
+                        let message: Arc<str> = Arc::from(apollo_diag.error.to_string());
+                        if message.contains("must be used in an operation") {
+                            continue;
+                        }
+                        diagnostics.push(Diagnostic {
+                            severity: Severity::Error,
+                            message,
+                            range,
+                            source: "apollo-compiler".into(),
+                            code: None,
+                        });
+                    }
+                }
+            }
+        }
+        return Arc::new(diagnostics);
+    }
+    // Pure GraphQL file validation
+    // Use the already-parsed tree to avoid redundant parsing
+    let referenced_fragments =
+        collect_referenced_fragments_transitive(&parse.tree, project_files, db);
     let valid_schema = apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
     let mut errors = apollo_compiler::validation::DiagnosticList::new(Arc::default());
     let mut builder = apollo_compiler::ExecutableDocument::builder(Some(valid_schema), &mut errors);
 
-    // Add the current document
-    let line_offset_val = metadata.line_offset(db);
-    let offset = apollo_compiler::parser::SourceOffset {
-        line: (line_offset_val + 1) as usize, // Convert to 1-indexed
-        column: 1,
-    };
+    // Line offset is typically 0 for pure GraphQL files, but may be non-zero
+    // when content is pre-extracted (e.g., from tests or embedded sources)
+    let line_offset_val = metadata.line_offset(db) as usize;
 
-    apollo_compiler::parser::Parser::new()
-        .source_offset(offset)
-        .parse_into_executable_builder(doc_text.as_ref(), doc_uri.as_str(), &mut builder);
+    // Use the already-parsed AST instead of re-parsing
+    // The AST is cached via graphql_syntax::parse()
+    builder.add_ast_document(&parse.ast, true);
 
-    // Add referenced fragments
-    if !referenced_fragments.is_empty() {
-        for (_file_id, file_content, file_metadata) in document_files.iter() {
-            let text = file_content.text(db);
-            let uri = file_metadata.uri(db);
-
-            // Skip the current document (already included)
-            if uri.as_str() == doc_uri.as_str() {
-                continue;
-            }
-
-            // Check if this file defines any referenced fragments
-            if file_defines_any_fragment(&text, &referenced_fragments) {
-                // Extract GraphQL if this is a TypeScript/JavaScript file
-                let fragment_text = if file_metadata.kind(db) == graphql_db::FileKind::TypeScript
-                    || file_metadata.kind(db) == graphql_db::FileKind::JavaScript
-                {
-                    // Parse and extract GraphQL blocks
-                    let fragment_parse = graphql_syntax::parse(db, *file_content, *file_metadata);
-                    // Combine all extracted blocks
-                    let combined = fragment_parse
-                        .blocks
-                        .iter()
-                        .map(|block| block.source.as_ref())
-                        .collect::<Vec<_>>()
-                        .join("\n\n");
-                    combined
-                } else {
-                    text.as_ref().to_string()
-                };
-
-                // Extract and add only the specific fragments we need
-                apollo_compiler::parser::Parser::new().parse_into_executable_builder(
-                    &fragment_text,
-                    uri.as_str(),
-                    &mut builder,
-                );
+    // Add referenced fragments using cached ASTs for fine-grained invalidation
+    // This ensures that changing fragment A only invalidates files that actually use A
+    // Using fragment_ast instead of fragment_source avoids re-parsing
+    let mut added_fragments = std::collections::HashSet::new();
+    let mut added_ast_ptrs = std::collections::HashSet::new();
+    // Pre-populate with current file's AST to avoid adding it again when fragments
+    // in the same file reference each other (e.g., IssueDetails spreads IssueBasic)
+    added_ast_ptrs.insert(Arc::as_ptr(&parse.ast) as usize);
+    for fragment_name in &referenced_fragments {
+        let key: Arc<str> = Arc::from(fragment_name.as_str());
+        if !added_fragments.insert(key.clone()) {
+            continue;
+        }
+        // Fine-grained query: only creates dependency on this specific fragment
+        // Uses cached AST instead of re-parsing source text
+        if let Some(fragment_ast) = graphql_hir::fragment_ast(db, project_files, key) {
+            // Track by AST pointer to avoid adding the same document twice
+            // (multiple fragments may share the same AST document)
+            let ptr = Arc::as_ptr(&fragment_ast) as usize;
+            if added_ast_ptrs.insert(ptr) {
+                builder.add_ast_document(&fragment_ast, false);
             }
         }
     }
 
-    // Build and validate
     let doc = builder.build();
-
     match if errors.is_empty() {
         doc.validate(valid_schema)
             .map(|_| ())
@@ -131,61 +186,39 @@ pub fn validate_document(
     } else {
         Err(errors)
     } {
-        Ok(_valid_document) => {
-            // Document is valid
-        }
+        Ok(_valid_document) => {}
         Err(error_list) => {
-            // Convert apollo-compiler diagnostics to our format
-            // Only include diagnostics for the current file
-
-            // Iterate over the diagnostic list and filter to current file
-            // Note: Since we used builder pattern, diagnostics will have proper source tracking
-            // Note: apollo-compiler already returns line numbers adjusted for the SourceOffset
-            // we provided earlier, so we do NOT add line_offset here again
-            #[allow(clippy::cast_possible_truncation, clippy::option_if_let_else)]
             for apollo_diag in error_list.iter() {
-                // Filter diagnostics to only include those from the current file
-                // This prevents duplicate reporting when fragments with errors are used in multiple files
                 use apollo_compiler::diagnostic::ToCliReport;
                 if let Some(location) = apollo_diag.error.location() {
                     let file_id = location.file_id();
-                    // Get the file path for this diagnostic from the source map
                     if let Some(source_file) = apollo_diag.sources.get(&file_id) {
                         let diag_file_path = source_file.path();
-                        // Only include diagnostics that belong to the current file
                         if diag_file_path != doc_uri.as_str() {
                             continue;
                         }
                     }
                 }
-
-                // Get location information if available
-                // apollo-compiler returns 1-indexed line/column, we use 0-indexed
-                // The SourceOffset we provided means positions are already in original file coordinates
-                let range = if let Some(loc_range) = apollo_diag.line_column_range() {
-                    DiagnosticRange {
+                // Adjust line positions by adding the line offset
+                // since the AST was parsed without source offset
+                #[allow(clippy::cast_possible_truncation)]
+                let range = apollo_diag.line_column_range().map_or_else(
+                    DiagnosticRange::default,
+                    |loc_range| DiagnosticRange {
                         start: Position {
-                            line: loc_range.start.line.saturating_sub(1) as u32,
+                            line: (loc_range.start.line.saturating_sub(1) + line_offset_val) as u32,
                             character: loc_range.start.column.saturating_sub(1) as u32,
                         },
                         end: Position {
-                            line: loc_range.end.line.saturating_sub(1) as u32,
+                            line: (loc_range.end.line.saturating_sub(1) + line_offset_val) as u32,
                             character: loc_range.end.column.saturating_sub(1) as u32,
                         },
-                    }
-                } else {
-                    DiagnosticRange::default()
-                };
-
-                // Get message - apollo_diag.error is a GraphQLError which can be converted to string
+                    },
+                );
                 let message: Arc<str> = Arc::from(apollo_diag.error.to_string());
-
-                // Filter out false positives: fragments are allowed to be standalone
-                // and don't need to be used in operations (they may be used in other files)
                 if message.contains("must be used in an operation") {
                     continue;
                 }
-
                 diagnostics.push(Diagnostic {
                     severity: Severity::Error,
                     message,
@@ -196,53 +229,44 @@ pub fn validate_document(
             }
         }
     }
-
     Arc::new(diagnostics)
 }
 
 /// Collect all fragment names referenced by a document transitively across files
 /// This resolves fragment dependencies by following fragment spreads to their definitions
+///
+/// Uses the `fragment_spreads_index` for O(1) lookup instead of scanning all files
 fn collect_referenced_fragments_transitive(
-    doc_text: &str,
-    doc_uri: &graphql_db::FileUri,
-    document_files: &Arc<Vec<(graphql_db::FileId, FileContent, FileMetadata)>>,
+    tree: &apollo_parser::SyntaxTree,
+    project_files: graphql_db::ProjectFiles,
     db: &dyn GraphQLAnalysisDatabase,
 ) -> std::collections::HashSet<String> {
     use std::collections::{HashSet, VecDeque};
 
+    // Get the fragment spreads index for efficient lookup
+    let spreads_index = graphql_hir::fragment_spreads_index(db, project_files);
+
     // Start with fragments directly referenced in the current document
-    let mut all_referenced = collect_referenced_fragments(doc_text);
+    // Use the already-parsed tree instead of re-parsing
+    let mut all_referenced = collect_referenced_fragments_from_tree(tree);
     let mut to_process: VecDeque<String> = all_referenced.iter().cloned().collect();
     let mut processed = HashSet::new();
 
-    // Process fragments transitively
+    // Process fragments transitively using the index
     while let Some(fragment_name) = to_process.pop_front() {
         if processed.contains(&fragment_name) {
             continue;
         }
         processed.insert(fragment_name.clone());
 
-        // Find the file that defines this fragment
-        for (_file_id, file_content, file_metadata) in document_files.iter() {
-            let text = file_content.text(db);
-            let uri = file_metadata.uri(db);
-
-            // Skip the current document
-            if uri.as_str() == doc_uri.as_str() {
-                continue;
-            }
-
-            // Check if this file defines the fragment
-            if let Some(fragment_refs) = get_fragment_references(&text, &fragment_name) {
-                // This file defines the fragment
-                // Collect fragments that THIS fragment references
-                for ref_name in fragment_refs {
-                    if all_referenced.insert(ref_name.clone()) {
-                        // New fragment found, add to processing queue
-                        to_process.push_back(ref_name);
-                    }
+        // Look up the fragment's spreads in the index (O(1) instead of O(n) file scan)
+        let key: Arc<str> = Arc::from(fragment_name.as_str());
+        if let Some(fragment_spreads) = spreads_index.get(&key) {
+            for spread_name in fragment_spreads {
+                let spread_str = spread_name.as_ref().to_string();
+                if all_referenced.insert(spread_str.clone()) {
+                    to_process.push_back(spread_str);
                 }
-                break; // Found the definition, no need to check other files
             }
         }
     }
@@ -252,17 +276,19 @@ fn collect_referenced_fragments_transitive(
 
 /// Collect all fragment names referenced by a document (in the same file only)
 /// This includes fragments directly referenced in operations and fragments referenced by other fragments
-fn collect_referenced_fragments(text: &str) -> std::collections::HashSet<String> {
+/// Uses an already-parsed syntax tree to avoid redundant parsing
+///
+/// Note: We always attempt to collect fragments regardless of parse errors because
+/// apollo-parser is error-tolerant and produces a usable CST even with syntax errors.
+/// This ensures cross-file fragment resolution works even when files have parse errors.
+fn collect_referenced_fragments_from_tree(
+    tree: &apollo_parser::SyntaxTree,
+) -> std::collections::HashSet<String> {
     use std::collections::HashSet;
 
-    let parser = apollo_parser::Parser::new(text);
-    let tree = parser.parse();
-
-    if tree.errors().next().is_some() {
-        // If there are parse errors, return empty set (apollo-compiler will report the errors)
-        return HashSet::new();
-    }
-
+    // Always collect fragments, even with parse errors.
+    // apollo-parser is error-tolerant and produces a CST that may contain
+    // valid fragment spreads even when other parts of the document have errors.
     let mut referenced = HashSet::new();
     let document = tree.document();
 
@@ -280,39 +306,6 @@ fn collect_referenced_fragments(text: &str) -> std::collections::HashSet<String>
     }
 
     referenced
-}
-
-/// Get the fragment names referenced by a specific fragment definition in a file
-/// Returns None if the fragment is not defined in this file
-fn get_fragment_references(text: &str, fragment_name: &str) -> Option<Vec<String>> {
-    let parser = apollo_parser::Parser::new(text);
-    let tree = parser.parse();
-
-    if tree.errors().next().is_some() {
-        return None;
-    }
-
-    let document = tree.document();
-
-    for definition in document.definitions() {
-        if let apollo_parser::cst::Definition::FragmentDefinition(frag) = definition {
-            if let Some(name) = frag.fragment_name() {
-                if let Some(name_node) = name.name() {
-                    if name_node.text() == fragment_name {
-                        // Found the fragment definition, collect its references
-                        let mut referenced = std::collections::HashSet::new();
-                        collect_fragment_spreads_from_selection_set(
-                            frag.selection_set(),
-                            &mut referenced,
-                        );
-                        return Some(referenced.into_iter().collect());
-                    }
-                }
-            }
-        }
-    }
-
-    None
 }
 
 /// Recursively collect fragment spreads from a selection set
@@ -349,38 +342,6 @@ fn collect_fragment_spreads_from_selection_set(
     }
 }
 
-/// Check if a file defines any of the given fragment names
-fn file_defines_any_fragment(
-    text: &str,
-    fragment_names: &std::collections::HashSet<String>,
-) -> bool {
-    let parser = apollo_parser::Parser::new(text);
-    let tree = parser.parse();
-
-    if tree.errors().next().is_some() {
-        // If there are parse errors, skip this file
-        return false;
-    }
-
-    let document = tree.document();
-
-    for definition in document.definitions() {
-        if let apollo_parser::cst::Definition::FragmentDefinition(frag) = definition {
-            if let Some(name) = frag.fragment_name() {
-                if let Some(name_node) = name.name() {
-                    let frag_name = name_node.text();
-                    let frag_name_str = frag_name.as_str();
-                    if fragment_names.contains(frag_name_str) {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -405,8 +366,34 @@ mod tests {
     #[salsa::db]
     impl crate::GraphQLAnalysisDatabase for TestDatabase {}
 
+    /// Helper to create `ProjectFiles` for tests using the new granular structure
+    fn create_project_files(
+        db: &TestDatabase,
+        schema_files: &[(FileId, FileContent, FileMetadata)],
+        document_files: &[(FileId, FileContent, FileMetadata)],
+    ) -> ProjectFiles {
+        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
+        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
+
+        let mut entries = std::collections::HashMap::new();
+        for (id, content, metadata) in schema_files {
+            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+        for (id, content, metadata) in document_files {
+            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+
+        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(schema_ids));
+        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_ids));
+        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(entries));
+
+        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+    }
+
     #[test]
-    fn test_validate_document_no_schema() {
+    fn test_validate_file_no_schema() {
         let db = TestDatabase::default();
         let file_id = FileId::new(0);
 
@@ -419,9 +406,9 @@ mod tests {
         );
 
         // Empty project files (no schema)
-        let project_files = ProjectFiles::new(&db, Arc::new(vec![]), Arc::new(vec![]));
+        let project_files = create_project_files(&db, &[], &[]);
 
-        let diagnostics = validate_document(&db, content, metadata, project_files);
+        let diagnostics = validate_file(&db, content, metadata, project_files);
         assert_eq!(
             diagnostics.len(),
             0,
@@ -430,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_document_with_valid_fragment() {
+    fn test_validate_file_with_valid_fragment() {
         let db = TestDatabase::default();
 
         // Create schema
@@ -457,13 +444,13 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
+        let project_files = create_project_files(
             &db,
-            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
-            Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
         );
 
-        let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
+        let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
         assert_eq!(
             diagnostics.len(),
             0,
@@ -472,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_document_with_invalid_fragment() {
+    fn test_validate_file_with_invalid_fragment() {
         let db = TestDatabase::default();
 
         // Create schema
@@ -499,13 +486,13 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
+        let project_files = create_project_files(
             &db,
-            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
-            Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
         );
 
-        let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
+        let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
         assert!(
             !diagnostics.is_empty(),
             "Expected diagnostics for fragment with invalid field"
@@ -519,7 +506,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_document_invalid_field() {
+    fn test_validate_file_invalid_field() {
         let db = TestDatabase::default();
 
         // Create schema
@@ -542,13 +529,13 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
+        let project_files = create_project_files(
             &db,
-            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
-            Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
         );
 
-        let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
+        let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
         assert!(
             !diagnostics.is_empty(),
             "Expected diagnostics for invalid field selection"
@@ -562,7 +549,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_document_valid_query() {
+    fn test_validate_file_valid_query() {
         let db = TestDatabase::default();
 
         // Create schema
@@ -585,13 +572,13 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
+        let project_files = create_project_files(
             &db,
-            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
-            Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
         );
 
-        let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
+        let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
         assert_eq!(
             diagnostics.len(),
             0,
@@ -600,7 +587,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_document_missing_required_argument() {
+    fn test_validate_file_missing_required_argument() {
         let db = TestDatabase::default();
 
         // Create schema with required argument
@@ -624,13 +611,13 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
+        let project_files = create_project_files(
             &db,
-            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
-            Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
         );
 
-        let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
+        let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
         assert!(
             !diagnostics.is_empty(),
             "Expected diagnostics for missing required argument"
@@ -644,7 +631,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_document_invalid_variable_type() {
+    fn test_validate_file_invalid_variable_type() {
         let db = TestDatabase::default();
 
         // Create schema
@@ -667,13 +654,13 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
+        let project_files = create_project_files(
             &db,
-            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
-            Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
         );
 
-        let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
+        let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
         assert!(
             !diagnostics.is_empty(),
             "Expected diagnostics for invalid variable type"
@@ -724,17 +711,17 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = ProjectFiles::new(
+        let project_files = create_project_files(
             &db,
-            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
-            Arc::new(vec![
+            &[(schema_id, schema_content, schema_metadata)],
+            &[
                 (frag_id, frag_content, frag_metadata),
                 (query_id, query_content, query_metadata),
-            ]),
+            ],
         );
 
         // Validate the query - it should find the fragment from the other file
-        let diagnostics = validate_document(&db, query_content, query_metadata, project_files);
+        let diagnostics = validate_file(&db, query_content, query_metadata, project_files);
         assert_eq!(
             diagnostics.len(),
             0,
@@ -770,13 +757,13 @@ mod tests {
         // Set line offset to simulate extraction from line 10 in TypeScript file
         doc_metadata.set_line_offset(&mut db).to(10);
 
-        let project_files = ProjectFiles::new(
+        let project_files = create_project_files(
             &db,
-            Arc::new(vec![(schema_id, schema_content, schema_metadata)]),
-            Arc::new(vec![(doc_id, doc_content, doc_metadata)]),
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
         );
 
-        let diagnostics = validate_document(&db, doc_content, doc_metadata, project_files);
+        let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
         assert!(!diagnostics.is_empty(), "Expected validation errors");
 
         // Verify that line numbers are adjusted by the line offset
@@ -789,5 +776,72 @@ mod tests {
                 diag.range.start.line
             );
         }
+    }
+
+    #[test]
+    fn test_fragment_collection_with_parse_errors() {
+        let db = TestDatabase::default();
+
+        // Create schema
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from("type Query { user: User } type User { id: ID! name: String! }"),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        // Create fragment file
+        let frag_id = FileId::new(1);
+        let frag_content =
+            FileContent::new(&db, Arc::from("fragment UserFields on User { id name }"));
+        let frag_metadata = FileMetadata::new(
+            &db,
+            frag_id,
+            FileUri::new("fragments.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        // Create query that uses the fragment but has a syntax error elsewhere
+        // The fragment spread is valid, but the document has a parse error (missing closing brace)
+        let query_id = FileId::new(2);
+        let query_content = FileContent::new(
+            &db,
+            Arc::from("query GetUser {\n  user {\n    ...UserFields\n    invalidSyntax{\n}\n"),
+        );
+        let query_metadata = FileMetadata::new(
+            &db,
+            query_id,
+            FileUri::new("query.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let project_files = create_project_files(
+            &db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[
+                (frag_id, frag_content, frag_metadata),
+                (query_id, query_content, query_metadata),
+            ],
+        );
+
+        // Validate the query - it should have syntax errors but NOT "unknown fragment" errors
+        // Because apollo-parser is error-tolerant and we should still collect fragment references
+        let diagnostics = validate_file(&db, query_content, query_metadata, project_files);
+
+        // We expect syntax errors, but NOT "unknown fragment UserFields" error
+        // The fragment should resolve correctly despite the parse errors
+        let has_unknown_fragment_error = diagnostics.iter().any(|d| {
+            d.message.contains("unknown fragment") || d.message.contains("Unknown fragment")
+        });
+
+        assert!(
+            !has_unknown_fragment_error,
+            "Fragment 'UserFields' should resolve even with parse errors in the document. Diagnostics: {diagnostics:?}"
+        );
     }
 }

@@ -2,6 +2,37 @@
 // This crate handles parsing and syntax trees. No cross-file knowledge, no semantics.
 // All parsing is file-local and fully parallelizable.
 
+//! # Migration Guide: Using `Parse::documents()`
+//!
+//! The `Parse` struct provides the `documents()` method for safely handling both
+//! pure GraphQL files and TypeScript/JavaScript files with embedded GraphQL.
+//!
+//! ## The Problem
+//!
+//! Direct field access (`tree`, `ast`, `blocks`) requires manual if/else logic:
+//!
+//! ```rust,ignore
+//! // ❌ Easy to get wrong
+//! if parse.blocks.is_empty() {
+//!     process(&parse.tree);
+//! } else {
+//!     for block in &parse.blocks {
+//!         process(&block.tree);
+//!     }
+//! }
+//! ```
+//!
+//! ## The Solution
+//!
+//! Use `documents()` for uniform iteration:
+//!
+//! ```rust,ignore
+//! // ✅ Always correct
+//! for doc in parse.documents() {
+//!     process(doc.tree, doc.line_offset);
+//! }
+//! ```
+
 use graphql_db::{FileContent, FileKind, FileMetadata};
 use std::sync::Arc;
 
@@ -44,6 +75,98 @@ pub struct ExtractedBlock {
     pub column: usize,
 }
 
+/// A reference to a GraphQL document within a parsed file.
+///
+/// This provides a unified interface for accessing GraphQL documents,
+/// whether from a pure `.graphql` file or extracted from TypeScript/JavaScript.
+#[derive(Debug, Clone, Copy)]
+pub struct DocumentRef<'a> {
+    /// The syntax tree for this document
+    pub tree: &'a apollo_parser::SyntaxTree,
+    /// The AST for this document
+    pub ast: &'a apollo_compiler::ast::Document,
+    /// Line offset in the original file (0 for pure GraphQL files)
+    pub line_offset: usize,
+    /// The source code (None for pure GraphQL files, Some for extracted blocks)
+    pub source: Option<&'a str>,
+}
+
+impl Parse {
+    /// Returns an iterator over all GraphQL documents in this file.
+    ///
+    /// For pure GraphQL files, yields a single document.
+    /// For TypeScript/JavaScript files, yields one document per extracted block.
+    ///
+    /// # Example
+    /// ```ignore
+    /// for doc in parse.documents() {
+    ///     validate_document(doc.tree, doc.ast, doc.line_offset);
+    /// }
+    /// ```
+    #[must_use]
+    pub fn documents(&self) -> DocumentIterator<'_> {
+        if self.blocks.is_empty() {
+            // Pure GraphQL file - yield single document
+            DocumentIterator {
+                parse: self,
+                state: IteratorState::Single(false),
+            }
+        } else {
+            // TypeScript/JavaScript file - yield each block
+            DocumentIterator {
+                parse: self,
+                state: IteratorState::Multiple(0),
+            }
+        }
+    }
+}
+
+/// Iterator over documents in a parsed file
+pub struct DocumentIterator<'a> {
+    parse: &'a Parse,
+    state: IteratorState,
+}
+
+enum IteratorState {
+    Single(bool),    // bool tracks if we've yielded the single item
+    Multiple(usize), // usize is the current block index
+}
+
+impl<'a> Iterator for DocumentIterator<'a> {
+    type Item = DocumentRef<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match &mut self.state {
+            IteratorState::Single(yielded) => {
+                if *yielded {
+                    None
+                } else {
+                    *yielded = true;
+                    Some(DocumentRef {
+                        tree: &self.parse.tree,
+                        ast: &self.parse.ast,
+                        line_offset: 0,
+                        source: None,
+                    })
+                }
+            }
+            IteratorState::Multiple(index) => {
+                if let Some(block) = self.parse.blocks.get(*index) {
+                    *index += 1;
+                    Some(DocumentRef {
+                        tree: &block.tree,
+                        ast: &block.ast,
+                        line_offset: block.line,
+                        source: Some(&block.source),
+                    })
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
+
 /// Parse a file into a syntax tree
 /// This is the foundation - all semantic analysis builds on this
 #[salsa::tracked]
@@ -52,20 +175,21 @@ pub fn parse(
     content: FileContent,
     metadata: FileMetadata,
 ) -> Parse {
+    let uri = metadata.uri(db);
     match metadata.kind(db) {
         FileKind::Schema | FileKind::ExecutableGraphQL => {
             // Use apollo-parser for pure GraphQL files
-            parse_graphql(&content.text(db))
+            parse_graphql(&content.text(db), uri.as_str())
         }
         FileKind::TypeScript | FileKind::JavaScript => {
             // Use graphql-extract to get blocks, then parse each
-            extract_and_parse(db, &content.text(db))
+            extract_and_parse(db, &content.text(db), uri.as_str())
         }
     }
 }
 
 /// Parse pure GraphQL content
-fn parse_graphql(content: &str) -> Parse {
+fn parse_graphql(content: &str, uri: &str) -> Parse {
     let parser = apollo_parser::Parser::new(content);
     let tree = parser.parse();
 
@@ -78,7 +202,8 @@ fn parse_graphql(content: &str) -> Parse {
         .collect();
 
     // Parse with apollo-compiler to get AST
-    let ast = match apollo_compiler::ast::Document::parse(content, "document.graphql") {
+    // Use the actual file URI for proper error source tracking
+    let ast = match apollo_compiler::ast::Document::parse(content, uri) {
         Ok(doc) => doc,
         Err(with_errors) => {
             // Collect parse errors from apollo-compiler
@@ -102,7 +227,7 @@ fn parse_graphql(content: &str) -> Parse {
 }
 
 /// Extract GraphQL from TypeScript/JavaScript and parse each block
-fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str) -> Parse {
+fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -> Parse {
     use graphql_extract::{extract_from_source, ExtractConfig, Language};
 
     tracing::debug!(content_len = content.len(), "extract_and_parse called");
@@ -133,34 +258,11 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str) -> Parse {
     let mut blocks = Vec::new();
     let mut all_errors = Vec::new();
 
-    // For the main tree, we'll use the first block or create an empty document
-    let (main_tree, main_ast) = extracted.first().map_or_else(
-        || {
-            let tree = apollo_parser::Parser::new("").parse();
-            let ast = apollo_compiler::ast::Document::default();
-            (tree, ast)
-        },
-        |first_block| {
-            let parser = apollo_parser::Parser::new(&first_block.source);
-            let tree = parser.parse();
-            let ast = match apollo_compiler::ast::Document::parse(
-                &first_block.source,
-                "document.graphql",
-            ) {
-                Ok(doc) => doc,
-                Err(with_errors) => with_errors.partial,
-            };
-            (tree, ast)
-        },
-    );
-
-    // Collect errors from main tree (only if we actually extracted blocks)
-    if !extracted.is_empty() {
-        all_errors.extend(main_tree.errors().map(|e| ParseError {
-            message: e.message().to_string(),
-            offset: e.index(),
-        }));
-    }
+    // For TS/JS files with blocks, use empty tree/ast for main_tree/main_ast
+    // since callers should use blocks via documents() iterator.
+    // This avoids parsing the first block twice.
+    let main_tree = apollo_parser::Parser::new("").parse();
+    let main_ast = apollo_compiler::ast::Document::default();
 
     // Parse each extracted block
     for block in extracted {
@@ -175,7 +277,8 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str) -> Parse {
         }));
 
         // Parse with apollo-compiler to get AST
-        let ast = match apollo_compiler::ast::Document::parse(&block.source, "document.graphql") {
+        // Use the actual file URI for proper error source tracking
+        let ast = match apollo_compiler::ast::Document::parse(&block.source, uri) {
             Ok(doc) => doc,
             Err(with_errors) => {
                 // Collect parse errors from apollo-compiler
@@ -369,7 +472,7 @@ mod tests {
     #[test]
     fn test_parse_graphql() {
         let content = "type User { id: ID! }";
-        let parse = parse_graphql(content);
+        let parse = parse_graphql(content, "test.graphql");
 
         assert!(parse.errors.is_empty());
         assert!(parse.blocks.is_empty());
@@ -379,7 +482,7 @@ mod tests {
     #[test]
     fn test_parse_graphql_with_error() {
         let content = "type User {";
-        let parse = parse_graphql(content);
+        let parse = parse_graphql(content, "test.graphql");
 
         assert!(!parse.errors.is_empty());
     }
@@ -486,6 +589,73 @@ mod tests {
         }
 
         // This test is just for exploration
-        assert!(!tree.errors().next().is_none());
+        assert!(tree.errors().next().is_some());
+    }
+
+    #[test]
+    fn test_documents_iterator_pure_graphql() {
+        let content = "type User { id: ID! }\ntype Post { id: ID! }";
+        let parse = parse_graphql(content, "test.graphql");
+
+        let docs: Vec<_> = parse.documents().collect();
+        assert_eq!(docs.len(), 1);
+
+        let doc = &docs[0];
+        assert_eq!(doc.line_offset, 0);
+        assert!(doc.source.is_none());
+        assert_eq!(doc.tree.document().definitions().count(), 2);
+    }
+
+    #[test]
+    fn test_documents_iterator_with_blocks() {
+        let parse = Parse {
+            tree: Arc::new(apollo_parser::Parser::new("").parse()),
+            ast: Arc::new(apollo_compiler::ast::Document::default()),
+            blocks: vec![
+                ExtractedBlock {
+                    source: Arc::from("query Q1 { user { id } }"),
+                    tree: Arc::new(apollo_parser::Parser::new("query Q1 { user { id } }").parse()),
+                    ast: Arc::new(
+                        apollo_compiler::ast::Document::parse("query Q1 { user { id } }", "test")
+                            .unwrap(),
+                    ),
+                    offset: 100,
+                    line: 5,
+                    column: 10,
+                },
+                ExtractedBlock {
+                    source: Arc::from("query Q2 { post { id } }"),
+                    tree: Arc::new(apollo_parser::Parser::new("query Q2 { post { id } }").parse()),
+                    ast: Arc::new(
+                        apollo_compiler::ast::Document::parse("query Q2 { post { id } }", "test")
+                            .unwrap(),
+                    ),
+                    offset: 200,
+                    line: 10,
+                    column: 10,
+                },
+            ],
+            errors: vec![],
+        };
+
+        let docs: Vec<_> = parse.documents().collect();
+        assert_eq!(docs.len(), 2);
+
+        assert_eq!(docs[0].line_offset, 5);
+        assert_eq!(docs[0].source, Some("query Q1 { user { id } }"));
+
+        assert_eq!(docs[1].line_offset, 10);
+        assert_eq!(docs[1].source, Some("query Q2 { post { id } }"));
+    }
+
+    #[test]
+    fn test_documents_iterator_empty_blocks() {
+        // Edge case: empty blocks vector should behave like pure GraphQL
+        let content = "type User { id: ID! }";
+        let parse = parse_graphql(content, "test.graphql");
+
+        let docs: Vec<_> = parse.documents().collect();
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].line_offset, 0);
     }
 }

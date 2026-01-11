@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+description = "CLI tool for GraphQL validation and linting"
+keywords = ["graphql", "cli", "validation", "linting"]
+categories = ["command-line-utilities", "development-tools"]
 
 [package.metadata.dist]
 dist = true

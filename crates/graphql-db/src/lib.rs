@@ -2,6 +2,7 @@
 // This crate defines the salsa database and input queries for the GraphQL LSP.
 // It provides the foundation for incremental, query-based computation.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Input file identifier in the project
@@ -76,15 +77,84 @@ pub struct FileMetadata {
     pub line_offset: u32,
 }
 
-/// Input: Project file lists
-/// Tracks which files are in the project, categorized by kind
-/// This is updated by the IDE layer when files are added/removed
+/// Input: Schema file ID list (identity only)
+/// This input changes ONLY when schema files are added or removed.
+/// Content changes do NOT affect this input, enabling fine-grained cache invalidation.
+#[salsa::input]
+pub struct SchemaFileIds {
+    /// List of schema file IDs - stable across content changes
+    pub ids: Arc<Vec<FileId>>,
+}
+
+/// Input: Document file ID list (identity only)
+/// This input changes ONLY when document files are added or removed.
+/// Content changes do NOT affect this input, enabling fine-grained cache invalidation.
+#[salsa::input]
+pub struct DocumentFileIds {
+    /// List of document file IDs - stable across content changes
+    pub ids: Arc<Vec<FileId>>,
+}
+
+/// A single file's entry - bundles content and metadata as one Salsa input.
+/// This enables true per-file granular caching: when file A changes, only
+/// file A's FileEntry is updated, and queries for file B remain cached.
+#[salsa::input]
+pub struct FileEntry {
+    /// The file's content
+    pub content: FileContent,
+    /// The file's metadata
+    pub metadata: FileMetadata,
+}
+
+/// Input: Per-file entry map for granular invalidation
+/// Unlike FileMap which stores all entries in a single HashMap (causing global invalidation),
+/// this stores individual FileEntry inputs that can be updated independently.
+///
+/// When file A's content changes:
+/// - FileEntryMap's HashMap reference stays the same (same keys)
+/// - Only file A's FileEntry.content is updated
+/// - Queries depending on file B's FileEntry remain fully cached
+#[salsa::input]
+pub struct FileEntryMap {
+    /// Mapping from FileId to FileEntry - each entry is independently tracked
+    pub entries: Arc<HashMap<FileId, FileEntry>>,
+}
+
+/// Input: Project file tracking with granular inputs
+/// This struct provides access to both file identity (stable) and file content (dynamic).
+///
+/// Queries should choose their dependencies carefully:
+/// - Depend on `schema_file_ids` or `document_file_ids` for "what files exist" (stable)
+/// - Depend on `file_entry_map` for per-file granular lookup
+/// - Call per-file queries with specific `FileContent` to get per-file caching
 #[salsa::input]
 pub struct ProjectFiles {
-    /// List of schema files with their content and metadata
-    pub schema_files: Arc<Vec<(FileId, FileContent, FileMetadata)>>,
-    /// List of document files with their content and metadata
-    pub document_files: Arc<Vec<(FileId, FileContent, FileMetadata)>>,
+    /// Schema file IDs - only changes when schema files are added/removed
+    pub schema_file_ids: SchemaFileIds,
+    /// Document file IDs - only changes when document files are added/removed
+    pub document_file_ids: DocumentFileIds,
+    /// Per-file entry map for granular invalidation
+    /// Each `FileEntry` can be updated independently without invalidating other files
+    pub file_entry_map: FileEntryMap,
+}
+
+/// Query to look up a single file's content and metadata.
+///
+/// Uses `FileEntryMap` for granular per-file caching:
+/// - Each file has its own `FileEntry` input
+/// - Updating file A's content doesn't invalidate queries for file B
+/// - The `HashMap` lookup creates a dependency only on the specific `FileEntry`
+#[salsa::tracked]
+pub fn file_lookup(
+    db: &dyn salsa::Database,
+    project_files: ProjectFiles,
+    file_id: FileId,
+) -> Option<(FileContent, FileMetadata)> {
+    let file_entry_map = project_files.file_entry_map(db);
+    let entries = file_entry_map.entries(db);
+    let entry = entries.get(&file_id)?;
+    // Access the FileEntry's fields - this creates a dependency on THIS entry only
+    Some((entry.content(db), entry.metadata(db)))
 }
 
 /// The root salsa database
@@ -103,6 +173,49 @@ impl RootDatabase {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+}
+
+/// Test utilities for creating project files
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils {
+    use super::{
+        DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileMetadata, ProjectFiles,
+        SchemaFileIds,
+    };
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    /// Helper to create `ProjectFiles` for tests
+    ///
+    /// This function takes lists of schema and document files and creates
+    /// the proper granular Salsa inputs (`SchemaFileIds`, `DocumentFileIds`, `FileEntryMap`).
+    ///
+    /// Uses `FileEntryMap` for per-file granular caching.
+    pub fn create_project_files<DB: salsa::Database>(
+        db: &mut DB,
+        schema_files: &[(FileId, FileContent, FileMetadata)],
+        document_files: &[(FileId, FileContent, FileMetadata)],
+    ) -> ProjectFiles {
+        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
+        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
+
+        // Create granular FileEntryMap
+        let mut entries = HashMap::new();
+        for (id, content, metadata) in schema_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+        for (id, content, metadata) in document_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+
+        let schema_file_ids = SchemaFileIds::new(db, Arc::new(schema_ids));
+        let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
+        let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
+
+        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
     }
 }
 

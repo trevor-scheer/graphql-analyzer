@@ -50,22 +50,32 @@ impl StandaloneDocumentLintRule for UnusedVariablesRuleImpl {
             return diagnostics;
         }
 
-        let doc_cst = parse.tree.document();
-
-        // Check operations in the main document
-        for definition in doc_cst.definitions() {
-            if let cst::Definition::OperationDefinition(operation) = definition {
-                check_operation_for_unused_variables(&operation, &mut diagnostics);
-            }
-        }
-
-        // Also check operations in extracted blocks (TypeScript/JavaScript)
-        for block in &parse.blocks {
-            let block_doc = block.tree.document();
-            for definition in block_doc.definitions() {
+        // Check operations in the main document (for .graphql files only)
+        // For TS/JS files, parse.tree is the first block and we check all blocks below
+        let file_kind = metadata.kind(db);
+        if file_kind == graphql_db::FileKind::ExecutableGraphQL
+            || file_kind == graphql_db::FileKind::Schema
+        {
+            let doc_cst = parse.tree.document();
+            for definition in doc_cst.definitions() {
                 if let cst::Definition::OperationDefinition(operation) = definition {
                     check_operation_for_unused_variables(&operation, &mut diagnostics);
                 }
+            }
+        }
+
+        // Check operations in extracted blocks (TypeScript/JavaScript)
+        for block in &parse.blocks {
+            let block_doc = block.tree.document();
+            let mut block_diagnostics = Vec::new();
+            for definition in block_doc.definitions() {
+                if let cst::Definition::OperationDefinition(operation) = definition {
+                    check_operation_for_unused_variables(&operation, &mut block_diagnostics);
+                }
+            }
+            // Add block context to each diagnostic for proper position calculation
+            for diag in block_diagnostics {
+                diagnostics.push(diag.with_block_context(block.line, block.source.clone()));
             }
         }
 
@@ -227,7 +237,11 @@ mod tests {
     use std::sync::Arc;
 
     fn create_test_project_files(db: &RootDatabase) -> ProjectFiles {
-        ProjectFiles::new(db, Arc::new(vec![]), Arc::new(vec![]))
+        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![]));
+        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(vec![]));
+        let file_entry_map =
+            graphql_db::FileEntryMap::new(db, Arc::new(std::collections::HashMap::new()));
+        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
     }
 
     #[test]
@@ -235,13 +249,13 @@ mod tests {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser($id: ID!, $unused: String) {
   user(id: $id) {
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -267,13 +281,13 @@ query GetUser($id: ID!, $unused: String) {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser($id: ID!, $name: String) {
   user(id: $id, name: $name) {
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -295,13 +309,13 @@ query GetUser($id: ID!, $name: String) {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser($id: ID!, $skip: Boolean!) {
   user(id: $id) @skip(if: $skip) {
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -323,7 +337,7 @@ query GetUser($id: ID!, $skip: Boolean!) {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser($id: ID!, $postId: ID!) {
   user(id: $id) {
     name
@@ -332,7 +346,7 @@ query GetUser($id: ID!, $postId: ID!) {
     }
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -354,13 +368,13 @@ query GetUser($id: ID!, $postId: ID!) {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUsers($ids: [ID!]!, $id1: ID!, $id2: ID!) {
   users(ids: [$id1, $id2]) {
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -384,13 +398,13 @@ query GetUsers($ids: [ID!]!, $id1: ID!, $id2: ID!) {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query CreateUser($name: String!, $email: String!) {
   createUser(input: { name: $name, email: $email }) {
     id
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -412,13 +426,13 @@ query CreateUser($name: String!, $email: String!) {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser($id: ID!, $unused1: String, $unused2: Int, $limit: Int) {
   user(id: $id, limit: $limit) {
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -447,13 +461,13 @@ query GetUser($id: ID!, $unused1: String, $unused2: Int, $limit: Int) {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser {
   user {
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -475,14 +489,14 @@ query GetUser {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 mutation UpdateUser($id: ID!, $name: String!, $unused: Boolean) {
   updateUser(id: $id, name: $name) {
     id
     name
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));
@@ -505,7 +519,7 @@ mutation UpdateUser($id: ID!, $name: String!, $unused: Boolean) {
         let db = RootDatabase::default();
         let rule = UnusedVariablesRuleImpl;
 
-        let source = r#"
+        let source = "
 query GetUser($id: ID!, $include: Boolean!) {
   user(id: $id) {
     name
@@ -514,7 +528,7 @@ query GetUser($id: ID!, $include: Boolean!) {
     }
   }
 }
-"#;
+";
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from(source));

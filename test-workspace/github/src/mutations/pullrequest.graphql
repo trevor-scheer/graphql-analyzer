@@ -1,0 +1,116 @@
+# Pull Request mutations
+
+mutation CreatePullRequest($input: CreatePullRequestInput!) {
+  createPullRequest(input: $input) {
+    clientMutationId
+    pullRequest {
+      ...PullRequestFull
+    }
+  }
+}
+
+mutation UpdatePullRequest($input: UpdatePullRequestInput!) {
+  updatePullRequest(input: $input) {
+    clientMutationId
+    pullRequest {
+      ...PullRequestDetails
+    }
+  }
+}
+
+mutation MergePullRequest(
+  $pullRequestId: ID!
+  $commitHeadline: String
+  $commitBody: String
+  $mergeMethod: PullRequestMergeMethod
+  $expectedHeadOid: GitObjectID
+) {
+  mergePullRequest(
+    input: {
+      pullRequestId: $pullRequestId
+      commitHeadline: $commitHeadline
+      commitBody: $commitBody
+      mergeMethod: $mergeMethod
+      expectedHeadOid: $expectedHeadOid
+    }
+  ) {
+    clientMutationId
+    pullRequest {
+      id
+      merged
+      mergedAt
+      mergedBy {
+        ...ActorBasic
+      }
+      state
+    }
+    actor {
+      ...ActorBasic
+    }
+  }
+}
+
+mutation AddPullRequestReview(
+  $pullRequestId: ID!
+  $body: String
+  $event: PullRequestReviewEvent
+  $commitOID: GitObjectID
+  $comments: [DraftPullRequestReviewComment!]
+) {
+  addPullRequestReview(
+    input: {
+      pullRequestId: $pullRequestId
+      body: $body
+      event: $event
+      commitOID: $commitOID
+      comments: $comments
+    }
+  ) {
+    clientMutationId
+    pullRequestReview {
+      ...PullRequestReviewBasic
+    }
+  }
+}
+
+mutation SubmitPullRequestReview(
+  $pullRequestReviewId: ID!
+  $body: String
+  $event: PullRequestReviewEvent!
+) {
+  submitPullRequestReview(
+    input: { pullRequestReviewId: $pullRequestReviewId, body: $body, event: $event }
+  ) {
+    clientMutationId
+    pullRequestReview {
+      ...PullRequestReviewBasic
+    }
+  }
+}
+
+mutation RequestReviews(
+  $pullRequestId: ID!
+  $userIds: [ID!]
+  $teamIds: [ID!]
+) {
+  requestReviews(
+    input: { pullRequestId: $pullRequestId, userIds: $userIds, teamIds: $teamIds }
+  ) {
+    clientMutationId
+    pullRequest {
+      id
+      reviewRequests(first: 10) {
+        nodes {
+          requestedReviewer {
+            ... on User {
+              ...UserBasic
+            }
+            ... on Team {
+              ...TeamBasic
+            }
+          }
+        }
+      }
+    }
+  }
+}

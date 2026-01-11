@@ -1,4 +1,4 @@
-import { gql } from '@apollo/client';
+import { gql } from "@apollo/client";
 
 export const START_NEW_BATTLE = gql`
   mutation InitiateBattle($trainer1: ID!, $trainer2: ID!) {
@@ -13,6 +13,7 @@ export const START_NEW_BATTLE = gql`
           nickname
           level
           pokemon {
+            id
             name
             types
           }
@@ -105,7 +106,11 @@ export const GET_BATTLE_HISTORY = gql`
 `;
 
 export const SWITCH_POKEMON_IN_BATTLE = gql`
-  mutation SwitchPokemonInBattle($battleId: ID!, $trainerId: ID!, $newPokemonId: ID!) {
+  mutation SwitchPokemonInBattle(
+    $battleId: ID!
+    $trainerId: ID!
+    $newPokemonId: ID!
+  ) {
     performBattleAction(
       battleId: $battleId
       trainerId: $trainerId

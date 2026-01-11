@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+description = "GraphQL validation and analysis layer"
+keywords = ["graphql", "validation", "analysis"]
+categories = ["development-tools", "parser-implementations"]
 
 [dependencies]
 graphql-db = { path = "../graphql-db" }
@@ -17,3 +20,6 @@ apollo-parser = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 text-size = "1.1"
+
+[dev-dependencies]
+graphql-db = { path = "../graphql-db", features = ["test-utils"] }

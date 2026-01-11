@@ -29,11 +29,16 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
 
         // Step 1: Collect all fragment definitions
-        let document_files = project_files.document_files(db);
+        let doc_ids = project_files.document_file_ids(db).ids(db);
         let mut all_fragments: HashMap<String, Vec<FileId>> = HashMap::new();
 
-        for (file_id, content, metadata) in document_files.iter() {
-            let structure = graphql_hir::file_structure(db, *file_id, *content, *metadata);
+        for file_id in doc_ids.iter() {
+            // Use per-file lookup for granular caching
+            let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
+            else {
+                continue;
+            };
+            let structure = graphql_hir::file_structure(db, *file_id, content, metadata);
             for fragment in &structure.fragments {
                 all_fragments
                     .entry(fragment.name.to_string())
@@ -45,8 +50,13 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
         // Step 2: Collect all used fragment names from operations and fragments
         let mut used_fragments = HashSet::new();
 
-        for (_file_id, content, metadata) in document_files.iter() {
-            let parse = graphql_syntax::parse(db, *content, *metadata);
+        for file_id in doc_ids.iter() {
+            // Use per-file lookup for granular caching
+            let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
+            else {
+                continue;
+            };
+            let parse = graphql_syntax::parse(db, content, metadata);
 
             // Scan operations and fragments in the main AST
             for definition in &parse.ast.definitions {
@@ -87,15 +97,12 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
                         "Fragment '{fragment_name}' is defined but never used in any operation"
                     );
 
-                    let diag = LintDiagnostic {
+                    let diag = LintDiagnostic::new(
+                        crate::diagnostics::OffsetRange::new(0, fragment_name.len()),
+                        self.default_severity(),
                         message,
-                        offset_range: crate::diagnostics::OffsetRange {
-                            start: 0,
-                            end: fragment_name.len(),
-                        },
-                        severity: self.default_severity(),
-                        rule: self.name().to_string(),
-                    };
+                        self.name().to_string(),
+                    );
 
                     diagnostics_by_file.entry(*file_id).or_default().push(diag);
                 }

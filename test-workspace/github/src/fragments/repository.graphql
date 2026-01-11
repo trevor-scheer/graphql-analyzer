@@ -1,0 +1,74 @@
+# Fragment-only file for Repository types
+
+fragment RepositoryBasic on Repository {
+  id
+  name
+  nameWithOwner
+  description
+  url
+  isPrivate
+  isFork
+  isArchived
+  stargazerCount
+  forkCount
+}
+
+fragment RepositoryDetails on Repository {
+  ...RepositoryBasic
+  createdAt
+  updatedAt
+  pushedAt
+  homepageUrl
+  primaryLanguage {
+    name
+    color
+  }
+  licenseInfo {
+    name
+    spdxId
+  }
+  defaultBranchRef {
+    name
+    target {
+      ... on Commit {
+        ...CommitBasic
+      }
+    }
+  }
+}
+
+fragment RepositoryWithOwner on Repository {
+  ...RepositoryDetails
+  owner {
+    ... on User {
+      ...UserBasic
+    }
+    ... on Organization {
+      ...OrganizationBasic
+    }
+  }
+}
+
+fragment RepositoryTopics on Repository {
+  repositoryTopics(first: 10) {
+    nodes {
+      topic {
+        name
+      }
+      url
+    }
+  }
+}
+
+fragment RepositoryLanguages on Repository {
+  languages(first: 10, orderBy: { field: SIZE, direction: DESC }) {
+    edges {
+      size
+      node {
+        name
+        color
+      }
+    }
+    totalSize
+  }
+}

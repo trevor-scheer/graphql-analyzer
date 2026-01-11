@@ -52,7 +52,7 @@ pub fn run(
 
     let load_start = std::time::Instant::now();
     let _load_projects_span = tracing::info_span!("load_projects").entered();
-    let host = CliAnalysisHost::from_project_config(&project_config, ctx.base_dir)
+    let host = CliAnalysisHost::from_project_config(&project_config, &ctx.base_dir)
         .map_err(|e| {
             if matches!(format, OutputFormat::Human) {
                 eprintln!("{} {}", "✗ Failed to load project:".red(), e);

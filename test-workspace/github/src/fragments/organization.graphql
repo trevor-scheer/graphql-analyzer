@@ -1,0 +1,82 @@
+# Fragment-only file for Organization types
+
+fragment OrganizationDetails on Organization {
+  ...OrganizationBasic
+  email
+  websiteUrl
+  twitterUsername
+  location
+  isVerified
+  createdAt
+  updatedAt
+}
+
+fragment OrganizationWithMembers on Organization {
+  ...OrganizationDetails
+  membersWithRole(first: 20) {
+    totalCount
+    edges {
+      role
+      node {
+        ...UserBasic
+      }
+    }
+  }
+}
+
+fragment OrganizationWithTeams on Organization {
+  ...OrganizationDetails
+  teams(first: 20) {
+    totalCount
+    nodes {
+      ...TeamDetails
+    }
+  }
+}
+
+fragment TeamDetails on Team {
+  ...TeamBasic
+  members(first: 10) {
+    totalCount
+    nodes {
+      ...UserBasic
+    }
+  }
+  repositories(first: 10) {
+    totalCount
+    nodes {
+      ...RepositoryBasic
+    }
+  }
+  childTeams(first: 5) {
+    nodes {
+      ...TeamBasic
+    }
+  }
+  parentTeam {
+    ...TeamBasic
+  }
+}
+
+fragment OrganizationWithRepos on Organization {
+  ...OrganizationDetails
+  repositories(first: 30, orderBy: { field: UPDATED_AT, direction: DESC }) {
+    totalCount
+    nodes {
+      ...RepositoryDetails
+    }
+  }
+}
+
+fragment OrganizationFull on Organization {
+  ...OrganizationWithMembers
+  ...OrganizationWithTeams
+  ...OrganizationWithRepos
+  pinnedItems(first: 6) {
+    nodes {
+      ... on Repository {
+        ...RepositoryBasic
+      }
+    }
+  }
+}

@@ -69,28 +69,39 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
             all_fragments: &all_fragments,
         };
 
-        // Check the main document (for .graphql files)
-        let doc_cst = parse.tree.document();
-        check_document(
-            &doc_cst,
-            query_type.as_deref(),
-            mutation_type.as_deref(),
-            subscription_type.as_deref(),
-            &check_context,
-            &mut diagnostics,
-        );
-
-        // Also check operations in extracted blocks (TypeScript/JavaScript)
-        for block in &parse.blocks {
-            let block_doc = block.tree.document();
+        // Check the main document (for .graphql files only)
+        // For TS/JS files, parse.tree is the first block and we check all blocks below
+        let file_kind = metadata.kind(db);
+        if file_kind == graphql_db::FileKind::ExecutableGraphQL
+            || file_kind == graphql_db::FileKind::Schema
+        {
+            let doc_cst = parse.tree.document();
             check_document(
-                &block_doc,
+                &doc_cst,
                 query_type.as_deref(),
                 mutation_type.as_deref(),
                 subscription_type.as_deref(),
                 &check_context,
                 &mut diagnostics,
             );
+        }
+
+        // Check operations in extracted blocks (TypeScript/JavaScript)
+        for block in &parse.blocks {
+            let block_doc = block.tree.document();
+            let mut block_diagnostics = Vec::new();
+            check_document(
+                &block_doc,
+                query_type.as_deref(),
+                mutation_type.as_deref(),
+                subscription_type.as_deref(),
+                &check_context,
+                &mut block_diagnostics,
+            );
+            // Add block context to each diagnostic for proper position calculation
+            for diag in block_diagnostics {
+                diagnostics.push(diag.with_block_context(block.line, block.source.clone()));
+            }
         }
 
         diagnostics
@@ -347,14 +358,9 @@ fn fragment_contains_id(
     // Get the fragment's file and parse it (cached by Salsa)
     let file_id = fragment_info.file_id;
 
-    // We need to get the file content and metadata to parse it
-    // Use project_files directly (not db.document_files() which uses db.project_files())
-    let document_files = context.project_files.document_files(context.db);
-
-    let Some((file_content, file_metadata)) = document_files
-        .iter()
-        .find(|(fid, _, _)| *fid == file_id)
-        .map(|(_, c, m)| (*c, *m))
+    // Get the file content and metadata via file_lookup (granular per-file caching)
+    let Some((file_content, file_metadata)) =
+        graphql_db::file_lookup(context.db, context.project_files, file_id)
     else {
         return false;
     };
@@ -494,16 +500,21 @@ mod tests {
             document_kind,
         );
 
-        let project_files = ProjectFiles::new(
-            db,
-            Arc::new(vec![(schema_file_id, schema_content, schema_metadata)]),
-            Arc::new(vec![(doc_file_id, doc_content, doc_metadata)]),
-        );
+        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
+        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(vec![doc_file_id]));
+        let mut file_entries = std::collections::HashMap::new();
+        let schema_entry = graphql_db::FileEntry::new(db, schema_content, schema_metadata);
+        let doc_entry = graphql_db::FileEntry::new(db, doc_content, doc_metadata);
+        file_entries.insert(schema_file_id, schema_entry);
+        file_entries.insert(doc_file_id, doc_entry);
+        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(file_entries));
+        let project_files =
+            ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map);
 
         (doc_file_id, doc_content, doc_metadata, project_files)
     }
 
-    const TEST_SCHEMA: &str = r#"
+    const TEST_SCHEMA: &str = r"
 type Query {
     user(id: ID!): User
     users: [User!]!
@@ -534,7 +545,7 @@ type Stats {
     viewCount: Int!
     likeCount: Int!
 }
-"#;
+";
 
     #[test]
     fn test_missing_id_on_type_with_id() {
@@ -657,7 +668,7 @@ query GetUserPostComments {
         let db = graphql_db::RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
-        let schema = r#"
+        let schema = r"
 type Query {
     stats: Stats!
 }
@@ -666,16 +677,16 @@ type Stats {
     viewCount: Int!
     likeCount: Int!
 }
-"#;
+";
 
-        let source = r#"
+        let source = r"
 query GetStats {
     stats {
         viewCount
         likeCount
     }
 }
-"#;
+";
 
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
@@ -766,7 +777,7 @@ const GET_POSTS = gql`
         let db = graphql_db::RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
-        let source = r#"
+        let source = r"
 import { gql } from '@apollo/client';
 
 const QUERY = gql`
@@ -782,7 +793,7 @@ const QUERY = gql`
         }
     }
 `;
-"#;
+";
 
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, TEST_SCHEMA, source, FileKind::TypeScript);
@@ -850,7 +861,7 @@ query GetUser {
 
         // Should warn - both the fragment definition and the operation usage
         // The fragment itself is checked, and the operation using it is checked
-        assert!(diagnostics.len() >= 1);
+        assert!(!diagnostics.is_empty());
         assert!(diagnostics.iter().any(|d| d.message.contains("'User'")));
     }
 }

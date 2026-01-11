@@ -2,7 +2,11 @@
 name = "graphql-ide"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trevor-scheer/graphql-lsp"
 description = "IDE features for GraphQL Language Server"
+keywords = ["graphql", "ide", "language-server"]
+categories = ["development-tools"]
 
 [dependencies]
 # Salsa for database access
@@ -22,6 +26,9 @@ glob = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
+
+# Concurrency - parking_lot::RwLock never poisons, preventing cascading panics
+parking_lot = { workspace = true }
 
 # Internal crates (query-based layers)
 graphql-db = { path = "../graphql-db" }

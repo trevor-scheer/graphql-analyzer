@@ -1,0 +1,923 @@
+"""
+A pull request is a proposed change to a repository.
+"""
+type PullRequest implements Node & Assignable & Closable & Comment & Labelable & Lockable & Reactable & RepositoryNode & Subscribable & UniformResourceLocatable {
+  """
+  Reason the conversation was locked.
+  """
+  activeLockReason: LockReason
+
+  """
+  The number of additions in this pull request.
+  """
+  additions: Int!
+
+  """
+  A list of users assigned to this pull request.
+  """
+  assignees(first: Int, after: String, last: Int, before: String): UserConnection!
+
+  """
+  The actor who authored the comment.
+  """
+  author: Actor
+
+  """
+  Author's association with the subject.
+  """
+  authorAssociation: CommentAuthorAssociation!
+
+  """
+  Whether auto-merge was enabled.
+  """
+  autoMergeRequest: AutoMergeRequest
+
+  """
+  The base ref associated with the pull request.
+  """
+  baseRef: Ref
+
+  """
+  The base ref name.
+  """
+  baseRefName: String!
+
+  """
+  The base ref oid.
+  """
+  baseRefOid: GitObjectID!
+
+  """
+  The base repository for this pull request.
+  """
+  baseRepository: Repository
+
+  """
+  The body as Markdown.
+  """
+  body: String!
+
+  """
+  The body as HTML.
+  """
+  bodyHTML: HTML!
+
+  """
+  The body as plain text.
+  """
+  bodyText: String!
+
+  """
+  The number of changed files.
+  """
+  changedFiles: Int!
+
+  """
+  Check suites on the head commit.
+  """
+  checksResourcePath: URI!
+
+  """
+  Check suites on the head commit.
+  """
+  checksUrl: URI!
+
+  """
+  Whether the pull request is closed.
+  """
+  closed: Boolean!
+
+  """
+  When the pull request was closed.
+  """
+  closedAt: DateTime
+
+  """
+  A list of comments associated with the pull request.
+  """
+  comments(first: Int, after: String, last: Int, before: String, orderBy: IssueCommentOrder): IssueCommentConnection!
+
+  """
+  A list of commits in the pull request.
+  """
+  commits(first: Int, after: String, last: Int, before: String): PullRequestCommitConnection!
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Whether the comment was created via email.
+  """
+  createdViaEmail: Boolean!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  The number of deletions in this pull request.
+  """
+  deletions: Int!
+
+  """
+  The actor who edited the comment.
+  """
+  editor: Actor
+
+  """
+  Files changed in this pull request.
+  """
+  files(first: Int, after: String, last: Int, before: String): PullRequestChangedFileConnection
+
+  """
+  The head ref associated with the pull request.
+  """
+  headRef: Ref
+
+  """
+  The head ref name.
+  """
+  headRefName: String!
+
+  """
+  The head ref oid.
+  """
+  headRefOid: GitObjectID!
+
+  """
+  The head repository for this pull request.
+  """
+  headRepository: Repository
+
+  """
+  The owner of the head repository.
+  """
+  headRepositoryOwner: RepositoryOwner
+
+  """
+  The hovercard information for the pull request.
+  """
+  hovercard(includeNotificationContexts: Boolean = true): Hovercard!
+
+  id: ID!
+
+  """
+  Whether the comment includes the author associating.
+  """
+  includesCreatedEdit: Boolean!
+
+  """
+  Whether the pull request is a draft.
+  """
+  isDraft: Boolean!
+
+  """
+  Whether the pull request is read by viewer.
+  """
+  isReadByViewer: Boolean
+
+  """
+  A list of labels associated with the pull request.
+  """
+  labels(first: Int, after: String, last: Int, before: String, orderBy: LabelOrder): LabelConnection
+
+  """
+  When the comment was last edited.
+  """
+  lastEditedAt: DateTime
+
+  """
+  A list of latest reviews per user for this PR.
+  """
+  latestOpinionatedReviews(first: Int, after: String, last: Int, before: String, writersOnly: Boolean = false): PullRequestReviewConnection
+
+  """
+  A list of latest reviews for this PR.
+  """
+  latestReviews(first: Int, after: String, last: Int, before: String): PullRequestReviewConnection
+
+  """
+  Whether the pull request is locked.
+  """
+  locked: Boolean!
+
+  """
+  Whether maintainers can modify the pull request.
+  """
+  maintainerCanModify: Boolean!
+
+  """
+  The commit that was created when this PR was merged.
+  """
+  mergeCommit: Commit
+
+  """
+  The merge state status of the pull request.
+  """
+  mergeStateStatus: MergeStateStatus!
+
+  """
+  Whether the pull request is mergeable.
+  """
+  mergeable: MergeableState!
+
+  """
+  Whether the pull request was merged.
+  """
+  merged: Boolean!
+
+  """
+  When the pull request was merged.
+  """
+  mergedAt: DateTime
+
+  """
+  The actor who merged the pull request.
+  """
+  mergedBy: Actor
+
+  """
+  The milestone associated with the pull request.
+  """
+  milestone: Milestone
+
+  """
+  The pull request number.
+  """
+  number: Int!
+
+  """
+  A list of users participating in the pull request.
+  """
+  participants(first: Int, after: String, last: Int, before: String): UserConnection!
+
+  """
+  The permalink for this pull request.
+  """
+  permalink: URI!
+
+  """
+  List of potential merge commits for the PR.
+  """
+  potentialMergeCommit: Commit
+
+  """
+  List of project items associated with this pull request.
+  """
+  projectItems(first: Int, after: String, last: Int, before: String, includeArchived: Boolean = true): ProjectV2ItemConnection!
+
+  """
+  A list of projects this PR is referenced in.
+  """
+  projectsV2(first: Int, after: String, last: Int, before: String, query: String): ProjectV2Connection!
+
+  """
+  When the comment was published.
+  """
+  publishedAt: DateTime
+
+  """
+  A list of reactions on the comment.
+  """
+  reactions(first: Int, after: String, last: Int, before: String, content: ReactionContent, orderBy: ReactionOrder): ReactionConnection!
+
+  """
+  The repository associated with this pull request.
+  """
+  repository: Repository!
+
+  """
+  The HTTP path for the pull request.
+  """
+  resourcePath: URI!
+
+  """
+  The HTTP path for reverting this PR.
+  """
+  revertResourcePath: URI!
+
+  """
+  The HTTP URL for reverting this PR.
+  """
+  revertUrl: URI!
+
+  """
+  A list of review requests for this PR.
+  """
+  reviewRequests(first: Int, after: String, last: Int, before: String): ReviewRequestConnection
+
+  """
+  The review decision for this PR.
+  """
+  reviewDecision: PullRequestReviewDecision
+
+  """
+  A list of review threads for this PR.
+  """
+  reviewThreads(first: Int, after: String, last: Int, before: String): PullRequestReviewThreadConnection!
+
+  """
+  A list of reviews for this PR.
+  """
+  reviews(first: Int, after: String, last: Int, before: String, states: [PullRequestReviewState!], author: String): PullRequestReviewConnection
+
+  """
+  The state of the pull request.
+  """
+  state: PullRequestState!
+
+  """
+  A list of suggested reviewers for this PR.
+  """
+  suggestedReviewers: [SuggestedReviewer]!
+
+  """
+  A list of events, comments, and reviews.
+  """
+  timelineItems(first: Int, after: String, last: Int, before: String, since: DateTime, skip: Int, itemTypes: [PullRequestTimelineItemsItemType!]): PullRequestTimelineItemsConnection!
+
+  """
+  The pull request title.
+  """
+  title: String!
+
+  """
+  The pull request title as HTML.
+  """
+  titleHTML: HTML!
+
+  """
+  The total comments on this PR.
+  """
+  totalCommentsCount: Int
+
+  """
+  When the comment was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The HTTP URL for the pull request.
+  """
+  url: URI!
+
+  """
+  Whether the viewer can apply suggested changes.
+  """
+  viewerCanApplySuggestion: Boolean!
+
+  """
+  Whether the viewer can close the PR.
+  """
+  viewerCanClose: Boolean!
+
+  """
+  Whether the viewer can delete the branch.
+  """
+  viewerCanDeleteHeadRef: Boolean!
+
+  """
+  Whether the viewer can disable auto-merge.
+  """
+  viewerCanDisableAutoMerge: Boolean!
+
+  """
+  Whether the viewer can edit files.
+  """
+  viewerCanEditFiles: Boolean!
+
+  """
+  Whether the viewer can enable auto-merge.
+  """
+  viewerCanEnableAutoMerge: Boolean!
+
+  """
+  Whether the viewer can merge the PR.
+  """
+  viewerCanMergeAsAdmin: Boolean!
+
+  """
+  Whether the viewer can react.
+  """
+  viewerCanReact: Boolean!
+
+  """
+  Whether the viewer can reopen the PR.
+  """
+  viewerCanReopen: Boolean!
+
+  """
+  Whether the viewer can subscribe.
+  """
+  viewerCanSubscribe: Boolean!
+
+  """
+  Whether the viewer can update the PR.
+  """
+  viewerCanUpdate: Boolean!
+
+  """
+  Whether the viewer can update the branch.
+  """
+  viewerCanUpdateBranch: Boolean!
+
+  """
+  Whether the viewer authored the PR.
+  """
+  viewerDidAuthor: Boolean!
+
+  """
+  The merge body text for viewer.
+  """
+  viewerMergeBodyText(mergeType: PullRequestMergeMethod): String!
+
+  """
+  The merge headline text for viewer.
+  """
+  viewerMergeHeadlineText(mergeType: PullRequestMergeMethod): String!
+
+  """
+  The viewer's subscription state.
+  """
+  viewerSubscription: SubscriptionState
+}
+
+"""
+A review on a pull request.
+"""
+type PullRequestReview implements Node & Comment & RepositoryNode & UniformResourceLocatable {
+  """
+  The actor who authored the review.
+  """
+  author: Actor
+
+  """
+  Author's association with the subject.
+  """
+  authorAssociation: CommentAuthorAssociation!
+
+  """
+  Whether the author can push to the repository.
+  """
+  authorCanPushToRepository: Boolean!
+
+  """
+  The body as Markdown.
+  """
+  body: String!
+
+  """
+  The body as HTML.
+  """
+  bodyHTML: HTML!
+
+  """
+  The body as plain text.
+  """
+  bodyText: String!
+
+  """
+  A list of review comments.
+  """
+  comments(first: Int, after: String, last: Int, before: String): PullRequestReviewCommentConnection!
+
+  """
+  The associated commit.
+  """
+  commit: Commit
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Whether the comment was created via email.
+  """
+  createdViaEmail: Boolean!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  The actor who edited the comment.
+  """
+  editor: Actor
+
+  id: ID!
+
+  """
+  Whether the comment includes the author associating.
+  """
+  includesCreatedEdit: Boolean!
+
+  """
+  When the comment was last edited.
+  """
+  lastEditedAt: DateTime
+
+  """
+  A list of teams requested for review.
+  """
+  onBehalfOf(first: Int, after: String, last: Int, before: String): TeamConnection!
+
+  """
+  When the comment was published.
+  """
+  publishedAt: DateTime
+
+  """
+  The pull request this review is for.
+  """
+  pullRequest: PullRequest!
+
+  """
+  A list of reactions on the comment.
+  """
+  reactions(first: Int, after: String, last: Int, before: String, content: ReactionContent, orderBy: ReactionOrder): ReactionConnection!
+
+  """
+  The repository containing the review.
+  """
+  repository: Repository!
+
+  """
+  The HTTP path for the review.
+  """
+  resourcePath: URI!
+
+  """
+  The state of the review.
+  """
+  state: PullRequestReviewState!
+
+  """
+  When the review was submitted.
+  """
+  submittedAt: DateTime
+
+  """
+  When the comment was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The HTTP URL for the review.
+  """
+  url: URI!
+
+  """
+  A list of user content edits.
+  """
+  userContentEdits(first: Int, after: String, last: Int, before: String): UserContentEditConnection
+
+  """
+  Whether the viewer can delete.
+  """
+  viewerCanDelete: Boolean!
+
+  """
+  Whether the viewer can react.
+  """
+  viewerCanReact: Boolean!
+
+  """
+  Whether the viewer can update.
+  """
+  viewerCanUpdate: Boolean!
+
+  """
+  Whether the viewer authored.
+  """
+  viewerDidAuthor: Boolean!
+}
+
+"""
+A comment on a pull request review.
+"""
+type PullRequestReviewComment implements Node & Comment & Reactable & RepositoryNode & UniformResourceLocatable {
+  author: Actor
+  authorAssociation: CommentAuthorAssociation!
+  body: String!
+  bodyHTML: HTML!
+  bodyText: String!
+  commit: Commit
+  createdAt: DateTime!
+  createdViaEmail: Boolean!
+  databaseId: Int
+  diffHunk: String!
+  draftedAt: DateTime!
+  editor: Actor
+  id: ID!
+  includesCreatedEdit: Boolean!
+  isMinimized: Boolean!
+  lastEditedAt: DateTime
+  line: Int
+  minimizedReason: String
+  originalCommit: Commit
+  originalLine: Int
+  originalPosition: Int!
+  originalStartLine: Int
+  outdated: Boolean!
+  path: String!
+  position: Int
+  publishedAt: DateTime
+  pullRequest: PullRequest!
+  pullRequestReview: PullRequestReview
+  reactions(first: Int, after: String, last: Int, before: String, content: ReactionContent, orderBy: ReactionOrder): ReactionConnection!
+  replyTo: PullRequestReviewComment
+  repository: Repository!
+  resourcePath: URI!
+  startLine: Int
+  state: PullRequestReviewCommentState!
+  subjectType: PullRequestReviewThreadSubjectType!
+  updatedAt: DateTime!
+  url: URI!
+  viewerCanDelete: Boolean!
+  viewerCanMinimize: Boolean!
+  viewerCanReact: Boolean!
+  viewerCanUpdate: Boolean!
+  viewerDidAuthor: Boolean!
+}
+
+type PullRequestReviewCommentConnection {
+  edges: [PullRequestReviewCommentEdge]
+  nodes: [PullRequestReviewComment]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type PullRequestReviewCommentEdge {
+  cursor: String!
+  node: PullRequestReviewComment
+}
+
+enum PullRequestReviewCommentState {
+  PENDING
+  SUBMITTED
+}
+
+"""
+A review thread on a pull request.
+"""
+type PullRequestReviewThread implements Node {
+  comments(first: Int, after: String, last: Int, before: String, skip: Int): PullRequestReviewCommentConnection!
+  diffSide: DiffSide!
+  id: ID!
+  isCollapsed: Boolean!
+  isOutdated: Boolean!
+  isResolved: Boolean!
+  line: Int
+  originalLine: Int
+  originalStartLine: Int
+  path: String!
+  pullRequest: PullRequest!
+  repository: Repository!
+  resolvedBy: User
+  startDiffSide: DiffSide
+  startLine: Int
+  subjectType: PullRequestReviewThreadSubjectType!
+  viewerCanReply: Boolean!
+  viewerCanResolve: Boolean!
+  viewerCanUnresolve: Boolean!
+}
+
+type PullRequestReviewThreadConnection {
+  edges: [PullRequestReviewThreadEdge]
+  nodes: [PullRequestReviewThread]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type PullRequestReviewThreadEdge {
+  cursor: String!
+  node: PullRequestReviewThread
+}
+
+enum PullRequestReviewThreadSubjectType {
+  LINE
+  FILE
+}
+
+"""
+The review decision for a pull request.
+"""
+enum PullRequestReviewDecision {
+  CHANGES_REQUESTED
+  APPROVED
+  REVIEW_REQUIRED
+}
+
+"""
+A commit in a pull request.
+"""
+type PullRequestCommit implements Node & UniformResourceLocatable {
+  commit: Commit!
+  id: ID!
+  pullRequest: PullRequest!
+  resourcePath: URI!
+  url: URI!
+}
+
+type PullRequestCommitConnection {
+  edges: [PullRequestCommitEdge]
+  nodes: [PullRequestCommit]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type PullRequestCommitEdge {
+  cursor: String!
+  node: PullRequestCommit
+}
+
+"""
+A file changed in a pull request.
+"""
+type PullRequestChangedFile {
+  additions: Int!
+  changeType: PatchStatus!
+  deletions: Int!
+  path: String!
+  viewerViewedState: FileViewedState!
+}
+
+type PullRequestChangedFileConnection {
+  edges: [PullRequestChangedFileEdge]
+  nodes: [PullRequestChangedFile]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type PullRequestChangedFileEdge {
+  cursor: String!
+  node: PullRequestChangedFile
+}
+
+enum PatchStatus {
+  ADDED
+  DELETED
+  RENAMED
+  COPIED
+  MODIFIED
+  CHANGED
+}
+
+"""
+A suggested reviewer for a pull request.
+"""
+type SuggestedReviewer {
+  isAuthor: Boolean!
+  isCommenter: Boolean!
+  reviewer: User!
+}
+
+"""
+A review request for a pull request.
+"""
+type ReviewRequest implements Node {
+  asCodeOwner: Boolean!
+  databaseId: Int
+  id: ID!
+  pullRequest: PullRequest!
+  requestedReviewer: RequestedReviewer
+}
+
+type ReviewRequestConnection {
+  edges: [ReviewRequestEdge]
+  nodes: [ReviewRequest]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ReviewRequestEdge {
+  cursor: String!
+  node: ReviewRequest
+}
+
+union RequestedReviewer = Mannequin | Team | User
+
+"""
+Auto-merge request for a pull request.
+"""
+type AutoMergeRequest {
+  authorEmail: String
+  commitBody: String
+  commitHeadline: String
+  enabledAt: DateTime
+  enabledBy: Actor
+  mergeMethod: PullRequestMergeMethod!
+  pullRequest: PullRequest!
+}
+
+type PullRequestTimelineItemsConnection {
+  edges: [PullRequestTimelineItemsEdge]
+  filteredCount: Int!
+  nodes: [PullRequestTimelineItems]
+  pageCount: Int!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  updatedAt: DateTime!
+}
+
+type PullRequestTimelineItemsEdge {
+  cursor: String!
+  node: PullRequestTimelineItems
+}
+
+union PullRequestTimelineItems =
+  | PullRequestCommit
+  | PullRequestReview
+  | IssueComment
+  | PullRequestReviewThread
+  | ClosedEvent
+  | ReopenedEvent
+  | MergedEvent
+  | HeadRefForcePushedEvent
+  | BaseRefChangedEvent
+  | ReviewRequestedEvent
+  | AssignedEvent
+  | UnassignedEvent
+  | LabeledEvent
+  | UnlabeledEvent
+  | CrossReferencedEvent
+
+"""
+Event when a pull request is merged.
+"""
+type MergedEvent implements Node & UniformResourceLocatable {
+  actor: Actor
+  commit: Commit
+  createdAt: DateTime!
+  id: ID!
+  mergeRef: Ref
+  mergeRefName: String!
+  pullRequest: PullRequest!
+  resourcePath: URI!
+  url: URI!
+}
+
+"""
+Event when head ref is force pushed.
+"""
+type HeadRefForcePushedEvent implements Node {
+  actor: Actor
+  afterCommit: Commit
+  beforeCommit: Commit
+  createdAt: DateTime!
+  id: ID!
+  pullRequest: PullRequest!
+  ref: Ref
+}
+
+"""
+Event when base ref changes.
+"""
+type BaseRefChangedEvent implements Node {
+  actor: Actor
+  createdAt: DateTime!
+  currentRefName: String!
+  databaseId: Int
+  id: ID!
+  previousRefName: String!
+  pullRequest: PullRequest!
+}
+
+"""
+Event when review is requested.
+"""
+type ReviewRequestedEvent implements Node {
+  actor: Actor
+  createdAt: DateTime!
+  id: ID!
+  pullRequest: PullRequest!
+  requestedReviewer: RequestedReviewer
+}
+
+type UserContentEdit implements Node {
+  createdAt: DateTime!
+  deletedAt: DateTime
+  deletedBy: Actor
+  diff: String
+  editedAt: DateTime!
+  editor: Actor
+  id: ID!
+  updatedAt: DateTime!
+}
+
+type UserContentEditConnection {
+  edges: [UserContentEditEdge]
+  nodes: [UserContentEdit]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type UserContentEditEdge {
+  cursor: String!
+  node: UserContentEdit
+}

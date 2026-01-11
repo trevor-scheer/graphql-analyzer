@@ -114,9 +114,6 @@ pub fn extract_from_source(
     }
 }
 
-#[allow(dead_code)] // Will be used when TS/JS extraction is implemented
-#[allow(clippy::unnecessary_wraps)] // Will return errors when implemented
-#[allow(clippy::missing_const_for_fn)] // Will not be const when implemented
 #[tracing::instrument(skip(source, config), fields(language = ?language, source_len = source.len()), level = "debug")]
 fn extract_from_js_family(
     source: &str,

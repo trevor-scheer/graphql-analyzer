@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+description = "Extract GraphQL from TypeScript/JavaScript template literals"
+keywords = ["graphql", "typescript", "javascript", "extraction"]
+categories = ["parser-implementations", "development-tools"]
 
 [package.metadata.dist]
 dist = false

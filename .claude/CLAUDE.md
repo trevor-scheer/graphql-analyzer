@@ -1,8 +1,10 @@
 # GraphQL LSP Project Guide
 
-**Last Updated**: December 2025
+**Last Updated**: January 2026
 
 This document provides context and guidance for working with the GraphQL LSP codebase. It's designed to help future iterations of Claude understand the project quickly and work effectively.
+
+> **Note**: This project is not stable yet. The codebase can be aggressively refactored and rearchitected as needed while it's still early. Breaking changes are expected - don't hesitate to rewrite code paths that aren't working well.
 
 ---
 
@@ -10,14 +12,18 @@ This document provides context and guidance for working with the GraphQL LSP cod
 
 - [Quick Reference](#quick-reference)
 - [Project Overview](#project-overview)
+  - [Protected Core Features](#protected-core-features)
 - [Architecture](#architecture)
 - [Development Workflow](#development-workflow)
 - [Key Concepts](#key-concepts)
+  - [VSCode Extension Architecture (Critical)](#vscode-extension-architecture-critical)
 - [Configuration](#configuration)
 - [Testing](#testing)
 - [Common Tasks](#common-tasks)
 - [Troubleshooting](#troubleshooting)
 - [Instructions for Claude](#instructions-for-claude)
+  - [Operating Guidelines](#operating-guidelines)
+- [Expert Agents](#expert-agents)
 
 ---
 
@@ -87,6 +93,23 @@ This is a **GraphQL Language Server Protocol (LSP)** implementation written in R
 3. **Project-Wide Analysis**: Validates across all files with proper fragment resolution
 4. **Extensible Linting**: Plugin-based linting system with tool-specific configuration
 5. **Remote Schema Support**: Introspects remote GraphQL endpoints and converts to SDL
+
+### Protected Core Features
+
+These features are fundamental to the project's value proposition and must NOT be removed or degraded:
+
+| Feature | Why It's Critical | What Enables It |
+|---------|-------------------|-----------------|
+| **Embedded GraphQL in TS/JS** | Most GraphQL users write queries in TS/JS files, not `.graphql` files | `documentSelector` includes TS/JS languages in VSCode extension |
+| **Real-time diagnostics** | Users expect immediate feedback while typing | LSP `textDocument/didChange` notifications |
+| **Project-wide fragment resolution** | Fragments are defined across many files | `all_fragments()` query indexes entire project |
+| **Schema validation** | Invalid schemas break everything downstream | `graphql-analysis` validates before use |
+
+**Performance concerns are valid but must be solved without removing features.** Acceptable solutions:
+- Server-side filtering (only process files containing GraphQL)
+- Lazy/deferred processing
+- Debouncing rapid changes
+- User configuration to opt-out
 
 ### Key Technologies
 
@@ -324,6 +347,52 @@ All features work in:
 
 - Pure GraphQL files (`.graphql`, `.gql`)
 - Embedded GraphQL in TypeScript/JavaScript
+
+### VSCode Extension Architecture (Critical)
+
+The VSCode extension has two separate systems that are often confused:
+
+#### Document Selector (LSP Features)
+
+```typescript
+documentSelector: [
+  { scheme: "file", language: "graphql" },
+  { scheme: "file", language: "typescript" },
+  { scheme: "file", language: "typescriptreact" },
+  // etc.
+]
+```
+
+The `documentSelector` controls which files receive **LSP features**:
+- `textDocument/didOpen` and `textDocument/didChange` notifications
+- Diagnostics, hover, goto definition, find references, completion
+- Real-time feedback as the user types
+
+**Without a language in `documentSelector`, that language gets NO LSP features.**
+
+#### Grammar Injection (Syntax Highlighting Only)
+
+Grammar injection (via TextMate grammars) provides **syntax highlighting only**:
+- Colorizes GraphQL inside template literals
+- Purely visual - no semantic understanding
+- Completely separate from LSP
+
+#### File Watcher (Disk Events Only)
+
+```typescript
+fileEvents: workspace.createFileSystemWatcher("**/*.{graphql,gql,ts,tsx}")
+```
+
+The file watcher fires `workspace/didChangeWatchedFiles` **only on disk saves**:
+- Does NOT provide real-time editing feedback
+- Does NOT send document content to the server
+- Only useful for detecting file creation/deletion/rename
+
+#### Common Misconception
+
+**WRONG**: "Grammar injection provides embedded GraphQL support, so we can remove TS/JS from documentSelector"
+
+**RIGHT**: Grammar injection only provides colors. The documentSelector is required for all actual LSP features (diagnostics, hover, goto def, etc.) in TS/JS files.
 
 ---
 
@@ -732,9 +801,10 @@ Overhead: ~1-2% CPU when enabled, zero when disabled.
 
 1. **Read before acting**: Always check relevant README.md files and this document before starting work
 2. **Understand the architecture**: Know which layer you're working in (db → syntax → hir → analysis → ide → lsp)
-3. **Follow the patterns**: Study existing code in the same layer before adding new features
-4. **Test incrementally**: Write tests as you go, don't batch at the end
-5. **Keep it simple**: Don't over-engineer or add unnecessary abstractions
+3. **Consult expert agents**: Use the SME agents in `.claude/agents/` for domain-specific guidance
+4. **Follow the patterns**: Study existing code in the same layer before adding new features
+5. **Test incrementally**: Write tests as you go, don't batch at the end
+6. **Keep it simple**: Don't over-engineer or add unnecessary abstractions
 
 ### Code Style
 
@@ -776,12 +846,23 @@ Overhead: ~1-2% CPU when enabled, zero when disabled.
 3. If LSP changes: Test with VSCode extension
 4. If extension changes: Rebuild with `npm run compile`
 
+### Operating Guidelines
+
+Claude must follow these guidelines when working on this project:
+
+1. **Always branch from `main`**: Unless explicitly told otherwise, create new branches from `main`
+2. **Always open PRs against `main`**: Unless a different target branch is specified
+3. **Always use the PR template**: When creating PRs with `gh pr create`, the template at `.github/PULL_REQUEST_TEMPLATE.md` will be used automatically
+4. **Use descriptive branch names**: `feat/goto-definition`, `fix/fragment-resolution`, `docs/update-readme`
+5. **Use conventional commits**: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`
+
 ### Branching and PRs
 
-- **Default approach**: Create new branch, make changes, open PR
+- **Default approach**: Create new branch from `main`, make changes, open PR against `main`
 - Use descriptive branch names: `feat/goto-definition`, `fix/fragment-resolution`
 - Target `main` unless specifically told otherwise (e.g., "open PR against lsp-rearchitecture branch")
 - Follow PR guidelines above
+- PRs will automatically use the template in `.github/PULL_REQUEST_TEMPLATE.md`
 
 ### Working with Git Worktrees
 
@@ -822,6 +903,8 @@ This preserves notes and local settings.
 - ❌ Don't mention "tests pass" in PR descriptions (expected)
 - ❌ Don't use excessive emoji
 - ❌ Don't commit without running `cargo fmt` and `cargo clippy`
+- ❌ Don't remove TS/JS from VSCode extension's `documentSelector` - this breaks embedded GraphQL support (see [VSCode Extension Architecture](#vscode-extension-architecture-critical))
+- ❌ Don't solve performance problems by removing core features - find smarter solutions (filtering, lazy evaluation, configuration options)
 
 ### Things to Always Do
 
@@ -861,6 +944,57 @@ Each crate has a detailed README:
 - [Salsa Documentation](https://salsa-rs.github.io/salsa/) - Incremental computation framework
 - [LSP Specification](https://microsoft.github.io/language-server-protocol/) - Protocol reference
 - [GraphQL Specification](https://spec.graphql.org/) - Language reference
+
+---
+
+## Expert Agents
+
+This project includes Subject Matter Expert (SME) agents in `.claude/agents/` that provide opinionated guidance on specific domains. These agents encourage proper API usage, enforce best practices, and propose solutions with tradeoffs.
+
+### Available Agents
+
+| Agent | File | Domain |
+|-------|------|--------|
+| **GraphQL Specification** | `graphql.md` | GraphQL spec compliance, validation rules, type system |
+| **Apollo Client** | `apollo-client.md` | Apollo Client patterns, caching, fragment colocation |
+| **rust-analyzer** | `rust-analyzer.md` | Query-based architecture, Salsa, incremental computation |
+| **Rust** | `rust.md` | Idiomatic Rust, ownership, error handling, API design |
+| **Language Server Protocol** | `lsp.md` | LSP specification, protocol messages, client compatibility |
+| **GraphiQL** | `graphiql.md` | IDE features, graphql-language-service, UX patterns |
+| **GraphQL CLI** | `graphql-cli.md` | CLI design, graphql-config, ecosystem tooling |
+| **VSCode Extension** | `vscode-extension.md` | Extension development, activation, language client |
+| **Apollo-rs** | `apollo-rs.md` | apollo-parser, apollo-compiler, error-tolerant parsing |
+
+### When to Consult Agents
+
+Consult the relevant agent when:
+
+- **Designing a feature**: Get architectural guidance before implementation
+- **Debugging issues**: Understand expected behavior and common pitfalls
+- **Making tradeoff decisions**: Get pros/cons for different approaches
+- **Ensuring correctness**: Validate against specification/best practices
+
+### Agent Philosophy
+
+All agents share these traits:
+
+- **Opinionated**: They have strong views on correctness and best practices
+- **Thorough**: They provide comprehensive analysis, not quick answers
+- **Tradeoff-aware**: They present multiple solutions with clear pros/cons
+- **Challenging**: They respectfully correct misconceptions and anti-patterns
+
+### Example Usage
+
+When implementing a new LSP feature:
+1. Consult `lsp.md` for protocol correctness
+2. Consult `rust-analyzer.md` for architectural patterns
+3. Consult `graphiql.md` for UX expectations
+4. Consult `rust.md` for implementation idioms
+
+When adding GraphQL validation:
+1. Consult `graphql.md` for spec compliance
+2. Consult `apollo-rs.md` for parser usage
+3. Consult `rust-analyzer.md` for query design
 
 ---
 

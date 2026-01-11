@@ -49,7 +49,7 @@ pub fn run(
     };
 
     let load_start = std::time::Instant::now();
-    let host = CliAnalysisHost::from_project_config(&project_config, ctx.base_dir)?;
+    let host = CliAnalysisHost::from_project_config(&project_config, &ctx.base_dir)?;
 
     if let Some(pb) = spinner {
         pb.finish_and_clear();

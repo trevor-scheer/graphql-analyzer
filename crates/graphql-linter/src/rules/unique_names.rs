@@ -29,11 +29,16 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
 
         // Collect all operations with their locations
-        let document_files = project_files.document_files(db);
+        let doc_ids = project_files.document_file_ids(db).ids(db);
         let mut operations_by_name: HashMap<String, Vec<(FileId, usize)>> = HashMap::new();
 
-        for (file_id, content, metadata) in document_files.iter() {
-            let structure = graphql_hir::file_structure(db, *file_id, *content, *metadata);
+        for file_id in doc_ids.iter() {
+            // Use per-file lookup for granular caching
+            let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
+            else {
+                continue;
+            };
+            let structure = graphql_hir::file_structure(db, *file_id, content, metadata);
             for operation in &structure.operations {
                 if let Some(ref name) = operation.name {
                     operations_by_name
@@ -55,15 +60,12 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
                     );
 
                     // For now, use offset 0 - we'll need to extract position from AST
-                    let diag = LintDiagnostic {
+                    let diag = LintDiagnostic::new(
+                        crate::diagnostics::OffsetRange::new(0, name.len()),
+                        self.default_severity(),
                         message,
-                        offset_range: crate::diagnostics::OffsetRange {
-                            start: 0,
-                            end: name.len(),
-                        },
-                        severity: self.default_severity(),
-                        rule: self.name().to_string(),
-                    };
+                        self.name().to_string(),
+                    );
 
                     diagnostics_by_file.entry(*file_id).or_default().push(diag);
                 }
@@ -73,8 +75,13 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
         // Collect all fragments with their locations
         let mut fragments_by_name: HashMap<String, Vec<FileId>> = HashMap::new();
 
-        for (file_id, content, metadata) in document_files.iter() {
-            let structure = graphql_hir::file_structure(db, *file_id, *content, *metadata);
+        for file_id in doc_ids.iter() {
+            // Use per-file lookup for granular caching
+            let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
+            else {
+                continue;
+            };
+            let structure = graphql_hir::file_structure(db, *file_id, content, metadata);
             for fragment in &structure.fragments {
                 fragments_by_name
                     .entry(fragment.name.to_string())
@@ -93,15 +100,12 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
                         file_ids.len()
                     );
 
-                    let diag = LintDiagnostic {
+                    let diag = LintDiagnostic::new(
+                        crate::diagnostics::OffsetRange::new(0, name.len()),
+                        self.default_severity(),
                         message,
-                        offset_range: crate::diagnostics::OffsetRange {
-                            start: 0,
-                            end: name.len(),
-                        },
-                        severity: self.default_severity(),
-                        rule: self.name().to_string(),
-                    };
+                        self.name().to_string(),
+                    );
 
                     diagnostics_by_file.entry(*file_id).or_default().push(diag);
                 }

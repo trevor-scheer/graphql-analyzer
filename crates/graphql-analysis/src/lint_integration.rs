@@ -325,48 +325,63 @@ fn find_file_content_and_metadata(
     project_files: ProjectFiles,
     file_id: FileId,
 ) -> Option<(FileContent, FileMetadata)> {
-    // Search in document files
-    for (fid, content, metadata) in project_files.document_files(db).iter() {
-        if *fid == file_id {
-            return Some((*content, *metadata));
-        }
-    }
-
-    // Search in schema files
-    for (fid, content, metadata) in project_files.schema_files(db).iter() {
-        if *fid == file_id {
-            return Some((*content, *metadata));
-        }
-    }
-
-    None
+    // Use per-file lookup for granular caching
+    graphql_db::file_lookup(db, project_files, file_id)
 }
 
 /// Convert `LintDiagnostic` (byte offsets) to `Diagnostic` (line/column)
 ///
-/// For TypeScript/JavaScript files, `metadata.line_offset()` provides the line
-/// offset where the GraphQL content starts in the original file. This offset
-/// must be added to all line numbers to get correct positions in the source.
+/// For TypeScript/JavaScript files with extracted blocks, each `LintDiagnostic` may have
+/// `block_line_offset` and `block_source` set. When present:
+/// - `offset_range` is relative to `block_source`, not the full file
+/// - We build a `LineIndex` from `block_source` to convert byte offsets to line/column
+/// - We add `block_line_offset` to get the correct position in the original file
+///
+/// For pure GraphQL files (no block context), we use the full file's `LineIndex`
+/// and `metadata.line_offset()`.
 #[allow(clippy::cast_possible_truncation)]
 fn convert_lint_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
-    metadata: FileMetadata,
+    _metadata: FileMetadata,
     lint_diags: Vec<graphql_linter::LintDiagnostic>,
     rule_name: &str,
     configured_severity: Severity,
 ) -> Vec<Diagnostic> {
     use graphql_linter::DiagnosticSeverity as LintSev;
 
-    let line_index = graphql_syntax::line_index(db, content);
-    let line_offset = metadata.line_offset(db);
+    // Cache the full file's line index for diagnostics without block context
+    let file_line_index = graphql_syntax::line_index(db, content);
 
     lint_diags
         .into_iter()
         .map(|ld| {
-            // Convert byte offsets to line/column (0-based)
-            let (start_line, start_col) = line_index.line_col(ld.offset_range.start);
-            let (end_line, end_col) = line_index.line_col(ld.offset_range.end);
+            // Determine line offset and which line index to use based on block context
+            let (line_offset, start_line, start_col, end_line, end_col) =
+                if let (Some(block_line_offset), Some(ref block_source)) =
+                    (ld.block_line_offset, &ld.block_source)
+                {
+                    // Diagnostic is from a TS/JS block - use block's source for position conversion
+                    let block_line_index = graphql_syntax::LineIndex::new(block_source);
+                    let (sl, sc) = block_line_index.line_col(ld.offset_range.start);
+                    let (el, ec) = block_line_index.line_col(ld.offset_range.end);
+                    tracing::trace!(
+                        block_line_offset,
+                        offset_start = ld.offset_range.start,
+                        offset_end = ld.offset_range.end,
+                        start_line_in_block = sl,
+                        start_col_in_block = sc,
+                        final_line = sl + block_line_offset,
+                        message = %ld.message,
+                        "Converting block diagnostic"
+                    );
+                    (block_line_offset, sl, sc, el, ec)
+                } else {
+                    // Diagnostic is from a pure GraphQL file - use file's line index
+                    let (sl, sc) = file_line_index.line_col(ld.offset_range.start);
+                    let (el, ec) = file_line_index.line_col(ld.offset_range.end);
+                    (0, sl, sc, el, ec)
+                };
 
             // Use configured severity (allows override from config)
             let severity = match ld.severity {
@@ -380,11 +395,11 @@ fn convert_lint_diagnostics(
                 message: ld.message.into(),
                 range: DiagnosticRange {
                     start: Position {
-                        line: start_line as u32 + line_offset,
+                        line: start_line as u32 + line_offset as u32,
                         character: start_col as u32,
                     },
                     end: Position {
-                        line: end_line as u32 + line_offset,
+                        line: end_line as u32 + line_offset as u32,
                         character: end_col as u32,
                     },
                 },
