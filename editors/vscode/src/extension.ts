@@ -137,7 +137,6 @@ export async function activate(context: ExtensionContext) {
           return;
         }
 
-        // Show the output channel so users can see the detailed status
         outputChannel.show(true);
 
         await client.sendRequest("workspace/executeCommand", {

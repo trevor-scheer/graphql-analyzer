@@ -45,7 +45,6 @@ pub fn introspection_to_sdl(introspection: &IntrospectionResponse) -> String {
     let mut sdl = String::new();
     let schema = &introspection.data.schema;
 
-    // Generate schema definition if it uses non-default root types
     let needs_schema_def = schema
         .query_type
         .as_ref()
@@ -74,7 +73,6 @@ pub fn introspection_to_sdl(introspection: &IntrospectionResponse) -> String {
     }
 
     for directive in &schema.directives {
-        // Skip built-in directives
         if directive.name == "skip"
             || directive.name == "include"
             || directive.name == "deprecated"
@@ -107,7 +105,6 @@ pub fn introspection_to_sdl(introspection: &IntrospectionResponse) -> String {
 
     let mut types_written = 0;
     for type_def in &schema.types {
-        // Skip built-in types and introspection types
         let name = type_name(type_def);
         if name.starts_with("__") || BUILTIN_SCALARS.contains(&name) {
             continue;
@@ -270,7 +267,6 @@ fn write_field(sdl: &mut String, field: &IntrospectionField, indent: usize) {
 fn write_description(sdl: &mut String, description: Option<&String>, indent: usize) {
     if let Some(desc) = description {
         let indent_str = "  ".repeat(indent);
-        // Use triple-quote format for multi-line descriptions
         if desc.contains('\n') {
             writeln!(sdl, "{indent_str}\"\"\"\n{desc}\n{indent_str}\"\"\"").unwrap();
         } else {
@@ -292,7 +288,6 @@ mod tests {
 
     #[test]
     fn test_type_ref_to_string() {
-        // Non-null String
         let type_ref = IntrospectionTypeRefFull {
             kind: TypeKind::NonNull,
             name: None,
@@ -304,7 +299,6 @@ mod tests {
         };
         assert_eq!(type_ref.to_type_string(), "String!");
 
-        // List of String
         let type_ref = IntrospectionTypeRefFull {
             kind: TypeKind::List,
             name: None,
@@ -316,7 +310,6 @@ mod tests {
         };
         assert_eq!(type_ref.to_type_string(), "[String]");
 
-        // Non-null List of String
         let type_ref = IntrospectionTypeRefFull {
             kind: TypeKind::NonNull,
             name: None,

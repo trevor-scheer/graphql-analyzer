@@ -5,7 +5,7 @@ import { promisify } from "util";
 import { exec } from "child_process";
 import { ExtensionContext, window, OutputChannel, ProgressLocation } from "vscode";
 import * as os from "os";
-// Expands a leading ~ to the user's home directory
+
 function expandTilde(inputPath: string): string {
   if (!inputPath) return inputPath;
   if (inputPath.startsWith("~")) {

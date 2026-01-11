@@ -1,7 +1,3 @@
-// GraphQL Database Layer
-// This crate defines the salsa database and input queries for the GraphQL LSP.
-// It provides the foundation for incremental, query-based computation.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -153,7 +149,6 @@ pub fn file_lookup(
     let file_entry_map = project_files.file_entry_map(db);
     let entries = file_entry_map.entries(db);
     let entry = entries.get(&file_id)?;
-    // Access the FileEntry's fields - this creates a dependency on THIS entry only
     Some((entry.content(db), entry.metadata(db)))
 }
 
@@ -294,9 +289,7 @@ pub mod tracking {
     /// We extract just the function name without module path or arguments.
     fn extract_query_name(database_key: &dyn std::fmt::Debug) -> String {
         let debug_str = format!("{database_key:?}");
-        // Handle "query_name(...)" or "module::query_name(...)"
         let without_args = debug_str.split('(').next().unwrap_or(&debug_str);
-        // Take the last component if there's a module path
         without_args
             .rsplit("::")
             .next()
@@ -492,7 +485,6 @@ pub mod test_utils {
         let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
         let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
 
-        // Create granular FileEntryMap
         let mut entries = HashMap::new();
         for (id, content, metadata) in schema_files {
             let entry = FileEntry::new(db, *content, *metadata);

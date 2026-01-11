@@ -812,11 +812,51 @@ Overhead: ~1-2% CPU when enabled, zero when disabled.
 
 ### Code Style
 
-- **No needless comments**: Code should describe itself
-- Use comments only for subtle, confusing, or surprising things
 - **No emoji** in code or commits (unless user explicitly requests)
 - Follow Rust conventions: `snake_case` for functions, `CamelCase` for types
 - Keep lines under 100 characters where reasonable
+
+#### Comment Guidelines
+
+Code should be self-documenting. Avoid comments that merely restate what the code does.
+
+**DO NOT add comments that:**
+- Describe what the next line of code does (e.g., `// Parse the file`, `// Return the result`)
+- Repeat information obvious from variable/function names (e.g., `// Create source map` before `SourceMap::new()`)
+- Mark sections with obvious purpose (e.g., `// Phase 1: Load files`)
+- Explain standard operations (e.g., `// Collect into vec`, `// Handle error case`)
+- Describe test structure (e.g., `// Test database`, `// First line`)
+
+**DO add comments for:**
+- **Why** something non-obvious is done (e.g., `// Use offset 0 because apollo-compiler errors lack precise positions`)
+- Subtle behavior or edge cases (e.g., `// Handles cycles in fragment references`)
+- Safety invariants (e.g., `// SAFETY: storage is owned and outlives references`)
+- Temporary workarounds or known limitations
+- Architecture decisions that aren't evident from the code
+- References to external specifications or issues
+
+**Examples:**
+
+```rust
+// BAD - restates what the code does
+// Parse the file content
+let parse = parse(db, content, metadata);
+
+// BAD - obvious from function name
+// Find the operation at the given index
+let mut op_count = 0;
+
+// GOOD - explains non-obvious behavior
+// apollo-compiler errors don't have precise positions, so we use offset 0
+errors.extend(with_errors.errors.iter().map(|e| ParseError {
+    message: e.to_string(),
+    offset: 0,
+}));
+
+// GOOD - documents a design decision
+// Use empty tree/ast for main since callers use blocks via documents() iterator
+let main_tree = apollo_parser::Parser::new("").parse();
+```
 
 ### Working with This Project
 

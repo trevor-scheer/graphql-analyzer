@@ -32,7 +32,6 @@ pub fn find_config(start_dir: &Path) -> Result<Option<PathBuf>> {
 
         checked_dirs += 1;
         if !current_dir.pop() {
-            // Reached root without finding config
             tracing::debug!(checked_dirs, "No config file found");
             break;
         }
@@ -114,7 +113,6 @@ fn validate_config(config: &GraphQLConfig, path: &Path) -> Result<()> {
     for (project_name, project_config) in config.projects() {
         tracing::trace!(project = project_name, "Validating project config");
 
-        // Validate that schema is not empty
         let schema_paths = project_config.schema.paths();
         if schema_paths.is_empty() {
             return Err(ConfigError::Invalid {
@@ -123,7 +121,6 @@ fn validate_config(config: &GraphQLConfig, path: &Path) -> Result<()> {
             });
         }
 
-        // Validate that schema paths are not empty strings
         for schema_path in schema_paths {
             if schema_path.trim().is_empty() {
                 return Err(ConfigError::Invalid {
@@ -133,7 +130,6 @@ fn validate_config(config: &GraphQLConfig, path: &Path) -> Result<()> {
             }
         }
 
-        // Validate documents if present
         if let Some(ref documents) = project_config.documents {
             let doc_patterns = documents.patterns();
             if doc_patterns.is_empty() {
@@ -266,7 +262,6 @@ schema: ""
     fn test_config_file_priority() {
         let temp_dir = tempfile::tempdir().unwrap();
 
-        // Create multiple config files
         fs::write(
             temp_dir.path().join(".graphqlrc.yml"),
             "schema: yml.graphql",
@@ -280,7 +275,6 @@ schema: ""
 
         let found = find_config(temp_dir.path()).unwrap().unwrap();
 
-        // Should prefer .graphqlrc.yml over graphql.config.json
         assert_eq!(found.file_name().unwrap(), ".graphqlrc.yml");
     }
 }
