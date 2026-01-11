@@ -41,6 +41,9 @@ pub struct GraphQLLanguageServer {
     /// Document versions indexed by document URI string
     /// Used to detect out-of-order updates and avoid race conditions
     document_versions: Arc<DashMap<String, i32>>,
+    /// Reverse index: file URI → (`workspace_uri`, `project_name`)
+    /// Provides O(1) lookup instead of O(n) iteration over all hosts
+    file_to_project: Arc<DashMap<String, (String, String)>>,
 }
 
 impl GraphQLLanguageServer {
@@ -54,6 +57,7 @@ impl GraphQLLanguageServer {
             configs: Arc::new(DashMap::new()),
             hosts: Arc::new(DashMap::new()),
             document_versions: Arc::new(DashMap::new()),
+            file_to_project: Arc::new(DashMap::new()),
         }
     }
 
@@ -424,9 +428,17 @@ documents: "**/*.graphql"
                 // This significantly reduces lock contention compared to locking per-file
                 {
                     let mut host_guard = host.lock().await;
-                    for (file_path, content, file_kind) in collected_files {
-                        host_guard.add_file(&file_path, &content, file_kind, 0);
+                    for (file_path, content, file_kind) in &collected_files {
+                        host_guard.add_file(file_path, content, *file_kind, 0);
                     }
+                }
+
+                // === PHASE 2b: Populate file_to_project reverse index for O(1) lookup ===
+                for (file_path, _, _) in &collected_files {
+                    self.file_to_project.insert(
+                        file_path.as_str().to_string(),
+                        (workspace_uri.to_string(), project_name.to_string()),
+                    );
                 }
 
                 tracing::info!(
@@ -509,6 +521,23 @@ documents: "**/*.graphql"
             keys_to_remove.len()
         );
 
+        // Clear file_to_project entries for this workspace
+        let file_keys_to_remove: Vec<_> = self
+            .file_to_project
+            .iter()
+            .filter(|entry| entry.value().0 == workspace_uri)
+            .map(|entry| entry.key().clone())
+            .collect();
+
+        for key in &file_keys_to_remove {
+            self.file_to_project.remove(key);
+        }
+
+        tracing::info!(
+            "Cleared {} file-to-project mappings for workspace",
+            file_keys_to_remove.len()
+        );
+
         // Clear the existing config
         self.configs.remove(workspace_uri);
 
@@ -532,27 +561,19 @@ documents: "**/*.graphql"
 
     /// Find the workspace and project for a given document URI
     ///
-    /// This first checks if the file was loaded during initialization by querying
-    /// each `AnalysisHost` directly. If not found, falls back to pattern matching
-    /// via the config (for files opened after init that match project patterns).
+    /// Uses a reverse index for O(1) lookup of previously seen files.
+    /// Falls back to config pattern matching for files opened after init
+    /// that haven't been indexed yet.
     fn find_workspace_and_project(&self, document_uri: &Uri) -> Option<(String, String)> {
-        let doc_path = document_uri.to_file_path()?;
-        let file_path = graphql_ide::FilePath::new(document_uri.to_string());
+        let uri_string = document_uri.to_string();
 
-        // First, check if file is already loaded in any host (fast path)
-        for host_entry in self.hosts.iter() {
-            let (workspace_uri, project_name) = host_entry.key();
-            let host_mutex = host_entry.value();
-
-            // Try to acquire lock without blocking - skip if locked
-            if let Ok(host) = host_mutex.try_lock() {
-                if host.contains_file(&file_path) {
-                    return Some((workspace_uri.clone(), project_name.clone()));
-                }
-            }
+        // Fast path: O(1) lookup in reverse index
+        if let Some(entry) = self.file_to_project.get(&uri_string) {
+            return Some(entry.value().clone());
         }
 
         // Fallback: use config pattern matching (for files opened after init)
+        let doc_path = document_uri.to_file_path()?;
         for workspace_entry in self.workspace_roots.iter() {
             let workspace_uri = workspace_entry.key();
             let workspace_path = workspace_entry.value();
@@ -871,6 +892,12 @@ impl LanguageServer for GraphQLLanguageServer {
             self.validate_file(uri).await;
             return;
         };
+
+        // Update file_to_project index for files opened after initialization
+        self.file_to_project.insert(
+            uri.to_string(),
+            (workspace_uri.clone(), project_name.clone()),
+        );
 
         // Get the host mutex
         let host = self.get_or_create_host(&workspace_uri, &project_name);
