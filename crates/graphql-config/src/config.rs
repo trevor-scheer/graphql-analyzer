@@ -11,8 +11,8 @@ pub enum GraphQLConfig {
     Multi {
         projects: HashMap<String, ProjectConfig>,
     },
-    /// Single project configuration
-    Single(ProjectConfig),
+    /// Single project configuration (boxed to reduce enum size)
+    Single(Box<ProjectConfig>),
 }
 
 impl GraphQLConfig {
@@ -21,7 +21,7 @@ impl GraphQLConfig {
     #[must_use]
     pub fn projects(&self) -> Box<dyn Iterator<Item = (&str, &ProjectConfig)> + '_> {
         match self {
-            Self::Single(config) => Box::new(std::iter::once(("default", config))),
+            Self::Single(config) => Box::new(std::iter::once(("default", config.as_ref()))),
             Self::Multi { projects, .. } => Box::new(
                 projects
                     .iter()
@@ -35,7 +35,7 @@ impl GraphQLConfig {
     #[must_use]
     pub fn get_project(&self, name: &str) -> Option<&ProjectConfig> {
         match self {
-            Self::Single(config) if name == "default" => Some(config),
+            Self::Single(config) if name == "default" => Some(config.as_ref()),
             Self::Single(_) => None,
             Self::Multi { projects, .. } => projects.get(name),
         }
@@ -299,24 +299,67 @@ pub enum SchemaConfig {
     Path(String),
     /// Multiple file paths or glob patterns
     Paths(Vec<String>),
+    /// Introspection configuration for remote schemas
+    Introspection(IntrospectionSchemaConfig),
+}
+
+/// Configuration for introspecting a remote GraphQL endpoint
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntrospectionSchemaConfig {
+    /// The GraphQL endpoint URL to introspect
+    pub url: String,
+
+    /// HTTP headers to include in the introspection request (e.g., for authentication)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
+
+    /// Request timeout in seconds (default: 30)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u64>,
+
+    /// Number of retry attempts on failure (default: 0)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry: Option<u32>,
 }
 
 impl SchemaConfig {
     /// Get all schema paths/patterns as a slice
+    /// For introspection configs, returns an empty vec (use `introspection_config()` instead)
     #[must_use]
     pub fn paths(&self) -> Vec<&str> {
         match self {
             Self::Path(path) => vec![path.as_str()],
             Self::Paths(paths) => paths.iter().map(String::as_str).collect(),
+            Self::Introspection(_) => vec![],
         }
     }
 
-    /// Check if this schema config contains URLs (HTTP/HTTPS)
+    /// Check if this schema config contains URLs (HTTP/HTTPS) or is an introspection config
     #[must_use]
     pub fn has_remote_schema(&self) -> bool {
-        self.paths()
-            .iter()
-            .any(|p| p.starts_with("http://") || p.starts_with("https://"))
+        match self {
+            Self::Introspection(_) => true,
+            _ => self
+                .paths()
+                .iter()
+                .any(|p| p.starts_with("http://") || p.starts_with("https://")),
+        }
+    }
+
+    /// Get the introspection configuration if this is an introspection schema config
+    #[must_use]
+    pub fn introspection_config(&self) -> Option<&IntrospectionSchemaConfig> {
+        match self {
+            Self::Introspection(config) => Some(config),
+            _ => None,
+        }
+    }
+
+    /// Check if this is an introspection configuration
+    #[must_use]
+    pub const fn is_introspection(&self) -> bool {
+        matches!(self, Self::Introspection(_))
     }
 }
 
@@ -347,14 +390,14 @@ mod tests {
 
     #[test]
     fn test_single_project_config() {
-        let config = GraphQLConfig::Single(ProjectConfig {
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
             schema: SchemaConfig::Path("schema.graphql".to_string()),
             documents: Some(DocumentsConfig::Pattern("**/*.graphql".to_string())),
             include: None,
             exclude: None,
             lint: None,
             extensions: None,
-        });
+        }));
 
         assert!(!config.is_multi_project());
         assert_eq!(config.project_count(), 1);
@@ -457,14 +500,14 @@ extensions:
     fn test_find_project_single_config() {
         use std::path::PathBuf;
 
-        let config = GraphQLConfig::Single(ProjectConfig {
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
             schema: SchemaConfig::Path("schema.graphql".to_string()),
             documents: Some(DocumentsConfig::Pattern("**/*.graphql".to_string())),
             include: None,
             exclude: None,
             lint: None,
             extensions: None,
-        });
+        }));
 
         let workspace_root = PathBuf::from("/workspace");
         let doc_path = PathBuf::from("/workspace/src/queries.graphql");
@@ -683,5 +726,71 @@ extensions:
             None,
             "Files outside schema and document patterns should not match"
         );
+    }
+
+    #[test]
+    fn test_introspection_schema_config() {
+        let yaml = r#"
+schema:
+  url: https://api.example.com/graphql
+  headers:
+    Authorization: Bearer token
+    X-API-Key: my-key
+  timeout: 60
+  retry: 3
+documents: "**/*.graphql"
+"#;
+        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+
+        assert!(config.schema.is_introspection());
+        assert!(config.schema.has_remote_schema());
+        assert!(config.schema.paths().is_empty());
+
+        let introspection = config.schema.introspection_config().unwrap();
+        assert_eq!(introspection.url, "https://api.example.com/graphql");
+        assert_eq!(introspection.timeout, Some(60));
+        assert_eq!(introspection.retry, Some(3));
+
+        let headers = introspection.headers.as_ref().unwrap();
+        assert_eq!(
+            headers.get("Authorization"),
+            Some(&"Bearer token".to_string())
+        );
+        assert_eq!(headers.get("X-API-Key"), Some(&"my-key".to_string()));
+    }
+
+    #[test]
+    fn test_introspection_schema_config_minimal() {
+        let yaml = r#"
+schema:
+  url: https://api.example.com/graphql
+"#;
+        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+
+        assert!(config.schema.is_introspection());
+        let introspection = config.schema.introspection_config().unwrap();
+        assert_eq!(introspection.url, "https://api.example.com/graphql");
+        assert!(introspection.headers.is_none());
+        assert!(introspection.timeout.is_none());
+        assert!(introspection.retry.is_none());
+    }
+
+    #[test]
+    fn test_introspection_remote_detection() {
+        let introspection = SchemaConfig::Introspection(IntrospectionSchemaConfig {
+            url: "https://api.example.com/graphql".to_string(),
+            headers: None,
+            timeout: None,
+            retry: None,
+        });
+        assert!(introspection.has_remote_schema());
+        assert!(introspection.is_introspection());
+    }
+
+    #[test]
+    fn test_local_schema_not_introspection() {
+        let local = SchemaConfig::Path("schema.graphql".to_string());
+        assert!(!local.is_introspection());
+        assert!(local.introspection_config().is_none());
     }
 }

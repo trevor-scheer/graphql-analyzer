@@ -90,14 +90,14 @@ mod tests {
 
     #[test]
     fn test_single_project_config_works_without_project_flag() {
-        let config = GraphQLConfig::Single(ProjectConfig {
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
             schema: SchemaConfig::Path("schema.graphql".to_string()),
             documents: None,
             include: None,
             exclude: None,
             lint: None,
             extensions: None,
-        });
+        }));
 
         // Should work - single project configs don't require --project
         assert!(!config.is_multi_project());

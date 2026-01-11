@@ -654,6 +654,15 @@ impl AnalysisHost {
         let patterns: Vec<String> = match &config.schema {
             graphql_config::SchemaConfig::Path(s) => vec![s.clone()],
             graphql_config::SchemaConfig::Paths(arr) => arr.clone(),
+            graphql_config::SchemaConfig::Introspection(introspection) => {
+                // Introspection schemas need to be loaded via the introspection client
+                // This method only handles local files
+                tracing::warn!(
+                    "Introspection schema config not yet supported in IDE: {}",
+                    introspection.url
+                );
+                vec![]
+            }
         };
 
         for pattern in patterns {
