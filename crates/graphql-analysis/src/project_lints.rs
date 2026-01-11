@@ -30,14 +30,17 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
     let mut used_fields: HashSet<(Arc<str>, Arc<str>)> = HashSet::new();
     // Build document_files list from per-file lookups
     let doc_ids = project_files.document_file_ids(db).ids(db);
-    let document_files: Vec<(graphql_db::FileId, graphql_db::FileContent, graphql_db::FileMetadata)> =
-        doc_ids
-            .iter()
-            .filter_map(|file_id| {
-                graphql_db::file_lookup(db, project_files, *file_id)
-                    .map(|(content, metadata)| (*file_id, content, metadata))
-            })
-            .collect();
+    let document_files: Vec<(
+        graphql_db::FileId,
+        graphql_db::FileContent,
+        graphql_db::FileMetadata,
+    )> = doc_ids
+        .iter()
+        .filter_map(|file_id| {
+            graphql_db::file_lookup(db, project_files, *file_id)
+                .map(|(content, metadata)| (*file_id, content, metadata))
+        })
+        .collect();
 
     // Collect used fields from all operations
     for operation in operations.iter() {
