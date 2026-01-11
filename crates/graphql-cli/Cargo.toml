@@ -33,6 +33,7 @@ tokio = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 glob = { workspace = true }
 
 # Terminal UI

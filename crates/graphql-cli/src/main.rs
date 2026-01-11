@@ -56,6 +56,13 @@ enum Commands {
         #[arg(long)]
         head: String,
     },
+
+    /// Generate TypeScript types from GraphQL operations
+    Codegen {
+        /// Watch mode - regenerate on file changes
+        #[arg(short, long)]
+        watch: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -86,6 +93,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Check { base, head } => {
             commands::check::run(cli.config, cli.project, base, head).await
+        }
+        Commands::Codegen { watch } => {
+            commands::codegen::run(cli.config, cli.project.as_deref(), watch)
         }
     };
 
