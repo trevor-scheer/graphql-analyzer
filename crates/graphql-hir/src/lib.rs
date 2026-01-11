@@ -575,31 +575,34 @@ pub fn file_operation_names(
     )
 }
 
-/// Represents a field usage: `(parent_type, field_name)`
+/// A schema coordinate representing a field on a type (e.g., `User.name`).
+///
+/// Schema coordinates are the standard GraphQL way to reference specific
+/// fields within a schema. See: <https://spec.graphql.org/draft/#sec-Schema-Coordinates>
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FieldUsage {
-    pub parent_type: Arc<str>,
+pub struct SchemaCoordinate {
+    pub type_name: Arc<str>,
     pub field_name: Arc<str>,
 }
 
-/// Per-file query for field usages in a file.
-/// Returns all (type, field) pairs used in operations and fragments.
+/// Per-file query for schema coordinates used in a file.
+/// Returns all `Type.field` coordinates referenced in operations and fragments.
 /// This enables incremental computation for the `unused_fields` lint rule.
 ///
 /// Note: This query requires schema types to resolve field return types.
 /// If schema is not available, it uses heuristics based on selection patterns.
 #[salsa::tracked]
-#[allow(clippy::items_after_statements)]
-pub fn file_used_fields(
+#[allow(clippy::items_after_statements, clippy::too_many_lines)]
+pub fn file_schema_coordinates(
     db: &dyn GraphQLHirDatabase,
     _file_id: FileId,
     content: graphql_db::FileContent,
     metadata: graphql_db::FileMetadata,
     project_files: graphql_db::ProjectFiles,
-) -> Arc<std::collections::HashSet<FieldUsage>> {
+) -> Arc<std::collections::HashSet<SchemaCoordinate>> {
     let parse = graphql_syntax::parse(db, content, metadata);
     let schema_types = schema_types(db, project_files);
-    let mut used = std::collections::HashSet::new();
+    let mut coordinates = std::collections::HashSet::new();
 
     // Get root type names
     let query_type = schema_types
@@ -612,21 +615,21 @@ pub fn file_used_fields(
         .contains_key("Subscription")
         .then(|| Arc::from("Subscription"));
 
-    // Helper to collect field usages recursively
-    fn collect_field_usages(
+    // Helper to collect schema coordinates recursively
+    fn collect_coordinates(
         selections: &[apollo_compiler::ast::Selection],
         parent_type: &Arc<str>,
         schema_types: &HashMap<Arc<str>, TypeDef>,
-        used: &mut std::collections::HashSet<FieldUsage>,
+        coordinates: &mut std::collections::HashSet<SchemaCoordinate>,
     ) {
         for selection in selections {
             match selection {
                 apollo_compiler::ast::Selection::Field(field) => {
                     let field_name: Arc<str> = Arc::from(field.name.as_str());
 
-                    // Record this field usage
-                    used.insert(FieldUsage {
-                        parent_type: parent_type.clone(),
+                    // Record this schema coordinate
+                    coordinates.insert(SchemaCoordinate {
+                        type_name: parent_type.clone(),
                         field_name: field_name.clone(),
                     });
 
@@ -641,11 +644,11 @@ pub fn file_used_fields(
                             {
                                 let nested_type: Arc<str> =
                                     Arc::from(field_sig.type_ref.name.as_ref());
-                                collect_field_usages(
+                                collect_coordinates(
                                     &field.selection_set,
                                     &nested_type,
                                     schema_types,
-                                    used,
+                                    coordinates,
                                 );
                             }
                         }
@@ -655,11 +658,16 @@ pub fn file_used_fields(
                     // Fragment spreads are handled separately
                 }
                 apollo_compiler::ast::Selection::InlineFragment(inline) => {
-                    let type_name = inline
+                    let inline_type = inline
                         .type_condition
                         .as_ref()
                         .map_or_else(|| parent_type.clone(), |tc| Arc::from(tc.as_str()));
-                    collect_field_usages(&inline.selection_set, &type_name, schema_types, used);
+                    collect_coordinates(
+                        &inline.selection_set,
+                        &inline_type,
+                        schema_types,
+                        coordinates,
+                    );
                 }
             }
         }
@@ -675,12 +683,17 @@ pub fn file_used_fields(
                     apollo_compiler::ast::OperationType::Subscription => subscription_type.as_ref(),
                 };
                 if let Some(root) = root_type {
-                    collect_field_usages(&op.selection_set, root, &schema_types, &mut used);
+                    collect_coordinates(&op.selection_set, root, &schema_types, &mut coordinates);
                 }
             }
             apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
-                let type_name = Arc::from(frag.type_condition.as_str());
-                collect_field_usages(&frag.selection_set, &type_name, &schema_types, &mut used);
+                let frag_type = Arc::from(frag.type_condition.as_str());
+                collect_coordinates(
+                    &frag.selection_set,
+                    &frag_type,
+                    &schema_types,
+                    &mut coordinates,
+                );
             }
             _ => {}
         }
@@ -699,19 +712,29 @@ pub fn file_used_fields(
                         }
                     };
                     if let Some(root) = root_type {
-                        collect_field_usages(&op.selection_set, root, &schema_types, &mut used);
+                        collect_coordinates(
+                            &op.selection_set,
+                            root,
+                            &schema_types,
+                            &mut coordinates,
+                        );
                     }
                 }
                 apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
-                    let type_name = Arc::from(frag.type_condition.as_str());
-                    collect_field_usages(&frag.selection_set, &type_name, &schema_types, &mut used);
+                    let frag_type = Arc::from(frag.type_condition.as_str());
+                    collect_coordinates(
+                        &frag.selection_set,
+                        &frag_type,
+                        &schema_types,
+                        &mut coordinates,
+                    );
                 }
                 _ => {}
             }
         }
     }
 
-    Arc::new(used)
+    Arc::new(coordinates)
 }
 
 #[cfg(test)]

@@ -916,10 +916,53 @@ impl LanguageServer for GraphQLLanguageServer {
 
     #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        let _uri = params.text_document.uri;
-        // NOTE: Cross-file dependency tracking and revalidation should be handled
-        // by the Analysis layer, not the LSP layer. For now, files are only revalidated
-        // when they are opened or changed.
+        let uri = params.text_document.uri;
+
+        // Find the workspace and project for this file
+        let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
+            tracing::debug!(
+                "No workspace/project found for saved file, skipping project-wide lints"
+            );
+            return;
+        };
+
+        // Get the analysis host for this workspace/project
+        let Some(host_mutex) = self
+            .hosts
+            .get(&(workspace_uri.clone(), project_name.clone()))
+        else {
+            tracing::debug!("No analysis host found for workspace/project");
+            return;
+        };
+
+        // Run project-wide lints on save (these are expensive, so we don't run them on every change)
+        let snapshot = host_mutex.lock().await.snapshot();
+        let project_diagnostics = snapshot.project_lint_diagnostics();
+
+        tracing::debug!(
+            "Running project-wide lints on save, found diagnostics for {} files",
+            project_diagnostics.len()
+        );
+
+        // Publish project-wide diagnostics for each affected file
+        for (file_path, diagnostics) in project_diagnostics {
+            // Convert file path to URI
+            if let Some(file_uri) = Uri::from_file_path(file_path.as_str()) {
+                // Get existing per-file diagnostics and merge with project-wide diagnostics
+                let per_file_diagnostics = snapshot.diagnostics(&file_path);
+                let mut all_diagnostics: Vec<Diagnostic> = per_file_diagnostics
+                    .into_iter()
+                    .map(convert_ide_diagnostic)
+                    .collect();
+
+                // Add project-wide diagnostics
+                all_diagnostics.extend(diagnostics.into_iter().map(convert_ide_diagnostic));
+
+                self.client
+                    .publish_diagnostics(file_uri, all_diagnostics, None)
+                    .await;
+            }
+        }
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {

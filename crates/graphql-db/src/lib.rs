@@ -237,7 +237,7 @@ pub mod tracking {
         pub const FILE_USED_FRAGMENT_NAMES: &str = "file_used_fragment_names";
         pub const FILE_DEFINED_FRAGMENT_NAMES: &str = "file_defined_fragment_names";
         pub const FILE_OPERATION_NAMES: &str = "file_operation_names";
-        pub const FILE_USED_FIELDS: &str = "file_used_fields";
+        pub const FILE_SCHEMA_COORDINATES: &str = "file_schema_coordinates";
     }
 
     /// Per-database query execution log.

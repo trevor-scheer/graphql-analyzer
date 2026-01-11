@@ -58,8 +58,8 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
             }
         }
 
-        // Step 2: Collect all used fields using per-file cached queries
-        let mut used_fields: HashMap<String, HashSet<String>> = HashMap::new();
+        // Step 2: Collect all used schema coordinates using per-file cached queries
+        let mut used_coordinates: HashMap<String, HashSet<String>> = HashMap::new();
         let doc_ids = project_files.document_file_ids(db).ids(db);
 
         // Determine root types for skipping (supports custom schema definitions)
@@ -72,13 +72,18 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
                 continue;
             };
             // Per-file cached query - only recomputes if THIS file changed
-            let file_usages =
-                graphql_hir::file_used_fields(db, *file_id, content, metadata, project_files);
-            for usage in file_usages.iter() {
-                used_fields
-                    .entry(usage.parent_type.to_string())
+            let file_coords = graphql_hir::file_schema_coordinates(
+                db,
+                *file_id,
+                content,
+                metadata,
+                project_files,
+            );
+            for coord in file_coords.iter() {
+                used_coordinates
+                    .entry(coord.type_name.to_string())
                     .or_default()
-                    .insert(usage.field_name.to_string());
+                    .insert(coord.field_name.to_string());
             }
         }
 
@@ -89,7 +94,7 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
                 continue;
             }
 
-            let used_in_type = used_fields.get(type_name);
+            let used_in_type = used_coordinates.get(type_name);
 
             for field_name in fields {
                 // Skip introspection fields
