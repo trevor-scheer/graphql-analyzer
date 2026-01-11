@@ -863,8 +863,11 @@ When running as a Claude web instance, the git remote uses a local proxy that `g
 ```bash
 # Correct - always specify the repo explicitly
 gh issue list --repo trevor-scheer/graphql-lsp
-gh pr create --repo trevor-scheer/graphql-lsp
+gh issue view 123 --repo trevor-scheer/graphql-lsp
 gh pr view 123 --repo trevor-scheer/graphql-lsp
+
+# For pr create, also include --head to specify the branch
+gh pr create --repo trevor-scheer/graphql-lsp --head your-branch-name
 
 # Incorrect - will fail with "none of the git remotes configured for this repository point to a known GitHub host"
 gh issue list
