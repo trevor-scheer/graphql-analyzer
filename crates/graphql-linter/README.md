@@ -220,18 +220,6 @@ extensions:
         unused_fields: off  # Disable expensive rule in editor
 ```
 
-### Legacy Configuration (Deprecated)
-
-The following format is still supported for backwards compatibility but is deprecated:
-
-```yaml
-# DEPRECATED: Use `lint: recommended` or `lint: { extends: recommended }` instead
-lint:
-  recommended: error
-  rules:
-    no_deprecated: warn
-```
-
 ### Severity Levels
 
 - `off` - Disable the rule
@@ -472,9 +460,6 @@ pub enum LintConfig {
 
     /// Full config with extends and rules
     Full(FullLintConfig),
-
-    /// Legacy format (deprecated)
-    LegacyRules { rules: HashMap<String, LintRuleConfig> },
 }
 
 pub struct FullLintConfig {
