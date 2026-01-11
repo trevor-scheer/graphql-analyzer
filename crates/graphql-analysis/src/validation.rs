@@ -56,22 +56,28 @@ pub fn validate_file(
             // The AST is cached via graphql_syntax::parse()
             builder.add_ast_document(&block.ast, true);
 
-            // Add referenced fragments using per-fragment queries for fine-grained invalidation
+            // Add referenced fragments using cached ASTs for fine-grained invalidation
             // This ensures that changing fragment A only invalidates files that actually use A
+            // Using fragment_ast instead of fragment_source avoids re-parsing
             let mut added_fragments = std::collections::HashSet::new();
+            let mut added_ast_ptrs = std::collections::HashSet::new();
+            // Pre-populate with current block's AST to avoid adding it again when fragments
+            // in the same block reference each other
+            added_ast_ptrs.insert(Arc::as_ptr(&block.ast) as usize);
             for fragment_name in &referenced_fragments {
                 let key: Arc<str> = Arc::from(fragment_name.as_str());
                 if !added_fragments.insert(key.clone()) {
                     continue;
                 }
                 // Fine-grained query: only creates dependency on this specific fragment
-                if let Some(fragment_source) = graphql_hir::fragment_source(db, project_files, key)
-                {
-                    apollo_compiler::parser::Parser::new().parse_into_executable_builder(
-                        fragment_source.as_ref(),
-                        format!("fragment:{fragment_name}"),
-                        &mut builder,
-                    );
+                // Uses cached AST instead of re-parsing source text
+                if let Some(fragment_ast) = graphql_hir::fragment_ast(db, project_files, key) {
+                    // Track by AST pointer to avoid adding the same document twice
+                    // (multiple fragments may share the same AST document)
+                    let ptr = Arc::as_ptr(&fragment_ast) as usize;
+                    if added_ast_ptrs.insert(ptr) {
+                        builder.add_ast_document(&fragment_ast, false);
+                    }
                 }
             }
 
@@ -147,21 +153,28 @@ pub fn validate_file(
     // The AST is cached via graphql_syntax::parse()
     builder.add_ast_document(&parse.ast, true);
 
-    // Add referenced fragments using per-fragment queries for fine-grained invalidation
+    // Add referenced fragments using cached ASTs for fine-grained invalidation
     // This ensures that changing fragment A only invalidates files that actually use A
+    // Using fragment_ast instead of fragment_source avoids re-parsing
     let mut added_fragments = std::collections::HashSet::new();
+    let mut added_ast_ptrs = std::collections::HashSet::new();
+    // Pre-populate with current file's AST to avoid adding it again when fragments
+    // in the same file reference each other (e.g., IssueDetails spreads IssueBasic)
+    added_ast_ptrs.insert(Arc::as_ptr(&parse.ast) as usize);
     for fragment_name in &referenced_fragments {
         let key: Arc<str> = Arc::from(fragment_name.as_str());
         if !added_fragments.insert(key.clone()) {
             continue;
         }
         // Fine-grained query: only creates dependency on this specific fragment
-        if let Some(fragment_source) = graphql_hir::fragment_source(db, project_files, key) {
-            apollo_compiler::parser::Parser::new().parse_into_executable_builder(
-                fragment_source.as_ref(),
-                format!("fragment:{fragment_name}"),
-                &mut builder,
-            );
+        // Uses cached AST instead of re-parsing source text
+        if let Some(fragment_ast) = graphql_hir::fragment_ast(db, project_files, key) {
+            // Track by AST pointer to avoid adding the same document twice
+            // (multiple fragments may share the same AST document)
+            let ptr = Arc::as_ptr(&fragment_ast) as usize;
+            if added_ast_ptrs.insert(ptr) {
+                builder.add_ast_document(&fragment_ast, false);
+            }
         }
     }
 
