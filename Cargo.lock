@@ -973,6 +973,7 @@ dependencies = [
  "graphql-linter",
  "graphql-syntax",
  "salsa",
+ "text-size",
  "thiserror 2.0.17",
  "tracing",
 ]
