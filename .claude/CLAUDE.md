@@ -250,6 +250,7 @@ npm run lint             # Lint TypeScript
 - Write clear, descriptive PR titles
 - Explain what changed and why
 - **Update PR titles and descriptions after pushing additional commits** - keep them accurate and reflective of current changes
+- **Include new or updated tests** when the PR adds functionality, fixes bugs, or changes behavior
 - Call out new and updated tests in the Changes section
 - Reference related issues
 - Document which SME agents were consulted (see [SME Consultation Requirements](#sme-consultation-requirements))
@@ -260,6 +261,19 @@ npm run lint             # Lint TypeScript
 - Use excessive emoji in titles or descriptions
 - Mention that tests or linting passed (expected baseline, CI enforces this)
 - Put automated test/lint results in "Manual Testing" section (that's for manual verification steps only)
+
+#### Bug Fix PRs
+
+Bug fix PRs should use a **two-commit structure**:
+
+1. **First commit**: Add a failing test that reproduces the bug (commit message: `test: reproduce <issue>`)
+2. **Second commit**: Fix the bug and update the test if needed (commit message: `fix: <description>`)
+
+This structure:
+- **Proves the bug exists** before the fix
+- **Validates the fix** actually resolves the issue
+- **Prevents regressions** by leaving the test in place
+- **Makes review easier** by separating reproduction from fix
 
 ---
 
@@ -498,22 +512,56 @@ cargo test --test '*'
 
 ### Writing Tests
 
+Tests should prioritize **human readability**. A test that's easy to understand is easy to maintain and debug.
+
+#### Test Readability Guidelines
+
+- **Use helper functions** to reduce boilerplate and make test intent clear
+- **Use fixtures** for common test data (schemas, documents, configs)
+- **Use snapshot tests** (`cargo-insta`) for complex output validation
+- **Name tests descriptively** - the name should explain what's being tested and expected behavior
+- **Keep tests focused** - one logical assertion per test when possible
+
+#### Example Structure
+
 ```rust
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_feature() {
-        // Arrange
-        let input = "...";
-
-        // Act
-        let result = function_under_test(input);
-
-        // Assert
-        assert_eq!(result, expected);
+    // Helper function reduces boilerplate and clarifies intent
+    fn validate(schema: &str, document: &str) -> Vec<Diagnostic> {
+        let db = TestDatabase::new();
+        db.set_schema(schema);
+        db.set_document(document);
+        db.diagnostics()
     }
+
+    #[test]
+    fn fragment_spread_on_wrong_type_reports_error() {
+        let diagnostics = validate(
+            "type Query { user: User } type User { name: String }",
+            "query { user { ...AdminFields } } fragment AdminFields on Admin { role }",
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("Admin"));
+    }
+}
+```
+
+#### When to Use Snapshots
+
+Use `cargo-insta` snapshots when:
+- Output is complex or multi-line (diagnostic messages, formatted output)
+- You want to catch unintended changes in output format
+- Manual assertion would be verbose and hard to read
+
+```rust
+#[test]
+fn lint_report_format() {
+    let report = run_linter(FIXTURE_DOCUMENT);
+    insta::assert_snapshot!(report);
 }
 ```
 
@@ -879,10 +927,12 @@ let main_tree = apollo_parser::Parser::new("").parse();
 **When fixing bugs:**
 
 1. Add to `.claude/notes/BUGS.md` if user-reported
-2. Write a failing test first
-3. Fix the bug
+2. **Commit 1**: Write a failing test that reproduces the bug (`test: reproduce <issue>`)
+3. **Commit 2**: Fix the bug and update the test if needed (`fix: <description>`)
 4. Verify test passes
 5. Check for similar issues elsewhere
+
+See [Bug Fix PRs](#bug-fix-prs) for why this two-commit structure matters.
 
 **After making changes:**
 
