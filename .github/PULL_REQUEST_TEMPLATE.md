@@ -21,9 +21,18 @@ Example:
 
 -
 
-## Test Plan
+## Manual Testing
 
-<!-- How were these changes tested? What should the reviewer test manually? -->
+<!--
+Steps for manually verifying these changes. CI handles automated tests and linting.
+
+Examples:
+- Run `cargo build` and open VSCode to verify hover works on type references
+- Execute `graphql lint --project frontend` and confirm new rule triggers
+- Open a .ts file with embedded GraphQL and verify diagnostics appear
+
+Leave empty or write "N/A" if no manual testing is needed.
+-->
 
 -
 
