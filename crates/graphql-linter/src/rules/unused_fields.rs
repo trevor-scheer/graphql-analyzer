@@ -1,4 +1,5 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::schema_utils::extract_root_type_names;
 use crate::traits::{LintRule, ProjectLintRule};
 use graphql_db::{FileId, ProjectFiles};
 use std::collections::{HashMap, HashSet};
@@ -61,8 +62,8 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
         let mut used_fields: HashMap<String, HashSet<String>> = HashMap::new();
         let doc_ids = project_files.document_file_ids(db).ids(db);
 
-        // Determine root types for skipping
-        let root_types = get_root_type_names(db, &schema_types);
+        // Determine root types for skipping (supports custom schema definitions)
+        let root_types = extract_root_type_names(db, project_files, &schema_types);
 
         for file_id in doc_ids.iter() {
             // Use per-file lookup for granular caching
@@ -193,43 +194,6 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
     }
 }
 
-/// Helper struct to track root type names
-struct RootTypes {
-    query: Option<String>,
-    mutation: Option<String>,
-    subscription: Option<String>,
-}
-
-impl RootTypes {
-    fn is_root_type(&self, type_name: &str) -> bool {
-        self.query.as_deref() == Some(type_name)
-            || self.mutation.as_deref() == Some(type_name)
-            || self.subscription.as_deref() == Some(type_name)
-    }
-}
-
-/// Get root type names from schema
-fn get_root_type_names(
-    _db: &dyn graphql_hir::GraphQLHirDatabase,
-    schema_types: &HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
-) -> RootTypes {
-    // Default to "Query", "Mutation", "Subscription" if they exist
-    let query = schema_types
-        .contains_key("Query")
-        .then(|| "Query".to_string());
-    let mutation = schema_types
-        .contains_key("Mutation")
-        .then(|| "Mutation".to_string());
-    let subscription = schema_types
-        .contains_key("Subscription")
-        .then(|| "Subscription".to_string());
-
-    RootTypes {
-        query,
-        mutation,
-        subscription,
-    }
-}
 
 /// Recursively collect used fields from a selection set
 fn collect_used_fields_from_selection_set(
