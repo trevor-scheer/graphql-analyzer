@@ -249,6 +249,7 @@ npm run lint             # Lint TypeScript
 
 - Write clear, descriptive PR titles
 - Explain what changed and why
+- **Update PR titles and descriptions after pushing additional commits** - keep them accurate and reflective of current changes
 - Call out new and updated tests in the Changes section
 - Reference related issues
 - Document which SME agents were consulted (see [SME Consultation Requirements](#sme-consultation-requirements))
