@@ -142,50 +142,12 @@ fn write_type(sdl: &mut String, type_def: &IntrospectionType) {
         IntrospectionType::Object(t) => {
             write_description(sdl, t.description.as_ref(), 0);
             write!(sdl, "type {}", t.name).unwrap();
-
-            if !t.interfaces.is_empty() {
-                sdl.push_str(" implements ");
-                for (i, interface) in t.interfaces.iter().enumerate() {
-                    if i > 0 {
-                        sdl.push_str(" & ");
-                    }
-                    sdl.push_str(&interface.name);
-                }
-            }
-
-            if t.fields.is_empty() {
-                sdl.push_str(" {\n}");
-            } else {
-                sdl.push_str(" {\n");
-                for field in &t.fields {
-                    write_field(sdl, field, 1);
-                }
-                sdl.push('}');
-            }
+            write_implements_and_fields(sdl, &t.interfaces, &t.fields);
         }
         IntrospectionType::Interface(t) => {
             write_description(sdl, t.description.as_ref(), 0);
             write!(sdl, "interface {}", t.name).unwrap();
-
-            if !t.interfaces.is_empty() {
-                sdl.push_str(" implements ");
-                for (i, interface) in t.interfaces.iter().enumerate() {
-                    if i > 0 {
-                        sdl.push_str(" & ");
-                    }
-                    sdl.push_str(&interface.name);
-                }
-            }
-
-            if t.fields.is_empty() {
-                sdl.push_str(" {\n}");
-            } else {
-                sdl.push_str(" {\n");
-                for field in &t.fields {
-                    write_field(sdl, field, 1);
-                }
-                sdl.push('}');
-            }
+            write_implements_and_fields(sdl, &t.interfaces, &t.fields);
         }
         IntrospectionType::Union(t) => {
             write_description(sdl, t.description.as_ref(), 0);
@@ -278,6 +240,33 @@ fn escape_string(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\n', "\\n")
+}
+
+/// Helper to write implements clause and field body (shared by Object and Interface types)
+fn write_implements_and_fields(
+    sdl: &mut String,
+    interfaces: &[crate::types::IntrospectionTypeRef],
+    fields: &[IntrospectionField],
+) {
+    if !interfaces.is_empty() {
+        sdl.push_str(" implements ");
+        for (i, interface) in interfaces.iter().enumerate() {
+            if i > 0 {
+                sdl.push_str(" & ");
+            }
+            sdl.push_str(&interface.name);
+        }
+    }
+
+    if fields.is_empty() {
+        sdl.push_str(" {\n}");
+    } else {
+        sdl.push_str(" {\n");
+        for field in fields {
+            write_field(sdl, field, 1);
+        }
+        sdl.push('}');
+    }
 }
 
 #[cfg(test)]

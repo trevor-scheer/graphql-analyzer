@@ -120,13 +120,14 @@ fn check_document(
     for definition in doc_cst.definitions() {
         match definition {
             cst::Definition::OperationDefinition(op) => {
-                let root_type = match op.operation_type() {
-                    Some(op_type) if op_type.query_token().is_some() => query_type,
-                    Some(op_type) if op_type.mutation_token().is_some() => mutation_type,
-                    Some(op_type) if op_type.subscription_token().is_some() => subscription_type,
-                    None => query_type, // Default to query for anonymous operations
-                    _ => None,
-                };
+                use super::{get_operation_kind, OperationKind};
+                let root_type = op.operation_type().map_or(query_type, |op_type| {
+                    match get_operation_kind(&op_type) {
+                        OperationKind::Query => query_type,
+                        OperationKind::Mutation => mutation_type,
+                        OperationKind::Subscription => subscription_type,
+                    }
+                });
 
                 if let (Some(root_type_name), Some(selection_set)) = (root_type, op.selection_set())
                 {
