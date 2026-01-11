@@ -11,9 +11,9 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
     let project_files = db
         .project_files()
         .expect("project files must be set for project-wide analysis");
-    let schema = graphql_hir::schema_types_with_project(db, project_files);
+    let schema = graphql_hir::schema_types(db, project_files);
     let operations = graphql_hir::all_operations(db, project_files);
-    let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
+    let all_fragments = graphql_hir::all_fragments(db, project_files);
 
     // Step 1: Collect all schema fields (type_name, field_name) -> (FileId, FieldSignature)
     let mut schema_fields: SchemaFieldsMap = HashMap::new();
@@ -98,7 +98,7 @@ pub fn find_unused_fragments(
     let project_files = db
         .project_files()
         .expect("project files must be set for project-wide analysis");
-    let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
+    let all_fragments = graphql_hir::all_fragments(db, project_files);
 
     // Use the fragment spreads index from HIR (cached, no AST cloning needed)
     let fragment_spreads_index = graphql_hir::fragment_spreads_index(db, project_files);
@@ -322,7 +322,7 @@ mod tests {
         let schema_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 type Query {
                     user: User
                 }
@@ -332,7 +332,7 @@ mod tests {
                     name: String!
                     email: String!
                 }
-                "#,
+                ",
             ),
         );
         let schema_metadata = FileMetadata::new(
@@ -347,14 +347,14 @@ mod tests {
         let doc_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 query GetUser {
                     user {
                         id
                         name
                     }
                 }
-                "#,
+                ",
             ),
         );
         let doc_metadata = FileMetadata::new(
@@ -387,7 +387,7 @@ mod tests {
         let schema_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 type Query {
                     user: User
                 }
@@ -398,7 +398,7 @@ mod tests {
                     email: String!
                     age: Int
                 }
-                "#,
+                ",
             ),
         );
         let schema_metadata = FileMetadata::new(
@@ -413,7 +413,7 @@ mod tests {
         let doc_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 query GetUser {
                     user {
                         ...UserFields
@@ -425,7 +425,7 @@ mod tests {
                     name
                     email
                 }
-                "#,
+                ",
             ),
         );
         let doc_metadata = FileMetadata::new(
@@ -458,7 +458,7 @@ mod tests {
         let schema_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 type Query {
                     user: User
                 }
@@ -474,7 +474,7 @@ mod tests {
                     title: String!
                     content: String!
                 }
-                "#,
+                ",
             ),
         );
         let schema_metadata = FileMetadata::new(
@@ -489,7 +489,7 @@ mod tests {
         let doc_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 query GetUser {
                     user {
                         id
@@ -499,7 +499,7 @@ mod tests {
                         }
                     }
                 }
-                "#,
+                ",
             ),
         );
         let doc_metadata = FileMetadata::new(
@@ -534,7 +534,7 @@ mod tests {
         let schema_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 type Query {
                     user: User
                 }
@@ -545,7 +545,7 @@ mod tests {
                     email: String!
                     phone: String
                 }
-                "#,
+                ",
             ),
         );
         let schema_metadata = FileMetadata::new(
@@ -560,7 +560,7 @@ mod tests {
         let doc_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 query GetUser {
                     user {
                         ...UserBasic
@@ -575,7 +575,7 @@ mod tests {
                 fragment UserContact on User {
                     email
                 }
-                "#,
+                ",
             ),
         );
         let doc_metadata = FileMetadata::new(

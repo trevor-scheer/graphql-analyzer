@@ -171,7 +171,6 @@ struct GraphQLVisitor<'a> {
 }
 
 impl<'a> GraphQLVisitor<'a> {
-    #[allow(clippy::unnecessary_wraps)] // Consistent interface for extraction methods
     fn new(source: &'a str, config: &'a ExtractConfig) -> Self {
         Self {
             source,

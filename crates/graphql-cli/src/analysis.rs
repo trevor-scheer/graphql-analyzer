@@ -98,12 +98,7 @@ impl CliAnalysisHost {
                     _ => FileKind::ExecutableGraphQL, // .graphql, .gql, or unknown
                 };
 
-                host.add_file(
-                    &FilePath::new(path.to_string_lossy().to_string()),
-                    &content,
-                    kind,
-                    0,
-                );
+                host.add_file(&FilePath::new(path.to_string_lossy()), &content, kind, 0);
                 loaded_files.push(path);
             }
         }
@@ -188,7 +183,7 @@ impl CliAnalysisHost {
         let mut results = HashMap::new();
 
         for path in &self.loaded_files {
-            let file_path = FilePath::new(path.to_string_lossy().to_string());
+            let file_path = FilePath::new(path.to_string_lossy());
             let diagnostics = snapshot.validation_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {
@@ -219,7 +214,7 @@ impl CliAnalysisHost {
                 progress = format!("{}/{}", idx + 1, self.loaded_files.len()),
                 "Checking file for lint issues"
             );
-            let file_path = FilePath::new(path.to_string_lossy().to_string());
+            let file_path = FilePath::new(path.to_string_lossy());
             let diagnostics = snapshot.lint_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {
@@ -255,18 +250,5 @@ impl CliAnalysisHost {
             "Lint diagnostics collection complete"
         );
         results
-    }
-
-    /// Update a file (for watch mode - future enhancement)
-    #[allow(dead_code)]
-    pub fn update_file(&mut self, path: &Path, content: &str) {
-        let file_path = FilePath::new(path.to_string_lossy().to_string());
-        let kind = FileKind::ExecutableGraphQL;
-
-        self.host.add_file(&file_path, content, kind, 0);
-
-        if !self.loaded_files.contains(&path.to_path_buf()) {
-            self.loaded_files.push(path.to_path_buf());
-        }
     }
 }

@@ -6,6 +6,9 @@ use std::fmt::Write;
 /// Built-in GraphQL scalar types that should not be included in generated SDL.
 const BUILTIN_SCALARS: &[&str] = &["Int", "Float", "String", "Boolean", "ID"];
 
+/// Built-in GraphQL directives that should not be included in generated SDL.
+const BUILTIN_DIRECTIVES: &[&str] = &["skip", "include", "deprecated", "specifiedBy"];
+
 /// Converts a GraphQL introspection response to SDL (Schema Definition Language).
 ///
 /// This function generates clean, readable SDL from an introspection response by:
@@ -73,11 +76,7 @@ pub fn introspection_to_sdl(introspection: &IntrospectionResponse) -> String {
     }
 
     for directive in &schema.directives {
-        if directive.name == "skip"
-            || directive.name == "include"
-            || directive.name == "deprecated"
-            || directive.name == "specifiedBy"
-        {
+        if BUILTIN_DIRECTIVES.contains(&directive.name.as_str()) {
             continue;
         }
 
@@ -143,50 +142,12 @@ fn write_type(sdl: &mut String, type_def: &IntrospectionType) {
         IntrospectionType::Object(t) => {
             write_description(sdl, t.description.as_ref(), 0);
             write!(sdl, "type {}", t.name).unwrap();
-
-            if !t.interfaces.is_empty() {
-                sdl.push_str(" implements ");
-                for (i, interface) in t.interfaces.iter().enumerate() {
-                    if i > 0 {
-                        sdl.push_str(" & ");
-                    }
-                    sdl.push_str(&interface.name);
-                }
-            }
-
-            if t.fields.is_empty() {
-                sdl.push_str(" {\n}");
-            } else {
-                sdl.push_str(" {\n");
-                for field in &t.fields {
-                    write_field(sdl, field, 1);
-                }
-                sdl.push('}');
-            }
+            write_implements_and_fields(sdl, &t.interfaces, &t.fields);
         }
         IntrospectionType::Interface(t) => {
             write_description(sdl, t.description.as_ref(), 0);
             write!(sdl, "interface {}", t.name).unwrap();
-
-            if !t.interfaces.is_empty() {
-                sdl.push_str(" implements ");
-                for (i, interface) in t.interfaces.iter().enumerate() {
-                    if i > 0 {
-                        sdl.push_str(" & ");
-                    }
-                    sdl.push_str(&interface.name);
-                }
-            }
-
-            if t.fields.is_empty() {
-                sdl.push_str(" {\n}");
-            } else {
-                sdl.push_str(" {\n");
-                for field in &t.fields {
-                    write_field(sdl, field, 1);
-                }
-                sdl.push('}');
-            }
+            write_implements_and_fields(sdl, &t.interfaces, &t.fields);
         }
         IntrospectionType::Union(t) => {
             write_description(sdl, t.description.as_ref(), 0);
@@ -279,6 +240,33 @@ fn escape_string(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\n', "\\n")
+}
+
+/// Helper to write implements clause and field body (shared by Object and Interface types)
+fn write_implements_and_fields(
+    sdl: &mut String,
+    interfaces: &[crate::types::IntrospectionTypeRef],
+    fields: &[IntrospectionField],
+) {
+    if !interfaces.is_empty() {
+        sdl.push_str(" implements ");
+        for (i, interface) in interfaces.iter().enumerate() {
+            if i > 0 {
+                sdl.push_str(" & ");
+            }
+            sdl.push_str(&interface.name);
+        }
+    }
+
+    if fields.is_empty() {
+        sdl.push_str(" {\n}");
+    } else {
+        sdl.push_str(" {\n");
+        for field in fields {
+            write_field(sdl, field, 1);
+        }
+        sdl.push('}');
+    }
 }
 
 #[cfg(test)]

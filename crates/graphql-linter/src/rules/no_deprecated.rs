@@ -45,7 +45,7 @@ impl DocumentSchemaLintRule for NoDeprecatedRuleImpl {
         }
 
         // Get schema types from HIR
-        let schema_types = graphql_hir::schema_types_with_project(db, project_files);
+        let schema_types = graphql_hir::schema_types(db, project_files);
 
         // Check main document (for .graphql files only)
         // For TS/JS files, parse.tree is the first block and we check all blocks below
@@ -81,18 +81,16 @@ fn check_document_for_deprecated(
     for definition in doc_cst.definitions() {
         match definition {
             cst::Definition::OperationDefinition(operation) => {
+                use super::{get_operation_kind, OperationKind};
                 // Determine root type based on operation type
-                let root_type_name = operation.operation_type().map_or("Query", |op_type| {
-                    if op_type.query_token().is_some() {
-                        "Query"
-                    } else if op_type.mutation_token().is_some() {
-                        "Mutation"
-                    } else if op_type.subscription_token().is_some() {
-                        "Subscription"
-                    } else {
-                        "Query"
-                    }
-                });
+                let root_type_name =
+                    operation
+                        .operation_type()
+                        .map_or("Query", |op_type| match get_operation_kind(&op_type) {
+                            OperationKind::Query => "Query",
+                            OperationKind::Mutation => "Mutation",
+                            OperationKind::Subscription => "Subscription",
+                        });
 
                 if let Some(selection_set) = operation.selection_set() {
                     check_selection_set(

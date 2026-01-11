@@ -4,6 +4,27 @@
 /// - `StandaloneDocumentLintRule` - Rules that don't need schema access
 /// - `DocumentSchemaLintRule` - Rules that need schema access
 /// - `ProjectLintRule` - Rules that analyze the entire project
+use apollo_parser::cst;
+
+/// The kind of GraphQL operation
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperationKind {
+    Query,
+    Mutation,
+    Subscription,
+}
+
+/// Get the operation kind from an operation type node
+pub fn get_operation_kind(op_type: &cst::OperationType) -> OperationKind {
+    if op_type.query_token().is_some() {
+        OperationKind::Query
+    } else if op_type.mutation_token().is_some() {
+        OperationKind::Mutation
+    } else {
+        OperationKind::Subscription
+    }
+}
+
 mod no_anonymous_operations;
 mod no_deprecated;
 mod operation_name_suffix;

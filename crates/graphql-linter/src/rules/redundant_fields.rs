@@ -73,7 +73,7 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
         }
 
         // Get all fragments from the project (for cross-file resolution)
-        let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
+        let all_fragments = graphql_hir::all_fragments(db, project_files);
 
         // Add cross-file fragments to the registry
         for (fragment_name, fragment_info) in all_fragments.iter() {

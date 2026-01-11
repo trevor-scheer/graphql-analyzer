@@ -104,7 +104,7 @@ pub fn run(
             // Only process errors
             if diag.severity == DiagnosticSeverity::Error {
                 let diag_output = DiagnosticOutput {
-                    file_path: file_path.to_string_lossy().to_string(),
+                    file_path: file_path.to_string_lossy().into(),
                     // graphql-ide uses 0-based, CLI output uses 1-based
                     line: (diag.range.start.line + 1) as usize,
                     column: (diag.range.start.character + 1) as usize,

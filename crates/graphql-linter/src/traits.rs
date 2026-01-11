@@ -22,7 +22,7 @@ pub trait LintRule: Send + Sync {
 ///
 /// These rules can access:
 /// - Parsed syntax tree via `graphql_syntax::parse(db, content, metadata)`
-/// - All fragments via `graphql_hir::all_fragments_with_project(db, project_files)`
+/// - All fragments via `graphql_hir::all_fragments(db, project_files)`
 ///
 /// Examples: `redundant_fields`, `operation_naming`, `no_anonymous_operations`
 pub trait StandaloneDocumentLintRule: LintRule {
@@ -42,7 +42,7 @@ pub trait StandaloneDocumentLintRule: LintRule {
 /// These rules can access:
 /// - Parsed syntax tree
 /// - All fragments
-/// - Schema types via `graphql_hir::schema_types_with_project(db, project_files)`
+/// - Schema types via `graphql_hir::schema_types(db, project_files)`
 ///
 /// Examples: `deprecated_field`, `require_id_field`
 pub trait DocumentSchemaLintRule: LintRule {

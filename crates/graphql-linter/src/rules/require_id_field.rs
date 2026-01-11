@@ -39,7 +39,7 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
         }
 
         // Get schema types from HIR
-        let schema_types = graphql_hir::schema_types_with_project(db, project_files);
+        let schema_types = graphql_hir::schema_types(db, project_files);
 
         // Build a map of type names to whether they have an id field
         let mut types_with_id: HashMap<String, bool> = HashMap::new();
@@ -54,7 +54,7 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
         }
 
         // Get all fragments from the project (for cross-file resolution)
-        let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
+        let all_fragments = graphql_hir::all_fragments(db, project_files);
 
         // Get root operation types from schema definition or fall back to defaults
         let root_types = extract_root_type_names(db, project_files, &schema_types);
@@ -122,13 +122,14 @@ fn check_document(
     for definition in doc_cst.definitions() {
         match definition {
             cst::Definition::OperationDefinition(op) => {
-                let root_type = match op.operation_type() {
-                    Some(op_type) if op_type.query_token().is_some() => query_type,
-                    Some(op_type) if op_type.mutation_token().is_some() => mutation_type,
-                    Some(op_type) if op_type.subscription_token().is_some() => subscription_type,
-                    None => query_type, // Default to query for anonymous operations
-                    _ => None,
-                };
+                use super::{get_operation_kind, OperationKind};
+                let root_type = op.operation_type().map_or(query_type, |op_type| {
+                    match get_operation_kind(&op_type) {
+                        OperationKind::Query => query_type,
+                        OperationKind::Mutation => mutation_type,
+                        OperationKind::Subscription => subscription_type,
+                    }
+                });
 
                 if let (Some(root_type_name), Some(selection_set)) = (root_type, op.selection_set())
                 {
@@ -904,6 +905,7 @@ query GetUser {
         let mut doc_file_ids = Vec::new();
         let mut first_doc: Option<(FileId, FileContent, FileMetadata)> = None;
 
+        #[allow(clippy::cast_possible_truncation)]
         for (i, (uri, source, kind)) in documents.iter().enumerate() {
             let file_id = FileId::new((i + 1) as u32);
             let content = FileContent::new(db, Arc::from(*source));
@@ -982,8 +984,7 @@ query GetUser {
         assert_eq!(
             diagnostics.len(),
             0,
-            "Should not warn when fragment contains id: {:?}",
-            diagnostics
+            "Should not warn when fragment contains id: {diagnostics:?}"
         );
     }
 
@@ -1092,8 +1093,7 @@ export const GET_USER = gql`
         assert_eq!(
             diagnostics.len(),
             0,
-            "Should not warn when fragment contains id: {:?}",
-            diagnostics
+            "Should not warn when fragment contains id: {diagnostics:?}"
         );
     }
 
@@ -1130,8 +1130,7 @@ query GetPost {
         assert_eq!(
             diagnostics.len(),
             0,
-            "Should not warn when fragment in inline fragment contains id: {:?}",
-            diagnostics
+            "Should not warn when fragment in inline fragment contains id: {diagnostics:?}"
         );
     }
 }

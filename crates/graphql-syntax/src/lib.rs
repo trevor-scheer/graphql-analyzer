@@ -551,13 +551,6 @@ mod tests {
         let content = "type User {"; // Invalid GraphQL
         let parser = apollo_parser::Parser::new(content);
         let tree = parser.parse();
-
-        for error in tree.errors() {
-            println!("Error message: {}", error.message());
-            println!("Error data: {:?}", error.data());
-            println!("Error index: {:?}", error.index());
-        }
-
         assert!(tree.errors().next().is_some());
     }
 

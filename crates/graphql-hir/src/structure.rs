@@ -4,6 +4,10 @@ use graphql_db::FileId;
 use std::sync::Arc;
 use text_size::{TextRange, TextSize};
 
+/// Offset multiplier to ensure unique operation indices across blocks.
+/// Each block's operations get offset by `block_index * BLOCK_INDEX_OFFSET`.
+const BLOCK_INDEX_OFFSET: usize = 1000;
+
 /// Structure of a type definition (no field bodies)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TypeDef {
@@ -176,7 +180,7 @@ pub fn file_structure(
         if block_idx > 0 {
             let ops_len = operations.len();
             for op in operations.iter_mut().skip(ops_len.saturating_sub(1)) {
-                op.index += block_idx * 1000; // Simple offset to make unique
+                op.index += block_idx * BLOCK_INDEX_OFFSET;
             }
         }
     }
