@@ -123,9 +123,10 @@ impl GraphQLConfig {
         let rel_path_str = rel_path.to_string_lossy();
         tracing::debug!("Checking if '{}' matches project patterns", rel_path_str);
         tracing::debug!(
-            "  Project has: exclude={}, include={}, documents={}",
+            "  Project has: exclude={}, include={}, schema={}, documents={}",
             config.exclude.as_ref().map_or(0, Vec::len),
             config.include.as_ref().map_or(0, Vec::len),
+            config.schema.paths().len(),
             config.documents.as_ref().map_or(0, |d| d.patterns().len())
         );
 
@@ -173,7 +174,22 @@ impl GraphQLConfig {
             return false;
         }
 
-        // File is in scope - now check if it matches document patterns (if specified)
+        // Check if file matches schema patterns
+        let schema_patterns = config.schema.paths();
+        tracing::debug!("Checking schema patterns: {:?}", schema_patterns);
+        for pattern in &schema_patterns {
+            for expanded in Self::expand_braces(pattern) {
+                tracing::debug!("  Testing schema pattern: {}", expanded);
+                if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
+                    if glob_pattern.matches(&rel_path_str) {
+                        tracing::debug!("    ✓ Matched schema pattern: {}", expanded);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Check if file matches document patterns (if specified)
         if let Some(ref documents) = config.documents {
             let patterns = documents.patterns();
             tracing::debug!("Checking document patterns: {:?}", patterns);
@@ -188,14 +204,11 @@ impl GraphQLConfig {
                     }
                 }
             }
-            // Document patterns specified but no match
-            tracing::debug!("No document patterns matched, file excluded");
-            return false;
         }
 
-        // No document patterns - if file is in include scope, it matches
-        tracing::debug!("No document patterns specified, matching by include scope");
-        true
+        // Neither schema nor document patterns matched
+        tracing::debug!("No schema or document patterns matched, file excluded");
+        false
     }
 
     /// Normalize a glob pattern for consistent matching
@@ -618,6 +631,57 @@ extensions:
         assert_eq!(
             config.find_project_for_document(&api_file, &workspace_root),
             Some("web")
+        );
+    }
+
+    #[test]
+    fn test_schema_files_match_project() {
+        use std::path::PathBuf;
+
+        // Simulates a GitHub-style project where:
+        // - schema files are in "schema/*.graphql"
+        // - document files are in "src/**/*.graphql"
+        let mut projects = HashMap::new();
+        projects.insert(
+            "github".to_string(),
+            ProjectConfig {
+                schema: SchemaConfig::Path("schema/*.graphql".to_string()),
+                documents: Some(DocumentsConfig::Patterns(vec![
+                    "src/**/*.graphql".to_string(),
+                    "src/**/*.ts".to_string(),
+                ])),
+                include: None,
+                exclude: None,
+                lint: None,
+                extensions: None,
+            },
+        );
+
+        let config = GraphQLConfig::Multi { projects };
+        let workspace_root = PathBuf::from("/workspace");
+
+        // Schema files should match via schema patterns
+        let schema_file = PathBuf::from("/workspace/schema/organizations.graphql");
+        assert_eq!(
+            config.find_project_for_document(&schema_file, &workspace_root),
+            Some("github"),
+            "Schema files should be matched by schema patterns"
+        );
+
+        // Document files should still match via document patterns
+        let query_file = PathBuf::from("/workspace/src/queries/user.graphql");
+        assert_eq!(
+            config.find_project_for_document(&query_file, &workspace_root),
+            Some("github"),
+            "Query files should be matched by document patterns"
+        );
+
+        // Files outside both schema and document patterns should not match
+        let other_file = PathBuf::from("/workspace/other/file.graphql");
+        assert_eq!(
+            config.find_project_for_document(&other_file, &workspace_root),
+            None,
+            "Files outside schema and document patterns should not match"
         );
     }
 }
