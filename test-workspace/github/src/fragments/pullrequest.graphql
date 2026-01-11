@@ -1,0 +1,101 @@
+# Fragment-only file for PullRequest types
+
+fragment PullRequestBasic on PullRequest {
+  id
+  number
+  title
+  state
+  url
+  createdAt
+  updatedAt
+  merged
+  mergedAt
+  isDraft
+}
+
+fragment PullRequestDetails on PullRequest {
+  ...PullRequestBasic
+  body
+  bodyHTML
+  additions
+  deletions
+  changedFiles
+  baseRefName
+  headRefName
+  mergeable
+  mergeStateStatus
+  author {
+    ...ActorBasic
+  }
+}
+
+fragment PullRequestWithReviews on PullRequest {
+  ...PullRequestDetails
+  reviews(first: 20) {
+    totalCount
+    nodes {
+      ...PullRequestReviewBasic
+    }
+  }
+  reviewDecision
+  reviewRequests(first: 10) {
+    nodes {
+      requestedReviewer {
+        ... on User {
+          ...UserBasic
+        }
+        ... on Team {
+          ...TeamBasic
+        }
+      }
+    }
+  }
+}
+
+fragment PullRequestReviewBasic on PullRequestReview {
+  id
+  state
+  body
+  createdAt
+  author {
+    ...ActorBasic
+  }
+  comments {
+    totalCount
+  }
+}
+
+fragment PullRequestWithCommits on PullRequest {
+  ...PullRequestDetails
+  commits(first: 50) {
+    totalCount
+    nodes {
+      commit {
+        ...CommitBasic
+      }
+    }
+  }
+}
+
+fragment PullRequestFull on PullRequest {
+  ...PullRequestWithReviews
+  ...PullRequestWithCommits
+  labels(first: 10) {
+    nodes {
+      ...LabelBasic
+    }
+  }
+  assignees(first: 10) {
+    nodes {
+      ...UserBasic
+    }
+  }
+  milestone {
+    ...MilestoneBasic
+  }
+  closingIssuesReferences(first: 10) {
+    nodes {
+      ...IssueBasic
+    }
+  }
+}

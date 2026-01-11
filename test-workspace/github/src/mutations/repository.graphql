@@ -1,0 +1,64 @@
+# Repository mutations
+
+mutation CreateRepository($input: CreateRepositoryInput!) {
+  createRepository(input: $input) {
+    clientMutationId
+    repository {
+      ...RepositoryDetails
+    }
+  }
+}
+
+mutation UpdateRepository($input: UpdateRepositoryInput!) {
+  updateRepository(input: $input) {
+    clientMutationId
+    repository {
+      ...RepositoryDetails
+    }
+  }
+}
+
+mutation AddStar($starrableId: ID!) {
+  addStar(input: { starrableId: $starrableId }) {
+    clientMutationId
+    starrable {
+      ... on Repository {
+        id
+        stargazerCount
+        viewerHasStarred
+      }
+    }
+  }
+}
+
+mutation RemoveStar($starrableId: ID!) {
+  removeStar(input: { starrableId: $starrableId }) {
+    clientMutationId
+    starrable {
+      ... on Repository {
+        id
+        stargazerCount
+        viewerHasStarred
+      }
+    }
+  }
+}
+
+mutation CreateBranchProtectionRule($input: CreateBranchProtectionRuleInput!) {
+  createBranchProtectionRule(input: $input) {
+    clientMutationId
+    branchProtectionRule {
+      id
+      pattern
+      requiresApprovingReviews
+      requiredApprovingReviewCount
+      requiresStatusChecks
+      requiredStatusCheckContexts
+      requiresCommitSignatures
+      isAdminEnforced
+      restrictsPushes
+      restrictsReviewDismissals
+      dismissesStaleReviews
+    }
+  }
+}

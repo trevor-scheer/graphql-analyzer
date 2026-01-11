@@ -1,0 +1,56 @@
+# Mixed file: fragments and operations together
+# Tests extraction of both in a single file
+
+# Local fragments (not meant for external use)
+fragment NotificationSubjectSummary on Issue {
+  number
+  title
+  state
+  url
+}
+
+fragment NotificationPRSummary on PullRequest {
+  number
+  title
+  state
+  merged
+  url
+}
+
+# Query that uses local fragments
+query GetNotificationSubjects($owner: String!, $name: String!, $issueNumbers: [Int!]!, $prNumbers: [Int!]!) {
+  repository(owner: $owner, name: $name) {
+    # Get issues
+    issue1: issue(number: 1) {
+      ...NotificationSubjectSummary
+    }
+    issue2: issue(number: 2) {
+      ...NotificationSubjectSummary
+    }
+
+    # Get PRs
+    pr1: pullRequest(number: 1) {
+      ...NotificationPRSummary
+    }
+    pr2: pullRequest(number: 2) {
+      ...NotificationPRSummary
+    }
+  }
+}
+
+# Another fragment for composite use
+fragment NotificationRepoContext on Repository {
+  nameWithOwner
+  isPrivate
+  owner {
+    ...ActorBasic
+  }
+}
+
+# Query using both local and imported fragments
+query GetNotificationContext($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    ...NotificationRepoContext
+    ...RepositoryBasic
+  }
+}

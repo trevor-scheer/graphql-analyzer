@@ -12,3 +12,24 @@ projects:
     documents: "test-workspace/starwars/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
     lint:
       recommended: error # Use recommended preset with error severity
+
+  github:
+    schema: "test-workspace/github/schema/*.graphql"
+    documents:
+      - "test-workspace/github/src/**/*.graphql"
+      - "test-workspace/github/src/**/*.ts"
+      - "test-workspace/github/src/**/*.tsx"
+    lint:
+      recommended: warn
+      rules:
+        no_deprecated: warn
+
+  github-admin:
+    schema:
+      - "test-workspace/github/schema/*.graphql"
+      - "test-workspace/github/admin/schema/*.graphql"
+    documents: "test-workspace/github/admin/src/**/*.graphql"
+    lint:
+      recommended: error
+      rules:
+        no_deprecated: error

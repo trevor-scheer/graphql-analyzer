@@ -1,0 +1,233 @@
+# Pull Request queries
+
+query GetPullRequest($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      ...PullRequestFull
+    }
+  }
+}
+
+query GetPullRequestReviews(
+  $owner: String!
+  $name: String!
+  $number: Int!
+  $first: Int = 20
+  $after: String
+) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id
+      reviews(first: $first, after: $after) {
+        totalCount
+        pageInfo {
+          ...PageInfoFull
+        }
+        nodes {
+          ...PullRequestReviewBasic
+          comments(first: 20) {
+            totalCount
+            nodes {
+              id
+              body
+              path
+              position
+              line
+              createdAt
+              author {
+                ...ActorBasic
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+query GetPullRequestReviewThreads(
+  $owner: String!
+  $name: String!
+  $number: Int!
+  $first: Int = 20
+  $after: String
+) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id
+      reviewThreads(first: $first, after: $after) {
+        totalCount
+        pageInfo {
+          ...PageInfoFull
+        }
+        nodes {
+          id
+          path
+          line
+          isResolved
+          isOutdated
+          isCollapsed
+          diffSide
+          resolvedBy {
+            ...UserBasic
+          }
+          comments(first: 20) {
+            totalCount
+            nodes {
+              id
+              body
+              createdAt
+              author {
+                ...ActorBasic
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+query GetPullRequestFiles(
+  $owner: String!
+  $name: String!
+  $number: Int!
+  $first: Int = 50
+  $after: String
+) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id
+      additions
+      deletions
+      changedFiles
+      files(first: $first, after: $after) {
+        totalCount
+        pageInfo {
+          ...PageInfoFull
+        }
+        nodes {
+          path
+          additions
+          deletions
+          changeType
+          viewerViewedState
+        }
+      }
+    }
+  }
+}
+
+query GetPullRequestChecks($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id
+      commits(last: 1) {
+        nodes {
+          commit {
+            statusCheckRollup {
+              state
+              contexts(first: 50) {
+                totalCount
+                nodes {
+                  ... on CheckRun {
+                    id
+                    name
+                    status
+                    conclusion
+                    startedAt
+                    completedAt
+                    detailsUrl
+                    checkSuite {
+                      app {
+                        name
+                        logoUrl
+                      }
+                    }
+                  }
+                  ... on StatusContext {
+                    id
+                    context
+                    state
+                    description
+                    targetUrl
+                    createdAt
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+query GetPullRequestTimeline(
+  $owner: String!
+  $name: String!
+  $number: Int!
+  $first: Int = 50
+  $after: String
+) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id
+      timelineItems(first: $first, after: $after) {
+        totalCount
+        pageInfo {
+          ...PageInfoFull
+        }
+        nodes {
+          ... on PullRequestCommit {
+            commit {
+              ...CommitBasic
+            }
+          }
+          ... on PullRequestReview {
+            ...PullRequestReviewBasic
+          }
+          ... on IssueComment {
+            ...IssueCommentBasic
+          }
+          ... on MergedEvent {
+            id
+            createdAt
+            actor {
+              ...ActorBasic
+            }
+            mergeRefName
+          }
+          ... on HeadRefForcePushedEvent {
+            id
+            createdAt
+            actor {
+              ...ActorBasic
+            }
+            beforeCommit {
+              abbreviatedOid
+            }
+            afterCommit {
+              abbreviatedOid
+            }
+          }
+          ... on ReviewRequestedEvent {
+            id
+            createdAt
+            actor {
+              ...ActorBasic
+            }
+            requestedReviewer {
+              ... on User {
+                ...UserBasic
+              }
+              ... on Team {
+                ...TeamBasic
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

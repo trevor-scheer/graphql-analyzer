@@ -1,0 +1,113 @@
+# Search queries
+
+query SearchRepositories(
+  $query: String!
+  $first: Int = 30
+  $after: String
+) {
+  search(query: $query, type: REPOSITORY, first: $first, after: $after) {
+    repositoryCount
+    pageInfo {
+      ...PageInfoFull
+    }
+    edges {
+      cursor
+      textMatches {
+        fragment
+        property
+        highlights {
+          text
+          beginIndice
+          endIndice
+        }
+      }
+      node {
+        ... on Repository {
+          ...RepositoryDetails
+        }
+      }
+    }
+  }
+}
+
+query SearchIssues(
+  $query: String!
+  $first: Int = 30
+  $after: String
+) {
+  search(query: $query, type: ISSUE, first: $first, after: $after) {
+    issueCount
+    pageInfo {
+      ...PageInfoFull
+    }
+    nodes {
+      ... on Issue {
+        ...IssueWithLabels
+        repository {
+          nameWithOwner
+        }
+      }
+      ... on PullRequest {
+        ...PullRequestDetails
+        repository {
+          nameWithOwner
+        }
+      }
+    }
+  }
+}
+
+query SearchUsers(
+  $query: String!
+  $first: Int = 30
+  $after: String
+) {
+  search(query: $query, type: USER, first: $first, after: $after) {
+    userCount
+    pageInfo {
+      ...PageInfoFull
+    }
+    nodes {
+      ... on User {
+        ...UserProfile
+      }
+      ... on Organization {
+        ...OrganizationDetails
+      }
+    }
+  }
+}
+
+query SearchDiscussions(
+  $query: String!
+  $first: Int = 30
+  $after: String
+) {
+  search(query: $query, type: DISCUSSION, first: $first, after: $after) {
+    discussionCount
+    pageInfo {
+      ...PageInfoFull
+    }
+    nodes {
+      ... on Discussion {
+        id
+        number
+        title
+        body
+        createdAt
+        author {
+          ...ActorBasic
+        }
+        category {
+          name
+          emoji
+        }
+        repository {
+          nameWithOwner
+        }
+        upvoteCount
+        isAnswered
+      }
+    }
+  }
+}
