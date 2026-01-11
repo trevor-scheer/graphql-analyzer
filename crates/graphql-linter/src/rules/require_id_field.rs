@@ -916,6 +916,7 @@ query GetUser {
         let mut doc_file_ids = Vec::new();
         let mut first_doc: Option<(FileId, FileContent, FileMetadata)> = None;
 
+        #[allow(clippy::cast_possible_truncation)]
         for (i, (uri, source, kind)) in documents.iter().enumerate() {
             let file_id = FileId::new((i + 1) as u32);
             let content = FileContent::new(db, Arc::from(*source));
@@ -994,8 +995,7 @@ query GetUser {
         assert_eq!(
             diagnostics.len(),
             0,
-            "Should not warn when fragment contains id: {:?}",
-            diagnostics
+            "Should not warn when fragment contains id: {diagnostics:?}"
         );
     }
 
@@ -1104,8 +1104,7 @@ export const GET_USER = gql`
         assert_eq!(
             diagnostics.len(),
             0,
-            "Should not warn when fragment contains id: {:?}",
-            diagnostics
+            "Should not warn when fragment contains id: {diagnostics:?}"
         );
     }
 
@@ -1142,8 +1141,7 @@ query GetPost {
         assert_eq!(
             diagnostics.len(),
             0,
-            "Should not warn when fragment in inline fragment contains id: {:?}",
-            diagnostics
+            "Should not warn when fragment in inline fragment contains id: {diagnostics:?}"
         );
     }
 }
