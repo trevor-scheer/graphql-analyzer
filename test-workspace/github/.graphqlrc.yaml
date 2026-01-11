@@ -9,12 +9,10 @@ projects:
       - "src/**/*.graphql"
       - "src/**/*.ts"
       - "src/**/*.tsx"
-    extensions:
-      lsp:
-        lint:
-          recommended: warn
-          rules:
-            no_deprecated: warn
+    lint:
+      extends: recommended
+      rules:
+        no_deprecated: warn
 
   # Admin-specific operations (separate schema extensions)
   admin:
@@ -22,9 +20,7 @@ projects:
       - "schema/*.graphql"
       - "admin/schema/*.graphql"
     documents: "admin/src/**/*.graphql"
-    extensions:
-      lsp:
-        lint:
-          recommended: error
-          rules:
-            no_deprecated: error
+    lint:
+      extends: recommended
+      rules:
+        no_deprecated: error

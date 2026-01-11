@@ -325,7 +325,6 @@ fn check_selection_set(
     }
 }
 
-
 /// Get the return type name for a field, unwrapping `List` and `NonNull` wrappers
 fn get_field_type(
     parent_type_name: &str,

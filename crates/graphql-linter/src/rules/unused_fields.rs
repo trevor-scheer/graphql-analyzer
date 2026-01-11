@@ -194,7 +194,6 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
     }
 }
 
-
 /// Recursively collect used fields from a selection set
 fn collect_used_fields_from_selection_set(
     selections: &[apollo_compiler::ast::Selection],
