@@ -419,34 +419,55 @@ Rules marked with `-` in the Recommended column are not included in the `recomme
 - `warn` - Show as warning
 - `error` - Show as error
 
-**Basic configuration:**
+**Using the recommended preset:**
 
 ```yaml
-# Top-level lint applies to all tools
 lint:
-  recommended: error # Enable recommended rules
+  # Enable all recommended rules at their predefined severities
+  # (see Recommended column in the table above)
+  recommended: error
+```
+
+Note: The value (`error` or `warn`) after `recommended:` enables the preset. Each rule in the preset runs at its own predefined severity level as shown in the table above.
+
+**Enabling additional rules:**
+
+```yaml
+lint:
+  recommended: error
+  rules:
+    # Add rules not in the recommended preset
+    unused_fields: warn
+    operation_name_suffix: error
+```
+
+**Overriding recommended rule severities:**
+
+```yaml
+lint:
+  recommended: error
+  rules:
+    # Override a recommended rule's severity
+    no_deprecated: off        # Disable entirely
+    require_id_field: error   # Upgrade from warn to error
 ```
 
 **Tool-specific overrides:**
 
-<!-- TODO(trevor): recommended should be on/off, not error/warn. -->
-
 ```yaml
-# Base configuration
 lint:
   recommended: error
 
-# Tool-specific overrides
 extensions:
   cli:
     lint:
       rules:
-        unused_fields: error
+        unused_fields: error   # Enable for CLI
 
   lsp:
     lint:
       rules:
-        unused_fields: off
+        unused_fields: off     # Disable for LSP
 ```
 
 **Per-project configuration:**
@@ -459,7 +480,7 @@ projects:
     lint:
       recommended: error
       rules:
-        no_deprecated: off # Project-specific override
+        no_deprecated: off     # Project-specific override
 ```
 
 ## License
