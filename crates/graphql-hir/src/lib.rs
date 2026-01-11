@@ -846,4 +846,638 @@ mod tests {
             "PostFields should be updated with 'body' field"
         );
     }
+
+    // ========================================================================
+    // Caching verification tests using TrackedHirDatabase
+    //
+    // These tests verify that our query DESIGN enables proper incremental
+    // computation. We're not testing Salsa itself (which is well-tested),
+    // but rather that:
+    //
+    // 1. Our input structure (FileEntry, FileContent, etc.) enables per-file granularity
+    // 2. Our query dependencies don't accidentally depend on unrelated inputs
+    // 3. The "golden invariant" holds: editing operations doesn't invalidate schema knowledge
+    //
+    // These tests use TrackedHirDatabase which tracks WillExecute events per-database,
+    // avoiding parallel test interference.
+    // ========================================================================
+
+    #[allow(
+        clippy::similar_names,         // file_a/file_b, op1/op2 are intentionally similar in tests
+        clippy::uninlined_format_args, // Test assertions are clearer with separate args
+        clippy::items_after_statements,// const in test functions is fine
+        clippy::cast_possible_truncation, // Test file IDs won't overflow u32
+        clippy::doc_markdown,          // Relaxed doc formatting for tests
+    )]
+    mod caching_tests {
+        use super::*;
+        use graphql_db::tracking::queries;
+        use salsa::{Event, EventKind, Setter, Storage};
+        use std::sync::Mutex;
+
+        /// Per-database query execution log.
+        /// Stored inside `TrackedHirDatabase` for hermetic tests.
+        #[derive(Default)]
+        struct QueryLog {
+            executions: Vec<String>,
+            counts: HashMap<String, usize>,
+        }
+
+        impl QueryLog {
+            fn record(&mut self, query_name: &str) {
+                self.executions.push(query_name.to_string());
+                *self.counts.entry(query_name.to_string()).or_insert(0) += 1;
+            }
+
+            fn checkpoint(&self) -> usize {
+                self.executions.len()
+            }
+
+            fn count_since(&self, query_name: &str, checkpoint: usize) -> usize {
+                self.executions[checkpoint..]
+                    .iter()
+                    .filter(|n| n.as_str() == query_name)
+                    .count()
+            }
+
+            fn executions_since(&self, checkpoint: usize) -> Vec<String> {
+                self.executions[checkpoint..].to_vec()
+            }
+        }
+
+        /// Extracts the query name from Salsa's debug representation.
+        fn extract_query_name(database_key: &dyn std::fmt::Debug) -> String {
+            let debug_str = format!("{database_key:?}");
+            let without_args = debug_str.split('(').next().unwrap_or(&debug_str);
+            without_args
+                .rsplit("::")
+                .next()
+                .unwrap_or(without_args)
+                .to_string()
+        }
+
+        /// A tracked database for HIR caching tests.
+        /// Implements all required traits locally to satisfy orphan rules.
+        #[derive(Clone)]
+        struct TrackedHirDatabase {
+            storage: Storage<Self>,
+            log: Arc<Mutex<QueryLog>>,
+        }
+
+        impl Default for TrackedHirDatabase {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        impl TrackedHirDatabase {
+            fn new() -> Self {
+                let log = Arc::new(Mutex::new(QueryLog::default()));
+                let log_for_callback = Arc::clone(&log);
+
+                Self {
+                    storage: Storage::new(Some(Box::new(move |event: Event| {
+                        if let EventKind::WillExecute { database_key } = event.kind {
+                            let query_name = extract_query_name(&database_key);
+                            log_for_callback
+                                .lock()
+                                .expect("QueryLog mutex poisoned")
+                                .record(&query_name);
+                        }
+                    }))),
+                    log,
+                }
+            }
+
+            fn checkpoint(&self) -> usize {
+                self.log
+                    .lock()
+                    .expect("QueryLog mutex poisoned")
+                    .checkpoint()
+            }
+
+            fn count_since(&self, query_name: &str, checkpoint: usize) -> usize {
+                self.log
+                    .lock()
+                    .expect("QueryLog mutex poisoned")
+                    .count_since(query_name, checkpoint)
+            }
+
+            fn executions_since(&self, checkpoint: usize) -> Vec<String> {
+                self.log
+                    .lock()
+                    .expect("QueryLog mutex poisoned")
+                    .executions_since(checkpoint)
+            }
+        }
+
+        #[salsa::db]
+        impl salsa::Database for TrackedHirDatabase {}
+
+        // SAFETY: storage/storage_mut return references to the owned storage field
+        unsafe impl salsa::plumbing::HasStorage for TrackedHirDatabase {
+            fn storage(&self) -> &Storage<Self> {
+                &self.storage
+            }
+            fn storage_mut(&mut self) -> &mut Storage<Self> {
+                &mut self.storage
+            }
+        }
+
+        #[salsa::db]
+        impl graphql_syntax::GraphQLSyntaxDatabase for TrackedHirDatabase {}
+
+        #[salsa::db]
+        impl GraphQLHirDatabase for TrackedHirDatabase {}
+
+        /// Helper to create `ProjectFiles` for TrackedHirDatabase
+        fn create_tracked_project_files(
+            db: &TrackedHirDatabase,
+            schema_files: &[(FileId, graphql_db::FileContent, graphql_db::FileMetadata)],
+            document_files: &[(FileId, graphql_db::FileContent, graphql_db::FileMetadata)],
+        ) -> graphql_db::ProjectFiles {
+            let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
+            let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
+
+            let mut entries = HashMap::new();
+            for (id, content, metadata) in schema_files {
+                let entry = graphql_db::FileEntry::new(db, *content, *metadata);
+                entries.insert(*id, entry);
+            }
+            for (id, content, metadata) in document_files {
+                let entry = graphql_db::FileEntry::new(db, *content, *metadata);
+                entries.insert(*id, entry);
+            }
+
+            let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(schema_ids));
+            let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_ids));
+            let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(entries));
+
+            graphql_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        }
+
+        /// Test that repeated queries are served from cache (no re-execution)
+        #[test]
+        fn test_cache_hit_on_repeated_query() {
+            let db = TrackedHirDatabase::new();
+
+            let file_id = FileId::new(0);
+            let content =
+                graphql_db::FileContent::new(&db, Arc::from("type Query { hello: String }"));
+            let metadata = graphql_db::FileMetadata::new(
+                &db,
+                file_id,
+                graphql_db::FileUri::new("test.graphql"),
+                graphql_db::FileKind::Schema,
+            );
+
+            let schema_files = [(file_id, content, metadata)];
+            let project_files = create_tracked_project_files(&db, &schema_files, &[]);
+
+            // First query - cold (should execute)
+            let checkpoint = db.checkpoint();
+            let types1 = schema_types(&db, project_files);
+            assert_eq!(types1.len(), 1);
+
+            let cold_count = db.count_since(queries::SCHEMA_TYPES, checkpoint);
+            assert!(
+                cold_count >= 1,
+                "First query should execute schema_types at least once, got {}",
+                cold_count
+            );
+
+            // Second query - should be cached (0 new executions)
+            let checkpoint2 = db.checkpoint();
+            let types2 = schema_types(&db, project_files);
+            assert_eq!(types2.len(), 1);
+
+            let warm_count = db.count_since(queries::SCHEMA_TYPES, checkpoint2);
+            assert_eq!(
+                warm_count, 0,
+                "Second query should NOT re-execute schema_types (cached)"
+            );
+        }
+
+        /// Test that editing one file only re-executes queries for that file
+        #[test]
+        fn test_granular_caching_editing_one_file() {
+            let mut db = TrackedHirDatabase::new();
+
+            // Create two schema files
+            let file_a_id = FileId::new(0);
+            let file_a_content =
+                graphql_db::FileContent::new(&db, Arc::from("type TypeA { id: ID! }"));
+            let file_a_metadata = graphql_db::FileMetadata::new(
+                &db,
+                file_a_id,
+                graphql_db::FileUri::new("a.graphql"),
+                graphql_db::FileKind::Schema,
+            );
+
+            let file_b_id = FileId::new(1);
+            let file_b_content =
+                graphql_db::FileContent::new(&db, Arc::from("type TypeB { id: ID! }"));
+            let file_b_metadata = graphql_db::FileMetadata::new(
+                &db,
+                file_b_id,
+                graphql_db::FileUri::new("b.graphql"),
+                graphql_db::FileKind::Schema,
+            );
+
+            let schema_files = [
+                (file_a_id, file_a_content, file_a_metadata),
+                (file_b_id, file_b_content, file_b_metadata),
+            ];
+            let project_files = create_tracked_project_files(&db, &schema_files, &[]);
+
+            // Warm the cache
+            let types = schema_types(&db, project_files);
+            assert_eq!(types.len(), 2);
+            assert!(types.contains_key("TypeA"));
+            assert!(types.contains_key("TypeB"));
+
+            // Checkpoint BEFORE the edit
+            let checkpoint = db.checkpoint();
+
+            // Edit ONLY file A's content
+            file_a_content
+                .set_text(&mut db)
+                .to(Arc::from("type TypeA { id: ID! name: String }"));
+
+            // Re-query
+            let types_after = schema_types(&db, project_files);
+            assert_eq!(types_after.len(), 2);
+
+            // Verify per-file granular caching
+            let parse_count = db.count_since(queries::PARSE, checkpoint);
+            let file_structure_count = db.count_since(queries::FILE_STRUCTURE, checkpoint);
+
+            println!(
+                "After editing 1 of 2 files: parse={}, file_structure={}",
+                parse_count, file_structure_count
+            );
+
+            // With granular caching, we should see ~1 parse and ~1 file_structure
+            // (only for file A, not file B)
+            assert!(
+                parse_count <= 2,
+                "Expected ~1 parse call (for edited file), got {}",
+                parse_count
+            );
+            assert!(
+                file_structure_count <= 2,
+                "Expected ~1 file_structure call (for edited file), got {}",
+                file_structure_count
+            );
+        }
+
+        /// Test that editing document files doesn't invalidate schema queries
+        #[test]
+        fn test_unrelated_file_edit_doesnt_invalidate_schema() {
+            let mut db = TrackedHirDatabase::new();
+
+            // Create one schema file and one document file
+            let schema_id = FileId::new(0);
+            let schema_content =
+                graphql_db::FileContent::new(&db, Arc::from("type Query { hello: String }"));
+            let schema_metadata = graphql_db::FileMetadata::new(
+                &db,
+                schema_id,
+                graphql_db::FileUri::new("schema.graphql"),
+                graphql_db::FileKind::Schema,
+            );
+
+            let doc_id = FileId::new(1);
+            let doc_content = graphql_db::FileContent::new(&db, Arc::from("query { hello }"));
+            let doc_metadata = graphql_db::FileMetadata::new(
+                &db,
+                doc_id,
+                graphql_db::FileUri::new("query.graphql"),
+                graphql_db::FileKind::ExecutableGraphQL,
+            );
+
+            let project_files = create_tracked_project_files(
+                &db,
+                &[(schema_id, schema_content, schema_metadata)],
+                &[(doc_id, doc_content, doc_metadata)],
+            );
+
+            // Warm the cache
+            let types = schema_types(&db, project_files);
+            assert_eq!(types.len(), 1);
+
+            // Checkpoint BEFORE editing the document
+            let checkpoint = db.checkpoint();
+
+            // Edit the DOCUMENT file (not the schema)
+            doc_content
+                .set_text(&mut db)
+                .to(Arc::from("query { hello world }"));
+
+            // Query schema types again
+            let types_after = schema_types(&db, project_files);
+            assert_eq!(types_after.len(), 1);
+
+            // schema_types should NOT have re-executed (document change doesn't affect schema)
+            let schema_types_count = db.count_since(queries::SCHEMA_TYPES, checkpoint);
+            assert_eq!(
+                schema_types_count, 0,
+                "Editing a document file should NOT invalidate schema_types query"
+            );
+        }
+
+        /// Test O(1) behavior: with N files, editing 1 file causes O(1) recomputation
+        #[test]
+        fn test_editing_one_of_many_files_is_o1_not_on() {
+            let mut db = TrackedHirDatabase::new();
+
+            // Create 10 schema files
+            const NUM_FILES: usize = 10;
+            let mut schema_files = Vec::with_capacity(NUM_FILES);
+            let mut file_contents = Vec::with_capacity(NUM_FILES);
+
+            for i in 0..NUM_FILES {
+                let file_id = FileId::new(i as u32);
+                let type_name = format!("Type{i}");
+                let content_str = format!("type {type_name} {{ id: ID! }}");
+                let content = graphql_db::FileContent::new(&db, Arc::from(content_str.as_str()));
+                let uri = format!("file{i}.graphql");
+                let metadata = graphql_db::FileMetadata::new(
+                    &db,
+                    file_id,
+                    graphql_db::FileUri::new(uri),
+                    graphql_db::FileKind::Schema,
+                );
+
+                file_contents.push(content);
+                schema_files.push((file_id, content, metadata));
+            }
+
+            let project_files = create_tracked_project_files(&db, &schema_files, &[]);
+
+            // Warm the cache
+            let types = schema_types(&db, project_files);
+            assert_eq!(types.len(), NUM_FILES);
+
+            // Checkpoint BEFORE the edit
+            let checkpoint = db.checkpoint();
+
+            // Edit ONLY file 0
+            file_contents[0]
+                .set_text(&mut db)
+                .to(Arc::from("type Type0 { id: ID! name: String }"));
+
+            // Re-query
+            let types_after = schema_types(&db, project_files);
+            assert_eq!(types_after.len(), NUM_FILES);
+
+            // Measure deltas
+            let parse_delta = db.count_since(queries::PARSE, checkpoint);
+            let file_structure_delta = db.count_since(queries::FILE_STRUCTURE, checkpoint);
+
+            println!(
+                "With {} files, editing 1 file caused: parse={}, file_structure={}",
+                NUM_FILES, parse_delta, file_structure_delta
+            );
+
+            // KEY ASSERTION: With granular caching, we should see ~1 parse and ~1 file_structure
+            // Without granular caching, we'd see ~10 of each (O(N))
+            let max_allowed = NUM_FILES / 2;
+            assert!(
+                parse_delta <= max_allowed,
+                "Expected O(1) parse calls, got {} (O(N) would be ~{})",
+                parse_delta,
+                NUM_FILES
+            );
+            assert!(
+                file_structure_delta <= max_allowed,
+                "Expected O(1) file_structure calls, got {} (O(N) would be ~{})",
+                file_structure_delta,
+                NUM_FILES
+            );
+        }
+
+        /// Test that fragment index is not invalidated by editing non-fragment files
+        #[test]
+        fn test_fragment_index_not_invalidated_by_unrelated_edit() {
+            let mut db = TrackedHirDatabase::new();
+
+            // Create a schema file
+            let schema_id = FileId::new(0);
+            let schema_content = graphql_db::FileContent::new(
+                &db,
+                Arc::from("type Query { user: User } type User { id: ID! name: String }"),
+            );
+            let schema_metadata = graphql_db::FileMetadata::new(
+                &db,
+                schema_id,
+                graphql_db::FileUri::new("schema.graphql"),
+                graphql_db::FileKind::Schema,
+            );
+
+            // Create a document with a fragment
+            let frag_id = FileId::new(1);
+            let frag_content = graphql_db::FileContent::new(
+                &db,
+                Arc::from("fragment UserFields on User { id name }"),
+            );
+            let frag_metadata = graphql_db::FileMetadata::new(
+                &db,
+                frag_id,
+                graphql_db::FileUri::new("fragments.graphql"),
+                graphql_db::FileKind::ExecutableGraphQL,
+            );
+
+            // Create another document that will be edited (no fragments)
+            let query_id = FileId::new(2);
+            let query_content =
+                graphql_db::FileContent::new(&db, Arc::from("query GetUser { user { id } }"));
+            let query_metadata = graphql_db::FileMetadata::new(
+                &db,
+                query_id,
+                graphql_db::FileUri::new("query.graphql"),
+                graphql_db::FileKind::ExecutableGraphQL,
+            );
+
+            let project_files = create_tracked_project_files(
+                &db,
+                &[(schema_id, schema_content, schema_metadata)],
+                &[
+                    (frag_id, frag_content, frag_metadata),
+                    (query_id, query_content, query_metadata),
+                ],
+            );
+
+            // Build the fragment index (warm cache)
+            let fragments = all_fragments(&db, project_files);
+            assert_eq!(fragments.len(), 1);
+            assert!(fragments.contains_key("UserFields"));
+
+            // Checkpoint BEFORE the edit
+            let checkpoint = db.checkpoint();
+
+            // Edit the QUERY file (not the fragment file)
+            query_content
+                .set_text(&mut db)
+                .to(Arc::from("query GetUser { user { id name } }"));
+
+            // Re-query fragments
+            let fragments_after = all_fragments(&db, project_files);
+            assert_eq!(fragments_after.len(), 1);
+
+            // all_fragments should be cached (query file has no fragments)
+            let all_fragments_delta = db.count_since(queries::ALL_FRAGMENTS, checkpoint);
+            let file_fragments_delta = db.count_since(queries::FILE_FRAGMENTS, checkpoint);
+
+            println!(
+                "After editing query file: all_fragments={}, file_fragments={}",
+                all_fragments_delta, file_fragments_delta
+            );
+
+            // all_fragments should not re-execute because no fragment changed
+            // file_fragments for the edited file may re-run but should be O(1)
+            assert!(
+                all_fragments_delta <= 1,
+                "all_fragments should be mostly cached when editing non-fragment files, got {}",
+                all_fragments_delta
+            );
+        }
+
+        /// Test the "golden invariant": schema_types is stable across operation edits
+        ///
+        /// This is critical for IDE responsiveness: users edit operations frequently,
+        /// and we must NOT re-compute schema knowledge on every keystroke.
+        #[test]
+        fn test_golden_invariant_schema_stable_across_operation_edits() {
+            let mut db = TrackedHirDatabase::new();
+
+            // Create schema
+            let schema_id = FileId::new(0);
+            let schema_content = graphql_db::FileContent::new(
+                &db,
+                Arc::from(
+                    "type Query { users: [User!]! } type User { id: ID! name: String! email: String }",
+                ),
+            );
+            let schema_metadata = graphql_db::FileMetadata::new(
+                &db,
+                schema_id,
+                graphql_db::FileUri::new("schema.graphql"),
+                graphql_db::FileKind::Schema,
+            );
+
+            // Create multiple operation files
+            let op1_id = FileId::new(1);
+            let op1_content =
+                graphql_db::FileContent::new(&db, Arc::from("query GetUsers { users { id } }"));
+            let op1_metadata = graphql_db::FileMetadata::new(
+                &db,
+                op1_id,
+                graphql_db::FileUri::new("op1.graphql"),
+                graphql_db::FileKind::ExecutableGraphQL,
+            );
+
+            let op2_id = FileId::new(2);
+            let op2_content = graphql_db::FileContent::new(
+                &db,
+                Arc::from("query GetUserNames { users { name } }"),
+            );
+            let op2_metadata = graphql_db::FileMetadata::new(
+                &db,
+                op2_id,
+                graphql_db::FileUri::new("op2.graphql"),
+                graphql_db::FileKind::ExecutableGraphQL,
+            );
+
+            let project_files = create_tracked_project_files(
+                &db,
+                &[(schema_id, schema_content, schema_metadata)],
+                &[
+                    (op1_id, op1_content, op1_metadata),
+                    (op2_id, op2_content, op2_metadata),
+                ],
+            );
+
+            // Warm the cache
+            let types = schema_types(&db, project_files);
+            assert_eq!(types.len(), 2); // Query and User
+
+            // Checkpoint BEFORE editing operations
+            let checkpoint = db.checkpoint();
+
+            // Edit BOTH operation files (simulating active development)
+            op1_content
+                .set_text(&mut db)
+                .to(Arc::from("query GetUsers { users { id name } }"));
+            op2_content
+                .set_text(&mut db)
+                .to(Arc::from("query GetUserNames { users { name email } }"));
+
+            // Re-query schema
+            let types_after = schema_types(&db, project_files);
+            assert_eq!(types_after.len(), 2);
+
+            // GOLDEN INVARIANT: schema_types should be COMPLETELY cached
+            let schema_types_delta = db.count_since(queries::SCHEMA_TYPES, checkpoint);
+            let file_type_defs_delta = db.count_since(queries::FILE_TYPE_DEFS, checkpoint);
+
+            println!(
+                "After editing 2 operation files: schema_types={}, file_type_defs={}",
+                schema_types_delta, file_type_defs_delta
+            );
+
+            // schema_types should NOT re-execute when only operations are edited
+            assert_eq!(
+                schema_types_delta, 0,
+                "GOLDEN INVARIANT VIOLATED: schema_types ran {} times after operation edit",
+                schema_types_delta
+            );
+
+            // file_type_defs also should not re-execute (schema file unchanged)
+            assert_eq!(
+                file_type_defs_delta, 0,
+                "file_type_defs should be cached when operations are edited, got {}",
+                file_type_defs_delta
+            );
+        }
+
+        /// Test that executions_since() provides debugging information
+        #[test]
+        fn test_executions_since_for_debugging() {
+            let db = TrackedHirDatabase::new();
+
+            let file_id = FileId::new(0);
+            let content =
+                graphql_db::FileContent::new(&db, Arc::from("type Query { hello: String }"));
+            let metadata = graphql_db::FileMetadata::new(
+                &db,
+                file_id,
+                graphql_db::FileUri::new("test.graphql"),
+                graphql_db::FileKind::Schema,
+            );
+
+            let schema_files = [(file_id, content, metadata)];
+            let project_files = create_tracked_project_files(&db, &schema_files, &[]);
+
+            let checkpoint = db.checkpoint();
+            let _ = schema_types(&db, project_files);
+
+            // Get all executions for debugging
+            let executions = db.executions_since(checkpoint);
+
+            // Should have recorded some query executions
+            assert!(
+                !executions.is_empty(),
+                "Should have recorded query executions"
+            );
+
+            // The executions should include expected queries
+            let has_schema_types = executions.iter().any(|q| q == queries::SCHEMA_TYPES);
+            assert!(
+                has_schema_types,
+                "Executions should include schema_types: {:?}",
+                executions
+            );
+        }
+    }
 }

@@ -144,6 +144,76 @@ let metadata = FileMetadata::new(
 file_content.set_text(&mut db).to(Arc::from("type Query { world: String }"));
 ```
 
+## Query Tracking for Testing
+
+The crate includes a `tracking` module (behind `test-utils` feature) for verifying Salsa caching behavior in tests. This enables deterministic assertions about incremental computation without relying on timing-based benchmarks.
+
+### Design Principles
+
+1. **Per-database tracking**: Each `TrackedDatabase` has its own query log, avoiding global state and parallel test interference
+2. **Checkpoint-based assertions**: Tests use `checkpoint()` and `count_since()` for deterministic assertions
+3. **Query name constants**: The `queries` module provides constants to prevent typos
+
+### Usage
+
+```rust
+use graphql_db::tracking::{TrackedDatabase, queries};
+
+let mut db = TrackedDatabase::new();
+// ... setup files ...
+
+// Take a checkpoint before the operation
+let checkpoint = db.checkpoint();
+
+// Call queries
+let result = schema_types(&db, project_files);
+
+// Assert on executions since checkpoint
+assert_eq!(db.count_since(queries::SCHEMA_TYPES, checkpoint), 1);
+
+// Second call should be cached (0 new executions)
+let checkpoint2 = db.checkpoint();
+let result2 = schema_types(&db, project_files);
+assert_eq!(db.count_since(queries::SCHEMA_TYPES, checkpoint2), 0); // Cached!
+```
+
+### Available Query Constants
+
+```rust
+pub mod queries {
+    pub const PARSE: &str = "parse";
+    pub const FILE_STRUCTURE: &str = "file_structure";
+    pub const FILE_TYPE_DEFS: &str = "file_type_defs";
+    pub const FILE_FRAGMENTS: &str = "file_fragments";
+    pub const FILE_OPERATIONS: &str = "file_operations";
+    pub const SCHEMA_TYPES: &str = "schema_types";
+    pub const ALL_FRAGMENTS: &str = "all_fragments";
+    pub const ALL_OPERATIONS: &str = "all_operations";
+    pub const FILE_LOOKUP: &str = "file_lookup";
+}
+```
+
+### API
+
+| Method | Description |
+|--------|-------------|
+| `TrackedDatabase::new()` | Create a new tracked database with event tracking |
+| `checkpoint()` | Get current log position for later comparison |
+| `count_since(query, checkpoint)` | Count executions of a query since checkpoint |
+| `executions_since(checkpoint)` | Get all query names executed since checkpoint (for debugging) |
+| `total_count(query)` | Get total execution count since creation |
+| `all_counts()` | Get all query counts as a HashMap |
+| `reset()` | Reset all tracking data |
+
+### Enabling the Feature
+
+Add to your `Cargo.toml`:
+
+```toml
+[dev-dependencies]
+graphql-db = { path = "../graphql-db", features = ["test-utils"] }
+```
+
 ## References
 
 - [Salsa Framework](https://github.com/salsa-rs/salsa)
