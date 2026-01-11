@@ -56,6 +56,12 @@ enum Commands {
         #[arg(long)]
         head: String,
     },
+
+    /// Schema-related commands (download, etc.)
+    Schema {
+        #[command(subcommand)]
+        command: commands::schema::SchemaCommands,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -86,6 +92,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Check { base, head } => {
             commands::check::run(cli.config, cli.project, base, head).await
         }
+        Commands::Schema { command } => commands::schema::run(command).await,
     };
 
     #[cfg(feature = "otel")]
