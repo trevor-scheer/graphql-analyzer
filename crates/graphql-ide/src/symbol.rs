@@ -467,11 +467,23 @@ fn check_definition(definition: &cst::Definition, byte_offset: usize) -> Option<
         cst::Definition::FragmentDefinition(frag) => check_fragment_definition(frag, byte_offset),
         cst::Definition::ObjectTypeDefinition(obj) => {
             check_type_definition_name(obj.name(), byte_offset)
+                .or_else(|| check_implements_interfaces(obj.implements_interfaces(), byte_offset))
                 .or_else(|| check_fields_definition(obj.fields_definition(), byte_offset))
         }
         cst::Definition::InterfaceTypeDefinition(iface) => {
             check_type_definition_name(iface.name(), byte_offset)
+                .or_else(|| check_implements_interfaces(iface.implements_interfaces(), byte_offset))
                 .or_else(|| check_fields_definition(iface.fields_definition(), byte_offset))
+        }
+        cst::Definition::ObjectTypeExtension(ext) => {
+            check_type_definition_name(ext.name(), byte_offset)
+                .or_else(|| check_implements_interfaces(ext.implements_interfaces(), byte_offset))
+                .or_else(|| check_fields_definition(ext.fields_definition(), byte_offset))
+        }
+        cst::Definition::InterfaceTypeExtension(ext) => {
+            check_type_definition_name(ext.name(), byte_offset)
+                .or_else(|| check_implements_interfaces(ext.implements_interfaces(), byte_offset))
+                .or_else(|| check_fields_definition(ext.fields_definition(), byte_offset))
         }
         cst::Definition::UnionTypeDefinition(union) => {
             check_type_definition_name(union.name(), byte_offset).or_else(|| {
@@ -596,6 +608,23 @@ fn check_type_definition_name(name: Option<cst::Name>, byte_offset: usize) -> Op
             return Some(Symbol::TypeName {
                 name: name.text().to_string(),
             });
+        }
+    }
+    None
+}
+
+fn check_implements_interfaces(
+    implements: Option<cst::ImplementsInterfaces>,
+    byte_offset: usize,
+) -> Option<Symbol> {
+    let implements = implements?;
+    for named_type in implements.named_types() {
+        if let Some(name) = named_type.name() {
+            if is_within_range(&name, byte_offset) {
+                return Some(Symbol::TypeName {
+                    name: name.text().to_string(),
+                });
+            }
         }
     }
     None
