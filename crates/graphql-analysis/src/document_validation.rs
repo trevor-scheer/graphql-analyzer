@@ -51,15 +51,12 @@ pub fn validate_document_file(
     let structure = graphql_hir::file_structure(db, metadata.file_id(db), content, metadata);
     let mut diagnostics = Vec::new();
 
-    // Get schema for validation
     let project_files = db
         .project_files()
         .expect("project files must be set for validation");
     let schema = graphql_hir::schema_types_with_project(db, project_files);
 
-    // Validate each operation
     for op_structure in &structure.operations {
-        // Check operation name uniqueness (structural check - cheap)
         if let Some(name) = &op_structure.name {
             let all_ops = graphql_hir::all_operations(db, project_files);
 
@@ -82,7 +79,6 @@ pub fn validate_document_file(
             }
         }
 
-        // Validate variable types
         // Note: VariableSignature doesn't have position info, so we use the operation range
         let op_range =
             text_range_to_diagnostic_range(db, content, metadata, op_structure.operation_range);
@@ -90,8 +86,6 @@ pub fn validate_document_file(
             validate_variable_type(&var.type_ref, &schema, op_range, &mut diagnostics);
         }
 
-        // Validate operation body
-        // Get the root type for this operation
         let root_type_name = match op_structure.operation_type {
             graphql_hir::OperationType::Query => "Query",
             graphql_hir::OperationType::Mutation => "Mutation",
@@ -112,9 +106,7 @@ pub fn validate_document_file(
         // A future enhancement would be to integrate apollo-compiler's validator here.
     }
 
-    // Validate fragments
     for frag_structure in &structure.fragments {
-        // Check fragment name uniqueness
         let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
 
         let count = all_fragments
@@ -131,7 +123,6 @@ pub fn validate_document_file(
             ));
         }
 
-        // Validate fragment type condition exists in schema
         let type_condition_range = text_range_to_diagnostic_range(
             db,
             content,
@@ -203,7 +194,6 @@ fn validate_fragment_type_condition(
         return;
     }
 
-    // Check that the type condition is an object, interface, or union
     if let Some(type_def) = schema.get(&fragment.type_condition) {
         use graphql_hir::TypeDefKind;
         match type_def.kind {

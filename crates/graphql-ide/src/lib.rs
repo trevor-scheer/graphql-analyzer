@@ -638,7 +638,6 @@ impl AnalysisHost {
         );
         let mut count = 1;
 
-        // Get schema patterns from config
         let patterns: Vec<String> = match &config.schema {
             graphql_config::SchemaConfig::Path(s) => vec![s.clone()],
             graphql_config::SchemaConfig::Paths(arr) => arr.clone(),
@@ -660,7 +659,6 @@ impl AnalysisHost {
                         if entry.is_file() {
                             match std::fs::read_to_string(&entry) {
                                 Ok(content) => {
-                                    // Convert filesystem path to file:// URI for consistent lookups
                                     let file_uri = path_to_file_uri(&entry);
                                     self.add_file(
                                         &FilePath::new(file_uri),
@@ -771,12 +769,10 @@ impl Analysis {
         let (content, metadata) = {
             let registry = self.registry.read();
 
-            // Look up FileId from FilePath
             let Some(file_id) = registry.get_file_id(file) else {
                 return Vec::new();
             };
 
-            // Get FileContent and FileMetadata
             let Some(content) = registry.get_content(file_id) else {
                 return Vec::new();
             };
@@ -788,11 +784,9 @@ impl Analysis {
             (content, metadata)
         };
 
-        // Get diagnostics from analysis layer (includes both validation and linting)
         let analysis_diagnostics =
             graphql_analysis::file_diagnostics(&self.db, content, metadata, self.project_files);
 
-        // Convert to IDE diagnostic format
         analysis_diagnostics
             .iter()
             .map(convert_diagnostic)
@@ -807,12 +801,10 @@ impl Analysis {
         let (content, metadata) = {
             let registry = self.registry.read();
 
-            // Look up FileId from FilePath
             let Some(file_id) = registry.get_file_id(file) else {
                 return Vec::new();
             };
 
-            // Get FileContent and FileMetadata
             let Some(content) = registry.get_content(file_id) else {
                 return Vec::new();
             };
@@ -824,7 +816,6 @@ impl Analysis {
             (content, metadata)
         };
 
-        // Get only validation diagnostics from analysis layer
         let analysis_diagnostics = graphql_analysis::file_validation_diagnostics(
             &self.db,
             content,
@@ -832,7 +823,6 @@ impl Analysis {
             self.project_files,
         );
 
-        // Convert to IDE diagnostic format
         analysis_diagnostics
             .iter()
             .map(convert_diagnostic)
@@ -846,12 +836,10 @@ impl Analysis {
         let (content, metadata) = {
             let registry = self.registry.read();
 
-            // Look up FileId from FilePath
             let Some(file_id) = registry.get_file_id(file) else {
                 return Vec::new();
             };
 
-            // Get FileContent and FileMetadata
             let Some(content) = registry.get_content(file_id) else {
                 return Vec::new();
             };
@@ -863,7 +851,6 @@ impl Analysis {
             (content, metadata)
         };
 
-        // Get only lint diagnostics from lint integration
         let lint_diagnostics = graphql_analysis::lint_integration::lint_file(
             &self.db,
             content,
@@ -871,7 +858,6 @@ impl Analysis {
             self.project_files,
         );
 
-        // Convert to IDE diagnostic format
         lint_diagnostics.iter().map(convert_diagnostic).collect()
     }
 
@@ -910,10 +896,8 @@ impl Analysis {
         let (content, metadata) = {
             let registry = self.registry.read();
 
-            // Look up FileId from FilePath
             let file_id = registry.get_file_id(file)?;
 
-            // Get FileContent and FileMetadata
             let content = registry.get_content(file_id)?;
             let metadata = registry.get_metadata(file_id)?;
             drop(registry);
@@ -921,15 +905,12 @@ impl Analysis {
             (content, metadata)
         };
 
-        // Parse the file
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        // Find which block contains the position and get adjusted position
         let metadata_line_offset = metadata.line_offset(&self.db);
         let (block_context, adjusted_position) =
             find_block_for_position(&parse, position, metadata_line_offset)?;
 
-        // Convert position to byte offset using appropriate line index
         let offset = if let Some(block_source) = block_context.block_source {
             let block_line_index = graphql_syntax::LineIndex::new(block_source);
             position_to_offset(&block_line_index, adjusted_position)?
@@ -1055,10 +1036,8 @@ impl Analysis {
         let (content, metadata) = {
             let registry = self.registry.read();
 
-            // Look up FileId from FilePath
             let file_id = registry.get_file_id(file)?;
 
-            // Get FileContent and FileMetadata
             let content = registry.get_content(file_id)?;
             let metadata = registry.get_metadata(file_id)?;
             drop(registry);
@@ -1066,13 +1045,10 @@ impl Analysis {
             (content, metadata)
         };
 
-        // Parse the file
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        // Get line index for position conversion (for pure GraphQL files)
         let line_index = graphql_syntax::line_index(&self.db, content);
 
-        // Find which block contains the position and get adjusted position
         let metadata_line_offset = metadata.line_offset(&self.db);
         let (block_context, adjusted_position) =
             find_block_for_position(&parse, position, metadata_line_offset)?;
@@ -1084,7 +1060,6 @@ impl Analysis {
             adjusted_position
         );
 
-        // Convert position to byte offset using appropriate line index
         let offset = if let Some(block_source) = block_context.block_source {
             let block_line_index = graphql_syntax::LineIndex::new(block_source);
             position_to_offset(&block_line_index, adjusted_position)?
@@ -1106,16 +1081,12 @@ impl Analysis {
             )));
         }
 
-        // If we couldn't find a symbol, return None
         let symbol = symbol?;
 
-        // Get project files for schema lookups
         let project_files = self.project_files?;
 
-        // Return hover info based on symbol type
         match symbol {
             Symbol::FieldName { name } => {
-                // Get the parent type to look up the field
                 let types = graphql_hir::schema_types_with_project(&self.db, project_files);
                 let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
 
@@ -1199,10 +1170,8 @@ impl Analysis {
         let (content, metadata) = {
             let registry = self.registry.read();
 
-            // Look up FileId from FilePath
             let file_id = registry.get_file_id(file)?;
 
-            // Get FileContent and FileMetadata
             let content = registry.get_content(file_id)?;
             let metadata = registry.get_metadata(file_id)?;
             drop(registry);
@@ -1210,13 +1179,10 @@ impl Analysis {
             (content, metadata)
         };
 
-        // Parse the file
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        // Get line index for position conversion (for pure GraphQL files)
         let line_index = graphql_syntax::line_index(&self.db, content);
 
-        // Find which block contains the position and get adjusted position
         let metadata_line_offset = metadata.line_offset(&self.db);
         let (block_context, adjusted_position) =
             find_block_for_position(&parse, position, metadata_line_offset)?;
@@ -1228,29 +1194,21 @@ impl Analysis {
             adjusted_position
         );
 
-        // Convert position to byte offset using appropriate line index
         let offset = if let Some(block_source) = block_context.block_source {
-            // For TS/JS blocks, use block's source for line index
             let block_line_index = graphql_syntax::LineIndex::new(block_source);
             position_to_offset(&block_line_index, adjusted_position)?
         } else {
-            // For pure GraphQL, use file's line index
             position_to_offset(&line_index, adjusted_position)?
         };
 
-        // Find the symbol at the offset using the correct tree
         let symbol = find_symbol_at_offset(block_context.tree, offset)?;
 
-        // Get project files for HIR queries
         let project_files = self.project_files?;
 
-        // Look up the definition based on symbol type
         match symbol {
             Symbol::FieldName { name } => {
-                // Find the parent type context to determine which type this field belongs to
                 let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
 
-                // Get the schema types
                 let schema_types = graphql_hir::schema_types_with_project(&self.db, project_files);
 
                 // Use walk_type_stack_to_offset to properly resolve the parent type,
@@ -1269,10 +1227,8 @@ impl Analysis {
                     parent_context.root_type
                 );
 
-                // Verify the parent type exists in the schema
                 schema_types.get(parent_type_name.as_str())?;
 
-                // Search through all schema files for the field definition
                 let registry = self.registry.read();
                 let schema_file_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
 
@@ -1287,13 +1243,11 @@ impl Analysis {
                         continue;
                     };
 
-                    // Parse the schema file
                     let schema_parse =
                         graphql_syntax::parse(&self.db, schema_content, schema_metadata);
                     let schema_line_index = graphql_syntax::line_index(&self.db, schema_content);
                     let schema_line_offset = schema_metadata.line_offset(&self.db);
 
-                    // Search for the field definition in this schema file
                     if schema_parse.blocks.is_empty() {
                         // Pure GraphQL schema file
                         if let Some(ranges) = find_field_definition_full_range(
@@ -1339,7 +1293,6 @@ impl Analysis {
                 None
             }
             Symbol::FragmentSpread { name } => {
-                // Query HIR for all fragments
                 let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
 
                 tracing::debug!(
@@ -1348,10 +1301,8 @@ impl Analysis {
                     fragments.keys().collect::<Vec<_>>()
                 );
 
-                // Find the fragment by name
                 let fragment = fragments.get(name.as_str())?;
 
-                // Get the file content, metadata, and path for this fragment
                 let registry = self.registry.read();
 
                 tracing::debug!(
@@ -1375,11 +1326,9 @@ impl Analysis {
                 let def_metadata = registry.get_metadata(fragment.file_id)?;
                 drop(registry);
 
-                // Parse the definition file to find exact position
                 let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
                 let def_line_offset = def_metadata.line_offset(&self.db);
 
-                // Find the fragment definition - search through blocks for TS/JS files
                 let range = find_fragment_definition_in_parse(
                     &def_parse,
                     &name,
@@ -1391,7 +1340,6 @@ impl Analysis {
                 Some(vec![Location::new(file_path, range)])
             }
             Symbol::TypeName { name } => {
-                // Search through all schema files for the type definition
                 let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
                 let registry = self.registry.read();
 
@@ -1406,12 +1354,10 @@ impl Analysis {
                         continue;
                     };
 
-                    // Parse the schema file
                     let schema_parse =
                         graphql_syntax::parse(&self.db, schema_content, schema_metadata);
                     let schema_line_offset = schema_metadata.line_offset(&self.db);
 
-                    // Find the type definition in this schema file
                     if let Some(range) = find_type_definition_in_parse(
                         &schema_parse,
                         &name,
@@ -1427,8 +1373,6 @@ impl Analysis {
                 None
             }
             Symbol::VariableReference { name } => {
-                // Find the variable definition in the same operation
-                // The variable is defined in the operation's variable definitions list
                 let range = if let Some(block_source) = block_context.block_source {
                     let block_line_index = graphql_syntax::LineIndex::new(block_source);
                     find_variable_definition_in_tree(
@@ -1456,15 +1400,11 @@ impl Analysis {
                 None
             }
             Symbol::ArgumentName { name } => {
-                // Find the argument definition in the schema for this field
-                // First, we need to find the parent field and its type
                 let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
                 let schema_types = graphql_hir::schema_types_with_project(&self.db, project_files);
 
-                // Get the field name that contains this argument
                 let field_name = find_field_name_at_offset(block_context.tree, offset)?;
 
-                // Resolve the parent type using the type stack
                 let parent_type_name = symbol::walk_type_stack_to_offset(
                     block_context.tree,
                     &schema_types,
@@ -1472,7 +1412,6 @@ impl Analysis {
                     &parent_context.root_type,
                 )?;
 
-                // Search through schema files for the argument definition
                 let registry = self.registry.read();
                 let schema_file_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
 
@@ -1506,8 +1445,6 @@ impl Analysis {
                 None
             }
             Symbol::OperationName { name } => {
-                // The operation name definition is in the current file at the operation itself
-                // Find the operation definition by name
                 let range = if let Some(block_source) = block_context.block_source {
                     let block_line_index = graphql_syntax::LineIndex::new(block_source);
                     find_operation_definition_in_tree(
@@ -1549,10 +1486,8 @@ impl Analysis {
         let (content, metadata) = {
             let registry = self.registry.read();
 
-            // Look up FileId from FilePath
             let file_id = registry.get_file_id(file)?;
 
-            // Get FileContent and FileMetadata
             let content = registry.get_content(file_id)?;
             let metadata = registry.get_metadata(file_id)?;
             drop(registry);
@@ -1560,13 +1495,10 @@ impl Analysis {
             (content, metadata)
         };
 
-        // Parse the file
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        // Get line index for position conversion (for pure GraphQL files)
         let line_index = graphql_syntax::line_index(&self.db, content);
 
-        // Find which block contains the position and get adjusted position
         let metadata_line_offset = metadata.line_offset(&self.db);
         let (block_context, adjusted_position) =
             find_block_for_position(&parse, position, metadata_line_offset)?;
@@ -1578,7 +1510,6 @@ impl Analysis {
             adjusted_position
         );
 
-        // Convert position to byte offset using appropriate line index
         let offset = if let Some(block_source) = block_context.block_source {
             let block_line_index = graphql_syntax::LineIndex::new(block_source);
             position_to_offset(&block_line_index, adjusted_position)?
@@ -1586,10 +1517,8 @@ impl Analysis {
             position_to_offset(&line_index, adjusted_position)?
         };
 
-        // Find the symbol at the offset using the correct tree
         let symbol = find_symbol_at_offset(block_context.tree, offset)?;
 
-        // Find all references based on symbol type
         match symbol {
             Symbol::FragmentSpread { name } => {
                 Some(self.find_fragment_references(&name, include_declaration))
@@ -1598,7 +1527,6 @@ impl Analysis {
                 Some(self.find_type_references(&name, include_declaration))
             }
             Symbol::FieldName { name } => {
-                // Find the parent type to know which type's field we're looking for
                 let parent_type = find_schema_field_parent_type(block_context.tree, offset)?;
                 Some(self.find_field_references(&parent_type, &name, include_declaration))
             }
@@ -1614,15 +1542,12 @@ impl Analysis {
     ) -> Vec<Location> {
         let mut locations = Vec::new();
 
-        // Get project files for HIR queries
         let Some(project_files) = self.project_files else {
             return locations;
         };
 
-        // Get all fragments to find the declaration
         let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
 
-        // Include the declaration if requested
         if include_declaration {
             if let Some(fragment) = fragments.get(fragment_name) {
                 let registry = self.registry.read();
@@ -1634,7 +1559,6 @@ impl Analysis {
                 if let (Some(file_path), Some(def_content), Some(def_metadata)) =
                     (file_path, def_content, def_metadata)
                 {
-                    // Parse the definition file to find exact position (handles TS/JS blocks)
                     let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
                     let def_line_offset = def_metadata.line_offset(&self.db);
 
@@ -1669,11 +1593,9 @@ impl Analysis {
                 continue;
             };
 
-            // Parse the document
             let parse = graphql_syntax::parse(&self.db, content, metadata);
             let line_offset = metadata.line_offset(&self.db);
 
-            // Search for fragment spreads in all blocks (handles TS/JS correctly)
             let spread_ranges = find_fragment_spreads_in_parse(
                 &parse,
                 fragment_name,
@@ -1694,15 +1616,12 @@ impl Analysis {
     fn find_type_references(&self, type_name: &str, include_declaration: bool) -> Vec<Location> {
         let mut locations = Vec::new();
 
-        // Get project files for HIR queries
         let Some(project_files) = self.project_files else {
             return locations;
         };
 
-        // Get all types to find the declaration
         let types = graphql_hir::schema_types_with_project(&self.db, project_files);
 
-        // Include the declaration if requested
         if include_declaration {
             if let Some(type_def) = types.get(type_name) {
                 let registry = self.registry.read();
@@ -1714,7 +1633,6 @@ impl Analysis {
                 if let (Some(file_path), Some(def_content), Some(def_metadata)) =
                     (file_path, def_content, def_metadata)
                 {
-                    // Parse the definition file to find exact position (handles TS/JS blocks)
                     let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
                     let def_line_offset = def_metadata.line_offset(&self.db);
 
@@ -1731,7 +1649,6 @@ impl Analysis {
             }
         }
 
-        // Search through all schema files for type references
         let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
 
         for file_id in schema_ids.iter() {
@@ -1749,11 +1666,9 @@ impl Analysis {
                 continue;
             };
 
-            // Parse the schema file
             let parse = graphql_syntax::parse(&self.db, content, metadata);
             let line_offset = metadata.line_offset(&self.db);
 
-            // Search for type references in all blocks (handles TS/JS correctly)
             let type_ranges =
                 find_type_references_in_parse(&parse, type_name, content, &self.db, line_offset);
 
@@ -1774,15 +1689,12 @@ impl Analysis {
     ) -> Vec<Location> {
         let mut locations = Vec::new();
 
-        // Get project files for HIR queries
         let Some(project_files) = self.project_files else {
             return locations;
         };
 
-        // Get schema types to resolve field usage contexts
         let schema_types = graphql_hir::schema_types_with_project(&self.db, project_files);
 
-        // Include the declaration if requested (the field definition in the schema)
         if include_declaration {
             let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
 
@@ -1805,7 +1717,6 @@ impl Analysis {
                 let line_index = graphql_syntax::line_index(&self.db, content);
                 let line_offset = metadata.line_offset(&self.db);
 
-                // Find the field definition in this schema file
                 if let Some(ranges) =
                     find_field_definition_full_range(&parse.tree, type_name, field_name)
                 {
@@ -1836,11 +1747,9 @@ impl Analysis {
                 continue;
             };
 
-            // Parse the document
             let parse = graphql_syntax::parse(&self.db, content, metadata);
             let line_offset = metadata.line_offset(&self.db);
 
-            // Search for field usages in all blocks (handles TS/JS correctly)
             let field_ranges = find_field_usages_in_parse(
                 &parse,
                 type_name,
@@ -1882,19 +1791,15 @@ impl Analysis {
             (content, metadata, file_id)
         };
 
-        // Parse the file
         let parse = graphql_syntax::parse(&self.db, content, metadata);
         let line_index = graphql_syntax::line_index(&self.db, content);
 
-        // Get line offset for TypeScript/JavaScript files
         let line_offset = metadata.line_offset(&self.db);
 
-        // Get HIR structure for this file (for field information)
         let structure = graphql_hir::file_structure(&self.db, file_id, content, metadata);
 
         let mut symbols = Vec::new();
 
-        // Extract all definitions from the parse tree
         let definitions = extract_all_definitions(&parse.tree);
 
         for (name, kind, ranges) in definitions {
@@ -1909,7 +1814,6 @@ impl Analysis {
 
             let symbol = match kind {
                 "object" => {
-                    // Find fields for this type from HIR structure
                     let children = self.get_field_children(
                         &structure,
                         &name,
@@ -1956,7 +1860,6 @@ impl Analysis {
                     DocumentSymbol::new(name, SymbolKind::Subscription, range, selection_range)
                 }
                 "fragment" => {
-                    // Find type condition from HIR
                     let detail = structure
                         .fragments
                         .iter()
@@ -1988,7 +1891,6 @@ impl Analysis {
         line_index: &graphql_syntax::LineIndex,
         line_offset: u32,
     ) -> Vec<DocumentSymbol> {
-        // Find the type in structure
         let Some(type_def) = structure
             .type_defs
             .iter()
@@ -2365,16 +2267,13 @@ fn find_fragment_definition_in_parse(
         return None;
     }
 
-    // For TS/JS files, search each block
     for block in &parse.blocks {
         if let Some((start_offset, end_offset)) =
             find_fragment_definition_range(&block.tree, fragment_name)
         {
-            // Convert offsets to line/column using block's source
             let block_line_index = graphql_syntax::LineIndex::new(&block.source);
             let range = offset_range_to_range(&block_line_index, start_offset, end_offset);
 
-            // Return range adjusted by block's line offset
             return Some(adjust_range_for_line_offset(range, block.line as u32));
         }
     }
@@ -2541,7 +2440,6 @@ fn type_matches_or_implements(
     if current_type == target_type {
         return true;
     }
-    // Check if current_type implements target_type (interface inheritance)
     if let Some(type_def) = schema_types.get(current_type) {
         type_def
             .implements
@@ -2576,7 +2474,6 @@ fn find_field_usages_in_tree(
                     if let Some(name) = field.name() {
                         let field_name = name.text();
 
-                        // Check if this field matches our target (directly or via interface)
                         if type_matches_or_implements(current_type, target_type, schema_types)
                             && field_name == target_field
                         {
@@ -2607,7 +2504,6 @@ fn find_field_usages_in_tree(
                     }
                 }
                 Selection::InlineFragment(inline_frag) => {
-                    // Get type condition if present, otherwise use current type
                     let fragment_type = inline_frag
                         .type_condition()
                         .and_then(|tc| tc.named_type())
@@ -2658,7 +2554,6 @@ fn find_field_usages_in_tree(
                 }
             }
             Definition::FragmentDefinition(frag) => {
-                // Get the type condition for the fragment
                 let fragment_type = frag
                     .type_condition()
                     .and_then(|tc| tc.named_type())
@@ -2811,7 +2706,6 @@ fn find_field_name_at_offset(
                 let end: usize = range.end().into();
 
                 if byte_offset >= start && byte_offset <= end {
-                    // Check if we're in the arguments
                     if let Some(args) = field.arguments() {
                         let args_range = args.syntax().text_range();
                         let args_start: usize = args_range.start().into();
@@ -2821,7 +2715,6 @@ fn find_field_name_at_offset(
                         }
                     }
 
-                    // Check nested selection set
                     if let Some(nested) = field.selection_set() {
                         if let Some(name) = check_selection_set(&nested, byte_offset) {
                             return Some(name);

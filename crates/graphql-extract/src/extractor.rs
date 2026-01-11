@@ -126,7 +126,6 @@ fn extract_from_js_family(
     use swc_core::ecma::parser::{parse_file_as_module, Syntax};
     use swc_core::ecma::visit::VisitWith;
 
-    // Create source map for accurate position tracking
     let source_map = Lrc::new(SourceMap::default());
     let source_file = source_map.new_source_file(
         Lrc::new(FileName::Custom("input".into())),
@@ -147,14 +146,12 @@ fn extract_from_js_family(
         _ => unreachable!("extract_from_js_family only handles JS/TS"),
     };
 
-    // Parse the module
     let module = parse_file_as_module(&source_file, syntax, EsVersion::EsNext, None, &mut vec![])
         .map_err(|e| ExtractError::Parse {
         path: std::path::PathBuf::from("input"),
         message: format!("SWC parse error: {e:?}"),
     })?;
 
-    // Create visitor to collect GraphQL
     let mut visitor = GraphQLVisitor::new(source, config);
     module.visit_with(&mut visitor);
 
@@ -278,7 +275,6 @@ impl swc_core::ecma::visit::Visit for GraphQLVisitor<'_> {
     fn visit_tagged_tpl(&mut self, tagged: &swc_core::ecma::ast::TaggedTpl) {
         use swc_core::ecma::ast::Expr;
         use swc_core::ecma::visit::VisitWith;
-        // Extract tag identifier
         let tag_name = match &*tagged.tag {
             Expr::Ident(ident) => String::from_utf8_lossy(ident.sym.as_bytes()).to_string(),
             Expr::Member(member) => {
@@ -296,19 +292,16 @@ impl swc_core::ecma::visit::Visit for GraphQLVisitor<'_> {
             }
         };
 
-        // Check if this is a configured tag identifier
         if !self.config.tag_identifiers.contains(&tag_name) {
             tagged.visit_children_with(self);
             return;
         }
 
-        // Check if the tag is valid (imported or global allowed)
         if !self.is_valid_tag(&tag_name) {
             tagged.visit_children_with(self);
             return;
         }
 
-        // Extract the template literal content
         if let Some(extracted) = self.extract_template_literal(&tagged.tpl, Some(tag_name)) {
             self.extracted.push(extracted);
         }
@@ -324,7 +317,6 @@ impl swc_core::ecma::visit::Visit for GraphQLVisitor<'_> {
         use swc_core::ecma::ast::{Callee, Expr, Lit};
         use swc_core::ecma::visit::VisitWith;
 
-        // Check if this is a call to a configured tag identifier (e.g., gql(...) or graphql(...))
         let tag_name = match &call.callee {
             Callee::Expr(expr) => match &**expr {
                 Expr::Ident(ident) => {
