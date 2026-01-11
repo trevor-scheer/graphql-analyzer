@@ -297,6 +297,110 @@ impl SemanticToken {
     }
 }
 
+/// Field usage information for a single field
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldUsageInfo {
+    /// Number of operations that use this field
+    pub usage_count: usize,
+    /// Names of operations that use this field
+    pub operations: Vec<String>,
+}
+
+/// Coverage information for a single type
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeCoverageInfo {
+    /// Name of the type
+    pub type_name: String,
+    /// Total number of fields on this type
+    pub total_fields: usize,
+    /// Number of fields that are used in operations
+    pub used_fields: usize,
+}
+
+impl TypeCoverageInfo {
+    /// Calculate coverage as a percentage (0.0 to 100.0)
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn coverage_percentage(&self) -> f64 {
+        if self.total_fields == 0 {
+            100.0
+        } else {
+            (self.used_fields as f64 / self.total_fields as f64) * 100.0
+        }
+    }
+}
+
+/// Field usage coverage report for an entire project
+#[derive(Debug, Clone, Default)]
+pub struct FieldCoverageReport {
+    /// Total number of fields in the schema
+    pub total_fields: usize,
+    /// Number of fields used in at least one operation
+    pub used_fields: usize,
+    /// Coverage by type
+    pub types: Vec<TypeCoverageInfo>,
+    /// Detailed field usages (`type_name`, `field_name`) -> usage info
+    pub field_usages: HashMap<(String, String), FieldUsageInfo>,
+}
+
+impl FieldCoverageReport {
+    /// Calculate overall coverage as a percentage (0.0 to 100.0)
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn coverage_percentage(&self) -> f64 {
+        if self.total_fields == 0 {
+            100.0
+        } else {
+            (self.used_fields as f64 / self.total_fields as f64) * 100.0
+        }
+    }
+
+    /// Get all unused fields as (`type_name`, `field_name`) tuples
+    #[must_use]
+    pub fn unused_fields(&self) -> Vec<(String, String)> {
+        self.field_usages
+            .iter()
+            .filter(|(_, info)| info.usage_count == 0)
+            .map(|((type_name, field_name), _)| (type_name.clone(), field_name.clone()))
+            .collect()
+    }
+}
+
+impl From<Arc<graphql_analysis::FieldCoverageReport>> for FieldCoverageReport {
+    fn from(report: Arc<graphql_analysis::FieldCoverageReport>) -> Self {
+        let types: Vec<TypeCoverageInfo> = report
+            .type_coverage
+            .iter()
+            .map(|(name, coverage)| TypeCoverageInfo {
+                type_name: name.to_string(),
+                total_fields: coverage.total_fields,
+                used_fields: coverage.used_fields,
+            })
+            .collect();
+
+        let field_usages: HashMap<(String, String), FieldUsageInfo> = report
+            .field_usages
+            .iter()
+            .map(|((type_name, field_name), usage)| {
+                (
+                    (type_name.to_string(), field_name.to_string()),
+                    FieldUsageInfo {
+                        usage_count: usage.usage_count,
+                        operations: usage.operations.iter().map(ToString::to_string).collect(),
+                    },
+                )
+            })
+            .collect();
+
+        Self {
+            total_fields: report.total_fields,
+            used_fields: report.used_fields,
+            types,
+            field_usages,
+        }
+    }
+}
+
 /// Input: Lint configuration
 ///
 /// This is a Salsa input so that config changes properly invalidate dependent queries.
@@ -375,7 +479,11 @@ impl graphql_syntax::GraphQLSyntaxDatabase for IdeDatabase {
 }
 
 #[salsa::db]
-impl graphql_hir::GraphQLHirDatabase for IdeDatabase {}
+impl graphql_hir::GraphQLHirDatabase for IdeDatabase {
+    fn project_files(&self) -> Option<graphql_db::ProjectFiles> {
+        *self.project_files.read()
+    }
+}
 
 #[salsa::db]
 impl graphql_analysis::GraphQLAnalysisDatabase for IdeDatabase {
@@ -1209,6 +1317,35 @@ impl Analysis {
         Some(content.text(&self.db).to_string())
     }
 
+    /// Get field usage coverage report for the project
+    ///
+    /// Analyzes which schema fields are used in operations and returns
+    /// detailed coverage statistics. This is useful for understanding
+    /// schema usage patterns and finding unused fields.
+    pub fn field_coverage(&self) -> Option<FieldCoverageReport> {
+        let _ = self.project_files?;
+        Some(FieldCoverageReport::from(
+            graphql_analysis::analyze_field_usage(&self.db),
+        ))
+    }
+
+    /// Get field usage for a specific field
+    ///
+    /// Returns usage information for a field if it exists in the schema.
+    /// Useful for enhancing hover to show "Used in N operations".
+    pub fn field_usage(&self, type_name: &str, field_name: &str) -> Option<FieldUsageInfo> {
+        let _ = self.project_files?;
+        let coverage = graphql_analysis::analyze_field_usage(&self.db);
+        let key = (
+            std::sync::Arc::from(type_name),
+            std::sync::Arc::from(field_name),
+        );
+        coverage.field_usages.get(&key).map(|usage| FieldUsageInfo {
+            usage_count: usage.usage_count,
+            operations: usage.operations.iter().map(ToString::to_string).collect(),
+        })
+    }
+
     /// Get completions at a position
     ///
     /// Returns a list of completion items appropriate for the context.
@@ -1428,6 +1565,25 @@ impl Analysis {
                 let mut hover_text = format!("**Field:** `{name}`\n\n");
                 let field_type = format_type_ref(&field.type_ref);
                 write!(hover_text, "**Type:** `{field_type}`\n\n").ok();
+
+                // Add field usage information (only if project files are available)
+                if self.project_files.is_some() {
+                    let coverage = graphql_analysis::analyze_field_usage(&self.db);
+                    let usage_key = (Arc::from(parent_type_name.as_str()), Arc::from(name));
+                    if let Some(usage) = coverage.field_usages.get(&usage_key) {
+                        let op_count = usage.operations.len();
+                        if op_count > 0 {
+                            write!(
+                                hover_text,
+                                "**Used in:** {op_count} operation{}\n\n",
+                                if op_count == 1 { "" } else { "s" }
+                            )
+                            .ok();
+                        } else {
+                            write!(hover_text, "**Used in:** 0 operations (unused)\n\n").ok();
+                        }
+                    }
+                }
 
                 if let Some(desc) = &field.description {
                     write!(hover_text, "---\n\n{desc}\n\n").ok();

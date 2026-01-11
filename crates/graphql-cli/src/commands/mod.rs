@@ -1,5 +1,6 @@
 pub mod check;
 pub mod common;
+pub mod coverage;
 pub mod deprecations;
 pub mod fix;
 pub mod fragments;

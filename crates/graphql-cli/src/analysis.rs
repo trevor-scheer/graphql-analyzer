@@ -386,6 +386,14 @@ impl CliAnalysisHost {
         let snapshot = self.host.snapshot();
         snapshot.fragment_usages()
     }
+
+    /// Get field coverage report for the project
+    ///
+    /// Returns coverage statistics showing which schema fields are used in operations.
+    pub fn field_coverage(&self) -> Option<graphql_ide::FieldCoverageReport> {
+        let snapshot = self.host.snapshot();
+        snapshot.field_coverage()
+    }
 }
 
 /// Count fragment spreads in a selection set
