@@ -28,7 +28,7 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
     ) -> HashMap<FileId, Vec<LintDiagnostic>> {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
 
-        // Collect all operations with their locations
+        // Collect all operations with their locations using per-file cached queries
         let doc_ids = project_files.document_file_ids(db).ids(db);
         let mut operations_by_name: HashMap<String, Vec<(FileId, usize)>> = HashMap::new();
 
@@ -38,14 +38,13 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
             else {
                 continue;
             };
-            let structure = graphql_hir::file_structure(db, *file_id, content, metadata);
-            for operation in &structure.operations {
-                if let Some(ref name) = operation.name {
-                    operations_by_name
-                        .entry(name.to_string())
-                        .or_default()
-                        .push((*file_id, operation.index));
-                }
+            // Per-file cached query - only recomputes if THIS file changed
+            let op_names = graphql_hir::file_operation_names(db, *file_id, content, metadata);
+            for (name, index) in op_names.iter() {
+                operations_by_name
+                    .entry(name.to_string())
+                    .or_default()
+                    .push((*file_id, *index));
             }
         }
 
@@ -72,7 +71,7 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
             }
         }
 
-        // Collect all fragments with their locations
+        // Collect all fragments with their locations using per-file cached queries
         let mut fragments_by_name: HashMap<String, Vec<FileId>> = HashMap::new();
 
         for file_id in doc_ids.iter() {
@@ -81,10 +80,12 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
             else {
                 continue;
             };
-            let structure = graphql_hir::file_structure(db, *file_id, content, metadata);
-            for fragment in &structure.fragments {
+            // Per-file cached query - only recomputes if THIS file changed
+            let frag_names =
+                graphql_hir::file_defined_fragment_names(db, *file_id, content, metadata);
+            for fragment_name in frag_names.iter() {
                 fragments_by_name
-                    .entry(fragment.name.to_string())
+                    .entry(fragment_name.to_string())
                     .or_default()
                     .push(*file_id);
             }

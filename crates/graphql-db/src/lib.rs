@@ -233,6 +233,11 @@ pub mod tracking {
         pub const ALL_FRAGMENTS: &str = "all_fragments";
         pub const ALL_OPERATIONS: &str = "all_operations";
         pub const FILE_LOOKUP: &str = "file_lookup";
+        // Per-file contribution queries for project-wide lint rules
+        pub const FILE_USED_FRAGMENT_NAMES: &str = "file_used_fragment_names";
+        pub const FILE_DEFINED_FRAGMENT_NAMES: &str = "file_defined_fragment_names";
+        pub const FILE_OPERATION_NAMES: &str = "file_operation_names";
+        pub const FILE_USED_FIELDS: &str = "file_used_fields";
     }
 
     /// Per-database query execution log.

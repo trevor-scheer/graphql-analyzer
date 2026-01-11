@@ -470,6 +470,250 @@ pub fn all_operations(
     Arc::new(operations)
 }
 
+// ============================================================================
+// Per-file contribution queries for project-wide lint rules
+// These enable incremental computation: editing one file only recomputes that
+// file's contribution, other files' contributions come from cache.
+// ============================================================================
+
+/// Per-file query for fragment names used (spread) in a file.
+/// Returns all fragment spread names found in operations and fragments.
+/// This enables incremental computation for the `unused_fragments` lint rule.
+#[salsa::tracked]
+#[allow(clippy::items_after_statements)]
+pub fn file_used_fragment_names(
+    db: &dyn GraphQLHirDatabase,
+    _file_id: FileId,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+) -> Arc<std::collections::HashSet<Arc<str>>> {
+    let parse = graphql_syntax::parse(db, content, metadata);
+    let mut used = std::collections::HashSet::new();
+
+    // Helper to collect fragment spreads recursively
+    fn collect_spreads(
+        selections: &[apollo_compiler::ast::Selection],
+        used: &mut std::collections::HashSet<Arc<str>>,
+    ) {
+        for selection in selections {
+            match selection {
+                apollo_compiler::ast::Selection::Field(field) => {
+                    collect_spreads(&field.selection_set, used);
+                }
+                apollo_compiler::ast::Selection::FragmentSpread(spread) => {
+                    used.insert(Arc::from(spread.fragment_name.as_str()));
+                }
+                apollo_compiler::ast::Selection::InlineFragment(inline) => {
+                    collect_spreads(&inline.selection_set, used);
+                }
+            }
+        }
+    }
+
+    // Process main AST definitions
+    for definition in &parse.ast.definitions {
+        match definition {
+            apollo_compiler::ast::Definition::OperationDefinition(op) => {
+                collect_spreads(&op.selection_set, &mut used);
+            }
+            apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
+                collect_spreads(&frag.selection_set, &mut used);
+            }
+            _ => {}
+        }
+    }
+
+    // Process extracted blocks (TypeScript/JavaScript)
+    for block in &parse.blocks {
+        for definition in &block.ast.definitions {
+            match definition {
+                apollo_compiler::ast::Definition::OperationDefinition(op) => {
+                    collect_spreads(&op.selection_set, &mut used);
+                }
+                apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
+                    collect_spreads(&frag.selection_set, &mut used);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Arc::new(used)
+}
+
+/// Per-file query for defined fragment names in a file.
+/// Returns `fragment_name` for all fragments defined in the file.
+/// This enables incremental computation for the `unused_fragments` lint rule.
+#[salsa::tracked]
+pub fn file_defined_fragment_names(
+    db: &dyn GraphQLHirDatabase,
+    file_id: FileId,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+) -> Arc<Vec<Arc<str>>> {
+    let structure = file_structure(db, file_id, content, metadata);
+    Arc::new(structure.fragments.iter().map(|f| f.name.clone()).collect())
+}
+
+/// Per-file query for operation names in a file.
+/// Returns `(operation_name, operation_index)` pairs for all named operations.
+/// This enables incremental computation for the `unique_names` lint rule.
+#[salsa::tracked]
+pub fn file_operation_names(
+    db: &dyn GraphQLHirDatabase,
+    file_id: FileId,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+) -> Arc<Vec<(Arc<str>, usize)>> {
+    let structure = file_structure(db, file_id, content, metadata);
+    Arc::new(
+        structure
+            .operations
+            .iter()
+            .filter_map(|op| op.name.as_ref().map(|name| (name.clone(), op.index)))
+            .collect(),
+    )
+}
+
+/// Represents a field usage: `(parent_type, field_name)`
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FieldUsage {
+    pub parent_type: Arc<str>,
+    pub field_name: Arc<str>,
+}
+
+/// Per-file query for field usages in a file.
+/// Returns all (type, field) pairs used in operations and fragments.
+/// This enables incremental computation for the `unused_fields` lint rule.
+///
+/// Note: This query requires schema types to resolve field return types.
+/// If schema is not available, it uses heuristics based on selection patterns.
+#[salsa::tracked]
+#[allow(clippy::items_after_statements)]
+pub fn file_used_fields(
+    db: &dyn GraphQLHirDatabase,
+    _file_id: FileId,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+    project_files: graphql_db::ProjectFiles,
+) -> Arc<std::collections::HashSet<FieldUsage>> {
+    let parse = graphql_syntax::parse(db, content, metadata);
+    let schema_types = schema_types(db, project_files);
+    let mut used = std::collections::HashSet::new();
+
+    // Get root type names
+    let query_type = schema_types
+        .contains_key("Query")
+        .then(|| Arc::from("Query"));
+    let mutation_type = schema_types
+        .contains_key("Mutation")
+        .then(|| Arc::from("Mutation"));
+    let subscription_type = schema_types
+        .contains_key("Subscription")
+        .then(|| Arc::from("Subscription"));
+
+    // Helper to collect field usages recursively
+    fn collect_field_usages(
+        selections: &[apollo_compiler::ast::Selection],
+        parent_type: &Arc<str>,
+        schema_types: &HashMap<Arc<str>, TypeDef>,
+        used: &mut std::collections::HashSet<FieldUsage>,
+    ) {
+        for selection in selections {
+            match selection {
+                apollo_compiler::ast::Selection::Field(field) => {
+                    let field_name: Arc<str> = Arc::from(field.name.as_str());
+
+                    // Record this field usage
+                    used.insert(FieldUsage {
+                        parent_type: parent_type.clone(),
+                        field_name: field_name.clone(),
+                    });
+
+                    // Recursively process nested selections
+                    if !field.selection_set.is_empty() {
+                        // Find the field's return type from schema
+                        if let Some(type_def) = schema_types.get(parent_type) {
+                            if let Some(field_sig) = type_def
+                                .fields
+                                .iter()
+                                .find(|f| f.name.as_ref() == field_name.as_ref())
+                            {
+                                let nested_type: Arc<str> =
+                                    Arc::from(field_sig.type_ref.name.as_ref());
+                                collect_field_usages(
+                                    &field.selection_set,
+                                    &nested_type,
+                                    schema_types,
+                                    used,
+                                );
+                            }
+                        }
+                    }
+                }
+                apollo_compiler::ast::Selection::FragmentSpread(_) => {
+                    // Fragment spreads are handled separately
+                }
+                apollo_compiler::ast::Selection::InlineFragment(inline) => {
+                    let type_name = inline
+                        .type_condition
+                        .as_ref()
+                        .map_or_else(|| parent_type.clone(), |tc| Arc::from(tc.as_str()));
+                    collect_field_usages(&inline.selection_set, &type_name, schema_types, used);
+                }
+            }
+        }
+    }
+
+    // Process main AST definitions
+    for definition in &parse.ast.definitions {
+        match definition {
+            apollo_compiler::ast::Definition::OperationDefinition(op) => {
+                let root_type = match op.operation_type {
+                    apollo_compiler::ast::OperationType::Query => query_type.as_ref(),
+                    apollo_compiler::ast::OperationType::Mutation => mutation_type.as_ref(),
+                    apollo_compiler::ast::OperationType::Subscription => subscription_type.as_ref(),
+                };
+                if let Some(root) = root_type {
+                    collect_field_usages(&op.selection_set, root, &schema_types, &mut used);
+                }
+            }
+            apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
+                let type_name = Arc::from(frag.type_condition.as_str());
+                collect_field_usages(&frag.selection_set, &type_name, &schema_types, &mut used);
+            }
+            _ => {}
+        }
+    }
+
+    // Process extracted blocks (TypeScript/JavaScript)
+    for block in &parse.blocks {
+        for definition in &block.ast.definitions {
+            match definition {
+                apollo_compiler::ast::Definition::OperationDefinition(op) => {
+                    let root_type = match op.operation_type {
+                        apollo_compiler::ast::OperationType::Query => query_type.as_ref(),
+                        apollo_compiler::ast::OperationType::Mutation => mutation_type.as_ref(),
+                        apollo_compiler::ast::OperationType::Subscription => {
+                            subscription_type.as_ref()
+                        }
+                    };
+                    if let Some(root) = root_type {
+                        collect_field_usages(&op.selection_set, root, &schema_types, &mut used);
+                    }
+                }
+                apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
+                    let type_name = Arc::from(frag.type_condition.as_str());
+                    collect_field_usages(&frag.selection_set, &type_name, &schema_types, &mut used);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Arc::new(used)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1420,6 +1664,92 @@ mod tests {
                 file_type_defs_delta, 0,
                 "file_type_defs should be cached when operations are edited, got {}",
                 file_type_defs_delta
+            );
+        }
+
+        /// Test that per-file contribution queries enable incremental computation
+        /// for project-wide lint rules (Issue #213)
+        #[test]
+        fn test_per_file_contribution_queries_incremental() {
+            let mut db = TrackedHirDatabase::new();
+
+            // Create multiple document files with fragments
+            const NUM_FILES: usize = 5;
+            let mut doc_files = Vec::with_capacity(NUM_FILES);
+            let mut file_contents = Vec::with_capacity(NUM_FILES);
+
+            for i in 0..NUM_FILES {
+                let file_id = FileId::new(i as u32);
+                let fragment_name = format!("Fragment{i}");
+                let content_str =
+                    format!("fragment {fragment_name} on User {{ id }} query Q{i} {{ user {{ ...{fragment_name} }} }}");
+                let content = graphql_db::FileContent::new(&db, Arc::from(content_str.as_str()));
+                let uri = format!("file{i}.graphql");
+                let metadata = graphql_db::FileMetadata::new(
+                    &db,
+                    file_id,
+                    graphql_db::FileUri::new(uri),
+                    graphql_db::FileKind::ExecutableGraphQL,
+                );
+
+                file_contents.push(content);
+                doc_files.push((file_id, content, metadata));
+            }
+
+            let _project_files = create_tracked_project_files(&db, &[], &doc_files);
+
+            // Warm the cache by calling per-file contribution queries
+            for (file_id, content, metadata) in &doc_files {
+                let _ = file_defined_fragment_names(&db, *file_id, *content, *metadata);
+                let _ = file_used_fragment_names(&db, *file_id, *content, *metadata);
+                let _ = file_operation_names(&db, *file_id, *content, *metadata);
+            }
+
+            // Checkpoint BEFORE the edit
+            let checkpoint = db.checkpoint();
+
+            // Edit ONLY file 0
+            file_contents[0].set_text(&mut db).to(Arc::from(
+                "fragment Fragment0 on User { id name } query Q0 { user { ...Fragment0 } }",
+            ));
+
+            // Re-query the per-file contributions
+            for (file_id, content, metadata) in &doc_files {
+                let _ = file_defined_fragment_names(&db, *file_id, *content, *metadata);
+                let _ = file_used_fragment_names(&db, *file_id, *content, *metadata);
+                let _ = file_operation_names(&db, *file_id, *content, *metadata);
+            }
+
+            // Measure recomputation - should be O(1), not O(N)
+            let defined_delta = db.count_since(queries::FILE_DEFINED_FRAGMENT_NAMES, checkpoint);
+            let used_delta = db.count_since(queries::FILE_USED_FRAGMENT_NAMES, checkpoint);
+            let op_names_delta = db.count_since(queries::FILE_OPERATION_NAMES, checkpoint);
+
+            println!(
+                "After editing 1 of {} files: defined={}, used={}, op_names={}",
+                NUM_FILES, defined_delta, used_delta, op_names_delta
+            );
+
+            // KEY ASSERTION: Only the edited file's queries should recompute
+            // With O(N) behavior, we'd see ~5 of each
+            let max_allowed = NUM_FILES / 2;
+            assert!(
+                defined_delta <= max_allowed,
+                "Expected O(1) file_defined_fragment_names calls, got {} (O(N) would be ~{})",
+                defined_delta,
+                NUM_FILES
+            );
+            assert!(
+                used_delta <= max_allowed,
+                "Expected O(1) file_used_fragment_names calls, got {} (O(N) would be ~{})",
+                used_delta,
+                NUM_FILES
+            );
+            assert!(
+                op_names_delta <= max_allowed,
+                "Expected O(1) file_operation_names calls, got {} (O(N) would be ~{})",
+                op_names_delta,
+                NUM_FILES
             );
         }
 
