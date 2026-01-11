@@ -334,16 +334,21 @@ pub mod tracking {
             }
         }
 
+        /// Helper to acquire the log lock and run a closure.
+        fn with_log<F, R>(&self, f: F) -> R
+        where
+            F: FnOnce(&QueryLog) -> R,
+        {
+            f(&self.log.lock().expect("QueryLog mutex poisoned"))
+        }
+
         /// Get the current checkpoint (log position) for later comparison.
         ///
         /// Use this before an operation, then use `count_since()` after to measure
         /// how many queries executed.
         #[must_use]
         pub fn checkpoint(&self) -> usize {
-            self.log
-                .lock()
-                .expect("QueryLog mutex poisoned")
-                .checkpoint()
+            self.with_log(QueryLog::checkpoint)
         }
 
         /// Count executions of a specific query since the given checkpoint.
@@ -353,10 +358,7 @@ pub mod tracking {
         /// - `count_since(queries::PARSE, checkpoint) == 0` means it was cached
         #[must_use]
         pub fn count_since(&self, query_name: &str, checkpoint: usize) -> usize {
-            self.log
-                .lock()
-                .expect("QueryLog mutex poisoned")
-                .count_since(query_name, checkpoint)
+            self.with_log(|log| log.count_since(query_name, checkpoint))
         }
 
         /// Get all query executions since the given checkpoint.
@@ -364,28 +366,19 @@ pub mod tracking {
         /// Useful for debugging test failures - shows exactly what executed.
         #[must_use]
         pub fn executions_since(&self, checkpoint: usize) -> Vec<String> {
-            self.log
-                .lock()
-                .expect("QueryLog mutex poisoned")
-                .executions_since(checkpoint)
+            self.with_log(|log| log.executions_since(checkpoint))
         }
 
         /// Get total execution count for a query (since database creation or last reset).
         #[must_use]
         pub fn total_count(&self, query_name: &str) -> usize {
-            self.log
-                .lock()
-                .expect("QueryLog mutex poisoned")
-                .total_count(query_name)
+            self.with_log(|log| log.total_count(query_name))
         }
 
         /// Get all query counts (since database creation or last reset).
         #[must_use]
         pub fn all_counts(&self) -> HashMap<String, usize> {
-            self.log
-                .lock()
-                .expect("QueryLog mutex poisoned")
-                .all_counts()
+            self.with_log(QueryLog::all_counts)
         }
 
         /// Reset all tracking data. Generally prefer checkpoint-based assertions instead.

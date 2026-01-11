@@ -15,7 +15,6 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 glob = { workspace = true }
-walkdir = { workspace = true }
 tracing = "0.1"
 
 [dev-dependencies]

@@ -6,6 +6,9 @@ use std::fmt::Write;
 /// Built-in GraphQL scalar types that should not be included in generated SDL.
 const BUILTIN_SCALARS: &[&str] = &["Int", "Float", "String", "Boolean", "ID"];
 
+/// Built-in GraphQL directives that should not be included in generated SDL.
+const BUILTIN_DIRECTIVES: &[&str] = &["skip", "include", "deprecated", "specifiedBy"];
+
 /// Converts a GraphQL introspection response to SDL (Schema Definition Language).
 ///
 /// This function generates clean, readable SDL from an introspection response by:
@@ -73,11 +76,7 @@ pub fn introspection_to_sdl(introspection: &IntrospectionResponse) -> String {
     }
 
     for directive in &schema.directives {
-        if directive.name == "skip"
-            || directive.name == "include"
-            || directive.name == "deprecated"
-            || directive.name == "specifiedBy"
-        {
+        if BUILTIN_DIRECTIVES.contains(&directive.name.as_str()) {
             continue;
         }
 
