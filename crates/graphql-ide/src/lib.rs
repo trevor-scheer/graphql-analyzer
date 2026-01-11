@@ -3598,6 +3598,114 @@ fragment AttackActionInfo on AttackAction {
     }
 
     #[test]
+    fn test_goto_definition_implements_interface() {
+        let mut host = AnalysisHost::new();
+
+        // Schema with interface and type that implements it
+        let schema_file = FilePath::new("file:///schema.graphql");
+        let (schema_text, cursor_pos) =
+            extract_cursor("interface Node { id: ID! }\ntype User implements No*de { id: ID! }");
+        host.add_file(&schema_file, &schema_text, FileKind::Schema, 0);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&schema_file, cursor_pos);
+
+        assert!(
+            locations.is_some(),
+            "Should find interface definition from implements clause"
+        );
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), schema_file.as_str());
+        // Should point to "Node" interface definition on line 0
+        assert_eq!(locations[0].range.start.line, 0);
+    }
+
+    #[test]
+    fn test_goto_definition_implements_multiple_interfaces() {
+        let mut host = AnalysisHost::new();
+
+        // Schema with multiple interfaces
+        let schema_file = FilePath::new("file:///schema.graphql");
+        let schema_text = r#"interface Node { id: ID! }
+interface Timestamped { createdAt: String! }
+type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
+        host.add_file(&schema_file, schema_text, FileKind::Schema, 0);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Test cursor on "Timestamped" in implements clause
+        // Line 2: "type User implements Node & Timestamped { id: ID!, createdAt: String! }"
+        // "type User implements Node & " = 28 chars, then "Timestamped"
+        let cursor_pos = Position::new(2, 30);
+        let locations = snapshot.goto_definition(&schema_file, cursor_pos);
+
+        assert!(
+            locations.is_some(),
+            "Should find Timestamped interface definition"
+        );
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), schema_file.as_str());
+        // Should point to "Timestamped" interface definition on line 1
+        assert_eq!(locations[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn test_goto_definition_interface_extends_interface() {
+        let mut host = AnalysisHost::new();
+
+        // Interface extending another interface (GraphQL supports this)
+        let schema_file = FilePath::new("file:///schema.graphql");
+        let (schema_text, cursor_pos) = extract_cursor(
+            "interface Node { id: ID! }\ninterface Entity implements No*de { id: ID!, name: String }",
+        );
+        host.add_file(&schema_file, &schema_text, FileKind::Schema, 0);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&schema_file, cursor_pos);
+
+        assert!(
+            locations.is_some(),
+            "Should find interface definition from interface implements clause"
+        );
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), schema_file.as_str());
+        // Should point to "Node" interface definition on line 0
+        assert_eq!(locations[0].range.start.line, 0);
+    }
+
+    #[test]
+    fn test_goto_definition_type_extension_implements() {
+        let mut host = AnalysisHost::new();
+
+        // Type extension adding an interface
+        let schema_file = FilePath::new("file:///schema.graphql");
+        let (schema_text, cursor_pos) = extract_cursor(
+            "interface Node { id: ID! }\ntype User { name: String }\nextend type User implements No*de",
+        );
+        host.add_file(&schema_file, &schema_text, FileKind::Schema, 0);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&schema_file, cursor_pos);
+
+        assert!(
+            locations.is_some(),
+            "Should find interface definition from type extension implements clause"
+        );
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), schema_file.as_str());
+        // Should point to "Node" interface definition on line 0
+        assert_eq!(locations[0].range.start.line, 0);
+    }
+
+    #[test]
     fn test_find_references_fragment() {
         let mut host = AnalysisHost::new();
 
