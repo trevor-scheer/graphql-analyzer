@@ -35,12 +35,34 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! ## With custom headers and retry
+//!
+//! ```no_run
+//! use graphql_introspect::{IntrospectionClient, introspection_to_sdl};
+//! use std::time::Duration;
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let client = IntrospectionClient::new()
+//!         .with_header("Authorization", "Bearer my-token")
+//!         .with_timeout(Duration::from_secs(60))
+//!         .with_retries(3);
+//!
+//!     let response = client.execute("https://api.example.com/graphql").await?;
+//!     let sdl = introspection_to_sdl(&response);
+//!     println!("{}", sdl);
+//!     Ok(())
+//! }
+//! ```
 
+mod client;
 mod error;
 mod query;
 mod sdl;
 mod types;
 
+pub use client::IntrospectionClient;
 pub use error::{IntrospectionError, Result};
 pub use query::{execute_introspection, INTROSPECTION_QUERY};
 pub use sdl::introspection_to_sdl;

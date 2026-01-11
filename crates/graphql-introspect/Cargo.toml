@@ -15,6 +15,7 @@ serde_json = { workspace = true }
 reqwest = { workspace = true }
 thiserror = { workspace = true }
 tracing = "0.1"
+tokio = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros"] }
