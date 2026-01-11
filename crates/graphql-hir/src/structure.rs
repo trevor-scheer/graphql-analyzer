@@ -1,6 +1,3 @@
-// Structure extraction - extracts names and signatures, not bodies
-// This is the foundation of the golden invariant: structure is stable across body edits
-
 use apollo_compiler::ast;
 use apollo_compiler::Node;
 use graphql_db::FileId;
@@ -132,7 +129,6 @@ pub struct FileStructureData {
 fn node_range<T>(node: &Node<T>) -> TextRange {
     node.location()
         .map(|loc| {
-            // Safe: GraphQL files are never larger than 4GB
             TextRange::new(
                 TextSize::from(loc.offset() as u32),
                 TextSize::from(loc.end_offset() as u32),
@@ -146,7 +142,6 @@ fn node_range<T>(node: &Node<T>) -> TextRange {
 fn name_range(name: &apollo_compiler::Name) -> TextRange {
     name.location()
         .map(|loc| {
-            // Safe: GraphQL files are never larger than 4GB
             TextRange::new(
                 TextSize::from(loc.offset() as u32),
                 TextSize::from(loc.end_offset() as u32),
@@ -170,7 +165,6 @@ pub fn file_structure(
     let mut operations = Vec::new();
     let mut fragments = Vec::new();
 
-    // Extract from all documents (works for both pure GraphQL and TS/JS files)
     for (block_idx, doc) in parse.documents().enumerate() {
         extract_from_document(
             doc.ast,
@@ -179,7 +173,6 @@ pub fn file_structure(
             &mut operations,
             &mut fragments,
         );
-        // Update operation indices to be unique per block (for TS/JS files with multiple blocks)
         if block_idx > 0 {
             let ops_len = operations.len();
             for op in operations.iter_mut().skip(ops_len.saturating_sub(1)) {
@@ -253,7 +246,6 @@ fn extract_operation_structure(
         .map(|v| extract_variable_signature(v))
         .collect();
 
-    // Extract name range from the Name if present
     let op_name_range = op.name.as_ref().map(name_range);
 
     OperationStructure {
@@ -530,10 +522,8 @@ fn extract_deprecation(
 ) -> (bool, Option<Arc<str>>) {
     for directive in directives {
         if directive.name == "deprecated" {
-            // Look for reason argument
             let reason = directive.arguments.iter().find_map(|arg| {
                 if arg.name == "reason" {
-                    // Extract string value
                     if let apollo_compiler::ast::Value::String(s) = &*arg.value {
                         Some(Arc::from(s.as_str()))
                     } else {
@@ -553,15 +543,11 @@ fn extract_type_ref(ty: &ast::Type) -> TypeRef {
     let is_non_null = ty.is_non_null();
     let is_list = ty.is_list();
 
-    // Get the innermost named type
     let name = Arc::from(ty.inner_named_type().as_str());
 
-    // Check if inner type (inside list) is non-null
-    // For [Type!]! we need to check if the type inside the list is non-null
+    // For [Type!]! we need to check if the inner type is non-null
     let inner_non_null = if is_list {
-        // Strip outer non-null wrapper if present
         let inner = if is_non_null {
-            // For [Type]! or [Type!]!, get the inner type after unwrapping outer non-null
             match ty {
                 ast::Type::NonNullNamed(_) => {
                     return TypeRef {
@@ -578,7 +564,6 @@ fn extract_type_ref(ty: &ast::Type) -> TypeRef {
             ty
         };
 
-        // Now check if it's a list with non-null inner type
         matches!(inner, ast::Type::List(list) if matches!(list.as_ref(), ast::Type::NonNullNamed(_)))
     } else {
         false

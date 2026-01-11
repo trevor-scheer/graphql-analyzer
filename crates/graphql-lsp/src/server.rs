@@ -84,13 +84,11 @@ impl GraphQLLanguageServer {
     /// regardless of their extension.
     #[allow(clippy::case_sensitive_file_extension_comparisons)]
     fn determine_file_kind(path: &str, _content: &str) -> graphql_ide::FileKind {
-        // Determine kind based on file extension
         if path.ends_with(".ts") || path.ends_with(".tsx") {
             graphql_ide::FileKind::TypeScript
         } else if path.ends_with(".js") || path.ends_with(".jsx") {
             graphql_ide::FileKind::JavaScript
         } else {
-            // .graphql, .gql, or other files from documents pattern
             graphql_ide::FileKind::ExecutableGraphQL
         }
     }
@@ -99,7 +97,6 @@ impl GraphQLLanguageServer {
     /// This is needed because the glob crate doesn't support brace expansion.
     /// For example, `**/*.{ts,tsx}` expands to `["**/*.ts", "**/*.tsx"]`.
     fn expand_braces(pattern: &str) -> Vec<String> {
-        // Simple brace expansion for patterns like **/*.{ts,tsx}
         if let Some(start) = pattern.find('{') {
             if let Some(end) = pattern.find('}') {
                 let before = &pattern[..start];
@@ -122,17 +119,14 @@ impl GraphQLLanguageServer {
     async fn load_workspace_config(&self, workspace_uri: &str, workspace_path: &PathBuf) {
         tracing::info!(path = ?workspace_path, "Loading GraphQL config");
 
-        // Store workspace root
         self.workspace_roots
             .insert(workspace_uri.to_string(), workspace_path.clone());
 
-        // Find and load config
         match find_config(workspace_path) {
             Ok(Some(config_path)) => {
                 self.config_paths
                     .insert(workspace_uri.to_string(), config_path.clone());
 
-                // Parse the config to load all files
                 match graphql_config::load_config(&config_path) {
                     Ok(config) => {
                         self.client
@@ -142,11 +136,9 @@ impl GraphQLLanguageServer {
                             )
                             .await;
 
-                        // Store the config
                         self.configs
                             .insert(workspace_uri.to_string(), config.clone());
 
-                        // Load all files from all projects into AnalysisHost
                         self.load_all_project_files(workspace_uri, workspace_path, &config)
                             .await;
                     }
@@ -162,7 +154,6 @@ impl GraphQLLanguageServer {
                 }
             }
             Ok(None) => {
-                // Show a prominent notification with action to create config
                 let actions = vec![
                     MessageActionItem {
                         title: "Create Config".to_string(),
@@ -183,7 +174,6 @@ impl GraphQLLanguageServer {
                     )
                     .await;
 
-                // Handle "Create Config" action
                 if let Ok(Some(action)) = response {
                     if action.title == "Create Config" {
                         self.create_default_config(workspace_path).await;
@@ -200,7 +190,6 @@ impl GraphQLLanguageServer {
     async fn create_default_config(&self, workspace_path: &Path) {
         let config_path = workspace_path.join("graphql.config.yaml");
 
-        // Don't overwrite existing config
         if config_path.exists() {
             self.client
                 .show_message(
@@ -244,13 +233,11 @@ documents: "**/*.graphql"
         config: &graphql_config::GraphQLConfig,
     ) {
         let start = std::time::Instant::now();
-        // Collect projects into a Vec to avoid holding iterator across await
         let projects: Vec<_> = config.projects().collect();
         tracing::info!("Loading files for {} project(s)", projects.len());
 
         for (project_name, project_config) in projects {
             tracing::info!("Loading project: {}", project_name);
-            // Parse and set extract configuration
             let extract_config = project_config
                 .extensions
                 .as_ref()
@@ -268,7 +255,6 @@ documents: "**/*.graphql"
                 })
                 .unwrap_or_default();
 
-            // Parse and set lint configuration
             let lint_config = project_config.lint.as_ref().map_or_else(
                 graphql_linter::LintConfig::default,
                 |lint_value| match serde_json::from_value::<graphql_linter::LintConfig>(lint_value.clone()) {
@@ -280,17 +266,14 @@ documents: "**/*.graphql"
                 },
             );
 
-            // Get the host for this (workspace, project)
             let host = self.get_or_create_host(workspace_uri, project_name);
 
-            // Set extract and lint config on host
             {
                 let mut host_guard = host.lock().await;
                 host_guard.set_extract_config(extract_config.clone());
                 host_guard.set_lint_config(lint_config);
             }
 
-            // Load schema files using centralized method
             {
                 let mut host_guard = host.lock().await;
                 if let Err(e) = host_guard.load_schemas_from_config(project_config, workspace_path)
@@ -299,19 +282,15 @@ documents: "**/*.graphql"
                 }
             }
 
-            // Load document files (operations and fragments)
             if let Some(documents_config) = &project_config.documents {
                 const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
 
-                // Get document patterns from config
                 let patterns: Vec<String> = documents_config
                     .patterns()
                     .into_iter()
                     .map(std::string::ToString::to_string)
                     .collect();
 
-                // === PHASE 1: Collect all files without holding the lock ===
-                // This batching approach avoids lock contention during file I/O
                 let mut collected_files: Vec<(
                     graphql_ide::FilePath,
                     String,
@@ -320,16 +299,13 @@ documents: "**/*.graphql"
                 let mut files_scanned = 0;
 
                 for pattern in patterns {
-                    // Skip negation patterns (starting with !)
                     if pattern.trim().starts_with('!') {
                         continue;
                     }
 
-                    // Expand brace patterns like {ts,tsx} since glob crate doesn't support them
                     let expanded_patterns = Self::expand_braces(&pattern);
 
                     for expanded_pattern in expanded_patterns {
-                        // Resolve pattern relative to workspace
                         let full_pattern = workspace_path.join(&expanded_pattern);
 
                         match glob::glob(&full_pattern.display().to_string()) {
@@ -337,7 +313,6 @@ documents: "**/*.graphql"
                                 for entry in paths {
                                     match entry {
                                         Ok(path) if path.is_file() => {
-                                            // Skip node_modules
                                             if path
                                                 .components()
                                                 .any(|c| c.as_os_str() == "node_modules")
@@ -345,7 +320,6 @@ documents: "**/*.graphql"
                                                 continue;
                                             }
 
-                                            // Log progress every 100 files
                                             files_scanned += 1;
                                             if files_scanned > 0 && files_scanned % 100 == 0 {
                                                 tracing::info!(
@@ -380,13 +354,11 @@ documents: "**/*.graphql"
                                                         &path_str, &content,
                                                     );
 
-                                                    // Strip leading '/' from absolute paths to avoid file:////
                                                     let path_str = path_str.trim_start_matches('/');
                                                     let uri = format!("file:///{path_str}");
                                                     let file_path =
                                                         graphql_ide::FilePath::new(uri.clone());
 
-                                                    // Collect file data for batch addition
                                                     collected_files
                                                         .push((file_path, content, file_kind));
                                                 }
@@ -399,7 +371,7 @@ documents: "**/*.graphql"
                                                 }
                                             }
                                         }
-                                        Ok(_) => {} // Skip directories
+                                        Ok(_) => {}
                                         Err(e) => {
                                             tracing::warn!("Glob entry error: {}", e);
                                         }
@@ -424,8 +396,6 @@ documents: "**/*.graphql"
                     project_name
                 );
 
-                // === PHASE 2: Add all files to host in single lock acquisition ===
-                // This significantly reduces lock contention compared to locking per-file
                 {
                     let mut host_guard = host.lock().await;
                     for (file_path, content, file_kind) in &collected_files {
@@ -433,7 +403,6 @@ documents: "**/*.graphql"
                     }
                 }
 
-                // === PHASE 2b: Populate file_to_project reverse index for O(1) lookup ===
                 for (file_path, _, _) in &collected_files {
                     self.file_to_project.insert(
                         file_path.as_str().to_string(),
@@ -447,8 +416,6 @@ documents: "**/*.graphql"
                     total_files_loaded
                 );
 
-                // Rebuild ProjectFiles index once after loading all files
-                // This is CRITICAL for performance - avoids O(n²) behavior
                 tracing::info!(
                     "Rebuilding ProjectFiles index for {} files...",
                     total_files_loaded
@@ -471,7 +438,6 @@ documents: "**/*.graphql"
             elapsed.as_secs_f64()
         );
 
-        // Log memory usage if available
         #[cfg(target_os = "linux")]
         {
             if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
@@ -492,7 +458,6 @@ documents: "**/*.graphql"
     async fn reload_workspace_config(&self, workspace_uri: &str) {
         tracing::info!("Reloading configuration for workspace: {}", workspace_uri);
 
-        // Get the workspace path
         let Some(workspace_path) = self.workspace_roots.get(workspace_uri).map(|r| r.clone())
         else {
             tracing::error!(
@@ -502,8 +467,6 @@ documents: "**/*.graphql"
             return;
         };
 
-        // Clear existing hosts for this workspace
-        // We need to collect keys first to avoid holding the lock while modifying
         let keys_to_remove: Vec<_> = self
             .hosts
             .iter()
@@ -521,7 +484,6 @@ documents: "**/*.graphql"
             keys_to_remove.len()
         );
 
-        // Clear file_to_project entries for this workspace
         let file_keys_to_remove: Vec<_> = self
             .file_to_project
             .iter()
@@ -538,14 +500,10 @@ documents: "**/*.graphql"
             file_keys_to_remove.len()
         );
 
-        // Clear the existing config
         self.configs.remove(workspace_uri);
-
-        // Reload config and files
         self.load_workspace_config(workspace_uri, &workspace_path)
             .await;
 
-        // Notify user
         self.client
             .show_message(
                 MessageType::INFO,
@@ -567,12 +525,10 @@ documents: "**/*.graphql"
     fn find_workspace_and_project(&self, document_uri: &Uri) -> Option<(String, String)> {
         let uri_string = document_uri.to_string();
 
-        // Fast path: O(1) lookup in reverse index
         if let Some(entry) = self.file_to_project.get(&uri_string) {
             return Some(entry.value().clone());
         }
 
-        // Fallback: use config pattern matching (for files opened after init)
         let doc_path = document_uri.to_file_path()?;
         for workspace_entry in self.workspace_roots.iter() {
             let workspace_uri = workspace_entry.key();
@@ -597,13 +553,11 @@ documents: "**/*.graphql"
     #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self), fields(path = ?uri.to_file_path().unwrap()))]
     async fn validate_file(&self, uri: Uri) {
-        // Find the workspace for this file
         let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
             tracing::warn!("No workspace/project found for file");
             return;
         };
 
-        // Get the analysis host for this workspace/project
         let Some(host_mutex) = self
             .hosts
             .get(&(workspace_uri.clone(), project_name.clone()))
@@ -616,13 +570,11 @@ documents: "**/*.graphql"
         let file_path = graphql_ide::FilePath::new(uri.as_str());
         let diagnostics = snapshot.diagnostics(&file_path);
 
-        // Convert IDE diagnostics to LSP diagnostics
         let lsp_diagnostics: Vec<Diagnostic> = diagnostics
             .into_iter()
             .map(convert_ide_diagnostic)
             .collect();
 
-        // Publish diagnostics
         self.client
             .publish_diagnostics(uri, lsp_diagnostics, None)
             .await;
@@ -637,13 +589,11 @@ documents: "**/*.graphql"
         let file_path = graphql_ide::FilePath::new(uri.as_str());
         let diagnostics = snapshot.diagnostics(&file_path);
 
-        // Convert IDE diagnostics to LSP diagnostics
         let lsp_diagnostics: Vec<Diagnostic> = diagnostics
             .into_iter()
             .map(convert_ide_diagnostic)
             .collect();
 
-        // Publish diagnostics
         self.client
             .publish_diagnostics(uri.clone(), lsp_diagnostics, None)
             .await;
