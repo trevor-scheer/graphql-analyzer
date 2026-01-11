@@ -399,11 +399,19 @@ Linting is configured via top-level `lint` with optional tool-specific overrides
 
 **Available rules:**
 
-<!-- TODO(trevor): update rule list. List recommended rules. -->
+| Rule | Description | Recommended |
+|------|-------------|-------------|
+| `unique_names` | Ensures operation and fragment names are unique across the project | error |
+| `no_anonymous_operations` | Requires all operations to have explicit names for better monitoring and debugging | error |
+| `no_deprecated` | Warns when using deprecated fields, arguments, or enum values | warn |
+| `redundant_fields` | Detects fields that are redundant because they are already included in a sibling fragment spread | warn |
+| `require_id_field` | Warns when the `id` field is not requested on types that have it | warn |
+| `unused_fields` | Detects schema fields that are never used in any operation or fragment | - |
+| `unused_fragments` | Detects fragment definitions that are never used in any operation | - |
+| `unused_variables` | Detects variables declared in operations that are never used | - |
+| `operation_name_suffix` | Requires operation names to have type-specific suffixes (Query, Mutation, Subscription) | - |
 
-- `no_deprecated` - Warns when using fields marked with @deprecated (recommended: warn)
-- `unique_names` - Ensures operation and fragment names are unique (recommended: error)
-- `unused_fields` - Detects schema fields never used (recommended: warn)
+Rules marked with `-` in the Recommended column are not included in the `recommended` preset and must be explicitly enabled.
 
 **Severity levels:**
 
