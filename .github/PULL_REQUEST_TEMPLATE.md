@@ -21,10 +21,10 @@ Example:
 
 -
 
-## Manual Testing
+## Manual Testing Plan
 
 <!--
-Steps for manually verifying these changes. CI handles automated tests and linting.
+Steps for manually verifying these changes.
 
 Examples:
 - Run `cargo build` and open VSCode to verify hover works on type references
@@ -32,6 +32,11 @@ Examples:
 - Open a .ts file with embedded GraphQL and verify diagnostics appear
 
 Leave empty or write "N/A" if no manual testing is needed.
+
+IMPORTANT: Do NOT mention automated test results, clippy results, or CI status
+anywhere in the PR description. Statements like "all tests passing" or "clippy
+clean" are unnecessary - CI enforces these automatically and they add no value.
+This section is ONLY for manual verification steps that reviewers can follow.
 -->
 
 -
