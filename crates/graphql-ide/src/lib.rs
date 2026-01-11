@@ -126,33 +126,119 @@ fn extract_cursor(input: &str) -> (String, Position) {
 
 // POD types are now defined in types.rs and re-exported above
 
-/// Input: Lint configuration
+
+/// Semantic token type for syntax highlighting
 ///
-/// This is a Salsa input so that config changes properly invalidate dependent queries.
-/// Wrapping in Arc allows queries to access the config without cloning the entire config object.
-///
-/// Using Salsa inputs instead of `Arc<RwLock<...>>` ensures:
-/// - Proper dependency tracking (Salsa knows which queries depend on config)
-/// - Automatic invalidation (only config-dependent queries re-run on changes)
-/// - No deadlock risk (Salsa manages all locking internally)
-/// - Snapshot isolation (config is immutable in Analysis snapshots)
-#[salsa::input]
-struct LintConfigInput {
-    pub config: Arc<graphql_linter::LintConfig>,
+/// These map to LSP semantic token types and provide rich syntax highlighting
+/// based on semantic analysis (e.g., knowing if a field is deprecated).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemanticTokenType {
+    /// GraphQL type names (User, Post, etc.)
+    Type,
+    /// Field names in selection sets
+    Property,
+    /// Variables ($id, $limit)
+    Variable,
+    /// Fragment names
+    Function,
+    /// Enum values (ACTIVE, PENDING)
+    EnumMember,
+    /// Keywords (query, mutation, fragment, on)
+    Keyword,
+    /// String literals
+    String,
+    /// Number literals
+    Number,
 }
 
-/// Input: Extract configuration for TypeScript/JavaScript extraction
+impl SemanticTokenType {
+    /// Index into the legend (must match order in LSP capability registration)
+    #[must_use]
+    pub const fn index(self) -> u32 {
+        match self {
+            Self::Type => 0,
+            Self::Property => 1,
+            Self::Variable => 2,
+            Self::Function => 3,
+            Self::EnumMember => 4,
+            Self::Keyword => 5,
+            Self::String => 6,
+            Self::Number => 7,
+        }
+    }
+}
+
+/// Semantic token modifier for additional styling
 ///
-/// This is a Salsa input so that config changes properly invalidate dependent queries.
+/// These are combined as a bitmask and provide additional semantic information
+/// like deprecation status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticTokenModifiers(u32);
+
+impl SemanticTokenModifiers {
+    /// No modifiers
+    pub const NONE: Self = Self(0);
+    /// Element is deprecated (triggers strikethrough in editors)
+    pub const DEPRECATED: Self = Self(1 << 0);
+    /// Element is a definition site
+    pub const DEFINITION: Self = Self(1 << 1);
+
+    /// Create from raw bitmask
+    #[must_use]
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    /// Get raw bitmask value
+    #[must_use]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// Combine modifiers
+    #[must_use]
+    pub const fn with(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// Check if a modifier is set
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        (self.0 & other.0) == other.0
+    }
+}
+
+/// A semantic token for syntax highlighting
 ///
-/// Using Salsa inputs instead of `Arc<RwLock<...>>` ensures:
-/// - Proper dependency tracking (Salsa knows which queries depend on config)
-/// - Automatic invalidation (only config-dependent queries re-run on changes)
-/// - No deadlock risk (Salsa manages all locking internally)
-/// - Snapshot isolation (config is immutable in Analysis snapshots)
-#[salsa::input]
-struct ExtractConfigInput {
-    pub config: Arc<graphql_extract::ExtractConfig>,
+/// Tokens are emitted in document order and converted to delta encoding
+/// by the LSP layer before being sent to the client.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticToken {
+    /// Start position of the token
+    pub start: Position,
+    /// Length of the token in UTF-16 code units
+    pub length: u32,
+    /// Token type
+    pub token_type: SemanticTokenType,
+    /// Token modifiers (bitmask)
+    pub modifiers: SemanticTokenModifiers,
+}
+
+impl SemanticToken {
+    #[must_use]
+    pub const fn new(
+        start: Position,
+        length: u32,
+        token_type: SemanticTokenType,
+        modifiers: SemanticTokenModifiers,
+    ) -> Self {
+        Self {
+            start,
+            length,
+            token_type,
+            modifiers,
+        }
+    }
 }
 
 /// Custom database that implements config traits
@@ -691,6 +777,87 @@ impl Analysis {
         lint_diagnostics.iter().map(convert_diagnostic).collect()
     }
 
+    /// Get semantic tokens for a file
+    ///
+    /// Returns tokens for syntax highlighting with semantic information,
+    /// including deprecation status for fields.
+    #[allow(clippy::too_many_lines)]
+    pub fn semantic_tokens(&self, file: &FilePath) -> Vec<SemanticToken> {
+        let (content, metadata) = {
+            let registry = self.registry.read();
+
+            // Look up FileId from FilePath
+            let Some(file_id) = registry.get_file_id(file) else {
+                return Vec::new();
+            };
+
+            // Get FileContent and FileMetadata
+            let Some(content) = registry.get_content(file_id) else {
+                return Vec::new();
+            };
+            let Some(metadata) = registry.get_metadata(file_id) else {
+                return Vec::new();
+            };
+            drop(registry);
+
+            (content, metadata)
+        };
+
+        // Parse the file
+        let parse = graphql_syntax::parse(&self.db, content, metadata);
+        if !parse.errors.is_empty() {
+            // Don't provide semantic tokens for files with parse errors
+            return Vec::new();
+        }
+
+        // Get line index for position conversion
+        let line_index = graphql_syntax::line_index(&self.db, content);
+
+        // Get schema types if available (for deprecation checks)
+        let schema_types = self
+            .project_files
+            .map(|pf| graphql_hir::schema_types_with_project(&self.db, pf));
+
+        let mut tokens = Vec::new();
+
+        // Collect tokens from the main document (pure GraphQL files)
+        let file_kind = metadata.kind(&self.db);
+        if file_kind == graphql_db::FileKind::ExecutableGraphQL
+            || file_kind == graphql_db::FileKind::Schema
+        {
+            collect_semantic_tokens_from_document(
+                &parse.tree.document(),
+                &line_index,
+                0,
+                schema_types.as_deref(),
+                &mut tokens,
+            );
+        }
+
+        // Collect tokens from extracted blocks (TypeScript/JavaScript)
+        #[allow(clippy::cast_possible_truncation)]
+        for block in &parse.blocks {
+            let block_line_index = graphql_syntax::LineIndex::new(&block.source);
+            collect_semantic_tokens_from_document(
+                &block.tree.document(),
+                &block_line_index,
+                block.line as u32,
+                schema_types.as_deref(),
+                &mut tokens,
+            );
+        }
+
+        // Sort tokens by position (required for delta encoding)
+        tokens.sort_by(|a, b| {
+            a.start
+                .line
+                .cmp(&b.start.line)
+                .then_with(|| a.start.character.cmp(&b.start.character))
+        });
+
+        tokens
+    }
+
     /// Get project-wide lint diagnostics (e.g., unused fields, unique names)
     ///
     /// Returns a map of file paths -> diagnostics for project-wide lint rules.
@@ -1019,6 +1186,16 @@ impl Analysis {
 
                 if let Some(desc) = &field.description {
                     write!(hover_text, "---\n\n{desc}\n\n").ok();
+                }
+
+                // Show deprecation info if the field is deprecated
+                if field.is_deprecated {
+                    write!(hover_text, "---\n\n").ok();
+                    if let Some(reason) = &field.deprecation_reason {
+                        write!(hover_text, "**Deprecated:** {reason}\n\n").ok();
+                    } else {
+                        write!(hover_text, "**Deprecated**\n\n").ok();
+                    }
                 }
 
                 Some(HoverResult::new(hover_text))
@@ -1982,7 +2159,310 @@ impl Analysis {
     }
 }
 
+
 // Helper functions are now in helpers.rs module
+
+/// Collect semantic tokens from a GraphQL document
+///
+/// Walks the document and emits tokens for fields, types, fragments, etc.
+/// Checks the schema to determine if fields are deprecated.
+#[allow(clippy::too_many_lines)]
+fn collect_semantic_tokens_from_document(
+    doc_cst: &apollo_parser::cst::Document,
+    line_index: &graphql_syntax::LineIndex,
+    line_offset: u32,
+    schema_types: Option<&std::collections::HashMap<Arc<str>, graphql_hir::TypeDef>>,
+    tokens: &mut Vec<SemanticToken>,
+) {
+    use apollo_parser::cst::{self, CstNode};
+
+    for definition in doc_cst.definitions() {
+        match definition {
+            cst::Definition::OperationDefinition(operation) => {
+                // Emit token for operation keyword (query, mutation, subscription)
+                if let Some(op_type) = operation.operation_type() {
+                    if let Some(token) = op_type
+                        .query_token()
+                        .or_else(|| op_type.mutation_token())
+                        .or_else(|| op_type.subscription_token())
+                    {
+                        emit_token_for_syntax_token(
+                            &token,
+                            line_index,
+                            line_offset,
+                            SemanticTokenType::Keyword,
+                            SemanticTokenModifiers::NONE,
+                            tokens,
+                        );
+                    }
+                }
+
+                // Determine root type for field deprecation checks
+                let root_type_name = operation.operation_type().map_or("Query", |op_type| {
+                    if op_type.query_token().is_some() {
+                        "Query"
+                    } else if op_type.mutation_token().is_some() {
+                        "Mutation"
+                    } else if op_type.subscription_token().is_some() {
+                        "Subscription"
+                    } else {
+                        "Query"
+                    }
+                });
+
+                // Process selection set
+                if let Some(selection_set) = operation.selection_set() {
+                    collect_tokens_from_selection_set(
+                        &selection_set,
+                        Some(root_type_name),
+                        schema_types,
+                        line_index,
+                        line_offset,
+                        tokens,
+                    );
+                }
+            }
+            cst::Definition::FragmentDefinition(fragment) => {
+                // Emit token for "fragment" keyword
+                if let Some(fragment_token) = fragment.fragment_token() {
+                    emit_token_for_syntax_token(
+                        &fragment_token,
+                        line_index,
+                        line_offset,
+                        SemanticTokenType::Keyword,
+                        SemanticTokenModifiers::NONE,
+                        tokens,
+                    );
+                }
+
+                // Emit token for "on" keyword
+                if let Some(type_condition) = fragment.type_condition() {
+                    if let Some(on_token) = type_condition.on_token() {
+                        emit_token_for_syntax_token(
+                            &on_token,
+                            line_index,
+                            line_offset,
+                            SemanticTokenType::Keyword,
+                            SemanticTokenModifiers::NONE,
+                            tokens,
+                        );
+                    }
+                    // Emit token for type name
+                    if let Some(named_type) = type_condition.named_type() {
+                        if let Some(name) = named_type.name() {
+                            emit_token_for_syntax_node(
+                                name.syntax(),
+                                line_index,
+                                line_offset,
+                                SemanticTokenType::Type,
+                                SemanticTokenModifiers::NONE,
+                                tokens,
+                            );
+                        }
+                    }
+                }
+
+                // Get fragment's type condition for field deprecation checks
+                let type_name = fragment
+                    .type_condition()
+                    .and_then(|tc| tc.named_type())
+                    .and_then(|nt| nt.name())
+                    .map(|name| name.text().to_string());
+
+                // Process selection set
+                if let Some(selection_set) = fragment.selection_set() {
+                    collect_tokens_from_selection_set(
+                        &selection_set,
+                        type_name.as_deref(),
+                        schema_types,
+                        line_index,
+                        line_offset,
+                        tokens,
+                    );
+                }
+            }
+            _ => {
+                // Schema definitions (type, interface, etc.) - skip for now
+            }
+        }
+    }
+}
+
+/// Collect semantic tokens from a selection set
+#[allow(clippy::too_many_lines)]
+fn collect_tokens_from_selection_set(
+    selection_set: &apollo_parser::cst::SelectionSet,
+    parent_type_name: Option<&str>,
+    schema_types: Option<&std::collections::HashMap<Arc<str>, graphql_hir::TypeDef>>,
+    line_index: &graphql_syntax::LineIndex,
+    line_offset: u32,
+    tokens: &mut Vec<SemanticToken>,
+) {
+    use apollo_parser::cst::{self, CstNode};
+
+    let parent_type = parent_type_name.and_then(|name| schema_types?.get(name));
+
+    for selection in selection_set.selections() {
+        match selection {
+            cst::Selection::Field(field) => {
+                if let Some(field_name_node) = field.name() {
+                    let field_name = field_name_node.text();
+
+                    // Check if field is deprecated
+                    let is_deprecated = parent_type
+                        .and_then(|pt| {
+                            pt.fields
+                                .iter()
+                                .find(|f| f.name.as_ref() == field_name.as_ref())
+                        })
+                        .is_some_and(|f| f.is_deprecated);
+
+                    let modifiers = if is_deprecated {
+                        SemanticTokenModifiers::DEPRECATED
+                    } else {
+                        SemanticTokenModifiers::NONE
+                    };
+
+                    emit_token_for_syntax_node(
+                        field_name_node.syntax(),
+                        line_index,
+                        line_offset,
+                        SemanticTokenType::Property,
+                        modifiers,
+                        tokens,
+                    );
+
+                    // Get field's return type for nested selection set
+                    let field_return_type = parent_type
+                        .and_then(|pt| {
+                            pt.fields
+                                .iter()
+                                .find(|f| f.name.as_ref() == field_name.as_ref())
+                        })
+                        .map(|f| f.type_ref.name.as_ref());
+
+                    // Recurse into nested selection set
+                    if let Some(nested_selection_set) = field.selection_set() {
+                        collect_tokens_from_selection_set(
+                            &nested_selection_set,
+                            field_return_type,
+                            schema_types,
+                            line_index,
+                            line_offset,
+                            tokens,
+                        );
+                    }
+                }
+            }
+            cst::Selection::FragmentSpread(spread) => {
+                // Emit token for "..." is not needed (punctuation)
+                // Emit token for fragment name
+                if let Some(name) = spread.fragment_name().and_then(|fn_| fn_.name()) {
+                    emit_token_for_syntax_node(
+                        name.syntax(),
+                        line_index,
+                        line_offset,
+                        SemanticTokenType::Function,
+                        SemanticTokenModifiers::NONE,
+                        tokens,
+                    );
+                }
+            }
+            cst::Selection::InlineFragment(inline) => {
+                // Emit token for "on" keyword and type name
+                if let Some(type_condition) = inline.type_condition() {
+                    if let Some(on_token) = type_condition.on_token() {
+                        emit_token_for_syntax_token(
+                            &on_token,
+                            line_index,
+                            line_offset,
+                            SemanticTokenType::Keyword,
+                            SemanticTokenModifiers::NONE,
+                            tokens,
+                        );
+                    }
+                    if let Some(named_type) = type_condition.named_type() {
+                        if let Some(name) = named_type.name() {
+                            emit_token_for_syntax_node(
+                                name.syntax(),
+                                line_index,
+                                line_offset,
+                                SemanticTokenType::Type,
+                                SemanticTokenModifiers::NONE,
+                                tokens,
+                            );
+                        }
+                    }
+                }
+
+                // Get type condition for nested selection set
+                let type_name = inline
+                    .type_condition()
+                    .and_then(|tc| tc.named_type())
+                    .and_then(|nt| nt.name())
+                    .map(|name| name.text().to_string());
+
+                let type_name_ref = type_name.as_deref().or(parent_type_name);
+
+                // Recurse into nested selection set
+                if let Some(selection_set) = inline.selection_set() {
+                    collect_tokens_from_selection_set(
+                        &selection_set,
+                        type_name_ref,
+                        schema_types,
+                        line_index,
+                        line_offset,
+                        tokens,
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Emit a semantic token for a syntax node
+#[allow(clippy::cast_possible_truncation)]
+fn emit_token_for_syntax_node(
+    node: &apollo_parser::SyntaxNode,
+    line_index: &graphql_syntax::LineIndex,
+    line_offset: u32,
+    token_type: SemanticTokenType,
+    modifiers: SemanticTokenModifiers,
+    tokens: &mut Vec<SemanticToken>,
+) {
+    let offset: usize = node.text_range().start().into();
+    let len: u32 = node.text_range().len().into();
+
+    let (line, col) = line_index.line_col(offset);
+    tokens.push(SemanticToken::new(
+        Position::new(line as u32 + line_offset, col as u32),
+        len,
+        token_type,
+        modifiers,
+    ));
+}
+
+/// Emit a semantic token for a syntax token (keyword, punctuation, etc.)
+#[allow(clippy::cast_possible_truncation)]
+fn emit_token_for_syntax_token(
+    token: &apollo_parser::SyntaxToken,
+    line_index: &graphql_syntax::LineIndex,
+    line_offset: u32,
+    token_type: SemanticTokenType,
+    modifiers: SemanticTokenModifiers,
+    tokens: &mut Vec<SemanticToken>,
+) {
+    let offset: usize = token.text_range().start().into();
+    let len: u32 = token.text_range().len().into();
+
+    let (line, col) = line_index.line_col(offset);
+    tokens.push(SemanticToken::new(
+        Position::new(line as u32 + line_offset, col as u32),
+        len,
+        token_type,
+        modifiers,
+    ));
+}
 
 /// Get field children for a type definition
 fn get_field_children(

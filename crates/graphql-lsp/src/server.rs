@@ -13,9 +13,12 @@ use lsp_types::{
     DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams,
     FileChangeType, FileSystemWatcher, GotoDefinitionParams, GotoDefinitionResponse, Hover,
     HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
-    Location, MessageActionItem, MessageType, OneOf, ReferenceParams, ServerCapabilities,
-    ServerInfo, SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri,
-    WorkDoneProgressOptions, WorkspaceEdit, WorkspaceSymbol, WorkspaceSymbolParams,
+    Location, MessageActionItem, MessageType, OneOf, ReferenceParams, SemanticToken,
+    SemanticTokenModifier, SemanticTokenType, SemanticTokens, SemanticTokensFullOptions,
+    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
+    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, SymbolInformation,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri, WorkDoneProgressOptions,
+    WorkspaceEdit, WorkspaceSymbol, WorkspaceSymbolParams,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -719,6 +722,11 @@ impl LanguageServer for GraphQLLanguageServer {
         let workspace_caps = params.capabilities.workspace.as_ref();
         let supports_workspace_symbols = workspace_caps.and_then(|ws| ws.symbol.as_ref()).is_some();
 
+        // Check if client supports semantic tokens
+        let supports_semantic_tokens = text_document_caps
+            .and_then(|td| td.semantic_tokens.as_ref())
+            .is_some();
+
         tracing::info!(
             supports_hover,
             supports_completion,
@@ -726,6 +734,7 @@ impl LanguageServer for GraphQLLanguageServer {
             supports_references,
             supports_document_symbols,
             supports_workspace_symbols,
+            supports_semantic_tokens,
             "Client capabilities detected"
         );
 
@@ -770,6 +779,29 @@ impl LanguageServer for GraphQLLanguageServer {
                         resolve_provider: None,
                     },
                 )),
+                semantic_tokens_provider: supports_semantic_tokens.then(|| {
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
+                        legend: SemanticTokensLegend {
+                            token_types: vec![
+                                SemanticTokenType::TYPE,
+                                SemanticTokenType::PROPERTY,
+                                SemanticTokenType::VARIABLE,
+                                SemanticTokenType::FUNCTION,
+                                SemanticTokenType::ENUM_MEMBER,
+                                SemanticTokenType::KEYWORD,
+                                SemanticTokenType::STRING,
+                                SemanticTokenType::NUMBER,
+                            ],
+                            token_modifiers: vec![
+                                SemanticTokenModifier::DEPRECATED,
+                                SemanticTokenModifier::DEFINITION,
+                            ],
+                        },
+                        full: Some(SemanticTokensFullOptions::Bool(true)),
+                        range: None,
+                        work_done_progress_options: WorkDoneProgressOptions::default(),
+                    })
+                }),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["graphql.checkStatus".to_string()],
                     work_done_progress_options: WorkDoneProgressOptions::default(),
@@ -1292,6 +1324,68 @@ impl LanguageServer for GraphQLLanguageServer {
 
         tracing::debug!("Returning {} workspace symbols", all_symbols.len());
         Ok(Some(OneOf::Right(all_symbols)))
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = params.text_document.uri;
+        tracing::debug!("Semantic tokens requested: {:?}", uri);
+
+        // Find workspace for this document
+        let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
+            tracing::warn!("No project found for document: {:?}", uri);
+            return Ok(None);
+        };
+
+        // Get AnalysisHost and create snapshot
+        let host = self.get_or_create_host(&workspace_uri, &project_name);
+        let analysis = {
+            let host_guard = host.lock().await;
+            host_guard.snapshot()
+        };
+
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
+
+        // Get semantic tokens from Analysis
+        let tokens = analysis.semantic_tokens(&file_path);
+
+        if tokens.is_empty() {
+            tracing::debug!("No semantic tokens found in document");
+            return Ok(None);
+        }
+
+        // Convert to LSP delta-encoded format
+        let mut encoded_tokens = Vec::with_capacity(tokens.len() * 5);
+        let mut prev_line = 0u32;
+        let mut prev_start = 0u32;
+
+        for token in tokens {
+            let delta_line = token.start.line - prev_line;
+            let delta_start = if delta_line == 0 {
+                token.start.character - prev_start
+            } else {
+                token.start.character
+            };
+
+            encoded_tokens.push(SemanticToken {
+                delta_line,
+                delta_start,
+                length: token.length,
+                token_type: token.token_type.index(),
+                token_modifiers_bitset: token.modifiers.raw(),
+            });
+
+            prev_line = token.start.line;
+            prev_start = token.start.character;
+        }
+
+        tracing::debug!("Returning {} semantic tokens", encoded_tokens.len());
+        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+            result_id: None,
+            data: encoded_tokens,
+        })))
     }
 
     #[allow(
