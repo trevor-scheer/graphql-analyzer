@@ -9,3 +9,12 @@ projects:
     schema: starwars/schema.graphql
     documents: "starwars/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
     lint: recommended
+
+  # Test project using remote schema introspection
+  countries:
+    schema:
+      url: https://countries.trevorblades.com/graphql
+      timeout: 30
+      retry: 2
+    documents: "countries/src/**/*.{graphql,ts}"
+    lint: recommended
