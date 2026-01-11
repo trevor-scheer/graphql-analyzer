@@ -500,6 +500,27 @@ impl graphql_analysis::GraphQLAnalysisDatabase for IdeDatabase {
 ///
 /// This is the entry point for all IDE features. It owns the database and
 /// provides methods to apply changes and create snapshots for analysis.
+///
+/// # Snapshot Lifecycle (Important!)
+///
+/// This follows Salsa's single-writer, multi-reader model:
+/// - Call [`snapshot()`](Self::snapshot) to create an immutable [`Analysis`] for queries
+/// - **All snapshots must be dropped before calling any mutating method**
+/// - Failing to drop snapshots before mutation will cause a hang/deadlock
+///
+/// ```ignore
+/// // CORRECT: Scope snapshots so they're dropped before mutation
+/// let result = {
+///     let snapshot = host.snapshot();
+///     snapshot.diagnostics(&file)
+/// }; // snapshot dropped here
+/// host.add_file(&file, new_content, kind, 0); // Safe: no snapshots exist
+///
+/// // WRONG: Holding snapshot across mutation
+/// let snapshot = host.snapshot();
+/// let result = snapshot.diagnostics(&file);
+/// host.add_file(&file, new_content, kind, 0); // HANGS: snapshot still alive!
+/// ```
 pub struct AnalysisHost {
     db: IdeDatabase,
     /// File registry for mapping paths to file IDs
@@ -715,6 +736,12 @@ impl AnalysisHost {
     ///
     /// This snapshot can be used from multiple threads and provides all IDE features.
     /// It's cheap to create and clone (`RootDatabase` implements Clone via salsa).
+    ///
+    /// # Lifecycle Warning
+    ///
+    /// The returned `Analysis` **must be dropped before calling any mutating method**
+    /// on this `AnalysisHost`. This is required by Salsa's single-writer model.
+    /// See the struct-level documentation for details and examples.
     pub fn snapshot(&self) -> Analysis {
         let project_files = self.registry.read().project_files();
 
@@ -754,6 +781,13 @@ impl Default for AnalysisHost {
 ///
 /// Can be cheaply cloned and used from multiple threads.
 /// All IDE feature queries go through this.
+///
+/// # Lifecycle Warning
+///
+/// This snapshot shares Salsa storage with its parent [`AnalysisHost`].
+/// **You must drop all `Analysis` instances before calling any mutating method**
+/// on the host (like `add_file`, `remove_file`, etc.). Failure to do so will
+/// cause a hang/deadlock due to Salsa's single-writer, multi-reader model.
 #[derive(Clone)]
 pub struct Analysis {
     db: IdeDatabase,
@@ -3020,24 +3054,38 @@ fragment AttackActionInfo on AttackAction {
     }
 
     #[test]
-    #[ignore = "TODO: Fix salsa update hang when modifying files"]
     fn test_diagnostics_after_file_update() {
+        // This test verifies that file updates work correctly with Salsa's
+        // incremental computation. Key insight from Salsa SME consultation:
+        //
+        // Salsa uses a single-writer, multi-reader model. When we clone the
+        // IdeDatabase (via snapshot()), we create a snapshot that shares the
+        // underlying storage. Salsa setters require exclusive access, so ALL
+        // snapshots must be dropped before calling any setter (like set_text).
+        //
+        // The fix is to properly scope snapshot lifetimes: get diagnostics
+        // inside a block so the snapshot is dropped before mutation.
+
         let mut host = AnalysisHost::new();
 
         // Add a file
         let path = FilePath::new("file:///schema.graphql");
         host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
 
-        // Get initial diagnostics
-        let snapshot1 = host.snapshot();
-        let diagnostics1 = snapshot1.diagnostics(&path);
+        // Get initial diagnostics - snapshot is scoped to this block
+        let diagnostics1 = {
+            let snapshot = host.snapshot();
+            snapshot.diagnostics(&path)
+        }; // snapshot dropped here, before mutation
 
-        // Update the file
+        // Update the file - safe because no snapshots exist
         host.add_file(&path, "type Query { world: Int }", FileKind::Schema, 0);
 
-        // Get new diagnostics
-        let snapshot2 = host.snapshot();
-        let diagnostics2 = snapshot2.diagnostics(&path);
+        // Get new diagnostics - new snapshot for updated content
+        let diagnostics2 = {
+            let snapshot = host.snapshot();
+            snapshot.diagnostics(&path)
+        };
 
         // Both should be valid (no errors)
         assert!(diagnostics1

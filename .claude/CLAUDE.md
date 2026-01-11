@@ -982,6 +982,7 @@ This project includes Subject Matter Expert (SME) agents in `.claude/agents/` th
 | **GraphQL Specification** | `graphql.md` | GraphQL spec compliance, validation rules, type system |
 | **Apollo Client** | `apollo-client.md` | Apollo Client patterns, caching, fragment colocation |
 | **rust-analyzer** | `rust-analyzer.md` | Query-based architecture, Salsa, incremental computation |
+| **Salsa** | `salsa.md` | Salsa framework, database design, snapshot isolation, concurrency |
 | **Rust** | `rust.md` | Idiomatic Rust, ownership, error handling, API design |
 | **Language Server Protocol** | `lsp.md` | LSP specification, protocol messages, client compatibility |
 | **GraphiQL** | `graphiql.md` | IDE features, graphql-language-service, UX patterns |
@@ -1017,7 +1018,8 @@ All agents share these traits:
 | **GraphQL validation/linting** | `graphql.md`, `apollo-rs.md` |
 | **VSCode extension changes** | `vscode-extension.md` |
 | **CLI tool changes** | `graphql-cli.md` |
-| **Salsa/incremental computation** | `rust-analyzer.md` |
+| **Salsa/incremental computation** | `salsa.md`, `rust-analyzer.md` |
+| **Salsa debugging (hangs, cache issues)** | `salsa.md` |
 | **IDE UX features** | `graphiql.md`, `lsp.md` |
 | **Apollo-specific patterns** | `apollo-client.md`, `apollo-rs.md` |
 | **Rust API design** | `rust.md` |
