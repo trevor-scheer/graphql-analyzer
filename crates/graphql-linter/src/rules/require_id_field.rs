@@ -1,4 +1,5 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::schema_utils::extract_root_type_names;
 use crate::traits::{DocumentSchemaLintRule, LintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
@@ -55,10 +56,11 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
         // Get all fragments from the project (for cross-file resolution)
         let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
 
-        // Get root operation types from schema
-        let query_type = find_root_operation_type(&schema_types, "Query");
-        let mutation_type = find_root_operation_type(&schema_types, "Mutation");
-        let subscription_type = find_root_operation_type(&schema_types, "Subscription");
+        // Get root operation types from schema definition or fall back to defaults
+        let root_types = extract_root_type_names(db, project_files, &schema_types);
+        let query_type = root_types.query;
+        let mutation_type = root_types.mutation;
+        let subscription_type = root_types.subscription;
 
         // Create context for fragment resolution
         let check_context = CheckContext {
@@ -322,20 +324,6 @@ fn check_selection_set(
     }
 }
 
-/// Find root operation type (Query, Mutation, or Subscription)
-/// Falls back to the default name if no custom schema definition exists
-fn find_root_operation_type(
-    schema_types: &HashMap<Arc<str>, graphql_hir::TypeDef>,
-    default_name: &str,
-) -> Option<String> {
-    // TODO: Read from schema definition directive once HIR supports it
-    // For now, use the default names
-    if schema_types.contains_key(default_name) {
-        Some(default_name.to_string())
-    } else {
-        None
-    }
-}
 
 /// Get the return type name for a field, unwrapping `List` and `NonNull` wrappers
 fn get_field_type(

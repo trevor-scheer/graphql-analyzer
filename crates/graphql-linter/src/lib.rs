@@ -4,6 +4,7 @@ mod config;
 mod diagnostics;
 mod registry;
 mod rules;
+mod schema_utils;
 mod traits;
 
 pub use config::{LintConfig, LintRuleConfig, LintSeverity};
