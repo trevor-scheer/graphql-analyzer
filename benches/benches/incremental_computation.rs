@@ -152,7 +152,7 @@ fn bench_schema_types_cold(c: &mut Criterion) {
             },
             |(db, project_files)| {
                 // Measure: Extract schema types for first time
-                black_box(graphql_hir::schema_types_with_project(&db, project_files))
+                black_box(graphql_hir::schema_types(&db, project_files))
             },
             BatchSize::SmallInput,
         );
@@ -164,11 +164,11 @@ fn bench_schema_types_warm(c: &mut Criterion) {
         // Setup: Extract schema types once to populate cache
         let mut db = RootDatabase::new();
         let project_files = create_project_files(&mut db);
-        let _ = graphql_hir::schema_types_with_project(&db, project_files);
+        let _ = graphql_hir::schema_types(&db, project_files);
 
         b.iter(|| {
             // Measure: Should be instant (cached)
-            black_box(graphql_hir::schema_types_with_project(&db, project_files))
+            black_box(graphql_hir::schema_types(&db, project_files))
         });
     });
 }
@@ -216,7 +216,7 @@ fn bench_golden_invariant(c: &mut Criterion) {
                     ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_entry_map);
 
                 // Cache schema types
-                let _ = graphql_hir::schema_types_with_project(&db, project_files);
+                let _ = graphql_hir::schema_types(&db, project_files);
 
                 // Now edit the document content using Salsa's in-place setter
                 // This simulates what happens on a keystroke - we update content
@@ -239,7 +239,7 @@ query GetUser($id: ID!) {
             |(db, project_files)| {
                 // Measure: Schema types query should be instant (cached, not invalidated)
                 // because we only changed document content, not ProjectFiles structure
-                black_box(graphql_hir::schema_types_with_project(&db, project_files))
+                black_box(graphql_hir::schema_types(&db, project_files))
             },
             BatchSize::SmallInput,
         );
@@ -307,7 +307,7 @@ fn bench_per_file_granular_caching(c: &mut Criterion) {
                     ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_entry_map);
 
                 // Warm caches for all files
-                let _ = graphql_hir::all_fragments_with_project(&db, project_files);
+                let _ = graphql_hir::all_fragments(&db, project_files);
 
                 // Now edit ONLY doc1 content - doc2's queries should remain cached
                 doc1_content.set_text(&mut db).to(Arc::from(
@@ -325,7 +325,7 @@ fn bench_per_file_granular_caching(c: &mut Criterion) {
                     doc2_content,
                     doc2_meta,
                 ));
-                black_box(graphql_hir::all_fragments_with_project(&db, project_files))
+                black_box(graphql_hir::all_fragments(&db, project_files))
             },
             BatchSize::SmallInput,
         );
@@ -375,7 +375,7 @@ fn bench_fragment_resolution_cold(c: &mut Criterion) {
             },
             |(db, project_files)| {
                 // Measure: Resolve fragments for first time
-                black_box(graphql_hir::all_fragments_with_project(&db, project_files))
+                black_box(graphql_hir::all_fragments(&db, project_files))
             },
             BatchSize::SmallInput,
         );
@@ -416,11 +416,11 @@ fn bench_fragment_resolution_warm(c: &mut Criterion) {
         let project_files =
             ProjectFiles::new(&db, schema_file_ids, document_file_ids, file_entry_map);
 
-        let _ = graphql_hir::all_fragments_with_project(&db, project_files);
+        let _ = graphql_hir::all_fragments(&db, project_files);
 
         b.iter(|| {
             // Measure: Should be instant (cached)
-            black_box(graphql_hir::all_fragments_with_project(&db, project_files))
+            black_box(graphql_hir::all_fragments(&db, project_files))
         });
     });
 }

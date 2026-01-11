@@ -963,7 +963,7 @@ impl Analysis {
                 let Some(project_files) = self.project_files else {
                     return Some(Vec::new());
                 };
-                let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
+                let fragments = graphql_hir::all_fragments(&self.db, project_files);
 
                 let items: Vec<CompletionItem> = fragments
                     .keys()
@@ -977,7 +977,7 @@ impl Analysis {
                 let Some(project_files) = self.project_files else {
                     return Some(Vec::new());
                 };
-                let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+                let types = graphql_hir::schema_types(&self.db, project_files);
 
                 let in_selection_set = is_in_selection_set(block_context.tree, offset);
                 if in_selection_set {
@@ -1121,7 +1121,7 @@ impl Analysis {
 
         match symbol {
             Symbol::FieldName { name } => {
-                let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+                let types = graphql_hir::schema_types(&self.db, project_files);
                 let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
 
                 // Use walk_type_stack_to_offset to properly resolve the parent type,
@@ -1158,7 +1158,7 @@ impl Analysis {
                 Some(HoverResult::new(hover_text))
             }
             Symbol::TypeName { name } => {
-                let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+                let types = graphql_hir::schema_types(&self.db, project_files);
                 let type_def = types.get(name.as_str())?;
 
                 let mut hover_text = format!("**Type:** `{name}`\n\n");
@@ -1179,7 +1179,7 @@ impl Analysis {
                 Some(HoverResult::new(hover_text))
             }
             Symbol::FragmentSpread { name } => {
-                let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
+                let fragments = graphql_hir::all_fragments(&self.db, project_files);
                 let fragment = fragments.get(name.as_str())?;
 
                 let hover_text = format!(
@@ -1243,7 +1243,7 @@ impl Analysis {
             Symbol::FieldName { name } => {
                 let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
 
-                let schema_types = graphql_hir::schema_types_with_project(&self.db, project_files);
+                let schema_types = graphql_hir::schema_types(&self.db, project_files);
 
                 // Use walk_type_stack_to_offset to properly resolve the parent type,
                 // which handles inline fragments correctly
@@ -1327,7 +1327,7 @@ impl Analysis {
                 None
             }
             Symbol::FragmentSpread { name } => {
-                let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
+                let fragments = graphql_hir::all_fragments(&self.db, project_files);
 
                 tracing::debug!(
                     "Looking for fragment '{}', available fragments: {:?}",
@@ -1435,7 +1435,7 @@ impl Analysis {
             }
             Symbol::ArgumentName { name } => {
                 let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
-                let schema_types = graphql_hir::schema_types_with_project(&self.db, project_files);
+                let schema_types = graphql_hir::schema_types(&self.db, project_files);
 
                 let field_name = find_field_name_at_offset(block_context.tree, offset)?;
 
@@ -1580,7 +1580,7 @@ impl Analysis {
             return locations;
         };
 
-        let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
+        let fragments = graphql_hir::all_fragments(&self.db, project_files);
 
         if include_declaration {
             if let Some(fragment) = fragments.get(fragment_name) {
@@ -1654,7 +1654,7 @@ impl Analysis {
             return locations;
         };
 
-        let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+        let types = graphql_hir::schema_types(&self.db, project_files);
 
         if include_declaration {
             if let Some(type_def) = types.get(type_name) {
@@ -1727,7 +1727,7 @@ impl Analysis {
             return locations;
         };
 
-        let schema_types = graphql_hir::schema_types_with_project(&self.db, project_files);
+        let schema_types = graphql_hir::schema_types(&self.db, project_files);
 
         if include_declaration {
             let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
@@ -1848,7 +1848,7 @@ impl Analysis {
 
             let symbol = match kind {
                 "object" => {
-                    let children = self.get_field_children(
+                    let children = get_field_children(
                         &structure,
                         &name,
                         &parse.tree,
@@ -1859,7 +1859,7 @@ impl Analysis {
                         .with_children(children)
                 }
                 "interface" => {
-                    let children = self.get_field_children(
+                    let children = get_field_children(
                         &structure,
                         &name,
                         &parse.tree,
@@ -1870,7 +1870,7 @@ impl Analysis {
                         .with_children(children)
                 }
                 "input" => {
-                    let children = self.get_field_children(
+                    let children = get_field_children(
                         &structure,
                         &name,
                         &parse.tree,
@@ -1915,53 +1915,6 @@ impl Analysis {
         symbols
     }
 
-    /// Get field children for a type definition
-    #[allow(clippy::unused_self)]
-    fn get_field_children(
-        &self,
-        structure: &graphql_hir::FileStructureData,
-        type_name: &str,
-        tree: &apollo_parser::SyntaxTree,
-        line_index: &graphql_syntax::LineIndex,
-        line_offset: u32,
-    ) -> Vec<DocumentSymbol> {
-        let Some(type_def) = structure
-            .type_defs
-            .iter()
-            .find(|t| t.name.as_ref() == type_name)
-        else {
-            return Vec::new();
-        };
-
-        let mut children = Vec::new();
-
-        for field in &type_def.fields {
-            if let Some(ranges) = find_field_definition_full_range(tree, type_name, &field.name) {
-                let range = adjust_range_for_line_offset(
-                    offset_range_to_range(line_index, ranges.def_start, ranges.def_end),
-                    line_offset,
-                );
-                let selection_range = adjust_range_for_line_offset(
-                    offset_range_to_range(line_index, ranges.name_start, ranges.name_end),
-                    line_offset,
-                );
-
-                let detail = format_type_ref(&field.type_ref);
-                children.push(
-                    DocumentSymbol::new(
-                        field.name.to_string(),
-                        SymbolKind::Field,
-                        range,
-                        selection_range,
-                    )
-                    .with_detail(detail),
-                );
-            }
-        }
-
-        children
-    }
-
     /// Search for workspace symbols matching a query
     ///
     /// Returns matching types, operations, and fragments across all files.
@@ -1975,7 +1928,7 @@ impl Analysis {
         let mut symbols = Vec::new();
 
         // Search types
-        let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+        let types = graphql_hir::schema_types(&self.db, project_files);
         for (name, type_def) in types.iter() {
             if name.to_lowercase().contains(&query_lower) {
                 if let Some(location) = self.get_type_location(type_def) {
@@ -1994,7 +1947,7 @@ impl Analysis {
         }
 
         // Search fragments
-        let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
+        let fragments = graphql_hir::all_fragments(&self.db, project_files);
         for (name, fragment) in fragments.iter() {
             if name.to_lowercase().contains(&query_lower) {
                 if let Some(location) = self.get_fragment_location(fragment) {
@@ -2217,6 +2170,51 @@ struct BlockContext<'a> {
     line_offset: u32,
     /// The block source for building `LineIndex` (None for pure GraphQL files)
     block_source: Option<&'a str>,
+}
+
+/// Get field children for a type definition
+fn get_field_children(
+    structure: &graphql_hir::FileStructureData,
+    type_name: &str,
+    tree: &apollo_parser::SyntaxTree,
+    line_index: &graphql_syntax::LineIndex,
+    line_offset: u32,
+) -> Vec<DocumentSymbol> {
+    let Some(type_def) = structure
+        .type_defs
+        .iter()
+        .find(|t| t.name.as_ref() == type_name)
+    else {
+        return Vec::new();
+    };
+
+    let mut children = Vec::new();
+
+    for field in &type_def.fields {
+        if let Some(ranges) = find_field_definition_full_range(tree, type_name, &field.name) {
+            let range = adjust_range_for_line_offset(
+                offset_range_to_range(line_index, ranges.def_start, ranges.def_end),
+                line_offset,
+            );
+            let selection_range = adjust_range_for_line_offset(
+                offset_range_to_range(line_index, ranges.name_start, ranges.name_end),
+                line_offset,
+            );
+
+            let detail = format_type_ref(&field.type_ref);
+            children.push(
+                DocumentSymbol::new(
+                    field.name.to_string(),
+                    SymbolKind::Field,
+                    range,
+                    selection_range,
+                )
+                .with_detail(detail),
+            );
+        }
+    }
+
+    children
 }
 
 /// Find which GraphQL block contains the given position

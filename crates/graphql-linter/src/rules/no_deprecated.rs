@@ -45,7 +45,7 @@ impl DocumentSchemaLintRule for NoDeprecatedRuleImpl {
         }
 
         // Get schema types from HIR
-        let schema_types = graphql_hir::schema_types_with_project(db, project_files);
+        let schema_types = graphql_hir::schema_types(db, project_files);
 
         // Check main document (for .graphql files only)
         // For TS/JS files, parse.tree is the first block and we check all blocks below

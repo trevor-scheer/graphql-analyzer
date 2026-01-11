@@ -11,9 +11,9 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
     let project_files = db
         .project_files()
         .expect("project files must be set for project-wide analysis");
-    let schema = graphql_hir::schema_types_with_project(db, project_files);
+    let schema = graphql_hir::schema_types(db, project_files);
     let operations = graphql_hir::all_operations(db, project_files);
-    let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
+    let all_fragments = graphql_hir::all_fragments(db, project_files);
 
     // Step 1: Collect all schema fields (type_name, field_name) -> (FileId, FieldSignature)
     let mut schema_fields: SchemaFieldsMap = HashMap::new();
@@ -98,7 +98,7 @@ pub fn find_unused_fragments(
     let project_files = db
         .project_files()
         .expect("project files must be set for project-wide analysis");
-    let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
+    let all_fragments = graphql_hir::all_fragments(db, project_files);
 
     // Use the fragment spreads index from HIR (cached, no AST cloning needed)
     let fragment_spreads_index = graphql_hir::fragment_spreads_index(db, project_files);

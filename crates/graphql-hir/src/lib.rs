@@ -172,15 +172,6 @@ pub fn schema_types(
     Arc::new(types)
 }
 
-/// Alias for `schema_types` for backward compatibility
-#[salsa::tracked]
-pub fn schema_types_with_project(
-    db: &dyn GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
-) -> Arc<HashMap<Arc<str>, TypeDef>> {
-    schema_types(db, project_files)
-}
-
 /// Get all fragments in the project
 ///
 /// This query uses granular dependencies:
@@ -209,15 +200,6 @@ pub fn all_fragments(
     }
 
     Arc::new(fragments)
-}
-
-/// Alias for `all_fragments` for backward compatibility
-#[salsa::tracked]
-pub fn all_fragments_with_project(
-    db: &dyn GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
-) -> Arc<HashMap<Arc<str>, FragmentStructure>> {
-    all_fragments(db, project_files)
 }
 
 /// Index mapping fragment names to their file content and metadata
@@ -542,7 +524,7 @@ mod tests {
     fn test_schema_types_empty() {
         let db = TestDatabase::default();
         let project_files = create_project_files(&db, &[], &[]);
-        let types = schema_types_with_project(&db, project_files);
+        let types = schema_types(&db, project_files);
         assert_eq!(types.len(), 0);
     }
 
@@ -633,7 +615,7 @@ mod tests {
         );
 
         // Query all_fragments to also warm that cache
-        let fragments = all_fragments_with_project(&db, project_files);
+        let fragments = all_fragments(&db, project_files);
         assert_eq!(fragments.len(), 2, "Should have 2 fragments");
 
         // Reset counter before the edit
@@ -656,7 +638,7 @@ mod tests {
         FILE_STRUCTURE_CALL_COUNT.store(0, Ordering::SeqCst);
 
         // Query all_fragments again after editing file2
-        let fragments_after = all_fragments_with_project(&db, project_files);
+        let fragments_after = all_fragments(&db, project_files);
         assert_eq!(fragments_after.len(), 2, "Should still have 2 fragments");
 
         // Check if FragmentB was updated (it should have "phone" now)
@@ -707,7 +689,7 @@ mod tests {
         let project_files = create_project_files(&db, &[], &doc_files);
 
         // Warm the cache
-        let frags1 = all_fragments_with_project(&db, project_files);
+        let frags1 = all_fragments(&db, project_files);
         assert_eq!(frags1.len(), 2);
         assert!(frags1.contains_key("F1"));
         assert!(frags1.contains_key("F2"));
@@ -718,7 +700,7 @@ mod tests {
             .to(Arc::from("fragment F2 on User { name email }"));
 
         // Query again - file1's data should come from cache
-        let frags2 = all_fragments_with_project(&db, project_files);
+        let frags2 = all_fragments(&db, project_files);
         assert_eq!(frags2.len(), 2);
 
         // Both fragments should still be present

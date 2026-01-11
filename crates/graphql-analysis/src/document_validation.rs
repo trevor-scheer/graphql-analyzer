@@ -54,7 +54,7 @@ pub fn validate_document_file(
     let project_files = db
         .project_files()
         .expect("project files must be set for validation");
-    let schema = graphql_hir::schema_types_with_project(db, project_files);
+    let schema = graphql_hir::schema_types(db, project_files);
 
     for op_structure in &structure.operations {
         if let Some(name) = &op_structure.name {
@@ -107,7 +107,7 @@ pub fn validate_document_file(
     }
 
     for frag_structure in &structure.fragments {
-        let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
+        let all_fragments = graphql_hir::all_fragments(db, project_files);
 
         let count = all_fragments
             .iter()

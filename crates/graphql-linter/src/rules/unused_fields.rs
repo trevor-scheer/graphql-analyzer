@@ -30,7 +30,7 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
 
         // Step 1: Collect all schema fields
-        let schema_types = graphql_hir::schema_types_with_project(db, project_files);
+        let schema_types = graphql_hir::schema_types(db, project_files);
         let mut schema_fields: HashMap<String, HashSet<String>> = HashMap::new();
         let mut field_locations: HashMap<(String, String), FileId> = HashMap::new();
 

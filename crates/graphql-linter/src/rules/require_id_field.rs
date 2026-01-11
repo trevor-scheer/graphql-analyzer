@@ -38,7 +38,7 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
         }
 
         // Get schema types from HIR
-        let schema_types = graphql_hir::schema_types_with_project(db, project_files);
+        let schema_types = graphql_hir::schema_types(db, project_files);
 
         // Build a map of type names to whether they have an id field
         let mut types_with_id: HashMap<String, bool> = HashMap::new();
@@ -53,7 +53,7 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
         }
 
         // Get all fragments from the project (for cross-file resolution)
-        let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
+        let all_fragments = graphql_hir::all_fragments(db, project_files);
 
         // Get root operation types from schema
         let query_type = find_root_operation_type(&schema_types, "Query");

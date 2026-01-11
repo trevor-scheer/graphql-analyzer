@@ -256,17 +256,4 @@ impl CliAnalysisHost {
         );
         results
     }
-
-    /// Update a file (for watch mode - future enhancement)
-    #[allow(dead_code)]
-    pub fn update_file(&mut self, path: &Path, content: &str) {
-        let file_path = FilePath::new(path.to_string_lossy().to_string());
-        let kind = FileKind::ExecutableGraphQL;
-
-        self.host.add_file(&file_path, content, kind, 0);
-
-        if !self.loaded_files.contains(&path.to_path_buf()) {
-            self.loaded_files.push(path.to_path_buf());
-        }
-    }
 }
