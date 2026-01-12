@@ -29,9 +29,9 @@ pub enum LintRuleConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ExtendsConfig {
-    /// Single preset: `extends: recommended`
+    /// Single preset: `extends: recommended` or `lint: recommended`
     Single(String),
-    /// Multiple presets: `extends: [recommended, strict]`
+    /// Multiple presets: `extends: [recommended, strict]` or `lint: [recommended, strict]`
     Multiple(Vec<String>),
 }
 
@@ -67,6 +67,9 @@ pub struct FullLintConfig {
 /// # Happy path - just use recommended preset
 /// lint: recommended
 ///
+/// # Multiple presets
+/// lint: [recommended, strict]
+///
 /// # Fine-grained rules only (no presets)
 /// lint:
 ///   rules:
@@ -79,7 +82,7 @@ pub struct FullLintConfig {
 ///   rules:
 ///     no_deprecated: off
 ///
-/// # Multiple presets (later overrides earlier)
+/// # Multiple presets with overrides
 /// lint:
 ///   extends: [recommended, strict]
 ///   rules:
@@ -88,8 +91,8 @@ pub struct FullLintConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum LintConfig {
-    /// Simple preset name: `lint: recommended`
-    Preset(String),
+    /// Preset(s): `lint: recommended` or `lint: [recommended, strict]`
+    Preset(ExtendsConfig),
 
     /// Full configuration with optional extends and rules
     Full(FullLintConfig),
@@ -116,13 +119,15 @@ impl LintConfig {
         let valid_presets = ["recommended"];
 
         let rules = match self {
-            Self::Preset(name) => {
-                if valid_presets.contains(&name.as_str()) {
-                    return Ok(());
+            Self::Preset(presets) => {
+                for preset in presets.presets() {
+                    if !valid_presets.contains(&preset) {
+                        return Err(format!(
+                            "Invalid preset name: '{preset}'\n\nValid presets are:\n  - recommended"
+                        ));
+                    }
                 }
-                return Err(format!(
-                    "Invalid preset name: '{name}'\n\nValid presets are:\n  - recommended"
-                ));
+                return Ok(());
             }
             Self::Full(FullLintConfig { extends, rules }) => {
                 if let Some(ext) = extends {
@@ -163,26 +168,12 @@ impl LintConfig {
     #[must_use]
     pub fn get_severity(&self, rule_name: &str) -> Option<LintSeverity> {
         match self {
-            Self::Preset(name) => {
-                if name == "recommended" {
-                    Self::recommended_severity(rule_name)
-                } else {
-                    None
-                }
-            }
+            Self::Preset(presets) => Self::severity_from_presets(presets, rule_name),
             Self::Full(FullLintConfig { extends, rules }) => {
                 // Start with preset severities (if any)
-                let preset_severity = extends.as_ref().and_then(|ext| {
-                    let mut severity = None;
-                    for preset in ext.presets() {
-                        if preset == "recommended" {
-                            if let Some(s) = Self::recommended_severity(rule_name) {
-                                severity = Some(s);
-                            }
-                        }
-                    }
-                    severity
-                });
+                let preset_severity = extends
+                    .as_ref()
+                    .and_then(|ext| Self::severity_from_presets(ext, rule_name));
 
                 // Check for explicit rule override
                 rules
@@ -194,6 +185,20 @@ impl LintConfig {
                     .or(preset_severity)
             }
         }
+    }
+
+    /// Get severity from a list of presets (later presets override earlier)
+    fn severity_from_presets(presets: &ExtendsConfig, rule_name: &str) -> Option<LintSeverity> {
+        let mut severity = None;
+        for preset in presets.presets() {
+            if preset == "recommended" {
+                if let Some(s) = Self::recommended_severity(rule_name) {
+                    severity = Some(s);
+                }
+            }
+            // Add more presets here as they're added
+        }
+        severity
     }
 
     /// Check if a rule is enabled (not Off and not None)
@@ -217,7 +222,7 @@ impl LintConfig {
     /// Get recommended configuration
     #[must_use]
     pub fn recommended() -> Self {
-        Self::Preset("recommended".to_string())
+        Self::Preset(ExtendsConfig::Single("recommended".to_string()))
     }
 
     /// Merge another config into this one (tool-specific overrides)
@@ -257,15 +262,13 @@ impl LintConfig {
 
             // Preset + Full override: convert preset to extends and merge
             (
-                Self::Preset(name),
+                Self::Preset(presets),
                 Self::Full(FullLintConfig {
                     extends: override_ext,
                     rules: override_rules,
                 }),
             ) => Self::Full(FullLintConfig {
-                extends: override_ext
-                    .clone()
-                    .or_else(|| Some(ExtendsConfig::Single(name.clone()))),
+                extends: override_ext.clone().or_else(|| Some(presets.clone())),
                 rules: override_rules.clone(),
             }),
         }
@@ -280,10 +283,25 @@ mod tests {
     fn test_simple_preset() {
         let yaml = r#"recommended"#;
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
-        assert!(matches!(config, LintConfig::Preset(ref s) if s == "recommended"));
+        assert!(matches!(
+            config,
+            LintConfig::Preset(ExtendsConfig::Single(ref s)) if s == "recommended"
+        ));
         assert!(config.is_enabled("unique_names"));
         assert!(config.is_enabled("no_deprecated"));
         assert!(!config.is_enabled("unused_fields"));
+    }
+
+    #[test]
+    fn test_preset_list() {
+        let yaml = r#"[recommended]"#;
+        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(
+            config,
+            LintConfig::Preset(ExtendsConfig::Multiple(_))
+        ));
+        assert!(config.is_enabled("unique_names"));
+        assert!(config.is_enabled("no_deprecated"));
     }
 
     #[test]
@@ -387,13 +405,13 @@ rules:
 
     #[test]
     fn test_validate_valid_preset() {
-        let config = LintConfig::Preset("recommended".to_string());
+        let config = LintConfig::Preset(ExtendsConfig::Single("recommended".to_string()));
         assert!(config.validate().is_ok());
     }
 
     #[test]
     fn test_validate_invalid_preset() {
-        let config = LintConfig::Preset("not_a_preset".to_string());
+        let config = LintConfig::Preset(ExtendsConfig::Single("not_a_preset".to_string()));
         assert!(config.validate().is_err());
     }
 
