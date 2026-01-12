@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@anthropic-ai/mcp-proxy@latest", "--header", "Authorization: Bearer ${GH_TOKEN}", "https://api.githubcopilot.com/mcp"]
+    }
+  }
+}

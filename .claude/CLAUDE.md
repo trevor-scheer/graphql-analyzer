@@ -1051,6 +1051,9 @@ Skills provide contextual guidance for common workflows. They activate automatic
 | Adding Lint Rules | `/adding-lint-rules` | Implementing lint rules, adding validation |
 | Bug Fix Workflow | `/bug-fix-workflow` | Fixing bugs, addressing issues |
 | Create PR | `/create-pr` | Opening PRs, preparing for review |
+| Add IDE Feature | `/add-ide-feature` | Implementing LSP features (hover, goto def, etc.) |
+| Debug LSP | `/debug-lsp` | Troubleshooting LSP server issues |
+| Review PR | `/review-pr` | Reviewing pull requests |
 
 Skills are located in `.claude/skills/` and are loaded into context when relevant.
 
