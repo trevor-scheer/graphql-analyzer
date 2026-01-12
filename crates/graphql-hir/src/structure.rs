@@ -2,7 +2,7 @@ use apollo_compiler::ast;
 use apollo_compiler::Node;
 use graphql_db::FileId;
 use std::sync::Arc;
-use text_size::{TextRange, TextSize};
+pub use text_size::{TextRange, TextSize};
 
 /// Offset multiplier to ensure unique operation indices across blocks.
 /// Each block's operations get offset by `block_index * BLOCK_INDEX_OFFSET`.
@@ -87,6 +87,10 @@ pub struct OperationStructure {
     pub name_range: Option<TextRange>,
     /// The text range of the entire operation
     pub operation_range: TextRange,
+    /// For embedded GraphQL: line offset of the block (0-indexed)
+    pub block_line_offset: Option<usize>,
+    /// For embedded GraphQL: source text of the block
+    pub block_source: Option<Arc<str>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -116,6 +120,10 @@ pub struct FragmentStructure {
     pub type_condition_range: TextRange,
     /// The text range of the entire fragment definition
     pub fragment_range: TextRange,
+    /// For embedded GraphQL: line offset of the block (0-indexed)
+    pub block_line_offset: Option<usize>,
+    /// For embedded GraphQL: source text of the block
+    pub block_source: Option<Arc<str>>,
 }
 
 /// Summary of a file's structure (stable across body edits)
@@ -154,6 +162,33 @@ fn name_range(name: &apollo_compiler::Name) -> TextRange {
         .unwrap_or_default()
 }
 
+/// Block context for embedded GraphQL extraction
+#[derive(Debug, Clone)]
+struct BlockContext {
+    /// Line offset in the original file (0-indexed)
+    line_offset: usize,
+    /// Source text of the block
+    source: Option<Arc<str>>,
+}
+
+impl BlockContext {
+    /// Create a new block context for pure GraphQL files (no offset, no source)
+    const fn pure_graphql() -> Self {
+        Self {
+            line_offset: 0,
+            source: None,
+        }
+    }
+
+    /// Create a new block context for embedded GraphQL
+    fn embedded(line_offset: usize, source: Arc<str>) -> Self {
+        Self {
+            line_offset,
+            source: Some(source),
+        }
+    }
+}
+
 /// Extract the file structure from a parsed syntax tree
 /// This only extracts structural information (names, signatures), not bodies
 #[salsa::tracked]
@@ -170,9 +205,16 @@ pub fn file_structure(
     let mut fragments = Vec::new();
 
     for (block_idx, doc) in parse.documents().enumerate() {
+        // Create block context - for pure GraphQL files, source is None
+        let block_ctx = match doc.source {
+            Some(src) => BlockContext::embedded(doc.line_offset, Arc::from(src)),
+            None => BlockContext::pure_graphql(),
+        };
+
         extract_from_document(
             doc.ast,
             file_id,
+            &block_ctx,
             &mut type_defs,
             &mut operations,
             &mut fragments,
@@ -196,6 +238,7 @@ pub fn file_structure(
 fn extract_from_document(
     document: &ast::Document,
     file_id: FileId,
+    block_ctx: &BlockContext,
     type_defs: &mut Vec<TypeDef>,
     operations: &mut Vec<OperationStructure>,
     fragments: &mut Vec<FragmentStructure>,
@@ -203,10 +246,15 @@ fn extract_from_document(
     for definition in &document.definitions {
         match definition {
             ast::Definition::OperationDefinition(op) => {
-                operations.push(extract_operation_structure(op, file_id, operations.len()));
+                operations.push(extract_operation_structure(
+                    op,
+                    file_id,
+                    operations.len(),
+                    block_ctx,
+                ));
             }
             ast::Definition::FragmentDefinition(frag) => {
-                fragments.push(extract_fragment_structure(frag, file_id));
+                fragments.push(extract_fragment_structure(frag, file_id, block_ctx));
             }
             ast::Definition::ObjectTypeDefinition(obj) => {
                 type_defs.push(extract_object_type(obj, file_id));
@@ -235,6 +283,7 @@ fn extract_operation_structure(
     op: &Node<ast::OperationDefinition>,
     file_id: FileId,
     index: usize,
+    block_ctx: &BlockContext,
 ) -> OperationStructure {
     let name = op.name.as_ref().map(|n| Arc::from(n.as_str()));
 
@@ -252,6 +301,13 @@ fn extract_operation_structure(
 
     let op_name_range = op.name.as_ref().map(name_range);
 
+    // For embedded GraphQL, include block context; for pure GraphQL, these are None
+    let (block_line_offset, block_source) = if block_ctx.source.is_some() {
+        (Some(block_ctx.line_offset), block_ctx.source.clone())
+    } else {
+        (None, None)
+    };
+
     OperationStructure {
         name,
         operation_type,
@@ -260,15 +316,25 @@ fn extract_operation_structure(
         index,
         name_range: op_name_range,
         operation_range: node_range(op),
+        block_line_offset,
+        block_source,
     }
 }
 
 fn extract_fragment_structure(
     frag: &Node<ast::FragmentDefinition>,
     file_id: FileId,
+    block_ctx: &BlockContext,
 ) -> FragmentStructure {
     let name = Arc::from(frag.name.as_str());
     let type_condition = Arc::from(frag.type_condition.as_str());
+
+    // For embedded GraphQL, include block context; for pure GraphQL, these are None
+    let (block_line_offset, block_source) = if block_ctx.source.is_some() {
+        (Some(block_ctx.line_offset), block_ctx.source.clone())
+    } else {
+        (None, None)
+    };
 
     FragmentStructure {
         name,
@@ -277,6 +343,8 @@ fn extract_fragment_structure(
         name_range: name_range(&frag.name),
         type_condition_range: name_range(&frag.type_condition),
         fragment_range: node_range(frag),
+        block_line_offset,
+        block_source,
     }
 }
 

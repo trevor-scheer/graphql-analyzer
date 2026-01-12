@@ -18,6 +18,7 @@ use lsp_types::{
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tower_lsp_server::jsonrpc::Result;
@@ -946,22 +947,25 @@ impl LanguageServer for GraphQLLanguageServer {
 
         // Publish project-wide diagnostics for each affected file
         for (file_path, diagnostics) in project_diagnostics {
-            // Convert file path to URI
-            if let Some(file_uri) = Uri::from_file_path(file_path.as_str()) {
-                // Get existing per-file diagnostics and merge with project-wide diagnostics
-                let per_file_diagnostics = snapshot.diagnostics(&file_path);
-                let mut all_diagnostics: Vec<Diagnostic> = per_file_diagnostics
-                    .into_iter()
-                    .map(convert_ide_diagnostic)
-                    .collect();
+            // file_path.as_str() is already a URI string (e.g., "file:///path/to/file.tsx")
+            let Ok(file_uri) = Uri::from_str(file_path.as_str()) else {
+                tracing::warn!("Invalid URI in project diagnostics: {}", file_path.as_str());
+                continue;
+            };
 
-                // Add project-wide diagnostics
-                all_diagnostics.extend(diagnostics.into_iter().map(convert_ide_diagnostic));
+            // Get existing per-file diagnostics and merge with project-wide diagnostics
+            let per_file_diagnostics = snapshot.diagnostics(&file_path);
+            let mut all_diagnostics: Vec<Diagnostic> = per_file_diagnostics
+                .into_iter()
+                .map(convert_ide_diagnostic)
+                .collect();
 
-                self.client
-                    .publish_diagnostics(file_uri, all_diagnostics, None)
-                    .await;
-            }
+            // Add project-wide diagnostics
+            all_diagnostics.extend(diagnostics.into_iter().map(convert_ide_diagnostic));
+
+            self.client
+                .publish_diagnostics(file_uri, all_diagnostics, None)
+                .await;
         }
     }
 

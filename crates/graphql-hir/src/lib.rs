@@ -555,8 +555,61 @@ pub fn file_defined_fragment_names(
     Arc::new(structure.fragments.iter().map(|f| f.name.clone()).collect())
 }
 
+/// Info about a defined fragment for the `unique_names` lint rule.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FragmentNameInfo {
+    /// The fragment name
+    pub name: Arc<str>,
+    /// The text range of the fragment name
+    pub name_range: TextRange,
+    /// For embedded GraphQL: line offset of the block (0-indexed)
+    pub block_line_offset: Option<usize>,
+    /// For embedded GraphQL: source text of the block
+    pub block_source: Option<Arc<str>>,
+}
+
+/// Per-file query for defined fragment info in a file.
+/// Returns info for all fragments including block context for embedded GraphQL.
+/// This enables incremental computation for the `unique_names` lint rule.
+#[salsa::tracked]
+pub fn file_fragment_info(
+    db: &dyn GraphQLHirDatabase,
+    file_id: FileId,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+) -> Arc<Vec<FragmentNameInfo>> {
+    let structure = file_structure(db, file_id, content, metadata);
+    Arc::new(
+        structure
+            .fragments
+            .iter()
+            .map(|frag| FragmentNameInfo {
+                name: frag.name.clone(),
+                name_range: frag.name_range,
+                block_line_offset: frag.block_line_offset,
+                block_source: frag.block_source.clone(),
+            })
+            .collect(),
+    )
+}
+
+/// Info about a named operation for the `unique_names` lint rule.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OperationNameInfo {
+    /// The operation name
+    pub name: Arc<str>,
+    /// The operation index (for deduplication)
+    pub index: usize,
+    /// The text range of the operation name
+    pub name_range: Option<TextRange>,
+    /// For embedded GraphQL: line offset of the block (0-indexed)
+    pub block_line_offset: Option<usize>,
+    /// For embedded GraphQL: source text of the block
+    pub block_source: Option<Arc<str>>,
+}
+
 /// Per-file query for operation names in a file.
-/// Returns `(operation_name, operation_index)` pairs for all named operations.
+/// Returns info for all named operations including block context for embedded GraphQL.
 /// This enables incremental computation for the `unique_names` lint rule.
 #[salsa::tracked]
 pub fn file_operation_names(
@@ -564,13 +617,21 @@ pub fn file_operation_names(
     file_id: FileId,
     content: graphql_db::FileContent,
     metadata: graphql_db::FileMetadata,
-) -> Arc<Vec<(Arc<str>, usize)>> {
+) -> Arc<Vec<OperationNameInfo>> {
     let structure = file_structure(db, file_id, content, metadata);
     Arc::new(
         structure
             .operations
             .iter()
-            .filter_map(|op| op.name.as_ref().map(|name| (name.clone(), op.index)))
+            .filter_map(|op| {
+                op.name.as_ref().map(|name| OperationNameInfo {
+                    name: name.clone(),
+                    index: op.index,
+                    name_range: op.name_range,
+                    block_line_offset: op.block_line_offset,
+                    block_source: op.block_source.clone(),
+                })
+            })
             .collect(),
     )
 }
