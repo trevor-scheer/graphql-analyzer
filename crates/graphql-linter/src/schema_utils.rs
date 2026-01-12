@@ -49,8 +49,7 @@ pub fn extract_root_type_names(
     let schema_ids = project_files.schema_file_ids(db).ids(db);
 
     for file_id in schema_ids.iter() {
-        let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
-        else {
+        let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) else {
             continue;
         };
 
