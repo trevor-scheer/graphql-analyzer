@@ -58,8 +58,8 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
             }
         }
 
-        // Step 2: Collect all used fields from operations and fragments
-        let mut used_fields: HashMap<String, HashSet<String>> = HashMap::new();
+        // Step 2: Collect all used schema coordinates using per-file cached queries
+        let mut used_coordinates: HashMap<String, HashSet<String>> = HashMap::new();
         let doc_ids = project_files.document_file_ids(db).ids(db);
 
         // Determine root types for skipping (supports custom schema definitions)
@@ -71,84 +71,19 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
             else {
                 continue;
             };
-            let parse = graphql_syntax::parse(db, content, metadata);
-
-            // Scan operations and fragments in main AST
-            for definition in &parse.ast.definitions {
-                match definition {
-                    apollo_compiler::ast::Definition::OperationDefinition(operation) => {
-                        let root_type = match operation.operation_type {
-                            apollo_compiler::ast::OperationType::Query => {
-                                root_types.query.as_deref()
-                            }
-                            apollo_compiler::ast::OperationType::Mutation => {
-                                root_types.mutation.as_deref()
-                            }
-                            apollo_compiler::ast::OperationType::Subscription => {
-                                root_types.subscription.as_deref()
-                            }
-                        };
-
-                        if let Some(root_type) = root_type {
-                            collect_used_fields_from_selection_set(
-                                &operation.selection_set,
-                                root_type,
-                                &schema_types,
-                                &mut used_fields,
-                            );
-                        }
-                    }
-                    apollo_compiler::ast::Definition::FragmentDefinition(fragment) => {
-                        let type_condition = fragment.type_condition.as_str();
-                        collect_used_fields_from_selection_set(
-                            &fragment.selection_set,
-                            type_condition,
-                            &schema_types,
-                            &mut used_fields,
-                        );
-                    }
-                    _ => {}
-                }
-            }
-
-            // Also scan operations and fragments in extracted blocks
-            for block in &parse.blocks {
-                for definition in &block.ast.definitions {
-                    match definition {
-                        apollo_compiler::ast::Definition::OperationDefinition(operation) => {
-                            let root_type = match operation.operation_type {
-                                apollo_compiler::ast::OperationType::Query => {
-                                    root_types.query.as_deref()
-                                }
-                                apollo_compiler::ast::OperationType::Mutation => {
-                                    root_types.mutation.as_deref()
-                                }
-                                apollo_compiler::ast::OperationType::Subscription => {
-                                    root_types.subscription.as_deref()
-                                }
-                            };
-
-                            if let Some(root_type) = root_type {
-                                collect_used_fields_from_selection_set(
-                                    &operation.selection_set,
-                                    root_type,
-                                    &schema_types,
-                                    &mut used_fields,
-                                );
-                            }
-                        }
-                        apollo_compiler::ast::Definition::FragmentDefinition(fragment) => {
-                            let type_condition = fragment.type_condition.as_str();
-                            collect_used_fields_from_selection_set(
-                                &fragment.selection_set,
-                                type_condition,
-                                &schema_types,
-                                &mut used_fields,
-                            );
-                        }
-                        _ => {}
-                    }
-                }
+            // Per-file cached query - only recomputes if THIS file changed
+            let file_coords = graphql_hir::file_schema_coordinates(
+                db,
+                *file_id,
+                content,
+                metadata,
+                project_files,
+            );
+            for coord in file_coords.iter() {
+                used_coordinates
+                    .entry(coord.type_name.to_string())
+                    .or_default()
+                    .insert(coord.field_name.to_string());
             }
         }
 
@@ -159,7 +94,7 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
                 continue;
             }
 
-            let used_in_type = used_fields.get(type_name);
+            let used_in_type = used_coordinates.get(type_name);
 
             for field_name in fields {
                 // Skip introspection fields
@@ -194,65 +129,6 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
     }
 }
 
-/// Recursively collect used fields from a selection set
-fn collect_used_fields_from_selection_set(
-    selections: &[apollo_compiler::ast::Selection],
-    parent_type: &str,
-    schema_types: &HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
-    used_fields: &mut HashMap<String, HashSet<String>>,
-) {
-    for selection in selections {
-        match selection {
-            apollo_compiler::ast::Selection::Field(field) => {
-                let field_name = field.name.as_str();
-
-                // Record this field as used
-                used_fields
-                    .entry(parent_type.to_string())
-                    .or_default()
-                    .insert(field_name.to_string());
-
-                // Recursively process nested selections if present
-                if !field.selection_set.is_empty() {
-                    // Find the field's return type from schema
-                    if let Some(type_def) = schema_types.get(parent_type) {
-                        if let Some(field_sig) = type_def
-                            .fields
-                            .iter()
-                            .find(|f| f.name.as_ref() == field_name)
-                        {
-                            // Extract base type name (remove wrappers)
-                            let nested_type = field_sig.type_ref.name.as_ref();
-                            collect_used_fields_from_selection_set(
-                                &field.selection_set,
-                                nested_type,
-                                schema_types,
-                                used_fields,
-                            );
-                        }
-                    }
-                }
-            }
-            apollo_compiler::ast::Selection::FragmentSpread(_) => {
-                // Fragment spreads are processed separately when we scan fragments
-            }
-            apollo_compiler::ast::Selection::InlineFragment(inline) => {
-                // Use type condition if present, otherwise use parent type
-                let type_name = inline
-                    .type_condition
-                    .as_ref()
-                    .map_or(parent_type, apollo_compiler::Name::as_str);
-
-                collect_used_fields_from_selection_set(
-                    &inline.selection_set,
-                    type_name,
-                    schema_types,
-                    used_fields,
-                );
-            }
-        }
-    }
-}
 
 /// Check if a type is a built-in introspection type
 fn is_introspection_type(type_name: &str) -> bool {
