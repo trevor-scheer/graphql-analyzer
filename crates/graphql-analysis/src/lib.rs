@@ -13,7 +13,9 @@ mod schema_validation;
 pub mod validation;
 
 pub use diagnostics::*;
-pub use merged_schema::{merged_schema_with_diagnostics, MergedSchemaResult};
+pub use merged_schema::{
+    merged_schema_diagnostics, merged_schema_with_diagnostics, MergedSchemaResult,
+};
 pub use validation::validate_file;
 
 #[salsa::db]

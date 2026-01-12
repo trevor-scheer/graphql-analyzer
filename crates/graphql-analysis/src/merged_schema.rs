@@ -142,6 +142,9 @@ pub fn merged_schema_with_diagnostics(
 /// Merge all schema files into a single `apollo_compiler::Schema`
 /// This query depends ONLY on schema file IDs and their content, not `DocumentFiles`.
 /// Changing document files will not invalidate this query.
+///
+/// **Note**: This function discards validation diagnostics. If you need schema
+/// validation errors, use [`merged_schema_with_diagnostics`] instead.
 #[salsa::tracked]
 pub fn merged_schema_from_files(
     db: &dyn GraphQLAnalysisDatabase,
@@ -150,7 +153,27 @@ pub fn merged_schema_from_files(
     merged_schema_with_diagnostics(db, project_files).schema
 }
 
+/// Get diagnostics from merging schema files
+///
+/// This returns validation errors from the schema merge process, such as:
+/// - Duplicate type definitions
+/// - Interface implementation errors
+/// - Union member validation errors
+///
+/// This is a separate query so callers can get diagnostics without
+/// also needing the schema itself.
+#[salsa::tracked]
+pub fn merged_schema_diagnostics(
+    db: &dyn GraphQLAnalysisDatabase,
+    project_files: graphql_db::ProjectFiles,
+) -> Arc<Vec<crate::Diagnostic>> {
+    merged_schema_with_diagnostics(db, project_files).diagnostics
+}
+
 /// Convenience wrapper that extracts `SchemaFiles` from `ProjectFiles`
+///
+/// **Note**: This function discards validation diagnostics. If you need schema
+/// validation errors, use [`merged_schema_with_diagnostics`] instead.
 #[salsa::tracked]
 pub fn merged_schema(
     db: &dyn GraphQLAnalysisDatabase,
