@@ -904,7 +904,9 @@ Claude must follow these guidelines when working on this project:
 
 ### GitHub CLI (gh) Usage
 
-When running as a Claude web instance, the git remote uses a local proxy that `gh` doesn't recognize as a GitHub host. **Always use the `--repo` flag** with all `gh` commands:
+**When running as a Claude web instance, always use the `gh` CLI instead of MCP GitHub tools.** MCP tools require permission approval dialogs that cannot be accepted in the web client, causing them to timeout.
+
+The git remote also uses a local proxy that `gh` doesn't recognize as a GitHub host. **Always use the `--repo` flag** with all `gh` commands:
 
 ```bash
 # Correct - always specify the repo explicitly
