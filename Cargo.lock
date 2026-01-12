@@ -1065,6 +1065,7 @@ dependencies = [
  "graphql-syntax",
  "parking_lot",
  "salsa",
+ "tempfile",
  "tracing",
 ]
 

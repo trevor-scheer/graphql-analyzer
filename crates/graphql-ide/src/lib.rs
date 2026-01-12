@@ -639,9 +639,11 @@ impl AnalysisHost {
     /// This method:
     /// - Always includes Apollo Client built-in directives
     /// - Loads schema files from local paths (single file, multiple files, glob patterns)
+    /// - Supports TypeScript/JavaScript files with embedded GraphQL schemas
     /// - Logs warnings for URL schemas (introspection not yet supported)
     ///
     /// Returns the number of schema files loaded.
+    #[allow(clippy::too_many_lines)]
     pub fn load_schemas_from_config(
         &mut self,
         config: &graphql_config::ProjectConfig,
@@ -679,11 +681,65 @@ impl AnalysisHost {
                             match std::fs::read_to_string(&entry) {
                                 Ok(content) => {
                                     let file_uri = path_to_file_uri(&entry);
+                                    let language = graphql_extract::Language::from_path(&entry);
+
+                                    // Check if this is a TS/JS file that needs extraction
+                                    if let Some(lang) = language {
+                                        if lang.requires_parsing() {
+                                            // Extract GraphQL from TS/JS file
+                                            let extract_config = self.get_extract_config();
+                                            match graphql_extract::extract_from_source(
+                                                &content,
+                                                lang,
+                                                &extract_config,
+                                            ) {
+                                                Ok(blocks) => {
+                                                    for (block_idx, block) in
+                                                        blocks.iter().enumerate()
+                                                    {
+                                                        // Create a unique file URI for each block
+                                                        let block_uri = if blocks.len() > 1 {
+                                                            format!("{file_uri}#block{block_idx}")
+                                                        } else {
+                                                            file_uri.clone()
+                                                        };
+
+                                                        #[allow(clippy::cast_possible_truncation)]
+                                                        let line_offset =
+                                                            block.location.range.start.line as u32;
+                                                        self.add_file(
+                                                            &FilePath::new(block_uri),
+                                                            &block.source,
+                                                            FileKind::Schema,
+                                                            line_offset,
+                                                        );
+                                                        count += 1;
+                                                    }
+                                                    if blocks.is_empty() {
+                                                        tracing::debug!(
+                                                            "No GraphQL blocks found in {}",
+                                                            entry.display()
+                                                        );
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    tracing::warn!(
+                                                        "Failed to extract GraphQL from {}: {}",
+                                                        entry.display(),
+                                                        e
+                                                    );
+                                                }
+                                            }
+                                            continue;
+                                        }
+                                    }
+
+                                    // Pure GraphQL file - add directly
                                     self.add_file(
                                         &FilePath::new(file_uri),
                                         &content,
                                         FileKind::Schema,
-                                        0, // No line offset for pure GraphQL files
+                                        0,
                                     );
                                     count += 1;
                                 }
@@ -4997,5 +5053,272 @@ export const GET_POKEMON = gql`
         assert_eq!(lower[0].name, "UserProfile");
         assert_eq!(upper[0].name, "UserProfile");
         assert_eq!(mixed[0].name, "UserProfile");
+    }
+
+    mod schema_loading {
+        use super::*;
+        use std::io::Write;
+
+        #[test]
+        fn test_load_typescript_schema() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            // Create a TypeScript schema file
+            let ts_schema_content = r#"
+import { gql } from 'graphql-tag';
+
+export const typeDefs = gql`
+  type Query {
+    user(id: ID!): User
+  }
+
+  type User {
+    id: ID!
+    name: String!
+    email: String
+  }
+`;
+"#;
+            let ts_schema_path = temp_dir.path().join("schema.ts");
+            let mut file = std::fs::File::create(&ts_schema_path).unwrap();
+            file.write_all(ts_schema_content.as_bytes()).unwrap();
+
+            // Create config
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Path("schema.ts".to_string()),
+                documents: None,
+                include: None,
+                exclude: None,
+                lint: None,
+                extensions: None,
+            };
+
+            // Load schemas
+            let mut host = AnalysisHost::new();
+            host.set_extract_config(graphql_extract::ExtractConfig {
+                allow_global_identifiers: false,
+                ..Default::default()
+            });
+            let count = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            // Should load: 1 Apollo client builtins + 1 extracted schema from TS
+            assert_eq!(
+                count, 2,
+                "Should load 2 schema files (builtins + extracted)"
+            );
+
+            host.rebuild_project_files();
+            let snapshot = host.snapshot();
+
+            // Verify the User type is available
+            let symbols = snapshot.workspace_symbols("User");
+            assert!(!symbols.is_empty(), "User type should be found");
+            assert_eq!(symbols[0].name, "User");
+        }
+
+        #[test]
+        fn test_load_typescript_schema_with_multiple_blocks() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            // Create a TypeScript file with multiple GraphQL blocks
+            let ts_content = r#"
+import { gql } from 'graphql-tag';
+
+export const types = gql`
+  type Query {
+    posts: [Post!]!
+  }
+`;
+
+export const postType = gql`
+  type Post {
+    id: ID!
+    title: String!
+    content: String
+  }
+`;
+"#;
+            let ts_path = temp_dir.path().join("schema.ts");
+            let mut file = std::fs::File::create(&ts_path).unwrap();
+            file.write_all(ts_content.as_bytes()).unwrap();
+
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Path("schema.ts".to_string()),
+                documents: None,
+                include: None,
+                exclude: None,
+                lint: None,
+                extensions: None,
+            };
+
+            let mut host = AnalysisHost::new();
+            let count = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            // Should load: 1 Apollo client builtins + 2 extracted blocks
+            assert_eq!(count, 3, "Should load 3 schema files (builtins + 2 blocks)");
+
+            host.rebuild_project_files();
+            let snapshot = host.snapshot();
+
+            // Verify both types are available
+            let query_symbols = snapshot.workspace_symbols("Query");
+            assert!(!query_symbols.is_empty(), "Query type should be found");
+
+            let post_symbols = snapshot.workspace_symbols("Post");
+            assert!(!post_symbols.is_empty(), "Post type should be found");
+        }
+
+        #[test]
+        fn test_load_mixed_schema_files() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            // Create a pure GraphQL schema file
+            let gql_content = r#"
+type Query {
+  users: [User!]!
+}
+"#;
+            let gql_path = temp_dir.path().join("base.graphql");
+            let mut file = std::fs::File::create(&gql_path).unwrap();
+            file.write_all(gql_content.as_bytes()).unwrap();
+
+            // Create a TypeScript schema extension
+            let ts_content = r#"
+import { gql } from 'graphql-tag';
+
+export const typeDefs = gql`
+  type User {
+    id: ID!
+    name: String!
+  }
+`;
+"#;
+            let ts_path = temp_dir.path().join("types.ts");
+            let mut file = std::fs::File::create(&ts_path).unwrap();
+            file.write_all(ts_content.as_bytes()).unwrap();
+
+            // Use multiple schema paths
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Paths(vec![
+                    "base.graphql".to_string(),
+                    "types.ts".to_string(),
+                ]),
+                documents: None,
+                include: None,
+                exclude: None,
+                lint: None,
+                extensions: None,
+            };
+
+            let mut host = AnalysisHost::new();
+            let count = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            // Should load: 1 Apollo client builtins + 1 GraphQL file + 1 TS extraction
+            assert_eq!(count, 3, "Should load 3 schema files");
+
+            host.rebuild_project_files();
+            let snapshot = host.snapshot();
+
+            // Verify both types are available
+            let query_symbols = snapshot.workspace_symbols("Query");
+            assert!(!query_symbols.is_empty(), "Query type should be found");
+
+            let user_symbols = snapshot.workspace_symbols("User");
+            assert!(
+                !user_symbols.is_empty(),
+                "User type should be found from TS file"
+            );
+        }
+
+        #[test]
+        fn test_load_typescript_schema_no_graphql_found() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            // Create a TypeScript file without any GraphQL
+            let ts_content = r#"
+export const greeting = "Hello, World!";
+export function greet(name: string) {
+    return `Hello, ${name}!`;
+}
+"#;
+            let ts_path = temp_dir.path().join("utils.ts");
+            let mut file = std::fs::File::create(&ts_path).unwrap();
+            file.write_all(ts_content.as_bytes()).unwrap();
+
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Path("utils.ts".to_string()),
+                documents: None,
+                include: None,
+                exclude: None,
+                lint: None,
+                extensions: None,
+            };
+
+            let mut host = AnalysisHost::new();
+            let count = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            // Should only load Apollo client builtins (no GraphQL found in TS file)
+            assert_eq!(count, 1, "Should only load builtins when no GraphQL found");
+        }
+
+        #[test]
+        fn test_load_javascript_schema() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            // Create a JavaScript schema file
+            let js_content = r#"
+import { gql } from 'graphql-tag';
+
+export const typeDefs = gql`
+  type Query {
+    product(id: ID!): Product
+  }
+
+  type Product {
+    id: ID!
+    name: String!
+    price: Float!
+  }
+`;
+"#;
+            let js_path = temp_dir.path().join("schema.js");
+            let mut file = std::fs::File::create(&js_path).unwrap();
+            file.write_all(js_content.as_bytes()).unwrap();
+
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Path("schema.js".to_string()),
+                documents: None,
+                include: None,
+                exclude: None,
+                lint: None,
+                extensions: None,
+            };
+
+            let mut host = AnalysisHost::new();
+            let count = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            // Should load: 1 Apollo client builtins + 1 extracted schema from JS
+            assert_eq!(
+                count, 2,
+                "Should load 2 schema files (builtins + extracted)"
+            );
+
+            host.rebuild_project_files();
+            let snapshot = host.snapshot();
+
+            // Verify the Product type is available
+            let symbols = snapshot.workspace_symbols("Product");
+            assert!(!symbols.is_empty(), "Product type should be found");
+        }
     }
 }
