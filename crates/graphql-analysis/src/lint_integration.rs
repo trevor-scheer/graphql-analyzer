@@ -31,6 +31,19 @@ pub fn lint_file(
     lint_file_impl(db, content, metadata, project_files)
 }
 
+/// Run lints on a file with known project files
+///
+/// This is a tracked function for use when `ProjectFiles` is already known.
+/// Use `lint_file` when you have an `Option<ProjectFiles>`.
+pub fn lint_file_with_project(
+    db: &dyn GraphQLAnalysisDatabase,
+    content: FileContent,
+    metadata: FileMetadata,
+    project_files: ProjectFiles,
+) -> Arc<Vec<Diagnostic>> {
+    lint_file_impl(db, content, metadata, project_files)
+}
+
 /// Internal tracked function for linting with project files
 #[salsa::tracked]
 fn lint_file_impl(

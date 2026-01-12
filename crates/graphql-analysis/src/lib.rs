@@ -153,23 +153,38 @@ fn file_validation_diagnostics_impl(
 /// Get all diagnostics for a file (validation + linting)
 ///
 /// This is the public API that accepts an optional `ProjectFiles`.
-/// Memoization happens at the inner function level.
+/// When `project_files` is `None`, only syntax errors are returned.
+/// Memoization happens at the tracked `file_diagnostics_impl` function.
 pub fn file_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: graphql_db::FileContent,
     metadata: graphql_db::FileMetadata,
     project_files: Option<graphql_db::ProjectFiles>,
 ) -> Arc<Vec<Diagnostic>> {
+    project_files.map_or_else(
+        || syntax_diagnostics(db, content, metadata),
+        |pf| file_diagnostics_impl(db, content, metadata, pf),
+    )
+}
+
+/// Internal tracked function that combines validation and linting
+#[salsa::tracked]
+fn file_diagnostics_impl(
+    db: &dyn GraphQLAnalysisDatabase,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+    project_files: graphql_db::ProjectFiles,
+) -> Arc<Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
 
     diagnostics.extend(
-        file_validation_diagnostics(db, content, metadata, project_files)
+        file_validation_diagnostics_impl(db, content, metadata, project_files)
             .iter()
             .cloned(),
     );
 
     diagnostics.extend(
-        lint_integration::lint_file(db, content, metadata, project_files)
+        lint_integration::lint_file_with_project(db, content, metadata, project_files)
             .iter()
             .cloned(),
     );
