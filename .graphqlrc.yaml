@@ -4,14 +4,12 @@ projects:
   pokemon:
     schema: test-workspace/pokemon/schema.graphql
     documents: "test-workspace/pokemon/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
-    lint:
-      recommended: error
+    lint: recommended
 
   starwars:
     schema: test-workspace/starwars/schema.graphql
     documents: "test-workspace/starwars/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
-    lint:
-      recommended: error # Use recommended preset with error severity
+    lint: recommended
 
   github:
     schema: "test-workspace/github/schema/*.graphql"
@@ -20,7 +18,7 @@ projects:
       - "test-workspace/github/src/**/*.ts"
       - "test-workspace/github/src/**/*.tsx"
     lint:
-      recommended: warn
+      extends: recommended
       rules:
         no_deprecated: warn
 
@@ -30,6 +28,6 @@ projects:
       - "test-workspace/github/admin/schema/*.graphql"
     documents: "test-workspace/github/admin/src/**/*.graphql"
     lint:
-      recommended: error
+      extends: recommended
       rules:
         no_deprecated: error

@@ -25,26 +25,85 @@ pub enum LintRuleConfig {
     },
 }
 
+/// Extends configuration - can be a single preset or multiple
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ExtendsConfig {
+    /// Single preset: `extends: recommended` or `lint: recommended`
+    Single(String),
+    /// Multiple presets: `extends: [recommended, strict]` or `lint: [recommended, strict]`
+    Multiple(Vec<String>),
+}
+
+impl ExtendsConfig {
+    /// Get all presets as a vector (normalizes single to vec)
+    #[must_use]
+    pub fn presets(&self) -> Vec<&str> {
+        match self {
+            Self::Single(s) => vec![s.as_str()],
+            Self::Multiple(v) => v.iter().map(String::as_str).collect(),
+        }
+    }
+}
+
+/// Full lint configuration struct with extends and rules
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FullLintConfig {
+    /// Presets to extend (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extends: Option<ExtendsConfig>,
+
+    /// Rule configurations (optional)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub rules: HashMap<String, LintRuleConfig>,
+}
+
 /// Overall lint configuration
+///
+/// Supports multiple formats:
+///
+/// ```yaml
+/// # Happy path - just use recommended preset
+/// lint: recommended
+///
+/// # Multiple presets
+/// lint: [recommended, strict]
+///
+/// # Fine-grained rules only (no presets)
+/// lint:
+///   rules:
+///     unique_names: error
+///     no_deprecated: warn
+///
+/// # Preset with overrides
+/// lint:
+///   extends: recommended
+///   rules:
+///     no_deprecated: off
+///
+/// # Multiple presets with overrides
+/// lint:
+///   extends: [recommended, strict]
+///   rules:
+///     require_id_field: off
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum LintConfig {
-    /// Use recommended preset
-    Recommended(String), // "recommended"
+    /// Preset(s): `lint: recommended` or `lint: [recommended, strict]`
+    Preset(ExtendsConfig),
 
-    /// Custom rule configuration
-    Rules {
-        #[serde(flatten)]
-        rules: HashMap<String, LintRuleConfig>,
-    },
+    /// Full configuration with optional extends and rules
+    Full(FullLintConfig),
 }
 
 impl Default for LintConfig {
     fn default() -> Self {
-        // Default is no lints enabled (opt-in)
-        Self::Rules {
+        Self::Full(FullLintConfig {
+            extends: None,
             rules: HashMap::new(),
-        }
+        })
     }
 }
 
@@ -57,19 +116,37 @@ impl LintConfig {
         let valid_rules = crate::registry::all_rule_names();
         let valid_set: std::collections::HashSet<&str> = valid_rules.iter().copied().collect();
 
-        let configured_rules: Vec<&str> = match self {
-            Self::Recommended(_) => return Ok(()), // "recommended" is always valid
-            Self::Rules { rules } => rules
-                .keys()
-                .filter(|name| name.as_str() != "recommended") // "recommended" is special
-                .map(std::string::String::as_str)
-                .collect(),
+        let valid_presets = ["recommended"];
+
+        let rules = match self {
+            Self::Preset(presets) => {
+                for preset in presets.presets() {
+                    if !valid_presets.contains(&preset) {
+                        return Err(format!(
+                            "Invalid preset name: '{preset}'\n\nValid presets are:\n  - recommended"
+                        ));
+                    }
+                }
+                return Ok(());
+            }
+            Self::Full(FullLintConfig { extends, rules }) => {
+                if let Some(ext) = extends {
+                    for preset in ext.presets() {
+                        if !valid_presets.contains(&preset) {
+                            return Err(format!(
+                                "Invalid preset name: '{preset}'\n\nValid presets are:\n  - recommended"
+                            ));
+                        }
+                    }
+                }
+                rules
+            }
         };
 
-        let invalid_rules: Vec<&str> = configured_rules
-            .iter()
+        let invalid_rules: Vec<&str> = rules
+            .keys()
+            .map(String::as_str)
             .filter(|rule| !valid_set.contains(*rule))
-            .copied()
             .collect();
 
         if invalid_rules.is_empty() {
@@ -87,37 +164,41 @@ impl LintConfig {
         }
     }
 
-    /// Get the severity for a rule, considering recommended preset
+    /// Get the severity for a rule, considering presets and overrides
     #[must_use]
     pub fn get_severity(&self, rule_name: &str) -> Option<LintSeverity> {
         match self {
-            Self::Recommended(_) => Self::recommended_severity(rule_name),
-            Self::Rules { rules } => {
-                // Check if "recommended" is set
-                if matches!(
-                    rules.get("recommended"),
-                    Some(LintRuleConfig::Severity(
-                        LintSeverity::Warn | LintSeverity::Error
-                    ))
-                ) {
-                    // Start with recommended, allow overrides
-                    let recommended = Self::recommended_severity(rule_name);
-                    rules
-                        .get(rule_name)
-                        .map(|config| match config {
-                            LintRuleConfig::Severity(severity)
-                            | LintRuleConfig::Detailed { severity, .. } => *severity,
-                        })
-                        .or(recommended)
-                } else {
-                    // No recommended, only explicit rules
-                    rules.get(rule_name).map(|config| match config {
+            Self::Preset(presets) => Self::severity_from_presets(presets, rule_name),
+            Self::Full(FullLintConfig { extends, rules }) => {
+                // Start with preset severities (if any)
+                let preset_severity = extends
+                    .as_ref()
+                    .and_then(|ext| Self::severity_from_presets(ext, rule_name));
+
+                // Check for explicit rule override
+                rules
+                    .get(rule_name)
+                    .map(|config| match config {
                         LintRuleConfig::Severity(severity)
                         | LintRuleConfig::Detailed { severity, .. } => *severity,
                     })
-                }
+                    .or(preset_severity)
             }
         }
+    }
+
+    /// Get severity from a list of presets (later presets override earlier)
+    fn severity_from_presets(presets: &ExtendsConfig, rule_name: &str) -> Option<LintSeverity> {
+        let mut severity = None;
+        for preset in presets.presets() {
+            if preset == "recommended" {
+                if let Some(s) = Self::recommended_severity(rule_name) {
+                    severity = Some(s);
+                }
+            }
+            // Add more presets here as they're added
+        }
+        severity
     }
 
     /// Check if a rule is enabled (not Off and not None)
@@ -133,12 +214,7 @@ impl LintConfig {
     fn recommended_severity(rule_name: &str) -> Option<LintSeverity> {
         match rule_name {
             "unique_names" | "no_anonymous_operations" => Some(LintSeverity::Error),
-            "no_deprecated"
-            | "redundant_fields"
-            | "require_id_field"
-            | "field_names_should_be_camel_case"
-            | "type_names_should_be_pascal_case"
-            | "enum_values_should_be_screaming_snake_case" => Some(LintSeverity::Warn),
+            "no_deprecated" | "redundant_fields" | "require_id_field" => Some(LintSeverity::Warn),
             _ => None,
         }
     }
@@ -146,46 +222,55 @@ impl LintConfig {
     /// Get recommended configuration
     #[must_use]
     pub fn recommended() -> Self {
-        Self::Recommended("recommended".to_string())
+        Self::Preset(ExtendsConfig::Single("recommended".to_string()))
     }
 
     /// Merge another config into this one (tool-specific overrides)
     #[must_use]
     pub fn merge(&self, override_config: &Self) -> Self {
         match (self, override_config) {
-            // If override is empty, just use base
-            (base, Self::Rules { rules }) if rules.is_empty() => base.clone(),
+            // If override is a preset, use it directly
+            (_, Self::Preset(name)) => Self::Preset(name.clone()),
 
-            // If override is Recommended, use it
-            (_, Self::Recommended(s)) => Self::Recommended(s.clone()),
-
-            // Merge rules
+            // If override is empty Full config, keep base
             (
-                Self::Rules { rules: base_rules },
-                Self::Rules {
+                base,
+                Self::Full(FullLintConfig {
+                    extends: None,
+                    rules,
+                }),
+            ) if rules.is_empty() => base.clone(),
+
+            // Merge Full configs
+            (
+                Self::Full(FullLintConfig {
+                    extends: base_ext,
+                    rules: base_rules,
+                }),
+                Self::Full(FullLintConfig {
+                    extends: override_ext,
                     rules: override_rules,
-                },
+                }),
             ) => {
-                let mut merged = base_rules.clone();
-                merged.extend(override_rules.clone());
-                Self::Rules { rules: merged }
+                let mut merged_rules = base_rules.clone();
+                merged_rules.extend(override_rules.clone());
+                Self::Full(FullLintConfig {
+                    extends: override_ext.clone().or_else(|| base_ext.clone()),
+                    rules: merged_rules,
+                })
             }
 
-            // Base is Recommended, override has rules - convert to rules and merge
+            // Preset + Full override: convert preset to extends and merge
             (
-                Self::Recommended(_),
-                Self::Rules {
+                Self::Preset(presets),
+                Self::Full(FullLintConfig {
+                    extends: override_ext,
                     rules: override_rules,
-                },
-            ) => {
-                let mut merged = HashMap::new();
-                merged.insert(
-                    "recommended".to_string(),
-                    LintRuleConfig::Severity(LintSeverity::Error),
-                );
-                merged.extend(override_rules.clone());
-                Self::Rules { rules: merged }
-            }
+                }),
+            ) => Self::Full(FullLintConfig {
+                extends: override_ext.clone().or_else(|| Some(presets.clone())),
+                rules: override_rules.clone(),
+            }),
         }
     }
 }
@@ -195,17 +280,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_recommended_string() {
-        let yaml = r"recommended";
+    fn test_simple_preset() {
+        let yaml = r#"recommended"#;
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
-        assert!(matches!(config, LintConfig::Recommended(_)));
+        assert!(matches!(
+            config,
+            LintConfig::Preset(ExtendsConfig::Single(ref s)) if s == "recommended"
+        ));
+        assert!(config.is_enabled("unique_names"));
+        assert!(config.is_enabled("no_deprecated"));
+        assert!(!config.is_enabled("unused_fields"));
+    }
+
+    #[test]
+    fn test_preset_list() {
+        let yaml = r#"[recommended]"#;
+        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(
+            config,
+            LintConfig::Preset(ExtendsConfig::Multiple(_))
+        ));
         assert!(config.is_enabled("unique_names"));
         assert!(config.is_enabled("no_deprecated"));
     }
 
     #[test]
-    fn test_parse_simple_rules() {
-        let yaml = "\nunique_names: error\nno_deprecated: off\n";
+    fn test_rules_only() {
+        let yaml = r#"
+rules:
+  unique_names: error
+  no_deprecated: warn
+"#;
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
             config.get_severity("unique_names"),
@@ -213,19 +318,113 @@ mod tests {
         );
         assert_eq!(
             config.get_severity("no_deprecated"),
-            Some(LintSeverity::Off)
+            Some(LintSeverity::Warn)
         );
-        assert!(!config.is_enabled("no_deprecated"));
+        assert_eq!(config.get_severity("require_id_field"), None);
     }
 
     #[test]
-    fn test_parse_recommended_with_overrides() {
-        let yaml = "\nrecommended: error\nno_deprecated: off\n";
+    fn test_extends_single() {
+        let yaml = r#"
+extends: recommended
+rules:
+  no_deprecated: off
+"#;
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
-        // Should have recommended rules enabled
         assert!(config.is_enabled("unique_names"));
-        // But deprecated_field is overridden to off
         assert!(!config.is_enabled("no_deprecated"));
+        assert!(config.is_enabled("require_id_field"));
+    }
+
+    #[test]
+    fn test_extends_multiple() {
+        let yaml = r#"
+extends: [recommended]
+rules:
+  unused_fields: warn
+"#;
+        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.is_enabled("unique_names"));
+        assert!(config.is_enabled("unused_fields"));
+    }
+
+    #[test]
+    fn test_extends_with_override() {
+        let yaml = r#"
+extends: recommended
+rules:
+  unique_names: warn
+  require_id_field: off
+"#;
+        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            config.get_severity("unique_names"),
+            Some(LintSeverity::Warn)
+        );
+        assert_eq!(
+            config.get_severity("require_id_field"),
+            Some(LintSeverity::Off)
+        );
+        assert_eq!(
+            config.get_severity("no_deprecated"),
+            Some(LintSeverity::Warn)
+        );
+    }
+
+    #[test]
+    fn test_merge_preset_with_rules() {
+        let base = LintConfig::recommended();
+        let override_yaml = r#"
+rules:
+  unused_fields: error
+"#;
+        let override_config: LintConfig = serde_yaml::from_str(override_yaml).unwrap();
+        let merged = base.merge(&override_config);
+
+        assert!(merged.is_enabled("unique_names"));
+        assert!(merged.is_enabled("unused_fields"));
+    }
+
+    #[test]
+    fn test_merge_extends_override_severity() {
+        let base_yaml = r#"
+extends: recommended
+"#;
+        let base: LintConfig = serde_yaml::from_str(base_yaml).unwrap();
+
+        let override_yaml = r#"
+rules:
+  no_deprecated: off
+"#;
+        let override_config: LintConfig = serde_yaml::from_str(override_yaml).unwrap();
+        let merged = base.merge(&override_config);
+
+        assert!(merged.is_enabled("unique_names"));
+        assert!(!merged.is_enabled("no_deprecated"));
+    }
+
+    #[test]
+    fn test_validate_valid_preset() {
+        let config = LintConfig::Preset(ExtendsConfig::Single("recommended".to_string()));
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_invalid_preset() {
+        let config = LintConfig::Preset(ExtendsConfig::Single("not_a_preset".to_string()));
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_invalid_rule() {
+        let yaml = r#"
+rules:
+  not_a_rule: error
+"#;
+        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not_a_rule"));
     }
 
     #[test]
@@ -245,43 +444,6 @@ mod tests {
         assert_eq!(
             config.get_severity("no_deprecated"),
             Some(LintSeverity::Warn)
-        );
-    }
-
-    #[test]
-    fn test_merge_override_rules() {
-        let base = LintConfig::recommended();
-        let override_yaml = "\nunused_fields: error\n";
-        let override_config: LintConfig = serde_yaml::from_str(override_yaml).unwrap();
-
-        let merged = base.merge(&override_config);
-
-        // Should have recommended rules
-        assert!(merged.is_enabled("unique_names"));
-        assert!(merged.is_enabled("no_deprecated"));
-        // Plus override
-        assert!(merged.is_enabled("unused_fields"));
-    }
-
-    #[test]
-    fn test_merge_override_severity() {
-        let base_yaml = "\nunique_names: error\nno_deprecated: warn\n";
-        let base: LintConfig = serde_yaml::from_str(base_yaml).unwrap();
-
-        let override_yaml = "\nno_deprecated: off\n";
-        let override_config: LintConfig = serde_yaml::from_str(override_yaml).unwrap();
-
-        let merged = base.merge(&override_config);
-
-        // unique_names unchanged
-        assert_eq!(
-            merged.get_severity("unique_names"),
-            Some(LintSeverity::Error)
-        );
-        // deprecated_field overridden
-        assert_eq!(
-            merged.get_severity("no_deprecated"),
-            Some(LintSeverity::Off)
         );
     }
 }

@@ -3,12 +3,9 @@ projects:
   pokemon:
     schema: pokemon/schema.graphql
     documents: "pokemon/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
-
-    lint:
-      recommended: error
+    lint: recommended
 
   starwars:
     schema: starwars/schema.graphql
     documents: "starwars/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
-    lint:
-      recommended: error
+    lint: recommended

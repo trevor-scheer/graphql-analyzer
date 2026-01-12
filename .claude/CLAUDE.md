@@ -404,14 +404,21 @@ The file watcher fires `workspace/didChangeWatchedFiles` **only on disk saves**:
 schema: schema.graphql
 documents: "src/**/*.graphql"
 
-# Linting configuration
+# Happy path - use recommended preset
+lint: recommended
+
+# Or: Preset with overrides (ESLint-style)
 lint:
-  recommended: error
+  extends: recommended
   rules:
     no_deprecated: warn
     require_id_field: error
-    redundant_fields: error
-    unused_fields: off
+
+# Or: Fine-grained rules only
+lint:
+  rules:
+    unique_names: error
+    no_deprecated: warn
 
 # Tool-specific overrides
 extensions:
