@@ -619,17 +619,9 @@ impl AnalysisHost {
 
     /// Remove a file from the host
     pub fn remove_file(&mut self, path: &FilePath) {
-        let file_id = {
-            let registry = self.registry.read();
-            registry.get_file_id(path)
-        };
-
-        if let Some(file_id) = file_id {
-            {
-                let mut registry = self.registry.write();
-                registry.remove_file(file_id);
-            } // Drop lock before rebuilding ProjectFiles
-            let mut registry = self.registry.write();
+        let mut registry = self.registry.write();
+        if let Some(file_id) = registry.get_file_id(path) {
+            registry.remove_file(file_id);
             registry.rebuild_project_files(&mut self.db);
         }
     }
