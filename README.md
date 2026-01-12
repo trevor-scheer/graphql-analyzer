@@ -369,10 +369,8 @@ Configuration files support IDE validation and autocompletion via JSON Schema. S
 schema: "schema.graphql"
 documents: "src/**/*.{graphql,ts,tsx}"
 lint:
-  # Enable recommended lints
-  recommended: error
+  extends: recommended
   rules:
-    # Override specific rules
     no_deprecated: warn
     unique_names: off
 ```
@@ -384,13 +382,11 @@ projects:
   frontend:
     schema: "https://api.example.com/graphql"
     documents: "frontend/**/*.ts"
-    lint:
-      recommended: error
+    lint: recommended
   backend:
     schema: "backend/schema.graphql"
     documents: "backend/**/*.graphql"
-    lint:
-      recommended: warn
+    lint: recommended
 ```
 
 ### Lint Configuration
@@ -419,44 +415,38 @@ Rules marked with `-` in the Recommended column are not included in the `recomme
 - `warn` - Show as warning
 - `error` - Show as error
 
-**Using the recommended preset:**
+**Using the recommended preset (simplest):**
 
 ```yaml
-lint:
-  # Enable all recommended rules at their predefined severities
-  # (see Recommended column in the table above)
-  recommended: error
+lint: recommended
 ```
 
-Note: The value (`error` or `warn`) after `recommended:` enables the preset. Each rule in the preset runs at its own predefined severity level as shown in the table above.
+This enables all recommended rules at their predefined severities (see "Recommended" column in the table above).
 
-**Enabling additional rules:**
+**Fine-grained rules only (no presets):**
 
 ```yaml
 lint:
-  recommended: error
   rules:
-    # Add rules not in the recommended preset
-    unused_fields: warn
-    operation_name_suffix: error
+    unique_names: error
+    no_deprecated: warn
 ```
 
-**Overriding recommended rule severities:**
+**Preset with overrides (ESLint-style):**
 
 ```yaml
 lint:
-  recommended: error
+  extends: recommended
   rules:
-    # Override a recommended rule's severity
     no_deprecated: off        # Disable entirely
     require_id_field: error   # Upgrade from warn to error
+    unused_fields: warn       # Enable a non-recommended rule
 ```
 
 **Tool-specific overrides:**
 
 ```yaml
-lint:
-  recommended: error
+lint: recommended
 
 extensions:
   cli:
@@ -478,7 +468,7 @@ projects:
     schema: "schema.graphql"
     documents: "src/**/*.graphql"
     lint:
-      recommended: error
+      extends: recommended
       rules:
         no_deprecated: off     # Project-specific override
 ```
