@@ -423,18 +423,14 @@ Rules marked with `-` in the Recommended column are not included in the `recomme
 
 ```yaml
 # Top-level lint applies to all tools
-lint:
-  recommended: error # Enable recommended rules
+lint: recommended
 ```
 
 **Tool-specific overrides:**
 
-<!-- TODO(trevor): recommended should be on/off, not error/warn. -->
-
 ```yaml
 # Base configuration
-lint:
-  recommended: error
+lint: recommended
 
 # Tool-specific overrides
 extensions:
@@ -457,7 +453,7 @@ projects:
     schema: "schema.graphql"
     documents: "src/**/*.graphql"
     lint:
-      recommended: error
+      extends: recommended
       rules:
         no_deprecated: off # Project-specific override
 ```
