@@ -31,3 +31,10 @@ projects:
       extends: recommended
       rules:
         no_deprecated: error
+
+  countries:
+    schema:
+      url: https://countries.trevorblades.com/
+    documents: "test-workspace/countries/src/queries.graphql"
+    lint:
+      recommended: warn
