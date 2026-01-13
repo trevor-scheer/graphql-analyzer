@@ -34,7 +34,6 @@ projects:
 
   countries:
     schema:
-      url: https://countries.trevorblades.com/
-    documents: "test-workspace/countries/src/queries.graphql"
-    lint:
-      recommended: warn
+      url: https://countries.trevorblades.com/graphql
+    documents: "test-workspace/countries/src/**/*.{graphql,ts}"
+    lint: recommended

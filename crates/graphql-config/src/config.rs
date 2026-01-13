@@ -761,10 +761,10 @@ documents: "**/*.graphql"
 
     #[test]
     fn test_introspection_schema_config_minimal() {
-        let yaml = r#"
+        let yaml = r"
 schema:
   url: https://api.example.com/graphql
-"#;
+";
         let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
 
         assert!(config.schema.is_introspection());
