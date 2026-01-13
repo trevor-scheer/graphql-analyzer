@@ -5,30 +5,6 @@ use anyhow::Result;
 use colored::Colorize;
 use std::path::PathBuf;
 
-/// Statistics about schema types
-#[derive(Debug, Default)]
-pub(crate) struct SchemaStats {
-    pub(crate) objects: usize,
-    pub(crate) interfaces: usize,
-    pub(crate) unions: usize,
-    pub(crate) enums: usize,
-    pub(crate) scalars: usize,
-    pub(crate) input_objects: usize,
-    pub(crate) total_fields: usize,
-    pub(crate) directives: usize,
-}
-
-impl SchemaStats {
-    fn total_types(&self) -> usize {
-        self.objects
-            + self.interfaces
-            + self.unions
-            + self.enums
-            + self.scalars
-            + self.input_objects
-    }
-}
-
 /// Statistics about document definitions
 #[derive(Debug, Default)]
 pub(crate) struct DocumentStats {
@@ -42,6 +18,16 @@ pub(crate) struct DocumentStats {
 impl DocumentStats {
     fn total_operations(&self) -> usize {
         self.queries + self.mutations + self.subscriptions
+    }
+
+    /// Calculate percentage of a given count relative to total operations
+    #[allow(clippy::cast_precision_loss)]
+    fn percentage(&self, count: usize) -> f64 {
+        let total = self.total_operations();
+        if total == 0 {
+            return 0.0;
+        }
+        (count as f64 / total as f64) * 100.0
     }
 }
 
@@ -61,6 +47,10 @@ impl ComplexityStats {
         self.operation_depths.iter().sum::<usize>() as f64 / self.operation_depths.len() as f64
     }
 
+    fn min_depth(&self) -> usize {
+        self.operation_depths.iter().copied().min().unwrap_or(0)
+    }
+
     fn max_depth(&self) -> usize {
         self.operation_depths.iter().copied().max().unwrap_or(0)
     }
@@ -73,12 +63,16 @@ impl ComplexityStats {
         self.fragment_spreads_per_operation.iter().sum::<usize>() as f64
             / self.fragment_spreads_per_operation.len() as f64
     }
+
+    fn total_fragment_spreads(&self) -> usize {
+        self.fragment_spreads_per_operation.iter().sum()
+    }
 }
 
 /// All project statistics
 #[derive(Debug, Default)]
 pub(crate) struct ProjectStats {
-    pub(crate) schema: SchemaStats,
+    pub(crate) schema: graphql_ide::SchemaStats,
     pub(crate) documents: DocumentStats,
     pub(crate) complexity: ComplexityStats,
 }
@@ -165,13 +159,34 @@ fn print_human_stats(stats: &ProjectStats) {
     println!();
     println!("{}:", "Documents".cyan().bold());
     println!("  Files: {}", stats.documents.files.to_string().bold());
-    println!(
-        "  Operations: {} ({} queries, {} mutations, {} subscriptions)",
-        stats.documents.total_operations().to_string().bold(),
-        stats.documents.queries,
-        stats.documents.mutations,
-        stats.documents.subscriptions,
-    );
+
+    let total_ops = stats.documents.total_operations();
+    if total_ops > 0 {
+        // Show percentages for larger projects (>= 5 operations)
+        if total_ops >= 5 {
+            println!(
+                "  Operations: {} ({} queries {:.0}%, {} mutations {:.0}%, {} subscriptions {:.0}%)",
+                total_ops.to_string().bold(),
+                stats.documents.queries,
+                stats.documents.percentage(stats.documents.queries),
+                stats.documents.mutations,
+                stats.documents.percentage(stats.documents.mutations),
+                stats.documents.subscriptions,
+                stats.documents.percentage(stats.documents.subscriptions),
+            );
+        } else {
+            println!(
+                "  Operations: {} ({} queries, {} mutations, {} subscriptions)",
+                total_ops.to_string().bold(),
+                stats.documents.queries,
+                stats.documents.mutations,
+                stats.documents.subscriptions,
+            );
+        }
+    } else {
+        println!("  Operations: {}", "0".bold());
+    }
+
     println!(
         "  Fragments: {}",
         stats.documents.fragments.to_string().bold()
@@ -182,16 +197,15 @@ fn print_human_stats(stats: &ProjectStats) {
         println!();
         println!("{}:", "Complexity".cyan().bold());
         println!(
-            "  Avg operation depth: {}",
-            format!("{:.1}", stats.complexity.avg_depth()).bold()
+            "  Operation depth: min {}, avg {:.1}, max {}",
+            stats.complexity.min_depth().to_string().bold(),
+            stats.complexity.avg_depth(),
+            stats.complexity.max_depth().to_string().bold(),
         );
         println!(
-            "  Max operation depth: {}",
-            stats.complexity.max_depth().to_string().bold()
-        );
-        println!(
-            "  Avg fragment spreads per operation: {}",
-            format!("{:.1}", stats.complexity.avg_fragment_spreads()).bold()
+            "  Fragment spreads: {} total, {:.1} avg per operation",
+            stats.complexity.total_fragment_spreads().to_string().bold(),
+            stats.complexity.avg_fragment_spreads(),
         );
     }
 
@@ -224,8 +238,10 @@ fn print_json_stats(stats: &ProjectStats) {
             "fragments": stats.documents.fragments,
         },
         "complexity": {
+            "minOperationDepth": stats.complexity.min_depth(),
             "avgOperationDepth": stats.complexity.avg_depth(),
             "maxOperationDepth": stats.complexity.max_depth(),
+            "totalFragmentSpreads": stats.complexity.total_fragment_spreads(),
             "avgFragmentSpreadsPerOperation": stats.complexity.avg_fragment_spreads(),
         }
     });
@@ -235,42 +251,39 @@ fn print_json_stats(stats: &ProjectStats) {
 /// Helper implementation for `CliAnalysisHost` to collect stats
 impl CliAnalysisHost {
     pub(crate) fn collect_stats(&self) -> ProjectStats {
-        // We need to access the internal host and project files to gather stats.
-        // For now, let's use the snapshot to get what we can.
         let snapshot = self.snapshot();
 
-        // Get schema types from workspace symbols (types matching any query)
+        // Get schema stats directly from HIR (includes accurate field and directive counts)
+        let schema = self.schema_stats();
+
+        // Get document stats from workspace symbols
         let all_symbols = snapshot.workspace_symbols("");
+        let mut documents = DocumentStats::default();
 
-        let mut stats = ProjectStats::default();
-
-        // Count types by kind
         for symbol in &all_symbols {
             match symbol.kind {
-                graphql_ide::SymbolKind::Type => stats.schema.objects += 1,
-                graphql_ide::SymbolKind::Interface => stats.schema.interfaces += 1,
-                graphql_ide::SymbolKind::Union => stats.schema.unions += 1,
-                graphql_ide::SymbolKind::Enum => stats.schema.enums += 1,
-                graphql_ide::SymbolKind::Scalar => stats.schema.scalars += 1,
-                graphql_ide::SymbolKind::Input => stats.schema.input_objects += 1,
-                graphql_ide::SymbolKind::Query => stats.documents.queries += 1,
-                graphql_ide::SymbolKind::Mutation => stats.documents.mutations += 1,
-                graphql_ide::SymbolKind::Subscription => stats.documents.subscriptions += 1,
-                graphql_ide::SymbolKind::Fragment => stats.documents.fragments += 1,
+                graphql_ide::SymbolKind::Query => documents.queries += 1,
+                graphql_ide::SymbolKind::Mutation => documents.mutations += 1,
+                graphql_ide::SymbolKind::Subscription => documents.subscriptions += 1,
+                graphql_ide::SymbolKind::Fragment => documents.fragments += 1,
                 _ => {}
             }
         }
 
-        // Get file count and field count from loaded files
-        let (file_count, field_count) = self.file_and_field_stats();
-        stats.documents.files = file_count;
-        stats.schema.total_fields = field_count;
+        // Get file count
+        documents.files = self.file_count();
 
         // Collect complexity stats
         let (depths, spreads) = self.complexity_stats();
-        stats.complexity.operation_depths = depths;
-        stats.complexity.fragment_spreads_per_operation = spreads;
+        let complexity = ComplexityStats {
+            operation_depths: depths,
+            fragment_spreads_per_operation: spreads,
+        };
 
-        stats
+        ProjectStats {
+            schema,
+            documents,
+            complexity,
+        }
     }
 }

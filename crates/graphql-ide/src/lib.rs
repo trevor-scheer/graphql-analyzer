@@ -449,6 +449,40 @@ impl WorkspaceSymbol {
     }
 }
 
+/// Statistics about schema types
+#[derive(Debug, Clone, Default)]
+pub struct SchemaStats {
+    /// Number of object types
+    pub objects: usize,
+    /// Number of interface types
+    pub interfaces: usize,
+    /// Number of union types
+    pub unions: usize,
+    /// Number of enum types
+    pub enums: usize,
+    /// Number of scalar types
+    pub scalars: usize,
+    /// Number of input object types
+    pub input_objects: usize,
+    /// Total number of fields across all types
+    pub total_fields: usize,
+    /// Number of directive definitions
+    pub directives: usize,
+}
+
+impl SchemaStats {
+    /// Total number of types (all kinds)
+    #[must_use]
+    pub fn total_types(&self) -> usize {
+        self.objects
+            + self.interfaces
+            + self.unions
+            + self.enums
+            + self.scalars
+            + self.input_objects
+    }
+}
+
 /// Input: Lint configuration
 ///
 /// This is a Salsa input so that config changes properly invalidate dependent queries.
@@ -2107,6 +2141,52 @@ impl Analysis {
         }
 
         symbols
+    }
+
+    /// Get schema statistics
+    ///
+    /// Returns counts of types by kind, total fields, and directives.
+    /// This uses the HIR layer directly for accurate field counting.
+    pub fn schema_stats(&self) -> SchemaStats {
+        let Some(project_files) = self.project_files else {
+            return SchemaStats::default();
+        };
+
+        let types = graphql_hir::schema_types(&self.db, project_files);
+        let mut stats = SchemaStats::default();
+
+        for type_def in types.values() {
+            match type_def.kind {
+                graphql_hir::TypeDefKind::Object => stats.objects += 1,
+                graphql_hir::TypeDefKind::Interface => stats.interfaces += 1,
+                graphql_hir::TypeDefKind::Union => stats.unions += 1,
+                graphql_hir::TypeDefKind::Enum => stats.enums += 1,
+                graphql_hir::TypeDefKind::Scalar => stats.scalars += 1,
+                graphql_hir::TypeDefKind::InputObject => stats.input_objects += 1,
+            }
+            // Count fields for types that have fields
+            stats.total_fields += type_def.fields.len();
+        }
+
+        // Count directive definitions from schema files
+        let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
+        for file_id in schema_ids.iter() {
+            let Some((content, metadata)) =
+                graphql_db::file_lookup(&self.db, project_files, *file_id)
+            else {
+                continue;
+            };
+            let parse = graphql_syntax::parse(&self.db, content, metadata);
+            // Count directive definitions by checking if the definition is a directive
+            // Directives in GraphQL SDL start with "directive @"
+            for definition in &parse.ast.definitions {
+                if definition.as_directive_definition().is_some() {
+                    stats.directives += 1;
+                }
+            }
+        }
+
+        stats
     }
 
     /// Get location for a type definition
