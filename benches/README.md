@@ -29,7 +29,7 @@ These benchmarks validate that Salsa's memoization works correctly. The warm par
 - **schema_types_cold**: First-time extraction of type definitions from schema
 - **schema_types_warm**: Repeated extraction (tests caching)
 
-These test the `schema_types_with_project` query performance.
+These test the `schema_types` query performance.
 
 ### Golden Invariant Benchmark
 

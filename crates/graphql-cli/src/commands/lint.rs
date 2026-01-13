@@ -94,14 +94,14 @@ pub fn run(
             .to_string();
 
             let diag_output = DiagnosticOutput {
-                file_path: file_path.to_string_lossy().to_string(),
+                file_path: file_path.to_string_lossy().into(),
                 // Convert from 0-based to 1-based for display
                 line: (diag.range.start.line + 1) as usize,
                 column: (diag.range.start.character + 1) as usize,
                 end_line: (diag.range.end.line + 1) as usize,
                 end_column: (diag.range.end.character + 1) as usize,
                 message: diag.message,
-                severity: severity_string.clone(),
+                severity: severity_string,
                 rule: diag.code,
             };
 

@@ -155,16 +155,19 @@ let diagnostics_by_file = linter.lint_project(&ctx);
 ### Basic Configuration
 
 ```rust
-use graphql_linter::LintConfig;
+use graphql_linter::{LintConfig, FullLintConfig, ExtendsConfig, LintRuleConfig, LintSeverity};
+use std::collections::HashMap;
 
 // Use recommended defaults
 let config = LintConfig::recommended();
 
-// Custom configuration
-let mut config = LintConfig::default();
-config.set_rule_severity("no_deprecated", Severity::Warn);
-config.set_rule_severity("unique_names", Severity::Error);
-config.set_rule_severity("unused_fields", Severity::Off);
+// Preset with rules override
+let config = LintConfig::Full(FullLintConfig {
+    extends: Some(ExtendsConfig::Single("recommended".to_string())),
+    rules: HashMap::from([
+        ("no_deprecated".to_string(), LintRuleConfig::Severity(LintSeverity::Warn)),
+    ]),
+});
 ```
 
 ### YAML Configuration
@@ -172,9 +175,27 @@ config.set_rule_severity("unused_fields", Severity::Off);
 Configure in `.graphqlrc.yaml`:
 
 ```yaml
-# Basic configuration
+# Happy path - just use recommended preset
+lint: recommended
+
+# Fine-grained rules only (no presets)
 lint:
-  recommended: error
+  rules:
+    unique_names: error
+    no_deprecated: warn
+
+# Preset with overrides (ESLint-style)
+lint:
+  extends: recommended
+  rules:
+    no_deprecated: off
+    require_id_field: error
+
+# Multiple presets (later overrides earlier)
+lint:
+  extends: [recommended]
+  rules:
+    unused_fields: warn
 ```
 
 **Tool-specific overrides:**
@@ -182,24 +203,21 @@ lint:
 ```yaml
 # Base configuration
 lint:
-  recommended: error
+  extends: recommended
   rules:
     no_deprecated: warn
-    unique_names: error
-    unused_fields: off
 
 # Tool-specific overrides
 extensions:
   cli:
     lint:
       rules:
-        unused_fields: error
+        unused_fields: error  # Enable expensive rule in CI
 
   lsp:
     lint:
       rules:
-        unused_fields: off
-        unique_names: warn
+        unused_fields: off  # Disable expensive rule in editor
 ```
 
 ### Severity Levels
@@ -435,12 +453,33 @@ impl Linter {
 ### LintConfig
 
 ```rust
-impl LintConfig {
-    pub fn default() -> Self;
-    pub fn recommended() -> Self;
+/// Lint configuration - supports multiple formats
+pub enum LintConfig {
+    /// Simple preset: `lint: recommended`
+    Preset(String),
 
-    pub fn set_rule_severity(&mut self, rule: &str, severity: Severity);
-    pub fn get_rule_severity(&self, rule: &str) -> Severity;
+    /// Full config with extends and rules
+    Full(FullLintConfig),
+}
+
+pub struct FullLintConfig {
+    pub extends: Option<ExtendsConfig>,
+    pub rules: HashMap<String, LintRuleConfig>,
+}
+
+pub enum ExtendsConfig {
+    Single(String),          // extends: recommended
+    Multiple(Vec<String>),   // extends: [recommended, strict]
+}
+
+impl LintConfig {
+    pub fn default() -> Self;           // Empty config (no rules)
+    pub fn recommended() -> Self;       // Preset("recommended")
+
+    pub fn get_severity(&self, rule: &str) -> Option<LintSeverity>;
+    pub fn is_enabled(&self, rule: &str) -> bool;
+    pub fn validate(&self) -> Result<(), String>;
+    pub fn merge(&self, override_config: &Self) -> Self;
 }
 ```
 

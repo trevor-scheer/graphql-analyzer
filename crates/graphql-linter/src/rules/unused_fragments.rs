@@ -28,7 +28,8 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
     ) -> HashMap<FileId, Vec<LintDiagnostic>> {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
 
-        // Step 1: Collect all fragment definitions
+        // Step 1: Collect all fragment definitions using per-file cached queries
+        // Each file's contribution is cached independently by Salsa
         let doc_ids = project_files.document_file_ids(db).ids(db);
         let mut all_fragments: HashMap<String, Vec<FileId>> = HashMap::new();
 
@@ -38,54 +39,28 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
             else {
                 continue;
             };
-            let structure = graphql_hir::file_structure(db, *file_id, content, metadata);
-            for fragment in &structure.fragments {
+            // Per-file cached query - only recomputes if THIS file changed
+            let defined = graphql_hir::file_defined_fragment_names(db, *file_id, content, metadata);
+            for fragment_name in defined.iter() {
                 all_fragments
-                    .entry(fragment.name.to_string())
+                    .entry(fragment_name.to_string())
                     .or_default()
                     .push(*file_id);
             }
         }
 
-        // Step 2: Collect all used fragment names from operations and fragments
-        let mut used_fragments = HashSet::new();
+        // Step 2: Collect all used fragment names using per-file cached queries
+        let mut used_fragments: HashSet<String> = HashSet::new();
 
         for file_id in doc_ids.iter() {
-            // Use per-file lookup for granular caching
             let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
             else {
                 continue;
             };
-            let parse = graphql_syntax::parse(db, content, metadata);
-
-            // Scan operations and fragments in the main AST
-            for definition in &parse.ast.definitions {
-                match definition {
-                    apollo_compiler::ast::Definition::OperationDefinition(operation) => {
-                        collect_fragment_spreads(&operation.selection_set, &mut used_fragments);
-                    }
-                    apollo_compiler::ast::Definition::FragmentDefinition(fragment) => {
-                        // Fragments can reference other fragments
-                        collect_fragment_spreads(&fragment.selection_set, &mut used_fragments);
-                    }
-                    _ => {}
-                }
-            }
-
-            // Also scan operations and fragments in extracted blocks (TypeScript/JavaScript)
-            for block in &parse.blocks {
-                for definition in &block.ast.definitions {
-                    match definition {
-                        apollo_compiler::ast::Definition::OperationDefinition(operation) => {
-                            collect_fragment_spreads(&operation.selection_set, &mut used_fragments);
-                        }
-                        apollo_compiler::ast::Definition::FragmentDefinition(fragment) => {
-                            // Fragments can reference other fragments
-                            collect_fragment_spreads(&fragment.selection_set, &mut used_fragments);
-                        }
-                        _ => {}
-                    }
-                }
+            // Per-file cached query - only recomputes if THIS file changed
+            let used = graphql_hir::file_used_fragment_names(db, *file_id, content, metadata);
+            for fragment_name in used.iter() {
+                used_fragments.insert(fragment_name.to_string());
             }
         }
 
@@ -110,26 +85,5 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
         }
 
         diagnostics_by_file
-    }
-}
-
-/// Recursively collect fragment spread names from a selection set
-fn collect_fragment_spreads(
-    selections: &[apollo_compiler::ast::Selection],
-    fragments: &mut HashSet<String>,
-) {
-    for selection in selections {
-        match selection {
-            apollo_compiler::ast::Selection::Field(field) => {
-                // Recursively check nested selection sets
-                collect_fragment_spreads(&field.selection_set, fragments);
-            }
-            apollo_compiler::ast::Selection::FragmentSpread(spread) => {
-                fragments.insert(spread.fragment_name.to_string());
-            }
-            apollo_compiler::ast::Selection::InlineFragment(inline) => {
-                collect_fragment_spreads(&inline.selection_set, fragments);
-            }
-        }
     }
 }

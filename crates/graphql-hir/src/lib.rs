@@ -172,15 +172,6 @@ pub fn schema_types(
     Arc::new(types)
 }
 
-/// Alias for `schema_types` for backward compatibility
-#[salsa::tracked]
-pub fn schema_types_with_project(
-    db: &dyn GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
-) -> Arc<HashMap<Arc<str>, TypeDef>> {
-    schema_types(db, project_files)
-}
-
 /// Get all fragments in the project
 ///
 /// This query uses granular dependencies:
@@ -209,15 +200,6 @@ pub fn all_fragments(
     }
 
     Arc::new(fragments)
-}
-
-/// Alias for `all_fragments` for backward compatibility
-#[salsa::tracked]
-pub fn all_fragments_with_project(
-    db: &dyn GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
-) -> Arc<HashMap<Arc<str>, FragmentStructure>> {
-    all_fragments(db, project_files)
 }
 
 /// Index mapping fragment names to their file content and metadata
@@ -488,6 +470,334 @@ pub fn all_operations(
     Arc::new(operations)
 }
 
+// ============================================================================
+// Per-file contribution queries for project-wide lint rules
+// These enable incremental computation: editing one file only recomputes that
+// file's contribution, other files' contributions come from cache.
+// ============================================================================
+
+/// Per-file query for fragment names used (spread) in a file.
+/// Returns all fragment spread names found in operations and fragments.
+/// This enables incremental computation for the `unused_fragments` lint rule.
+#[salsa::tracked]
+#[allow(clippy::items_after_statements)]
+pub fn file_used_fragment_names(
+    db: &dyn GraphQLHirDatabase,
+    _file_id: FileId,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+) -> Arc<std::collections::HashSet<Arc<str>>> {
+    let parse = graphql_syntax::parse(db, content, metadata);
+    let mut used = std::collections::HashSet::new();
+
+    // Helper to collect fragment spreads recursively
+    fn collect_spreads(
+        selections: &[apollo_compiler::ast::Selection],
+        used: &mut std::collections::HashSet<Arc<str>>,
+    ) {
+        for selection in selections {
+            match selection {
+                apollo_compiler::ast::Selection::Field(field) => {
+                    collect_spreads(&field.selection_set, used);
+                }
+                apollo_compiler::ast::Selection::FragmentSpread(spread) => {
+                    used.insert(Arc::from(spread.fragment_name.as_str()));
+                }
+                apollo_compiler::ast::Selection::InlineFragment(inline) => {
+                    collect_spreads(&inline.selection_set, used);
+                }
+            }
+        }
+    }
+
+    // Process main AST definitions
+    for definition in &parse.ast.definitions {
+        match definition {
+            apollo_compiler::ast::Definition::OperationDefinition(op) => {
+                collect_spreads(&op.selection_set, &mut used);
+            }
+            apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
+                collect_spreads(&frag.selection_set, &mut used);
+            }
+            _ => {}
+        }
+    }
+
+    // Process extracted blocks (TypeScript/JavaScript)
+    for block in &parse.blocks {
+        for definition in &block.ast.definitions {
+            match definition {
+                apollo_compiler::ast::Definition::OperationDefinition(op) => {
+                    collect_spreads(&op.selection_set, &mut used);
+                }
+                apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
+                    collect_spreads(&frag.selection_set, &mut used);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Arc::new(used)
+}
+
+/// Per-file query for defined fragment names in a file.
+/// Returns `fragment_name` for all fragments defined in the file.
+/// This enables incremental computation for the `unused_fragments` lint rule.
+#[salsa::tracked]
+pub fn file_defined_fragment_names(
+    db: &dyn GraphQLHirDatabase,
+    file_id: FileId,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+) -> Arc<Vec<Arc<str>>> {
+    let structure = file_structure(db, file_id, content, metadata);
+    Arc::new(structure.fragments.iter().map(|f| f.name.clone()).collect())
+}
+
+/// Info about a defined fragment for the `unique_names` lint rule.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FragmentNameInfo {
+    /// The fragment name
+    pub name: Arc<str>,
+    /// The text range of the fragment name
+    pub name_range: TextRange,
+    /// For embedded GraphQL: line offset of the block (0-indexed)
+    pub block_line_offset: Option<usize>,
+    /// For embedded GraphQL: source text of the block
+    pub block_source: Option<Arc<str>>,
+}
+
+/// Per-file query for defined fragment info in a file.
+/// Returns info for all fragments including block context for embedded GraphQL.
+/// This enables incremental computation for the `unique_names` lint rule.
+#[salsa::tracked]
+pub fn file_fragment_info(
+    db: &dyn GraphQLHirDatabase,
+    file_id: FileId,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+) -> Arc<Vec<FragmentNameInfo>> {
+    let structure = file_structure(db, file_id, content, metadata);
+    Arc::new(
+        structure
+            .fragments
+            .iter()
+            .map(|frag| FragmentNameInfo {
+                name: frag.name.clone(),
+                name_range: frag.name_range,
+                block_line_offset: frag.block_line_offset,
+                block_source: frag.block_source.clone(),
+            })
+            .collect(),
+    )
+}
+
+/// Info about a named operation for the `unique_names` lint rule.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OperationNameInfo {
+    /// The operation name
+    pub name: Arc<str>,
+    /// The operation index (for deduplication)
+    pub index: usize,
+    /// The text range of the operation name
+    pub name_range: Option<TextRange>,
+    /// For embedded GraphQL: line offset of the block (0-indexed)
+    pub block_line_offset: Option<usize>,
+    /// For embedded GraphQL: source text of the block
+    pub block_source: Option<Arc<str>>,
+}
+
+/// Per-file query for operation names in a file.
+/// Returns info for all named operations including block context for embedded GraphQL.
+/// This enables incremental computation for the `unique_names` lint rule.
+#[salsa::tracked]
+pub fn file_operation_names(
+    db: &dyn GraphQLHirDatabase,
+    file_id: FileId,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+) -> Arc<Vec<OperationNameInfo>> {
+    let structure = file_structure(db, file_id, content, metadata);
+    Arc::new(
+        structure
+            .operations
+            .iter()
+            .filter_map(|op| {
+                op.name.as_ref().map(|name| OperationNameInfo {
+                    name: name.clone(),
+                    index: op.index,
+                    name_range: op.name_range,
+                    block_line_offset: op.block_line_offset,
+                    block_source: op.block_source.clone(),
+                })
+            })
+            .collect(),
+    )
+}
+
+/// A schema coordinate representing a field on a type (e.g., `User.name`).
+///
+/// Schema coordinates are the standard GraphQL way to reference specific
+/// fields within a schema. See: <https://spec.graphql.org/draft/#sec-Schema-Coordinates>
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SchemaCoordinate {
+    pub type_name: Arc<str>,
+    pub field_name: Arc<str>,
+}
+
+/// Per-file query for schema coordinates used in a file.
+/// Returns all `Type.field` coordinates referenced in operations and fragments.
+/// This enables incremental computation for the `unused_fields` lint rule.
+///
+/// Note: This query requires schema types to resolve field return types.
+/// If schema is not available, it uses heuristics based on selection patterns.
+#[salsa::tracked]
+#[allow(clippy::items_after_statements, clippy::too_many_lines)]
+pub fn file_schema_coordinates(
+    db: &dyn GraphQLHirDatabase,
+    _file_id: FileId,
+    content: graphql_db::FileContent,
+    metadata: graphql_db::FileMetadata,
+    project_files: graphql_db::ProjectFiles,
+) -> Arc<std::collections::HashSet<SchemaCoordinate>> {
+    let parse = graphql_syntax::parse(db, content, metadata);
+    let schema_types = schema_types(db, project_files);
+    let mut coordinates = std::collections::HashSet::new();
+
+    // Get root type names
+    let query_type = schema_types
+        .contains_key("Query")
+        .then(|| Arc::from("Query"));
+    let mutation_type = schema_types
+        .contains_key("Mutation")
+        .then(|| Arc::from("Mutation"));
+    let subscription_type = schema_types
+        .contains_key("Subscription")
+        .then(|| Arc::from("Subscription"));
+
+    // Helper to collect schema coordinates recursively
+    fn collect_coordinates(
+        selections: &[apollo_compiler::ast::Selection],
+        parent_type: &Arc<str>,
+        schema_types: &HashMap<Arc<str>, TypeDef>,
+        coordinates: &mut std::collections::HashSet<SchemaCoordinate>,
+    ) {
+        for selection in selections {
+            match selection {
+                apollo_compiler::ast::Selection::Field(field) => {
+                    let field_name: Arc<str> = Arc::from(field.name.as_str());
+
+                    // Record this schema coordinate
+                    coordinates.insert(SchemaCoordinate {
+                        type_name: parent_type.clone(),
+                        field_name: field_name.clone(),
+                    });
+
+                    // Recursively process nested selections
+                    if !field.selection_set.is_empty() {
+                        // Find the field's return type from schema
+                        if let Some(type_def) = schema_types.get(parent_type) {
+                            if let Some(field_sig) = type_def
+                                .fields
+                                .iter()
+                                .find(|f| f.name.as_ref() == field_name.as_ref())
+                            {
+                                let nested_type: Arc<str> =
+                                    Arc::from(field_sig.type_ref.name.as_ref());
+                                collect_coordinates(
+                                    &field.selection_set,
+                                    &nested_type,
+                                    schema_types,
+                                    coordinates,
+                                );
+                            }
+                        }
+                    }
+                }
+                apollo_compiler::ast::Selection::FragmentSpread(_) => {
+                    // Fragment spreads are handled separately
+                }
+                apollo_compiler::ast::Selection::InlineFragment(inline) => {
+                    let inline_type = inline
+                        .type_condition
+                        .as_ref()
+                        .map_or_else(|| parent_type.clone(), |tc| Arc::from(tc.as_str()));
+                    collect_coordinates(
+                        &inline.selection_set,
+                        &inline_type,
+                        schema_types,
+                        coordinates,
+                    );
+                }
+            }
+        }
+    }
+
+    // Process main AST definitions
+    for definition in &parse.ast.definitions {
+        match definition {
+            apollo_compiler::ast::Definition::OperationDefinition(op) => {
+                let root_type = match op.operation_type {
+                    apollo_compiler::ast::OperationType::Query => query_type.as_ref(),
+                    apollo_compiler::ast::OperationType::Mutation => mutation_type.as_ref(),
+                    apollo_compiler::ast::OperationType::Subscription => subscription_type.as_ref(),
+                };
+                if let Some(root) = root_type {
+                    collect_coordinates(&op.selection_set, root, &schema_types, &mut coordinates);
+                }
+            }
+            apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
+                let frag_type = Arc::from(frag.type_condition.as_str());
+                collect_coordinates(
+                    &frag.selection_set,
+                    &frag_type,
+                    &schema_types,
+                    &mut coordinates,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    // Process extracted blocks (TypeScript/JavaScript)
+    for block in &parse.blocks {
+        for definition in &block.ast.definitions {
+            match definition {
+                apollo_compiler::ast::Definition::OperationDefinition(op) => {
+                    let root_type = match op.operation_type {
+                        apollo_compiler::ast::OperationType::Query => query_type.as_ref(),
+                        apollo_compiler::ast::OperationType::Mutation => mutation_type.as_ref(),
+                        apollo_compiler::ast::OperationType::Subscription => {
+                            subscription_type.as_ref()
+                        }
+                    };
+                    if let Some(root) = root_type {
+                        collect_coordinates(
+                            &op.selection_set,
+                            root,
+                            &schema_types,
+                            &mut coordinates,
+                        );
+                    }
+                }
+                apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
+                    let frag_type = Arc::from(frag.type_condition.as_str());
+                    collect_coordinates(
+                        &frag.selection_set,
+                        &frag_type,
+                        &schema_types,
+                        &mut coordinates,
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Arc::new(coordinates)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -542,7 +852,7 @@ mod tests {
     fn test_schema_types_empty() {
         let db = TestDatabase::default();
         let project_files = create_project_files(&db, &[], &[]);
-        let types = schema_types_with_project(&db, project_files);
+        let types = schema_types(&db, project_files);
         assert_eq!(types.len(), 0);
     }
 
@@ -633,7 +943,7 @@ mod tests {
         );
 
         // Query all_fragments to also warm that cache
-        let fragments = all_fragments_with_project(&db, project_files);
+        let fragments = all_fragments(&db, project_files);
         assert_eq!(fragments.len(), 2, "Should have 2 fragments");
 
         // Reset counter before the edit
@@ -656,7 +966,7 @@ mod tests {
         FILE_STRUCTURE_CALL_COUNT.store(0, Ordering::SeqCst);
 
         // Query all_fragments again after editing file2
-        let fragments_after = all_fragments_with_project(&db, project_files);
+        let fragments_after = all_fragments(&db, project_files);
         assert_eq!(fragments_after.len(), 2, "Should still have 2 fragments");
 
         // Check if FragmentB was updated (it should have "phone" now)
@@ -707,7 +1017,7 @@ mod tests {
         let project_files = create_project_files(&db, &[], &doc_files);
 
         // Warm the cache
-        let frags1 = all_fragments_with_project(&db, project_files);
+        let frags1 = all_fragments(&db, project_files);
         assert_eq!(frags1.len(), 2);
         assert!(frags1.contains_key("F1"));
         assert!(frags1.contains_key("F2"));
@@ -718,7 +1028,7 @@ mod tests {
             .to(Arc::from("fragment F2 on User { name email }"));
 
         // Query again - file1's data should come from cache
-        let frags2 = all_fragments_with_project(&db, project_files);
+        let frags2 = all_fragments(&db, project_files);
         assert_eq!(frags2.len(), 2);
 
         // Both fragments should still be present
@@ -1438,6 +1748,92 @@ mod tests {
                 file_type_defs_delta, 0,
                 "file_type_defs should be cached when operations are edited, got {}",
                 file_type_defs_delta
+            );
+        }
+
+        /// Test that per-file contribution queries enable incremental computation
+        /// for project-wide lint rules (Issue #213)
+        #[test]
+        fn test_per_file_contribution_queries_incremental() {
+            let mut db = TrackedHirDatabase::new();
+
+            // Create multiple document files with fragments
+            const NUM_FILES: usize = 5;
+            let mut doc_files = Vec::with_capacity(NUM_FILES);
+            let mut file_contents = Vec::with_capacity(NUM_FILES);
+
+            for i in 0..NUM_FILES {
+                let file_id = FileId::new(i as u32);
+                let fragment_name = format!("Fragment{i}");
+                let content_str =
+                    format!("fragment {fragment_name} on User {{ id }} query Q{i} {{ user {{ ...{fragment_name} }} }}");
+                let content = graphql_db::FileContent::new(&db, Arc::from(content_str.as_str()));
+                let uri = format!("file{i}.graphql");
+                let metadata = graphql_db::FileMetadata::new(
+                    &db,
+                    file_id,
+                    graphql_db::FileUri::new(uri),
+                    graphql_db::FileKind::ExecutableGraphQL,
+                );
+
+                file_contents.push(content);
+                doc_files.push((file_id, content, metadata));
+            }
+
+            let _project_files = create_tracked_project_files(&db, &[], &doc_files);
+
+            // Warm the cache by calling per-file contribution queries
+            for (file_id, content, metadata) in &doc_files {
+                let _ = file_defined_fragment_names(&db, *file_id, *content, *metadata);
+                let _ = file_used_fragment_names(&db, *file_id, *content, *metadata);
+                let _ = file_operation_names(&db, *file_id, *content, *metadata);
+            }
+
+            // Checkpoint BEFORE the edit
+            let checkpoint = db.checkpoint();
+
+            // Edit ONLY file 0
+            file_contents[0].set_text(&mut db).to(Arc::from(
+                "fragment Fragment0 on User { id name } query Q0 { user { ...Fragment0 } }",
+            ));
+
+            // Re-query the per-file contributions
+            for (file_id, content, metadata) in &doc_files {
+                let _ = file_defined_fragment_names(&db, *file_id, *content, *metadata);
+                let _ = file_used_fragment_names(&db, *file_id, *content, *metadata);
+                let _ = file_operation_names(&db, *file_id, *content, *metadata);
+            }
+
+            // Measure recomputation - should be O(1), not O(N)
+            let defined_delta = db.count_since(queries::FILE_DEFINED_FRAGMENT_NAMES, checkpoint);
+            let used_delta = db.count_since(queries::FILE_USED_FRAGMENT_NAMES, checkpoint);
+            let op_names_delta = db.count_since(queries::FILE_OPERATION_NAMES, checkpoint);
+
+            println!(
+                "After editing 1 of {} files: defined={}, used={}, op_names={}",
+                NUM_FILES, defined_delta, used_delta, op_names_delta
+            );
+
+            // KEY ASSERTION: Only the edited file's queries should recompute
+            // With O(N) behavior, we'd see ~5 of each
+            let max_allowed = NUM_FILES / 2;
+            assert!(
+                defined_delta <= max_allowed,
+                "Expected O(1) file_defined_fragment_names calls, got {} (O(N) would be ~{})",
+                defined_delta,
+                NUM_FILES
+            );
+            assert!(
+                used_delta <= max_allowed,
+                "Expected O(1) file_used_fragment_names calls, got {} (O(N) would be ~{})",
+                used_delta,
+                NUM_FILES
+            );
+            assert!(
+                op_names_delta <= max_allowed,
+                "Expected O(1) file_operation_names calls, got {} (O(N) would be ~{})",
+                op_names_delta,
+                NUM_FILES
             );
         }
 

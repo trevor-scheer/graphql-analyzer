@@ -141,17 +141,14 @@ fn check_operation_has_name(
 
 /// Determine the operation type (query, mutation, or subscription)
 fn get_operation_type(operation: &cst::OperationDefinition) -> &'static str {
-    operation.operation_type().map_or("query", |op_type| {
-        if op_type.query_token().is_some() {
-            "query"
-        } else if op_type.mutation_token().is_some() {
-            "mutation"
-        } else if op_type.subscription_token().is_some() {
-            "subscription"
-        } else {
-            "query" // Default fallback
-        }
-    })
+    use super::{get_operation_kind, OperationKind};
+    operation
+        .operation_type()
+        .map_or("query", |op_type| match get_operation_kind(&op_type) {
+            OperationKind::Query => "query",
+            OperationKind::Mutation => "mutation",
+            OperationKind::Subscription => "subscription",
+        })
 }
 
 #[cfg(test)]

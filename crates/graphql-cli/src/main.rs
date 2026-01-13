@@ -59,6 +59,12 @@ enum Commands {
         #[arg(short, long)]
         watch: bool,
     },
+
+    /// Schema-related commands (download, etc.)
+    Schema {
+        #[command(subcommand)]
+        command: commands::schema::SchemaCommands,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -71,7 +77,6 @@ enum OutputFormat {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing/logging based on RUST_LOG env var
     #[cfg(feature = "otel")]
     let otel_guard = init_telemetry();
 
@@ -90,17 +95,15 @@ async fn main() -> anyhow::Result<()> {
         Commands::Check { format, watch } => {
             commands::check::run(cli.config, cli.project.as_deref(), format, watch)
         }
+        Commands::Schema { command } => commands::schema::run(command).await,
     };
 
-    // Ensure all traces are flushed before exiting
     #[cfg(feature = "otel")]
     if let Some(provider) = otel_guard {
         eprintln!("Shutting down OpenTelemetry...");
-        // Explicitly shutdown the provider to flush pending spans
         if let Err(e) = provider.shutdown() {
             eprintln!("Error shutting down tracer provider: {e:?}");
         }
-        // Also shutdown the global provider
         opentelemetry::global::shutdown_tracer_provider();
         eprintln!("OpenTelemetry shutdown complete");
     }
@@ -131,56 +134,46 @@ fn init_telemetry() -> Option<opentelemetry_sdk::trace::TracerProvider> {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
-    // Check if OpenTelemetry should be enabled
     let otel_enabled = std::env::var("OTEL_TRACES_ENABLED")
         .map(|v| v == "1" || v.to_lowercase() == "true")
         .unwrap_or(false);
 
     if !otel_enabled {
-        // Fall back to regular tracing
         init_tracing();
         return None;
     }
 
-    // Get OTLP endpoint from env or use default
     let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
         .unwrap_or_else(|_| "http://localhost:4317".to_string());
 
     eprintln!("Initializing OpenTelemetry with endpoint: {endpoint}");
 
-    // Create OTLP exporter
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
         .with_endpoint(&endpoint)
         .build()
         .expect("Failed to create OTLP exporter");
 
-    // Create resource with service name
     let resource = Resource::new(vec![KeyValue::new(
         opentelemetry_semantic_conventions::resource::SERVICE_NAME,
         "graphql-cli",
     )]);
 
-    // Create tracer provider with resource
     // Use batch exporter for async, non-blocking trace export
     let provider = TracerProvider::builder()
         .with_resource(resource)
         .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
         .build();
 
-    // Set as global provider so shutdown_tracer_provider() works
     opentelemetry::global::set_tracer_provider(provider.clone());
 
     let tracer = provider.tracer("graphql-cli");
 
-    // Create telemetry layer
     let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
-    // Create env filter
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
 
-    // Initialize subscriber with both telemetry and logging
     tracing_subscriber::registry()
         .with(env_filter)
         .with(telemetry)

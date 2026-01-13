@@ -11,9 +11,9 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
     let project_files = db
         .project_files()
         .expect("project files must be set for project-wide analysis");
-    let schema = graphql_hir::schema_types_with_project(db, project_files);
+    let schema = graphql_hir::schema_types(db, project_files);
     let operations = graphql_hir::all_operations(db, project_files);
-    let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
+    let all_fragments = graphql_hir::all_fragments(db, project_files);
 
     // Step 1: Collect all schema fields (type_name, field_name) -> (FileId, FieldSignature)
     let mut schema_fields: SchemaFieldsMap = HashMap::new();
@@ -28,7 +28,6 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
 
     // Step 2: Collect all used fields by walking operations and fragments
     let mut used_fields: HashSet<(Arc<str>, Arc<str>)> = HashSet::new();
-    // Build document_files list from per-file lookups
     let doc_ids = project_files.document_file_ids(db).ids(db);
     let document_files: Vec<(
         graphql_db::FileId,
@@ -42,23 +41,19 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
         })
         .collect();
 
-    // Collect used fields from all operations
     for operation in operations.iter() {
-        // Get the root type for this operation
         let root_type_name = match operation.operation_type {
             graphql_hir::OperationType::Query => "Query",
             graphql_hir::OperationType::Mutation => "Mutation",
             graphql_hir::OperationType::Subscription => "Subscription",
         };
 
-        // Find the file content and metadata for this operation
         if let Some((_, content, metadata)) = document_files
             .iter()
             .find(|(fid, _, _)| *fid == operation.file_id)
         {
             let body = graphql_hir::operation_body(db, *content, *metadata, operation.index);
 
-            // Collect fields from this operation's body
             let root_type = Arc::from(root_type_name);
             collect_used_fields_from_selections(
                 &body.selections,
@@ -77,7 +72,6 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
     let mut unused = Vec::new();
     for ((type_name, field_name), (_file_id, _field_sig)) in &schema_fields {
         if !used_fields.contains(&(type_name.clone(), field_name.clone())) {
-            // Create a dummy FieldId
             let field_id = FieldId::new(unsafe { salsa::Id::from_index(0) });
 
             unused.push((
@@ -104,25 +98,22 @@ pub fn find_unused_fragments(
     let project_files = db
         .project_files()
         .expect("project files must be set for project-wide analysis");
-    let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
+    let all_fragments = graphql_hir::all_fragments(db, project_files);
 
     // Use the fragment spreads index from HIR (cached, no AST cloning needed)
     let fragment_spreads_index = graphql_hir::fragment_spreads_index(db, project_files);
 
     let mut used_fragments = HashSet::new();
 
-    // Collect fragment spreads from operations (using HIR data, not ASTs)
     let doc_ids = project_files.document_file_ids(db).ids(db);
     for file_id in doc_ids.iter() {
         let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) else {
             continue;
         };
 
-        // Get operation bodies from cached HIR queries
         let file_ops = graphql_hir::file_operations(db, *file_id, content, metadata);
         for (op_index, _op) in file_ops.iter().enumerate() {
             let body = graphql_hir::operation_body(db, content, metadata, op_index);
-            // Add direct fragment spreads from this operation
             for spread in &body.fragment_spreads {
                 collect_fragment_transitive(spread, &fragment_spreads_index, &mut used_fragments);
             }
@@ -169,7 +160,6 @@ fn collect_fragment_transitive(
         }
         used_fragments.insert(name.clone());
 
-        // Add transitive dependencies from the index
         if let Some(spreads) = fragment_spreads_index.get(&name) {
             for spread in spreads {
                 if !used_fragments.contains(spread) {
@@ -206,7 +196,6 @@ fn collect_used_fields_from_selections(
                 // Mark this field as used on the current type
                 used_fields.insert((current_type.clone(), name.clone()));
 
-                // Get the field's return type to recurse into nested selections
                 if let Some(type_def) = schema.get(current_type) {
                     if let Some(field) = type_def.fields.iter().find(|f| f.name == *name) {
                         // Unwrap the type (handle lists and non-null)
@@ -237,9 +226,7 @@ fn collect_used_fields_from_selections(
                 }
                 visited_fragments.insert(fragment_name.clone());
 
-                // Look up the fragment and collect fields from it
                 if let Some(fragment) = all_fragments.get(fragment_name) {
-                    // Find the fragment body
                     if let Some((_, content, metadata)) = document_files
                         .iter()
                         .find(|(fid, _, _)| *fid == fragment.file_id)
@@ -251,7 +238,6 @@ fn collect_used_fields_from_selections(
                             fragment_name.clone(),
                         );
 
-                        // Collect fields from the fragment with its type condition
                         collect_used_fields_from_selections(
                             &fragment_body.selections,
                             &fragment.type_condition,
@@ -336,7 +322,7 @@ mod tests {
         let schema_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 type Query {
                     user: User
                 }
@@ -346,7 +332,7 @@ mod tests {
                     name: String!
                     email: String!
                 }
-                "#,
+                ",
             ),
         );
         let schema_metadata = FileMetadata::new(
@@ -361,14 +347,14 @@ mod tests {
         let doc_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 query GetUser {
                     user {
                         id
                         name
                     }
                 }
-                "#,
+                ",
             ),
         );
         let doc_metadata = FileMetadata::new(
@@ -401,7 +387,7 @@ mod tests {
         let schema_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 type Query {
                     user: User
                 }
@@ -412,7 +398,7 @@ mod tests {
                     email: String!
                     age: Int
                 }
-                "#,
+                ",
             ),
         );
         let schema_metadata = FileMetadata::new(
@@ -427,7 +413,7 @@ mod tests {
         let doc_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 query GetUser {
                     user {
                         ...UserFields
@@ -439,7 +425,7 @@ mod tests {
                     name
                     email
                 }
-                "#,
+                ",
             ),
         );
         let doc_metadata = FileMetadata::new(
@@ -472,7 +458,7 @@ mod tests {
         let schema_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 type Query {
                     user: User
                 }
@@ -488,7 +474,7 @@ mod tests {
                     title: String!
                     content: String!
                 }
-                "#,
+                ",
             ),
         );
         let schema_metadata = FileMetadata::new(
@@ -503,7 +489,7 @@ mod tests {
         let doc_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 query GetUser {
                     user {
                         id
@@ -513,7 +499,7 @@ mod tests {
                         }
                     }
                 }
-                "#,
+                ",
             ),
         );
         let doc_metadata = FileMetadata::new(
@@ -548,7 +534,7 @@ mod tests {
         let schema_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 type Query {
                     user: User
                 }
@@ -559,7 +545,7 @@ mod tests {
                     email: String!
                     phone: String
                 }
-                "#,
+                ",
             ),
         );
         let schema_metadata = FileMetadata::new(
@@ -574,7 +560,7 @@ mod tests {
         let doc_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 query GetUser {
                     user {
                         ...UserBasic
@@ -589,7 +575,7 @@ mod tests {
                 fragment UserContact on User {
                     email
                 }
-                "#,
+                ",
             ),
         );
         let doc_metadata = FileMetadata::new(

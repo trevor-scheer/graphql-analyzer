@@ -41,6 +41,7 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use salsa::Setter;
 
 mod file_registry;
 pub use file_registry::FileRegistry;
@@ -448,33 +449,71 @@ impl WorkspaceSymbol {
     }
 }
 
+/// Input: Lint configuration
+///
+/// This is a Salsa input so that config changes properly invalidate dependent queries.
+/// Wrapping in Arc allows queries to access the config without cloning the entire config object.
+///
+/// Using Salsa inputs instead of `Arc<RwLock<...>>` ensures:
+/// - Proper dependency tracking (Salsa knows which queries depend on config)
+/// - Automatic invalidation (only config-dependent queries re-run on changes)
+/// - No deadlock risk (Salsa manages all locking internally)
+/// - Snapshot isolation (config is immutable in Analysis snapshots)
+#[salsa::input]
+struct LintConfigInput {
+    pub config: Arc<graphql_linter::LintConfig>,
+}
+
+/// Input: Extract configuration for TypeScript/JavaScript extraction
+///
+/// This is a Salsa input so that config changes properly invalidate dependent queries.
+///
+/// Using Salsa inputs instead of `Arc<RwLock<...>>` ensures:
+/// - Proper dependency tracking (Salsa knows which queries depend on config)
+/// - Automatic invalidation (only config-dependent queries re-run on changes)
+/// - No deadlock risk (Salsa manages all locking internally)
+/// - Snapshot isolation (config is immutable in Analysis snapshots)
+#[salsa::input]
+struct ExtractConfigInput {
+    pub config: Arc<graphql_extract::ExtractConfig>,
+}
+
 /// Custom database that implements config traits
 ///
-/// Uses `parking_lot::RwLock` for interior mutability to ensure thread-safety
-/// when `Analysis` snapshots are accessed from multiple threads concurrently.
+/// Config is now stored as Salsa inputs (`LintConfigInput` and `ExtractConfigInput`)
+/// instead of `Arc<RwLock<...>>` wrappers. This allows Salsa to properly track config
+/// dependencies and only invalidate affected queries when config changes.
 #[salsa::db]
 #[derive(Clone)]
 struct IdeDatabase {
     storage: salsa::Storage<Self>,
-    lint_config: Arc<RwLock<Arc<graphql_linter::LintConfig>>>,
-    extract_config: Arc<RwLock<Arc<graphql_extract::ExtractConfig>>>,
+    lint_config_input: Option<LintConfigInput>,
+    extract_config_input: Option<ExtractConfigInput>,
     project_files: Arc<RwLock<Option<graphql_db::ProjectFiles>>>,
 }
 
 impl Default for IdeDatabase {
     fn default() -> Self {
-        Self {
+        let mut db = Self {
             storage: salsa::Storage::default(),
-            lint_config: Arc::new(RwLock::new(Arc::new(graphql_linter::LintConfig::default()))),
-            extract_config: Arc::new(RwLock::new(Arc::new(
-                graphql_extract::ExtractConfig::default(),
-            ))),
+            lint_config_input: None,
+            extract_config_input: None,
             project_files: Arc::new(RwLock::new(None)),
-        }
+        };
+
+        // Initialize with default configs as Salsa inputs
+        db.lint_config_input = Some(LintConfigInput::new(
+            &db,
+            Arc::new(graphql_linter::LintConfig::default()),
+        ));
+        db.extract_config_input = Some(ExtractConfigInput::new(
+            &db,
+            Arc::new(graphql_extract::ExtractConfig::default()),
+        ));
+
+        db
     }
 }
-
-impl IdeDatabase {}
 
 #[salsa::db]
 impl salsa::Database for IdeDatabase {}
@@ -482,7 +521,8 @@ impl salsa::Database for IdeDatabase {}
 #[salsa::db]
 impl graphql_syntax::GraphQLSyntaxDatabase for IdeDatabase {
     fn extract_config(&self) -> Option<Arc<graphql_extract::ExtractConfig>> {
-        Some(self.extract_config.read().clone())
+        self.extract_config_input
+            .map(|input| input.config(self).clone())
     }
 }
 
@@ -492,7 +532,10 @@ impl graphql_hir::GraphQLHirDatabase for IdeDatabase {}
 #[salsa::db]
 impl graphql_analysis::GraphQLAnalysisDatabase for IdeDatabase {
     fn lint_config(&self) -> Arc<graphql_linter::LintConfig> {
-        self.lint_config.read().clone()
+        self.lint_config_input.map_or_else(
+            || Arc::new(graphql_linter::LintConfig::default()),
+            |input| input.config(self).clone(),
+        )
     }
 }
 
@@ -500,6 +543,27 @@ impl graphql_analysis::GraphQLAnalysisDatabase for IdeDatabase {
 ///
 /// This is the entry point for all IDE features. It owns the database and
 /// provides methods to apply changes and create snapshots for analysis.
+///
+/// # Snapshot Lifecycle (Important!)
+///
+/// This follows Salsa's single-writer, multi-reader model:
+/// - Call [`snapshot()`](Self::snapshot) to create an immutable [`Analysis`] for queries
+/// - **All snapshots must be dropped before calling any mutating method**
+/// - Failing to drop snapshots before mutation will cause a hang/deadlock
+///
+/// ```ignore
+/// // CORRECT: Scope snapshots so they're dropped before mutation
+/// let result = {
+///     let snapshot = host.snapshot();
+///     snapshot.diagnostics(&file)
+/// }; // snapshot dropped here
+/// host.add_file(&file, new_content, kind, 0); // Safe: no snapshots exist
+///
+/// // WRONG: Holding snapshot across mutation
+/// let snapshot = host.snapshot();
+/// let result = snapshot.diagnostics(&file);
+/// host.add_file(&file, new_content, kind, 0); // HANGS: snapshot still alive!
+/// ```
 pub struct AnalysisHost {
     db: IdeDatabase,
     /// File registry for mapping paths to file IDs
@@ -600,17 +664,9 @@ impl AnalysisHost {
 
     /// Remove a file from the host
     pub fn remove_file(&mut self, path: &FilePath) {
-        let file_id = {
-            let registry = self.registry.read();
-            registry.get_file_id(path)
-        };
-
-        if let Some(file_id) = file_id {
-            {
-                let mut registry = self.registry.write();
-                registry.remove_file(file_id);
-            } // Drop lock before rebuilding ProjectFiles
-            let mut registry = self.registry.write();
+        let mut registry = self.registry.write();
+        if let Some(file_id) = registry.get_file_id(path) {
+            registry.remove_file(file_id);
             registry.rebuild_project_files(&mut self.db);
         }
     }
@@ -620,9 +676,11 @@ impl AnalysisHost {
     /// This method:
     /// - Always includes Apollo Client built-in directives
     /// - Loads schema files from local paths (single file, multiple files, glob patterns)
+    /// - Supports TypeScript/JavaScript files with embedded GraphQL schemas
     /// - Logs warnings for URL schemas (introspection not yet supported)
     ///
     /// Returns the number of schema files loaded.
+    #[allow(clippy::too_many_lines)]
     pub fn load_schemas_from_config(
         &mut self,
         config: &graphql_config::ProjectConfig,
@@ -638,10 +696,18 @@ impl AnalysisHost {
         );
         let mut count = 1;
 
-        // Get schema patterns from config
         let patterns: Vec<String> = match &config.schema {
             graphql_config::SchemaConfig::Path(s) => vec![s.clone()],
             graphql_config::SchemaConfig::Paths(arr) => arr.clone(),
+            graphql_config::SchemaConfig::Introspection(introspection) => {
+                // Introspection schemas need to be loaded via the introspection client
+                // This method only handles local files
+                tracing::warn!(
+                    "Introspection schema config not yet supported in IDE: {}",
+                    introspection.url
+                );
+                vec![]
+            }
         };
 
         for pattern in patterns {
@@ -660,13 +726,66 @@ impl AnalysisHost {
                         if entry.is_file() {
                             match std::fs::read_to_string(&entry) {
                                 Ok(content) => {
-                                    // Convert filesystem path to file:// URI for consistent lookups
                                     let file_uri = path_to_file_uri(&entry);
+                                    let language = graphql_extract::Language::from_path(&entry);
+
+                                    // Check if this is a TS/JS file that needs extraction
+                                    if let Some(lang) = language {
+                                        if lang.requires_parsing() {
+                                            // Extract GraphQL from TS/JS file
+                                            let extract_config = self.get_extract_config();
+                                            match graphql_extract::extract_from_source(
+                                                &content,
+                                                lang,
+                                                &extract_config,
+                                            ) {
+                                                Ok(blocks) => {
+                                                    for (block_idx, block) in
+                                                        blocks.iter().enumerate()
+                                                    {
+                                                        // Create a unique file URI for each block
+                                                        let block_uri = if blocks.len() > 1 {
+                                                            format!("{file_uri}#block{block_idx}")
+                                                        } else {
+                                                            file_uri.clone()
+                                                        };
+
+                                                        #[allow(clippy::cast_possible_truncation)]
+                                                        let line_offset =
+                                                            block.location.range.start.line as u32;
+                                                        self.add_file(
+                                                            &FilePath::new(block_uri),
+                                                            &block.source,
+                                                            FileKind::Schema,
+                                                            line_offset,
+                                                        );
+                                                        count += 1;
+                                                    }
+                                                    if blocks.is_empty() {
+                                                        tracing::debug!(
+                                                            "No GraphQL blocks found in {}",
+                                                            entry.display()
+                                                        );
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    tracing::warn!(
+                                                        "Failed to extract GraphQL from {}: {}",
+                                                        entry.display(),
+                                                        e
+                                                    );
+                                                }
+                                            }
+                                            continue;
+                                        }
+                                    }
+
+                                    // Pure GraphQL file - add directly
                                     self.add_file(
                                         &FilePath::new(file_uri),
                                         &content,
                                         FileKind::Schema,
-                                        0, // No line offset for pure GraphQL files
+                                        0,
                                     );
                                     count += 1;
                                 }
@@ -697,24 +816,49 @@ impl AnalysisHost {
     }
 
     /// Set the lint configuration for the project
+    ///
+    /// This properly invalidates all queries that depend on lint config via Salsa's
+    /// dependency tracking. Only lint-dependent queries will re-run when config changes.
     pub fn set_lint_config(&mut self, config: graphql_linter::LintConfig) {
-        *self.db.lint_config.write() = Arc::new(config);
+        if let Some(input) = self.db.lint_config_input {
+            input.set_config(&mut self.db).to(Arc::new(config));
+        } else {
+            let input = LintConfigInput::new(&self.db, Arc::new(config));
+            self.db.lint_config_input = Some(input);
+        }
     }
 
     /// Set the extract configuration for the project
+    ///
+    /// This properly invalidates all queries that depend on extract config via Salsa's
+    /// dependency tracking. Only extract-dependent queries will re-run when config changes.
     pub fn set_extract_config(&mut self, config: graphql_extract::ExtractConfig) {
-        *self.db.extract_config.write() = Arc::new(config);
+        if let Some(input) = self.db.extract_config_input {
+            input.set_config(&mut self.db).to(Arc::new(config));
+        } else {
+            let input = ExtractConfigInput::new(&self.db, Arc::new(config));
+            self.db.extract_config_input = Some(input);
+        }
     }
 
     /// Get the extract configuration for the project
     pub fn get_extract_config(&self) -> graphql_extract::ExtractConfig {
-        (**self.db.extract_config.read()).clone()
+        self.db
+            .extract_config_input
+            .map(|input| (*input.config(&self.db)).clone())
+            .unwrap_or_default()
     }
 
     /// Get an immutable snapshot for analysis
     ///
     /// This snapshot can be used from multiple threads and provides all IDE features.
     /// It's cheap to create and clone (`RootDatabase` implements Clone via salsa).
+    ///
+    /// # Lifecycle Warning
+    ///
+    /// The returned `Analysis` **must be dropped before calling any mutating method**
+    /// on this `AnalysisHost`. This is required by Salsa's single-writer model.
+    /// See the struct-level documentation for details and examples.
     pub fn snapshot(&self) -> Analysis {
         let project_files = self.registry.read().project_files();
 
@@ -754,6 +898,13 @@ impl Default for AnalysisHost {
 ///
 /// Can be cheaply cloned and used from multiple threads.
 /// All IDE feature queries go through this.
+///
+/// # Lifecycle Warning
+///
+/// This snapshot shares Salsa storage with its parent [`AnalysisHost`].
+/// **You must drop all `Analysis` instances before calling any mutating method**
+/// on the host (like `add_file`, `remove_file`, etc.). Failure to do so will
+/// cause a hang/deadlock due to Salsa's single-writer, multi-reader model.
 #[derive(Clone)]
 pub struct Analysis {
     db: IdeDatabase,
@@ -771,12 +922,10 @@ impl Analysis {
         let (content, metadata) = {
             let registry = self.registry.read();
 
-            // Look up FileId from FilePath
             let Some(file_id) = registry.get_file_id(file) else {
                 return Vec::new();
             };
 
-            // Get FileContent and FileMetadata
             let Some(content) = registry.get_content(file_id) else {
                 return Vec::new();
             };
@@ -788,11 +937,9 @@ impl Analysis {
             (content, metadata)
         };
 
-        // Get diagnostics from analysis layer (includes both validation and linting)
         let analysis_diagnostics =
             graphql_analysis::file_diagnostics(&self.db, content, metadata, self.project_files);
 
-        // Convert to IDE diagnostic format
         analysis_diagnostics
             .iter()
             .map(convert_diagnostic)
@@ -807,12 +954,10 @@ impl Analysis {
         let (content, metadata) = {
             let registry = self.registry.read();
 
-            // Look up FileId from FilePath
             let Some(file_id) = registry.get_file_id(file) else {
                 return Vec::new();
             };
 
-            // Get FileContent and FileMetadata
             let Some(content) = registry.get_content(file_id) else {
                 return Vec::new();
             };
@@ -824,7 +969,6 @@ impl Analysis {
             (content, metadata)
         };
 
-        // Get only validation diagnostics from analysis layer
         let analysis_diagnostics = graphql_analysis::file_validation_diagnostics(
             &self.db,
             content,
@@ -832,7 +976,6 @@ impl Analysis {
             self.project_files,
         );
 
-        // Convert to IDE diagnostic format
         analysis_diagnostics
             .iter()
             .map(convert_diagnostic)
@@ -846,12 +989,10 @@ impl Analysis {
         let (content, metadata) = {
             let registry = self.registry.read();
 
-            // Look up FileId from FilePath
             let Some(file_id) = registry.get_file_id(file) else {
                 return Vec::new();
             };
 
-            // Get FileContent and FileMetadata
             let Some(content) = registry.get_content(file_id) else {
                 return Vec::new();
             };
@@ -863,7 +1004,6 @@ impl Analysis {
             (content, metadata)
         };
 
-        // Get only lint diagnostics from lint integration
         let lint_diagnostics = graphql_analysis::lint_integration::lint_file(
             &self.db,
             content,
@@ -871,7 +1011,6 @@ impl Analysis {
             self.project_files,
         );
 
-        // Convert to IDE diagnostic format
         lint_diagnostics.iter().map(convert_diagnostic).collect()
     }
 
@@ -910,10 +1049,8 @@ impl Analysis {
         let (content, metadata) = {
             let registry = self.registry.read();
 
-            // Look up FileId from FilePath
             let file_id = registry.get_file_id(file)?;
 
-            // Get FileContent and FileMetadata
             let content = registry.get_content(file_id)?;
             let metadata = registry.get_metadata(file_id)?;
             drop(registry);
@@ -921,15 +1058,12 @@ impl Analysis {
             (content, metadata)
         };
 
-        // Parse the file
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        // Find which block contains the position and get adjusted position
         let metadata_line_offset = metadata.line_offset(&self.db);
         let (block_context, adjusted_position) =
             find_block_for_position(&parse, position, metadata_line_offset)?;
 
-        // Convert position to byte offset using appropriate line index
         let offset = if let Some(block_source) = block_context.block_source {
             let block_line_index = graphql_syntax::LineIndex::new(block_source);
             position_to_offset(&block_line_index, adjusted_position)?
@@ -948,7 +1082,7 @@ impl Analysis {
                 let Some(project_files) = self.project_files else {
                     return Some(Vec::new());
                 };
-                let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
+                let fragments = graphql_hir::all_fragments(&self.db, project_files);
 
                 let items: Vec<CompletionItem> = fragments
                     .keys()
@@ -962,7 +1096,7 @@ impl Analysis {
                 let Some(project_files) = self.project_files else {
                     return Some(Vec::new());
                 };
-                let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+                let types = graphql_hir::schema_types(&self.db, project_files);
 
                 let in_selection_set = is_in_selection_set(block_context.tree, offset);
                 if in_selection_set {
@@ -1055,10 +1189,8 @@ impl Analysis {
         let (content, metadata) = {
             let registry = self.registry.read();
 
-            // Look up FileId from FilePath
             let file_id = registry.get_file_id(file)?;
 
-            // Get FileContent and FileMetadata
             let content = registry.get_content(file_id)?;
             let metadata = registry.get_metadata(file_id)?;
             drop(registry);
@@ -1066,13 +1198,10 @@ impl Analysis {
             (content, metadata)
         };
 
-        // Parse the file
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        // Get line index for position conversion (for pure GraphQL files)
         let line_index = graphql_syntax::line_index(&self.db, content);
 
-        // Find which block contains the position and get adjusted position
         let metadata_line_offset = metadata.line_offset(&self.db);
         let (block_context, adjusted_position) =
             find_block_for_position(&parse, position, metadata_line_offset)?;
@@ -1084,7 +1213,6 @@ impl Analysis {
             adjusted_position
         );
 
-        // Convert position to byte offset using appropriate line index
         let offset = if let Some(block_source) = block_context.block_source {
             let block_line_index = graphql_syntax::LineIndex::new(block_source);
             position_to_offset(&block_line_index, adjusted_position)?
@@ -1106,17 +1234,13 @@ impl Analysis {
             )));
         }
 
-        // If we couldn't find a symbol, return None
         let symbol = symbol?;
 
-        // Get project files for schema lookups
         let project_files = self.project_files?;
 
-        // Return hover info based on symbol type
         match symbol {
             Symbol::FieldName { name } => {
-                // Get the parent type to look up the field
-                let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+                let types = graphql_hir::schema_types(&self.db, project_files);
                 let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
 
                 // Use walk_type_stack_to_offset to properly resolve the parent type,
@@ -1153,7 +1277,7 @@ impl Analysis {
                 Some(HoverResult::new(hover_text))
             }
             Symbol::TypeName { name } => {
-                let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+                let types = graphql_hir::schema_types(&self.db, project_files);
                 let type_def = types.get(name.as_str())?;
 
                 let mut hover_text = format!("**Type:** `{name}`\n\n");
@@ -1174,7 +1298,7 @@ impl Analysis {
                 Some(HoverResult::new(hover_text))
             }
             Symbol::FragmentSpread { name } => {
-                let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
+                let fragments = graphql_hir::all_fragments(&self.db, project_files);
                 let fragment = fragments.get(name.as_str())?;
 
                 let hover_text = format!(
@@ -1199,10 +1323,8 @@ impl Analysis {
         let (content, metadata) = {
             let registry = self.registry.read();
 
-            // Look up FileId from FilePath
             let file_id = registry.get_file_id(file)?;
 
-            // Get FileContent and FileMetadata
             let content = registry.get_content(file_id)?;
             let metadata = registry.get_metadata(file_id)?;
             drop(registry);
@@ -1210,13 +1332,10 @@ impl Analysis {
             (content, metadata)
         };
 
-        // Parse the file
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        // Get line index for position conversion (for pure GraphQL files)
         let line_index = graphql_syntax::line_index(&self.db, content);
 
-        // Find which block contains the position and get adjusted position
         let metadata_line_offset = metadata.line_offset(&self.db);
         let (block_context, adjusted_position) =
             find_block_for_position(&parse, position, metadata_line_offset)?;
@@ -1228,30 +1347,22 @@ impl Analysis {
             adjusted_position
         );
 
-        // Convert position to byte offset using appropriate line index
         let offset = if let Some(block_source) = block_context.block_source {
-            // For TS/JS blocks, use block's source for line index
             let block_line_index = graphql_syntax::LineIndex::new(block_source);
             position_to_offset(&block_line_index, adjusted_position)?
         } else {
-            // For pure GraphQL, use file's line index
             position_to_offset(&line_index, adjusted_position)?
         };
 
-        // Find the symbol at the offset using the correct tree
         let symbol = find_symbol_at_offset(block_context.tree, offset)?;
 
-        // Get project files for HIR queries
         let project_files = self.project_files?;
 
-        // Look up the definition based on symbol type
         match symbol {
             Symbol::FieldName { name } => {
-                // Find the parent type context to determine which type this field belongs to
                 let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
 
-                // Get the schema types
-                let schema_types = graphql_hir::schema_types_with_project(&self.db, project_files);
+                let schema_types = graphql_hir::schema_types(&self.db, project_files);
 
                 // Use walk_type_stack_to_offset to properly resolve the parent type,
                 // which handles inline fragments correctly
@@ -1269,10 +1380,8 @@ impl Analysis {
                     parent_context.root_type
                 );
 
-                // Verify the parent type exists in the schema
                 schema_types.get(parent_type_name.as_str())?;
 
-                // Search through all schema files for the field definition
                 let registry = self.registry.read();
                 let schema_file_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
 
@@ -1287,13 +1396,11 @@ impl Analysis {
                         continue;
                     };
 
-                    // Parse the schema file
                     let schema_parse =
                         graphql_syntax::parse(&self.db, schema_content, schema_metadata);
                     let schema_line_index = graphql_syntax::line_index(&self.db, schema_content);
                     let schema_line_offset = schema_metadata.line_offset(&self.db);
 
-                    // Search for the field definition in this schema file
                     if schema_parse.blocks.is_empty() {
                         // Pure GraphQL schema file
                         if let Some(ranges) = find_field_definition_full_range(
@@ -1339,8 +1446,7 @@ impl Analysis {
                 None
             }
             Symbol::FragmentSpread { name } => {
-                // Query HIR for all fragments
-                let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
+                let fragments = graphql_hir::all_fragments(&self.db, project_files);
 
                 tracing::debug!(
                     "Looking for fragment '{}', available fragments: {:?}",
@@ -1348,10 +1454,8 @@ impl Analysis {
                     fragments.keys().collect::<Vec<_>>()
                 );
 
-                // Find the fragment by name
                 let fragment = fragments.get(name.as_str())?;
 
-                // Get the file content, metadata, and path for this fragment
                 let registry = self.registry.read();
 
                 tracing::debug!(
@@ -1375,11 +1479,9 @@ impl Analysis {
                 let def_metadata = registry.get_metadata(fragment.file_id)?;
                 drop(registry);
 
-                // Parse the definition file to find exact position
                 let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
                 let def_line_offset = def_metadata.line_offset(&self.db);
 
-                // Find the fragment definition - search through blocks for TS/JS files
                 let range = find_fragment_definition_in_parse(
                     &def_parse,
                     &name,
@@ -1391,7 +1493,6 @@ impl Analysis {
                 Some(vec![Location::new(file_path, range)])
             }
             Symbol::TypeName { name } => {
-                // Search through all schema files for the type definition
                 let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
                 let registry = self.registry.read();
 
@@ -1406,12 +1507,10 @@ impl Analysis {
                         continue;
                     };
 
-                    // Parse the schema file
                     let schema_parse =
                         graphql_syntax::parse(&self.db, schema_content, schema_metadata);
                     let schema_line_offset = schema_metadata.line_offset(&self.db);
 
-                    // Find the type definition in this schema file
                     if let Some(range) = find_type_definition_in_parse(
                         &schema_parse,
                         &name,
@@ -1427,8 +1526,6 @@ impl Analysis {
                 None
             }
             Symbol::VariableReference { name } => {
-                // Find the variable definition in the same operation
-                // The variable is defined in the operation's variable definitions list
                 let range = if let Some(block_source) = block_context.block_source {
                     let block_line_index = graphql_syntax::LineIndex::new(block_source);
                     find_variable_definition_in_tree(
@@ -1456,15 +1553,11 @@ impl Analysis {
                 None
             }
             Symbol::ArgumentName { name } => {
-                // Find the argument definition in the schema for this field
-                // First, we need to find the parent field and its type
                 let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
-                let schema_types = graphql_hir::schema_types_with_project(&self.db, project_files);
+                let schema_types = graphql_hir::schema_types(&self.db, project_files);
 
-                // Get the field name that contains this argument
                 let field_name = find_field_name_at_offset(block_context.tree, offset)?;
 
-                // Resolve the parent type using the type stack
                 let parent_type_name = symbol::walk_type_stack_to_offset(
                     block_context.tree,
                     &schema_types,
@@ -1472,7 +1565,6 @@ impl Analysis {
                     &parent_context.root_type,
                 )?;
 
-                // Search through schema files for the argument definition
                 let registry = self.registry.read();
                 let schema_file_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
 
@@ -1506,8 +1598,6 @@ impl Analysis {
                 None
             }
             Symbol::OperationName { name } => {
-                // The operation name definition is in the current file at the operation itself
-                // Find the operation definition by name
                 let range = if let Some(block_source) = block_context.block_source {
                     let block_line_index = graphql_syntax::LineIndex::new(block_source);
                     find_operation_definition_in_tree(
@@ -1549,10 +1639,8 @@ impl Analysis {
         let (content, metadata) = {
             let registry = self.registry.read();
 
-            // Look up FileId from FilePath
             let file_id = registry.get_file_id(file)?;
 
-            // Get FileContent and FileMetadata
             let content = registry.get_content(file_id)?;
             let metadata = registry.get_metadata(file_id)?;
             drop(registry);
@@ -1560,13 +1648,10 @@ impl Analysis {
             (content, metadata)
         };
 
-        // Parse the file
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        // Get line index for position conversion (for pure GraphQL files)
         let line_index = graphql_syntax::line_index(&self.db, content);
 
-        // Find which block contains the position and get adjusted position
         let metadata_line_offset = metadata.line_offset(&self.db);
         let (block_context, adjusted_position) =
             find_block_for_position(&parse, position, metadata_line_offset)?;
@@ -1578,7 +1663,6 @@ impl Analysis {
             adjusted_position
         );
 
-        // Convert position to byte offset using appropriate line index
         let offset = if let Some(block_source) = block_context.block_source {
             let block_line_index = graphql_syntax::LineIndex::new(block_source);
             position_to_offset(&block_line_index, adjusted_position)?
@@ -1586,10 +1670,8 @@ impl Analysis {
             position_to_offset(&line_index, adjusted_position)?
         };
 
-        // Find the symbol at the offset using the correct tree
         let symbol = find_symbol_at_offset(block_context.tree, offset)?;
 
-        // Find all references based on symbol type
         match symbol {
             Symbol::FragmentSpread { name } => {
                 Some(self.find_fragment_references(&name, include_declaration))
@@ -1598,7 +1680,6 @@ impl Analysis {
                 Some(self.find_type_references(&name, include_declaration))
             }
             Symbol::FieldName { name } => {
-                // Find the parent type to know which type's field we're looking for
                 let parent_type = find_schema_field_parent_type(block_context.tree, offset)?;
                 Some(self.find_field_references(&parent_type, &name, include_declaration))
             }
@@ -1614,15 +1695,12 @@ impl Analysis {
     ) -> Vec<Location> {
         let mut locations = Vec::new();
 
-        // Get project files for HIR queries
         let Some(project_files) = self.project_files else {
             return locations;
         };
 
-        // Get all fragments to find the declaration
-        let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
+        let fragments = graphql_hir::all_fragments(&self.db, project_files);
 
-        // Include the declaration if requested
         if include_declaration {
             if let Some(fragment) = fragments.get(fragment_name) {
                 let registry = self.registry.read();
@@ -1634,7 +1712,6 @@ impl Analysis {
                 if let (Some(file_path), Some(def_content), Some(def_metadata)) =
                     (file_path, def_content, def_metadata)
                 {
-                    // Parse the definition file to find exact position (handles TS/JS blocks)
                     let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
                     let def_line_offset = def_metadata.line_offset(&self.db);
 
@@ -1669,11 +1746,9 @@ impl Analysis {
                 continue;
             };
 
-            // Parse the document
             let parse = graphql_syntax::parse(&self.db, content, metadata);
             let line_offset = metadata.line_offset(&self.db);
 
-            // Search for fragment spreads in all blocks (handles TS/JS correctly)
             let spread_ranges = find_fragment_spreads_in_parse(
                 &parse,
                 fragment_name,
@@ -1694,15 +1769,12 @@ impl Analysis {
     fn find_type_references(&self, type_name: &str, include_declaration: bool) -> Vec<Location> {
         let mut locations = Vec::new();
 
-        // Get project files for HIR queries
         let Some(project_files) = self.project_files else {
             return locations;
         };
 
-        // Get all types to find the declaration
-        let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+        let types = graphql_hir::schema_types(&self.db, project_files);
 
-        // Include the declaration if requested
         if include_declaration {
             if let Some(type_def) = types.get(type_name) {
                 let registry = self.registry.read();
@@ -1714,7 +1786,6 @@ impl Analysis {
                 if let (Some(file_path), Some(def_content), Some(def_metadata)) =
                     (file_path, def_content, def_metadata)
                 {
-                    // Parse the definition file to find exact position (handles TS/JS blocks)
                     let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
                     let def_line_offset = def_metadata.line_offset(&self.db);
 
@@ -1731,7 +1802,6 @@ impl Analysis {
             }
         }
 
-        // Search through all schema files for type references
         let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
 
         for file_id in schema_ids.iter() {
@@ -1749,11 +1819,9 @@ impl Analysis {
                 continue;
             };
 
-            // Parse the schema file
             let parse = graphql_syntax::parse(&self.db, content, metadata);
             let line_offset = metadata.line_offset(&self.db);
 
-            // Search for type references in all blocks (handles TS/JS correctly)
             let type_ranges =
                 find_type_references_in_parse(&parse, type_name, content, &self.db, line_offset);
 
@@ -1774,15 +1842,12 @@ impl Analysis {
     ) -> Vec<Location> {
         let mut locations = Vec::new();
 
-        // Get project files for HIR queries
         let Some(project_files) = self.project_files else {
             return locations;
         };
 
-        // Get schema types to resolve field usage contexts
-        let schema_types = graphql_hir::schema_types_with_project(&self.db, project_files);
+        let schema_types = graphql_hir::schema_types(&self.db, project_files);
 
-        // Include the declaration if requested (the field definition in the schema)
         if include_declaration {
             let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
 
@@ -1805,7 +1870,6 @@ impl Analysis {
                 let line_index = graphql_syntax::line_index(&self.db, content);
                 let line_offset = metadata.line_offset(&self.db);
 
-                // Find the field definition in this schema file
                 if let Some(ranges) =
                     find_field_definition_full_range(&parse.tree, type_name, field_name)
                 {
@@ -1836,11 +1900,9 @@ impl Analysis {
                 continue;
             };
 
-            // Parse the document
             let parse = graphql_syntax::parse(&self.db, content, metadata);
             let line_offset = metadata.line_offset(&self.db);
 
-            // Search for field usages in all blocks (handles TS/JS correctly)
             let field_ranges = find_field_usages_in_parse(
                 &parse,
                 type_name,
@@ -1882,19 +1944,15 @@ impl Analysis {
             (content, metadata, file_id)
         };
 
-        // Parse the file
         let parse = graphql_syntax::parse(&self.db, content, metadata);
         let line_index = graphql_syntax::line_index(&self.db, content);
 
-        // Get line offset for TypeScript/JavaScript files
         let line_offset = metadata.line_offset(&self.db);
 
-        // Get HIR structure for this file (for field information)
         let structure = graphql_hir::file_structure(&self.db, file_id, content, metadata);
 
         let mut symbols = Vec::new();
 
-        // Extract all definitions from the parse tree
         let definitions = extract_all_definitions(&parse.tree);
 
         for (name, kind, ranges) in definitions {
@@ -1909,8 +1967,7 @@ impl Analysis {
 
             let symbol = match kind {
                 "object" => {
-                    // Find fields for this type from HIR structure
-                    let children = self.get_field_children(
+                    let children = get_field_children(
                         &structure,
                         &name,
                         &parse.tree,
@@ -1921,7 +1978,7 @@ impl Analysis {
                         .with_children(children)
                 }
                 "interface" => {
-                    let children = self.get_field_children(
+                    let children = get_field_children(
                         &structure,
                         &name,
                         &parse.tree,
@@ -1932,7 +1989,7 @@ impl Analysis {
                         .with_children(children)
                 }
                 "input" => {
-                    let children = self.get_field_children(
+                    let children = get_field_children(
                         &structure,
                         &name,
                         &parse.tree,
@@ -1956,7 +2013,6 @@ impl Analysis {
                     DocumentSymbol::new(name, SymbolKind::Subscription, range, selection_range)
                 }
                 "fragment" => {
-                    // Find type condition from HIR
                     let detail = structure
                         .fragments
                         .iter()
@@ -1978,54 +2034,6 @@ impl Analysis {
         symbols
     }
 
-    /// Get field children for a type definition
-    #[allow(clippy::unused_self)]
-    fn get_field_children(
-        &self,
-        structure: &graphql_hir::FileStructureData,
-        type_name: &str,
-        tree: &apollo_parser::SyntaxTree,
-        line_index: &graphql_syntax::LineIndex,
-        line_offset: u32,
-    ) -> Vec<DocumentSymbol> {
-        // Find the type in structure
-        let Some(type_def) = structure
-            .type_defs
-            .iter()
-            .find(|t| t.name.as_ref() == type_name)
-        else {
-            return Vec::new();
-        };
-
-        let mut children = Vec::new();
-
-        for field in &type_def.fields {
-            if let Some(ranges) = find_field_definition_full_range(tree, type_name, &field.name) {
-                let range = adjust_range_for_line_offset(
-                    offset_range_to_range(line_index, ranges.def_start, ranges.def_end),
-                    line_offset,
-                );
-                let selection_range = adjust_range_for_line_offset(
-                    offset_range_to_range(line_index, ranges.name_start, ranges.name_end),
-                    line_offset,
-                );
-
-                let detail = format_type_ref(&field.type_ref);
-                children.push(
-                    DocumentSymbol::new(
-                        field.name.to_string(),
-                        SymbolKind::Field,
-                        range,
-                        selection_range,
-                    )
-                    .with_detail(detail),
-                );
-            }
-        }
-
-        children
-    }
-
     /// Search for workspace symbols matching a query
     ///
     /// Returns matching types, operations, and fragments across all files.
@@ -2039,7 +2047,7 @@ impl Analysis {
         let mut symbols = Vec::new();
 
         // Search types
-        let types = graphql_hir::schema_types_with_project(&self.db, project_files);
+        let types = graphql_hir::schema_types(&self.db, project_files);
         for (name, type_def) in types.iter() {
             if name.to_lowercase().contains(&query_lower) {
                 if let Some(location) = self.get_type_location(type_def) {
@@ -2058,7 +2066,7 @@ impl Analysis {
         }
 
         // Search fragments
-        let fragments = graphql_hir::all_fragments_with_project(&self.db, project_files);
+        let fragments = graphql_hir::all_fragments(&self.db, project_files);
         for (name, fragment) in fragments.iter() {
             if name.to_lowercase().contains(&query_lower) {
                 if let Some(location) = self.get_fragment_location(fragment) {
@@ -2283,6 +2291,51 @@ struct BlockContext<'a> {
     block_source: Option<&'a str>,
 }
 
+/// Get field children for a type definition
+fn get_field_children(
+    structure: &graphql_hir::FileStructureData,
+    type_name: &str,
+    tree: &apollo_parser::SyntaxTree,
+    line_index: &graphql_syntax::LineIndex,
+    line_offset: u32,
+) -> Vec<DocumentSymbol> {
+    let Some(type_def) = structure
+        .type_defs
+        .iter()
+        .find(|t| t.name.as_ref() == type_name)
+    else {
+        return Vec::new();
+    };
+
+    let mut children = Vec::new();
+
+    for field in &type_def.fields {
+        if let Some(ranges) = find_field_definition_full_range(tree, type_name, &field.name) {
+            let range = adjust_range_for_line_offset(
+                offset_range_to_range(line_index, ranges.def_start, ranges.def_end),
+                line_offset,
+            );
+            let selection_range = adjust_range_for_line_offset(
+                offset_range_to_range(line_index, ranges.name_start, ranges.name_end),
+                line_offset,
+            );
+
+            let detail = format_type_ref(&field.type_ref);
+            children.push(
+                DocumentSymbol::new(
+                    field.name.to_string(),
+                    SymbolKind::Field,
+                    range,
+                    selection_range,
+                )
+                .with_detail(detail),
+            );
+        }
+    }
+
+    children
+}
+
 /// Find which GraphQL block contains the given position
 ///
 /// For pure GraphQL files, returns the main tree with `line_offset` from metadata.
@@ -2365,16 +2418,13 @@ fn find_fragment_definition_in_parse(
         return None;
     }
 
-    // For TS/JS files, search each block
     for block in &parse.blocks {
         if let Some((start_offset, end_offset)) =
             find_fragment_definition_range(&block.tree, fragment_name)
         {
-            // Convert offsets to line/column using block's source
             let block_line_index = graphql_syntax::LineIndex::new(&block.source);
             let range = offset_range_to_range(&block_line_index, start_offset, end_offset);
 
-            // Return range adjusted by block's line offset
             return Some(adjust_range_for_line_offset(range, block.line as u32));
         }
     }
@@ -2541,7 +2591,6 @@ fn type_matches_or_implements(
     if current_type == target_type {
         return true;
     }
-    // Check if current_type implements target_type (interface inheritance)
     if let Some(type_def) = schema_types.get(current_type) {
         type_def
             .implements
@@ -2576,7 +2625,6 @@ fn find_field_usages_in_tree(
                     if let Some(name) = field.name() {
                         let field_name = name.text();
 
-                        // Check if this field matches our target (directly or via interface)
                         if type_matches_or_implements(current_type, target_type, schema_types)
                             && field_name == target_field
                         {
@@ -2607,7 +2655,6 @@ fn find_field_usages_in_tree(
                     }
                 }
                 Selection::InlineFragment(inline_frag) => {
-                    // Get type condition if present, otherwise use current type
                     let fragment_type = inline_frag
                         .type_condition()
                         .and_then(|tc| tc.named_type())
@@ -2658,7 +2705,6 @@ fn find_field_usages_in_tree(
                 }
             }
             Definition::FragmentDefinition(frag) => {
-                // Get the type condition for the fragment
                 let fragment_type = frag
                     .type_condition()
                     .and_then(|tc| tc.named_type())
@@ -2811,7 +2857,6 @@ fn find_field_name_at_offset(
                 let end: usize = range.end().into();
 
                 if byte_offset >= start && byte_offset <= end {
-                    // Check if we're in the arguments
                     if let Some(args) = field.arguments() {
                         let args_range = args.syntax().text_range();
                         let args_start: usize = args_range.start().into();
@@ -2821,7 +2866,6 @@ fn find_field_name_at_offset(
                         }
                     }
 
-                    // Check nested selection set
                     if let Some(nested) = field.selection_set() {
                         if let Some(name) = check_selection_set(&nested, byte_offset) {
                             return Some(name);
@@ -3020,24 +3064,38 @@ fragment AttackActionInfo on AttackAction {
     }
 
     #[test]
-    #[ignore = "TODO: Fix salsa update hang when modifying files"]
     fn test_diagnostics_after_file_update() {
+        // This test verifies that file updates work correctly with Salsa's
+        // incremental computation. Key insight from Salsa SME consultation:
+        //
+        // Salsa uses a single-writer, multi-reader model. When we clone the
+        // IdeDatabase (via snapshot()), we create a snapshot that shares the
+        // underlying storage. Salsa setters require exclusive access, so ALL
+        // snapshots must be dropped before calling any setter (like set_text).
+        //
+        // The fix is to properly scope snapshot lifetimes: get diagnostics
+        // inside a block so the snapshot is dropped before mutation.
+
         let mut host = AnalysisHost::new();
 
         // Add a file
         let path = FilePath::new("file:///schema.graphql");
         host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
 
-        // Get initial diagnostics
-        let snapshot1 = host.snapshot();
-        let diagnostics1 = snapshot1.diagnostics(&path);
+        // Get initial diagnostics - snapshot is scoped to this block
+        let diagnostics1 = {
+            let snapshot = host.snapshot();
+            snapshot.diagnostics(&path)
+        }; // snapshot dropped here, before mutation
 
-        // Update the file
+        // Update the file - safe because no snapshots exist
         host.add_file(&path, "type Query { world: Int }", FileKind::Schema, 0);
 
-        // Get new diagnostics
-        let snapshot2 = host.snapshot();
-        let diagnostics2 = snapshot2.diagnostics(&path);
+        // Get new diagnostics - new snapshot for updated content
+        let diagnostics2 = {
+            let snapshot = host.snapshot();
+            snapshot.diagnostics(&path)
+        };
 
         // Both should be valid (no errors)
         assert!(diagnostics1
@@ -5060,5 +5118,272 @@ export const GET_POKEMON = gql`
         assert_eq!(lower[0].name, "UserProfile");
         assert_eq!(upper[0].name, "UserProfile");
         assert_eq!(mixed[0].name, "UserProfile");
+    }
+
+    mod schema_loading {
+        use super::*;
+        use std::io::Write;
+
+        #[test]
+        fn test_load_typescript_schema() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            // Create a TypeScript schema file
+            let ts_schema_content = r#"
+import { gql } from 'graphql-tag';
+
+export const typeDefs = gql`
+  type Query {
+    user(id: ID!): User
+  }
+
+  type User {
+    id: ID!
+    name: String!
+    email: String
+  }
+`;
+"#;
+            let ts_schema_path = temp_dir.path().join("schema.ts");
+            let mut file = std::fs::File::create(&ts_schema_path).unwrap();
+            file.write_all(ts_schema_content.as_bytes()).unwrap();
+
+            // Create config
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Path("schema.ts".to_string()),
+                documents: None,
+                include: None,
+                exclude: None,
+                lint: None,
+                extensions: None,
+            };
+
+            // Load schemas
+            let mut host = AnalysisHost::new();
+            host.set_extract_config(graphql_extract::ExtractConfig {
+                allow_global_identifiers: false,
+                ..Default::default()
+            });
+            let count = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            // Should load: 1 Apollo client builtins + 1 extracted schema from TS
+            assert_eq!(
+                count, 2,
+                "Should load 2 schema files (builtins + extracted)"
+            );
+
+            host.rebuild_project_files();
+            let snapshot = host.snapshot();
+
+            // Verify the User type is available
+            let symbols = snapshot.workspace_symbols("User");
+            assert!(!symbols.is_empty(), "User type should be found");
+            assert_eq!(symbols[0].name, "User");
+        }
+
+        #[test]
+        fn test_load_typescript_schema_with_multiple_blocks() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            // Create a TypeScript file with multiple GraphQL blocks
+            let ts_content = r#"
+import { gql } from 'graphql-tag';
+
+export const types = gql`
+  type Query {
+    posts: [Post!]!
+  }
+`;
+
+export const postType = gql`
+  type Post {
+    id: ID!
+    title: String!
+    content: String
+  }
+`;
+"#;
+            let ts_path = temp_dir.path().join("schema.ts");
+            let mut file = std::fs::File::create(&ts_path).unwrap();
+            file.write_all(ts_content.as_bytes()).unwrap();
+
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Path("schema.ts".to_string()),
+                documents: None,
+                include: None,
+                exclude: None,
+                lint: None,
+                extensions: None,
+            };
+
+            let mut host = AnalysisHost::new();
+            let count = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            // Should load: 1 Apollo client builtins + 2 extracted blocks
+            assert_eq!(count, 3, "Should load 3 schema files (builtins + 2 blocks)");
+
+            host.rebuild_project_files();
+            let snapshot = host.snapshot();
+
+            // Verify both types are available
+            let query_symbols = snapshot.workspace_symbols("Query");
+            assert!(!query_symbols.is_empty(), "Query type should be found");
+
+            let post_symbols = snapshot.workspace_symbols("Post");
+            assert!(!post_symbols.is_empty(), "Post type should be found");
+        }
+
+        #[test]
+        fn test_load_mixed_schema_files() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            // Create a pure GraphQL schema file
+            let gql_content = r#"
+type Query {
+  users: [User!]!
+}
+"#;
+            let gql_path = temp_dir.path().join("base.graphql");
+            let mut file = std::fs::File::create(&gql_path).unwrap();
+            file.write_all(gql_content.as_bytes()).unwrap();
+
+            // Create a TypeScript schema extension
+            let ts_content = r#"
+import { gql } from 'graphql-tag';
+
+export const typeDefs = gql`
+  type User {
+    id: ID!
+    name: String!
+  }
+`;
+"#;
+            let ts_path = temp_dir.path().join("types.ts");
+            let mut file = std::fs::File::create(&ts_path).unwrap();
+            file.write_all(ts_content.as_bytes()).unwrap();
+
+            // Use multiple schema paths
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Paths(vec![
+                    "base.graphql".to_string(),
+                    "types.ts".to_string(),
+                ]),
+                documents: None,
+                include: None,
+                exclude: None,
+                lint: None,
+                extensions: None,
+            };
+
+            let mut host = AnalysisHost::new();
+            let count = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            // Should load: 1 Apollo client builtins + 1 GraphQL file + 1 TS extraction
+            assert_eq!(count, 3, "Should load 3 schema files");
+
+            host.rebuild_project_files();
+            let snapshot = host.snapshot();
+
+            // Verify both types are available
+            let query_symbols = snapshot.workspace_symbols("Query");
+            assert!(!query_symbols.is_empty(), "Query type should be found");
+
+            let user_symbols = snapshot.workspace_symbols("User");
+            assert!(
+                !user_symbols.is_empty(),
+                "User type should be found from TS file"
+            );
+        }
+
+        #[test]
+        fn test_load_typescript_schema_no_graphql_found() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            // Create a TypeScript file without any GraphQL
+            let ts_content = r#"
+export const greeting = "Hello, World!";
+export function greet(name: string) {
+    return `Hello, ${name}!`;
+}
+"#;
+            let ts_path = temp_dir.path().join("utils.ts");
+            let mut file = std::fs::File::create(&ts_path).unwrap();
+            file.write_all(ts_content.as_bytes()).unwrap();
+
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Path("utils.ts".to_string()),
+                documents: None,
+                include: None,
+                exclude: None,
+                lint: None,
+                extensions: None,
+            };
+
+            let mut host = AnalysisHost::new();
+            let count = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            // Should only load Apollo client builtins (no GraphQL found in TS file)
+            assert_eq!(count, 1, "Should only load builtins when no GraphQL found");
+        }
+
+        #[test]
+        fn test_load_javascript_schema() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            // Create a JavaScript schema file
+            let js_content = r#"
+import { gql } from 'graphql-tag';
+
+export const typeDefs = gql`
+  type Query {
+    product(id: ID!): Product
+  }
+
+  type Product {
+    id: ID!
+    name: String!
+    price: Float!
+  }
+`;
+"#;
+            let js_path = temp_dir.path().join("schema.js");
+            let mut file = std::fs::File::create(&js_path).unwrap();
+            file.write_all(js_content.as_bytes()).unwrap();
+
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Path("schema.js".to_string()),
+                documents: None,
+                include: None,
+                exclude: None,
+                lint: None,
+                extensions: None,
+            };
+
+            let mut host = AnalysisHost::new();
+            let count = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            // Should load: 1 Apollo client builtins + 1 extracted schema from JS
+            assert_eq!(
+                count, 2,
+                "Should load 2 schema files (builtins + extracted)"
+            );
+
+            host.rebuild_project_files();
+            let snapshot = host.snapshot();
+
+            // Verify the Product type is available
+            let symbols = snapshot.workspace_symbols("Product");
+            assert!(!symbols.is_empty(), "Product type should be found");
+        }
     }
 }

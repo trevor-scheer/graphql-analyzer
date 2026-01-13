@@ -1,7 +1,3 @@
-// GraphQL Database Layer
-// This crate defines the salsa database and input queries for the GraphQL LSP.
-// It provides the foundation for incremental, query-based computation.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -153,7 +149,6 @@ pub fn file_lookup(
     let file_entry_map = project_files.file_entry_map(db);
     let entries = file_entry_map.entries(db);
     let entry = entries.get(&file_id)?;
-    // Access the FileEntry's fields - this creates a dependency on THIS entry only
     Some((entry.content(db), entry.metadata(db)))
 }
 
@@ -238,6 +233,11 @@ pub mod tracking {
         pub const ALL_FRAGMENTS: &str = "all_fragments";
         pub const ALL_OPERATIONS: &str = "all_operations";
         pub const FILE_LOOKUP: &str = "file_lookup";
+        // Per-file contribution queries for project-wide lint rules
+        pub const FILE_USED_FRAGMENT_NAMES: &str = "file_used_fragment_names";
+        pub const FILE_DEFINED_FRAGMENT_NAMES: &str = "file_defined_fragment_names";
+        pub const FILE_OPERATION_NAMES: &str = "file_operation_names";
+        pub const FILE_SCHEMA_COORDINATES: &str = "file_schema_coordinates";
     }
 
     /// Per-database query execution log.
@@ -294,9 +294,7 @@ pub mod tracking {
     /// We extract just the function name without module path or arguments.
     fn extract_query_name(database_key: &dyn std::fmt::Debug) -> String {
         let debug_str = format!("{database_key:?}");
-        // Handle "query_name(...)" or "module::query_name(...)"
         let without_args = debug_str.split('(').next().unwrap_or(&debug_str);
-        // Take the last component if there's a module path
         without_args
             .rsplit("::")
             .next()
@@ -341,16 +339,21 @@ pub mod tracking {
             }
         }
 
+        /// Helper to acquire the log lock and run a closure.
+        fn with_log<F, R>(&self, f: F) -> R
+        where
+            F: FnOnce(&QueryLog) -> R,
+        {
+            f(&self.log.lock().expect("QueryLog mutex poisoned"))
+        }
+
         /// Get the current checkpoint (log position) for later comparison.
         ///
         /// Use this before an operation, then use `count_since()` after to measure
         /// how many queries executed.
         #[must_use]
         pub fn checkpoint(&self) -> usize {
-            self.log
-                .lock()
-                .expect("QueryLog mutex poisoned")
-                .checkpoint()
+            self.with_log(QueryLog::checkpoint)
         }
 
         /// Count executions of a specific query since the given checkpoint.
@@ -360,10 +363,7 @@ pub mod tracking {
         /// - `count_since(queries::PARSE, checkpoint) == 0` means it was cached
         #[must_use]
         pub fn count_since(&self, query_name: &str, checkpoint: usize) -> usize {
-            self.log
-                .lock()
-                .expect("QueryLog mutex poisoned")
-                .count_since(query_name, checkpoint)
+            self.with_log(|log| log.count_since(query_name, checkpoint))
         }
 
         /// Get all query executions since the given checkpoint.
@@ -371,28 +371,19 @@ pub mod tracking {
         /// Useful for debugging test failures - shows exactly what executed.
         #[must_use]
         pub fn executions_since(&self, checkpoint: usize) -> Vec<String> {
-            self.log
-                .lock()
-                .expect("QueryLog mutex poisoned")
-                .executions_since(checkpoint)
+            self.with_log(|log| log.executions_since(checkpoint))
         }
 
         /// Get total execution count for a query (since database creation or last reset).
         #[must_use]
         pub fn total_count(&self, query_name: &str) -> usize {
-            self.log
-                .lock()
-                .expect("QueryLog mutex poisoned")
-                .total_count(query_name)
+            self.with_log(|log| log.total_count(query_name))
         }
 
         /// Get all query counts (since database creation or last reset).
         #[must_use]
         pub fn all_counts(&self) -> HashMap<String, usize> {
-            self.log
-                .lock()
-                .expect("QueryLog mutex poisoned")
-                .all_counts()
+            self.with_log(QueryLog::all_counts)
         }
 
         /// Reset all tracking data. Generally prefer checkpoint-based assertions instead.
@@ -492,7 +483,6 @@ pub mod test_utils {
         let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
         let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
 
-        // Create granular FileEntryMap
         let mut entries = HashMap::new();
         for (id, content, metadata) in schema_files {
             let entry = FileEntry::new(db, *content, *metadata);

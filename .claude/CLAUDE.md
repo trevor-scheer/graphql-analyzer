@@ -24,7 +24,7 @@ This document provides context and guidance for working with the GraphQL LSP cod
 - [Instructions for Claude](#instructions-for-claude)
   - [Operating Guidelines](#operating-guidelines)
 - [Expert Agents](#expert-agents)
-  - [SME Consultation Requirements](#sme-consultation-requirements)
+- [Skills](#skills)
 
 ---
 
@@ -245,20 +245,15 @@ npm run lint             # Lint TypeScript
 
 ### PR Guidelines
 
-**Do:**
+Use the `/create-pr` skill for detailed guidance. Key points:
 
-- Write clear, descriptive PR titles
+- Write clear, descriptive PR titles (no emoji)
 - Explain what changed and why
-- Call out new and updated tests in the Changes section
-- Reference related issues
-- Document which SME agents were consulted (see [SME Consultation Requirements](#sme-consultation-requirements))
-- Use "Manual Testing" section for steps reviewers can follow to verify changes
+- Include tests for new functionality
+- Document consulted SME agents
+- **Never mention CI status** (tests passing, clippy clean) - CI enforces these
 
-**Don't:**
-
-- Use excessive emoji in titles or descriptions
-- Mention that tests or linting passed (expected baseline, CI enforces this)
-- Put automated test/lint results in "Manual Testing" section (that's for manual verification steps only)
+For bug fixes, use the `/bug-fix-workflow` skill which enforces the two-commit structure (failing test first, then fix).
 
 ---
 
@@ -409,14 +404,21 @@ The file watcher fires `workspace/didChangeWatchedFiles` **only on disk saves**:
 schema: schema.graphql
 documents: "src/**/*.graphql"
 
-# Linting configuration
+# Happy path - use recommended preset
+lint: recommended
+
+# Or: Preset with overrides (ESLint-style)
 lint:
-  recommended: error
+  extends: recommended
   rules:
     no_deprecated: warn
     require_id_field: error
-    redundant_fields: error
-    unused_fields: off
+
+# Or: Fine-grained rules only
+lint:
+  rules:
+    unique_names: error
+    no_deprecated: warn
 
 # Tool-specific overrides
 extensions:
@@ -497,22 +499,56 @@ cargo test --test '*'
 
 ### Writing Tests
 
+Tests should prioritize **human readability**. A test that's easy to understand is easy to maintain and debug.
+
+#### Test Readability Guidelines
+
+- **Use helper functions** to reduce boilerplate and make test intent clear
+- **Use fixtures** for common test data (schemas, documents, configs)
+- **Use snapshot tests** (`cargo-insta`) for complex output validation
+- **Name tests descriptively** - the name should explain what's being tested and expected behavior
+- **Keep tests focused** - one logical assertion per test when possible
+
+#### Example Structure
+
 ```rust
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_feature() {
-        // Arrange
-        let input = "...";
-
-        // Act
-        let result = function_under_test(input);
-
-        // Assert
-        assert_eq!(result, expected);
+    // Helper function reduces boilerplate and clarifies intent
+    fn validate(schema: &str, document: &str) -> Vec<Diagnostic> {
+        let db = TestDatabase::new();
+        db.set_schema(schema);
+        db.set_document(document);
+        db.diagnostics()
     }
+
+    #[test]
+    fn fragment_spread_on_wrong_type_reports_error() {
+        let diagnostics = validate(
+            "type Query { user: User } type User { name: String }",
+            "query { user { ...AdminFields } } fragment AdminFields on Admin { role }",
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("Admin"));
+    }
+}
+```
+
+#### When to Use Snapshots
+
+Use `cargo-insta` snapshots when:
+- Output is complex or multi-line (diagnostic messages, formatted output)
+- You want to catch unintended changes in output format
+- Manual assertion would be verbose and hard to read
+
+```rust
+#[test]
+fn lint_report_format() {
+    let report = run_linter(FIXTURE_DOCUMENT);
+    insta::assert_snapshot!(report);
 }
 ```
 
@@ -563,40 +599,10 @@ Criterion generates HTML reports in `target/criterion/`. Open `target/criterion/
 
 ### Adding a New Lint Rule
 
-1. **Choose the rule type** based on context needed:
+Use the `/adding-lint-rules` skill for step-by-step guidance. Quick reference:
 
-   - `StandaloneDocumentRule` - No schema required
-   - `DocumentSchemaRule` - Document + schema
-   - `ProjectRule` - Project-wide analysis
-
-2. **Create the rule** in `crates/graphql-linter/src/rules/your_rule.rs`:
-
-```rust
-use crate::{DocumentSchemaRule, DocumentSchemaContext, Diagnostic};
-
-pub struct YourRule;
-
-impl DocumentSchemaRule for YourRule {
-    fn name(&self) -> &'static str {
-        "your_rule"
-    }
-
-    fn description(&self) -> &'static str {
-        "What this rule checks"
-    }
-
-    fn check(&self, ctx: &DocumentSchemaContext) -> Vec<Diagnostic> {
-        // Implementation
-        vec![]
-    }
-}
-```
-
-3. **Register the rule** in `crates/graphql-linter/src/rules/mod.rs`
-4. **Add tests** in the same file
-5. **Update documentation** in the linter README
-
-See [graphql-linter README](../crates/graphql-linter/README.md) for complete guide.
+- Location: `crates/graphql-linter/src/rules/`
+- See [graphql-linter README](../crates/graphql-linter/README.md) for complete guide
 
 ### Adding Schema Validation
 
@@ -805,18 +811,58 @@ Overhead: ~1-2% CPU when enabled, zero when disabled.
 
 1. **Read before acting**: Always check relevant README.md files and this document before starting work
 2. **Understand the architecture**: Know which layer you're working in (db → syntax → hir → analysis → ide → lsp)
-3. **Consult expert agents (REQUIRED)**: You MUST consult the relevant SME agents in `.claude/agents/` before implementing features, fixing bugs, or making significant changes. See [SME Consultation Requirements](#sme-consultation-requirements) for details.
+3. **Consult expert agents (REQUIRED)**: Use the `/sme-consultation` skill which guides consultation of SME agents in `.claude/agents/`
 4. **Follow the patterns**: Study existing code in the same layer before adding new features
 5. **Test incrementally**: Write tests as you go, don't batch at the end
 6. **Keep it simple**: Don't over-engineer or add unnecessary abstractions
 
 ### Code Style
 
-- **No needless comments**: Code should describe itself
-- Use comments only for subtle, confusing, or surprising things
 - **No emoji** in code or commits (unless user explicitly requests)
 - Follow Rust conventions: `snake_case` for functions, `CamelCase` for types
 - Keep lines under 100 characters where reasonable
+
+#### Comment Guidelines
+
+Code should be self-documenting. Avoid comments that merely restate what the code does.
+
+**DO NOT add comments that:**
+- Describe what the next line of code does (e.g., `// Parse the file`, `// Return the result`)
+- Repeat information obvious from variable/function names (e.g., `// Create source map` before `SourceMap::new()`)
+- Mark sections with obvious purpose (e.g., `// Phase 1: Load files`)
+- Explain standard operations (e.g., `// Collect into vec`, `// Handle error case`)
+- Describe test structure (e.g., `// Test database`, `// First line`)
+
+**DO add comments for:**
+- **Why** something non-obvious is done (e.g., `// Use offset 0 because apollo-compiler errors lack precise positions`)
+- Subtle behavior or edge cases (e.g., `// Handles cycles in fragment references`)
+- Safety invariants (e.g., `// SAFETY: storage is owned and outlives references`)
+- Temporary workarounds or known limitations
+- Architecture decisions that aren't evident from the code
+- References to external specifications or issues
+
+**Examples:**
+
+```rust
+// BAD - restates what the code does
+// Parse the file content
+let parse = parse(db, content, metadata);
+
+// BAD - obvious from function name
+// Find the operation at the given index
+let mut op_count = 0;
+
+// GOOD - explains non-obvious behavior
+// apollo-compiler errors don't have precise positions, so we use offset 0
+errors.extend(with_errors.errors.iter().map(|e| ParseError {
+    message: e.to_string(),
+    offset: 0,
+}));
+
+// GOOD - documents a design decision
+// Use empty tree/ast for main since callers use blocks via documents() iterator
+let main_tree = apollo_parser::Parser::new("").parse();
+```
 
 ### Working with This Project
 
@@ -837,11 +883,7 @@ Overhead: ~1-2% CPU when enabled, zero when disabled.
 
 **When fixing bugs:**
 
-1. Add to `.claude/notes/BUGS.md` if user-reported
-2. Write a failing test first
-3. Fix the bug
-4. Verify test passes
-5. Check for similar issues elsewhere
+Use the `/bug-fix-workflow` skill which guides the two-commit structure (failing test first, then fix).
 
 **After making changes:**
 
@@ -862,7 +904,9 @@ Claude must follow these guidelines when working on this project:
 
 ### GitHub CLI (gh) Usage
 
-When running as a Claude web instance, the git remote uses a local proxy that `gh` doesn't recognize as a GitHub host. **Always use the `--repo` flag** with all `gh` commands:
+**When running as a Claude web instance, always use the `gh` CLI instead of MCP GitHub tools.** MCP tools require permission approval dialogs that cannot be accepted in the web client, causing them to timeout.
+
+The git remote also uses a local proxy that `gh` doesn't recognize as a GitHub host. **Always use the `--repo` flag** with all `gh` commands:
 
 ```bash
 # Correct - always specify the repo explicitly
@@ -922,7 +966,7 @@ This preserves notes and local settings.
 - ❌ Don't manually edit `.github/workflows/release.yml` (auto-generated by cargo-dist)
 - ❌ Don't add features not requested by the user
 - ❌ Don't create markdown files unless explicitly asked
-- ❌ Don't mention "tests pass" in PR descriptions (expected)
+- ❌ Don't mention CI results in PR descriptions (tests passing, clippy clean, etc.) - CI enforces these, mentioning them is noise
 - ❌ Don't use excessive emoji
 - ❌ Don't commit without running `cargo fmt` and `cargo clippy`
 - ❌ Don't remove TS/JS from VSCode extension's `documentSelector` - this breaks embedded GraphQL support (see [VSCode Extension Architecture](#vscode-extension-architecture-critical))
@@ -931,8 +975,7 @@ This preserves notes and local settings.
 ### Things to Always Do
 
 - ✅ Read this file and relevant READMEs before starting
-- ✅ Consult relevant SME agents before implementing features or fixes
-- ✅ Document consulted agents in PR descriptions and issue comments
+- ✅ Use skills for guided workflows (`/sme-consultation`, `/bug-fix-workflow`, `/create-pr`, `/adding-lint-rules`)
 - ✅ Write tests for new functionality
 - ✅ Update documentation when changing behavior
 - ✅ Follow the existing code style and patterns
@@ -982,6 +1025,7 @@ This project includes Subject Matter Expert (SME) agents in `.claude/agents/` th
 | **GraphQL Specification** | `graphql.md` | GraphQL spec compliance, validation rules, type system |
 | **Apollo Client** | `apollo-client.md` | Apollo Client patterns, caching, fragment colocation |
 | **rust-analyzer** | `rust-analyzer.md` | Query-based architecture, Salsa, incremental computation |
+| **Salsa** | `salsa.md` | Salsa framework, database design, snapshot isolation, concurrency |
 | **Rust** | `rust.md` | Idiomatic Rust, ownership, error handling, API design |
 | **Language Server Protocol** | `lsp.md` | LSP specification, protocol messages, client compatibility |
 | **GraphiQL** | `graphiql.md` | IDE features, graphql-language-service, UX patterns |
@@ -989,83 +1033,31 @@ This project includes Subject Matter Expert (SME) agents in `.claude/agents/` th
 | **VSCode Extension** | `vscode-extension.md` | Extension development, activation, language client |
 | **Apollo-rs** | `apollo-rs.md` | apollo-parser, apollo-compiler, error-tolerant parsing |
 
-### When to Consult Agents
+### SME Consultation
 
-Consult the relevant agent when:
+Use the `/sme-consultation` skill when implementing features, fixing bugs, or making architecture changes. The skill provides:
 
-- **Designing a feature**: Get architectural guidance before implementation
-- **Debugging issues**: Understand expected behavior and common pitfalls
-- **Making tradeoff decisions**: Get pros/cons for different approaches
-- **Ensuring correctness**: Validate against specification/best practices
+- Work-type to agent mapping (which agents to consult for what)
+- Documentation format for PRs and issue comments
+- Guidance on how to document consulted agents
 
-### Agent Philosophy
+---
 
-All agents share these traits:
+## Skills
 
-- **Opinionated**: They have strong views on correctness and best practices
-- **Thorough**: They provide comprehensive analysis, not quick answers
-- **Tradeoff-aware**: They present multiple solutions with clear pros/cons
-- **Challenging**: They respectfully correct misconceptions and anti-patterns
+Skills provide contextual guidance for common workflows. They activate automatically based on task description or can be invoked manually.
 
-### SME Consultation Requirements
+| Skill | Slash Command | When It Activates |
+|-------|---------------|-------------------|
+| SME Consultation | `/sme-consultation` | Feature work, bug fixes, architecture changes |
+| Adding Lint Rules | `/adding-lint-rules` | Implementing lint rules, adding validation |
+| Bug Fix Workflow | `/bug-fix-workflow` | Fixing bugs, addressing issues |
+| Create PR | `/create-pr` | Opening PRs, preparing for review |
+| Add IDE Feature | `/add-ide-feature` | Implementing LSP features (hover, goto def, etc.) |
+| Debug LSP | `/debug-lsp` | Troubleshooting LSP server issues |
+| Review PR | `/review-pr` | Reviewing pull requests |
 
-**Consultation is MANDATORY** for the following work types:
-
-| Work Type | Required Agents |
-|-----------|-----------------|
-| **New LSP features** | `lsp.md`, `rust-analyzer.md`, `rust.md` |
-| **GraphQL validation/linting** | `graphql.md`, `apollo-rs.md` |
-| **VSCode extension changes** | `vscode-extension.md` |
-| **CLI tool changes** | `graphql-cli.md` |
-| **Salsa/incremental computation** | `rust-analyzer.md` |
-| **IDE UX features** | `graphiql.md`, `lsp.md` |
-| **Apollo-specific patterns** | `apollo-client.md`, `apollo-rs.md` |
-| **Rust API design** | `rust.md` |
-
-#### Documentation Requirements
-
-When consulting SME agents, Claude MUST document:
-
-1. **In user communications**: Mention which agents were consulted when proposing or explaining a solution
-2. **In PR descriptions**: Include a "Consulted SME Agents" section listing agents and key guidance received
-3. **In issue comments**: Note agent consultations when providing analysis or recommendations
-
-#### Example Documentation Format
-
-**In user messages:**
-> "I consulted the `lsp.md` and `rust-analyzer.md` agents for guidance on this feature. The LSP agent confirmed this follows the specification, and the rust-analyzer agent recommended using a Salsa query for incremental computation."
-
-**In PR descriptions:**
-```markdown
-## Consulted SME Agents
-
-- **lsp.md**: Confirmed `textDocument/definition` response format
-- **rust-analyzer.md**: Recommended query-based architecture for goto definition
-- **rust.md**: Advised on error handling patterns using `Result<Option<T>>`
-```
-
-**In issue comments:**
-> "After consulting the `graphql.md` agent, I can confirm this is expected behavior per section 5.8.3 of the GraphQL specification regarding fragment spread validation."
-
-#### Why Documentation Matters
-
-- **Traceability**: Users can understand the reasoning behind decisions
-- **Review Quality**: Reviewers know which domain expertise was applied
-- **Knowledge Transfer**: Future sessions can see what guidance was relevant
-- **Accountability**: Ensures agents are actually being consulted, not skipped
-
-### Example Usage
-
-When implementing a new LSP feature:
-1. Consult `lsp.md` for protocol correctness
-2. Consult `rust-analyzer.md` for architectural patterns
-3. Consult `graphiql.md` for UX expectations
-4. Consult `rust.md` for implementation idioms
-
-When adding GraphQL validation:
-1. Consult `graphql.md` for spec compliance
-2. Consult `apollo-rs.md` for parser usage
-3. Consult `rust-analyzer.md` for query design
+Skills are located in `.claude/skills/` and are loaded into context when relevant.
 
 ---
 

@@ -47,25 +47,18 @@ impl StandaloneDocumentLintRule for OperationNameSuffixRuleImpl {
             if let cst::Definition::OperationDefinition(operation) = definition {
                 // Only check named operations
                 if let Some(name) = operation.name() {
+                    use super::{get_operation_kind, OperationKind};
                     let name_text = name.text();
 
                     // Determine the operation type
-                    let operation_type = operation.operation_type().map_or("query", |op_type| {
-                        if op_type.query_token().is_some() {
-                            "query"
-                        } else if op_type.mutation_token().is_some() {
-                            "mutation"
-                        } else if op_type.subscription_token().is_some() {
-                            "subscription"
-                        } else {
-                            "query"
-                        }
-                    });
+                    let op_kind = operation
+                        .operation_type()
+                        .map_or(OperationKind::Query, |op_type| get_operation_kind(&op_type));
 
-                    let expected_suffix = match operation_type {
-                        "mutation" => "Mutation",
-                        "subscription" => "Subscription",
-                        _ => "Query", // "query" and any other value defaults to "Query"
+                    let expected_suffix = match op_kind {
+                        OperationKind::Mutation => "Mutation",
+                        OperationKind::Subscription => "Subscription",
+                        OperationKind::Query => "Query",
                     };
 
                     if !name_text.ends_with(expected_suffix) {

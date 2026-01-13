@@ -1,4 +1,5 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::schema_utils::extract_root_type_names;
 use crate::traits::{DocumentSchemaLintRule, LintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
@@ -38,7 +39,7 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
         }
 
         // Get schema types from HIR
-        let schema_types = graphql_hir::schema_types_with_project(db, project_files);
+        let schema_types = graphql_hir::schema_types(db, project_files);
 
         // Build a map of type names to whether they have an id field
         let mut types_with_id: HashMap<String, bool> = HashMap::new();
@@ -53,12 +54,13 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
         }
 
         // Get all fragments from the project (for cross-file resolution)
-        let all_fragments = graphql_hir::all_fragments_with_project(db, project_files);
+        let all_fragments = graphql_hir::all_fragments(db, project_files);
 
-        // Get root operation types from schema
-        let query_type = find_root_operation_type(&schema_types, "Query");
-        let mutation_type = find_root_operation_type(&schema_types, "Mutation");
-        let subscription_type = find_root_operation_type(&schema_types, "Subscription");
+        // Get root operation types from schema definition or fall back to defaults
+        let root_types = extract_root_type_names(db, project_files, &schema_types);
+        let query_type = root_types.query;
+        let mutation_type = root_types.mutation;
+        let subscription_type = root_types.subscription;
 
         // Create context for fragment resolution
         let check_context = CheckContext {
@@ -120,20 +122,43 @@ fn check_document(
     for definition in doc_cst.definitions() {
         match definition {
             cst::Definition::OperationDefinition(op) => {
-                let root_type = match op.operation_type() {
-                    Some(op_type) if op_type.query_token().is_some() => query_type,
-                    Some(op_type) if op_type.mutation_token().is_some() => mutation_type,
-                    Some(op_type) if op_type.subscription_token().is_some() => subscription_type,
-                    None => query_type, // Default to query for anonymous operations
-                    _ => None,
-                };
+                use super::{get_operation_kind, OperationKind};
+                let root_type = op.operation_type().map_or(query_type, |op_type| {
+                    match get_operation_kind(&op_type) {
+                        OperationKind::Query => query_type,
+                        OperationKind::Mutation => mutation_type,
+                        OperationKind::Subscription => subscription_type,
+                    }
+                });
 
                 if let (Some(root_type_name), Some(selection_set)) = (root_type, op.selection_set())
                 {
+                    // For root operations, we use the operation name or operation type as location
+                    // since there's no parent field. Root types (Query/Mutation/Subscription)
+                    // typically don't have an id field anyway.
+                    let op_loc = if let Some(name) = op.name() {
+                        DiagnosticLocation {
+                            start: name.syntax().text_range().start().into(),
+                            end: name.syntax().text_range().end().into(),
+                        }
+                    } else if let Some(op_type) = op.operation_type() {
+                        DiagnosticLocation {
+                            start: op_type.syntax().text_range().start().into(),
+                            end: op_type.syntax().text_range().end().into(),
+                        }
+                    } else {
+                        // Anonymous query shorthand - use selection set start
+                        let start: usize = selection_set.syntax().text_range().start().into();
+                        DiagnosticLocation {
+                            start,
+                            end: start + 1,
+                        }
+                    };
                     let mut visited_fragments = HashSet::new();
                     check_selection_set(
                         &selection_set,
                         root_type_name,
+                        op_loc,
                         check_context,
                         &mut visited_fragments,
                         diagnostics,
@@ -150,10 +175,25 @@ fn check_document(
                 if let (Some(type_name), Some(selection_set)) =
                     (type_condition.as_deref(), frag.selection_set())
                 {
+                    // Position diagnostic on fragment name
+                    let frag_loc = frag.fragment_name().and_then(|fn_| fn_.name()).map_or_else(
+                        || {
+                            let start: usize = selection_set.syntax().text_range().start().into();
+                            DiagnosticLocation {
+                                start,
+                                end: start + 1,
+                            }
+                        },
+                        |name| DiagnosticLocation {
+                            start: name.syntax().text_range().start().into(),
+                            end: name.syntax().text_range().end().into(),
+                        },
+                    );
                     let mut visited_fragments = HashSet::new();
                     check_selection_set(
                         &selection_set,
                         type_name,
+                        frag_loc,
                         check_context,
                         &mut visited_fragments,
                         diagnostics,
@@ -174,10 +214,18 @@ struct CheckContext<'a> {
     all_fragments: &'a HashMap<Arc<str>, graphql_hir::FragmentStructure>,
 }
 
+/// Location for diagnostic placement (start and end offsets)
+#[derive(Clone, Copy)]
+struct DiagnosticLocation {
+    start: usize,
+    end: usize,
+}
+
 #[allow(clippy::only_used_in_recursion, clippy::too_many_lines)]
 fn check_selection_set(
     selection_set: &cst::SelectionSet,
     parent_type_name: &str,
+    parent_location: DiagnosticLocation,
     context: &CheckContext,
     visited_fragments: &mut HashSet<String>,
     diagnostics: &mut Vec<LintDiagnostic>,
@@ -211,9 +259,14 @@ fn check_selection_set(
                         if let Some(field_type) =
                             get_field_type(parent_type_name, &field_name_str, context.schema_types)
                         {
+                            let field_loc = DiagnosticLocation {
+                                start: field_name.syntax().text_range().start().into(),
+                                end: field_name.syntax().text_range().end().into(),
+                            };
                             check_selection_set(
                                 &nested_selection_set,
                                 &field_type,
+                                field_loc,
                                 context,
                                 visited_fragments,
                                 diagnostics,
@@ -267,9 +320,18 @@ fn check_selection_set(
                                             &field_name.text(),
                                             context.schema_types,
                                         ) {
+                                            let field_loc = DiagnosticLocation {
+                                                start: field_name
+                                                    .syntax()
+                                                    .text_range()
+                                                    .start()
+                                                    .into(),
+                                                end: field_name.syntax().text_range().end().into(),
+                                            };
                                             check_selection_set(
                                                 &field_selection_set,
                                                 &field_type,
+                                                field_loc,
                                                 context,
                                                 visited_fragments,
                                                 diagnostics,
@@ -309,31 +371,12 @@ fn check_selection_set(
 
     // Only emit diagnostic if type has id field and it's not in the selection
     if has_id_field && !has_id_in_selection {
-        let syntax_node = selection_set.syntax();
-        let start_offset: usize = syntax_node.text_range().start().into();
-        let end_offset: usize = start_offset + 1;
-
         diagnostics.push(LintDiagnostic::warning(
-            start_offset,
-            end_offset,
+            parent_location.start,
+            parent_location.end,
             format!("Selection set on type '{parent_type_name}' should include the 'id' field"),
             "require_id_field",
         ));
-    }
-}
-
-/// Find root operation type (Query, Mutation, or Subscription)
-/// Falls back to the default name if no custom schema definition exists
-fn find_root_operation_type(
-    schema_types: &HashMap<Arc<str>, graphql_hir::TypeDef>,
-    default_name: &str,
-) -> Option<String> {
-    // TODO: Read from schema definition directive once HIR supports it
-    // For now, use the default names
-    if schema_types.contains_key(default_name) {
-        Some(default_name.to_string())
-    } else {
-        None
     }
 }
 
@@ -916,6 +959,7 @@ query GetUser {
         let mut doc_file_ids = Vec::new();
         let mut first_doc: Option<(FileId, FileContent, FileMetadata)> = None;
 
+        #[allow(clippy::cast_possible_truncation)]
         for (i, (uri, source, kind)) in documents.iter().enumerate() {
             let file_id = FileId::new((i + 1) as u32);
             let content = FileContent::new(db, Arc::from(*source));
@@ -994,8 +1038,7 @@ query GetUser {
         assert_eq!(
             diagnostics.len(),
             0,
-            "Should not warn when fragment contains id: {:?}",
-            diagnostics
+            "Should not warn when fragment contains id: {diagnostics:?}"
         );
     }
 
@@ -1104,8 +1147,7 @@ export const GET_USER = gql`
         assert_eq!(
             diagnostics.len(),
             0,
-            "Should not warn when fragment contains id: {:?}",
-            diagnostics
+            "Should not warn when fragment contains id: {diagnostics:?}"
         );
     }
 
@@ -1142,8 +1184,7 @@ query GetPost {
         assert_eq!(
             diagnostics.len(),
             0,
-            "Should not warn when fragment in inline fragment contains id: {:?}",
-            diagnostics
+            "Should not warn when fragment in inline fragment contains id: {diagnostics:?}"
         );
     }
 }

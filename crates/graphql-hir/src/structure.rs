@@ -1,11 +1,12 @@
-// Structure extraction - extracts names and signatures, not bodies
-// This is the foundation of the golden invariant: structure is stable across body edits
-
 use apollo_compiler::ast;
 use apollo_compiler::Node;
 use graphql_db::FileId;
 use std::sync::Arc;
-use text_size::{TextRange, TextSize};
+pub use text_size::{TextRange, TextSize};
+
+/// Offset multiplier to ensure unique operation indices across blocks.
+/// Each block's operations get offset by `block_index * BLOCK_INDEX_OFFSET`.
+const BLOCK_INDEX_OFFSET: usize = 1000;
 
 /// Structure of a type definition (no field bodies)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -86,6 +87,10 @@ pub struct OperationStructure {
     pub name_range: Option<TextRange>,
     /// The text range of the entire operation
     pub operation_range: TextRange,
+    /// For embedded GraphQL: line offset of the block (0-indexed)
+    pub block_line_offset: Option<usize>,
+    /// For embedded GraphQL: source text of the block
+    pub block_source: Option<Arc<str>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -115,6 +120,10 @@ pub struct FragmentStructure {
     pub type_condition_range: TextRange,
     /// The text range of the entire fragment definition
     pub fragment_range: TextRange,
+    /// For embedded GraphQL: line offset of the block (0-indexed)
+    pub block_line_offset: Option<usize>,
+    /// For embedded GraphQL: source text of the block
+    pub block_source: Option<Arc<str>>,
 }
 
 /// Summary of a file's structure (stable across body edits)
@@ -132,7 +141,6 @@ pub struct FileStructureData {
 fn node_range<T>(node: &Node<T>) -> TextRange {
     node.location()
         .map(|loc| {
-            // Safe: GraphQL files are never larger than 4GB
             TextRange::new(
                 TextSize::from(loc.offset() as u32),
                 TextSize::from(loc.end_offset() as u32),
@@ -146,13 +154,39 @@ fn node_range<T>(node: &Node<T>) -> TextRange {
 fn name_range(name: &apollo_compiler::Name) -> TextRange {
     name.location()
         .map(|loc| {
-            // Safe: GraphQL files are never larger than 4GB
             TextRange::new(
                 TextSize::from(loc.offset() as u32),
                 TextSize::from(loc.end_offset() as u32),
             )
         })
         .unwrap_or_default()
+}
+
+/// Block context for embedded GraphQL extraction
+#[derive(Debug, Clone)]
+struct BlockContext {
+    /// Line offset in the original file (0-indexed)
+    line_offset: usize,
+    /// Source text of the block
+    source: Option<Arc<str>>,
+}
+
+impl BlockContext {
+    /// Create a new block context for pure GraphQL files (no offset, no source)
+    const fn pure_graphql() -> Self {
+        Self {
+            line_offset: 0,
+            source: None,
+        }
+    }
+
+    /// Create a new block context for embedded GraphQL
+    fn embedded(line_offset: usize, source: Arc<str>) -> Self {
+        Self {
+            line_offset,
+            source: Some(source),
+        }
+    }
 }
 
 /// Extract the file structure from a parsed syntax tree
@@ -170,20 +204,25 @@ pub fn file_structure(
     let mut operations = Vec::new();
     let mut fragments = Vec::new();
 
-    // Extract from all documents (works for both pure GraphQL and TS/JS files)
     for (block_idx, doc) in parse.documents().enumerate() {
+        // Create block context - for pure GraphQL files, source is None
+        let block_ctx = match doc.source {
+            Some(src) => BlockContext::embedded(doc.line_offset, Arc::from(src)),
+            None => BlockContext::pure_graphql(),
+        };
+
         extract_from_document(
             doc.ast,
             file_id,
+            &block_ctx,
             &mut type_defs,
             &mut operations,
             &mut fragments,
         );
-        // Update operation indices to be unique per block (for TS/JS files with multiple blocks)
         if block_idx > 0 {
             let ops_len = operations.len();
             for op in operations.iter_mut().skip(ops_len.saturating_sub(1)) {
-                op.index += block_idx * 1000; // Simple offset to make unique
+                op.index += block_idx * BLOCK_INDEX_OFFSET;
             }
         }
     }
@@ -199,6 +238,7 @@ pub fn file_structure(
 fn extract_from_document(
     document: &ast::Document,
     file_id: FileId,
+    block_ctx: &BlockContext,
     type_defs: &mut Vec<TypeDef>,
     operations: &mut Vec<OperationStructure>,
     fragments: &mut Vec<FragmentStructure>,
@@ -206,10 +246,15 @@ fn extract_from_document(
     for definition in &document.definitions {
         match definition {
             ast::Definition::OperationDefinition(op) => {
-                operations.push(extract_operation_structure(op, file_id, operations.len()));
+                operations.push(extract_operation_structure(
+                    op,
+                    file_id,
+                    operations.len(),
+                    block_ctx,
+                ));
             }
             ast::Definition::FragmentDefinition(frag) => {
-                fragments.push(extract_fragment_structure(frag, file_id));
+                fragments.push(extract_fragment_structure(frag, file_id, block_ctx));
             }
             ast::Definition::ObjectTypeDefinition(obj) => {
                 type_defs.push(extract_object_type(obj, file_id));
@@ -238,6 +283,7 @@ fn extract_operation_structure(
     op: &Node<ast::OperationDefinition>,
     file_id: FileId,
     index: usize,
+    block_ctx: &BlockContext,
 ) -> OperationStructure {
     let name = op.name.as_ref().map(|n| Arc::from(n.as_str()));
 
@@ -253,8 +299,14 @@ fn extract_operation_structure(
         .map(|v| extract_variable_signature(v))
         .collect();
 
-    // Extract name range from the Name if present
     let op_name_range = op.name.as_ref().map(name_range);
+
+    // For embedded GraphQL, include block context; for pure GraphQL, these are None
+    let (block_line_offset, block_source) = if block_ctx.source.is_some() {
+        (Some(block_ctx.line_offset), block_ctx.source.clone())
+    } else {
+        (None, None)
+    };
 
     OperationStructure {
         name,
@@ -264,15 +316,25 @@ fn extract_operation_structure(
         index,
         name_range: op_name_range,
         operation_range: node_range(op),
+        block_line_offset,
+        block_source,
     }
 }
 
 fn extract_fragment_structure(
     frag: &Node<ast::FragmentDefinition>,
     file_id: FileId,
+    block_ctx: &BlockContext,
 ) -> FragmentStructure {
     let name = Arc::from(frag.name.as_str());
     let type_condition = Arc::from(frag.type_condition.as_str());
+
+    // For embedded GraphQL, include block context; for pure GraphQL, these are None
+    let (block_line_offset, block_source) = if block_ctx.source.is_some() {
+        (Some(block_ctx.line_offset), block_ctx.source.clone())
+    } else {
+        (None, None)
+    };
 
     FragmentStructure {
         name,
@@ -281,6 +343,8 @@ fn extract_fragment_structure(
         name_range: name_range(&frag.name),
         type_condition_range: name_range(&frag.type_condition),
         fragment_range: node_range(frag),
+        block_line_offset,
+        block_source,
     }
 }
 
@@ -530,10 +594,8 @@ fn extract_deprecation(
 ) -> (bool, Option<Arc<str>>) {
     for directive in directives {
         if directive.name == "deprecated" {
-            // Look for reason argument
             let reason = directive.arguments.iter().find_map(|arg| {
                 if arg.name == "reason" {
-                    // Extract string value
                     if let apollo_compiler::ast::Value::String(s) = &*arg.value {
                         Some(Arc::from(s.as_str()))
                     } else {
@@ -553,15 +615,11 @@ fn extract_type_ref(ty: &ast::Type) -> TypeRef {
     let is_non_null = ty.is_non_null();
     let is_list = ty.is_list();
 
-    // Get the innermost named type
     let name = Arc::from(ty.inner_named_type().as_str());
 
-    // Check if inner type (inside list) is non-null
-    // For [Type!]! we need to check if the type inside the list is non-null
+    // For [Type!]! we need to check if the inner type is non-null
     let inner_non_null = if is_list {
-        // Strip outer non-null wrapper if present
         let inner = if is_non_null {
-            // For [Type]! or [Type!]!, get the inner type after unwrapping outer non-null
             match ty {
                 ast::Type::NonNullNamed(_) => {
                     return TypeRef {
@@ -578,7 +636,6 @@ fn extract_type_ref(ty: &ast::Type) -> TypeRef {
             ty
         };
 
-        // Now check if it's a list with non-null inner type
         matches!(inner, ast::Type::List(list) if matches!(list.as_ref(), ast::Type::NonNullNamed(_)))
     } else {
         false

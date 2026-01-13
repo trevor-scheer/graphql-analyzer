@@ -989,6 +989,7 @@ dependencies = [
  "graphql-config",
  "graphql-extract",
  "graphql-ide",
+ "graphql-introspect",
  "graphql-linter",
  "indicatif",
  "opentelemetry 0.27.1",
@@ -1015,7 +1016,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.17",
  "tracing",
- "walkdir",
 ]
 
 [[package]]
@@ -1066,6 +1066,7 @@ dependencies = [
  "graphql-syntax",
  "parking_lot",
  "salsa",
+ "tempfile",
  "tracing",
 ]
 

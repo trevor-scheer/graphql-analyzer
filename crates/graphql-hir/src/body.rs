@@ -1,10 +1,3 @@
-// Body extraction - extracts selection sets and field selections
-// These are computed lazily and only when needed for validation
-//
-// Body queries are the core of fine-grained invalidation:
-// - Editing an operation body only invalidates that operation's body query
-// - Schema queries and other operation bodies remain cached
-
 use apollo_compiler::executable;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -70,7 +63,6 @@ pub fn operation_body(
 ) -> Arc<OperationBody> {
     let parse = graphql_syntax::parse(db, file_content, file_metadata);
 
-    // Find the operation at the given index across all documents
     let mut op_count = 0;
 
     for doc in parse.documents() {
@@ -84,7 +76,6 @@ pub fn operation_body(
         }
     }
 
-    // Operation not found - return empty body
     Arc::new(OperationBody {
         selections: Vec::new(),
         fragment_spreads: HashSet::new(),
@@ -105,7 +96,6 @@ pub fn fragment_body(
 ) -> Arc<FragmentBody> {
     let parse = graphql_syntax::parse(db, file_content, file_metadata);
 
-    // Search for the fragment across all documents
     for doc in parse.documents() {
         for definition in &doc.ast.definitions {
             if let apollo_compiler::ast::Definition::FragmentDefinition(frag) = definition {
@@ -116,7 +106,6 @@ pub fn fragment_body(
         }
     }
 
-    // Fragment not found - return empty body
     Arc::new(FragmentBody {
         selections: Vec::new(),
         fragment_spreads: HashSet::new(),
@@ -140,19 +129,16 @@ pub fn operation_transitive_fragments(
     let mut visited = HashSet::new();
     let mut to_visit: Vec<Arc<str>> = body.fragment_spreads.iter().cloned().collect();
 
-    // Use fragment_file_index for O(1) lookup of fragment files
     let fragment_index = crate::fragment_file_index(db, project_files);
 
     while let Some(frag_name) = to_visit.pop() {
         if !visited.insert(frag_name.clone()) {
-            continue; // Already visited (handles cycles)
+            continue;
         }
 
-        // Look up the fragment's file directly using the index
         if let Some((content, metadata)) = fragment_index.get(&frag_name) {
             let frag_body = fragment_body(db, *content, *metadata, frag_name.clone());
 
-            // Add any new fragment spreads to visit
             for spread in &frag_body.fragment_spreads {
                 if !visited.contains(spread) {
                     to_visit.push(spread.clone());
@@ -269,7 +255,6 @@ fn extract_variable_usages_from_selections(selections: &[Selection]) -> HashSet<
                 selection_set,
                 ..
             } => {
-                // Check arguments for variable references (e.g., "$id")
                 for (_name, value) in arguments {
                     if let Some(var_name) = value.strip_prefix('$') {
                         usages.insert(Arc::from(var_name));
@@ -280,10 +265,7 @@ fn extract_variable_usages_from_selections(selections: &[Selection]) -> HashSet<
             Selection::InlineFragment { selection_set, .. } => {
                 usages.extend(extract_variable_usages_from_selections(selection_set));
             }
-            Selection::FragmentSpread { .. } => {
-                // Variable usages in fragment spreads are handled when we
-                // resolve the fragment body
-            }
+            Selection::FragmentSpread { .. } => {}
         }
     }
 
@@ -364,7 +346,6 @@ mod tests {
     use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
     use std::collections::HashMap;
 
-    // Test database
     #[salsa::db]
     #[derive(Clone, Default)]
     struct TestDatabase {
@@ -504,7 +485,6 @@ mod tests {
         let db = TestDatabase::default();
         let file_id = FileId::new(0);
 
-        // File with operation using fragment A, which uses fragment B
         let content = FileContent::new(
             &db,
             Arc::from(

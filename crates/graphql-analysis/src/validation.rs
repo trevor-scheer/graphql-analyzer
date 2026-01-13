@@ -1,6 +1,3 @@
-// Apollo-compiler validation integration
-// This module provides comprehensive GraphQL validation using apollo-compiler
-
 use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase, Position, Severity};
 use graphql_db::{FileContent, FileMetadata};
 use std::sync::Arc;
@@ -25,7 +22,6 @@ pub fn validate_file(
 ) -> Arc<Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
 
-    // Get the merged schema
     let Some(schema) = crate::merged_schema::merged_schema(db, project_files) else {
         // Without a schema, we can't validate documents
         // Return empty diagnostics (syntax errors are handled elsewhere)
@@ -37,7 +33,6 @@ pub fn validate_file(
     let doc_uri = metadata.uri(db);
 
     if kind == graphql_db::FileKind::TypeScript || kind == graphql_db::FileKind::JavaScript {
-        // Validate each extracted block as a separate document
         for block in &parse.blocks {
             let line_offset_val = block.line;
 
@@ -52,11 +47,9 @@ pub fn validate_file(
             let mut builder =
                 apollo_compiler::ExecutableDocument::builder(Some(valid_schema), &mut errors);
 
-            // Use the already-parsed AST instead of re-parsing
             // The AST is cached via graphql_syntax::parse()
             builder.add_ast_document(&block.ast, true);
 
-            // Add referenced fragments using cached ASTs for fine-grained invalidation
             // This ensures that changing fragment A only invalidates files that actually use A
             // Using fragment_ast instead of fragment_source avoids re-parsing
             let mut added_fragments = std::collections::HashSet::new();
@@ -72,8 +65,7 @@ pub fn validate_file(
                 // Fine-grained query: only creates dependency on this specific fragment
                 // Uses cached AST instead of re-parsing source text
                 if let Some(fragment_ast) = graphql_hir::fragment_ast(db, project_files, key) {
-                    // Track by AST pointer to avoid adding the same document twice
-                    // (multiple fragments may share the same AST document)
+                    // Multiple fragments may share the same AST document
                     let ptr = Arc::as_ptr(&fragment_ast) as usize;
                     if added_ast_ptrs.insert(ptr) {
                         builder.add_ast_document(&fragment_ast, false);
@@ -102,8 +94,7 @@ pub fn validate_file(
                                 }
                             }
                         }
-                        // Adjust line positions by adding the block's line offset
-                        // since the AST was parsed without source offset
+                        // Line offset adjusts positions since the AST was parsed without source offset
                         #[allow(clippy::cast_possible_truncation)]
                         let range = apollo_diag.line_column_range().map_or_else(
                             DiagnosticRange::default,
@@ -137,23 +128,17 @@ pub fn validate_file(
         }
         return Arc::new(diagnostics);
     }
-    // Pure GraphQL file validation
-    // Use the already-parsed tree to avoid redundant parsing
     let referenced_fragments =
         collect_referenced_fragments_transitive(&parse.tree, project_files, db);
     let valid_schema = apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
     let mut errors = apollo_compiler::validation::DiagnosticList::new(Arc::default());
     let mut builder = apollo_compiler::ExecutableDocument::builder(Some(valid_schema), &mut errors);
 
-    // Line offset is typically 0 for pure GraphQL files, but may be non-zero
-    // when content is pre-extracted (e.g., from tests or embedded sources)
     let line_offset_val = metadata.line_offset(db) as usize;
 
-    // Use the already-parsed AST instead of re-parsing
     // The AST is cached via graphql_syntax::parse()
     builder.add_ast_document(&parse.ast, true);
 
-    // Add referenced fragments using cached ASTs for fine-grained invalidation
     // This ensures that changing fragment A only invalidates files that actually use A
     // Using fragment_ast instead of fragment_source avoids re-parsing
     let mut added_fragments = std::collections::HashSet::new();
@@ -169,8 +154,7 @@ pub fn validate_file(
         // Fine-grained query: only creates dependency on this specific fragment
         // Uses cached AST instead of re-parsing source text
         if let Some(fragment_ast) = graphql_hir::fragment_ast(db, project_files, key) {
-            // Track by AST pointer to avoid adding the same document twice
-            // (multiple fragments may share the same AST document)
+            // Multiple fragments may share the same AST document
             let ptr = Arc::as_ptr(&fragment_ast) as usize;
             if added_ast_ptrs.insert(ptr) {
                 builder.add_ast_document(&fragment_ast, false);
@@ -199,8 +183,7 @@ pub fn validate_file(
                         }
                     }
                 }
-                // Adjust line positions by adding the line offset
-                // since the AST was parsed without source offset
+                // Line offset adjusts positions since the AST was parsed without source offset
                 #[allow(clippy::cast_possible_truncation)]
                 let range = apollo_diag.line_column_range().map_or_else(
                     DiagnosticRange::default,
@@ -243,16 +226,12 @@ fn collect_referenced_fragments_transitive(
 ) -> std::collections::HashSet<String> {
     use std::collections::{HashSet, VecDeque};
 
-    // Get the fragment spreads index for efficient lookup
     let spreads_index = graphql_hir::fragment_spreads_index(db, project_files);
 
-    // Start with fragments directly referenced in the current document
-    // Use the already-parsed tree instead of re-parsing
     let mut all_referenced = collect_referenced_fragments_from_tree(tree);
     let mut to_process: VecDeque<String> = all_referenced.iter().cloned().collect();
     let mut processed = HashSet::new();
 
-    // Process fragments transitively using the index
     while let Some(fragment_name) = to_process.pop_front() {
         if processed.contains(&fragment_name) {
             continue;
@@ -292,7 +271,6 @@ fn collect_referenced_fragments_from_tree(
     let mut referenced = HashSet::new();
     let document = tree.document();
 
-    // Collect all fragment spreads from operations and fragments
     for definition in document.definitions() {
         match definition {
             apollo_parser::cst::Definition::OperationDefinition(op) => {
@@ -320,11 +298,9 @@ fn collect_fragment_spreads_from_selection_set(
     for selection in selection_set.selections() {
         match selection {
             apollo_parser::cst::Selection::Field(field) => {
-                // Recurse into nested selection sets
                 collect_fragment_spreads_from_selection_set(field.selection_set(), referenced);
             }
             apollo_parser::cst::Selection::FragmentSpread(spread) => {
-                // Add fragment name to referenced set
                 if let Some(name) = spread.fragment_name() {
                     if let Some(name_node) = name.name() {
                         referenced.insert(name_node.text().to_string());
@@ -332,7 +308,6 @@ fn collect_fragment_spreads_from_selection_set(
                 }
             }
             apollo_parser::cst::Selection::InlineFragment(inline_frag) => {
-                // Recurse into inline fragment selection set
                 collect_fragment_spreads_from_selection_set(
                     inline_frag.selection_set(),
                     referenced,

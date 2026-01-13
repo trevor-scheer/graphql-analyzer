@@ -1,5 +1,3 @@
-// Integration with graphql-linter using new Salsa-based architecture
-
 use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase, Position, Severity};
 use graphql_db::{FileContent, FileId, FileKind, FileMetadata, ProjectFiles};
 use std::collections::HashMap;
@@ -33,6 +31,19 @@ pub fn lint_file(
     lint_file_impl(db, content, metadata, project_files)
 }
 
+/// Run lints on a file with known project files
+///
+/// This is a tracked function for use when `ProjectFiles` is already known.
+/// Use `lint_file` when you have an `Option<ProjectFiles>`.
+pub fn lint_file_with_project(
+    db: &dyn GraphQLAnalysisDatabase,
+    content: FileContent,
+    metadata: FileMetadata,
+    project_files: ProjectFiles,
+) -> Arc<Vec<Diagnostic>> {
+    lint_file_impl(db, content, metadata, project_files)
+}
+
 /// Internal tracked function for linting with project files
 #[salsa::tracked]
 fn lint_file_impl(
@@ -43,13 +54,11 @@ fn lint_file_impl(
 ) -> Arc<Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
 
-    // Parse the file (cached by Salsa!)
     let parse = graphql_syntax::parse(db, content, metadata);
 
     let uri = metadata.uri(db);
     tracing::debug!(uri = %uri, parse_errors = parse.errors.len(), "lint_file called");
 
-    // Skip linting if there are parse errors
     if !parse.errors.is_empty() {
         tracing::debug!(uri = %uri, "Skipping linting due to parse errors");
         return Arc::new(diagnostics);
@@ -60,7 +69,6 @@ fn lint_file_impl(
 
     tracing::debug!(uri = %uri, ?file_kind, "Checking file kind");
 
-    // Run lints based on file kind
     match file_kind {
         FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
             tracing::debug!(uri = %uri, "Running standalone document lints");
@@ -103,7 +111,6 @@ fn standalone_document_lints(
     let lint_config = db.lint_config();
     let mut diagnostics = Vec::new();
 
-    // Get all standalone document rules from registry
     for rule in graphql_linter::standalone_document_rules() {
         let enabled = lint_config.is_enabled(rule.name());
         tracing::debug!(
@@ -116,7 +123,6 @@ fn standalone_document_lints(
             continue;
         }
 
-        // Run the rule (it will access parse via Salsa)
         let lint_diags = rule.check(db, file_id, content, metadata, project_files);
 
         if !lint_diags.is_empty() {
@@ -127,7 +133,6 @@ fn standalone_document_lints(
             );
         }
 
-        // Convert to analysis Diagnostic format
         let severity = lint_config
             .get_severity(rule.name())
             .map_or(Severity::Warning, convert_severity);
@@ -155,7 +160,6 @@ fn document_schema_lints(
     let lint_config = db.lint_config();
     let mut diagnostics = Vec::new();
 
-    // Get all document+schema rules from registry
     for rule in graphql_linter::document_schema_rules() {
         let enabled = lint_config.is_enabled(rule.name());
         tracing::debug!(
@@ -168,7 +172,6 @@ fn document_schema_lints(
             continue;
         }
 
-        // Run the rule (it has access to schema via project_files)
         let lint_diags = rule.check(db, file_id, content, metadata, project_files);
 
         if !lint_diags.is_empty() {
@@ -179,7 +182,6 @@ fn document_schema_lints(
             );
         }
 
-        // Convert to analysis Diagnostic format
         let severity = lint_config
             .get_severity(rule.name())
             .map_or(Severity::Warning, convert_severity);
@@ -205,27 +207,10 @@ fn schema_lints(
     _metadata: FileMetadata,
     _project_files: ProjectFiles,
 ) -> Vec<Diagnostic> {
-    let _lint_config = db.lint_config(); // Will be used when schema rules are added
+    let _lint_config = db.lint_config();
     let diagnostics = Vec::new();
 
-    // Note: Currently there are no schema lint rules in graphql-linter
-    // This is a placeholder for future schema design rules like:
-    // - Type naming conventions (PascalCase)
-    // - Field naming conventions (camelCase)
-    // - Enum value naming conventions (SCREAMING_SNAKE_CASE)
-    // - Description requirements
-    // - Deprecation guidelines
-    // etc.
-
-    // When schema rules are added to graphql-linter, they would be called here:
-    // for rule in graphql_linter::schema_rules() {
-    //     if lint_config.is_enabled(rule.name()) {
-    //         let lint_diags = rule.check(db, file_id, content, metadata, project_files);
-    //         let severity = lint_config.get_severity(rule.name())
-    //             .map_or(Severity::Warning, convert_severity);
-    //         diagnostics.extend(convert_lint_diagnostics(db, content, lint_diags, rule.name(), severity));
-    //     }
-    // }
+    // Placeholder for future schema design rules (naming conventions, descriptions, etc.)
 
     tracing::debug!(
         enabled_rules = 0,
@@ -261,7 +246,6 @@ fn project_lint_diagnostics_impl(
 
     tracing::info!("Running project-wide lint rules");
 
-    // Get all project rules from registry
     for rule in graphql_linter::project_rules() {
         let enabled = lint_config.is_enabled(rule.name());
         tracing::info!(
@@ -274,7 +258,6 @@ fn project_lint_diagnostics_impl(
             continue;
         }
 
-        // Run the project-wide rule
         let lint_diags = rule.check(db, project_files);
 
         tracing::info!(
@@ -283,9 +266,7 @@ fn project_lint_diagnostics_impl(
             "Project-wide rule returned diagnostics"
         );
 
-        // Merge into result
         for (file_id, file_lint_diags) in lint_diags {
-            // Find the FileContent and FileMetadata for this FileId from project_files
             let Some((content, metadata)) =
                 find_file_content_and_metadata(db, project_files, file_id)
             else {
@@ -325,20 +306,9 @@ fn find_file_content_and_metadata(
     project_files: ProjectFiles,
     file_id: FileId,
 ) -> Option<(FileContent, FileMetadata)> {
-    // Use per-file lookup for granular caching
     graphql_db::file_lookup(db, project_files, file_id)
 }
 
-/// Convert `LintDiagnostic` (byte offsets) to `Diagnostic` (line/column)
-///
-/// For TypeScript/JavaScript files with extracted blocks, each `LintDiagnostic` may have
-/// `block_line_offset` and `block_source` set. When present:
-/// - `offset_range` is relative to `block_source`, not the full file
-/// - We build a `LineIndex` from `block_source` to convert byte offsets to line/column
-/// - We add `block_line_offset` to get the correct position in the original file
-///
-/// For pure GraphQL files (no block context), we use the full file's `LineIndex`
-/// and `metadata.line_offset()`.
 #[allow(clippy::cast_possible_truncation)]
 fn convert_lint_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
@@ -350,18 +320,15 @@ fn convert_lint_diagnostics(
 ) -> Vec<Diagnostic> {
     use graphql_linter::DiagnosticSeverity as LintSev;
 
-    // Cache the full file's line index for diagnostics without block context
     let file_line_index = graphql_syntax::line_index(db, content);
 
     lint_diags
         .into_iter()
         .map(|ld| {
-            // Determine line offset and which line index to use based on block context
             let (line_offset, start_line, start_col, end_line, end_col) =
                 if let (Some(block_line_offset), Some(ref block_source)) =
                     (ld.block_line_offset, &ld.block_source)
                 {
-                    // Diagnostic is from a TS/JS block - use block's source for position conversion
                     let block_line_index = graphql_syntax::LineIndex::new(block_source);
                     let (sl, sc) = block_line_index.line_col(ld.offset_range.start);
                     let (el, ec) = block_line_index.line_col(ld.offset_range.end);
@@ -377,13 +344,11 @@ fn convert_lint_diagnostics(
                     );
                     (block_line_offset, sl, sc, el, ec)
                 } else {
-                    // Diagnostic is from a pure GraphQL file - use file's line index
                     let (sl, sc) = file_line_index.line_col(ld.offset_range.start);
                     let (el, ec) = file_line_index.line_col(ld.offset_range.end);
                     (0, sl, sc, el, ec)
                 };
 
-            // Use configured severity (allows override from config)
             let severity = match ld.severity {
                 LintSev::Error => Severity::Error,
                 LintSev::Warning => configured_severity,

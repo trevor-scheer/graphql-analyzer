@@ -1,7 +1,3 @@
-// GraphQL Syntax Layer
-// This crate handles parsing and syntax trees. No cross-file knowledge, no semantics.
-// All parsing is file-local and fully parallelizable.
-
 //! # Migration Guide: Using `Parse::documents()`
 //!
 //! The `Parse` struct provides the `documents()` method for safely handling both
@@ -106,13 +102,11 @@ impl Parse {
     #[must_use]
     pub fn documents(&self) -> DocumentIterator<'_> {
         if self.blocks.is_empty() {
-            // Pure GraphQL file - yield single document
             DocumentIterator {
                 parse: self,
                 state: IteratorState::Single(false),
             }
         } else {
-            // TypeScript/JavaScript file - yield each block
             DocumentIterator {
                 parse: self,
                 state: IteratorState::Multiple(0),
@@ -178,11 +172,9 @@ pub fn parse(
     let uri = metadata.uri(db);
     match metadata.kind(db) {
         FileKind::Schema | FileKind::ExecutableGraphQL => {
-            // Use apollo-parser for pure GraphQL files
             parse_graphql(&content.text(db), uri.as_str())
         }
         FileKind::TypeScript | FileKind::JavaScript => {
-            // Use graphql-extract to get blocks, then parse each
             extract_and_parse(db, &content.text(db), uri.as_str())
         }
     }
@@ -201,19 +193,14 @@ fn parse_graphql(content: &str, uri: &str) -> Parse {
         })
         .collect();
 
-    // Parse with apollo-compiler to get AST
-    // Use the actual file URI for proper error source tracking
     let ast = match apollo_compiler::ast::Document::parse(content, uri) {
         Ok(doc) => doc,
         Err(with_errors) => {
-            // Collect parse errors from apollo-compiler
-            // Note: apollo-compiler errors don't have precise positions in the same way,
-            // so we use offset 0 for these
+            // apollo-compiler errors don't have precise positions, so we use offset 0
             errors.extend(with_errors.errors.iter().map(|e| ParseError {
                 message: e.to_string(),
                 offset: 0,
             }));
-            // Use the partial document even with errors
             with_errors.partial
         }
     };
@@ -232,7 +219,6 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -
 
     tracing::debug!(content_len = content.len(), "extract_and_parse called");
 
-    // Get extract config from database, or use default
     let config = db
         .extract_config()
         .map_or_else(ExtractConfig::default, |arc| (*arc).clone());
@@ -243,7 +229,7 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -
         "Using extract config"
     );
 
-    let language = Language::TypeScript; // Will work for both TS and JS
+    let language = Language::TypeScript;
     let extracted = match extract_from_source(content, language, &config) {
         Ok(blocks) => {
             tracing::debug!(blocks_extracted = blocks.len(), "Extraction successful");
@@ -258,36 +244,27 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -
     let mut blocks = Vec::new();
     let mut all_errors = Vec::new();
 
-    // For TS/JS files with blocks, use empty tree/ast for main_tree/main_ast
-    // since callers should use blocks via documents() iterator.
-    // This avoids parsing the first block twice.
+    // Use empty tree/ast for main since callers use blocks via documents() iterator
     let main_tree = apollo_parser::Parser::new("").parse();
     let main_ast = apollo_compiler::ast::Document::default();
 
-    // Parse each extracted block
     for block in extracted {
         let parser = apollo_parser::Parser::new(&block.source);
         let tree = parser.parse();
 
-        // Collect errors for this block, adjusting offsets to original file positions
         let block_offset = block.location.offset;
         all_errors.extend(tree.errors().map(|e| ParseError {
             message: e.message().to_string(),
             offset: block_offset + e.index(),
         }));
 
-        // Parse with apollo-compiler to get AST
-        // Use the actual file URI for proper error source tracking
         let ast = match apollo_compiler::ast::Document::parse(&block.source, uri) {
             Ok(doc) => doc,
             Err(with_errors) => {
-                // Collect parse errors from apollo-compiler
-                // Use block offset for these errors since we don't have precise positions
                 all_errors.extend(with_errors.errors.iter().map(|e| ParseError {
                     message: e.to_string(),
                     offset: block_offset,
                 }));
-                // Use the partial document even with errors
                 with_errors.partial
             }
         };
@@ -361,7 +338,6 @@ pub fn content_has_schema_definitions(content: &str) -> bool {
 #[must_use]
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
 pub fn determine_file_kind_from_content(path: &str, content: &str) -> FileKind {
-    // For TypeScript/JavaScript, return the appropriate FileKind
     if path.ends_with(".ts") || path.ends_with(".tsx") {
         return FileKind::TypeScript;
     }
@@ -369,7 +345,6 @@ pub fn determine_file_kind_from_content(path: &str, content: &str) -> FileKind {
         return FileKind::JavaScript;
     }
 
-    // For .graphql/.gql files, check content to determine Schema vs ExecutableGraphQL
     if content_has_schema_definitions(content) {
         FileKind::Schema
     } else {
@@ -457,15 +432,10 @@ mod tests {
         let text = "line 1\nline 2\nline 3";
         let index = LineIndex::new(text);
 
-        // First line
         assert_eq!(index.line_col(0), (0, 0));
         assert_eq!(index.line_col(5), (0, 5));
-
-        // Second line
         assert_eq!(index.line_col(7), (1, 0));
         assert_eq!(index.line_col(10), (1, 3));
-
-        // Third line
         assert_eq!(index.line_col(14), (2, 0));
     }
 
@@ -581,14 +551,6 @@ mod tests {
         let content = "type User {"; // Invalid GraphQL
         let parser = apollo_parser::Parser::new(content);
         let tree = parser.parse();
-
-        for error in tree.errors() {
-            println!("Error message: {}", error.message());
-            println!("Error data: {:?}", error.data());
-            println!("Error index: {:?}", error.index());
-        }
-
-        // This test is just for exploration
         assert!(tree.errors().next().is_some());
     }
 
@@ -650,7 +612,6 @@ mod tests {
 
     #[test]
     fn test_documents_iterator_empty_blocks() {
-        // Edge case: empty blocks vector should behave like pure GraphQL
         let content = "type User { id: ID! }";
         let parse = parse_graphql(content, "test.graphql");
 

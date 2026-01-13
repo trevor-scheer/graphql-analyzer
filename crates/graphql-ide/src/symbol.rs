@@ -199,7 +199,6 @@ pub fn find_symbol_at_offset(
 ) -> Option<Symbol> {
     let doc = tree.document();
 
-    // Search through all definitions
     for definition in doc.definitions() {
         if let Some(symbol) = check_definition(&definition, byte_offset) {
             return Some(symbol);
@@ -226,17 +225,14 @@ pub fn find_parent_type_at_offset(
 ) -> Option<ParentTypeContext> {
     let doc = tree.document();
 
-    // Check all definitions
     for definition in doc.definitions() {
         match definition {
             cst::Definition::OperationDefinition(op) => {
                 if let Some(selection_set) = op.selection_set() {
-                    // Check if we're in this operation's selection set
                     let start: usize = selection_set.syntax().text_range().start().into();
                     let end: usize = selection_set.syntax().text_range().end().into();
 
                     if byte_offset >= start && byte_offset <= end {
-                        // Determine the root type based on operation type
                         let root_type = match op.operation_type() {
                             Some(op_type) if op_type.mutation_token().is_some() => "Mutation",
                             Some(op_type) if op_type.subscription_token().is_some() => {
@@ -245,7 +241,6 @@ pub fn find_parent_type_at_offset(
                             _ => "Query", // Default to Query for explicit query or shorthand
                         };
 
-                        // Try to find a nested parent field
                         let immediate_parent = find_parent_field_type(&selection_set, byte_offset)
                             .unwrap_or_else(|| root_type.to_string());
 
@@ -407,7 +402,6 @@ pub fn find_schema_field_parent_type(
 pub fn is_in_selection_set(tree: &apollo_parser::SyntaxTree, byte_offset: usize) -> bool {
     let doc = tree.document();
 
-    // Check all definitions
     for definition in doc.definitions() {
         match definition {
             cst::Definition::OperationDefinition(op) => {
@@ -487,7 +481,6 @@ fn check_definition(definition: &cst::Definition, byte_offset: usize) -> Option<
         }
         cst::Definition::UnionTypeDefinition(union) => {
             check_type_definition_name(union.name(), byte_offset).or_else(|| {
-                // Check union member types
                 if let Some(members) = union.union_member_types() {
                     for member in members.named_types() {
                         if let Some(name) = member.name() {
@@ -523,7 +516,6 @@ fn check_fields_definition(
 ) -> Option<Symbol> {
     let fields = fields?;
     for field in fields.field_definitions() {
-        // Check the field name itself
         if let Some(name) = field.name() {
             if is_within_range(&name, byte_offset) {
                 return Some(Symbol::FieldName {
@@ -531,13 +523,11 @@ fn check_fields_definition(
                 });
             }
         }
-        // Check the field's return type
         if let Some(ty) = field.ty() {
             if let Some(symbol) = check_type_reference(&ty, byte_offset) {
                 return Some(symbol);
             }
         }
-        // Check argument types
         if let Some(args) = field.arguments_definition() {
             for arg in args.input_value_definitions() {
                 if let Some(ty) = arg.ty() {
@@ -631,7 +621,6 @@ fn check_implements_interfaces(
 }
 
 fn check_operation(op: &cst::OperationDefinition, byte_offset: usize) -> Option<Symbol> {
-    // Check operation name
     if let Some(name) = op.name() {
         if is_within_range(&name, byte_offset) {
             return Some(Symbol::OperationName {
@@ -640,7 +629,6 @@ fn check_operation(op: &cst::OperationDefinition, byte_offset: usize) -> Option<
         }
     }
 
-    // Check selection set
     if let Some(selection_set) = op.selection_set() {
         if let Some(symbol) = check_selection_set(&selection_set, byte_offset) {
             return Some(symbol);
@@ -651,7 +639,6 @@ fn check_operation(op: &cst::OperationDefinition, byte_offset: usize) -> Option<
 }
 
 fn check_fragment_definition(frag: &cst::FragmentDefinition, byte_offset: usize) -> Option<Symbol> {
-    // Check fragment name (the definition itself)
     if let Some(frag_name) = frag.fragment_name() {
         if let Some(name) = frag_name.name() {
             if is_within_range(&name, byte_offset) {
@@ -662,7 +649,6 @@ fn check_fragment_definition(frag: &cst::FragmentDefinition, byte_offset: usize)
         }
     }
 
-    // Check type condition
     if let Some(type_cond) = frag.type_condition() {
         if let Some(named_type) = type_cond.named_type() {
             if let Some(name) = named_type.name() {
@@ -675,7 +661,6 @@ fn check_fragment_definition(frag: &cst::FragmentDefinition, byte_offset: usize)
         }
     }
 
-    // Check selection set
     if let Some(selection_set) = frag.selection_set() {
         if let Some(symbol) = check_selection_set(&selection_set, byte_offset) {
             return Some(symbol);
@@ -687,7 +672,6 @@ fn check_fragment_definition(frag: &cst::FragmentDefinition, byte_offset: usize)
 
 fn check_arguments(arguments: &cst::Arguments, byte_offset: usize) -> Option<Symbol> {
     for arg in arguments.arguments() {
-        // Check argument name
         if let Some(name) = arg.name() {
             if is_within_range(&name, byte_offset) {
                 return Some(Symbol::ArgumentName {
@@ -740,7 +724,6 @@ fn check_selection_set(selection_set: &cst::SelectionSet, byte_offset: usize) ->
     for selection in selection_set.selections() {
         match selection {
             cst::Selection::Field(field) => {
-                // Check field name
                 if let Some(name) = field.name() {
                     if is_within_range(&name, byte_offset) {
                         return Some(Symbol::FieldName {
@@ -749,14 +732,12 @@ fn check_selection_set(selection_set: &cst::SelectionSet, byte_offset: usize) ->
                     }
                 }
 
-                // Check arguments
                 if let Some(arguments) = field.arguments() {
                     if let Some(symbol) = check_arguments(&arguments, byte_offset) {
                         return Some(symbol);
                     }
                 }
 
-                // Check nested selection set
                 if let Some(nested) = field.selection_set() {
                     if let Some(symbol) = check_selection_set(&nested, byte_offset) {
                         return Some(symbol);
@@ -773,7 +754,6 @@ fn check_selection_set(selection_set: &cst::SelectionSet, byte_offset: usize) ->
                 }
             }
             cst::Selection::InlineFragment(inline_frag) => {
-                // Check type condition
                 if let Some(type_cond) = inline_frag.type_condition() {
                     if let Some(named_type) = type_cond.named_type() {
                         if let Some(name) = named_type.name() {
@@ -786,7 +766,6 @@ fn check_selection_set(selection_set: &cst::SelectionSet, byte_offset: usize) ->
                     }
                 }
 
-                // Check nested selection set
                 if let Some(nested) = inline_frag.selection_set() {
                     if let Some(symbol) = check_selection_set(&nested, byte_offset) {
                         return Some(symbol);
@@ -865,7 +844,6 @@ pub fn find_fragment_spreads(
     let mut offsets = Vec::new();
     let doc = tree.document();
 
-    // Search through all definitions
     for definition in doc.definitions() {
         if let cst::Definition::OperationDefinition(op) = definition {
             if let Some(selection_set) = op.selection_set() {
@@ -922,7 +900,6 @@ pub fn find_type_references_in_tree(
     let mut offsets = Vec::new();
     let doc = tree.document();
 
-    // Search through all definitions
     for definition in doc.definitions() {
         match definition {
             cst::Definition::ObjectTypeDefinition(obj) => {
@@ -965,7 +942,6 @@ fn find_type_refs_in_object_type(
     type_name: &str,
     offsets: &mut Vec<usize>,
 ) {
-    // Check implements interfaces
     if let Some(implements) = obj.implements_interfaces() {
         for iface in implements.named_types() {
             if let Some(name) = iface.name() {
@@ -977,7 +953,6 @@ fn find_type_refs_in_object_type(
         }
     }
 
-    // Check field types
     for field in obj
         .fields_definition()
         .into_iter()
@@ -987,7 +962,6 @@ fn find_type_refs_in_object_type(
             find_type_refs_in_type(&ty, type_name, offsets);
         }
 
-        // Check argument types
         if let Some(args) = field.arguments_definition() {
             for arg in args.input_value_definitions() {
                 if let Some(ty) = arg.ty() {
@@ -1003,7 +977,6 @@ fn find_type_refs_in_interface_type(
     type_name: &str,
     offsets: &mut Vec<usize>,
 ) {
-    // Check implements interfaces
     if let Some(implements) = iface.implements_interfaces() {
         for impl_iface in implements.named_types() {
             if let Some(name) = impl_iface.name() {
@@ -1015,7 +988,6 @@ fn find_type_refs_in_interface_type(
         }
     }
 
-    // Check field types
     for field in iface
         .fields_definition()
         .into_iter()
@@ -1025,7 +997,6 @@ fn find_type_refs_in_interface_type(
             find_type_refs_in_type(&ty, type_name, offsets);
         }
 
-        // Check argument types
         if let Some(args) = field.arguments_definition() {
             for arg in args.input_value_definitions() {
                 if let Some(ty) = arg.ty() {
@@ -1041,7 +1012,6 @@ fn find_type_refs_in_union_type(
     type_name: &str,
     offsets: &mut Vec<usize>,
 ) {
-    // Check union members
     if let Some(members) = union.union_member_types() {
         for member in members.named_types() {
             if let Some(name) = member.name() {
@@ -1059,7 +1029,6 @@ fn find_type_refs_in_input_object_type(
     type_name: &str,
     offsets: &mut Vec<usize>,
 ) {
-    // Check input field types
     for field in input
         .input_fields_definition()
         .into_iter()
@@ -1076,7 +1045,6 @@ fn find_type_refs_in_object_type_ext(
     type_name: &str,
     offsets: &mut Vec<usize>,
 ) {
-    // Check implements interfaces
     if let Some(implements) = ext.implements_interfaces() {
         for iface in implements.named_types() {
             if let Some(name) = iface.name() {
@@ -1088,7 +1056,6 @@ fn find_type_refs_in_object_type_ext(
         }
     }
 
-    // Check field types
     for field in ext
         .fields_definition()
         .into_iter()
@@ -1098,7 +1065,6 @@ fn find_type_refs_in_object_type_ext(
             find_type_refs_in_type(&ty, type_name, offsets);
         }
 
-        // Check argument types
         if let Some(args) = field.arguments_definition() {
             for arg in args.input_value_definitions() {
                 if let Some(ty) = arg.ty() {
@@ -1114,7 +1080,6 @@ fn find_type_refs_in_interface_type_ext(
     type_name: &str,
     offsets: &mut Vec<usize>,
 ) {
-    // Check implements interfaces
     if let Some(implements) = ext.implements_interfaces() {
         for iface in implements.named_types() {
             if let Some(name) = iface.name() {
@@ -1126,7 +1091,6 @@ fn find_type_refs_in_interface_type_ext(
         }
     }
 
-    // Check field types
     for field in ext
         .fields_definition()
         .into_iter()
@@ -1136,7 +1100,6 @@ fn find_type_refs_in_interface_type_ext(
             find_type_refs_in_type(&ty, type_name, offsets);
         }
 
-        // Check argument types
         if let Some(args) = field.arguments_definition() {
             for arg in args.input_value_definitions() {
                 if let Some(ty) = arg.ty() {
@@ -1152,7 +1115,6 @@ fn find_type_refs_in_union_type_ext(
     type_name: &str,
     offsets: &mut Vec<usize>,
 ) {
-    // Check union members
     if let Some(members) = ext.union_member_types() {
         for member in members.named_types() {
             if let Some(name) = member.name() {
@@ -1170,7 +1132,6 @@ fn find_type_refs_in_input_object_type_ext(
     type_name: &str,
     offsets: &mut Vec<usize>,
 ) {
-    // Check input field types
     for field in ext
         .input_fields_definition()
         .into_iter()
