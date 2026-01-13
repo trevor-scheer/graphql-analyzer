@@ -11,11 +11,11 @@ use std::path::PathBuf;
 #[command(version)]
 struct Cli {
     /// Path to GraphQL config file
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(short, long, value_name = "FILE", global = true)]
     config: Option<PathBuf>,
 
     /// Project name (for multi-project configs)
-    #[arg(short, long)]
+    #[arg(short, long, global = true)]
     project: Option<String>,
 
     #[command(subcommand)]
