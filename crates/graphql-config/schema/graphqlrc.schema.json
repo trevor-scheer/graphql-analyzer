@@ -101,8 +101,40 @@
             "type": "string",
             "description": "Schema file path, glob pattern, or HTTP URL"
           }
+        },
+        {
+          "$ref": "#/definitions/IntrospectionSchemaConfig",
+          "description": "Introspection configuration for remote schemas"
         }
       ]
+    },
+    "IntrospectionSchemaConfig": {
+      "type": "object",
+      "description": "Configuration for introspecting a remote GraphQL endpoint",
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "The GraphQL endpoint URL to introspect"
+        },
+        "headers": {
+          "type": "object",
+          "description": "HTTP headers to include in the introspection request (e.g., for authentication)",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "Request timeout in seconds (default: 30)",
+          "minimum": 1
+        },
+        "retry": {
+          "type": "integer",
+          "description": "Number of retry attempts on failure (default: 0)",
+          "minimum": 0
+        }
+      }
     },
     "DocumentsConfig": {
       "description": "Document source configuration",

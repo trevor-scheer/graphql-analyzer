@@ -21,6 +21,7 @@ path = "src/main.rs"
 graphql-config = { path = "../graphql-config" }
 graphql-extract = { path = "../graphql-extract" }
 graphql-ide = { path = "../graphql-ide" }
+graphql-introspect = { path = "../graphql-introspect" }
 graphql-linter = { path = "../graphql-linter" }
 
 # CLI

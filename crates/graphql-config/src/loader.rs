@@ -113,20 +113,27 @@ fn validate_config(config: &GraphQLConfig, path: &Path) -> Result<()> {
     for (project_name, project_config) in config.projects() {
         tracing::trace!(project = project_name, "Validating project config");
 
-        let schema_paths = project_config.schema.paths();
-        if schema_paths.is_empty() {
-            return Err(ConfigError::Invalid {
-                path: path.to_path_buf(),
-                message: format!("Project '{project_name}' has empty schema configuration"),
-            });
-        }
-
-        for schema_path in schema_paths {
-            if schema_path.trim().is_empty() {
+        // Check if schema config is either introspection or has paths
+        if project_config.schema.is_introspection() {
+            // Introspection config is valid (url validation happens at runtime)
+            tracing::trace!(project = project_name, "Schema uses introspection");
+        } else {
+            // Path-based schema - validate paths are present and non-empty
+            let schema_paths = project_config.schema.paths();
+            if schema_paths.is_empty() {
                 return Err(ConfigError::Invalid {
                     path: path.to_path_buf(),
-                    message: format!("Project '{project_name}' has empty schema path"),
+                    message: format!("Project '{project_name}' has empty schema configuration"),
                 });
+            }
+
+            for schema_path in schema_paths {
+                if schema_path.trim().is_empty() {
+                    return Err(ConfigError::Invalid {
+                        path: path.to_path_buf(),
+                        message: format!("Project '{project_name}' has empty schema path"),
+                    });
+                }
             }
         }
 
@@ -276,5 +283,44 @@ schema: ""
         let found = find_config(temp_dir.path()).unwrap().unwrap();
 
         assert_eq!(found.file_name().unwrap(), ".graphqlrc.yml");
+    }
+
+    #[test]
+    fn test_validation_introspection_config() {
+        let yaml = r#"
+schema:
+  url: https://api.example.com/graphql
+  timeout: 30
+  retry: 2
+documents: "**/*.graphql"
+"#;
+
+        let mut file = NamedTempFile::with_suffix(".yml").unwrap();
+        file.write_all(yaml.as_bytes()).unwrap();
+        file.flush().unwrap();
+
+        let config = load_config(file.path()).unwrap();
+        assert!(!config.is_multi_project());
+
+        let project = config.get_project("default").unwrap();
+        assert!(project.schema.is_introspection());
+    }
+
+    #[test]
+    fn test_validation_introspection_config_minimal() {
+        let yaml = r"
+schema:
+  url: https://api.example.com/graphql
+";
+
+        let mut file = NamedTempFile::with_suffix(".yml").unwrap();
+        file.write_all(yaml.as_bytes()).unwrap();
+        file.flush().unwrap();
+
+        let config = load_config(file.path()).unwrap();
+        assert!(!config.is_multi_project());
+
+        let project = config.get_project("default").unwrap();
+        assert!(project.schema.is_introspection());
     }
 }

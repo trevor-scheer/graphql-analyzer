@@ -1,0 +1,8 @@
+# Test workspace for schema introspection
+# Uses the Trevor Blades Countries API: https://countries.trevorblades.com/graphql
+schema:
+  url: https://countries.trevorblades.com/graphql
+  timeout: 30
+  retry: 2
+
+documents: "src/**/*.{graphql,ts}"
