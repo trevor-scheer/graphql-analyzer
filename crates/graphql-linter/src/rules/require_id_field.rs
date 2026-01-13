@@ -133,10 +133,32 @@ fn check_document(
 
                 if let (Some(root_type_name), Some(selection_set)) = (root_type, op.selection_set())
                 {
+                    // For root operations, we use the operation name or operation type as location
+                    // since there's no parent field. Root types (Query/Mutation/Subscription)
+                    // typically don't have an id field anyway.
+                    let op_loc = if let Some(name) = op.name() {
+                        DiagnosticLocation {
+                            start: name.syntax().text_range().start().into(),
+                            end: name.syntax().text_range().end().into(),
+                        }
+                    } else if let Some(op_type) = op.operation_type() {
+                        DiagnosticLocation {
+                            start: op_type.syntax().text_range().start().into(),
+                            end: op_type.syntax().text_range().end().into(),
+                        }
+                    } else {
+                        // Anonymous query shorthand - use selection set start
+                        let start: usize = selection_set.syntax().text_range().start().into();
+                        DiagnosticLocation {
+                            start,
+                            end: start + 1,
+                        }
+                    };
                     let mut visited_fragments = HashSet::new();
                     check_selection_set(
                         &selection_set,
                         root_type_name,
+                        op_loc,
                         check_context,
                         &mut visited_fragments,
                         diagnostics,
@@ -153,10 +175,25 @@ fn check_document(
                 if let (Some(type_name), Some(selection_set)) =
                     (type_condition.as_deref(), frag.selection_set())
                 {
+                    // Position diagnostic on fragment name
+                    let frag_loc = frag.fragment_name().and_then(|fn_| fn_.name()).map_or_else(
+                        || {
+                            let start: usize = selection_set.syntax().text_range().start().into();
+                            DiagnosticLocation {
+                                start,
+                                end: start + 1,
+                            }
+                        },
+                        |name| DiagnosticLocation {
+                            start: name.syntax().text_range().start().into(),
+                            end: name.syntax().text_range().end().into(),
+                        },
+                    );
                     let mut visited_fragments = HashSet::new();
                     check_selection_set(
                         &selection_set,
                         type_name,
+                        frag_loc,
                         check_context,
                         &mut visited_fragments,
                         diagnostics,
@@ -177,10 +214,18 @@ struct CheckContext<'a> {
     all_fragments: &'a HashMap<Arc<str>, graphql_hir::FragmentStructure>,
 }
 
+/// Location for diagnostic placement (start and end offsets)
+#[derive(Clone, Copy)]
+struct DiagnosticLocation {
+    start: usize,
+    end: usize,
+}
+
 #[allow(clippy::only_used_in_recursion, clippy::too_many_lines)]
 fn check_selection_set(
     selection_set: &cst::SelectionSet,
     parent_type_name: &str,
+    parent_location: DiagnosticLocation,
     context: &CheckContext,
     visited_fragments: &mut HashSet<String>,
     diagnostics: &mut Vec<LintDiagnostic>,
@@ -214,9 +259,14 @@ fn check_selection_set(
                         if let Some(field_type) =
                             get_field_type(parent_type_name, &field_name_str, context.schema_types)
                         {
+                            let field_loc = DiagnosticLocation {
+                                start: field_name.syntax().text_range().start().into(),
+                                end: field_name.syntax().text_range().end().into(),
+                            };
                             check_selection_set(
                                 &nested_selection_set,
                                 &field_type,
+                                field_loc,
                                 context,
                                 visited_fragments,
                                 diagnostics,
@@ -270,9 +320,18 @@ fn check_selection_set(
                                             &field_name.text(),
                                             context.schema_types,
                                         ) {
+                                            let field_loc = DiagnosticLocation {
+                                                start: field_name
+                                                    .syntax()
+                                                    .text_range()
+                                                    .start()
+                                                    .into(),
+                                                end: field_name.syntax().text_range().end().into(),
+                                            };
                                             check_selection_set(
                                                 &field_selection_set,
                                                 &field_type,
+                                                field_loc,
                                                 context,
                                                 visited_fragments,
                                                 diagnostics,
@@ -312,13 +371,9 @@ fn check_selection_set(
 
     // Only emit diagnostic if type has id field and it's not in the selection
     if has_id_field && !has_id_in_selection {
-        let syntax_node = selection_set.syntax();
-        let start_offset: usize = syntax_node.text_range().start().into();
-        let end_offset: usize = start_offset + 1;
-
         diagnostics.push(LintDiagnostic::warning(
-            start_offset,
-            end_offset,
+            parent_location.start,
+            parent_location.end,
             format!("Selection set on type '{parent_type_name}' should include the 'id' field"),
             "require_id_field",
         ));
