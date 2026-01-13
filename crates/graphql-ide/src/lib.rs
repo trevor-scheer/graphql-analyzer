@@ -41,6 +41,7 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use salsa::Setter;
 
 mod file_registry;
 pub use file_registry::FileRegistry;
@@ -448,29 +449,69 @@ impl WorkspaceSymbol {
     }
 }
 
+/// Input: Lint configuration
+///
+/// This is a Salsa input so that config changes properly invalidate dependent queries.
+/// Wrapping in Arc allows queries to access the config without cloning the entire config object.
+///
+/// Using Salsa inputs instead of `Arc<RwLock<...>>` ensures:
+/// - Proper dependency tracking (Salsa knows which queries depend on config)
+/// - Automatic invalidation (only config-dependent queries re-run on changes)
+/// - No deadlock risk (Salsa manages all locking internally)
+/// - Snapshot isolation (config is immutable in Analysis snapshots)
+#[salsa::input]
+struct LintConfigInput {
+    pub config: Arc<graphql_linter::LintConfig>,
+}
+
+/// Input: Extract configuration for TypeScript/JavaScript extraction
+///
+/// This is a Salsa input so that config changes properly invalidate dependent queries.
+///
+/// Using Salsa inputs instead of `Arc<RwLock<...>>` ensures:
+/// - Proper dependency tracking (Salsa knows which queries depend on config)
+/// - Automatic invalidation (only config-dependent queries re-run on changes)
+/// - No deadlock risk (Salsa manages all locking internally)
+/// - Snapshot isolation (config is immutable in Analysis snapshots)
+#[salsa::input]
+struct ExtractConfigInput {
+    pub config: Arc<graphql_extract::ExtractConfig>,
+}
+
 /// Custom database that implements config traits
 ///
-/// Uses `parking_lot::RwLock` for interior mutability to ensure thread-safety
-/// when `Analysis` snapshots are accessed from multiple threads concurrently.
+/// Config is now stored as Salsa inputs (`LintConfigInput` and `ExtractConfigInput`)
+/// instead of `Arc<RwLock<...>>` wrappers. This allows Salsa to properly track config
+/// dependencies and only invalidate affected queries when config changes.
 #[salsa::db]
 #[derive(Clone)]
 struct IdeDatabase {
     storage: salsa::Storage<Self>,
-    lint_config: Arc<RwLock<Arc<graphql_linter::LintConfig>>>,
-    extract_config: Arc<RwLock<Arc<graphql_extract::ExtractConfig>>>,
+    lint_config_input: Option<LintConfigInput>,
+    extract_config_input: Option<ExtractConfigInput>,
     project_files: Arc<RwLock<Option<graphql_db::ProjectFiles>>>,
 }
 
 impl Default for IdeDatabase {
     fn default() -> Self {
-        Self {
+        let mut db = Self {
             storage: salsa::Storage::default(),
-            lint_config: Arc::new(RwLock::new(Arc::new(graphql_linter::LintConfig::default()))),
-            extract_config: Arc::new(RwLock::new(Arc::new(
-                graphql_extract::ExtractConfig::default(),
-            ))),
+            lint_config_input: None,
+            extract_config_input: None,
             project_files: Arc::new(RwLock::new(None)),
-        }
+        };
+
+        // Initialize with default configs as Salsa inputs
+        db.lint_config_input = Some(LintConfigInput::new(
+            &db,
+            Arc::new(graphql_linter::LintConfig::default()),
+        ));
+        db.extract_config_input = Some(ExtractConfigInput::new(
+            &db,
+            Arc::new(graphql_extract::ExtractConfig::default()),
+        ));
+
+        db
     }
 }
 
@@ -480,7 +521,8 @@ impl salsa::Database for IdeDatabase {}
 #[salsa::db]
 impl graphql_syntax::GraphQLSyntaxDatabase for IdeDatabase {
     fn extract_config(&self) -> Option<Arc<graphql_extract::ExtractConfig>> {
-        Some(self.extract_config.read().clone())
+        self.extract_config_input
+            .map(|input| input.config(self).clone())
     }
 }
 
@@ -490,7 +532,10 @@ impl graphql_hir::GraphQLHirDatabase for IdeDatabase {}
 #[salsa::db]
 impl graphql_analysis::GraphQLAnalysisDatabase for IdeDatabase {
     fn lint_config(&self) -> Arc<graphql_linter::LintConfig> {
-        self.lint_config.read().clone()
+        self.lint_config_input.map_or_else(
+            || Arc::new(graphql_linter::LintConfig::default()),
+            |input| input.config(self).clone(),
+        )
     }
 }
 
@@ -762,18 +807,37 @@ impl AnalysisHost {
     }
 
     /// Set the lint configuration for the project
+    ///
+    /// This properly invalidates all queries that depend on lint config via Salsa's
+    /// dependency tracking. Only lint-dependent queries will re-run when config changes.
     pub fn set_lint_config(&mut self, config: graphql_linter::LintConfig) {
-        *self.db.lint_config.write() = Arc::new(config);
+        if let Some(input) = self.db.lint_config_input {
+            input.set_config(&mut self.db).to(Arc::new(config));
+        } else {
+            let input = LintConfigInput::new(&self.db, Arc::new(config));
+            self.db.lint_config_input = Some(input);
+        }
     }
 
     /// Set the extract configuration for the project
+    ///
+    /// This properly invalidates all queries that depend on extract config via Salsa's
+    /// dependency tracking. Only extract-dependent queries will re-run when config changes.
     pub fn set_extract_config(&mut self, config: graphql_extract::ExtractConfig) {
-        *self.db.extract_config.write() = Arc::new(config);
+        if let Some(input) = self.db.extract_config_input {
+            input.set_config(&mut self.db).to(Arc::new(config));
+        } else {
+            let input = ExtractConfigInput::new(&self.db, Arc::new(config));
+            self.db.extract_config_input = Some(input);
+        }
     }
 
     /// Get the extract configuration for the project
     pub fn get_extract_config(&self) -> graphql_extract::ExtractConfig {
-        (**self.db.extract_config.read()).clone()
+        self.db
+            .extract_config_input
+            .map(|input| (*input.config(&self.db)).clone())
+            .unwrap_or_default()
     }
 
     /// Get an immutable snapshot for analysis

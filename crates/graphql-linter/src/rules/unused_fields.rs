@@ -129,7 +129,6 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
     }
 }
 
-
 /// Check if a type is a built-in introspection type
 fn is_introspection_type(type_name: &str) -> bool {
     matches!(
