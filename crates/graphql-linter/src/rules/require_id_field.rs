@@ -43,7 +43,7 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
 
         // Build a map of type names to whether they have an id field
         let mut types_with_id: HashMap<String, bool> = HashMap::new();
-        for (type_name, type_def) in schema_types.iter() {
+        for (type_name, type_def) in schema_types {
             let has_id = match type_def.kind {
                 graphql_hir::TypeDefKind::Object | graphql_hir::TypeDefKind::Interface => {
                     type_def.fields.iter().any(|f| f.name.as_ref() == "id")
@@ -57,7 +57,7 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
         let all_fragments = graphql_hir::all_fragments(db, project_files);
 
         // Get root operation types from schema definition or fall back to defaults
-        let root_types = extract_root_type_names(db, project_files, &schema_types);
+        let root_types = extract_root_type_names(db, project_files, schema_types);
         let query_type = root_types.query;
         let mutation_type = root_types.mutation;
         let subscription_type = root_types.subscription;
@@ -66,9 +66,9 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
         let check_context = CheckContext {
             db,
             project_files,
-            schema_types: &schema_types,
+            schema_types,
             types_with_id: &types_with_id,
-            all_fragments: &all_fragments,
+            all_fragments,
         };
 
         // Check the main document (for .graphql files only)

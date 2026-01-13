@@ -54,14 +54,14 @@ impl DocumentSchemaLintRule for NoDeprecatedRuleImpl {
             || file_kind == graphql_db::FileKind::Schema
         {
             let doc_cst = parse.tree.document();
-            check_document_for_deprecated(&doc_cst, &schema_types, &mut diagnostics);
+            check_document_for_deprecated(&doc_cst, schema_types, &mut diagnostics);
         }
 
         // Check operations in extracted blocks (TypeScript/JavaScript)
         for block in &parse.blocks {
             let block_doc = block.tree.document();
             let mut block_diagnostics = Vec::new();
-            check_document_for_deprecated(&block_doc, &schema_types, &mut block_diagnostics);
+            check_document_for_deprecated(&block_doc, schema_types, &mut block_diagnostics);
             // Add block context to each diagnostic for proper position calculation
             for diag in block_diagnostics {
                 diagnostics.push(diag.with_block_context(block.line, block.source.clone()));

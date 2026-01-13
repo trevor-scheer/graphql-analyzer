@@ -83,7 +83,7 @@ pub fn validate_document_file(
         let op_range =
             text_range_to_diagnostic_range(db, content, metadata, op_structure.operation_range);
         for var in &op_structure.variables {
-            validate_variable_type(&var.type_ref, &schema, op_range, &mut diagnostics);
+            validate_variable_type(&var.type_ref, schema, op_range, &mut diagnostics);
         }
 
         let root_type_name = match op_structure.operation_type {
@@ -131,7 +131,7 @@ pub fn validate_document_file(
         );
         validate_fragment_type_condition(
             frag_structure,
-            &schema,
+            schema,
             type_condition_range,
             &mut diagnostics,
         );

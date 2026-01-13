@@ -76,7 +76,7 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
         let all_fragments = graphql_hir::all_fragments(db, project_files);
 
         // Add cross-file fragments to the registry
-        for (fragment_name, fragment_info) in all_fragments.iter() {
+        for (fragment_name, fragment_info) in all_fragments {
             // Skip if we already have this fragment from the current document
             if fragments.get(fragment_name.as_ref()).is_some() {
                 continue;
