@@ -46,15 +46,18 @@ enum Commands {
         watch: bool,
     },
 
-    /// Check for breaking changes between schemas
+    /// Run all checks (validate + lint) in a single pass
+    ///
+    /// This command combines GraphQL spec validation and custom lint rules,
+    /// providing unified output and exit codes. Recommended for CI pipelines.
     Check {
-        /// Base branch/ref to compare against
-        #[arg(long)]
-        base: String,
+        /// Output format
+        #[arg(short, long, value_enum, default_value = "human")]
+        format: OutputFormat,
 
-        /// Head branch/ref to compare
-        #[arg(long)]
-        head: String,
+        /// Watch mode - re-check on file changes
+        #[arg(short, long)]
+        watch: bool,
     },
 
     /// Schema-related commands (download, etc.)
@@ -89,8 +92,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::Lint { format, watch } => {
             commands::lint::run(cli.config, cli.project.as_deref(), format, watch)
         }
-        Commands::Check { base, head } => {
-            commands::check::run(cli.config, cli.project, base, head).await
+        Commands::Check { format, watch } => {
+            commands::check::run(cli.config, cli.project.as_deref(), format, watch)
         }
         Commands::Schema { command } => commands::schema::run(command).await,
     };
