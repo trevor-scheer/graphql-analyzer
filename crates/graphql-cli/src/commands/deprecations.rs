@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// A single usage of a deprecated field
+#[derive(Clone)]
 struct DeprecatedUsage {
     file_path: String,
     line: usize,
@@ -220,12 +221,45 @@ fn parse_deprecation_message(message: &str) -> (String, Option<String>) {
     (name, reason)
 }
 
-impl Clone for DeprecatedUsage {
-    fn clone(&self) -> Self {
-        Self {
-            file_path: self.file_path.clone(),
-            line: self.line,
-            column: self.column,
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_deprecation_message_with_reason() {
+        let (name, reason) =
+            parse_deprecation_message("Field 'legacyId' is deprecated: Use id instead");
+        assert_eq!(name, "legacyId");
+        assert_eq!(reason, Some("Use id instead".to_string()));
+    }
+
+    #[test]
+    fn test_parse_deprecation_message_without_reason() {
+        let (name, reason) = parse_deprecation_message("Field 'oldField' is deprecated");
+        assert_eq!(name, "oldField");
+        assert_eq!(reason, None);
+    }
+
+    #[test]
+    fn test_parse_deprecation_message_argument() {
+        let (name, reason) =
+            parse_deprecation_message("Argument 'oldArg' is deprecated: Use newArg");
+        assert_eq!(name, "oldArg");
+        assert_eq!(reason, Some("Use newArg".to_string()));
+    }
+
+    #[test]
+    fn test_parse_deprecation_message_enum_value() {
+        let (name, reason) =
+            parse_deprecation_message("Enum value 'OLD_VALUE' is deprecated: Use NEW_VALUE");
+        assert_eq!(name, "OLD_VALUE");
+        assert_eq!(reason, Some("Use NEW_VALUE".to_string()));
+    }
+
+    #[test]
+    fn test_parse_deprecation_message_no_quotes() {
+        let (name, reason) = parse_deprecation_message("Some other message format");
+        assert_eq!(name, "unknown");
+        assert_eq!(reason, None);
     }
 }

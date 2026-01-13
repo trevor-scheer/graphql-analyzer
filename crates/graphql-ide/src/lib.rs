@@ -126,7 +126,6 @@ fn extract_cursor(input: &str) -> (String, Position) {
 
 // POD types are now defined in types.rs and re-exported above
 
-
 /// Semantic token type for syntax highlighting
 ///
 /// These map to LSP semantic token types and provide rich syntax highlighting
@@ -239,6 +238,35 @@ impl SemanticToken {
             modifiers,
         }
     }
+}
+
+/// Input: Lint configuration
+///
+/// This is a Salsa input so that config changes properly invalidate dependent queries.
+/// Wrapping in Arc allows queries to access the config without cloning the entire config object.
+///
+/// Using Salsa inputs instead of `Arc<RwLock<...>>` ensures:
+/// - Proper dependency tracking (Salsa knows which queries depend on config)
+/// - Automatic invalidation (only config-dependent queries re-run on changes)
+/// - No deadlock risk (Salsa manages all locking internally)
+/// - Snapshot isolation (config is immutable in Analysis snapshots)
+#[salsa::input]
+struct LintConfigInput {
+    pub config: Arc<graphql_linter::LintConfig>,
+}
+
+/// Input: Extract configuration for TypeScript/JavaScript extraction
+///
+/// This is a Salsa input so that config changes properly invalidate dependent queries.
+///
+/// Using Salsa inputs instead of `Arc<RwLock<...>>` ensures:
+/// - Proper dependency tracking (Salsa knows which queries depend on config)
+/// - Automatic invalidation (only config-dependent queries re-run on changes)
+/// - No deadlock risk (Salsa manages all locking internally)
+/// - Snapshot isolation (config is immutable in Analysis snapshots)
+#[salsa::input]
+struct ExtractConfigInput {
+    pub config: Arc<graphql_extract::ExtractConfig>,
 }
 
 /// Custom database that implements config traits
@@ -814,9 +842,10 @@ impl Analysis {
         let line_index = graphql_syntax::line_index(&self.db, content);
 
         // Get schema types if available (for deprecation checks)
-        let schema_types = self
+        // schema_types returns a reference due to Salsa's returns(ref) optimization
+        let schema_types: Option<&std::collections::HashMap<Arc<str>, graphql_hir::TypeDef>> = self
             .project_files
-            .map(|pf| graphql_hir::schema_types_with_project(&self.db, pf));
+            .map(|pf| graphql_hir::schema_types(&self.db, pf));
 
         let mut tokens = Vec::new();
 
@@ -829,7 +858,7 @@ impl Analysis {
                 &parse.tree.document(),
                 &line_index,
                 0,
-                schema_types.as_deref(),
+                schema_types,
                 &mut tokens,
             );
         }
@@ -842,7 +871,7 @@ impl Analysis {
                 &block.tree.document(),
                 &block_line_index,
                 block.line as u32,
-                schema_types.as_deref(),
+                schema_types,
                 &mut tokens,
             );
         }
