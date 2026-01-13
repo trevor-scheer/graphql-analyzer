@@ -100,15 +100,15 @@ impl GraphQLHirDatabase for graphql_db::RootDatabase {
 
 /// Get type definitions from a single schema file
 /// This query is cached per-file - editing another file won't invalidate it
-#[salsa::tracked]
+#[salsa::tracked(returns(ref))]
 pub fn file_type_defs(
     db: &dyn GraphQLHirDatabase,
     file_id: FileId,
     content: graphql_db::FileContent,
     metadata: graphql_db::FileMetadata,
-) -> Arc<Vec<TypeDef>> {
+) -> Vec<TypeDef> {
     let structure = file_structure(db, file_id, content, metadata);
-    Arc::new(structure.type_defs.clone())
+    structure.type_defs.clone()
 }
 
 /// Get fragments from a single document file
@@ -150,26 +150,25 @@ pub fn file_operations(
 ///
 /// When a single schema file changes, only that file's `file_type_defs` is recomputed.
 /// Other files' results come from cache.
-#[salsa::tracked]
+#[salsa::tracked(returns(ref))]
 pub fn schema_types(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_db::ProjectFiles,
-) -> Arc<HashMap<Arc<str>, TypeDef>> {
+) -> HashMap<Arc<str>, TypeDef> {
     let schema_ids = project_files.schema_file_ids(db).ids(db);
     let mut types = HashMap::new();
 
     for file_id in schema_ids.iter() {
         // Use per-file lookup for granular caching
         if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
-            // Per-file query - cached independently
             let file_types = file_type_defs(db, *file_id, content, metadata);
-            for type_def in file_types.iter() {
+            for type_def in file_types {
                 types.insert(type_def.name.clone(), type_def.clone());
             }
         }
     }
 
-    Arc::new(types)
+    types
 }
 
 /// Get all fragments in the project
@@ -180,11 +179,11 @@ pub fn schema_types(
 ///
 /// When a single document file changes, only that file's `file_fragments` is recomputed.
 /// Other files' results come from cache.
-#[salsa::tracked]
+#[salsa::tracked(returns(ref))]
 pub fn all_fragments(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_db::ProjectFiles,
-) -> Arc<HashMap<Arc<str>, FragmentStructure>> {
+) -> HashMap<Arc<str>, FragmentStructure> {
     let doc_ids = project_files.document_file_ids(db).ids(db);
     let mut fragments = HashMap::new();
 
@@ -199,7 +198,7 @@ pub fn all_fragments(
         }
     }
 
-    Arc::new(fragments)
+    fragments
 }
 
 /// Index mapping fragment names to their file content and metadata
@@ -744,7 +743,7 @@ pub fn file_schema_coordinates(
                     apollo_compiler::ast::OperationType::Subscription => subscription_type.as_ref(),
                 };
                 if let Some(root) = root_type {
-                    collect_coordinates(&op.selection_set, root, &schema_types, &mut coordinates);
+                    collect_coordinates(&op.selection_set, root, schema_types, &mut coordinates);
                 }
             }
             apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
@@ -752,7 +751,7 @@ pub fn file_schema_coordinates(
                 collect_coordinates(
                     &frag.selection_set,
                     &frag_type,
-                    &schema_types,
+                    schema_types,
                     &mut coordinates,
                 );
             }
@@ -776,7 +775,7 @@ pub fn file_schema_coordinates(
                         collect_coordinates(
                             &op.selection_set,
                             root,
-                            &schema_types,
+                            schema_types,
                             &mut coordinates,
                         );
                     }
@@ -786,7 +785,7 @@ pub fn file_schema_coordinates(
                     collect_coordinates(
                         &frag.selection_set,
                         &frag_type,
-                        &schema_types,
+                        schema_types,
                         &mut coordinates,
                     );
                 }

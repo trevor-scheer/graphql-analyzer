@@ -35,7 +35,7 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
         let mut schema_fields: HashMap<String, HashSet<String>> = HashMap::new();
         let mut field_locations: HashMap<(String, String), FileId> = HashMap::new();
 
-        for (type_name, type_def) in schema_types.iter() {
+        for (type_name, type_def) in schema_types {
             // Skip introspection types
             if is_introspection_type(type_name) {
                 continue;
@@ -63,7 +63,7 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
         let doc_ids = project_files.document_file_ids(db).ids(db);
 
         // Determine root types for skipping (supports custom schema definitions)
-        let root_types = extract_root_type_names(db, project_files, &schema_types);
+        let root_types = extract_root_type_names(db, project_files, schema_types);
 
         for file_id in doc_ids.iter() {
             // Use per-file lookup for granular caching

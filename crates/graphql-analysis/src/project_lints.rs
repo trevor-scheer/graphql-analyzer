@@ -17,7 +17,7 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
 
     // Step 1: Collect all schema fields (type_name, field_name) -> (FileId, FieldSignature)
     let mut schema_fields: SchemaFieldsMap = HashMap::new();
-    for (type_name, type_def) in schema.iter() {
+    for (type_name, type_def) in schema {
         for field in &type_def.fields {
             schema_fields.insert(
                 (type_name.clone(), field.name.clone()),
@@ -58,8 +58,8 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
             collect_used_fields_from_selections(
                 &body.selections,
                 &root_type,
-                &schema,
-                &all_fragments,
+                schema,
+                all_fragments,
                 db,
                 &document_files,
                 &mut used_fields,
@@ -126,7 +126,7 @@ pub fn find_unused_fragments(
     // follows them recursively.
 
     let mut unused = Vec::new();
-    for (fragment_name, _fragment_structure) in all_fragments.iter() {
+    for fragment_name in all_fragments.keys() {
         if !used_fragments.contains(fragment_name) {
             // Create a dummy FragmentId - in a real implementation,
             // we'd track the actual FragmentId in the HIR

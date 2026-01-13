@@ -1104,7 +1104,7 @@ impl Analysis {
                     let parent_ctx = find_parent_type_at_offset(block_context.tree, offset)?;
                     let parent_type_name = symbol::walk_type_stack_to_offset(
                         block_context.tree,
-                        &types,
+                        types,
                         offset,
                         &parent_ctx.root_type,
                     )?;
@@ -1247,7 +1247,7 @@ impl Analysis {
                 // which handles inline fragments correctly
                 let parent_type_name = symbol::walk_type_stack_to_offset(
                     &parse.tree,
-                    &types,
+                    types,
                     offset,
                     &parent_ctx.root_type,
                 )?;
@@ -1368,7 +1368,7 @@ impl Analysis {
                 // which handles inline fragments correctly
                 let parent_type_name = symbol::walk_type_stack_to_offset(
                     block_context.tree,
-                    &schema_types,
+                    schema_types,
                     offset,
                     &parent_context.root_type,
                 )?;
@@ -1560,7 +1560,7 @@ impl Analysis {
 
                 let parent_type_name = symbol::walk_type_stack_to_offset(
                     block_context.tree,
-                    &schema_types,
+                    schema_types,
                     offset,
                     &parent_context.root_type,
                 )?;
@@ -1907,7 +1907,7 @@ impl Analysis {
                 &parse,
                 type_name,
                 field_name,
-                &schema_types,
+                schema_types,
                 content,
                 &self.db,
                 line_offset,
@@ -2048,7 +2048,7 @@ impl Analysis {
 
         // Search types
         let types = graphql_hir::schema_types(&self.db, project_files);
-        for (name, type_def) in types.iter() {
+        for (name, type_def) in types {
             if name.to_lowercase().contains(&query_lower) {
                 if let Some(location) = self.get_type_location(type_def) {
                     let kind = match type_def.kind {
@@ -2067,7 +2067,7 @@ impl Analysis {
 
         // Search fragments
         let fragments = graphql_hir::all_fragments(&self.db, project_files);
-        for (name, fragment) in fragments.iter() {
+        for (name, fragment) in fragments {
             if name.to_lowercase().contains(&query_lower) {
                 if let Some(location) = self.get_fragment_location(fragment) {
                     symbols.push(
