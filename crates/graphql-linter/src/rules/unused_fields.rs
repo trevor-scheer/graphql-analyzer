@@ -1,8 +1,8 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::schema_utils::extract_root_type_names;
 use crate::traits::{LintRule, ProjectLintRule};
+use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileId, ProjectFiles};
-use graphql_hir::TextRange;
 use std::collections::{HashMap, HashSet};
 
 /// Trait implementation for `unused_fields` rule
@@ -22,6 +22,20 @@ impl LintRule for UnusedFieldsRuleImpl {
     }
 }
 
+/// Information about a schema field for diagnostic reporting
+struct FieldInfo {
+    /// Type name containing the field
+    type_name: String,
+    /// Field name
+    field_name: String,
+    /// File where the field is defined
+    file_id: FileId,
+    /// Byte offset of the field name (for diagnostic range)
+    name_start: usize,
+    /// Byte offset of the end of the field name
+    name_end: usize,
+}
+
 impl ProjectLintRule for UnusedFieldsRuleImpl {
     #[allow(clippy::too_many_lines)]
     fn check(
@@ -31,31 +45,26 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
     ) -> HashMap<FileId, Vec<LintDiagnostic>> {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
 
-        // Step 1: Collect all schema fields
-        let schema_types = graphql_hir::schema_types(db, project_files);
-        let mut schema_fields: HashMap<String, HashSet<String>> = HashMap::new();
-        let mut field_locations: HashMap<(String, String), (FileId, TextRange)> = HashMap::new();
+        // Step 1: Collect all schema fields with their CST positions
+        let schema_ids = project_files.schema_file_ids(db).ids(db);
+        let mut all_fields: Vec<FieldInfo> = Vec::new();
 
-        for (type_name, type_def) in schema_types {
-            // Skip introspection types
-            if is_introspection_type(type_name) {
+        for file_id in schema_ids.iter() {
+            let Some((content, metadata)) =
+                graphql_base_db::file_lookup(db, project_files, *file_id)
+            else {
+                continue;
+            };
+
+            // Parse the schema file to get CST positions
+            let parse = graphql_syntax::parse(db, content, metadata);
+            if parse.has_errors() {
                 continue;
             }
 
-            // Only track Object and Interface fields
-            if matches!(
-                type_def.kind,
-                graphql_hir::TypeDefKind::Object | graphql_hir::TypeDefKind::Interface
-            ) {
-                let mut fields = HashSet::new();
-                for field in &type_def.fields {
-                    fields.insert(field.name.to_string());
-                    field_locations.insert(
-                        (type_name.to_string(), field.name.to_string()),
-                        (type_def.file_id, field.name_range),
-                    );
-                }
-                schema_fields.insert(type_name.to_string(), fields);
+            // Iterate over all GraphQL documents (unified API)
+            for doc in parse.documents() {
+                collect_schema_fields(&doc.tree.document(), *file_id, &mut all_fields);
             }
         }
 
@@ -64,16 +73,15 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
         let doc_ids = project_files.document_file_ids(db).ids(db);
 
         // Determine root types for skipping (supports custom schema definitions)
+        let schema_types = graphql_hir::schema_types(db, project_files);
         let root_types = extract_root_type_names(db, project_files, schema_types);
 
         for file_id in doc_ids.iter() {
-            // Use per-file lookup for granular caching
             let Some((content, metadata)) =
                 graphql_base_db::file_lookup(db, project_files, *file_id)
             else {
                 continue;
             };
-            // Per-file cached query - only recomputes if THIS file changed
             let file_coords = graphql_hir::file_schema_coordinates(
                 db,
                 *file_id,
@@ -89,48 +97,123 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
             }
         }
 
-        // Step 3: Report unused fields
-        for (type_name, fields) in &schema_fields {
-            // Skip root operation types
-            if root_types.is_root_type(type_name) {
+        // Step 3: Report unused fields (no auto-fix - removing schema fields is a breaking change)
+        for field_info in &all_fields {
+            // Skip introspection types
+            if is_introspection_type(&field_info.type_name) {
                 continue;
             }
 
-            let used_in_type = used_coordinates.get(type_name);
+            // Skip root operation types
+            if root_types.is_root_type(&field_info.type_name) {
+                continue;
+            }
 
-            for field_name in fields {
-                // Skip introspection fields
-                if is_introspection_field(field_name) {
-                    continue;
-                }
+            // Skip introspection fields
+            if is_introspection_field(&field_info.field_name) {
+                continue;
+            }
 
-                let is_used = used_in_type.is_some_and(|set| set.contains(field_name));
+            let is_used = used_coordinates
+                .get(&field_info.type_name)
+                .is_some_and(|set| set.contains(&field_info.field_name));
 
-                if !is_used {
-                    if let Some(&(file_id, name_range)) =
-                        field_locations.get(&(type_name.clone(), field_name.clone()))
-                    {
-                        let message = format!(
-                            "Field '{type_name}.{field_name}' is defined in the schema but never used in any operation or fragment"
-                        );
+            if !is_used {
+                let message = format!(
+                    "Field '{}.{}' is defined in the schema but never used in any operation or fragment",
+                    field_info.type_name, field_info.field_name
+                );
 
-                        let diag = LintDiagnostic::new(
-                            crate::diagnostics::OffsetRange::new(
-                                name_range.start().into(),
-                                name_range.end().into(),
-                            ),
-                            self.default_severity(),
-                            message,
-                            self.name().to_string(),
-                        );
+                let diag = LintDiagnostic::warning(
+                    field_info.name_start,
+                    field_info.name_end,
+                    message,
+                    "unused_fields",
+                );
 
-                        diagnostics_by_file.entry(file_id).or_default().push(diag);
-                    }
-                }
+                diagnostics_by_file
+                    .entry(field_info.file_id)
+                    .or_default()
+                    .push(diag);
             }
         }
 
         diagnostics_by_file
+    }
+}
+
+/// Collect schema field definitions from a CST document with their positions
+fn collect_schema_fields(doc: &cst::Document, file_id: FileId, fields: &mut Vec<FieldInfo>) {
+    for definition in doc.definitions() {
+        match definition {
+            cst::Definition::ObjectTypeDefinition(obj) => {
+                let Some(type_name) = obj.name() else {
+                    continue;
+                };
+                let type_name_str = type_name.text().to_string();
+
+                if let Some(fields_def) = obj.fields_definition() {
+                    collect_field_definitions(&type_name_str, file_id, &fields_def, fields);
+                }
+            }
+            cst::Definition::InterfaceTypeDefinition(iface) => {
+                let Some(type_name) = iface.name() else {
+                    continue;
+                };
+                let type_name_str = type_name.text().to_string();
+
+                if let Some(fields_def) = iface.fields_definition() {
+                    collect_field_definitions(&type_name_str, file_id, &fields_def, fields);
+                }
+            }
+            cst::Definition::ObjectTypeExtension(ext) => {
+                let Some(type_name) = ext.name() else {
+                    continue;
+                };
+                let type_name_str = type_name.text().to_string();
+
+                if let Some(fields_def) = ext.fields_definition() {
+                    collect_field_definitions(&type_name_str, file_id, &fields_def, fields);
+                }
+            }
+            cst::Definition::InterfaceTypeExtension(ext) => {
+                let Some(type_name) = ext.name() else {
+                    continue;
+                };
+                let type_name_str = type_name.text().to_string();
+
+                if let Some(fields_def) = ext.fields_definition() {
+                    collect_field_definitions(&type_name_str, file_id, &fields_def, fields);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Collect field definitions from a `FieldsDefinition` CST node
+fn collect_field_definitions(
+    type_name: &str,
+    file_id: FileId,
+    fields_def: &cst::FieldsDefinition,
+    fields: &mut Vec<FieldInfo>,
+) {
+    for field in fields_def.field_definitions() {
+        let Some(name) = field.name() else {
+            continue;
+        };
+
+        let name_syntax = name.syntax();
+        let name_start: usize = name_syntax.text_range().start().into();
+        let name_end: usize = name_syntax.text_range().end().into();
+
+        fields.push(FieldInfo {
+            type_name: type_name.to_string(),
+            field_name: name.text().to_string(),
+            file_id,
+            name_start,
+            name_end,
+        });
     }
 }
 
