@@ -103,7 +103,6 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
 
 export async function activate(context: ExtensionContext) {
   outputChannel = window.createOutputChannel("GraphQL LSP Debug");
-  outputChannel.show(true);
   outputChannel.appendLine("=== GraphQL LSP extension activating ===");
 
   try {
@@ -124,6 +123,7 @@ export async function activate(context: ExtensionContext) {
       } catch (error) {
         const errorMessage = `Failed to restart GraphQL LSP: ${error}`;
         outputChannel.appendLine(errorMessage);
+        outputChannel.show(true);
         window.showErrorMessage(errorMessage);
       }
     });
@@ -146,6 +146,7 @@ export async function activate(context: ExtensionContext) {
       } catch (error) {
         const errorMessage = `Failed to check status: ${error}`;
         outputChannel.appendLine(errorMessage);
+        outputChannel.show(true);
         window.showErrorMessage(errorMessage);
       }
     });
@@ -154,6 +155,7 @@ export async function activate(context: ExtensionContext) {
   } catch (error) {
     const errorMessage = `Failed to start GraphQL LSP: ${error}`;
     outputChannel.appendLine(errorMessage);
+    outputChannel.show(true);
     window.showErrorMessage(errorMessage);
     throw error;
   }
