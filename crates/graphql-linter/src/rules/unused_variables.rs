@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeFix, LintDiagnostic, LintSeverity, TextEdit};
 use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
@@ -83,23 +83,60 @@ impl StandaloneDocumentLintRule for UnusedVariablesRuleImpl {
     }
 }
 
+/// Information about a declared variable for fix computation
+struct DeclaredVariable {
+    /// Variable name (without $)
+    name: String,
+    /// Byte offset of the variable name (for diagnostic range)
+    name_start: usize,
+    /// Byte offset of the end of the variable name
+    name_end: usize,
+    /// Byte offset of the entire variable definition (including type, default value)
+    def_start: usize,
+    /// Byte offset of the end of the variable definition
+    def_end: usize,
+    /// Index of this variable in the variable definitions list (for future use)
+    #[allow(dead_code)]
+    index: usize,
+    /// Total number of variables in the list (for future use)
+    #[allow(dead_code)]
+    total: usize,
+}
+
 /// Check a single operation for unused variables
 fn check_operation_for_unused_variables(
     operation: &cst::OperationDefinition,
     diagnostics: &mut Vec<LintDiagnostic>,
 ) {
-    // Step 1: Collect all declared variables
-    let mut declared_variables: Vec<(String, usize, usize)> = Vec::new();
+    // Step 1: Collect all declared variables with their ranges
+    let mut declared_variables: Vec<DeclaredVariable> = Vec::new();
 
     if let Some(variable_definitions) = operation.variable_definitions() {
-        for variable_def in variable_definitions.variable_definitions() {
+        let var_defs: Vec<_> = variable_definitions.variable_definitions().collect();
+        let total = var_defs.len();
+
+        for (index, variable_def) in var_defs.iter().enumerate() {
             if let Some(variable) = variable_def.variable() {
                 if let Some(name) = variable.name() {
                     let var_name = name.text().to_string();
-                    let syntax_node = name.syntax();
-                    let start_offset: usize = syntax_node.text_range().start().into();
-                    let end_offset: usize = syntax_node.text_range().end().into();
-                    declared_variables.push((var_name, start_offset, end_offset));
+                    let name_syntax = name.syntax();
+                    let name_start: usize = name_syntax.text_range().start().into();
+                    let name_end: usize = name_syntax.text_range().end().into();
+
+                    // Get the full variable definition range
+                    let def_syntax = variable_def.syntax();
+                    let def_start: usize = def_syntax.text_range().start().into();
+                    let def_end: usize = def_syntax.text_range().end().into();
+
+                    declared_variables.push(DeclaredVariable {
+                        name: var_name,
+                        name_start,
+                        name_end,
+                        def_start,
+                        def_end,
+                        index,
+                        total,
+                    });
                 }
             }
         }
@@ -123,18 +160,42 @@ fn check_operation_for_unused_variables(
         collect_variables_from_selection_set(&selection_set, &mut used_variables);
     }
 
-    // Step 3: Report unused variables
-    for (var_name, start_offset, end_offset) in declared_variables {
-        if !used_variables.contains(&var_name) {
-            let message = format!("Variable '${var_name}' is declared but never used");
-            diagnostics.push(LintDiagnostic::warning(
-                start_offset,
-                end_offset,
-                message,
-                "unused_variables",
-            ));
+    // Step 3: Report unused variables with fixes
+    for var in declared_variables {
+        if !used_variables.contains(&var.name) {
+            let message = format!("Variable '${}' is declared but never used", var.name);
+
+            // Compute the fix range
+            // For a variable list like ($a: A, $b: B, $c: C):
+            // - If removing first variable and there are more: delete from start to after the comma
+            // - If removing middle/last variable: delete from before the comma to end
+            // - If removing only variable: need to remove entire variable definitions ()
+            let fix = compute_variable_removal_fix(&var);
+
+            diagnostics.push(
+                LintDiagnostic::warning(var.name_start, var.name_end, message, "unused_variables")
+                    .with_fix(fix),
+            );
         }
     }
+}
+
+/// Compute the fix for removing an unused variable
+fn compute_variable_removal_fix(var: &DeclaredVariable) -> CodeFix {
+    let label = format!("Remove unused variable '${}'", var.name);
+
+    // For now, we use a simple approach: delete just the variable definition
+    // The CLI fix command will handle multiple variables and cleanup
+    //
+    // More sophisticated approach would be:
+    // - Track commas between variables
+    // - Delete leading comma for non-first variables
+    // - Delete trailing comma for first variables when there are more
+    //
+    // But this is complex with the CST API, so we'll use a simpler approach
+    // that works well for single unused variables
+
+    CodeFix::new(label, vec![TextEdit::delete(var.def_start, var.def_end)])
 }
 
 /// Recursively collect variable references from a selection set
@@ -274,6 +335,14 @@ query GetUser($id: ID!, $unused: String) {
             diagnostics[0].message,
             "Variable '$unused' is declared but never used"
         );
+
+        // Verify fix is provided
+        assert!(diagnostics[0].has_fix());
+        let fix = diagnostics[0].fix.as_ref().unwrap();
+        assert!(fix.label.contains("Remove unused variable"));
+        assert_eq!(fix.edits.len(), 1);
+        // The fix should delete the variable definition
+        assert_eq!(fix.edits[0].new_text, "");
     }
 
     #[test]

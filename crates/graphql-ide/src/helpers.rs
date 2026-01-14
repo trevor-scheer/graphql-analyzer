@@ -113,6 +113,7 @@ pub fn convert_diagnostic(diag: &graphql_analysis::Diagnostic) -> crate::types::
         message: diag.message.to_string(),
         code: diag.code.as_ref().map(ToString::to_string),
         source: diag.source.to_string(),
+        fix: None, // Fixes are handled separately via lint_diagnostics_with_fixes
     }
 }
 

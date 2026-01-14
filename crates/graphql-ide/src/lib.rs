@@ -53,9 +53,9 @@ mod types;
 
 // Re-export types from the types module
 pub use types::{
-    CompletionItem, CompletionKind, Diagnostic, DiagnosticSeverity, DocumentSymbol, FilePath,
-    HoverResult, InsertTextFormat, Location, Position, Range, SchemaStats, SymbolKind,
-    WorkspaceSymbol,
+    CodeFix, CompletionItem, CompletionKind, Diagnostic, DiagnosticSeverity, DocumentSymbol,
+    FilePath, HoverResult, InsertTextFormat, Location, Position, Range, SchemaStats, SymbolKind,
+    TextEdit, WorkspaceSymbol,
 };
 
 // Re-export helpers for internal use
@@ -716,6 +716,76 @@ impl Analysis {
         }
 
         results
+    }
+
+    /// Get raw lint diagnostics with fix information for a file
+    ///
+    /// Returns `LintDiagnostic` objects that include fix information.
+    /// Use this for implementing auto-fix functionality.
+    pub fn lint_diagnostics_with_fixes(
+        &self,
+        file: &FilePath,
+    ) -> Vec<graphql_linter::LintDiagnostic> {
+        let (content, metadata) = {
+            let registry = self.registry.read();
+
+            let Some(file_id) = registry.get_file_id(file) else {
+                return Vec::new();
+            };
+
+            let Some(content) = registry.get_content(file_id) else {
+                return Vec::new();
+            };
+            let Some(metadata) = registry.get_metadata(file_id) else {
+                return Vec::new();
+            };
+            drop(registry);
+
+            (content, metadata)
+        };
+
+        graphql_analysis::lint_integration::lint_file_with_fixes(
+            &self.db,
+            content,
+            metadata,
+            self.project_files,
+        )
+    }
+
+    /// Get project-wide raw lint diagnostics with fix information
+    ///
+    /// Returns a map of file paths -> `LintDiagnostic` objects that include fix information.
+    pub fn project_lint_diagnostics_with_fixes(
+        &self,
+    ) -> HashMap<FilePath, Vec<graphql_linter::LintDiagnostic>> {
+        let diagnostics_by_file_id =
+            graphql_analysis::lint_integration::project_lint_diagnostics_with_fixes(
+                &self.db,
+                self.project_files,
+            );
+
+        let mut results = HashMap::new();
+        let registry = self.registry.read();
+
+        for (file_id, diagnostics) in diagnostics_by_file_id {
+            if let Some(file_path) = registry.get_path(file_id) {
+                if !diagnostics.is_empty() {
+                    results.insert(file_path, diagnostics);
+                }
+            }
+        }
+
+        results
+    }
+
+    /// Get the content of a file
+    ///
+    /// Returns the text content of the file if it exists in the registry.
+    pub fn file_content(&self, file: &FilePath) -> Option<String> {
+        let registry = self.registry.read();
+        let file_id = registry.get_file_id(file)?;
+        let content = registry.get_content(file_id)?;
+        Some(content.text(&self.db).to_string())
     }
 
     /// Get completions at a position
