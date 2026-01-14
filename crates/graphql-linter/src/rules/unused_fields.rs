@@ -2,6 +2,7 @@ use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::schema_utils::extract_root_type_names;
 use crate::traits::{LintRule, ProjectLintRule};
 use graphql_db::{FileId, ProjectFiles};
+use graphql_hir::TextRange;
 use std::collections::{HashMap, HashSet};
 
 /// Trait implementation for `unused_fields` rule
@@ -33,7 +34,7 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
         // Step 1: Collect all schema fields
         let schema_types = graphql_hir::schema_types(db, project_files);
         let mut schema_fields: HashMap<String, HashSet<String>> = HashMap::new();
-        let mut field_locations: HashMap<(String, String), FileId> = HashMap::new();
+        let mut field_locations: HashMap<(String, String), (FileId, TextRange)> = HashMap::new();
 
         for (type_name, type_def) in schema_types {
             // Skip introspection types
@@ -51,7 +52,7 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
                     fields.insert(field.name.to_string());
                     field_locations.insert(
                         (type_name.to_string(), field.name.to_string()),
-                        type_def.file_id,
+                        (type_def.file_id, field.name_range),
                     );
                 }
                 schema_fields.insert(type_name.to_string(), fields);
@@ -105,7 +106,7 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
                 let is_used = used_in_type.is_some_and(|set| set.contains(field_name));
 
                 if !is_used {
-                    if let Some(&file_id) =
+                    if let Some(&(file_id, name_range)) =
                         field_locations.get(&(type_name.clone(), field_name.clone()))
                     {
                         let message = format!(
@@ -113,7 +114,10 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
                         );
 
                         let diag = LintDiagnostic::new(
-                            crate::diagnostics::OffsetRange::new(0, field_name.len()),
+                            crate::diagnostics::OffsetRange::new(
+                                name_range.start().into(),
+                                name_range.end().into(),
+                            ),
                             self.default_severity(),
                             message,
                             self.name().to_string(),

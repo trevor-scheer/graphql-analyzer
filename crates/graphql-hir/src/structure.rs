@@ -44,6 +44,8 @@ pub struct FieldSignature {
     pub description: Option<Arc<str>>,
     pub is_deprecated: bool,
     pub deprecation_reason: Option<Arc<str>>,
+    /// The text range of the field name
+    pub name_range: TextRange,
 }
 
 /// Reference to a type (with list/non-null wrappers)
@@ -547,6 +549,7 @@ fn extract_field_signature(field: &ast::FieldDefinition) -> FieldSignature {
         description,
         is_deprecated,
         deprecation_reason,
+        name_range: name_range(&field.name),
     }
 }
 
@@ -564,6 +567,7 @@ fn extract_input_field_signature(field: &ast::InputValueDefinition) -> FieldSign
         description,
         is_deprecated,
         deprecation_reason,
+        name_range: name_range(&field.name),
     }
 }
 
