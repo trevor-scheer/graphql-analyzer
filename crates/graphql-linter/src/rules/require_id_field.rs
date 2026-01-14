@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeFix, LintDiagnostic, LintSeverity, TextEdit};
 use crate::schema_utils::extract_root_type_names;
 use crate::traits::{DocumentSchemaLintRule, LintRule};
 use apollo_parser::cst::{self, CstNode};
@@ -371,12 +371,38 @@ fn check_selection_set(
 
     // Only emit diagnostic if type has id field and it's not in the selection
     if has_id_field && !has_id_in_selection {
-        diagnostics.push(LintDiagnostic::warning(
-            parent_location.start,
-            parent_location.end,
-            format!("Selection set on type '{parent_type_name}' should include the 'id' field"),
-            "require_id_field",
-        ));
+        // Calculate insertion position and indentation for the fix
+        let selection_set_start: usize = selection_set.syntax().text_range().start().into();
+        let selection_set_source = selection_set.syntax().to_string();
+
+        let (insert_pos, indent) = selection_set.selections().next().map_or_else(
+            || {
+                // Empty selection set - insert after the opening brace with default indent
+                (selection_set_start + 1, "  ".to_string())
+            },
+            |first| {
+                let pos: usize = first.syntax().text_range().start().into();
+                // Calculate position relative to selection set start
+                let relative_pos = pos - selection_set_start;
+                let indent = extract_indentation(&selection_set_source, relative_pos);
+                (pos, indent)
+            },
+        );
+
+        let fix = CodeFix::new(
+            format!("Add 'id' field to {parent_type_name}"),
+            vec![TextEdit::insert(insert_pos, format!("id\n{indent}"))],
+        );
+
+        diagnostics.push(
+            LintDiagnostic::warning(
+                parent_location.start,
+                parent_location.end,
+                format!("Selection set on type '{parent_type_name}' should include the 'id' field"),
+                "require_id_field",
+            )
+            .with_fix(fix),
+        );
     }
 }
 
@@ -403,6 +429,25 @@ fn get_field_type(
 
     // The TypeRef name is already unwrapped from List/NonNull wrappers
     Some(field.type_ref.name.to_string())
+}
+
+/// Extract the indentation (whitespace) before a given position in source
+/// by looking backwards to find the most recent newline
+fn extract_indentation(source: &str, pos: usize) -> String {
+    let before = &source[..pos];
+    // Find the last newline before this position
+    if let Some(newline_pos) = before.rfind('\n') {
+        // Extract everything between the newline and the position
+        let indent_slice = &before[newline_pos + 1..];
+        // Only keep whitespace characters
+        indent_slice
+            .chars()
+            .take_while(|c| c.is_whitespace() && *c != '\n')
+            .collect()
+    } else {
+        // No newline found, use default indentation
+        "  ".to_string()
+    }
 }
 
 /// Check if a fragment (or its nested fragments) contains the `id` field
