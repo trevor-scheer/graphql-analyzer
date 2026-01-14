@@ -12,19 +12,124 @@ pub enum LintSeverity {
 }
 
 /// Configuration for a single lint rule
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
-#[non_exhaustive]
+///
+/// Supports multiple formats:
+/// ```yaml
+/// # Simple severity
+/// rule_name: warn
+///
+/// # Object style with options
+/// rule_name:
+///   severity: warn
+///   options:
+///     field_name: ["id", "uuid"]
+///
+/// # ESLint-style array: [severity, options]
+/// rule_name: [warn, { field_name: ["id", "uuid"] }]
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum LintRuleConfig {
     /// Just a severity level (simple case)
     Severity(LintSeverity),
 
-    /// Detailed config with options (future)
+    /// Detailed config with options
     Detailed {
         severity: LintSeverity,
         #[serde(skip_serializing_if = "Option::is_none")]
         options: Option<serde_json::Value>,
     },
+}
+
+impl LintRuleConfig {
+    /// Get the severity for this rule configuration
+    #[must_use]
+    pub fn severity(&self) -> LintSeverity {
+        match self {
+            Self::Severity(s) | Self::Detailed { severity: s, .. } => *s,
+        }
+    }
+
+    /// Get the options for this rule configuration (if any)
+    #[must_use]
+    pub fn options(&self) -> Option<&serde_json::Value> {
+        match self {
+            Self::Severity(_) => None,
+            Self::Detailed { options, .. } => options.as_ref(),
+        }
+    }
+}
+
+/// Custom deserializer for `LintRuleConfig` to handle ESLint-style array syntax
+impl<'de> Deserialize<'de> for LintRuleConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::{self, MapAccess, SeqAccess, Visitor};
+
+        struct LintRuleConfigVisitor;
+
+        impl<'de> Visitor<'de> for LintRuleConfigVisitor {
+            type Value = LintRuleConfig;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str(
+                    "a severity string ('off', 'warn', 'error'), \
+                     an array [severity, options], \
+                     or an object { severity, options }",
+                )
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                let severity = match value {
+                    "off" => LintSeverity::Off,
+                    "warn" => LintSeverity::Warn,
+                    "error" => LintSeverity::Error,
+                    _ => return Err(E::custom(format!("unknown severity: {value}"))),
+                };
+                Ok(LintRuleConfig::Severity(severity))
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                // ESLint-style: [severity, options]
+                let severity: LintSeverity = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &"array with severity"))?;
+
+                let options: Option<serde_json::Value> = seq.next_element()?;
+
+                Ok(LintRuleConfig::Detailed { severity, options })
+            }
+
+            fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                // Object style: { severity, options }
+                #[derive(Deserialize)]
+                struct DetailedConfig {
+                    severity: LintSeverity,
+                    #[serde(default)]
+                    options: Option<serde_json::Value>,
+                }
+
+                let config =
+                    DetailedConfig::deserialize(de::value::MapAccessDeserializer::new(map))?;
+                Ok(LintRuleConfig::Detailed {
+                    severity: config.severity,
+                    options: config.options,
+                })
+            }
+        }
+
+        deserializer.deserialize_any(LintRuleConfigVisitor)
+    }
 }
 
 /// Extends configuration - can be a single preset or multiple
@@ -182,11 +287,21 @@ impl LintConfig {
                 // Check for explicit rule override
                 rules
                     .get(rule_name)
-                    .map(|config| match config {
-                        LintRuleConfig::Severity(severity)
-                        | LintRuleConfig::Detailed { severity, .. } => *severity,
-                    })
+                    .map(LintRuleConfig::severity)
                     .or(preset_severity)
+            }
+        }
+    }
+
+    /// Get the options for a rule (if configured)
+    ///
+    /// Returns `None` if the rule is not configured or has no options.
+    #[must_use]
+    pub fn get_options(&self, rule_name: &str) -> Option<&serde_json::Value> {
+        match self {
+            Self::Preset(_) => None,
+            Self::Full(FullLintConfig { rules, .. }) => {
+                rules.get(rule_name).and_then(LintRuleConfig::options)
             }
         }
     }
@@ -449,5 +564,109 @@ rules:
             config.get_severity("no_deprecated"),
             Some(LintSeverity::Warn)
         );
+    }
+
+    #[test]
+    fn test_eslint_array_style() {
+        let yaml = r#"
+rules:
+  require_id_field: [warn, { fields: ["id", "nodeId"] }]
+"#;
+        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            config.get_severity("require_id_field"),
+            Some(LintSeverity::Warn)
+        );
+
+        let options = config.get_options("require_id_field").unwrap();
+        let fields = options.get("fields").unwrap().as_array().unwrap();
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].as_str().unwrap(), "id");
+        assert_eq!(fields[1].as_str().unwrap(), "nodeId");
+    }
+
+    #[test]
+    fn test_eslint_array_style_severity_only() {
+        let yaml = r#"
+rules:
+  require_id_field: [error]
+"#;
+        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            config.get_severity("require_id_field"),
+            Some(LintSeverity::Error)
+        );
+        assert!(config.get_options("require_id_field").is_none());
+    }
+
+    #[test]
+    fn test_object_style_with_options() {
+        let yaml = r#"
+rules:
+  require_id_field:
+    severity: warn
+    options:
+      fields: ["id", "uuid"]
+"#;
+        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            config.get_severity("require_id_field"),
+            Some(LintSeverity::Warn)
+        );
+
+        let options = config.get_options("require_id_field").unwrap();
+        let fields = options.get("fields").unwrap().as_array().unwrap();
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].as_str().unwrap(), "id");
+        assert_eq!(fields[1].as_str().unwrap(), "uuid");
+    }
+
+    #[test]
+    fn test_get_options_returns_none_for_simple_severity() {
+        let yaml = r#"
+rules:
+  require_id_field: warn
+"#;
+        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.get_options("require_id_field").is_none());
+    }
+
+    #[test]
+    fn test_get_options_returns_none_for_preset() {
+        let config = LintConfig::recommended();
+        assert!(config.get_options("require_id_field").is_none());
+    }
+
+    #[test]
+    fn test_mixed_rule_configs() {
+        let yaml = r#"
+rules:
+  no_deprecated: warn
+  require_id_field: [error, { fields: ["id"] }]
+  unique_names:
+    severity: error
+"#;
+        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+
+        // Simple severity
+        assert_eq!(
+            config.get_severity("no_deprecated"),
+            Some(LintSeverity::Warn)
+        );
+        assert!(config.get_options("no_deprecated").is_none());
+
+        // ESLint array style
+        assert_eq!(
+            config.get_severity("require_id_field"),
+            Some(LintSeverity::Error)
+        );
+        assert!(config.get_options("require_id_field").is_some());
+
+        // Object style without options
+        assert_eq!(
+            config.get_severity("unique_names"),
+            Some(LintSeverity::Error)
+        );
+        assert!(config.get_options("unique_names").is_none());
     }
 }

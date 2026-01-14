@@ -38,7 +38,8 @@ fn run_standalone_rules(
 
     for rule in rules {
         if config.is_enabled(rule.name()) {
-            let diagnostics = rule.check(db, file_id, content, metadata, project_files);
+            let options = config.get_options(rule.name());
+            let diagnostics = rule.check(db, file_id, content, metadata, project_files, options);
             all_diagnostics.extend(diagnostics);
         }
     }

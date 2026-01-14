@@ -26,6 +26,7 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
         &self,
         db: &dyn graphql_hir::GraphQLHirDatabase,
         project_files: ProjectFiles,
+        _options: Option<&serde_json::Value>,
     ) -> HashMap<FileId, Vec<LintDiagnostic>> {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
 
