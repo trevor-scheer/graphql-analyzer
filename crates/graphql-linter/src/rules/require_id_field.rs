@@ -281,11 +281,14 @@ fn check_selection_set(
                     if let Some(fragment_name) = fragment_spread.fragment_name() {
                         if let Some(name) = fragment_name.name() {
                             let name_str = name.text().to_string();
+                            // Clone visited_fragments so sibling checks don't interfere
+                            // (each fragment_contains_id call chain has its own cycle detection)
+                            let mut visited_clone = visited_fragments.clone();
                             if fragment_contains_id(
                                 &name_str,
                                 parent_type_name,
                                 context,
-                                visited_fragments,
+                                &mut visited_clone,
                             ) {
                                 has_id_in_selection = true;
                             }
@@ -346,11 +349,13 @@ fn check_selection_set(
                                     if let Some(fragment_name) = fragment_spread.fragment_name() {
                                         if let Some(name) = fragment_name.name() {
                                             let name_str = name.text().to_string();
+                                            // Clone visited_fragments so sibling checks don't interfere
+                                            let mut visited_clone = visited_fragments.clone();
                                             if fragment_contains_id(
                                                 &name_str,
                                                 parent_type_name,
                                                 context,
-                                                visited_fragments,
+                                                &mut visited_clone,
                                             ) {
                                                 has_id_in_selection = true;
                                             }
@@ -1185,6 +1190,434 @@ query GetPost {
             diagnostics.len(),
             0,
             "Should not warn when fragment in inline fragment contains id: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn test_fragment_spread_inside_field_in_fragment_definition() {
+        // Issue #376: Fragment spread inside a field in a fragment definition should
+        // recognize that id is included via the spread
+        let db = graphql_db::RootDatabase::default();
+        let rule = RequireIdFieldRuleImpl;
+
+        let schema = r"
+type Query {
+    battle(id: ID!): Battle
+}
+
+type Battle {
+    id: ID!
+    trainer1: Trainer
+}
+
+type Trainer {
+    id: ID!
+    name: String
+}
+";
+
+        let source = r"
+fragment TrainerBasic on Trainer {
+    id
+    name
+}
+
+fragment BattleDetailed on Battle {
+    trainer1 {
+        ...TrainerBasic
+    }
+}
+";
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+
+        // Should NOT warn on trainer1 because TrainerBasic includes id
+        // Should only warn on BattleDetailed since Battle.id is not selected
+        let trainer_warnings: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.message.contains("'Trainer'"))
+            .collect();
+        assert_eq!(
+            trainer_warnings.len(),
+            0,
+            "Should not warn on Trainer when fragment spread contains id: {trainer_warnings:?}"
+        );
+    }
+
+    #[test]
+    fn test_cross_file_fragment_spread_inside_field_in_fragment_definition() {
+        // Issue #376: Cross-file variant - fragment spread inside a field in a fragment
+        // definition should recognize that id is included via the spread
+        let db = graphql_db::RootDatabase::default();
+        let rule = RequireIdFieldRuleImpl;
+
+        let schema = r"
+type Query {
+    battle(id: ID!): Battle
+}
+
+type Battle {
+    id: ID!
+    trainer1: Trainer
+}
+
+type Trainer {
+    id: ID!
+    name: String
+}
+";
+
+        // Fragment with id in separate file
+        let trainer_fragment_source = r"
+fragment TrainerBasic on Trainer {
+    id
+    name
+}
+";
+
+        // Fragment using the trainer fragment via nested field
+        let battle_fragment_source = r"
+fragment BattleDetailed on Battle {
+    trainer1 {
+        ...TrainerBasic
+    }
+}
+";
+
+        let documents = [
+            (
+                "file:///trainer-fragments.graphql",
+                trainer_fragment_source,
+                FileKind::ExecutableGraphQL,
+            ),
+            (
+                "file:///battle-fragments.graphql",
+                battle_fragment_source,
+                FileKind::ExecutableGraphQL,
+            ),
+        ];
+
+        let (_, _, _, project_files) = create_multi_file_project(&db, schema, &documents);
+
+        // Check the battle fragments file (second file)
+        let battle_file_id = FileId::new(2);
+        let (battle_content, battle_metadata) =
+            graphql_db::file_lookup(&db, project_files, battle_file_id)
+                .expect("Battle fragments file should exist");
+
+        let diagnostics = rule.check(
+            &db,
+            battle_file_id,
+            battle_content,
+            battle_metadata,
+            project_files,
+        );
+
+        // Should NOT warn on trainer1 because TrainerBasic includes id
+        // Should only warn on BattleDetailed since Battle.id is not selected
+        let trainer_warnings: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.message.contains("'Trainer'"))
+            .collect();
+        assert_eq!(
+            trainer_warnings.len(),
+            0,
+            "Should not warn on Trainer when cross-file fragment spread contains id: {trainer_warnings:?}"
+        );
+    }
+
+    #[test]
+    fn test_fragment_reused_in_sibling_spread_and_field() {
+        // Issue #376: When a fragment is used both in a sibling spread (BattleBasic) and
+        // directly in a field (trainer1), the visited_fragments set gets polluted
+        let db = graphql_db::RootDatabase::default();
+        let rule = RequireIdFieldRuleImpl;
+
+        let schema = r"
+type Query {
+    battle(id: ID!): Battle
+}
+
+type Battle {
+    id: ID!
+    trainer1: Trainer
+}
+
+type Trainer {
+    id: ID!
+    name: String
+}
+";
+
+        // This is the exact issue scenario from #376
+        let source = r"
+fragment TrainerBasic on Trainer {
+    id
+    name
+}
+
+fragment BattleBasic on Battle {
+    id
+    trainer1 {
+        ...TrainerBasic
+    }
+}
+
+fragment BattleDetailed on Battle {
+    ...BattleBasic
+    trainer1 {
+        ...TrainerBasic
+    }
+}
+";
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+
+        // Should NOT warn on trainer1 in BattleDetailed because TrainerBasic includes id
+        // The bug was that visited_fragments accumulates "TrainerBasic" when checking
+        // ...BattleBasic (which uses TrainerBasic), then when we check trainer1 { ...TrainerBasic }
+        // the TrainerBasic check returns false because it's already in visited_fragments
+        let trainer_warnings: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.message.contains("'Trainer'"))
+            .collect();
+        assert_eq!(
+            trainer_warnings.len(),
+            0,
+            "Should not warn on Trainer when fragment spread contains id (visited_fragments pollution bug): {trainer_warnings:?}"
+        );
+    }
+
+    #[test]
+    fn test_issue_376_exact_scenario() {
+        // Issue #376: EXACT scenario from the issue - BattleBasic is referenced but not defined
+        let db = graphql_db::RootDatabase::default();
+        let rule = RequireIdFieldRuleImpl;
+
+        let schema = r"
+type Query {
+    battle(id: ID!): Battle
+}
+
+type Battle {
+    id: ID!
+    trainer1: Trainer
+}
+
+type Trainer {
+    id: ID!
+    name: String
+}
+";
+
+        // Exact example from issue #376
+        // Note: BattleBasic is referenced but NOT defined - this might be part of the issue
+        let source = r"
+fragment TrainerBasic on Trainer {
+    id
+    name
+}
+
+fragment BattleDetailed on Battle {
+    ...BattleBasic
+    trainer1 {
+        ...TrainerBasic
+    }
+}
+";
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+
+        // Should NOT warn on trainer1 because TrainerBasic includes id
+        // Even though BattleBasic is undefined, the trainer1 field's TrainerBasic spread
+        // should still be recognized as including id
+        let trainer_warnings: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.message.contains("'Trainer'"))
+            .collect();
+        assert_eq!(
+            trainer_warnings.len(),
+            0,
+            "Issue #376: Should not warn on Trainer when fragment spread contains id: {trainer_warnings:?}"
+        );
+    }
+
+    #[test]
+    fn test_fragment_defined_after_usage() {
+        // Test case: Fragment is defined AFTER it's used (reverse order)
+        let db = graphql_db::RootDatabase::default();
+        let rule = RequireIdFieldRuleImpl;
+
+        let schema = r"
+type Query {
+    battle(id: ID!): Battle
+}
+
+type Battle {
+    id: ID!
+    trainer1: Trainer
+}
+
+type Trainer {
+    id: ID!
+    name: String
+}
+";
+
+        // TrainerBasic is used before it's defined in the file
+        let source = r"
+fragment BattleDetailed on Battle {
+    trainer1 {
+        ...TrainerBasic
+    }
+}
+
+fragment TrainerBasic on Trainer {
+    id
+    name
+}
+";
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+
+        // Should NOT warn on trainer1 because TrainerBasic includes id
+        let trainer_warnings: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.message.contains("'Trainer'"))
+            .collect();
+        assert_eq!(
+            trainer_warnings.len(),
+            0,
+            "Should not warn on Trainer even when fragment is defined after usage: {trainer_warnings:?}"
+        );
+    }
+
+    #[test]
+    fn test_typescript_fragments_across_gql_blocks() {
+        // Issue #376: Fragments used across different gql`` blocks in TypeScript
+        let db = graphql_db::RootDatabase::default();
+        let rule = RequireIdFieldRuleImpl;
+
+        let schema = r"
+type Query {
+    battle(id: ID!): Battle
+}
+
+type Battle {
+    id: ID!
+    trainer1: Trainer
+}
+
+type Trainer {
+    id: ID!
+    name: String
+}
+";
+
+        // Two separate gql blocks - fragment in one, usage in another
+        let ts_source = r#"
+import { gql } from '@apollo/client';
+
+export const TRAINER_FRAGMENT = gql`
+    fragment TrainerBasic on Trainer {
+        id
+        name
+    }
+`;
+
+export const BATTLE_FRAGMENT = gql`
+    fragment BattleDetailed on Battle {
+        trainer1 {
+            ...TrainerBasic
+        }
+    }
+`;
+"#;
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, schema, ts_source, FileKind::TypeScript);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+
+        // Should NOT warn on trainer1 because TrainerBasic includes id
+        let trainer_warnings: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.message.contains("'Trainer'"))
+            .collect();
+        assert_eq!(
+            trainer_warnings.len(),
+            0,
+            "Issue #376: Should not warn on Trainer in TypeScript when fragment in other block contains id: {trainer_warnings:?}"
+        );
+    }
+
+    #[test]
+    fn test_same_fragment_used_in_multiple_fields() {
+        // Issue #376: When the same fragment is used in multiple sibling fields,
+        // the visited_fragments set prevents re-checking
+        let db = graphql_db::RootDatabase::default();
+        let rule = RequireIdFieldRuleImpl;
+
+        let schema = r"
+type Query {
+    battle(id: ID!): Battle
+}
+
+type Battle {
+    id: ID!
+    trainer1: Trainer
+    trainer2: Trainer
+}
+
+type Trainer {
+    id: ID!
+    name: String
+}
+";
+
+        let source = r"
+fragment TrainerBasic on Trainer {
+    id
+    name
+}
+
+fragment BattleDetailed on Battle {
+    trainer1 {
+        ...TrainerBasic
+    }
+    trainer2 {
+        ...TrainerBasic
+    }
+}
+";
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+
+        // Should NOT warn on trainer1 OR trainer2 because TrainerBasic includes id
+        // Bug: visited_fragments might prevent second check of TrainerBasic
+        let trainer_warnings: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.message.contains("'Trainer'"))
+            .collect();
+        assert_eq!(
+            trainer_warnings.len(),
+            0,
+            "Issue #376: Should not warn on any Trainer field when fragment spread contains id: {trainer_warnings:?}"
         );
     }
 }
