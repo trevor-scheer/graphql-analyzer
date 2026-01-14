@@ -37,7 +37,6 @@
 mod analysis_host_isolation;
 
 use std::collections::HashMap;
-use std::fmt::Write as _;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
@@ -46,10 +45,18 @@ use salsa::Setter;
 mod file_registry;
 pub use file_registry::FileRegistry;
 
-// New modular structure
+// Modular structure
 mod helpers;
 pub(crate) mod symbol;
 mod types;
+
+// Feature modules
+mod completion;
+mod diagnostics;
+mod document_symbols;
+mod find_references;
+mod goto_definition;
+mod hover;
 
 // Re-export types from the types module
 pub use types::{
@@ -58,23 +65,9 @@ pub use types::{
     WorkspaceSymbol,
 };
 
-// Re-export helpers for internal use
-use helpers::{
-    adjust_range_for_line_offset, convert_diagnostic, find_argument_definition_in_tree,
-    find_block_for_position, find_field_name_at_offset, find_field_usages_in_parse,
-    find_fragment_definition_in_parse, find_fragment_spreads_in_parse,
-    find_operation_definition_in_tree, find_type_definition_in_parse,
-    find_type_references_in_parse, find_variable_definition_in_tree, format_type_ref,
-    offset_range_to_range, path_to_file_uri, position_to_offset,
-};
-// Re-export for use in symbol module
+// Re-export helpers that may be needed by other crates
+use helpers::path_to_file_uri;
 pub use helpers::unwrap_type_to_name;
-
-use symbol::{
-    extract_all_definitions, find_field_definition_full_range, find_fragment_definition_full_range,
-    find_operation_definition_ranges, find_parent_type_at_offset, find_schema_field_parent_type,
-    find_symbol_at_offset, find_type_definition_full_range, is_in_selection_set, Symbol,
-};
 
 // Re-export database types that IDE layer needs
 pub use graphql_db::FileKind;
@@ -596,31 +589,8 @@ impl Analysis {
     ///
     /// Returns syntax errors, validation errors, and lint warnings.
     pub fn diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let Some(file_id) = registry.get_file_id(file) else {
-                return Vec::new();
-            };
-
-            let Some(content) = registry.get_content(file_id) else {
-                return Vec::new();
-            };
-            let Some(metadata) = registry.get_metadata(file_id) else {
-                return Vec::new();
-            };
-            drop(registry);
-
-            (content, metadata)
-        };
-
-        let analysis_diagnostics =
-            graphql_analysis::file_diagnostics(&self.db, content, metadata, self.project_files);
-
-        analysis_diagnostics
-            .iter()
-            .map(convert_diagnostic)
-            .collect()
+        let registry = self.registry.read();
+        diagnostics::file_diagnostics(&self.db, &registry, self.project_files, file)
     }
 
     /// Get only validation diagnostics for a file (excludes custom lint rules)
@@ -628,67 +598,16 @@ impl Analysis {
     /// Returns only GraphQL spec validation errors, not custom lint rule violations.
     /// Use this for the `validate` command to avoid duplicating lint checks.
     pub fn validation_diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let Some(file_id) = registry.get_file_id(file) else {
-                return Vec::new();
-            };
-
-            let Some(content) = registry.get_content(file_id) else {
-                return Vec::new();
-            };
-            let Some(metadata) = registry.get_metadata(file_id) else {
-                return Vec::new();
-            };
-            drop(registry);
-
-            (content, metadata)
-        };
-
-        let analysis_diagnostics = graphql_analysis::file_validation_diagnostics(
-            &self.db,
-            content,
-            metadata,
-            self.project_files,
-        );
-
-        analysis_diagnostics
-            .iter()
-            .map(convert_diagnostic)
-            .collect()
+        let registry = self.registry.read();
+        diagnostics::validation_diagnostics(&self.db, &registry, self.project_files, file)
     }
 
     /// Get only lint diagnostics for a file (excludes validation errors)
     ///
     /// Returns only custom lint rule violations, not GraphQL spec validation errors.
     pub fn lint_diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let Some(file_id) = registry.get_file_id(file) else {
-                return Vec::new();
-            };
-
-            let Some(content) = registry.get_content(file_id) else {
-                return Vec::new();
-            };
-            let Some(metadata) = registry.get_metadata(file_id) else {
-                return Vec::new();
-            };
-            drop(registry);
-
-            (content, metadata)
-        };
-
-        let lint_diagnostics = graphql_analysis::lint_integration::lint_file(
-            &self.db,
-            content,
-            metadata,
-            self.project_files,
-        );
-
-        lint_diagnostics.iter().map(convert_diagnostic).collect()
+        let registry = self.registry.read();
+        diagnostics::lint_diagnostics(&self.db, &registry, self.project_files, file)
     }
 
     /// Get project-wide lint diagnostics (e.g., unused fields, unique names)
@@ -696,612 +615,32 @@ impl Analysis {
     /// Returns a map of file paths -> diagnostics for project-wide lint rules.
     /// These are expensive rules that analyze the entire project.
     pub fn project_lint_diagnostics(&self) -> HashMap<FilePath, Vec<Diagnostic>> {
-        let diagnostics_by_file_id = graphql_analysis::lint_integration::project_lint_diagnostics(
-            &self.db,
-            self.project_files,
-        );
-
-        let mut results = HashMap::new();
         let registry = self.registry.read();
-
-        for (file_id, diagnostics) in diagnostics_by_file_id.iter() {
-            if let Some(file_path) = registry.get_path(*file_id) {
-                let converted: Vec<Diagnostic> =
-                    diagnostics.iter().map(convert_diagnostic).collect();
-
-                if !converted.is_empty() {
-                    results.insert(file_path, converted);
-                }
-            }
-        }
-
-        results
+        diagnostics::project_lint_diagnostics(&self.db, &registry, self.project_files)
     }
 
     /// Get completions at a position
     ///
     /// Returns a list of completion items appropriate for the context.
-    #[allow(clippy::too_many_lines)]
     pub fn completions(&self, file: &FilePath, position: Position) -> Option<Vec<CompletionItem>> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let file_id = registry.get_file_id(file)?;
-
-            let content = registry.get_content(file_id)?;
-            let metadata = registry.get_metadata(file_id)?;
-            drop(registry);
-
-            (content, metadata)
-        };
-
-        let parse = graphql_syntax::parse(&self.db, content, metadata);
-
-        let metadata_line_offset = metadata.line_offset(&self.db);
-        let (block_context, adjusted_position) =
-            find_block_for_position(&parse, position, metadata_line_offset)?;
-
-        let offset = if let Some(block_source) = block_context.block_source {
-            let block_line_index = graphql_syntax::LineIndex::new(block_source);
-            position_to_offset(&block_line_index, adjusted_position)?
-        } else {
-            let line_index = graphql_syntax::line_index(&self.db, content);
-            position_to_offset(&line_index, adjusted_position)?
-        };
-
-        // Find what symbol we're completing (or near) using the correct tree
-        let symbol = find_symbol_at_offset(block_context.tree, offset);
-
-        // Determine completion context and provide appropriate completions
-        match symbol {
-            Some(Symbol::FragmentSpread { .. }) => {
-                // Complete fragment names when on a fragment spread
-                let Some(project_files) = self.project_files else {
-                    return Some(Vec::new());
-                };
-                let fragments = graphql_hir::all_fragments(&self.db, project_files);
-
-                let items: Vec<CompletionItem> = fragments
-                    .keys()
-                    .map(|name| CompletionItem::new(name.to_string(), CompletionKind::Fragment))
-                    .collect();
-
-                Some(items)
-            }
-            None | Some(Symbol::FieldName { .. }) => {
-                // Show fields from parent type in selection set or on field name
-                let Some(project_files) = self.project_files else {
-                    return Some(Vec::new());
-                };
-                let types = graphql_hir::schema_types(&self.db, project_files);
-
-                let in_selection_set = is_in_selection_set(block_context.tree, offset);
-                if in_selection_set {
-                    // Use a stack-based type walker to resolve the parent type at the cursor
-                    let parent_ctx = find_parent_type_at_offset(block_context.tree, offset)?;
-                    let parent_type_name = symbol::walk_type_stack_to_offset(
-                        block_context.tree,
-                        types,
-                        offset,
-                        &parent_ctx.root_type,
-                    )?;
-
-                    types.get(parent_type_name.as_str()).map_or_else(
-                        || Some(Vec::new()),
-                        |parent_type| {
-                            // For union types, suggest inline fragments for each union member
-                            if parent_type.kind == graphql_hir::TypeDefKind::Union {
-                                let items: Vec<CompletionItem> = parent_type
-                                    .union_members
-                                    .iter()
-                                    .map(|member| {
-                                        CompletionItem::new(
-                                            format!("... on {member}"),
-                                            CompletionKind::Type,
-                                        )
-                                        .with_insert_text(format!("... on {member} {{\n  $0\n}}"))
-                                        .with_insert_text_format(InsertTextFormat::Snippet)
-                                    })
-                                    .collect();
-                                return Some(items);
-                            }
-
-                            // For object types and interfaces, suggest fields
-                            let mut items: Vec<CompletionItem> = parent_type
-                                .fields
-                                .iter()
-                                .map(|field| {
-                                    CompletionItem::new(
-                                        field.name.to_string(),
-                                        CompletionKind::Field,
-                                    )
-                                    .with_detail(format_type_ref(&field.type_ref))
-                                })
-                                .collect();
-
-                            // If interface, add inline fragment suggestions for implementing types
-                            // (fields from implementing types are only accessible via inline fragments)
-                            if parent_type.kind == graphql_hir::TypeDefKind::Interface {
-                                for type_def in types.values() {
-                                    if type_def.implements.contains(&parent_type.name) {
-                                        // Add inline fragment suggestion for this implementing type
-                                        let type_name = &type_def.name;
-                                        let inline_fragment_label = format!("... on {type_name}");
-                                        if !items
-                                            .iter()
-                                            .any(|i| i.label.as_str() == inline_fragment_label)
-                                        {
-                                            items.push(
-                                                CompletionItem::new(
-                                                    inline_fragment_label,
-                                                    CompletionKind::Type,
-                                                )
-                                                .with_insert_text(format!(
-                                                    "... on {type_name} {{\n  $0\n}}"
-                                                ))
-                                                .with_insert_text_format(InsertTextFormat::Snippet)
-                                                .with_sort_text(format!("z_{type_name}")), // Sort after fields
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                            Some(items)
-                        },
-                    )
-                } else {
-                    // Not in a selection set - we're at document level
-                    Some(Vec::new())
-                }
-            }
-            _ => Some(Vec::new()),
-        }
+        let registry = self.registry.read();
+        completion::completions(&self.db, &registry, self.project_files, file, position)
     }
 
     /// Get hover information at a position
     ///
     /// Returns documentation, type information, etc.
-    #[allow(clippy::too_many_lines)]
     pub fn hover(&self, file: &FilePath, position: Position) -> Option<HoverResult> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let file_id = registry.get_file_id(file)?;
-
-            let content = registry.get_content(file_id)?;
-            let metadata = registry.get_metadata(file_id)?;
-            drop(registry);
-
-            (content, metadata)
-        };
-
-        let parse = graphql_syntax::parse(&self.db, content, metadata);
-
-        let line_index = graphql_syntax::line_index(&self.db, content);
-
-        let metadata_line_offset = metadata.line_offset(&self.db);
-        let (block_context, adjusted_position) =
-            find_block_for_position(&parse, position, metadata_line_offset)?;
-
-        tracing::debug!(
-            "Hover: original position {:?}, block line_offset {}, adjusted position {:?}",
-            position,
-            block_context.line_offset,
-            adjusted_position
-        );
-
-        let offset = if let Some(block_source) = block_context.block_source {
-            let block_line_index = graphql_syntax::LineIndex::new(block_source);
-            position_to_offset(&block_line_index, adjusted_position)?
-        } else {
-            position_to_offset(&line_index, adjusted_position)?
-        };
-
-        // Try to find the symbol at the offset even if there are parse errors
-        // This allows hover to work on valid parts of a file with syntax errors elsewhere
-        let symbol = find_symbol_at_offset(block_context.tree, offset);
-
-        // If we couldn't find a symbol and there are parse errors, show the errors
-        if symbol.is_none() && !parse.errors.is_empty() {
-            let error_messages: Vec<&str> =
-                parse.errors.iter().map(|e| e.message.as_str()).collect();
-            return Some(HoverResult::new(format!(
-                "**Syntax Errors**\n\n{}",
-                error_messages.join("\n")
-            )));
-        }
-
-        let symbol = symbol?;
-
-        let project_files = self.project_files?;
-
-        match symbol {
-            Symbol::FieldName { name } => {
-                let types = graphql_hir::schema_types(&self.db, project_files);
-                let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
-
-                // Use walk_type_stack_to_offset to properly resolve the parent type,
-                // which handles inline fragments correctly
-                let parent_type_name = symbol::walk_type_stack_to_offset(
-                    &parse.tree,
-                    types,
-                    offset,
-                    &parent_ctx.root_type,
-                )?;
-
-                tracing::debug!(
-                    "Hover: resolved parent type '{}' for field '{}' (root: {})",
-                    parent_type_name,
-                    name,
-                    parent_ctx.root_type
-                );
-
-                // Look up the field in the parent type
-                let parent_type = types.get(parent_type_name.as_str())?;
-                let field = parent_type
-                    .fields
-                    .iter()
-                    .find(|f| f.name.as_ref() == name)?;
-
-                let mut hover_text = format!("**Field:** `{name}`\n\n");
-                let field_type = format_type_ref(&field.type_ref);
-                write!(hover_text, "**Type:** `{field_type}`\n\n").ok();
-
-                if let Some(desc) = &field.description {
-                    write!(hover_text, "---\n\n{desc}\n\n").ok();
-                }
-
-                Some(HoverResult::new(hover_text))
-            }
-            Symbol::TypeName { name } => {
-                let types = graphql_hir::schema_types(&self.db, project_files);
-                let type_def = types.get(name.as_str())?;
-
-                let mut hover_text = format!("**Type:** `{name}`\n\n");
-                let kind_str = match type_def.kind {
-                    graphql_hir::TypeDefKind::Object => "Object",
-                    graphql_hir::TypeDefKind::Interface => "Interface",
-                    graphql_hir::TypeDefKind::Union => "Union",
-                    graphql_hir::TypeDefKind::Enum => "Enum",
-                    graphql_hir::TypeDefKind::Scalar => "Scalar",
-                    graphql_hir::TypeDefKind::InputObject => "Input Object",
-                };
-                write!(hover_text, "**Kind:** {kind_str}\n\n").ok();
-
-                if let Some(desc) = &type_def.description {
-                    write!(hover_text, "---\n\n{desc}\n\n").ok();
-                }
-
-                Some(HoverResult::new(hover_text))
-            }
-            Symbol::FragmentSpread { name } => {
-                let fragments = graphql_hir::all_fragments(&self.db, project_files);
-                let fragment = fragments.get(name.as_str())?;
-
-                let hover_text = format!(
-                    "**Fragment:** `{}`\n\n**On Type:** `{}`\n\n",
-                    name, fragment.type_condition
-                );
-
-                Some(HoverResult::new(hover_text))
-            }
-            _ => {
-                // For other symbols, show basic info
-                Some(HoverResult::new(format!("Symbol: {symbol:?}")))
-            }
-        }
+        let registry = self.registry.read();
+        hover::hover(&self.db, &registry, self.project_files, file, position)
     }
 
     /// Get goto definition locations for the symbol at a position
     ///
     /// Returns the definition location(s) for types, fields, fragments, etc.
-    #[allow(clippy::too_many_lines)]
     pub fn goto_definition(&self, file: &FilePath, position: Position) -> Option<Vec<Location>> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let file_id = registry.get_file_id(file)?;
-
-            let content = registry.get_content(file_id)?;
-            let metadata = registry.get_metadata(file_id)?;
-            drop(registry);
-
-            (content, metadata)
-        };
-
-        let parse = graphql_syntax::parse(&self.db, content, metadata);
-
-        let line_index = graphql_syntax::line_index(&self.db, content);
-
-        let metadata_line_offset = metadata.line_offset(&self.db);
-        let (block_context, adjusted_position) =
-            find_block_for_position(&parse, position, metadata_line_offset)?;
-
-        tracing::debug!(
-            "Goto definition: original position {:?}, block line_offset {}, adjusted position {:?}",
-            position,
-            block_context.line_offset,
-            adjusted_position
-        );
-
-        let offset = if let Some(block_source) = block_context.block_source {
-            let block_line_index = graphql_syntax::LineIndex::new(block_source);
-            position_to_offset(&block_line_index, adjusted_position)?
-        } else {
-            position_to_offset(&line_index, adjusted_position)?
-        };
-
-        let symbol = find_symbol_at_offset(block_context.tree, offset)?;
-
-        let project_files = self.project_files?;
-
-        match symbol {
-            Symbol::FieldName { name } => {
-                let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
-
-                let schema_types = graphql_hir::schema_types(&self.db, project_files);
-
-                // Use walk_type_stack_to_offset to properly resolve the parent type,
-                // which handles inline fragments correctly
-                let parent_type_name = symbol::walk_type_stack_to_offset(
-                    block_context.tree,
-                    schema_types,
-                    offset,
-                    &parent_context.root_type,
-                )?;
-
-                tracing::debug!(
-                    "Field '{}' - resolved parent type '{}' (root: {})",
-                    name,
-                    parent_type_name,
-                    parent_context.root_type
-                );
-
-                schema_types.get(parent_type_name.as_str())?;
-
-                let registry = self.registry.read();
-                let schema_file_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
-
-                for file_id in schema_file_ids.iter() {
-                    let Some(schema_content) = registry.get_content(*file_id) else {
-                        continue;
-                    };
-                    let Some(schema_metadata) = registry.get_metadata(*file_id) else {
-                        continue;
-                    };
-                    let Some(file_path) = registry.get_path(*file_id) else {
-                        continue;
-                    };
-
-                    let schema_parse =
-                        graphql_syntax::parse(&self.db, schema_content, schema_metadata);
-                    let schema_line_index = graphql_syntax::line_index(&self.db, schema_content);
-                    let schema_line_offset = schema_metadata.line_offset(&self.db);
-
-                    if schema_parse.blocks.is_empty() {
-                        // Pure GraphQL schema file
-                        if let Some(ranges) = find_field_definition_full_range(
-                            &schema_parse.tree,
-                            &parent_type_name,
-                            &name,
-                        ) {
-                            let range = offset_range_to_range(
-                                &schema_line_index,
-                                ranges.name_start,
-                                ranges.name_end,
-                            );
-                            let adjusted_range =
-                                adjust_range_for_line_offset(range, schema_line_offset);
-                            return Some(vec![Location::new(file_path, adjusted_range)]);
-                        }
-                    } else {
-                        // TS/JS file with embedded schema (unlikely but handle it)
-                        for block in &schema_parse.blocks {
-                            if let Some(ranges) = find_field_definition_full_range(
-                                &block.tree,
-                                &parent_type_name,
-                                &name,
-                            ) {
-                                let block_line_index =
-                                    graphql_syntax::LineIndex::new(&block.source);
-                                let range = offset_range_to_range(
-                                    &block_line_index,
-                                    ranges.name_start,
-                                    ranges.name_end,
-                                );
-                                #[allow(clippy::cast_possible_truncation)]
-                                let block_line_offset = block.line as u32;
-                                let adjusted_range =
-                                    adjust_range_for_line_offset(range, block_line_offset);
-                                return Some(vec![Location::new(file_path, adjusted_range)]);
-                            }
-                        }
-                    }
-                }
-
-                // Field definition not found
-                None
-            }
-            Symbol::FragmentSpread { name } => {
-                let fragments = graphql_hir::all_fragments(&self.db, project_files);
-
-                tracing::debug!(
-                    "Looking for fragment '{}', available fragments: {:?}",
-                    name,
-                    fragments.keys().collect::<Vec<_>>()
-                );
-
-                let fragment = fragments.get(name.as_str())?;
-
-                let registry = self.registry.read();
-
-                tracing::debug!(
-                    "Looking up path for fragment '{}' with FileId {:?}",
-                    name,
-                    fragment.file_id
-                );
-                let all_ids = registry.all_file_ids();
-                tracing::debug!("Registry has {} files", all_ids.len());
-                tracing::debug!("Registry FileIds: {:?}", all_ids);
-
-                let Some(file_path) = registry.get_path(fragment.file_id) else {
-                    tracing::error!(
-                        "FileId {:?} not found in registry for fragment '{}'",
-                        fragment.file_id,
-                        name
-                    );
-                    return None;
-                };
-                let def_content = registry.get_content(fragment.file_id)?;
-                let def_metadata = registry.get_metadata(fragment.file_id)?;
-                drop(registry);
-
-                let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
-                let def_line_offset = def_metadata.line_offset(&self.db);
-
-                let range = find_fragment_definition_in_parse(
-                    &def_parse,
-                    &name,
-                    def_content,
-                    &self.db,
-                    def_line_offset,
-                )?;
-
-                Some(vec![Location::new(file_path, range)])
-            }
-            Symbol::TypeName { name } => {
-                let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
-                let registry = self.registry.read();
-
-                for file_id in schema_ids.iter() {
-                    let Some(schema_content) = registry.get_content(*file_id) else {
-                        continue;
-                    };
-                    let Some(schema_metadata) = registry.get_metadata(*file_id) else {
-                        continue;
-                    };
-                    let Some(file_path) = registry.get_path(*file_id) else {
-                        continue;
-                    };
-
-                    let schema_parse =
-                        graphql_syntax::parse(&self.db, schema_content, schema_metadata);
-                    let schema_line_offset = schema_metadata.line_offset(&self.db);
-
-                    if let Some(range) = find_type_definition_in_parse(
-                        &schema_parse,
-                        &name,
-                        schema_content,
-                        &self.db,
-                        schema_line_offset,
-                    ) {
-                        return Some(vec![Location::new(file_path, range)]);
-                    }
-                }
-
-                // Type definition not found
-                None
-            }
-            Symbol::VariableReference { name } => {
-                let range = if let Some(block_source) = block_context.block_source {
-                    let block_line_index = graphql_syntax::LineIndex::new(block_source);
-                    find_variable_definition_in_tree(
-                        block_context.tree,
-                        &name,
-                        &block_line_index,
-                        block_context.line_offset,
-                    )
-                } else {
-                    let file_line_index = graphql_syntax::line_index(&self.db, content);
-                    find_variable_definition_in_tree(
-                        block_context.tree,
-                        &name,
-                        &file_line_index,
-                        block_context.line_offset,
-                    )
-                };
-
-                if let Some(range) = range {
-                    let registry = self.registry.read();
-                    let file_id = registry.get_file_id(file)?;
-                    let file_path = registry.get_path(file_id)?;
-                    return Some(vec![Location::new(file_path, range)]);
-                }
-                None
-            }
-            Symbol::ArgumentName { name } => {
-                let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
-                let schema_types = graphql_hir::schema_types(&self.db, project_files);
-
-                let field_name = find_field_name_at_offset(block_context.tree, offset)?;
-
-                let parent_type_name = symbol::walk_type_stack_to_offset(
-                    block_context.tree,
-                    schema_types,
-                    offset,
-                    &parent_context.root_type,
-                )?;
-
-                let registry = self.registry.read();
-                let schema_file_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
-
-                for file_id in schema_file_ids.iter() {
-                    let Some(schema_content) = registry.get_content(*file_id) else {
-                        continue;
-                    };
-                    let Some(schema_metadata) = registry.get_metadata(*file_id) else {
-                        continue;
-                    };
-                    let Some(file_path) = registry.get_path(*file_id) else {
-                        continue;
-                    };
-
-                    let schema_parse =
-                        graphql_syntax::parse(&self.db, schema_content, schema_metadata);
-                    let schema_line_index = graphql_syntax::line_index(&self.db, schema_content);
-                    let schema_line_offset = schema_metadata.line_offset(&self.db);
-
-                    if let Some(range) = find_argument_definition_in_tree(
-                        &schema_parse.tree,
-                        &parent_type_name,
-                        &field_name,
-                        &name,
-                        &schema_line_index,
-                        schema_line_offset,
-                    ) {
-                        return Some(vec![Location::new(file_path, range)]);
-                    }
-                }
-                None
-            }
-            Symbol::OperationName { name } => {
-                let range = if let Some(block_source) = block_context.block_source {
-                    let block_line_index = graphql_syntax::LineIndex::new(block_source);
-                    find_operation_definition_in_tree(
-                        block_context.tree,
-                        &name,
-                        &block_line_index,
-                        block_context.line_offset,
-                    )
-                } else {
-                    let file_line_index = graphql_syntax::line_index(&self.db, content);
-                    find_operation_definition_in_tree(
-                        block_context.tree,
-                        &name,
-                        &file_line_index,
-                        block_context.line_offset,
-                    )
-                };
-
-                if let Some(range) = range {
-                    let registry = self.registry.read();
-                    let file_id = registry.get_file_id(file)?;
-                    let file_path = registry.get_path(file_id)?;
-                    return Some(vec![Location::new(file_path, range)]);
-                }
-                None
-            }
-        }
+        let registry = self.registry.read();
+        goto_definition::goto_definition(&self.db, &registry, self.project_files, file, position)
     }
 
     /// Find all references to the symbol at a position
@@ -1313,289 +652,15 @@ impl Analysis {
         position: Position,
         include_declaration: bool,
     ) -> Option<Vec<Location>> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let file_id = registry.get_file_id(file)?;
-
-            let content = registry.get_content(file_id)?;
-            let metadata = registry.get_metadata(file_id)?;
-            drop(registry);
-
-            (content, metadata)
-        };
-
-        let parse = graphql_syntax::parse(&self.db, content, metadata);
-
-        let line_index = graphql_syntax::line_index(&self.db, content);
-
-        let metadata_line_offset = metadata.line_offset(&self.db);
-        let (block_context, adjusted_position) =
-            find_block_for_position(&parse, position, metadata_line_offset)?;
-
-        tracing::debug!(
-            "Find references: original position {:?}, block line_offset {}, adjusted position {:?}",
+        let registry = self.registry.read();
+        find_references::find_references(
+            &self.db,
+            &registry,
+            self.project_files,
+            file,
             position,
-            block_context.line_offset,
-            adjusted_position
-        );
-
-        let offset = if let Some(block_source) = block_context.block_source {
-            let block_line_index = graphql_syntax::LineIndex::new(block_source);
-            position_to_offset(&block_line_index, adjusted_position)?
-        } else {
-            position_to_offset(&line_index, adjusted_position)?
-        };
-
-        let symbol = find_symbol_at_offset(block_context.tree, offset)?;
-
-        match symbol {
-            Symbol::FragmentSpread { name } => {
-                Some(self.find_fragment_references(&name, include_declaration))
-            }
-            Symbol::TypeName { name } => {
-                Some(self.find_type_references(&name, include_declaration))
-            }
-            Symbol::FieldName { name } => {
-                let parent_type = find_schema_field_parent_type(block_context.tree, offset)?;
-                Some(self.find_field_references(&parent_type, &name, include_declaration))
-            }
-            _ => None,
-        }
-    }
-
-    /// Find all references to a fragment
-    fn find_fragment_references(
-        &self,
-        fragment_name: &str,
-        include_declaration: bool,
-    ) -> Vec<Location> {
-        let mut locations = Vec::new();
-
-        let Some(project_files) = self.project_files else {
-            return locations;
-        };
-
-        let fragments = graphql_hir::all_fragments(&self.db, project_files);
-
-        if include_declaration {
-            if let Some(fragment) = fragments.get(fragment_name) {
-                let registry = self.registry.read();
-                let file_path = registry.get_path(fragment.file_id);
-                let def_content = registry.get_content(fragment.file_id);
-                let def_metadata = registry.get_metadata(fragment.file_id);
-                drop(registry);
-
-                if let (Some(file_path), Some(def_content), Some(def_metadata)) =
-                    (file_path, def_content, def_metadata)
-                {
-                    let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
-                    let def_line_offset = def_metadata.line_offset(&self.db);
-
-                    if let Some(range) = find_fragment_definition_in_parse(
-                        &def_parse,
-                        fragment_name,
-                        def_content,
-                        &self.db,
-                        def_line_offset,
-                    ) {
-                        locations.push(Location::new(file_path, range));
-                    }
-                }
-            }
-        }
-
-        // Search through all document files for fragment spreads
-        let doc_ids = project_files.document_file_ids(&self.db).ids(&self.db);
-
-        for file_id in doc_ids.iter() {
-            let Some((content, metadata)) =
-                graphql_db::file_lookup(&self.db, project_files, *file_id)
-            else {
-                continue;
-            };
-
-            let registry = self.registry.read();
-            let file_path = registry.get_path(*file_id);
-            drop(registry);
-
-            let Some(file_path) = file_path else {
-                continue;
-            };
-
-            let parse = graphql_syntax::parse(&self.db, content, metadata);
-            let line_offset = metadata.line_offset(&self.db);
-
-            let spread_ranges = find_fragment_spreads_in_parse(
-                &parse,
-                fragment_name,
-                content,
-                &self.db,
-                line_offset,
-            );
-
-            for range in spread_ranges {
-                locations.push(Location::new(file_path.clone(), range));
-            }
-        }
-
-        locations
-    }
-
-    /// Find all references to a type
-    fn find_type_references(&self, type_name: &str, include_declaration: bool) -> Vec<Location> {
-        let mut locations = Vec::new();
-
-        let Some(project_files) = self.project_files else {
-            return locations;
-        };
-
-        let types = graphql_hir::schema_types(&self.db, project_files);
-
-        if include_declaration {
-            if let Some(type_def) = types.get(type_name) {
-                let registry = self.registry.read();
-                let file_path = registry.get_path(type_def.file_id);
-                let def_content = registry.get_content(type_def.file_id);
-                let def_metadata = registry.get_metadata(type_def.file_id);
-                drop(registry);
-
-                if let (Some(file_path), Some(def_content), Some(def_metadata)) =
-                    (file_path, def_content, def_metadata)
-                {
-                    let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
-                    let def_line_offset = def_metadata.line_offset(&self.db);
-
-                    if let Some(range) = find_type_definition_in_parse(
-                        &def_parse,
-                        type_name,
-                        def_content,
-                        &self.db,
-                        def_line_offset,
-                    ) {
-                        locations.push(Location::new(file_path, range));
-                    }
-                }
-            }
-        }
-
-        let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
-
-        for file_id in schema_ids.iter() {
-            let Some((content, metadata)) =
-                graphql_db::file_lookup(&self.db, project_files, *file_id)
-            else {
-                continue;
-            };
-
-            let registry = self.registry.read();
-            let file_path = registry.get_path(*file_id);
-            drop(registry);
-
-            let Some(file_path) = file_path else {
-                continue;
-            };
-
-            let parse = graphql_syntax::parse(&self.db, content, metadata);
-            let line_offset = metadata.line_offset(&self.db);
-
-            let type_ranges =
-                find_type_references_in_parse(&parse, type_name, content, &self.db, line_offset);
-
-            for range in type_ranges {
-                locations.push(Location::new(file_path.clone(), range));
-            }
-        }
-
-        locations
-    }
-
-    /// Find all references to a field on a specific type
-    fn find_field_references(
-        &self,
-        type_name: &str,
-        field_name: &str,
-        include_declaration: bool,
-    ) -> Vec<Location> {
-        let mut locations = Vec::new();
-
-        let Some(project_files) = self.project_files else {
-            return locations;
-        };
-
-        let schema_types = graphql_hir::schema_types(&self.db, project_files);
-
-        if include_declaration {
-            let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
-
-            for file_id in schema_ids.iter() {
-                let Some((content, metadata)) =
-                    graphql_db::file_lookup(&self.db, project_files, *file_id)
-                else {
-                    continue;
-                };
-
-                let registry = self.registry.read();
-                let file_path = registry.get_path(*file_id);
-                drop(registry);
-
-                let Some(file_path) = file_path else {
-                    continue;
-                };
-
-                let parse = graphql_syntax::parse(&self.db, content, metadata);
-                let line_index = graphql_syntax::line_index(&self.db, content);
-                let line_offset = metadata.line_offset(&self.db);
-
-                if let Some(ranges) =
-                    find_field_definition_full_range(&parse.tree, type_name, field_name)
-                {
-                    let range =
-                        offset_range_to_range(&line_index, ranges.name_start, ranges.name_end);
-                    let adjusted_range = adjust_range_for_line_offset(range, line_offset);
-                    locations.push(Location::new(file_path, adjusted_range));
-                    break; // Field definition found
-                }
-            }
-        }
-
-        // Search through all document files for field usages
-        let doc_ids = project_files.document_file_ids(&self.db).ids(&self.db);
-
-        for file_id in doc_ids.iter() {
-            let Some((content, metadata)) =
-                graphql_db::file_lookup(&self.db, project_files, *file_id)
-            else {
-                continue;
-            };
-
-            let registry = self.registry.read();
-            let file_path = registry.get_path(*file_id);
-            drop(registry);
-
-            let Some(file_path) = file_path else {
-                continue;
-            };
-
-            let parse = graphql_syntax::parse(&self.db, content, metadata);
-            let line_offset = metadata.line_offset(&self.db);
-
-            let field_ranges = find_field_usages_in_parse(
-                &parse,
-                type_name,
-                field_name,
-                schema_types,
-                content,
-                &self.db,
-                line_offset,
-            );
-
-            for range in field_ranges {
-                locations.push(Location::new(file_path.clone(), range));
-            }
-        }
-
-        locations
+            include_declaration,
+        )
     }
 
     /// Get document symbols for a file (hierarchical outline)
@@ -1603,112 +668,8 @@ impl Analysis {
     /// Returns types, operations, and fragments with their fields as children.
     /// This powers the "Go to Symbol in Editor" (Cmd+Shift+O) feature.
     pub fn document_symbols(&self, file: &FilePath) -> Vec<DocumentSymbol> {
-        let (content, metadata, file_id) = {
-            let registry = self.registry.read();
-
-            let Some(file_id) = registry.get_file_id(file) else {
-                return Vec::new();
-            };
-
-            let Some(content) = registry.get_content(file_id) else {
-                return Vec::new();
-            };
-            let Some(metadata) = registry.get_metadata(file_id) else {
-                return Vec::new();
-            };
-            drop(registry);
-
-            (content, metadata, file_id)
-        };
-
-        let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_index = graphql_syntax::line_index(&self.db, content);
-
-        let line_offset = metadata.line_offset(&self.db);
-
-        let structure = graphql_hir::file_structure(&self.db, file_id, content, metadata);
-
-        let mut symbols = Vec::new();
-
-        let definitions = extract_all_definitions(&parse.tree);
-
-        for (name, kind, ranges) in definitions {
-            let range = adjust_range_for_line_offset(
-                offset_range_to_range(&line_index, ranges.def_start, ranges.def_end),
-                line_offset,
-            );
-            let selection_range = adjust_range_for_line_offset(
-                offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
-                line_offset,
-            );
-
-            let symbol = match kind {
-                "object" => {
-                    let children = get_field_children(
-                        &structure,
-                        &name,
-                        &parse.tree,
-                        &line_index,
-                        line_offset,
-                    );
-                    DocumentSymbol::new(name, SymbolKind::Type, range, selection_range)
-                        .with_children(children)
-                }
-                "interface" => {
-                    let children = get_field_children(
-                        &structure,
-                        &name,
-                        &parse.tree,
-                        &line_index,
-                        line_offset,
-                    );
-                    DocumentSymbol::new(name, SymbolKind::Interface, range, selection_range)
-                        .with_children(children)
-                }
-                "input" => {
-                    let children = get_field_children(
-                        &structure,
-                        &name,
-                        &parse.tree,
-                        &line_index,
-                        line_offset,
-                    );
-                    DocumentSymbol::new(name, SymbolKind::Input, range, selection_range)
-                        .with_children(children)
-                }
-                "union" => DocumentSymbol::new(name, SymbolKind::Union, range, selection_range),
-                "enum" => {
-                    // For enums, we could add enum values as children
-                    DocumentSymbol::new(name, SymbolKind::Enum, range, selection_range)
-                }
-                "scalar" => DocumentSymbol::new(name, SymbolKind::Scalar, range, selection_range),
-                "query" => DocumentSymbol::new(name, SymbolKind::Query, range, selection_range),
-                "mutation" => {
-                    DocumentSymbol::new(name, SymbolKind::Mutation, range, selection_range)
-                }
-                "subscription" => {
-                    DocumentSymbol::new(name, SymbolKind::Subscription, range, selection_range)
-                }
-                "fragment" => {
-                    let detail = structure
-                        .fragments
-                        .iter()
-                        .find(|f| f.name.as_ref() == name)
-                        .map(|f| format!("on {}", f.type_condition));
-                    let mut sym =
-                        DocumentSymbol::new(name, SymbolKind::Fragment, range, selection_range);
-                    if let Some(d) = detail {
-                        sym = sym.with_detail(d);
-                    }
-                    sym
-                }
-                _ => continue,
-            };
-
-            symbols.push(symbol);
-        }
-
-        symbols
+        let registry = self.registry.read();
+        document_symbols::document_symbols(&self.db, &registry, file)
     }
 
     /// Search for workspace symbols matching a query
@@ -1716,74 +677,8 @@ impl Analysis {
     /// Returns matching types, operations, and fragments across all files.
     /// This powers the "Go to Symbol in Workspace" (Cmd+T) feature.
     pub fn workspace_symbols(&self, query: &str) -> Vec<WorkspaceSymbol> {
-        let Some(project_files) = self.project_files else {
-            return Vec::new();
-        };
-
-        let query_lower = query.to_lowercase();
-        let mut symbols = Vec::new();
-
-        // Search types
-        let types = graphql_hir::schema_types(&self.db, project_files);
-        for (name, type_def) in types {
-            if name.to_lowercase().contains(&query_lower) {
-                if let Some(location) = self.get_type_location(type_def) {
-                    let kind = match type_def.kind {
-                        graphql_hir::TypeDefKind::Object => SymbolKind::Type,
-                        graphql_hir::TypeDefKind::Interface => SymbolKind::Interface,
-                        graphql_hir::TypeDefKind::Union => SymbolKind::Union,
-                        graphql_hir::TypeDefKind::Enum => SymbolKind::Enum,
-                        graphql_hir::TypeDefKind::Scalar => SymbolKind::Scalar,
-                        graphql_hir::TypeDefKind::InputObject => SymbolKind::Input,
-                    };
-
-                    symbols.push(WorkspaceSymbol::new(name.to_string(), kind, location));
-                }
-            }
-        }
-
-        // Search fragments
-        let fragments = graphql_hir::all_fragments(&self.db, project_files);
-        for (name, fragment) in fragments {
-            if name.to_lowercase().contains(&query_lower) {
-                if let Some(location) = self.get_fragment_location(fragment) {
-                    symbols.push(
-                        WorkspaceSymbol::new(name.to_string(), SymbolKind::Fragment, location)
-                            .with_container(format!("on {}", fragment.type_condition)),
-                    );
-                }
-            }
-        }
-
-        // Search operations from document files
-        let doc_ids = project_files.document_file_ids(&self.db).ids(&self.db);
-        for file_id in doc_ids.iter() {
-            let Some((content, metadata)) =
-                graphql_db::file_lookup(&self.db, project_files, *file_id)
-            else {
-                continue;
-            };
-            let structure = graphql_hir::file_structure(&self.db, *file_id, content, metadata);
-            for operation in &structure.operations {
-                if let Some(op_name) = &operation.name {
-                    if op_name.to_lowercase().contains(&query_lower) {
-                        if let Some(location) = self.get_operation_location(operation) {
-                            let kind = match operation.operation_type {
-                                graphql_hir::OperationType::Query => SymbolKind::Query,
-                                graphql_hir::OperationType::Mutation => SymbolKind::Mutation,
-                                graphql_hir::OperationType::Subscription => {
-                                    SymbolKind::Subscription
-                                }
-                            };
-
-                            symbols.push(WorkspaceSymbol::new(op_name.to_string(), kind, location));
-                        }
-                    }
-                }
-            }
-        }
-
-        symbols
+        let registry = self.registry.read();
+        document_symbols::workspace_symbols(&self.db, &registry, self.project_files, query)
     }
 
     /// Get schema statistics
@@ -1842,128 +737,15 @@ impl Analysis {
 
         stats
     }
-
-    /// Get location for a type definition
-    fn get_type_location(&self, type_def: &graphql_hir::TypeDef) -> Option<Location> {
-        let registry = self.registry.read();
-        let file_path = registry.get_path(type_def.file_id)?;
-        let content = registry.get_content(type_def.file_id)?;
-        let metadata = registry.get_metadata(type_def.file_id)?;
-        drop(registry);
-
-        let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_index = graphql_syntax::line_index(&self.db, content);
-        let line_offset = metadata.line_offset(&self.db);
-
-        let ranges = find_type_definition_full_range(&parse.tree, &type_def.name)?;
-        let range = adjust_range_for_line_offset(
-            offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
-            line_offset,
-        );
-
-        Some(Location::new(file_path, range))
-    }
-
-    /// Get location for a fragment definition
-    fn get_fragment_location(&self, fragment: &graphql_hir::FragmentStructure) -> Option<Location> {
-        let registry = self.registry.read();
-        let file_path = registry.get_path(fragment.file_id)?;
-        let content = registry.get_content(fragment.file_id)?;
-        let metadata = registry.get_metadata(fragment.file_id)?;
-        drop(registry);
-
-        let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_index = graphql_syntax::line_index(&self.db, content);
-        let line_offset = metadata.line_offset(&self.db);
-
-        let ranges = find_fragment_definition_full_range(&parse.tree, &fragment.name)?;
-        let range = adjust_range_for_line_offset(
-            offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
-            line_offset,
-        );
-
-        Some(Location::new(file_path, range))
-    }
-
-    /// Get location for an operation definition
-    fn get_operation_location(
-        &self,
-        operation: &graphql_hir::OperationStructure,
-    ) -> Option<Location> {
-        let op_name = operation.name.as_ref()?;
-
-        let registry = self.registry.read();
-        let file_path = registry.get_path(operation.file_id)?;
-        let content = registry.get_content(operation.file_id)?;
-        let metadata = registry.get_metadata(operation.file_id)?;
-        drop(registry);
-
-        let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_index = graphql_syntax::line_index(&self.db, content);
-        let line_offset = metadata.line_offset(&self.db);
-
-        let ranges = find_operation_definition_ranges(&parse.tree, op_name)?;
-        let range = adjust_range_for_line_offset(
-            offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
-            line_offset,
-        );
-
-        Some(Location::new(file_path, range))
-    }
-}
-
-// Helper functions are now in helpers.rs module
-
-/// Get field children for a type definition
-fn get_field_children(
-    structure: &graphql_hir::FileStructureData,
-    type_name: &str,
-    tree: &apollo_parser::SyntaxTree,
-    line_index: &graphql_syntax::LineIndex,
-    line_offset: u32,
-) -> Vec<DocumentSymbol> {
-    let Some(type_def) = structure
-        .type_defs
-        .iter()
-        .find(|t| t.name.as_ref() == type_name)
-    else {
-        return Vec::new();
-    };
-
-    let mut children = Vec::new();
-
-    for field in &type_def.fields {
-        if let Some(ranges) = find_field_definition_full_range(tree, type_name, &field.name) {
-            let range = adjust_range_for_line_offset(
-                offset_range_to_range(line_index, ranges.def_start, ranges.def_end),
-                line_offset,
-            );
-            let selection_range = adjust_range_for_line_offset(
-                offset_range_to_range(line_index, ranges.name_start, ranges.name_end),
-                line_offset,
-            );
-
-            let detail = format_type_ref(&field.type_ref);
-            children.push(
-                DocumentSymbol::new(
-                    field.name.to_string(),
-                    SymbolKind::Field,
-                    range,
-                    selection_range,
-                )
-                .with_detail(detail),
-            );
-        }
-    }
-
-    children
 }
 
 #[cfg(test)]
 #[allow(clippy::needless_raw_string_hashes)]
 mod tests {
     use super::*;
-    use crate::helpers::{convert_position, convert_range, convert_severity};
+    use crate::helpers::{
+        convert_diagnostic, convert_position, convert_range, convert_severity, position_to_offset,
+    };
 
     #[test]
     fn test_analysis_host_creation() {
