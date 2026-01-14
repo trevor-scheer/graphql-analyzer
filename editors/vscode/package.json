@@ -84,7 +84,14 @@
           "description": "Path to the graphql-lsp server executable. If empty, the extension will search for it in PATH or download it automatically."
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "graphql-lsp.restartServer",
+        "key": "ctrl+alt+g r",
+        "mac": "cmd+alt+g r"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
