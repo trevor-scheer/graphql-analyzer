@@ -53,9 +53,9 @@ mod types;
 
 // Re-export types from the types module
 pub use types::{
-    CompletionItem, CompletionKind, Diagnostic, DiagnosticSeverity, DocumentSymbol, FilePath,
-    HoverResult, InsertTextFormat, Location, Position, Range, SchemaStats, SymbolKind,
-    WorkspaceSymbol,
+    CodeFix, CompletionItem, CompletionKind, Diagnostic, DiagnosticSeverity, DocumentSymbol,
+    FilePath, HoverResult, InsertTextFormat, Location, Position, Range, SchemaStats, SymbolKind,
+    TextEdit, WorkspaceSymbol,
 };
 
 // Re-export helpers for internal use

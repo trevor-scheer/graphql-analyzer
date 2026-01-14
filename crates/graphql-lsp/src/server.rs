@@ -1391,6 +1391,7 @@ impl LanguageServer for GraphQLLanguageServer {
                     message: diag.message.clone(),
                     code: Some(diag.rule.clone()),
                     source: "graphql-linter".to_string(),
+                    fix: None,
                 })]),
                 edit: Some(workspace_edit),
                 command: None,

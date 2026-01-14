@@ -31,6 +31,46 @@ impl Range {
     }
 }
 
+/// A text edit representing a change to apply to fix an issue
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextEdit {
+    /// Range to replace
+    pub range: Range,
+    /// The text to replace the range with (empty string means deletion)
+    pub new_text: String,
+}
+
+impl TextEdit {
+    /// Create a new text edit
+    #[must_use]
+    pub fn new(range: Range, new_text: impl Into<String>) -> Self {
+        Self {
+            range,
+            new_text: new_text.into(),
+        }
+    }
+}
+
+/// A code fix that can be applied to resolve a diagnostic
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeFix {
+    /// Human-readable description of what the fix does
+    pub label: String,
+    /// The text edits to apply
+    pub edits: Vec<TextEdit>,
+}
+
+impl CodeFix {
+    /// Create a new code fix
+    #[must_use]
+    pub fn new(label: impl Into<String>, edits: Vec<TextEdit>) -> Self {
+        Self {
+            label: label.into(),
+            edits,
+        }
+    }
+}
+
 /// File path (can be URI or file path)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FilePath(pub String);
@@ -196,6 +236,8 @@ pub struct Diagnostic {
     pub message: String,
     pub code: Option<String>,
     pub source: String,
+    /// Optional auto-fix for this diagnostic
+    pub fix: Option<CodeFix>,
 }
 
 impl Diagnostic {
@@ -211,12 +253,19 @@ impl Diagnostic {
             message: message.into(),
             code: None,
             source: source.into(),
+            fix: None,
         }
     }
 
     #[must_use]
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
         self.code = Some(code.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_fix(mut self, fix: CodeFix) -> Self {
+        self.fix = Some(fix);
         self
     }
 }
