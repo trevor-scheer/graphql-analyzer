@@ -251,4 +251,111 @@ impl CliAnalysisHost {
         );
         results
     }
+
+    /// Get a snapshot of the analysis
+    pub fn snapshot(&self) -> graphql_ide::Analysis {
+        self.host.snapshot()
+    }
+
+    /// Get file count
+    pub fn file_count(&self) -> usize {
+        self.loaded_files.len()
+    }
+
+    /// Get schema statistics using HIR data
+    pub fn schema_stats(&self) -> graphql_ide::SchemaStats {
+        self.host.snapshot().schema_stats()
+    }
+
+    /// Get complexity statistics for operations
+    pub fn complexity_stats(&self) -> (Vec<usize>, Vec<usize>) {
+        use apollo_parser::Parser;
+        use std::fs;
+
+        let snapshot = self.host.snapshot();
+        let mut depths = Vec::new();
+        let mut usages = Vec::new();
+
+        // Get all operations from workspace symbols
+        let symbols = snapshot.workspace_symbols("");
+        for symbol in &symbols {
+            if matches!(
+                symbol.kind,
+                graphql_ide::SymbolKind::Query
+                    | graphql_ide::SymbolKind::Mutation
+                    | graphql_ide::SymbolKind::Subscription
+            ) {
+                // Read file content from disk to parse operations
+                if let Ok(content) = fs::read_to_string(symbol.location.file.as_str()) {
+                    let parser = Parser::new(&content);
+                    let tree = parser.parse();
+
+                    // Find the operation and count fragment spreads
+                    for def in tree.document().definitions() {
+                        use apollo_parser::cst::Definition;
+
+                        if let Definition::OperationDefinition(op) = def {
+                            if let Some(op_name) = op.name() {
+                                if op_name.text() == symbol.name {
+                                    // Count fragment spreads in this operation
+                                    if let Some(selection_set) = op.selection_set() {
+                                        let usage_count =
+                                            count_fragment_spreads_in_selection_set(&selection_set);
+                                        usages.push(usage_count);
+
+                                        // Calculate depth (simple heuristic: just count 1 for now)
+                                        depths.push(1);
+                                    }
+                                    break;
+                                }
+                            } else if symbol.name.is_empty() {
+                                // Anonymous operation
+                                if let Some(selection_set) = op.selection_set() {
+                                    let usage_count =
+                                        count_fragment_spreads_in_selection_set(&selection_set);
+                                    usages.push(usage_count);
+                                    depths.push(1);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        (depths, usages)
+    }
+}
+
+/// Count fragment spreads in a selection set
+fn count_fragment_spreads_in_selection_set(
+    selection_set: &apollo_parser::cst::SelectionSet,
+) -> usize {
+    use apollo_parser::cst::Selection;
+
+    let mut count = 0;
+
+    for selection in selection_set.selections() {
+        match selection {
+            Selection::Field(field) => {
+                // Recursively count in nested selection sets
+                if let Some(nested) = field.selection_set() {
+                    count += count_fragment_spreads_in_selection_set(&nested);
+                }
+            }
+            Selection::FragmentSpread(_) => {
+                // Found a fragment spread
+                count += 1;
+            }
+            Selection::InlineFragment(inline) => {
+                // Recursively count in inline fragments
+                if let Some(nested) = inline.selection_set() {
+                    count += count_fragment_spreads_in_selection_set(&nested);
+                }
+            }
+        }
+    }
+
+    count
 }

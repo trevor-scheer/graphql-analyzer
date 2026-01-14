@@ -24,6 +24,9 @@ graphql-ide = { path = "../graphql-ide" }
 graphql-introspect = { path = "../graphql-introspect" }
 graphql-linter = { path = "../graphql-linter" }
 
+# GraphQL
+apollo-parser = { workspace = true }
+
 # CLI
 clap = { workspace = true }
 
