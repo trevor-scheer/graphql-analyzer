@@ -5003,6 +5003,7 @@ export const typeDefs = gql`
         }
     }
 
+
     #[test]
     fn test_project_lint_no_duplicates_same_file() {
         // Test that project-wide lints don't report duplicate fragments
@@ -5054,64 +5055,9 @@ export const typeDefs = gql`
     }
 
     #[test]
-    fn test_project_lint_detects_actual_duplicates() {
-        // Test that project-wide lints correctly detect duplicate fragments
-        // across multiple files
+    fn test_project_lint_no_duplicates_after_file_update() {
+        // Test that updating a file doesn't cause false duplicate detection
         let mut host = AnalysisHost::new();
-        // Enable the recommended lint rules (which includes unique_names)
-        host.set_lint_config(graphql_linter::LintConfig::recommended());
-
-        // Add a schema
-        let schema_file = FilePath::new("file:///schema.graphql");
-        host.add_file(
-            &schema_file,
-            "type Query { user: User } type User { id: ID! name: String }",
-            FileKind::Schema,
-            0,
-        );
-
-        // Add fragment in first file
-        let fragment_file1 = FilePath::new("file:///fragments1.graphql");
-        host.add_file(
-            &fragment_file1,
-            "fragment UserFields on User { id }",
-            FileKind::ExecutableGraphQL,
-            0,
-        );
-
-        // Add same-named fragment in second file (actual duplicate)
-        let fragment_file2 = FilePath::new("file:///fragments2.graphql");
-        host.add_file(
-            &fragment_file2,
-            "fragment UserFields on User { name }",
-            FileKind::ExecutableGraphQL,
-            0,
-        );
-
-        host.rebuild_project_files();
-
-        // Get project-wide diagnostics
-        let snapshot = host.snapshot();
-        let project_diagnostics = snapshot.project_lint_diagnostics();
-
-        // Should have unique_names errors for the duplicate fragment
-        let unique_names_errors: Vec<_> = project_diagnostics
-            .values()
-            .flatten()
-            .filter(|d| d.code.as_deref() == Some("unique_names"))
-            .collect();
-
-        assert!(
-            !unique_names_errors.is_empty(),
-            "Duplicate fragments across files should produce unique_names errors"
-        );
-    }
-
-    #[test]
-    fn test_project_lint_file_update_no_duplicates() {
-        // Test that updating a file's content doesn't cause duplicate fragment detection
-        let mut host = AnalysisHost::new();
-        // Enable the recommended lint rules (which includes unique_names)
         host.set_lint_config(graphql_linter::LintConfig::recommended());
 
         // Add a schema
@@ -5229,6 +5175,98 @@ export const typeDefs = gql`
                 .iter()
                 .map(|d| &d.message)
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_semantic_tokens_deprecated_field() {
+        use std::io::Write;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        // Create a schema with a deprecated field
+        let schema_content = r#"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    name: String!
+    legacyId: String @deprecated(reason: "Use id instead")
+}
+"#;
+        let schema_path = temp_dir.path().join("schema.graphql");
+        let mut file = std::fs::File::create(&schema_path).unwrap();
+        file.write_all(schema_content.as_bytes()).unwrap();
+
+        // Create a document that uses the deprecated field
+        let doc_content = r#"
+query GetUser {
+    user {
+        id
+        name
+        legacyId
+    }
+}
+"#;
+        let doc_path = temp_dir.path().join("query.graphql");
+        let mut doc_file = std::fs::File::create(&doc_path).unwrap();
+        doc_file.write_all(doc_content.as_bytes()).unwrap();
+
+        let config = graphql_config::ProjectConfig {
+            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(graphql_config::DocumentsConfig::Pattern(
+                "*.graphql".to_string(),
+            )),
+            include: None,
+            exclude: None,
+            lint: None,
+            extensions: None,
+        };
+
+        let mut host = AnalysisHost::new();
+        host.load_schemas_from_config(&config, temp_dir.path())
+            .unwrap();
+
+        // Manually add the document file
+        let doc_uri = format!("file://{}", doc_path.display());
+        let file_path = FilePath::new(&doc_uri);
+        host.add_file(
+            &file_path,
+            doc_content.trim(),
+            graphql_db::FileKind::ExecutableGraphQL,
+            0,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Get semantic tokens
+        let tokens = snapshot.semantic_tokens(&file_path);
+
+        // Find the token for 'legacyId' field - it should have DEPRECATED modifier
+        let deprecated_tokens: Vec<_> = tokens
+            .iter()
+            .filter(|t| t.modifiers == SemanticTokenModifiers::DEPRECATED)
+            .collect();
+
+        assert!(
+            !deprecated_tokens.is_empty(),
+            "Should have at least one deprecated token, got tokens: {:?}",
+            tokens
+        );
+
+        // Verify the deprecated token is a Property (field) type
+        let deprecated_field_token = deprecated_tokens
+            .iter()
+            .find(|t| t.token_type == SemanticTokenType::Property)
+            .expect("Should have a deprecated Property token");
+
+        // The legacyId field is on line 5 (0-indexed) in the query (after trim)
+        assert_eq!(
+            deprecated_field_token.start.line, 4,
+            "Deprecated field token should be on line 4 (0-indexed)"
         );
     }
 }

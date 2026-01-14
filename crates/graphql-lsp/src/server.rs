@@ -1381,6 +1381,27 @@ impl LanguageServer for GraphQLLanguageServer {
             prev_start = token.start.character;
         }
 
+        // Log any deprecated tokens for debugging
+        let deprecated_count = encoded_tokens
+            .iter()
+            .filter(|t| t.token_modifiers_bitset != 0)
+            .count();
+        if deprecated_count > 0 {
+            tracing::info!(
+                "Found {} tokens with modifiers (deprecated or definition)",
+                deprecated_count
+            );
+            for token in encoded_tokens
+                .iter()
+                .filter(|t| t.token_modifiers_bitset != 0)
+            {
+                tracing::info!(
+                    "  Token with modifiers_bitset={}",
+                    token.token_modifiers_bitset
+                );
+            }
+        }
+
         tracing::debug!("Returning {} semantic tokens", encoded_tokens.len());
         Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
             result_id: None,
