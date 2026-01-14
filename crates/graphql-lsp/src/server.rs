@@ -441,6 +441,69 @@ documents: "**/*.graphql"
                     "ProjectFiles rebuild took {:.2}s",
                     rebuild_start.elapsed().as_secs_f64()
                 );
+
+                // Publish initial diagnostics for all loaded files
+                tracing::info!(
+                    "Publishing initial diagnostics for {} files...",
+                    total_files_loaded
+                );
+                let diag_start = std::time::Instant::now();
+
+                let snapshot = host.lock().await.snapshot();
+                let project_diagnostics = snapshot.project_lint_diagnostics();
+
+                tracing::debug!(
+                    "project_lint_diagnostics returned {} files with issues",
+                    project_diagnostics.len()
+                );
+
+                // Collect all file paths that need diagnostics published:
+                // 1. Document files (operations/fragments)
+                // 2. Files with project-wide lint diagnostics (e.g., schema files with unused fields)
+                let mut all_file_paths: std::collections::HashSet<graphql_ide::FilePath> =
+                    collected_files
+                        .iter()
+                        .map(|(path, _, _)| path.clone())
+                        .collect();
+
+                // Add files from project-wide diagnostics (includes schema files)
+                for file_path in project_diagnostics.keys() {
+                    all_file_paths.insert(file_path.clone());
+                }
+
+                tracing::info!(
+                    "Publishing diagnostics for {} total files ({} documents + schema files with issues)",
+                    all_file_paths.len(),
+                    total_files_loaded
+                );
+
+                for file_path in &all_file_paths {
+                    let Ok(file_uri) = Uri::from_str(file_path.as_str()) else {
+                        continue;
+                    };
+
+                    // Get per-file diagnostics
+                    let per_file_diagnostics = snapshot.diagnostics(file_path);
+                    let mut all_diagnostics: Vec<Diagnostic> = per_file_diagnostics
+                        .into_iter()
+                        .map(convert_ide_diagnostic)
+                        .collect();
+
+                    // Add project-wide diagnostics for this file if any
+                    if let Some(project_diags) = project_diagnostics.get(file_path) {
+                        all_diagnostics
+                            .extend(project_diags.iter().cloned().map(convert_ide_diagnostic));
+                    }
+
+                    self.client
+                        .publish_diagnostics(file_uri, all_diagnostics, None)
+                        .await;
+                }
+
+                tracing::info!(
+                    "Initial diagnostics published in {:.2}s",
+                    diag_start.elapsed().as_secs_f64()
+                );
             }
         }
 
