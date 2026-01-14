@@ -14,6 +14,10 @@
   ],
   "activationEvents": [
     "onLanguage:graphql",
+    "onLanguage:typescript",
+    "onLanguage:typescriptreact",
+    "onLanguage:javascript",
+    "onLanguage:javascriptreact",
     "workspaceContains:**/graphql.config.{yaml,yml,json}",
     "workspaceContains:**/.graphqlrc{.yaml,.yml,.json,}"
   ],
