@@ -24,6 +24,7 @@ let outputChannel: OutputChannel;
 async function startLanguageServer(context: ExtensionContext): Promise<void> {
   const config = workspace.getConfiguration("graphql-lsp");
   const customPath = config.get<string>("serverPath");
+  const logLevel = config.get<string>("logLevel") || "info";
 
   const serverCommand = await findServerBinary(context, outputChannel, customPath);
   outputChannel.appendLine(`Using LSP server at: ${serverCommand}`);
@@ -33,7 +34,7 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
     options: {
       env: {
         ...process.env,
-        RUST_LOG: process.env.RUST_LOG || "debug",
+        RUST_LOG: process.env.RUST_LOG || logLevel,
       },
     },
   };
