@@ -355,10 +355,20 @@ documents: "**/*.graphql"
                                                         &path_str, &content,
                                                     );
 
-                                                    let path_str = path_str.trim_start_matches('/');
-                                                    let uri = format!("file:///{path_str}");
+                                                    // Use Uri::from_file_path for proper URI construction
+                                                    // This ensures consistency with how VSCode formats URIs
+                                                    let uri_string = if let Some(uri) =
+                                                        Uri::from_file_path(&path)
+                                                    {
+                                                        uri.to_string()
+                                                    } else {
+                                                        // Fallback to manual construction
+                                                        let path_str =
+                                                            path_str.trim_start_matches('/');
+                                                        format!("file:///{path_str}")
+                                                    };
                                                     let file_path =
-                                                        graphql_ide::FilePath::new(uri.clone());
+                                                        graphql_ide::FilePath::new(uri_string);
 
                                                     collected_files
                                                         .push((file_path, content, file_kind));

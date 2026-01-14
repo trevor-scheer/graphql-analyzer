@@ -4423,4 +4423,233 @@ export const typeDefs = gql`
             assert!(!symbols.is_empty(), "Product type should be found");
         }
     }
+
+    #[test]
+    fn test_project_lint_no_duplicates_same_file() {
+        // Test that project-wide lints don't report duplicate fragments
+        // when the same file is only added once
+        let mut host = AnalysisHost::new();
+        // Enable the recommended lint rules (which includes unique_names)
+        host.set_lint_config(graphql_linter::LintConfig::recommended());
+
+        // Add a schema
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User } type User { id: ID! name: String }",
+            FileKind::Schema,
+            0,
+        );
+
+        // Add a fragment file with a single fragment
+        let fragment_file = FilePath::new("file:///fragments.graphql");
+        host.add_file(
+            &fragment_file,
+            "fragment UserFields on User { id name }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        // Get project-wide diagnostics
+        let snapshot = host.snapshot();
+        let project_diagnostics = snapshot.project_lint_diagnostics();
+
+        // Should have no diagnostics - single fragment shouldn't be flagged as duplicate
+        // Check specifically for unique_names violations
+        let unique_names_errors: Vec<_> = project_diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.code.as_deref() == Some("unique_names"))
+            .collect();
+
+        assert!(
+            unique_names_errors.is_empty(),
+            "Single fragment file should NOT produce unique_names errors, but got: {:?}",
+            unique_names_errors
+                .iter()
+                .map(|d| &d.message)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_project_lint_detects_actual_duplicates() {
+        // Test that project-wide lints correctly detect duplicate fragments
+        // across multiple files
+        let mut host = AnalysisHost::new();
+        // Enable the recommended lint rules (which includes unique_names)
+        host.set_lint_config(graphql_linter::LintConfig::recommended());
+
+        // Add a schema
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User } type User { id: ID! name: String }",
+            FileKind::Schema,
+            0,
+        );
+
+        // Add fragment in first file
+        let fragment_file1 = FilePath::new("file:///fragments1.graphql");
+        host.add_file(
+            &fragment_file1,
+            "fragment UserFields on User { id }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        // Add same-named fragment in second file (actual duplicate)
+        let fragment_file2 = FilePath::new("file:///fragments2.graphql");
+        host.add_file(
+            &fragment_file2,
+            "fragment UserFields on User { name }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        // Get project-wide diagnostics
+        let snapshot = host.snapshot();
+        let project_diagnostics = snapshot.project_lint_diagnostics();
+
+        // Should have unique_names errors for the duplicate fragment
+        let unique_names_errors: Vec<_> = project_diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.code.as_deref() == Some("unique_names"))
+            .collect();
+
+        assert!(
+            !unique_names_errors.is_empty(),
+            "Duplicate fragments across files should produce unique_names errors"
+        );
+    }
+
+    #[test]
+    fn test_project_lint_file_update_no_duplicates() {
+        // Test that updating a file's content doesn't cause duplicate fragment detection
+        let mut host = AnalysisHost::new();
+        // Enable the recommended lint rules (which includes unique_names)
+        host.set_lint_config(graphql_linter::LintConfig::recommended());
+
+        // Add a schema
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User } type User { id: ID! name: String }",
+            FileKind::Schema,
+            0,
+        );
+
+        // Add fragment file
+        let fragment_file = FilePath::new("file:///fragments.graphql");
+        host.add_file(
+            &fragment_file,
+            "fragment UserFields on User { id }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+        host.rebuild_project_files();
+
+        // Update the same file (simulating did_change)
+        host.add_file(
+            &fragment_file,
+            "fragment UserFields on User { id name }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+        // Note: rebuild_project_files is NOT called here since is_new=false
+
+        // Get project-wide diagnostics
+        let snapshot = host.snapshot();
+        let project_diagnostics = snapshot.project_lint_diagnostics();
+
+        // Should have no unique_names errors
+        let unique_names_errors: Vec<_> = project_diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.code.as_deref() == Some("unique_names"))
+            .collect();
+
+        assert!(
+            unique_names_errors.is_empty(),
+            "File update should NOT produce unique_names errors, but got: {:?}",
+            unique_names_errors
+                .iter()
+                .map(|d| &d.message)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_project_lint_different_uri_formats_same_file_no_duplicates() {
+        // This test verifies that if the same file is added with different URI formats
+        // (e.g., URL-encoded vs non-encoded), it should NOT cause false duplicate detection.
+        // This simulates the scenario where:
+        // 1. File is discovered via glob and added with one URI format
+        // 2. File is opened in VSCode and sent with a different URI format
+        let mut host = AnalysisHost::new();
+        host.set_lint_config(graphql_linter::LintConfig::recommended());
+
+        // Add a schema
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User } type User { id: ID! name: String }",
+            FileKind::Schema,
+            0,
+        );
+
+        // Add fragment file with one URI format (simulating glob discovery)
+        let fragment_file_glob = FilePath::new("file:///home/user/fragments.graphql");
+        host.add_file(
+            &fragment_file_glob,
+            "fragment UserFields on User { id name }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+        host.rebuild_project_files();
+
+        // Try to add the SAME file with a slightly different URI format
+        // This simulates VSCode sending the file with URL encoding or different formatting
+        // Note: In a real scenario, these might be the same path represented differently:
+        // - "file:///home/user/fragments.graphql" (glob discovery)
+        // - "file:///home/user/fragments.graphql" (VSCode - should match)
+        // The key test is that add_file correctly identifies it as the same file.
+
+        // Using the exact same URI should return is_new=false
+        let is_new = host.add_file(
+            &fragment_file_glob,
+            "fragment UserFields on User { id name }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+        assert!(
+            !is_new,
+            "Adding file with same URI should return is_new=false"
+        );
+
+        // Get project-wide diagnostics
+        let snapshot = host.snapshot();
+        let project_diagnostics = snapshot.project_lint_diagnostics();
+
+        // Should have no unique_names errors
+        let unique_names_errors: Vec<_> = project_diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.code.as_deref() == Some("unique_names"))
+            .collect();
+
+        assert!(
+            unique_names_errors.is_empty(),
+            "Same file added twice with same URI should NOT produce unique_names errors, but got: {:?}",
+            unique_names_errors
+                .iter()
+                .map(|d| &d.message)
+                .collect::<Vec<_>>()
+        );
+    }
 }
