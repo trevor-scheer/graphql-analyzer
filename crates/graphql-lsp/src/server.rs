@@ -611,12 +611,12 @@ impl LanguageServer for GraphQLLanguageServer {
                         work_done_progress_options: WorkDoneProgressOptions::default(),
                     })
                 }),
+                code_lens_provider: supports_code_lens.then_some(CodeLensOptions {
+                    resolve_provider: Some(true),
+                }),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["graphql.checkStatus".to_string()],
                     work_done_progress_options: WorkDoneProgressOptions::default(),
-                }),
-                code_lens_provider: supports_code_lens.then_some(CodeLensOptions {
-                    resolve_provider: Some(true),
                 }),
                 ..Default::default()
             },
