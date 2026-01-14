@@ -154,10 +154,11 @@ export async function activate(context: ExtensionContext) {
   } catch (error) {
     const errorMessage = `Failed to start GraphQL LSP: ${error}`;
     outputChannel.appendLine(errorMessage);
+    outputChannel.show(true);
     window.showErrorMessage(errorMessage);
-    throw error;
   }
 
+  context.subscriptions.push(outputChannel);
   outputChannel.appendLine("Extension activated!");
   console.log("=== Extension activation complete ===");
 }
