@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+default-members = ["crates/graphql-cli"]
 members = [
     "crates/graphql-config",
     "crates/graphql-extract",
