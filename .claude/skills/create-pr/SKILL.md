@@ -47,32 +47,23 @@ git log main..HEAD --oneline
 - Use vague titles like "Updates" or "Fixes"
 - Include issue numbers in the title (put in body)
 
-## PR Description Structure
+## PR Description
 
-Use this template:
+**Read the PR template** from `.github/PULL_REQUEST_TEMPLATE.md` and fill in each section based on the changes being made. The template is the single source of truth for PR structure.
 
-```markdown
-## Summary
+### Section Guidelines
 
-<1-3 bullet points explaining what changed and why>
+**Summary:** 1-3 bullet points explaining what changed and why
 
-## Changes
+**Changes:** Specific list of changes made
 
-- <Specific change 1>
-- <Specific change 2>
-- <New/updated tests>
+**Consulted SME Agents:** List which agents from `.claude/agents/` were consulted and key guidance received. Write "N/A" if none were consulted.
 
-## Consulted SME Agents
+**Manual Testing Plan:** Steps a reviewer can follow to manually verify. Write "N/A" if no manual testing needed.
 
-- **agent-name.md**: Key guidance received
-- **another-agent.md**: Relevant advice applied
+**Related Issues:** Link issues with `Fixes #123` or `Closes #456`. Leave empty if none.
 
-## Manual Testing Plan
-
-<Steps a reviewer can follow to verify the changes work>
-```
-
-## What NOT to Include
+### What NOT to Include
 
 **Never mention in PR descriptions:**
 - "All tests passing"
@@ -82,30 +73,11 @@ Use this template:
 
 These are enforced by CI and mentioning them adds zero value.
 
-## Manual Testing Plan Section
-
-This section is ONLY for manual verification steps reviewers can follow:
-
-**Good:**
-```markdown
-## Manual Testing Plan
-
-1. Open a `.graphql` file with a fragment spread
-2. Hover over the fragment name
-3. Verify type information appears in the tooltip
-```
-
-**Bad:**
-```markdown
-## Manual Testing Plan
-
-- All tests pass
-- Ran cargo clippy with no warnings
-```
-
 ## Creating the PR
 
-Use `gh pr create` with the repo flag:
+1. Read `.github/PULL_REQUEST_TEMPLATE.md` to get the current template structure
+2. Fill in each section based on the changes
+3. Use `gh pr create` with the filled-in body:
 
 ```bash
 gh pr create \
@@ -113,25 +85,7 @@ gh pr create \
   --head your-branch-name \
   --title "feat: your feature description" \
   --body "$(cat <<'EOF'
-## Summary
-
-- Added X feature to improve Y
-
-## Changes
-
-- Implemented X in `crates/graphql-analysis/`
-- Added tests for edge cases
-- Updated documentation
-
-## Consulted SME Agents
-
-- **lsp.md**: Confirmed response format
-- **rust.md**: Advised on error handling
-
-## Manual Testing Plan
-
-1. Step one
-2. Step two
+<filled-in template content here>
 EOF
 )"
 ```
@@ -150,8 +104,5 @@ EOF
 - [ ] Code is formatted
 - [ ] Commits follow conventional format
 - [ ] PR title is descriptive (no emoji)
-- [ ] Summary explains what and why
-- [ ] Changes section lists specifics
-- [ ] Consulted SME Agents documented
-- [ ] Manual Testing Plan has actionable steps
+- [ ] PR body follows `.github/PULL_REQUEST_TEMPLATE.md` structure
 - [ ] No CI status mentioned in description
