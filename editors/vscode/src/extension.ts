@@ -80,23 +80,6 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
 
       await client.start();
       outputChannel.appendLine("Language client started successfully!");
-
-      progress.report({ message: "Loading GraphQL configuration..." });
-
-      await new Promise<void>((resolve) => {
-        const disposable = client.onNotification("window/logMessage", (params) => {
-          if (params.message === "GraphQL config loaded successfully") {
-            window.showInformationMessage("GraphQL LSP: Configuration loaded successfully");
-            disposable.dispose();
-            resolve();
-          }
-        });
-
-        setTimeout(() => {
-          disposable.dispose();
-          resolve();
-        }, 5000);
-      });
     }
   );
 }
