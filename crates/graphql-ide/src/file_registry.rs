@@ -213,11 +213,11 @@ impl FileRegistry {
             file_entries.insert(file_id, entry);
 
             // Categorize by kind for ID lists
-            match metadata.kind(db) {
-                FileKind::Schema => schema_ids.push(file_id),
-                FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
-                    document_ids.push(file_id);
-                }
+            let kind = metadata.kind(db);
+            if kind.is_schema() {
+                schema_ids.push(file_id);
+            } else if kind.is_document() {
+                document_ids.push(file_id);
             }
         }
 
