@@ -92,7 +92,14 @@
           }
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "graphql-lsp.restartServer",
+        "key": "ctrl+alt+g r",
+        "mac": "cmd+alt+g r"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
