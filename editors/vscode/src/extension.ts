@@ -7,12 +7,15 @@ import {
   OutputChannel,
   ProgressLocation,
   commands,
+  StatusBarItem,
+  StatusBarAlignment,
 } from "vscode";
 import {
   LanguageClient,
   LanguageClientOptions,
   ServerOptions,
   Executable,
+  State,
 } from "vscode-languageclient/node";
 import { findServerBinary } from "./binaryManager";
 
@@ -20,6 +23,27 @@ console.log(">>> GraphQL LSP extension imports complete <<<");
 
 let client: LanguageClient;
 let outputChannel: OutputChannel;
+let statusBarItem: StatusBarItem;
+
+function updateStatusBar(state: State): void {
+  switch (state) {
+    case State.Running:
+      statusBarItem.text = "$(check) GraphQL";
+      statusBarItem.tooltip = "GraphQL LSP is running";
+      statusBarItem.backgroundColor = undefined;
+      break;
+    case State.Starting:
+      statusBarItem.text = "$(sync~spin) GraphQL";
+      statusBarItem.tooltip = "GraphQL LSP is starting...";
+      statusBarItem.backgroundColor = undefined;
+      break;
+    case State.Stopped:
+      statusBarItem.text = "$(warning) GraphQL";
+      statusBarItem.tooltip = "GraphQL LSP is stopped";
+      statusBarItem.backgroundColor = undefined;
+      break;
+  }
+}
 
 async function startLanguageServer(context: ExtensionContext): Promise<void> {
   const config = workspace.getConfiguration("graphql");
@@ -70,6 +94,10 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
     clientOptions
   );
 
+  client.onDidChangeState((event) => {
+    updateStatusBar(event.newState);
+  });
+
   outputChannel.appendLine("Starting language client...");
 
   await window.withProgress(
@@ -107,6 +135,13 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
 export async function activate(context: ExtensionContext) {
   outputChannel = window.createOutputChannel("GraphQL LSP Debug");
   outputChannel.appendLine("=== GraphQL LSP extension activating ===");
+
+  statusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 100);
+  statusBarItem.command = "graphql-lsp.checkStatus";
+  statusBarItem.text = "$(sync~spin) GraphQL";
+  statusBarItem.tooltip = "GraphQL LSP is starting...";
+  statusBarItem.show();
+  context.subscriptions.push(statusBarItem);
 
   try {
     await startLanguageServer(context);
@@ -160,6 +195,8 @@ export async function activate(context: ExtensionContext) {
     outputChannel.appendLine(errorMessage);
     outputChannel.show(true);
     window.showErrorMessage(errorMessage);
+    statusBarItem.text = "$(error) GraphQL";
+    statusBarItem.tooltip = `GraphQL LSP failed to start: ${error}`;
     throw error;
   }
 
