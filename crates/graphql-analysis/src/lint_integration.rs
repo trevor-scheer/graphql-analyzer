@@ -1,5 +1,5 @@
 use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase, Position, Severity};
-use graphql_db::{FileContent, FileId, FileKind, FileMetadata, ProjectFiles};
+use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -57,9 +57,9 @@ fn lint_file_impl(
     let parse = graphql_syntax::parse(db, content, metadata);
 
     let uri = metadata.uri(db);
-    tracing::debug!(uri = %uri, parse_errors = parse.errors.len(), "lint_file called");
+    tracing::debug!(uri = %uri, parse_errors = parse.errors().len(), "lint_file called");
 
-    if !parse.errors.is_empty() {
+    if parse.has_errors() {
         tracing::debug!(uri = %uri, "Skipping linting due to parse errors");
         return Arc::new(diagnostics);
     }
@@ -69,30 +69,27 @@ fn lint_file_impl(
 
     tracing::debug!(uri = %uri, ?file_kind, "Checking file kind");
 
-    match file_kind {
-        FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
-            tracing::debug!(uri = %uri, "Running standalone document lints");
-            diagnostics.extend(standalone_document_lints(
-                db,
-                file_id,
-                content,
-                metadata,
-                project_files,
-            ));
+    if file_kind.is_document() {
+        tracing::debug!(uri = %uri, "Running standalone document lints");
+        diagnostics.extend(standalone_document_lints(
+            db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+        ));
 
-            tracing::debug!(uri = %uri, "Running document+schema lints");
-            diagnostics.extend(document_schema_lints(
-                db,
-                file_id,
-                content,
-                metadata,
-                project_files,
-            ));
-        }
-        FileKind::Schema => {
-            tracing::debug!(uri = %uri, "Running schema lints");
-            diagnostics.extend(schema_lints(db, file_id, content, metadata, project_files));
-        }
+        tracing::debug!(uri = %uri, "Running document+schema lints");
+        diagnostics.extend(document_schema_lints(
+            db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+        ));
+    } else if file_kind.is_schema() {
+        tracing::debug!(uri = %uri, "Running schema lints");
+        diagnostics.extend(schema_lints(db, file_id, content, metadata, project_files));
     }
 
     tracing::debug!(diagnostics = diagnostics.len(), "Linting complete");
@@ -330,43 +327,27 @@ pub fn lint_file_with_fixes(
 
     // Parse and check for errors
     let parse = graphql_syntax::parse(db, content, metadata);
-    if !parse.errors.is_empty() {
+    if parse.has_errors() {
         return all_diagnostics;
     }
 
     // Run lints based on file kind
-    match file_kind {
-        FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
-            // Standalone document lints
-            for rule in graphql_linter::standalone_document_rules() {
-                if lint_config.is_enabled(rule.name()) {
-                    all_diagnostics.extend(rule.check(
-                        db,
-                        file_id,
-                        content,
-                        metadata,
-                        project_files,
-                    ));
-                }
-            }
-
-            // Document+schema lints
-            for rule in graphql_linter::document_schema_rules() {
-                if lint_config.is_enabled(rule.name()) {
-                    all_diagnostics.extend(rule.check(
-                        db,
-                        file_id,
-                        content,
-                        metadata,
-                        project_files,
-                    ));
-                }
+    if file_kind.is_document() {
+        // Standalone document lints
+        for rule in graphql_linter::standalone_document_rules() {
+            if lint_config.is_enabled(rule.name()) {
+                all_diagnostics.extend(rule.check(db, file_id, content, metadata, project_files));
             }
         }
-        FileKind::Schema => {
-            // Schema lints (none currently)
+
+        // Document+schema lints
+        for rule in graphql_linter::document_schema_rules() {
+            if lint_config.is_enabled(rule.name()) {
+                all_diagnostics.extend(rule.check(db, file_id, content, metadata, project_files));
+            }
         }
     }
+    // Schema lints (none currently)
 
     all_diagnostics
 }

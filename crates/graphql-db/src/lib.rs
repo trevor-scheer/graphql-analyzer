@@ -53,6 +53,26 @@ pub enum FileKind {
     JavaScript,
 }
 
+impl FileKind {
+    /// Returns true if this is a schema file
+    #[must_use]
+    pub const fn is_schema(self) -> bool {
+        matches!(self, Self::Schema)
+    }
+
+    /// Returns true if this is a document file (operations/fragments)
+    ///
+    /// This includes pure GraphQL executable files and TypeScript/JavaScript
+    /// files with embedded GraphQL.
+    #[must_use]
+    pub const fn is_document(self) -> bool {
+        matches!(
+            self,
+            Self::ExecutableGraphQL | Self::TypeScript | Self::JavaScript
+        )
+    }
+}
+
 /// Input: Content of a file
 /// This is set by the LSP layer when files are opened/changed
 #[salsa::input]

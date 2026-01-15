@@ -38,30 +38,6 @@ pub fn offset_range_to_range(
     Range::new(start, end)
 }
 
-/// Adjust a position for line offset (used for extracted GraphQL from TypeScript/JavaScript)
-///
-/// When GraphQL is extracted from TypeScript/JavaScript files, the line numbers in the
-/// LSP request are relative to the original file, but we need positions relative to the
-/// extracted GraphQL. This function subtracts the `line_offset` to get the correct position.
-#[allow(clippy::cast_possible_truncation)]
-pub const fn adjust_position_for_line_offset(
-    position: Position,
-    line_offset: u32,
-) -> Option<Position> {
-    if line_offset == 0 {
-        return Some(position);
-    }
-
-    if position.line < line_offset {
-        return None;
-    }
-
-    Some(Position::new(
-        position.line - line_offset,
-        position.character,
-    ))
-}
-
 /// Add line offset to a range (used when returning positions from extracted GraphQL)
 ///
 /// When returning positions for document symbols in TypeScript/JavaScript files,
@@ -123,45 +99,40 @@ pub struct BlockContext<'a> {
     pub tree: &'a apollo_parser::SyntaxTree,
     /// Line offset to add when returning positions (0 for pure GraphQL files)
     pub line_offset: u32,
-    /// The block source for building `LineIndex` (None for pure GraphQL files)
-    pub block_source: Option<&'a str>,
+    /// The block source for building `LineIndex`
+    pub block_source: &'a str,
 }
 
 /// Find which GraphQL block contains the given position
 ///
-/// For pure GraphQL files, returns the main tree with `line_offset` from metadata.
-/// For TS/JS files, finds the block containing the position and returns it with
-/// the appropriate line offset.
+/// Iterates through all documents to find the one containing the cursor position.
+/// For pure GraphQL files (single document at `line_offset` 0), the position is
+/// adjusted by any metadata line offset.
+/// For TS/JS files (multiple documents at various offsets), finds the block
+/// containing the position and adjusts accordingly.
 #[allow(clippy::cast_possible_truncation)]
 pub fn find_block_for_position(
     parse: &graphql_syntax::Parse,
     position: Position,
     metadata_line_offset: u32,
 ) -> Option<(BlockContext<'_>, Position)> {
-    // If no blocks, this is a pure GraphQL file - use main tree
-    if parse.blocks.is_empty() {
-        let adjusted_pos = adjust_position_for_line_offset(position, metadata_line_offset)?;
-        return Some((
-            BlockContext {
-                tree: &parse.tree,
-                line_offset: metadata_line_offset,
-                block_source: None,
-            },
-            adjusted_pos,
-        ));
-    }
+    // Iterate through all documents to find the one containing the position
+    for doc in parse.documents() {
+        let doc_start_line = doc.line_offset as u32;
+        let doc_start_col = doc.column_offset as u32;
+        let doc_lines = doc.source.chars().filter(|&c| c == '\n').count() as u32;
 
-    // For TS/JS files, find which block contains the position
-    for block in &parse.blocks {
-        let block_start_line = block.line as u32;
-        let block_start_col = block.column as u32;
-        let block_lines = block.source.chars().filter(|&c| c == '\n').count() as u32;
-        let block_end_line = block_start_line + block_lines;
+        // For pure GraphQL files (doc_start_line == 0), also apply metadata_line_offset
+        let effective_start = if doc_start_line == 0 {
+            metadata_line_offset
+        } else {
+            doc_start_line
+        };
 
-        if position.line >= block_start_line && position.line <= block_end_line {
-            let adjusted_line = position.line - block_start_line;
-            let adjusted_col = if adjusted_line == 0 {
-                position.character.saturating_sub(block_start_col)
+        if position.line >= effective_start && position.line <= effective_start + doc_lines {
+            let adjusted_line = position.line - effective_start;
+            let adjusted_col = if adjusted_line == 0 && doc_start_line > 0 {
+                position.character.saturating_sub(doc_start_col)
             } else {
                 position.character
             };
@@ -169,9 +140,9 @@ pub fn find_block_for_position(
 
             return Some((
                 BlockContext {
-                    tree: &block.tree,
-                    line_offset: block_start_line,
-                    block_source: Some(&block.source),
+                    tree: doc.tree,
+                    line_offset: effective_start,
+                    block_source: doc.source,
                 },
                 adjusted_pos,
             ));
@@ -181,8 +152,8 @@ pub fn find_block_for_position(
     None
 }
 
-/// Find a fragment definition in a parsed file, handling TS/JS blocks correctly
-#[allow(clippy::cast_possible_truncation)]
+/// Find a fragment definition in a parsed file, handling all document types uniformly
+#[allow(clippy::cast_possible_truncation, unused_variables)]
 pub fn find_fragment_definition_in_parse(
     parse: &graphql_syntax::Parse,
     fragment_name: &str,
@@ -190,32 +161,27 @@ pub fn find_fragment_definition_in_parse(
     db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
     metadata_line_offset: u32,
 ) -> Option<Range> {
-    if parse.blocks.is_empty() {
+    for doc in parse.documents() {
         if let Some((start_offset, end_offset)) =
-            find_fragment_definition_range(&parse.tree, fragment_name)
+            find_fragment_definition_range(doc.tree, fragment_name)
         {
-            let file_line_index = graphql_syntax::line_index(db, content);
-            let range = offset_range_to_range(&file_line_index, start_offset, end_offset);
-            return Some(adjust_range_for_line_offset(range, metadata_line_offset));
-        }
-        return None;
-    }
-
-    for block in &parse.blocks {
-        if let Some((start_offset, end_offset)) =
-            find_fragment_definition_range(&block.tree, fragment_name)
-        {
-            let block_line_index = graphql_syntax::LineIndex::new(&block.source);
-            let range = offset_range_to_range(&block_line_index, start_offset, end_offset);
-            return Some(adjust_range_for_line_offset(range, block.line as u32));
+            let line_index = graphql_syntax::LineIndex::new(doc.source);
+            let range = offset_range_to_range(&line_index, start_offset, end_offset);
+            // For pure GraphQL (line_offset == 0), apply metadata_line_offset; otherwise use doc's offset
+            let effective_offset = if doc.line_offset == 0 {
+                metadata_line_offset
+            } else {
+                doc.line_offset as u32
+            };
+            return Some(adjust_range_for_line_offset(range, effective_offset));
         }
     }
 
     None
 }
 
-/// Find a type definition in a parsed file, handling TS/JS blocks correctly
-#[allow(clippy::cast_possible_truncation)]
+/// Find a type definition in a parsed file, handling all document types uniformly
+#[allow(clippy::cast_possible_truncation, unused_variables)]
 pub fn find_type_definition_in_parse(
     parse: &graphql_syntax::Parse,
     type_name: &str,
@@ -223,30 +189,24 @@ pub fn find_type_definition_in_parse(
     db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
     metadata_line_offset: u32,
 ) -> Option<Range> {
-    if parse.blocks.is_empty() {
-        if let Some((start_offset, end_offset)) = find_type_definition_range(&parse.tree, type_name)
-        {
-            let file_line_index = graphql_syntax::line_index(db, content);
-            let range = offset_range_to_range(&file_line_index, start_offset, end_offset);
-            return Some(adjust_range_for_line_offset(range, metadata_line_offset));
-        }
-        return None;
-    }
-
-    for block in &parse.blocks {
-        if let Some((start_offset, end_offset)) = find_type_definition_range(&block.tree, type_name)
-        {
-            let block_line_index = graphql_syntax::LineIndex::new(&block.source);
-            let range = offset_range_to_range(&block_line_index, start_offset, end_offset);
-            return Some(adjust_range_for_line_offset(range, block.line as u32));
+    for doc in parse.documents() {
+        if let Some((start_offset, end_offset)) = find_type_definition_range(doc.tree, type_name) {
+            let line_index = graphql_syntax::LineIndex::new(doc.source);
+            let range = offset_range_to_range(&line_index, start_offset, end_offset);
+            let effective_offset = if doc.line_offset == 0 {
+                metadata_line_offset
+            } else {
+                doc.line_offset as u32
+            };
+            return Some(adjust_range_for_line_offset(range, effective_offset));
         }
     }
 
     None
 }
 
-/// Find all fragment spreads in a parsed file, handling TS/JS blocks correctly
-#[allow(clippy::cast_possible_truncation)]
+/// Find all fragment spreads in a parsed file, handling all document types uniformly
+#[allow(clippy::cast_possible_truncation, unused_variables)]
 pub fn find_fragment_spreads_in_parse(
     parse: &graphql_syntax::Parse,
     fragment_name: &str,
@@ -256,25 +216,18 @@ pub fn find_fragment_spreads_in_parse(
 ) -> Vec<Range> {
     let mut results = Vec::new();
 
-    if parse.blocks.is_empty() {
-        if let Some(offsets) = find_fragment_spreads(&parse.tree, fragment_name) {
-            let file_line_index = graphql_syntax::line_index(db, content);
+    for doc in parse.documents() {
+        if let Some(offsets) = find_fragment_spreads(doc.tree, fragment_name) {
+            let line_index = graphql_syntax::LineIndex::new(doc.source);
+            let effective_offset = if doc.line_offset == 0 {
+                metadata_line_offset
+            } else {
+                doc.line_offset as u32
+            };
             for offset in offsets {
                 let end_offset = offset + fragment_name.len();
-                let range = offset_range_to_range(&file_line_index, offset, end_offset);
-                results.push(adjust_range_for_line_offset(range, metadata_line_offset));
-            }
-        }
-        return results;
-    }
-
-    for block in &parse.blocks {
-        if let Some(offsets) = find_fragment_spreads(&block.tree, fragment_name) {
-            let block_line_index = graphql_syntax::LineIndex::new(&block.source);
-            for offset in offsets {
-                let end_offset = offset + fragment_name.len();
-                let range = offset_range_to_range(&block_line_index, offset, end_offset);
-                results.push(adjust_range_for_line_offset(range, block.line as u32));
+                let range = offset_range_to_range(&line_index, offset, end_offset);
+                results.push(adjust_range_for_line_offset(range, effective_offset));
             }
         }
     }
@@ -282,8 +235,8 @@ pub fn find_fragment_spreads_in_parse(
     results
 }
 
-/// Find all type references in a parsed file, handling TS/JS blocks correctly
-#[allow(clippy::cast_possible_truncation)]
+/// Find all type references in a parsed file, handling all document types uniformly
+#[allow(clippy::cast_possible_truncation, unused_variables)]
 pub fn find_type_references_in_parse(
     parse: &graphql_syntax::Parse,
     type_name: &str,
@@ -293,25 +246,18 @@ pub fn find_type_references_in_parse(
 ) -> Vec<Range> {
     let mut results = Vec::new();
 
-    if parse.blocks.is_empty() {
-        if let Some(offsets) = find_type_references_in_tree(&parse.tree, type_name) {
-            let file_line_index = graphql_syntax::line_index(db, content);
+    for doc in parse.documents() {
+        if let Some(offsets) = find_type_references_in_tree(doc.tree, type_name) {
+            let line_index = graphql_syntax::LineIndex::new(doc.source);
+            let effective_offset = if doc.line_offset == 0 {
+                metadata_line_offset
+            } else {
+                doc.line_offset as u32
+            };
             for offset in offsets {
                 let end_offset = offset + type_name.len();
-                let range = offset_range_to_range(&file_line_index, offset, end_offset);
-                results.push(adjust_range_for_line_offset(range, metadata_line_offset));
-            }
-        }
-        return results;
-    }
-
-    for block in &parse.blocks {
-        if let Some(offsets) = find_type_references_in_tree(&block.tree, type_name) {
-            let block_line_index = graphql_syntax::LineIndex::new(&block.source);
-            for offset in offsets {
-                let end_offset = offset + type_name.len();
-                let range = offset_range_to_range(&block_line_index, offset, end_offset);
-                results.push(adjust_range_for_line_offset(range, block.line as u32));
+                let range = offset_range_to_range(&line_index, offset, end_offset);
+                results.push(adjust_range_for_line_offset(range, effective_offset));
             }
         }
     }
@@ -320,7 +266,7 @@ pub fn find_type_references_in_parse(
 }
 
 /// Find field usages in a parsed file that match the given type and field name
-#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_truncation, unused_variables)]
 pub fn find_field_usages_in_parse(
     parse: &graphql_syntax::Parse,
     type_name: &str,
@@ -332,22 +278,17 @@ pub fn find_field_usages_in_parse(
 ) -> Vec<Range> {
     let mut results = Vec::new();
 
-    if parse.blocks.is_empty() {
-        let file_line_index = graphql_syntax::line_index(db, content);
-        let ranges = find_field_usages_in_tree(&parse.tree, type_name, field_name, schema_types);
+    for doc in parse.documents() {
+        let line_index = graphql_syntax::LineIndex::new(doc.source);
+        let ranges = find_field_usages_in_tree(doc.tree, type_name, field_name, schema_types);
+        let effective_offset = if doc.line_offset == 0 {
+            metadata_line_offset
+        } else {
+            doc.line_offset as u32
+        };
         for (start, end) in ranges {
-            let range = offset_range_to_range(&file_line_index, start, end);
-            results.push(adjust_range_for_line_offset(range, metadata_line_offset));
-        }
-        return results;
-    }
-
-    for block in &parse.blocks {
-        let block_line_index = graphql_syntax::LineIndex::new(&block.source);
-        let ranges = find_field_usages_in_tree(&block.tree, type_name, field_name, schema_types);
-        for (start, end) in ranges {
-            let range = offset_range_to_range(&block_line_index, start, end);
-            results.push(adjust_range_for_line_offset(range, block.line as u32));
+            let range = offset_range_to_range(&line_index, start, end);
+            results.push(adjust_range_for_line_offset(range, effective_offset));
         }
     }
 
