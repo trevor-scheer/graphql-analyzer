@@ -127,6 +127,16 @@ enum Commands {
         #[arg(short, long)]
         breakdown: bool,
     },
+
+    /// Start an MCP server for AI agent integration
+    ///
+    /// This command starts a Model Context Protocol (MCP) server that exposes
+    /// GraphQL tooling to AI agents. The server communicates via stdio.
+    Mcp {
+        /// Workspace directory (defaults to current directory)
+        #[arg(short, long)]
+        workspace: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -186,6 +196,7 @@ async fn main() -> anyhow::Result<()> {
             threshold,
             breakdown,
         ),
+        Commands::Mcp { workspace } => commands::mcp::run(workspace).await,
     };
 
     #[cfg(feature = "otel")]
