@@ -53,9 +53,9 @@ mod types;
 
 // Re-export types from the types module
 pub use types::{
-    CodeFix, CompletionItem, CompletionKind, Diagnostic, DiagnosticSeverity, DocumentSymbol,
-    FilePath, HoverResult, InsertTextFormat, Location, Position, Range, SchemaStats, SymbolKind,
-    TextEdit, WorkspaceSymbol,
+    CodeFix, CodeLensInfo, CompletionItem, CompletionKind, Diagnostic, DiagnosticSeverity,
+    DocumentSymbol, FilePath, HoverResult, InsertTextFormat, Location, Position, Range,
+    SchemaStats, SymbolKind, TextEdit, WorkspaceSymbol,
 };
 
 // Re-export helpers for internal use
@@ -1872,6 +1872,94 @@ impl Analysis {
         }
 
         locations
+    }
+
+    /// Get code lenses for deprecated fields in a schema file
+    ///
+    /// Returns code lens information for each deprecated field definition,
+    /// including the usage count and locations for navigation.
+    pub fn deprecated_field_code_lenses(&self, file: &FilePath) -> Vec<CodeLensInfo> {
+        let mut code_lenses = Vec::new();
+
+        let Some(project_files) = self.project_files else {
+            return code_lenses;
+        };
+
+        // Get the file_id for this file
+        let file_id = {
+            let registry = self.registry.read();
+            registry.get_file_id(file)
+        };
+
+        let Some(file_id) = file_id else {
+            return code_lenses;
+        };
+
+        // Get schema types to find deprecated fields
+        let schema_types = graphql_hir::schema_types(&self.db, project_files);
+
+        // Get file content and metadata for line index
+        let (content, metadata) = {
+            let registry = self.registry.read();
+            let content = registry.get_content(file_id);
+            let metadata = registry.get_metadata(file_id);
+            (content, metadata)
+        };
+
+        let (Some(content), Some(metadata)) = (content, metadata) else {
+            return code_lenses;
+        };
+
+        let line_index = graphql_syntax::line_index(&self.db, content);
+        let line_offset = metadata.line_offset(&self.db);
+
+        // Iterate through all types and find deprecated fields in this file
+        for type_def in schema_types.values() {
+            // Only process types defined in the current file
+            if type_def.file_id != file_id {
+                continue;
+            }
+
+            for field in &type_def.fields {
+                if !field.is_deprecated {
+                    continue;
+                }
+
+                // Find usages of this deprecated field
+                let usage_locations = self.find_field_references(
+                    type_def.name.as_ref(),
+                    field.name.as_ref(),
+                    false, // don't include declaration
+                );
+
+                // Convert the field's name_range to editor coordinates
+                let name_start = field.name_range.start().into();
+                let name_end = field.name_range.end().into();
+                let range = adjust_range_for_line_offset(
+                    offset_range_to_range(&line_index, name_start, name_end),
+                    line_offset,
+                );
+
+                let mut code_lens = CodeLensInfo::new(
+                    range,
+                    type_def.name.as_ref(),
+                    field.name.as_ref(),
+                    usage_locations.len(),
+                    usage_locations,
+                );
+
+                if let Some(ref reason) = field.deprecation_reason {
+                    code_lens = code_lens.with_deprecation_reason(reason.as_ref());
+                }
+
+                code_lenses.push(code_lens);
+            }
+
+            // Note: Enum values with @deprecated could also be supported here
+            // by adding a find_enum_value_references method. Left for future work.
+        }
+
+        code_lenses
     }
 
     /// Get document symbols for a file (hierarchical outline)
@@ -5326,6 +5414,218 @@ export const GET_POKEMON = gql`
             hover.contents.contains("String"),
             "Hover should show field type. Got: {}",
             hover.contents
+        );
+    }
+
+    #[test]
+    fn test_deprecated_field_code_lenses() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema with a deprecated field
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            r#"type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    name: String!
+    legacyId: String @deprecated(reason: "Use id instead")
+}"#,
+            FileKind::Schema,
+            0,
+        );
+
+        // Add a document that uses the deprecated field
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            r#"query GetUser {
+    user {
+        id
+        name
+        legacyId
+    }
+}"#,
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Get code lenses for the schema file (where the deprecated field is defined)
+        let code_lenses = snapshot.deprecated_field_code_lenses(&schema_path);
+
+        assert_eq!(
+            code_lenses.len(),
+            1,
+            "Should have exactly one code lens for the deprecated field"
+        );
+
+        let code_lens = &code_lenses[0];
+        assert_eq!(code_lens.type_name, "User");
+        assert_eq!(code_lens.field_name, "legacyId");
+        assert_eq!(
+            code_lens.usage_count, 1,
+            "Should have 1 usage of the deprecated field"
+        );
+        assert_eq!(
+            code_lens.deprecation_reason,
+            Some("Use id instead".to_string())
+        );
+    }
+
+    #[test]
+    fn test_deprecated_field_code_lenses_no_usages() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema with a deprecated field that is not used
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            r#"type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    name: String!
+    legacyId: String @deprecated(reason: "Use id instead")
+}"#,
+            FileKind::Schema,
+            0,
+        );
+
+        // Add a document that does NOT use the deprecated field
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            r#"query GetUser {
+    user {
+        id
+        name
+    }
+}"#,
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Get code lenses for the schema file
+        let code_lenses = snapshot.deprecated_field_code_lenses(&schema_path);
+
+        assert_eq!(
+            code_lenses.len(),
+            1,
+            "Should have exactly one code lens for the deprecated field"
+        );
+
+        let code_lens = &code_lenses[0];
+        assert_eq!(
+            code_lens.usage_count, 0,
+            "Should have 0 usages of the deprecated field"
+        );
+    }
+
+    #[test]
+    fn test_deprecated_field_code_lenses_multiple_usages() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema with a deprecated field
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            r#"type Query {
+    user: User
+    users: [User!]!
+}
+
+type User {
+    id: ID!
+    legacyId: String @deprecated
+}"#,
+            FileKind::Schema,
+            0,
+        );
+
+        // Add multiple documents using the deprecated field
+        let doc_path1 = FilePath::new("file:///query1.graphql");
+        host.add_file(
+            &doc_path1,
+            r#"query GetUser {
+    user {
+        legacyId
+    }
+}"#,
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        let doc_path2 = FilePath::new("file:///query2.graphql");
+        host.add_file(
+            &doc_path2,
+            r#"query GetUsers {
+    users {
+        legacyId
+    }
+}"#,
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        let code_lenses = snapshot.deprecated_field_code_lenses(&schema_path);
+
+        assert_eq!(code_lenses.len(), 1);
+        assert_eq!(
+            code_lenses[0].usage_count, 2,
+            "Should have 2 usages of the deprecated field"
+        );
+        assert_eq!(code_lenses[0].usage_locations.len(), 2);
+    }
+
+    #[test]
+    fn test_deprecated_field_code_lenses_non_schema_file() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { user: User }\ntype User { id: ID! @deprecated }",
+            FileKind::Schema,
+            0,
+        );
+
+        // Add a document file
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "query { user { id } }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Get code lenses for the document file (not schema) - should be empty
+        // since code lenses only show on schema files where deprecated fields are defined
+        let code_lenses = snapshot.deprecated_field_code_lenses(&doc_path);
+        assert!(
+            code_lenses.is_empty(),
+            "Document files should not have code lenses for deprecated fields"
         );
     }
 }
