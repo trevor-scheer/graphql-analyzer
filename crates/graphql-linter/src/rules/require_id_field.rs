@@ -34,7 +34,7 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
     ) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
         let parse = graphql_syntax::parse(db, content, metadata);
-        if !parse.errors.is_empty() {
+        if parse.has_errors() {
             return diagnostics;
         }
 
@@ -71,38 +71,28 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
             all_fragments,
         };
 
-        // Check the main document (for .graphql files only)
-        // For TS/JS files, parse.tree is the first block and we check all blocks below
-        let file_kind = metadata.kind(db);
-        if file_kind == graphql_db::FileKind::ExecutableGraphQL
-            || file_kind == graphql_db::FileKind::Schema
-        {
-            let doc_cst = parse.tree.document();
+        // Unified: check all documents (works for both pure GraphQL and TS/JS)
+        for doc in parse.documents() {
+            let doc_cst = doc.tree.document();
+            let mut doc_diagnostics = Vec::new();
             check_document(
                 &doc_cst,
                 query_type.as_deref(),
                 mutation_type.as_deref(),
                 subscription_type.as_deref(),
                 &check_context,
-                &mut diagnostics,
+                &mut doc_diagnostics,
             );
-        }
 
-        // Check operations in extracted blocks (TypeScript/JavaScript)
-        for block in &parse.blocks {
-            let block_doc = block.tree.document();
-            let mut block_diagnostics = Vec::new();
-            check_document(
-                &block_doc,
-                query_type.as_deref(),
-                mutation_type.as_deref(),
-                subscription_type.as_deref(),
-                &check_context,
-                &mut block_diagnostics,
-            );
-            // Add block context to each diagnostic for proper position calculation
-            for diag in block_diagnostics {
-                diagnostics.push(diag.with_block_context(block.line, block.source.clone()));
+            // Add block context for embedded GraphQL (line_offset > 0)
+            if doc.line_offset > 0 {
+                for diag in doc_diagnostics {
+                    diagnostics.push(
+                        diag.with_block_context(doc.line_offset, std::sync::Arc::from(doc.source)),
+                    );
+                }
+            } else {
+                diagnostics.extend(doc_diagnostics);
             }
         }
 
@@ -485,7 +475,7 @@ fn fragment_contains_id(
 
     // Parse the file (cached by Salsa)
     let parse = graphql_syntax::parse(context.db, file_content, file_metadata);
-    if !parse.errors.is_empty() {
+    if parse.has_errors() {
         return false;
     }
 

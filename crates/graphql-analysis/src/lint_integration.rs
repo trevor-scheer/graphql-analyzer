@@ -57,9 +57,9 @@ fn lint_file_impl(
     let parse = graphql_syntax::parse(db, content, metadata);
 
     let uri = metadata.uri(db);
-    tracing::debug!(uri = %uri, parse_errors = parse.errors.len(), "lint_file called");
+    tracing::debug!(uri = %uri, parse_errors = parse.errors().len(), "lint_file called");
 
-    if !parse.errors.is_empty() {
+    if parse.has_errors() {
         tracing::debug!(uri = %uri, "Skipping linting due to parse errors");
         return Arc::new(diagnostics);
     }
@@ -330,7 +330,7 @@ pub fn lint_file_with_fixes(
 
     // Parse and check for errors
     let parse = graphql_syntax::parse(db, content, metadata);
-    if !parse.errors.is_empty() {
+    if parse.has_errors() {
         return all_diagnostics;
     }
 

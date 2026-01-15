@@ -55,10 +55,12 @@ pub fn extract_root_type_names(
 
         let parse = graphql_syntax::parse(db, content, metadata);
 
-        // Look for schema definition
-        for definition in &parse.ast.definitions {
-            if let apollo_compiler::ast::Definition::SchemaDefinition(schema_def) = definition {
-                return extract_from_schema_definition(schema_def);
+        // Look for schema definition in all documents
+        for doc in parse.documents() {
+            for definition in &doc.ast.definitions {
+                if let apollo_compiler::ast::Definition::SchemaDefinition(schema_def) = definition {
+                    return extract_from_schema_definition(schema_def);
+                }
             }
         }
     }

@@ -60,7 +60,7 @@ fn syntax_diagnostics(
     let parse = graphql_syntax::parse(db, content, metadata);
     let line_index = graphql_syntax::line_index(db, content);
 
-    for error in &parse.errors {
+    for error in parse.errors() {
         let (line, col) = line_index.line_col(error.offset);
 
         diagnostics.push(Diagnostic {
@@ -100,7 +100,7 @@ fn file_validation_diagnostics_impl(
     let parse = graphql_syntax::parse(db, content, metadata);
     let line_index = graphql_syntax::line_index(db, content);
 
-    for error in &parse.errors {
+    for error in parse.errors() {
         let (line, col) = line_index.line_col(error.offset);
 
         diagnostics.push(Diagnostic {

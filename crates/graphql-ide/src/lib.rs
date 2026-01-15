@@ -833,13 +833,10 @@ impl Analysis {
 
         // Parse the file
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        if !parse.errors.is_empty() {
+        if parse.has_errors() {
             // Don't provide semantic tokens for files with parse errors
             return Vec::new();
         }
-
-        // Get line index for position conversion
-        let line_index = graphql_syntax::line_index(&self.db, content);
 
         // Get schema types if available (for deprecation checks)
         // schema_types returns a reference due to Salsa's returns(ref) optimization
@@ -849,28 +846,14 @@ impl Analysis {
 
         let mut tokens = Vec::new();
 
-        // Collect tokens from the main document (pure GraphQL files)
-        let file_kind = metadata.kind(&self.db);
-        if file_kind == graphql_db::FileKind::ExecutableGraphQL
-            || file_kind == graphql_db::FileKind::Schema
-        {
-            collect_semantic_tokens_from_document(
-                &parse.tree.document(),
-                &line_index,
-                0,
-                schema_types,
-                &mut tokens,
-            );
-        }
-
-        // Collect tokens from extracted blocks (TypeScript/JavaScript)
+        // Unified: collect tokens from all documents (works for both pure GraphQL and TS/JS)
         #[allow(clippy::cast_possible_truncation)]
-        for block in &parse.blocks {
-            let block_line_index = graphql_syntax::LineIndex::new(&block.source);
+        for doc in parse.documents() {
+            let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
             collect_semantic_tokens_from_document(
-                &block.tree.document(),
-                &block_line_index,
-                block.line as u32,
+                &doc.tree.document(),
+                &doc_line_index,
+                doc.line_offset as u32,
                 schema_types,
                 &mut tokens,
             );
@@ -1007,13 +990,9 @@ impl Analysis {
         let (block_context, adjusted_position) =
             find_block_for_position(&parse, position, metadata_line_offset)?;
 
-        let offset = if let Some(block_source) = block_context.block_source {
-            let block_line_index = graphql_syntax::LineIndex::new(block_source);
-            position_to_offset(&block_line_index, adjusted_position)?
-        } else {
-            let line_index = graphql_syntax::line_index(&self.db, content);
-            position_to_offset(&line_index, adjusted_position)?
-        };
+        // Create line index from block source (all documents now have source)
+        let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);
+        let offset = position_to_offset(&block_line_index, adjusted_position)?;
 
         // Find what symbol we're completing (or near) using the correct tree
         let symbol = find_symbol_at_offset(block_context.tree, offset);
@@ -1143,8 +1122,6 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        let line_index = graphql_syntax::line_index(&self.db, content);
-
         let metadata_line_offset = metadata.line_offset(&self.db);
         let (block_context, adjusted_position) =
             find_block_for_position(&parse, position, metadata_line_offset)?;
@@ -1156,21 +1133,18 @@ impl Analysis {
             adjusted_position
         );
 
-        let offset = if let Some(block_source) = block_context.block_source {
-            let block_line_index = graphql_syntax::LineIndex::new(block_source);
-            position_to_offset(&block_line_index, adjusted_position)?
-        } else {
-            position_to_offset(&line_index, adjusted_position)?
-        };
+        // Create line index from block source (all documents now have source)
+        let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);
+        let offset = position_to_offset(&block_line_index, adjusted_position)?;
 
         // Try to find the symbol at the offset even if there are parse errors
         // This allows hover to work on valid parts of a file with syntax errors elsewhere
         let symbol = find_symbol_at_offset(block_context.tree, offset);
 
         // If we couldn't find a symbol and there are parse errors, show the errors
-        if symbol.is_none() && !parse.errors.is_empty() {
+        if symbol.is_none() && parse.has_errors() {
             let error_messages: Vec<&str> =
-                parse.errors.iter().map(|e| e.message.as_str()).collect();
+                parse.errors().iter().map(|e| e.message.as_str()).collect();
             return Some(HoverResult::new(format!(
                 "**Syntax Errors**\n\n{}",
                 error_messages.join("\n")
@@ -1287,8 +1261,6 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        let line_index = graphql_syntax::line_index(&self.db, content);
-
         let metadata_line_offset = metadata.line_offset(&self.db);
         let (block_context, adjusted_position) =
             find_block_for_position(&parse, position, metadata_line_offset)?;
@@ -1300,12 +1272,9 @@ impl Analysis {
             adjusted_position
         );
 
-        let offset = if let Some(block_source) = block_context.block_source {
-            let block_line_index = graphql_syntax::LineIndex::new(block_source);
-            position_to_offset(&block_line_index, adjusted_position)?
-        } else {
-            position_to_offset(&line_index, adjusted_position)?
-        };
+        // Create line index from block source (all documents now have source)
+        let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);
+        let offset = position_to_offset(&block_line_index, adjusted_position)?;
 
         let symbol = find_symbol_at_offset(block_context.tree, offset)?;
 
@@ -1351,46 +1320,23 @@ impl Analysis {
 
                     let schema_parse =
                         graphql_syntax::parse(&self.db, schema_content, schema_metadata);
-                    let schema_line_index = graphql_syntax::line_index(&self.db, schema_content);
                     let schema_line_offset = schema_metadata.line_offset(&self.db);
 
-                    if schema_parse.blocks.is_empty() {
-                        // Pure GraphQL schema file
-                        if let Some(ranges) = find_field_definition_full_range(
-                            &schema_parse.tree,
-                            &parent_type_name,
-                            &name,
-                        ) {
+                    for doc in schema_parse.documents() {
+                        if let Some(ranges) =
+                            find_field_definition_full_range(doc.tree, &parent_type_name, &name)
+                        {
+                            let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
                             let range = offset_range_to_range(
-                                &schema_line_index,
+                                &doc_line_index,
                                 ranges.name_start,
                                 ranges.name_end,
                             );
+                            #[allow(clippy::cast_possible_truncation)]
+                            let doc_line_offset = doc.line_offset as u32 + schema_line_offset;
                             let adjusted_range =
-                                adjust_range_for_line_offset(range, schema_line_offset);
+                                adjust_range_for_line_offset(range, doc_line_offset);
                             return Some(vec![Location::new(file_path, adjusted_range)]);
-                        }
-                    } else {
-                        // TS/JS file with embedded schema (unlikely but handle it)
-                        for block in &schema_parse.blocks {
-                            if let Some(ranges) = find_field_definition_full_range(
-                                &block.tree,
-                                &parent_type_name,
-                                &name,
-                            ) {
-                                let block_line_index =
-                                    graphql_syntax::LineIndex::new(&block.source);
-                                let range = offset_range_to_range(
-                                    &block_line_index,
-                                    ranges.name_start,
-                                    ranges.name_end,
-                                );
-                                #[allow(clippy::cast_possible_truncation)]
-                                let block_line_offset = block.line as u32;
-                                let adjusted_range =
-                                    adjust_range_for_line_offset(range, block_line_offset);
-                                return Some(vec![Location::new(file_path, adjusted_range)]);
-                            }
                         }
                     }
                 }
@@ -1479,23 +1425,13 @@ impl Analysis {
                 None
             }
             Symbol::VariableReference { name } => {
-                let range = if let Some(block_source) = block_context.block_source {
-                    let block_line_index = graphql_syntax::LineIndex::new(block_source);
-                    find_variable_definition_in_tree(
-                        block_context.tree,
-                        &name,
-                        &block_line_index,
-                        block_context.line_offset,
-                    )
-                } else {
-                    let file_line_index = graphql_syntax::line_index(&self.db, content);
-                    find_variable_definition_in_tree(
-                        block_context.tree,
-                        &name,
-                        &file_line_index,
-                        block_context.line_offset,
-                    )
-                };
+                let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);
+                let range = find_variable_definition_in_tree(
+                    block_context.tree,
+                    &name,
+                    &block_line_index,
+                    block_context.line_offset,
+                );
 
                 if let Some(range) = range {
                     let registry = self.registry.read();
@@ -1534,40 +1470,34 @@ impl Analysis {
 
                     let schema_parse =
                         graphql_syntax::parse(&self.db, schema_content, schema_metadata);
-                    let schema_line_index = graphql_syntax::line_index(&self.db, schema_content);
                     let schema_line_offset = schema_metadata.line_offset(&self.db);
 
-                    if let Some(range) = find_argument_definition_in_tree(
-                        &schema_parse.tree,
-                        &parent_type_name,
-                        &field_name,
-                        &name,
-                        &schema_line_index,
-                        schema_line_offset,
-                    ) {
-                        return Some(vec![Location::new(file_path, range)]);
+                    for doc in schema_parse.documents() {
+                        let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                        #[allow(clippy::cast_possible_truncation)]
+                        let doc_line_offset = doc.line_offset as u32 + schema_line_offset;
+                        if let Some(range) = find_argument_definition_in_tree(
+                            doc.tree,
+                            &parent_type_name,
+                            &field_name,
+                            &name,
+                            &doc_line_index,
+                            doc_line_offset,
+                        ) {
+                            return Some(vec![Location::new(file_path, range)]);
+                        }
                     }
                 }
                 None
             }
             Symbol::OperationName { name } => {
-                let range = if let Some(block_source) = block_context.block_source {
-                    let block_line_index = graphql_syntax::LineIndex::new(block_source);
-                    find_operation_definition_in_tree(
-                        block_context.tree,
-                        &name,
-                        &block_line_index,
-                        block_context.line_offset,
-                    )
-                } else {
-                    let file_line_index = graphql_syntax::line_index(&self.db, content);
-                    find_operation_definition_in_tree(
-                        block_context.tree,
-                        &name,
-                        &file_line_index,
-                        block_context.line_offset,
-                    )
-                };
+                let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);
+                let range = find_operation_definition_in_tree(
+                    block_context.tree,
+                    &name,
+                    &block_line_index,
+                    block_context.line_offset,
+                );
 
                 if let Some(range) = range {
                     let registry = self.registry.read();
@@ -1603,8 +1533,6 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        let line_index = graphql_syntax::line_index(&self.db, content);
-
         let metadata_line_offset = metadata.line_offset(&self.db);
         let (block_context, adjusted_position) =
             find_block_for_position(&parse, position, metadata_line_offset)?;
@@ -1616,12 +1544,9 @@ impl Analysis {
             adjusted_position
         );
 
-        let offset = if let Some(block_source) = block_context.block_source {
-            let block_line_index = graphql_syntax::LineIndex::new(block_source);
-            position_to_offset(&block_line_index, adjusted_position)?
-        } else {
-            position_to_offset(&line_index, adjusted_position)?
-        };
+        // Create line index from block source (all documents now have source)
+        let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);
+        let offset = position_to_offset(&block_line_index, adjusted_position)?;
 
         let symbol = find_symbol_at_offset(block_context.tree, offset)?;
 
@@ -1820,17 +1745,24 @@ impl Analysis {
                 };
 
                 let parse = graphql_syntax::parse(&self.db, content, metadata);
-                let line_index = graphql_syntax::line_index(&self.db, content);
                 let line_offset = metadata.line_offset(&self.db);
 
-                if let Some(ranges) =
-                    find_field_definition_full_range(&parse.tree, type_name, field_name)
-                {
-                    let range =
-                        offset_range_to_range(&line_index, ranges.name_start, ranges.name_end);
-                    let adjusted_range = adjust_range_for_line_offset(range, line_offset);
-                    locations.push(Location::new(file_path, adjusted_range));
-                    break; // Field definition found
+                'schema_search: for doc in parse.documents() {
+                    if let Some(ranges) =
+                        find_field_definition_full_range(doc.tree, type_name, field_name)
+                    {
+                        let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                        let range = offset_range_to_range(
+                            &doc_line_index,
+                            ranges.name_start,
+                            ranges.name_end,
+                        );
+                        #[allow(clippy::cast_possible_truncation)]
+                        let doc_line_offset = doc.line_offset as u32 + line_offset;
+                        let adjusted_range = adjust_range_for_line_offset(range, doc_line_offset);
+                        locations.push(Location::new(file_path, adjusted_range));
+                        break 'schema_search; // Field definition found
+                    }
                 }
             }
         }
@@ -1878,6 +1810,7 @@ impl Analysis {
     ///
     /// Returns types, operations, and fragments with their fields as children.
     /// This powers the "Go to Symbol in Editor" (Cmd+Shift+O) feature.
+    #[allow(clippy::too_many_lines)]
     pub fn document_symbols(&self, file: &FilePath) -> Vec<DocumentSymbol> {
         let (content, metadata, file_id) = {
             let registry = self.registry.read();
@@ -1898,90 +1831,93 @@ impl Analysis {
         };
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_index = graphql_syntax::line_index(&self.db, content);
-
-        let line_offset = metadata.line_offset(&self.db);
+        let metadata_line_offset = metadata.line_offset(&self.db);
 
         let structure = graphql_hir::file_structure(&self.db, file_id, content, metadata);
 
         let mut symbols = Vec::new();
 
-        let definitions = extract_all_definitions(&parse.tree);
+        for doc in parse.documents() {
+            let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+            #[allow(clippy::cast_possible_truncation)]
+            let doc_line_offset = doc.line_offset as u32 + metadata_line_offset;
 
-        for (name, kind, ranges) in definitions {
-            let range = adjust_range_for_line_offset(
-                offset_range_to_range(&line_index, ranges.def_start, ranges.def_end),
-                line_offset,
-            );
-            let selection_range = adjust_range_for_line_offset(
-                offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
-                line_offset,
-            );
+            let definitions = extract_all_definitions(doc.tree);
 
-            let symbol = match kind {
-                "object" => {
-                    let children = get_field_children(
-                        &structure,
-                        &name,
-                        &parse.tree,
-                        &line_index,
-                        line_offset,
-                    );
-                    DocumentSymbol::new(name, SymbolKind::Type, range, selection_range)
-                        .with_children(children)
-                }
-                "interface" => {
-                    let children = get_field_children(
-                        &structure,
-                        &name,
-                        &parse.tree,
-                        &line_index,
-                        line_offset,
-                    );
-                    DocumentSymbol::new(name, SymbolKind::Interface, range, selection_range)
-                        .with_children(children)
-                }
-                "input" => {
-                    let children = get_field_children(
-                        &structure,
-                        &name,
-                        &parse.tree,
-                        &line_index,
-                        line_offset,
-                    );
-                    DocumentSymbol::new(name, SymbolKind::Input, range, selection_range)
-                        .with_children(children)
-                }
-                "union" => DocumentSymbol::new(name, SymbolKind::Union, range, selection_range),
-                "enum" => {
-                    // For enums, we could add enum values as children
-                    DocumentSymbol::new(name, SymbolKind::Enum, range, selection_range)
-                }
-                "scalar" => DocumentSymbol::new(name, SymbolKind::Scalar, range, selection_range),
-                "query" => DocumentSymbol::new(name, SymbolKind::Query, range, selection_range),
-                "mutation" => {
-                    DocumentSymbol::new(name, SymbolKind::Mutation, range, selection_range)
-                }
-                "subscription" => {
-                    DocumentSymbol::new(name, SymbolKind::Subscription, range, selection_range)
-                }
-                "fragment" => {
-                    let detail = structure
-                        .fragments
-                        .iter()
-                        .find(|f| f.name.as_ref() == name)
-                        .map(|f| format!("on {}", f.type_condition));
-                    let mut sym =
-                        DocumentSymbol::new(name, SymbolKind::Fragment, range, selection_range);
-                    if let Some(d) = detail {
-                        sym = sym.with_detail(d);
+            for (name, kind, ranges) in definitions {
+                let range = adjust_range_for_line_offset(
+                    offset_range_to_range(&doc_line_index, ranges.def_start, ranges.def_end),
+                    doc_line_offset,
+                );
+                let selection_range = adjust_range_for_line_offset(
+                    offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
+                    doc_line_offset,
+                );
+
+                let symbol = match kind {
+                    "object" => {
+                        let children = get_field_children(
+                            &structure,
+                            &name,
+                            doc.tree,
+                            &doc_line_index,
+                            doc_line_offset,
+                        );
+                        DocumentSymbol::new(name, SymbolKind::Type, range, selection_range)
+                            .with_children(children)
                     }
-                    sym
-                }
-                _ => continue,
-            };
+                    "interface" => {
+                        let children = get_field_children(
+                            &structure,
+                            &name,
+                            doc.tree,
+                            &doc_line_index,
+                            doc_line_offset,
+                        );
+                        DocumentSymbol::new(name, SymbolKind::Interface, range, selection_range)
+                            .with_children(children)
+                    }
+                    "input" => {
+                        let children = get_field_children(
+                            &structure,
+                            &name,
+                            doc.tree,
+                            &doc_line_index,
+                            doc_line_offset,
+                        );
+                        DocumentSymbol::new(name, SymbolKind::Input, range, selection_range)
+                            .with_children(children)
+                    }
+                    "union" => DocumentSymbol::new(name, SymbolKind::Union, range, selection_range),
+                    "enum" => DocumentSymbol::new(name, SymbolKind::Enum, range, selection_range),
+                    "scalar" => {
+                        DocumentSymbol::new(name, SymbolKind::Scalar, range, selection_range)
+                    }
+                    "query" => DocumentSymbol::new(name, SymbolKind::Query, range, selection_range),
+                    "mutation" => {
+                        DocumentSymbol::new(name, SymbolKind::Mutation, range, selection_range)
+                    }
+                    "subscription" => {
+                        DocumentSymbol::new(name, SymbolKind::Subscription, range, selection_range)
+                    }
+                    "fragment" => {
+                        let detail = structure
+                            .fragments
+                            .iter()
+                            .find(|f| f.name.as_ref() == name)
+                            .map(|f| format!("on {}", f.type_condition));
+                        let mut sym =
+                            DocumentSymbol::new(name, SymbolKind::Fragment, range, selection_range);
+                        if let Some(d) = detail {
+                            sym = sym.with_detail(d);
+                        }
+                        sym
+                    }
+                    _ => continue,
+                };
 
-            symbols.push(symbol);
+                symbols.push(symbol);
+            }
         }
 
         symbols
@@ -2109,9 +2045,11 @@ impl Analysis {
             let parse = graphql_syntax::parse(&self.db, content, metadata);
             // Count directive definitions by checking if the definition is a directive
             // Directives in GraphQL SDL start with "directive @"
-            for definition in &parse.ast.definitions {
-                if definition.as_directive_definition().is_some() {
-                    stats.directives += 1;
+            for doc in parse.documents() {
+                for definition in &doc.ast.definitions {
+                    if definition.as_directive_definition().is_some() {
+                        stats.directives += 1;
+                    }
                 }
             }
         }
@@ -2128,16 +2066,22 @@ impl Analysis {
         drop(registry);
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_index = graphql_syntax::line_index(&self.db, content);
-        let line_offset = metadata.line_offset(&self.db);
+        let metadata_line_offset = metadata.line_offset(&self.db);
 
-        let ranges = find_type_definition_full_range(&parse.tree, &type_def.name)?;
-        let range = adjust_range_for_line_offset(
-            offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
-            line_offset,
-        );
+        for doc in parse.documents() {
+            if let Some(ranges) = find_type_definition_full_range(doc.tree, &type_def.name) {
+                let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                #[allow(clippy::cast_possible_truncation)]
+                let doc_line_offset = doc.line_offset as u32 + metadata_line_offset;
+                let range = adjust_range_for_line_offset(
+                    offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
+                    doc_line_offset,
+                );
+                return Some(Location::new(file_path, range));
+            }
+        }
 
-        Some(Location::new(file_path, range))
+        None
     }
 
     /// Get location for a fragment definition
@@ -2149,16 +2093,22 @@ impl Analysis {
         drop(registry);
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_index = graphql_syntax::line_index(&self.db, content);
-        let line_offset = metadata.line_offset(&self.db);
+        let metadata_line_offset = metadata.line_offset(&self.db);
 
-        let ranges = find_fragment_definition_full_range(&parse.tree, &fragment.name)?;
-        let range = adjust_range_for_line_offset(
-            offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
-            line_offset,
-        );
+        for doc in parse.documents() {
+            if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name) {
+                let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                #[allow(clippy::cast_possible_truncation)]
+                let doc_line_offset = doc.line_offset as u32 + metadata_line_offset;
+                let range = adjust_range_for_line_offset(
+                    offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
+                    doc_line_offset,
+                );
+                return Some(Location::new(file_path, range));
+            }
+        }
 
-        Some(Location::new(file_path, range))
+        None
     }
 
     /// Get location for an operation definition
@@ -2175,16 +2125,22 @@ impl Analysis {
         drop(registry);
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_index = graphql_syntax::line_index(&self.db, content);
-        let line_offset = metadata.line_offset(&self.db);
+        let metadata_line_offset = metadata.line_offset(&self.db);
 
-        let ranges = find_operation_definition_ranges(&parse.tree, op_name)?;
-        let range = adjust_range_for_line_offset(
-            offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
-            line_offset,
-        );
+        for doc in parse.documents() {
+            if let Some(ranges) = find_operation_definition_ranges(doc.tree, op_name) {
+                let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                #[allow(clippy::cast_possible_truncation)]
+                let doc_line_offset = doc.line_offset as u32 + metadata_line_offset;
+                let range = adjust_range_for_line_offset(
+                    offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
+                    doc_line_offset,
+                );
+                return Some(Location::new(file_path, range));
+            }
+        }
 
-        Some(Location::new(file_path, range))
+        None
     }
 }
 

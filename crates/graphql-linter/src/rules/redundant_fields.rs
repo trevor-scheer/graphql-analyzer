@@ -55,19 +55,20 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
         let mut diagnostics = Vec::new();
 
         let parse = graphql_syntax::parse(db, content, metadata);
-        if !parse.errors.is_empty() {
+        if parse.has_errors() {
             return diagnostics;
         }
 
-        let doc_cst = parse.tree.document();
-
-        // Collect fragment definitions from the current document
+        // Collect fragment definitions from the current document (all blocks)
         let mut fragments = FragmentRegistry::new();
-        for definition in doc_cst.definitions() {
-            if let cst::Definition::FragmentDefinition(fragment) = definition {
-                if let Some(name) = fragment.fragment_name().and_then(|n| n.name()) {
-                    let fragment_name = name.text().to_string();
-                    fragments.register(fragment_name, fragment.clone());
+        for doc in parse.documents() {
+            let doc_cst = doc.tree.document();
+            for definition in doc_cst.definitions() {
+                if let cst::Definition::FragmentDefinition(fragment) = definition {
+                    if let Some(name) = fragment.fragment_name().and_then(|n| n.name()) {
+                        let fragment_name = name.text().to_string();
+                        fragments.register(fragment_name, fragment.clone());
+                    }
                 }
             }
         }
@@ -91,16 +92,19 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
             {
                 // Parse the file (cached by Salsa)
                 let fragment_parse = graphql_syntax::parse(db, file_content, file_metadata);
-                if fragment_parse.errors.is_empty() {
-                    let fragment_doc_cst = fragment_parse.tree.document();
-
-                    // Find the fragment definition
-                    for definition in fragment_doc_cst.definitions() {
-                        if let cst::Definition::FragmentDefinition(fragment) = definition {
-                            if let Some(name) = fragment.fragment_name().and_then(|n| n.name()) {
-                                if name.text() == fragment_name.as_ref() {
-                                    fragments.register(fragment_name.to_string(), fragment.clone());
-                                    break;
+                if !fragment_parse.has_errors() {
+                    // Find the fragment definition in all documents
+                    'outer: for fragment_doc in fragment_parse.documents() {
+                        let fragment_doc_cst = fragment_doc.tree.document();
+                        for definition in fragment_doc_cst.definitions() {
+                            if let cst::Definition::FragmentDefinition(fragment) = definition {
+                                if let Some(name) = fragment.fragment_name().and_then(|n| n.name())
+                                {
+                                    if name.text() == fragment_name.as_ref() {
+                                        fragments
+                                            .register(fragment_name.to_string(), fragment.clone());
+                                        break 'outer;
+                                    }
                                 }
                             }
                         }
@@ -109,23 +113,21 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
             }
         }
 
-        // Check main document for redundant fields (for .graphql files only)
-        // For TS/JS files, parse.tree is the first block and we check all blocks below
-        let file_kind = metadata.kind(db);
-        if file_kind == graphql_db::FileKind::ExecutableGraphQL
-            || file_kind == graphql_db::FileKind::Schema
-        {
-            check_document_for_redundancy(&doc_cst, &fragments, &mut diagnostics);
-        }
+        // Unified: check all documents for redundant fields
+        for doc in parse.documents() {
+            let doc_cst = doc.tree.document();
+            let mut doc_diagnostics = Vec::new();
+            check_document_for_redundancy(&doc_cst, &fragments, &mut doc_diagnostics);
 
-        // Check selection sets in extracted blocks (TypeScript/JavaScript)
-        for block in &parse.blocks {
-            let block_doc = block.tree.document();
-            let mut block_diagnostics = Vec::new();
-            check_document_for_redundancy(&block_doc, &fragments, &mut block_diagnostics);
-            // Add block context to each diagnostic for proper position calculation
-            for diag in block_diagnostics {
-                diagnostics.push(diag.with_block_context(block.line, block.source.clone()));
+            // Add block context for embedded GraphQL (line_offset > 0)
+            if doc.line_offset > 0 {
+                for diag in doc_diagnostics {
+                    diagnostics.push(
+                        diag.with_block_context(doc.line_offset, std::sync::Arc::from(doc.source)),
+                    );
+                }
+            } else {
+                diagnostics.extend(doc_diagnostics);
             }
         }
 
