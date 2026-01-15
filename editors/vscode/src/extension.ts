@@ -13,6 +13,7 @@ import {
   TextEditorDecorationType,
   Range,
   Position,
+  Uri,
 } from "vscode";
 import {
   LanguageClient,
@@ -20,17 +21,41 @@ import {
   ServerOptions,
   Executable,
   State,
+  Location as LspLocation,
+  Position as LspPosition,
 } from "vscode-languageclient/node";
 import { findServerBinary } from "./binaryManager";
+
+// =============================================================================
+// LSP Command Arguments: Why Custom Commands Are Required
+// =============================================================================
+//
+// VSCode's built-in commands like `editor.action.showReferences` expect native
+// VSCode types (Uri, Position, Location) with actual methods on them. However,
+// LSP servers send JSON which produces plain objects without methods.
+//
+// The vscode-languageclient library does NOT auto-convert command arguments -
+// it only converts request/response payloads. This is a known limitation
+// confirmed by the vscode-languageserver-node maintainer:
+// https://github.com/microsoft/vscode-languageserver-node/issues/778
+//
+// Therefore, any LSP feature that needs to invoke VSCode commands with complex
+// types (like CodeLens → showReferences) MUST use a custom command wrapper that:
+// 1. Receives JSON arguments from the LSP server
+// 2. Converts them to native VSCode types using protocol2CodeConverter
+// 3. Calls the actual VSCode command
+//
+// This is the same pattern used by rust-analyzer and other mature LSP implementations.
+// See: https://github.com/rust-lang/rust-analyzer/blob/master/editors/code/src/commands.ts
+// =============================================================================
 
 console.log(">>> GraphQL LSP extension imports complete <<<");
 
 // Decoration type for deprecated GraphQL fields (strikethrough)
-const deprecatedDecorationType: TextEditorDecorationType =
-  window.createTextEditorDecorationType({
-    textDecoration: "line-through",
-    opacity: "0.7",
-  });
+const deprecatedDecorationType: TextEditorDecorationType = window.createTextEditorDecorationType({
+  textDecoration: "line-through",
+  opacity: "0.7",
+});
 
 let client: LanguageClient;
 let outputChannel: OutputChannel;
@@ -57,12 +82,7 @@ function updateStatusBar(state: State): void {
 }
 
 // Languages that can contain embedded GraphQL
-const embeddedGraphQLLanguages = [
-  "typescript",
-  "typescriptreact",
-  "javascript",
-  "javascriptreact",
-];
+const embeddedGraphQLLanguages = ["typescript", "typescriptreact", "javascript", "javascriptreact"];
 
 async function updateDeprecatedDecorations(editor: TextEditor): Promise<void> {
   if (!client) {
@@ -288,7 +308,28 @@ export async function activate(context: ExtensionContext) {
       }
     });
 
-    context.subscriptions.push(reloadCommand, checkStatusCommand);
+    // Command wrapper for CodeLens "show references" functionality.
+    // The LSP server sends this command with JSON arguments; we convert them
+    // to native VSCode types before calling editor.action.showReferences.
+    // See the comment block at the top of this file for why this is necessary.
+    const showReferencesCommand = commands.registerCommand(
+      "graphql-lsp.showReferences",
+      async (uriString: string, position: LspPosition, locations: LspLocation[]) => {
+        if (!client) {
+          return;
+        }
+
+        const converter = client.protocol2CodeConverter;
+        await commands.executeCommand(
+          "editor.action.showReferences",
+          Uri.parse(uriString),
+          converter.asPosition(position),
+          locations.map((loc) => converter.asLocation(loc))
+        );
+      }
+    );
+
+    context.subscriptions.push(reloadCommand, checkStatusCommand, showReferencesCommand);
   } catch (error) {
     const errorMessage = `Failed to start GraphQL LSP: ${error}`;
     outputChannel.appendLine(errorMessage);
