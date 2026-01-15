@@ -80,6 +80,21 @@ pub fn run(
     Ok(())
 }
 
+/// Format a file path for display
+/// Strips "file://" prefix and tries to make paths relative to CWD for readability
+fn format_path(path: &str) -> String {
+    let path = path.strip_prefix("file://").unwrap_or(path);
+
+    // Try to make relative to current directory
+    if let Ok(cwd) = std::env::current_dir() {
+        if let Ok(rel) = std::path::Path::new(path).strip_prefix(&cwd) {
+            return rel.display().to_string();
+        }
+    }
+
+    path.to_string()
+}
+
 fn display_human_format(
     fragment_usages: &[graphql_ide::FragmentUsage],
     elapsed: std::time::Duration,
@@ -137,6 +152,29 @@ fn display_human_format(
             println!("{}: {}", usage.name.green().bold(), usage_text);
         }
 
+        // Show definition location
+        let def_line = usage.definition_range.start.line + 1; // 1-based for display
+        println!(
+            "  {} {}:{}",
+            "defined at:".dimmed(),
+            format_path(usage.definition_file.as_str()).cyan(),
+            def_line.to_string().cyan()
+        );
+
+        // Show usage locations
+        if !usage.usages.is_empty() {
+            println!("  {}", "used at:".dimmed());
+            for reference in &usage.usages {
+                let ref_line = reference.location.range.start.line + 1; // 1-based for display
+                println!(
+                    "    {} {}:{}",
+                    "•".dimmed(),
+                    format_path(reference.location.file.as_str()),
+                    ref_line
+                );
+            }
+        }
+
         // Show transitive dependencies if any
         if !usage.transitive_dependencies.is_empty() {
             println!(
@@ -145,6 +183,8 @@ fn display_human_format(
                 usage.transitive_dependencies.join(", ").dimmed()
             );
         }
+
+        println!(); // Blank line between fragments
     }
 
     // Summary

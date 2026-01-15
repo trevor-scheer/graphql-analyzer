@@ -2654,6 +2654,7 @@ impl Analysis {
             }
         }
 
+        tracing::debug!(lens_count = lenses.len(), "code_lenses: returning");
         lenses
     }
 }

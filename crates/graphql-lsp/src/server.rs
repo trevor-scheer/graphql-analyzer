@@ -1450,6 +1450,7 @@ impl LanguageServer for GraphQLLanguageServer {
         }
     }
 
+    #[tracing::instrument(skip(self, params), fields(uri = ?params.text_document.uri))]
     async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
         let uri = params.text_document.uri;
         tracing::debug!("Code lens requested: {:?}", uri);
