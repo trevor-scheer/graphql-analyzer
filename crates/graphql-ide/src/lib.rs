@@ -1184,12 +1184,12 @@ impl Analysis {
         match symbol {
             Symbol::FieldName { name } => {
                 let types = graphql_hir::schema_types(&self.db, project_files);
-                let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
+                let parent_ctx = find_parent_type_at_offset(block_context.tree, offset)?;
 
                 // Use walk_type_stack_to_offset to properly resolve the parent type,
                 // which handles inline fragments correctly
                 let parent_type_name = symbol::walk_type_stack_to_offset(
-                    &parse.tree,
+                    block_context.tree,
                     types,
                     offset,
                     &parent_ctx.root_type,
