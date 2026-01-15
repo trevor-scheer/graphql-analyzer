@@ -1,5 +1,6 @@
 pub mod check;
 pub mod common;
+pub mod deprecations;
 pub mod fix;
 pub mod lint;
 pub mod schema;

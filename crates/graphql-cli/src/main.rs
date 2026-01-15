@@ -75,6 +75,13 @@ enum Commands {
         watch: bool,
     },
 
+    /// List all deprecated field usages across the project
+    Deprecations {
+        /// Output format
+        #[arg(short, long, value_enum, default_value = "human")]
+        format: OutputFormat,
+    },
+
     /// Schema-related commands (download, etc.)
     Schema {
         #[command(subcommand)]
@@ -121,6 +128,9 @@ async fn main() -> anyhow::Result<()> {
         } => commands::fix::run(cli.config, cli.project.as_deref(), dry_run, rule, format),
         Commands::Check { format, watch } => {
             commands::check::run(cli.config, cli.project.as_deref(), format, watch)
+        }
+        Commands::Deprecations { format } => {
+            commands::deprecations::run(cli.config, cli.project.as_deref(), format)
         }
         Commands::Schema { command } => commands::schema::run(command).await,
         Commands::Stats { format } => {

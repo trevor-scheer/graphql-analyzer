@@ -64,6 +64,18 @@
         }
       }
     ],
+    "configurationDefaults": {
+      "[graphql]": {
+        "editor.semanticHighlighting.enabled": true
+      },
+      "editor.semanticTokenColorCustomizations": {
+        "rules": {
+          "*.deprecated": {
+            "strikethrough": true
+          }
+        }
+      }
+    },
     "configuration": {
       "type": "object",
       "title": "GraphQL LSP",

@@ -9,6 +9,10 @@ import {
   commands,
   StatusBarItem,
   StatusBarAlignment,
+  TextEditor,
+  TextEditorDecorationType,
+  Range,
+  Position,
 } from "vscode";
 import {
   LanguageClient,
@@ -20,6 +24,13 @@ import {
 import { findServerBinary } from "./binaryManager";
 
 console.log(">>> GraphQL LSP extension imports complete <<<");
+
+// Decoration type for deprecated GraphQL fields (strikethrough)
+const deprecatedDecorationType: TextEditorDecorationType =
+  window.createTextEditorDecorationType({
+    textDecoration: "line-through",
+    opacity: "0.7",
+  });
 
 let client: LanguageClient;
 let outputChannel: OutputChannel;
@@ -42,6 +53,108 @@ function updateStatusBar(state: State): void {
       statusBarItem.tooltip = "GraphQL LSP is stopped";
       statusBarItem.backgroundColor = undefined;
       break;
+  }
+}
+
+// Languages that can contain embedded GraphQL
+const embeddedGraphQLLanguages = [
+  "typescript",
+  "typescriptreact",
+  "javascript",
+  "javascriptreact",
+];
+
+async function updateDeprecatedDecorations(editor: TextEditor): Promise<void> {
+  if (!client) {
+    return;
+  }
+
+  const document = editor.document;
+  const languageId = document.languageId;
+
+  // Only process files that can contain embedded GraphQL
+  if (!embeddedGraphQLLanguages.includes(languageId)) {
+    return;
+  }
+
+  try {
+    // Request semantic tokens from our LSP server
+    const result = await client.sendRequest<{
+      data?: number[];
+    } | null>("textDocument/semanticTokens/full", {
+      textDocument: { uri: document.uri.toString() },
+    });
+
+    if (!result || !result.data || result.data.length === 0) {
+      // Clear decorations if no tokens
+      editor.setDecorations(deprecatedDecorationType, []);
+      return;
+    }
+
+    // Parse the delta-encoded tokens to find deprecated ones
+    // Format: [deltaLine, deltaStart, length, tokenType, modifiers, ...]
+    const deprecatedRanges: Range[] = [];
+    let currentLine = 0;
+    let currentChar = 0;
+
+    for (let i = 0; i < result.data.length; i += 5) {
+      const deltaLine = result.data[i];
+      const deltaStart = result.data[i + 1];
+      const length = result.data[i + 2];
+      // const tokenType = result.data[i + 3]; // Not needed for this
+      const modifiers = result.data[i + 4];
+
+      // Update position
+      if (deltaLine > 0) {
+        currentLine += deltaLine;
+        currentChar = deltaStart;
+      } else {
+        currentChar += deltaStart;
+      }
+
+      // Check if deprecated modifier is set (bit 0)
+      const isDeprecated = (modifiers & 1) !== 0;
+
+      if (isDeprecated) {
+        const startPos = new Position(currentLine, currentChar);
+        const endPos = new Position(currentLine, currentChar + length);
+        deprecatedRanges.push(new Range(startPos, endPos));
+      }
+    }
+
+    editor.setDecorations(deprecatedDecorationType, deprecatedRanges);
+  } catch {
+    // Silently ignore errors - the file may not be in a GraphQL project
+  }
+}
+
+function setupDecorationListeners(context: ExtensionContext): void {
+  // Update decorations when active editor changes
+  context.subscriptions.push(
+    window.onDidChangeActiveTextEditor((editor) => {
+      if (editor) {
+        updateDeprecatedDecorations(editor);
+      }
+    })
+  );
+
+  // Update decorations when document changes (debounced)
+  let debounceTimer: NodeJS.Timeout | undefined;
+  context.subscriptions.push(
+    workspace.onDidChangeTextDocument((event) => {
+      const editor = window.activeTextEditor;
+      if (editor && editor.document === event.document) {
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+        }
+        debounceTimer = setTimeout(() => updateDeprecatedDecorations(editor), 500);
+      }
+    })
+  );
+
+  // Update current editor immediately
+  if (window.activeTextEditor) {
+    updateDeprecatedDecorations(window.activeTextEditor);
   }
 }
 
@@ -128,6 +241,9 @@ export async function activate(context: ExtensionContext) {
 
   try {
     await startLanguageServer(context);
+
+    // Setup decoration listeners for deprecated fields in TS/JS files
+    setupDecorationListeners(context);
 
     const reloadCommand = commands.registerCommand("graphql-lsp.restartServer", async () => {
       outputChannel.appendLine("=== Restarting GraphQL LSP ===");
