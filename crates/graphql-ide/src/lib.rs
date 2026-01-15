@@ -79,6 +79,62 @@ use symbol::{
 // Re-export database types that IDE layer needs
 pub use graphql_db::FileKind;
 
+/// Information about a loaded file from document discovery
+#[derive(Debug, Clone)]
+pub struct LoadedFile {
+    /// The file path (as a URI string)
+    pub path: FilePath,
+    /// The determined file kind
+    pub kind: FileKind,
+}
+
+/// Expand brace patterns like `{ts,tsx}` into multiple patterns
+///
+/// This is needed because the glob crate doesn't support brace expansion.
+/// For example, `**/*.{ts,tsx}` expands to `["**/*.ts", "**/*.tsx"]`.
+fn expand_braces(pattern: &str) -> Vec<String> {
+    if let Some(start) = pattern.find('{') {
+        if let Some(end) = pattern.find('}') {
+            let before = &pattern[..start];
+            let after = &pattern[end + 1..];
+            let options = &pattern[start + 1..end];
+
+            return options
+                .split(',')
+                .map(|opt| format!("{before}{opt}{after}"))
+                .collect();
+        }
+    }
+
+    vec![pattern.to_string()]
+}
+
+/// Determine `FileKind` for a document file based on its path.
+///
+/// This is used for files loaded from the `documents` configuration.
+/// - `.ts`/`.tsx` files → TypeScript
+/// - `.js`/`.jsx` files → JavaScript
+/// - `.graphql`/`.gql` files → `ExecutableGraphQL`
+///
+/// Note: Files from the `schema` configuration are always `FileKind::Schema`,
+/// regardless of their extension.
+#[allow(clippy::case_sensitive_file_extension_comparisons)]
+fn determine_document_file_kind(path: &str, _content: &str) -> FileKind {
+    if path.ends_with(".ts") || path.ends_with(".tsx") {
+        FileKind::TypeScript
+    } else if path.ends_with(".js") || path.ends_with(".jsx") {
+        FileKind::JavaScript
+    } else {
+        FileKind::ExecutableGraphQL
+    }
+}
+
+/// Convert a filesystem path to a `FilePath` (URI format)
+fn path_to_file_path(path: &std::path::Path) -> FilePath {
+    let uri_string = path_to_file_uri(path);
+    FilePath::new(uri_string)
+}
+
 #[cfg(test)]
 /// Helper for tests: extracts cursor position from a string with a `*` marker.
 ///
@@ -640,6 +696,124 @@ impl AnalysisHost {
             .unwrap_or_default()
     }
 
+    /// Load document files from a project configuration
+    ///
+    /// This method handles:
+    /// - Glob pattern expansion (including brace expansion like `{ts,tsx}`)
+    /// - File reading and content extraction
+    /// - File kind determination based on extension
+    /// - Batch file registration (more efficient than individual `add_file` calls)
+    ///
+    /// Returns information about loaded files for indexing purposes.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The project configuration containing document patterns
+    /// * `workspace_path` - The base directory for glob pattern resolution
+    ///
+    /// # Returns
+    ///
+    /// A vector of `LoadedFile` structs containing file paths and metadata.
+    /// The caller can use this information to build file-to-project indexes.
+    #[allow(clippy::too_many_lines)]
+    pub fn load_documents_from_config(
+        &mut self,
+        config: &graphql_config::ProjectConfig,
+        workspace_path: &std::path::Path,
+    ) -> Vec<LoadedFile> {
+        let Some(documents_config) = &config.documents else {
+            return Vec::new();
+        };
+
+        let patterns: Vec<String> = documents_config
+            .patterns()
+            .into_iter()
+            .map(std::string::ToString::to_string)
+            .collect();
+
+        let mut loaded_files: Vec<LoadedFile> = Vec::new();
+        let mut files_to_add: Vec<(FilePath, String, FileKind)> = Vec::new();
+
+        for pattern in patterns {
+            // Skip negation patterns
+            if pattern.trim().starts_with('!') {
+                continue;
+            }
+
+            let expanded_patterns = expand_braces(&pattern);
+
+            for expanded_pattern in expanded_patterns {
+                let full_pattern = workspace_path.join(&expanded_pattern);
+
+                match glob::glob(&full_pattern.display().to_string()) {
+                    Ok(paths) => {
+                        for entry in paths {
+                            match entry {
+                                Ok(path) if path.is_file() => {
+                                    // Skip node_modules
+                                    if path.components().any(|c| c.as_os_str() == "node_modules") {
+                                        continue;
+                                    }
+
+                                    // Read file content
+                                    match std::fs::read_to_string(&path) {
+                                        Ok(content) => {
+                                            let path_str = path.display().to_string();
+                                            let file_kind =
+                                                determine_document_file_kind(&path_str, &content);
+
+                                            let file_path = path_to_file_path(&path);
+
+                                            loaded_files.push(LoadedFile {
+                                                path: file_path.clone(),
+                                                kind: file_kind,
+                                            });
+
+                                            files_to_add.push((file_path, content, file_kind));
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                "Failed to read file {}: {}",
+                                                path.display(),
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+                                Ok(_) => {}
+                                Err(e) => {
+                                    tracing::warn!("Glob entry error: {}", e);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Invalid glob pattern '{}': {}", expanded_pattern, e);
+                    }
+                }
+            }
+        }
+
+        // Batch add all files
+        for (file_path, content, file_kind) in files_to_add {
+            self.add_file(&file_path, &content, file_kind, 0);
+        }
+
+        loaded_files
+    }
+
+    /// Iterate over all files in the host
+    ///
+    /// Returns an iterator of `FilePath` for all registered files.
+    pub fn files(&self) -> Vec<FilePath> {
+        let registry = self.registry.read();
+        registry
+            .all_file_ids()
+            .into_iter()
+            .filter_map(|file_id| registry.get_path(file_id))
+            .collect()
+    }
+
     /// Get an immutable snapshot for analysis
     ///
     /// This snapshot can be used from multiple threads and provides all IDE features.
@@ -909,6 +1083,73 @@ impl Analysis {
                     results.insert(file_path, converted);
                 }
             }
+        }
+
+        results
+    }
+
+    /// Get all diagnostics for all files, merging per-file and project-wide diagnostics
+    ///
+    /// This is a convenience method for publishing diagnostics. It:
+    /// 1. Gets per-file diagnostics (parse errors, validation errors, per-file lint rules)
+    /// 2. Gets project-wide lint diagnostics (unused fields, etc.)
+    /// 3. Merges them per file
+    ///
+    /// Returns a map of file paths -> all diagnostics for that file.
+    pub fn all_diagnostics(&self) -> HashMap<FilePath, Vec<Diagnostic>> {
+        let mut results: HashMap<FilePath, Vec<Diagnostic>> = HashMap::new();
+
+        // Get all registered files
+        let all_file_paths: Vec<FilePath> = {
+            let registry = self.registry.read();
+            registry
+                .all_file_ids()
+                .into_iter()
+                .filter_map(|file_id| registry.get_path(file_id))
+                .collect()
+        };
+
+        // Get per-file diagnostics for all files
+        for file_path in &all_file_paths {
+            let per_file = self.diagnostics(file_path);
+            if !per_file.is_empty() {
+                results.insert(file_path.clone(), per_file);
+            }
+        }
+
+        // Get project-wide diagnostics and merge
+        let project_diagnostics = self.project_lint_diagnostics();
+        for (file_path, diagnostics) in project_diagnostics {
+            results.entry(file_path).or_default().extend(diagnostics);
+        }
+
+        results
+    }
+
+    /// Get all diagnostics for a specific set of files, merging per-file and project-wide diagnostics
+    ///
+    /// This is useful when you want diagnostics for specific files (e.g., loaded document files)
+    /// rather than all files in the registry.
+    pub fn all_diagnostics_for_files(
+        &self,
+        files: &[FilePath],
+    ) -> HashMap<FilePath, Vec<Diagnostic>> {
+        let mut results: HashMap<FilePath, Vec<Diagnostic>> = HashMap::new();
+
+        // Get per-file diagnostics for specified files
+        for file_path in files {
+            let per_file = self.diagnostics(file_path);
+            if !per_file.is_empty() {
+                results.insert(file_path.clone(), per_file);
+            }
+        }
+
+        // Get project-wide diagnostics and merge
+        let project_diagnostics = self.project_lint_diagnostics();
+        for (file_path, diagnostics) in project_diagnostics {
+            // Only include if the file is in our set OR it's a schema file with issues
+            // (project-wide lints like unused_fields report on schema files)
+            results.entry(file_path).or_default().extend(diagnostics);
         }
 
         results
