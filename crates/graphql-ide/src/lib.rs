@@ -5267,4 +5267,65 @@ query GetUser {
             "Deprecated field token should be on line 4 (0-indexed)"
         );
     }
+
+    #[test]
+    fn test_hover_field_in_typescript_file() {
+        // Reproduces issue #398: Hover is broken for fields in TypeScript files
+        //
+        // The bug: find_parent_type_at_offset and walk_type_stack_to_offset were using
+        // parse.tree (empty placeholder for TS files) instead of block_context.tree.
+
+        let mut host = AnalysisHost::new();
+
+        // Add a schema file
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            r#"type Query { pokemon(id: ID!): Pokemon }
+type Pokemon { id: ID! name: String! }
+"#,
+            FileKind::Schema,
+            0,
+        );
+
+        // Add a TypeScript file with embedded GraphQL
+        let ts_file = FilePath::new("file:///query.ts");
+        let ts_content = r#"import { gql } from '@apollo/client';
+
+export const GET_POKEMON = gql`
+  query GetPokemon($id: ID!) {
+    pokemon(id: $id) {
+      id
+      name
+    }
+  }
+`;
+"#;
+        host.add_file(&ts_file, ts_content, FileKind::TypeScript, 0);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Hover over the "name" field (line 6, character ~6 in the TS file)
+        // Line 6 (0-indexed) is "      name"
+        // The "name" field starts at character 6
+        let hover = snapshot.hover(&ts_file, Position::new(6, 7));
+
+        // Should return hover info for the field
+        assert!(
+            hover.is_some(),
+            "Hover should work for fields in TypeScript files (issue #398)"
+        );
+        let hover = hover.unwrap();
+        assert!(
+            hover.contents.contains("name"),
+            "Hover should show field name. Got: {}",
+            hover.contents
+        );
+        assert!(
+            hover.contents.contains("String"),
+            "Hover should show field type. Got: {}",
+            hover.contents
+        );
+    }
 }
