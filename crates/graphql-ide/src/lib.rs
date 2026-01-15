@@ -2188,7 +2188,6 @@ impl Analysis {
     }
 }
 
-
 // Helper functions are now in helpers.rs module
 
 /// Collect semantic tokens from a GraphQL document
@@ -5002,7 +5001,6 @@ export const typeDefs = gql`
             assert!(!symbols.is_empty(), "Product type should be found");
         }
     }
-
 
     #[test]
     fn test_project_lint_no_duplicates_same_file() {

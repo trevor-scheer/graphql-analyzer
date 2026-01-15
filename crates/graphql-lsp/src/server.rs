@@ -1352,7 +1352,7 @@ impl LanguageServer for GraphQLLanguageServer {
         let tokens = analysis.semantic_tokens(&file_path);
 
         if tokens.is_empty() {
-            tracing::debug!("No semantic tokens found in document");
+            tracing::debug!("No semantic tokens found in document: {:?}", uri);
             return Ok(None);
         }
 
@@ -1402,7 +1402,11 @@ impl LanguageServer for GraphQLLanguageServer {
             }
         }
 
-        tracing::debug!("Returning {} semantic tokens", encoded_tokens.len());
+        tracing::debug!(
+            "Returning {} semantic tokens for {:?}",
+            encoded_tokens.len(),
+            uri
+        );
         Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
             result_id: None,
             data: encoded_tokens,
