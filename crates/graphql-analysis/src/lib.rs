@@ -60,7 +60,7 @@ fn syntax_diagnostics(
     let parse = graphql_syntax::parse(db, content, metadata);
     let line_index = graphql_syntax::line_index(db, content);
 
-    for error in &parse.errors {
+    for error in parse.errors() {
         let (line, col) = line_index.line_col(error.offset);
 
         diagnostics.push(Diagnostic {
@@ -93,14 +93,12 @@ fn file_validation_diagnostics_impl(
     metadata: graphql_db::FileMetadata,
     project_files: graphql_db::ProjectFiles,
 ) -> Arc<Vec<Diagnostic>> {
-    use graphql_db::FileKind;
-
     let mut diagnostics = Vec::new();
 
     let parse = graphql_syntax::parse(db, content, metadata);
     let line_index = graphql_syntax::line_index(db, content);
 
-    for error in &parse.errors {
+    for error in parse.errors() {
         let (line, col) = line_index.line_col(error.offset);
 
         diagnostics.push(Diagnostic {
@@ -128,25 +126,22 @@ fn file_validation_diagnostics_impl(
         "Determining validation path for file"
     );
 
-    match file_kind {
-        FileKind::Schema => {
-            tracing::info!("Running schema validation");
-            let schema_diagnostics = schema_validation::validate_schema_file(db, content, metadata);
-            tracing::info!(
-                schema_diagnostic_count = schema_diagnostics.len(),
-                "Schema validation completed"
-            );
-            diagnostics.extend(schema_diagnostics.iter().cloned());
-        }
-        FileKind::ExecutableGraphQL | FileKind::TypeScript | FileKind::JavaScript => {
-            tracing::info!("Running document validation");
-            let doc_diagnostics = validation::validate_file(db, content, metadata, project_files);
-            tracing::info!(
-                document_diagnostic_count = doc_diagnostics.len(),
-                "Document validation completed"
-            );
-            diagnostics.extend(doc_diagnostics.iter().cloned());
-        }
+    if file_kind.is_schema() {
+        tracing::info!("Running schema validation");
+        let schema_diagnostics = schema_validation::validate_schema_file(db, content, metadata);
+        tracing::info!(
+            schema_diagnostic_count = schema_diagnostics.len(),
+            "Schema validation completed"
+        );
+        diagnostics.extend(schema_diagnostics.iter().cloned());
+    } else if file_kind.is_document() {
+        tracing::info!("Running document validation");
+        let doc_diagnostics = validation::validate_file(db, content, metadata, project_files);
+        tracing::info!(
+            document_diagnostic_count = doc_diagnostics.len(),
+            "Document validation completed"
+        );
+        diagnostics.extend(doc_diagnostics.iter().cloned());
     }
 
     Arc::new(diagnostics)

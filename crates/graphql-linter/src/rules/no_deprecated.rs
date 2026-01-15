@@ -40,31 +40,28 @@ impl DocumentSchemaLintRule for NoDeprecatedRuleImpl {
 
         // Parse the file (cached by Salsa)
         let parse = graphql_syntax::parse(db, content, metadata);
-        if !parse.errors.is_empty() {
+        if parse.has_errors() {
             return diagnostics;
         }
 
         // Get schema types from HIR
         let schema_types = graphql_hir::schema_types(db, project_files);
 
-        // Check main document (for .graphql files only)
-        // For TS/JS files, parse.tree is the first block and we check all blocks below
-        let file_kind = metadata.kind(db);
-        if file_kind == graphql_db::FileKind::ExecutableGraphQL
-            || file_kind == graphql_db::FileKind::Schema
-        {
-            let doc_cst = parse.tree.document();
-            check_document_for_deprecated(&doc_cst, schema_types, &mut diagnostics);
-        }
+        // Unified: process all documents (works for both pure GraphQL and TS/JS)
+        for doc in parse.documents() {
+            let doc_cst = doc.tree.document();
+            let mut doc_diagnostics = Vec::new();
+            check_document_for_deprecated(&doc_cst, schema_types, &mut doc_diagnostics);
 
-        // Check operations in extracted blocks (TypeScript/JavaScript)
-        for block in &parse.blocks {
-            let block_doc = block.tree.document();
-            let mut block_diagnostics = Vec::new();
-            check_document_for_deprecated(&block_doc, schema_types, &mut block_diagnostics);
-            // Add block context to each diagnostic for proper position calculation
-            for diag in block_diagnostics {
-                diagnostics.push(diag.with_block_context(block.line, block.source.clone()));
+            // Add block context for embedded GraphQL (line_offset > 0)
+            if doc.line_offset > 0 {
+                for diag in doc_diagnostics {
+                    diagnostics.push(
+                        diag.with_block_context(doc.line_offset, std::sync::Arc::from(doc.source)),
+                    );
+                }
+            } else {
+                diagnostics.extend(doc_diagnostics);
             }
         }
 
