@@ -120,7 +120,7 @@ pub fn convert_diagnostic(diag: &graphql_analysis::Diagnostic) -> crate::types::
 /// Result of finding which block contains a position
 pub struct BlockContext<'a> {
     /// The syntax tree for the block (or main document)
-    pub tree: &'a apollo_parser::SyntaxTree,
+    pub tree: std::sync::Arc<apollo_parser::SyntaxTree>,
     /// Line offset to add when returning positions (0 for pure GraphQL files)
     pub line_offset: u32,
     /// The block source for building `LineIndex` (None for pure GraphQL files)
@@ -139,11 +139,12 @@ pub fn find_block_for_position(
     metadata_line_offset: u32,
 ) -> Option<(BlockContext<'_>, Position)> {
     // If no blocks, this is a pure GraphQL file - use main tree
-    if parse.blocks.is_empty() {
+    if !parse.is_embedded() {
+        let main_tree = parse.main_tree()?;
         let adjusted_pos = adjust_position_for_line_offset(position, metadata_line_offset)?;
         return Some((
             BlockContext {
-                tree: &parse.tree,
+                tree: main_tree,
                 line_offset: metadata_line_offset,
                 block_source: None,
             },
@@ -152,7 +153,7 @@ pub fn find_block_for_position(
     }
 
     // For TS/JS files, find which block contains the position
-    for block in &parse.blocks {
+    for block in parse.blocks() {
         let block_start_line = block.line as u32;
         let block_start_col = block.column as u32;
         let block_lines = block.source.chars().filter(|&c| c == '\n').count() as u32;
@@ -169,7 +170,7 @@ pub fn find_block_for_position(
 
             return Some((
                 BlockContext {
-                    tree: &block.tree,
+                    tree: block.tree.clone(),
                     line_offset: block_start_line,
                     block_source: Some(&block.source),
                 },
@@ -190,18 +191,20 @@ pub fn find_fragment_definition_in_parse(
     db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
     metadata_line_offset: u32,
 ) -> Option<Range> {
-    if parse.blocks.is_empty() {
-        if let Some((start_offset, end_offset)) =
-            find_fragment_definition_range(&parse.tree, fragment_name)
-        {
-            let file_line_index = graphql_syntax::line_index(db, content);
-            let range = offset_range_to_range(&file_line_index, start_offset, end_offset);
-            return Some(adjust_range_for_line_offset(range, metadata_line_offset));
+    if !parse.is_embedded() {
+        if let Some(main_tree) = parse.main_tree() {
+            if let Some((start_offset, end_offset)) =
+                find_fragment_definition_range(&main_tree, fragment_name)
+            {
+                let file_line_index = graphql_syntax::line_index(db, content);
+                let range = offset_range_to_range(&file_line_index, start_offset, end_offset);
+                return Some(adjust_range_for_line_offset(range, metadata_line_offset));
+            }
         }
         return None;
     }
 
-    for block in &parse.blocks {
+    for block in parse.blocks() {
         if let Some((start_offset, end_offset)) =
             find_fragment_definition_range(&block.tree, fragment_name)
         {
@@ -223,17 +226,20 @@ pub fn find_type_definition_in_parse(
     db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
     metadata_line_offset: u32,
 ) -> Option<Range> {
-    if parse.blocks.is_empty() {
-        if let Some((start_offset, end_offset)) = find_type_definition_range(&parse.tree, type_name)
-        {
-            let file_line_index = graphql_syntax::line_index(db, content);
-            let range = offset_range_to_range(&file_line_index, start_offset, end_offset);
-            return Some(adjust_range_for_line_offset(range, metadata_line_offset));
+    if !parse.is_embedded() {
+        if let Some(main_tree) = parse.main_tree() {
+            if let Some((start_offset, end_offset)) =
+                find_type_definition_range(&main_tree, type_name)
+            {
+                let file_line_index = graphql_syntax::line_index(db, content);
+                let range = offset_range_to_range(&file_line_index, start_offset, end_offset);
+                return Some(adjust_range_for_line_offset(range, metadata_line_offset));
+            }
         }
         return None;
     }
 
-    for block in &parse.blocks {
+    for block in parse.blocks() {
         if let Some((start_offset, end_offset)) = find_type_definition_range(&block.tree, type_name)
         {
             let block_line_index = graphql_syntax::LineIndex::new(&block.source);
@@ -256,19 +262,21 @@ pub fn find_fragment_spreads_in_parse(
 ) -> Vec<Range> {
     let mut results = Vec::new();
 
-    if parse.blocks.is_empty() {
-        if let Some(offsets) = find_fragment_spreads(&parse.tree, fragment_name) {
-            let file_line_index = graphql_syntax::line_index(db, content);
-            for offset in offsets {
-                let end_offset = offset + fragment_name.len();
-                let range = offset_range_to_range(&file_line_index, offset, end_offset);
-                results.push(adjust_range_for_line_offset(range, metadata_line_offset));
+    if !parse.is_embedded() {
+        if let Some(main_tree) = parse.main_tree() {
+            if let Some(offsets) = find_fragment_spreads(&main_tree, fragment_name) {
+                let file_line_index = graphql_syntax::line_index(db, content);
+                for offset in offsets {
+                    let end_offset = offset + fragment_name.len();
+                    let range = offset_range_to_range(&file_line_index, offset, end_offset);
+                    results.push(adjust_range_for_line_offset(range, metadata_line_offset));
+                }
             }
         }
         return results;
     }
 
-    for block in &parse.blocks {
+    for block in parse.blocks() {
         if let Some(offsets) = find_fragment_spreads(&block.tree, fragment_name) {
             let block_line_index = graphql_syntax::LineIndex::new(&block.source);
             for offset in offsets {
@@ -293,19 +301,21 @@ pub fn find_type_references_in_parse(
 ) -> Vec<Range> {
     let mut results = Vec::new();
 
-    if parse.blocks.is_empty() {
-        if let Some(offsets) = find_type_references_in_tree(&parse.tree, type_name) {
-            let file_line_index = graphql_syntax::line_index(db, content);
-            for offset in offsets {
-                let end_offset = offset + type_name.len();
-                let range = offset_range_to_range(&file_line_index, offset, end_offset);
-                results.push(adjust_range_for_line_offset(range, metadata_line_offset));
+    if !parse.is_embedded() {
+        if let Some(main_tree) = parse.main_tree() {
+            if let Some(offsets) = find_type_references_in_tree(&main_tree, type_name) {
+                let file_line_index = graphql_syntax::line_index(db, content);
+                for offset in offsets {
+                    let end_offset = offset + type_name.len();
+                    let range = offset_range_to_range(&file_line_index, offset, end_offset);
+                    results.push(adjust_range_for_line_offset(range, metadata_line_offset));
+                }
             }
         }
         return results;
     }
 
-    for block in &parse.blocks {
+    for block in parse.blocks() {
         if let Some(offsets) = find_type_references_in_tree(&block.tree, type_name) {
             let block_line_index = graphql_syntax::LineIndex::new(&block.source);
             for offset in offsets {
@@ -332,17 +342,19 @@ pub fn find_field_usages_in_parse(
 ) -> Vec<Range> {
     let mut results = Vec::new();
 
-    if parse.blocks.is_empty() {
-        let file_line_index = graphql_syntax::line_index(db, content);
-        let ranges = find_field_usages_in_tree(&parse.tree, type_name, field_name, schema_types);
-        for (start, end) in ranges {
-            let range = offset_range_to_range(&file_line_index, start, end);
-            results.push(adjust_range_for_line_offset(range, metadata_line_offset));
+    if !parse.is_embedded() {
+        if let Some(main_tree) = parse.main_tree() {
+            let file_line_index = graphql_syntax::line_index(db, content);
+            let ranges = find_field_usages_in_tree(&main_tree, type_name, field_name, schema_types);
+            for (start, end) in ranges {
+                let range = offset_range_to_range(&file_line_index, start, end);
+                results.push(adjust_range_for_line_offset(range, metadata_line_offset));
+            }
         }
         return results;
     }
 
-    for block in &parse.blocks {
+    for block in parse.blocks() {
         let block_line_index = graphql_syntax::LineIndex::new(&block.source);
         let ranges = find_field_usages_in_tree(&block.tree, type_name, field_name, schema_types);
         for (start, end) in ranges {

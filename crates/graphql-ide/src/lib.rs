@@ -849,28 +849,18 @@ impl Analysis {
 
         let mut tokens = Vec::new();
 
-        // Collect tokens from the main document (pure GraphQL files)
-        let file_kind = metadata.kind(&self.db);
-        if file_kind == graphql_db::FileKind::ExecutableGraphQL
-            || file_kind == graphql_db::FileKind::Schema
-        {
-            collect_semantic_tokens_from_document(
-                &parse.tree.document(),
-                &line_index,
-                0,
-                schema_types,
-                &mut tokens,
-            );
-        }
-
-        // Collect tokens from extracted blocks (TypeScript/JavaScript)
+        // Collect tokens from all documents (handles both pure GraphQL and TS/JS files)
         #[allow(clippy::cast_possible_truncation)]
-        for block in &parse.blocks {
-            let block_line_index = graphql_syntax::LineIndex::new(&block.source);
+        for doc in parse.documents() {
+            let doc_line_index = if doc.line_offset == 0 {
+                line_index.clone()
+            } else {
+                Arc::new(graphql_syntax::LineIndex::new(doc.source.unwrap_or("")))
+            };
             collect_semantic_tokens_from_document(
-                &block.tree.document(),
-                &block_line_index,
-                block.line as u32,
+                &doc.tree.document(),
+                &doc_line_index,
+                doc.line_offset as u32,
                 schema_types,
                 &mut tokens,
             );
@@ -1016,7 +1006,7 @@ impl Analysis {
         };
 
         // Find what symbol we're completing (or near) using the correct tree
-        let symbol = find_symbol_at_offset(block_context.tree, offset);
+        let symbol = find_symbol_at_offset(&block_context.tree, offset);
 
         // Determine completion context and provide appropriate completions
         match symbol {
@@ -1041,12 +1031,12 @@ impl Analysis {
                 };
                 let types = graphql_hir::schema_types(&self.db, project_files);
 
-                let in_selection_set = is_in_selection_set(block_context.tree, offset);
+                let in_selection_set = is_in_selection_set(&block_context.tree, offset);
                 if in_selection_set {
                     // Use a stack-based type walker to resolve the parent type at the cursor
-                    let parent_ctx = find_parent_type_at_offset(block_context.tree, offset)?;
+                    let parent_ctx = find_parent_type_at_offset(&block_context.tree, offset)?;
                     let parent_type_name = symbol::walk_type_stack_to_offset(
-                        block_context.tree,
+                        &block_context.tree,
                         types,
                         offset,
                         &parent_ctx.root_type,
@@ -1165,7 +1155,7 @@ impl Analysis {
 
         // Try to find the symbol at the offset even if there are parse errors
         // This allows hover to work on valid parts of a file with syntax errors elsewhere
-        let symbol = find_symbol_at_offset(block_context.tree, offset);
+        let symbol = find_symbol_at_offset(&block_context.tree, offset);
 
         // If we couldn't find a symbol and there are parse errors, show the errors
         if symbol.is_none() && !parse.errors.is_empty() {
@@ -1184,12 +1174,12 @@ impl Analysis {
         match symbol {
             Symbol::FieldName { name } => {
                 let types = graphql_hir::schema_types(&self.db, project_files);
-                let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
+                let parent_ctx = find_parent_type_at_offset(&block_context.tree, offset)?;
 
                 // Use walk_type_stack_to_offset to properly resolve the parent type,
                 // which handles inline fragments correctly
                 let parent_type_name = symbol::walk_type_stack_to_offset(
-                    &parse.tree,
+                    &block_context.tree,
                     types,
                     offset,
                     &parent_ctx.root_type,
@@ -1307,20 +1297,20 @@ impl Analysis {
             position_to_offset(&line_index, adjusted_position)?
         };
 
-        let symbol = find_symbol_at_offset(block_context.tree, offset)?;
+        let symbol = find_symbol_at_offset(&block_context.tree, offset)?;
 
         let project_files = self.project_files?;
 
         match symbol {
             Symbol::FieldName { name } => {
-                let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
+                let parent_context = find_parent_type_at_offset(&block_context.tree, offset)?;
 
                 let schema_types = graphql_hir::schema_types(&self.db, project_files);
 
                 // Use walk_type_stack_to_offset to properly resolve the parent type,
                 // which handles inline fragments correctly
                 let parent_type_name = symbol::walk_type_stack_to_offset(
-                    block_context.tree,
+                    &block_context.tree,
                     schema_types,
                     offset,
                     &parent_context.root_type,
@@ -1352,45 +1342,27 @@ impl Analysis {
                     let schema_parse =
                         graphql_syntax::parse(&self.db, schema_content, schema_metadata);
                     let schema_line_index = graphql_syntax::line_index(&self.db, schema_content);
-                    let schema_line_offset = schema_metadata.line_offset(&self.db);
+                    let _schema_line_offset = schema_metadata.line_offset(&self.db);
 
-                    if schema_parse.blocks.is_empty() {
-                        // Pure GraphQL schema file
-                        if let Some(ranges) = find_field_definition_full_range(
-                            &schema_parse.tree,
-                            &parent_type_name,
-                            &name,
-                        ) {
+                    // Search all documents (handles both pure GraphQL and TS/JS files)
+                    for doc in schema_parse.documents() {
+                        if let Some(ranges) =
+                            find_field_definition_full_range(doc.tree, &parent_type_name, &name)
+                        {
+                            let doc_line_index = if doc.line_offset == 0 {
+                                schema_line_index.clone()
+                            } else {
+                                Arc::new(graphql_syntax::LineIndex::new(doc.source.unwrap_or("")))
+                            };
                             let range = offset_range_to_range(
-                                &schema_line_index,
+                                &doc_line_index,
                                 ranges.name_start,
                                 ranges.name_end,
                             );
+                            #[allow(clippy::cast_possible_truncation)]
                             let adjusted_range =
-                                adjust_range_for_line_offset(range, schema_line_offset);
+                                adjust_range_for_line_offset(range, doc.line_offset as u32);
                             return Some(vec![Location::new(file_path, adjusted_range)]);
-                        }
-                    } else {
-                        // TS/JS file with embedded schema (unlikely but handle it)
-                        for block in &schema_parse.blocks {
-                            if let Some(ranges) = find_field_definition_full_range(
-                                &block.tree,
-                                &parent_type_name,
-                                &name,
-                            ) {
-                                let block_line_index =
-                                    graphql_syntax::LineIndex::new(&block.source);
-                                let range = offset_range_to_range(
-                                    &block_line_index,
-                                    ranges.name_start,
-                                    ranges.name_end,
-                                );
-                                #[allow(clippy::cast_possible_truncation)]
-                                let block_line_offset = block.line as u32;
-                                let adjusted_range =
-                                    adjust_range_for_line_offset(range, block_line_offset);
-                                return Some(vec![Location::new(file_path, adjusted_range)]);
-                            }
                         }
                     }
                 }
@@ -1482,7 +1454,7 @@ impl Analysis {
                 let range = if let Some(block_source) = block_context.block_source {
                     let block_line_index = graphql_syntax::LineIndex::new(block_source);
                     find_variable_definition_in_tree(
-                        block_context.tree,
+                        &block_context.tree,
                         &name,
                         &block_line_index,
                         block_context.line_offset,
@@ -1490,7 +1462,7 @@ impl Analysis {
                 } else {
                     let file_line_index = graphql_syntax::line_index(&self.db, content);
                     find_variable_definition_in_tree(
-                        block_context.tree,
+                        &block_context.tree,
                         &name,
                         &file_line_index,
                         block_context.line_offset,
@@ -1506,13 +1478,13 @@ impl Analysis {
                 None
             }
             Symbol::ArgumentName { name } => {
-                let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
+                let parent_context = find_parent_type_at_offset(&block_context.tree, offset)?;
                 let schema_types = graphql_hir::schema_types(&self.db, project_files);
 
-                let field_name = find_field_name_at_offset(block_context.tree, offset)?;
+                let field_name = find_field_name_at_offset(&block_context.tree, offset)?;
 
                 let parent_type_name = symbol::walk_type_stack_to_offset(
-                    block_context.tree,
+                    &block_context.tree,
                     schema_types,
                     offset,
                     &parent_context.root_type,
@@ -1535,17 +1507,26 @@ impl Analysis {
                     let schema_parse =
                         graphql_syntax::parse(&self.db, schema_content, schema_metadata);
                     let schema_line_index = graphql_syntax::line_index(&self.db, schema_content);
-                    let schema_line_offset = schema_metadata.line_offset(&self.db);
+                    let _schema_line_offset = schema_metadata.line_offset(&self.db);
 
-                    if let Some(range) = find_argument_definition_in_tree(
-                        &schema_parse.tree,
-                        &parent_type_name,
-                        &field_name,
-                        &name,
-                        &schema_line_index,
-                        schema_line_offset,
-                    ) {
-                        return Some(vec![Location::new(file_path, range)]);
+                    // Search all documents (handles both pure GraphQL and TS/JS files)
+                    for doc in schema_parse.documents() {
+                        let doc_line_index = if doc.line_offset == 0 {
+                            schema_line_index.clone()
+                        } else {
+                            Arc::new(graphql_syntax::LineIndex::new(doc.source.unwrap_or("")))
+                        };
+                        #[allow(clippy::cast_possible_truncation)]
+                        if let Some(range) = find_argument_definition_in_tree(
+                            doc.tree,
+                            &parent_type_name,
+                            &field_name,
+                            &name,
+                            &doc_line_index,
+                            doc.line_offset as u32,
+                        ) {
+                            return Some(vec![Location::new(file_path, range)]);
+                        }
                     }
                 }
                 None
@@ -1554,7 +1535,7 @@ impl Analysis {
                 let range = if let Some(block_source) = block_context.block_source {
                     let block_line_index = graphql_syntax::LineIndex::new(block_source);
                     find_operation_definition_in_tree(
-                        block_context.tree,
+                        &block_context.tree,
                         &name,
                         &block_line_index,
                         block_context.line_offset,
@@ -1562,7 +1543,7 @@ impl Analysis {
                 } else {
                     let file_line_index = graphql_syntax::line_index(&self.db, content);
                     find_operation_definition_in_tree(
-                        block_context.tree,
+                        &block_context.tree,
                         &name,
                         &file_line_index,
                         block_context.line_offset,
@@ -1623,7 +1604,7 @@ impl Analysis {
             position_to_offset(&line_index, adjusted_position)?
         };
 
-        let symbol = find_symbol_at_offset(block_context.tree, offset)?;
+        let symbol = find_symbol_at_offset(&block_context.tree, offset)?;
 
         match symbol {
             Symbol::FragmentSpread { name } => {
@@ -1633,7 +1614,7 @@ impl Analysis {
                 Some(self.find_type_references(&name, include_declaration))
             }
             Symbol::FieldName { name } => {
-                let parent_type = find_schema_field_parent_type(block_context.tree, offset)?;
+                let parent_type = find_schema_field_parent_type(&block_context.tree, offset)?;
                 Some(self.find_field_references(&parent_type, &name, include_declaration))
             }
             _ => None,
@@ -1821,16 +1802,28 @@ impl Analysis {
 
                 let parse = graphql_syntax::parse(&self.db, content, metadata);
                 let line_index = graphql_syntax::line_index(&self.db, content);
-                let line_offset = metadata.line_offset(&self.db);
 
-                if let Some(ranges) =
-                    find_field_definition_full_range(&parse.tree, type_name, field_name)
-                {
-                    let range =
-                        offset_range_to_range(&line_index, ranges.name_start, ranges.name_end);
-                    let adjusted_range = adjust_range_for_line_offset(range, line_offset);
-                    locations.push(Location::new(file_path, adjusted_range));
-                    break; // Field definition found
+                // Search all documents (handles both pure GraphQL and TS/JS files)
+                'found: for doc in parse.documents() {
+                    if let Some(ranges) =
+                        find_field_definition_full_range(doc.tree, type_name, field_name)
+                    {
+                        let doc_line_index = if doc.line_offset == 0 {
+                            line_index.clone()
+                        } else {
+                            Arc::new(graphql_syntax::LineIndex::new(doc.source.unwrap_or("")))
+                        };
+                        let range = offset_range_to_range(
+                            &doc_line_index,
+                            ranges.name_start,
+                            ranges.name_end,
+                        );
+                        #[allow(clippy::cast_possible_truncation)]
+                        let adjusted_range =
+                            adjust_range_for_line_offset(range, doc.line_offset as u32);
+                        locations.push(Location::new(file_path, adjusted_range));
+                        break 'found; // Field definition found
+                    }
                 }
             }
         }
@@ -1906,7 +1899,12 @@ impl Analysis {
 
         let mut symbols = Vec::new();
 
-        let definitions = extract_all_definitions(&parse.tree);
+        // For document symbols, we use main_tree since this is typically for single files
+        let Some(main_tree) = parse.main_tree() else {
+            return symbols;
+        };
+
+        let definitions = extract_all_definitions(&main_tree);
 
         for (name, kind, ranges) in definitions {
             let range = adjust_range_for_line_offset(
@@ -1920,35 +1918,20 @@ impl Analysis {
 
             let symbol = match kind {
                 "object" => {
-                    let children = get_field_children(
-                        &structure,
-                        &name,
-                        &parse.tree,
-                        &line_index,
-                        line_offset,
-                    );
+                    let children =
+                        get_field_children(&structure, &name, &main_tree, &line_index, line_offset);
                     DocumentSymbol::new(name, SymbolKind::Type, range, selection_range)
                         .with_children(children)
                 }
                 "interface" => {
-                    let children = get_field_children(
-                        &structure,
-                        &name,
-                        &parse.tree,
-                        &line_index,
-                        line_offset,
-                    );
+                    let children =
+                        get_field_children(&structure, &name, &main_tree, &line_index, line_offset);
                     DocumentSymbol::new(name, SymbolKind::Interface, range, selection_range)
                         .with_children(children)
                 }
                 "input" => {
-                    let children = get_field_children(
-                        &structure,
-                        &name,
-                        &parse.tree,
-                        &line_index,
-                        line_offset,
-                    );
+                    let children =
+                        get_field_children(&structure, &name, &main_tree, &line_index, line_offset);
                     DocumentSymbol::new(name, SymbolKind::Input, range, selection_range)
                         .with_children(children)
                 }
@@ -2109,9 +2092,11 @@ impl Analysis {
             let parse = graphql_syntax::parse(&self.db, content, metadata);
             // Count directive definitions by checking if the definition is a directive
             // Directives in GraphQL SDL start with "directive @"
-            for definition in &parse.ast.definitions {
-                if definition.as_directive_definition().is_some() {
-                    stats.directives += 1;
+            for doc in parse.documents() {
+                for definition in &doc.ast.definitions {
+                    if definition.as_directive_definition().is_some() {
+                        stats.directives += 1;
+                    }
                 }
             }
         }
@@ -2129,15 +2114,25 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
         let line_index = graphql_syntax::line_index(&self.db, content);
-        let line_offset = metadata.line_offset(&self.db);
 
-        let ranges = find_type_definition_full_range(&parse.tree, &type_def.name)?;
-        let range = adjust_range_for_line_offset(
-            offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
-            line_offset,
-        );
+        // Search all documents (handles both pure GraphQL and TS/JS files)
+        for doc in parse.documents() {
+            if let Some(ranges) = find_type_definition_full_range(doc.tree, &type_def.name) {
+                let doc_line_index = if doc.line_offset == 0 {
+                    line_index.clone()
+                } else {
+                    Arc::new(graphql_syntax::LineIndex::new(doc.source.unwrap_or("")))
+                };
+                #[allow(clippy::cast_possible_truncation)]
+                let range = adjust_range_for_line_offset(
+                    offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
+                    doc.line_offset as u32,
+                );
+                return Some(Location::new(file_path, range));
+            }
+        }
 
-        Some(Location::new(file_path, range))
+        None
     }
 
     /// Get location for a fragment definition
@@ -2150,15 +2145,25 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
         let line_index = graphql_syntax::line_index(&self.db, content);
-        let line_offset = metadata.line_offset(&self.db);
 
-        let ranges = find_fragment_definition_full_range(&parse.tree, &fragment.name)?;
-        let range = adjust_range_for_line_offset(
-            offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
-            line_offset,
-        );
+        // Search all documents (handles both pure GraphQL and TS/JS files)
+        for doc in parse.documents() {
+            if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name) {
+                let doc_line_index = if doc.line_offset == 0 {
+                    line_index.clone()
+                } else {
+                    Arc::new(graphql_syntax::LineIndex::new(doc.source.unwrap_or("")))
+                };
+                #[allow(clippy::cast_possible_truncation)]
+                let range = adjust_range_for_line_offset(
+                    offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
+                    doc.line_offset as u32,
+                );
+                return Some(Location::new(file_path, range));
+            }
+        }
 
-        Some(Location::new(file_path, range))
+        None
     }
 
     /// Get location for an operation definition
@@ -2176,15 +2181,25 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
         let line_index = graphql_syntax::line_index(&self.db, content);
-        let line_offset = metadata.line_offset(&self.db);
 
-        let ranges = find_operation_definition_ranges(&parse.tree, op_name)?;
-        let range = adjust_range_for_line_offset(
-            offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
-            line_offset,
-        );
+        // Search all documents (handles both pure GraphQL and TS/JS files)
+        for doc in parse.documents() {
+            if let Some(ranges) = find_operation_definition_ranges(doc.tree, op_name) {
+                let doc_line_index = if doc.line_offset == 0 {
+                    line_index.clone()
+                } else {
+                    Arc::new(graphql_syntax::LineIndex::new(doc.source.unwrap_or("")))
+                };
+                #[allow(clippy::cast_possible_truncation)]
+                let range = adjust_range_for_line_offset(
+                    offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
+                    doc.line_offset as u32,
+                );
+                return Some(Location::new(file_path, range));
+            }
+        }
 
-        Some(Location::new(file_path, range))
+        None
     }
 }
 

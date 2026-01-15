@@ -33,7 +33,7 @@ pub fn validate_file(
     let doc_uri = metadata.uri(db);
 
     if kind == graphql_db::FileKind::TypeScript || kind == graphql_db::FileKind::JavaScript {
-        for block in &parse.blocks {
+        for block in parse.blocks() {
             let line_offset_val = block.line;
 
             // Collect fragment names referenced by this document (transitively across files)
@@ -128,8 +128,17 @@ pub fn validate_file(
         }
         return Arc::new(diagnostics);
     }
+
+    // For pure GraphQL files, use the main tree and AST
+    let Some(main_tree) = parse.main_tree() else {
+        return Arc::new(diagnostics);
+    };
+    let Some(main_ast) = parse.main_ast() else {
+        return Arc::new(diagnostics);
+    };
+
     let referenced_fragments =
-        collect_referenced_fragments_transitive(&parse.tree, project_files, db);
+        collect_referenced_fragments_transitive(&main_tree, project_files, db);
     let valid_schema = apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
     let mut errors = apollo_compiler::validation::DiagnosticList::new(Arc::default());
     let mut builder = apollo_compiler::ExecutableDocument::builder(Some(valid_schema), &mut errors);
@@ -137,7 +146,7 @@ pub fn validate_file(
     let line_offset_val = metadata.line_offset(db) as usize;
 
     // The AST is cached via graphql_syntax::parse()
-    builder.add_ast_document(&parse.ast, true);
+    builder.add_ast_document(&main_ast, true);
 
     // This ensures that changing fragment A only invalidates files that actually use A
     // Using fragment_ast instead of fragment_source avoids re-parsing
@@ -145,7 +154,7 @@ pub fn validate_file(
     let mut added_ast_ptrs = std::collections::HashSet::new();
     // Pre-populate with current file's AST to avoid adding it again when fragments
     // in the same file reference each other (e.g., IssueDetails spreads IssueBasic)
-    added_ast_ptrs.insert(Arc::as_ptr(&parse.ast) as usize);
+    added_ast_ptrs.insert(Arc::as_ptr(&main_ast) as usize);
     for fragment_name in &referenced_fragments {
         let key: Arc<str> = Arc::from(fragment_name.as_str());
         if !added_fragments.insert(key.clone()) {

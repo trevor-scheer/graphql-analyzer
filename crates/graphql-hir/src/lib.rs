@@ -241,7 +241,7 @@ pub fn file_fragment_sources(
 
     if kind == graphql_db::FileKind::TypeScript || kind == graphql_db::FileKind::JavaScript {
         // For TS/JS files, map each fragment to its specific block
-        for block in &parse.blocks {
+        for block in parse.blocks() {
             for def in &block.ast.definitions {
                 if let apollo_compiler::ast::Definition::FragmentDefinition(frag) = def {
                     let name: Arc<str> = Arc::from(frag.name.as_str());
@@ -280,7 +280,7 @@ pub fn file_fragment_asts(
 
     if kind == graphql_db::FileKind::TypeScript || kind == graphql_db::FileKind::JavaScript {
         // For TS/JS files, map each fragment to its specific block's AST
-        for block in &parse.blocks {
+        for block in parse.blocks() {
             for def in &block.ast.definitions {
                 if let apollo_compiler::ast::Definition::FragmentDefinition(frag) = def {
                     let name: Arc<str> = Arc::from(frag.name.as_str());
@@ -288,11 +288,11 @@ pub fn file_fragment_asts(
                 }
             }
         }
-    } else {
+    } else if let Some(main_ast) = parse.main_ast() {
         // For pure GraphQL files, use the file's AST for all fragments
         let file_frags = file_fragments(db, file_id, content, metadata);
         for fragment in file_frags.iter() {
-            asts.insert(fragment.name.clone(), parse.ast.clone());
+            asts.insert(fragment.name.clone(), main_ast.clone());
         }
     }
 
@@ -509,22 +509,9 @@ pub fn file_used_fragment_names(
         }
     }
 
-    // Process main AST definitions
-    for definition in &parse.ast.definitions {
-        match definition {
-            apollo_compiler::ast::Definition::OperationDefinition(op) => {
-                collect_spreads(&op.selection_set, &mut used);
-            }
-            apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
-                collect_spreads(&frag.selection_set, &mut used);
-            }
-            _ => {}
-        }
-    }
-
-    // Process extracted blocks (TypeScript/JavaScript)
-    for block in &parse.blocks {
-        for definition in &block.ast.definitions {
+    // Process all documents (handles both pure GraphQL and TS/JS files uniformly)
+    for doc in parse.documents() {
+        for definition in &doc.ast.definitions {
             match definition {
                 apollo_compiler::ast::Definition::OperationDefinition(op) => {
                     collect_spreads(&op.selection_set, &mut used);
@@ -733,35 +720,9 @@ pub fn file_schema_coordinates(
         }
     }
 
-    // Process main AST definitions
-    for definition in &parse.ast.definitions {
-        match definition {
-            apollo_compiler::ast::Definition::OperationDefinition(op) => {
-                let root_type = match op.operation_type {
-                    apollo_compiler::ast::OperationType::Query => query_type.as_ref(),
-                    apollo_compiler::ast::OperationType::Mutation => mutation_type.as_ref(),
-                    apollo_compiler::ast::OperationType::Subscription => subscription_type.as_ref(),
-                };
-                if let Some(root) = root_type {
-                    collect_coordinates(&op.selection_set, root, schema_types, &mut coordinates);
-                }
-            }
-            apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
-                let frag_type = Arc::from(frag.type_condition.as_str());
-                collect_coordinates(
-                    &frag.selection_set,
-                    &frag_type,
-                    schema_types,
-                    &mut coordinates,
-                );
-            }
-            _ => {}
-        }
-    }
-
-    // Process extracted blocks (TypeScript/JavaScript)
-    for block in &parse.blocks {
-        for definition in &block.ast.definitions {
+    // Process all documents (handles both pure GraphQL and TS/JS files uniformly)
+    for doc in parse.documents() {
+        for definition in &doc.ast.definitions {
             match definition {
                 apollo_compiler::ast::Definition::OperationDefinition(op) => {
                     let root_type = match op.operation_type {

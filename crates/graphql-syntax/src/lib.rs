@@ -42,14 +42,42 @@ pub struct ParseError {
 }
 
 /// Result of parsing a file
+///
+/// # Accessing GraphQL Documents
+///
+/// For both pure `.graphql` files and TypeScript/JavaScript files with embedded GraphQL,
+/// use the [`documents()`](Parse::documents) iterator:
+///
+/// ```rust,ignore
+/// for doc in parse.documents() {
+///     validate_document(doc.tree, doc.ast, doc.line_offset);
+/// }
+/// ```
+///
+/// This iterator yields a single document for pure GraphQL files and multiple documents
+/// for TS/JS files (one per extracted block).
+///
+/// # Position-Based Operations
+///
+/// For operations that need to find which block contains a specific position
+/// (like goto definition or hover), use [`blocks()`](Parse::blocks) to access
+/// block metadata including line/column offsets.
+///
+/// # Why Fields Are Private
+///
+/// The `tree` and `ast` fields are private because for TypeScript/JavaScript files,
+/// they are empty placeholders. Accessing them directly would silently fail for
+/// embedded GraphQL. Using `documents()` ensures correct handling of both file types.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Parse {
     /// The syntax tree (Arc for cheap cloning) - CST for position information
-    pub tree: Arc<apollo_parser::SyntaxTree>,
+    /// For TS/JS files, this is an empty tree; use `documents()` iterator instead
+    tree: Arc<apollo_parser::SyntaxTree>,
     /// The AST (Arc for cheap cloning) - AST for semantic analysis
-    pub ast: Arc<apollo_compiler::ast::Document>,
+    /// For TS/JS files, this is empty; use `documents()` iterator instead
+    ast: Arc<apollo_compiler::ast::Document>,
     /// For TypeScript/JavaScript: extracted GraphQL blocks
-    pub blocks: Vec<ExtractedBlock>,
+    blocks: Vec<ExtractedBlock>,
     /// Parse errors (syntax errors only, not validation)
     pub errors: Vec<ParseError>,
 }
@@ -111,6 +139,57 @@ impl Parse {
                 parse: self,
                 state: IteratorState::Multiple(0),
             }
+        }
+    }
+
+    /// Returns `true` if this file contains embedded GraphQL (TS/JS file with blocks).
+    ///
+    /// When this returns `true`, you should use [`documents()`](Self::documents) to iterate
+    /// over all GraphQL blocks, or [`blocks()`](Self::blocks) for position-based operations.
+    #[must_use]
+    pub fn is_embedded(&self) -> bool {
+        !self.blocks.is_empty()
+    }
+
+    /// Returns a slice of extracted GraphQL blocks for TypeScript/JavaScript files.
+    ///
+    /// This is primarily useful for position-based operations that need to find
+    /// which block contains a specific cursor position.
+    ///
+    /// For iterating over document content, prefer [`documents()`](Self::documents).
+    #[must_use]
+    pub fn blocks(&self) -> &[ExtractedBlock] {
+        &self.blocks
+    }
+
+    /// Returns the main AST Arc for pure GraphQL files.
+    ///
+    /// Returns `None` for TypeScript/JavaScript files (use [`blocks()`](Self::blocks) instead).
+    /// This is useful when you need to cache or share ownership of the AST.
+    ///
+    /// For most use cases, prefer [`documents()`](Self::documents) which provides
+    /// uniform access to all documents regardless of file type.
+    #[must_use]
+    pub fn main_ast(&self) -> Option<Arc<apollo_compiler::ast::Document>> {
+        if self.is_embedded() {
+            None
+        } else {
+            Some(self.ast.clone())
+        }
+    }
+
+    /// Returns the main syntax tree Arc for pure GraphQL files.
+    ///
+    /// Returns `None` for TypeScript/JavaScript files (use [`blocks()`](Self::blocks) instead).
+    ///
+    /// For most use cases, prefer [`documents()`](Self::documents) which provides
+    /// uniform access to all documents regardless of file type.
+    #[must_use]
+    pub fn main_tree(&self) -> Option<Arc<apollo_parser::SyntaxTree>> {
+        if self.is_embedded() {
+            None
+        } else {
+            Some(self.tree.clone())
         }
     }
 }
@@ -445,8 +524,10 @@ mod tests {
         let parse = parse_graphql(content, "test.graphql");
 
         assert!(parse.errors.is_empty());
-        assert!(parse.blocks.is_empty());
-        assert_eq!(parse.tree.document().definitions().count(), 1);
+        assert!(!parse.is_embedded());
+        let docs: Vec<_> = parse.documents().collect();
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].tree.document().definitions().count(), 1);
     }
 
     #[test]
