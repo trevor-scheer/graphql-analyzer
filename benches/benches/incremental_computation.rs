@@ -152,7 +152,8 @@ fn bench_schema_types_cold(c: &mut Criterion) {
             },
             |(db, project_files)| {
                 // Measure: Extract schema types for first time
-                black_box(graphql_hir::schema_types(&db, project_files))
+                // Use .len() to return owned value (not referencing db)
+                black_box(graphql_hir::schema_types(&db, project_files).len())
             },
             BatchSize::SmallInput,
         );
@@ -239,7 +240,8 @@ query GetUser($id: ID!) {
             |(db, project_files)| {
                 // Measure: Schema types query should be instant (cached, not invalidated)
                 // because we only changed document content, not ProjectFiles structure
-                black_box(graphql_hir::schema_types(&db, project_files))
+                // Use .len() to return owned value (not referencing db)
+                black_box(graphql_hir::schema_types(&db, project_files).len())
             },
             BatchSize::SmallInput,
         );
@@ -319,13 +321,11 @@ fn bench_per_file_granular_caching(c: &mut Criterion) {
             |(db, project_files, doc2_id, doc2_content, doc2_meta)| {
                 // Measure: file_fragments for doc2 should be instant (cached)
                 // because we only changed doc1, not doc2
-                black_box(graphql_hir::file_fragments(
-                    &db,
-                    doc2_id,
-                    doc2_content,
-                    doc2_meta,
-                ));
-                black_box(graphql_hir::all_fragments(&db, project_files))
+                // Use .len() to return owned values (not referencing db)
+                let _ = black_box(
+                    graphql_hir::file_fragments(&db, doc2_id, doc2_content, doc2_meta).len(),
+                );
+                black_box(graphql_hir::all_fragments(&db, project_files).len())
             },
             BatchSize::SmallInput,
         );
@@ -375,7 +375,8 @@ fn bench_fragment_resolution_cold(c: &mut Criterion) {
             },
             |(db, project_files)| {
                 // Measure: Resolve fragments for first time
-                black_box(graphql_hir::all_fragments(&db, project_files))
+                // Use .len() to return owned value (not referencing db)
+                black_box(graphql_hir::all_fragments(&db, project_files).len())
             },
             BatchSize::SmallInput,
         );

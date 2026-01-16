@@ -337,9 +337,10 @@ export async function activate(context: ExtensionContext) {
     window.showErrorMessage(errorMessage);
     statusBarItem.text = "$(error) GraphQL";
     statusBarItem.tooltip = `GraphQL LSP failed to start: ${error}`;
-    throw error;
+    // Don't throw - allow partial activation so restart command can still work
   }
 
+  context.subscriptions.push(outputChannel);
   outputChannel.appendLine("Extension activated!");
   console.log("=== Extension activation complete ===");
 }

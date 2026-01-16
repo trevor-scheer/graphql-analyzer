@@ -376,6 +376,55 @@ impl WorkspaceSymbol {
     }
 }
 
+/// Code lens information for a deprecated field
+///
+/// Used to show usage counts for deprecated fields in schema files.
+/// The code lens appears above the field definition and shows how many
+/// usages exist across the project.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeLensInfo {
+    /// Range where the code lens should appear (field definition range)
+    pub range: Range,
+    /// Number of usages of this deprecated field
+    pub usage_count: usize,
+    /// The type name that contains the deprecated field
+    pub type_name: String,
+    /// The deprecated field name
+    pub field_name: String,
+    /// Optional deprecation reason
+    pub deprecation_reason: Option<String>,
+    /// Locations of all usages (for navigation)
+    pub usage_locations: Vec<Location>,
+}
+
+impl CodeLensInfo {
+    /// Create a new code lens for a deprecated field
+    #[must_use]
+    pub fn new(
+        range: Range,
+        type_name: impl Into<String>,
+        field_name: impl Into<String>,
+        usage_count: usize,
+        usage_locations: Vec<Location>,
+    ) -> Self {
+        Self {
+            range,
+            usage_count,
+            type_name: type_name.into(),
+            field_name: field_name.into(),
+            deprecation_reason: None,
+            usage_locations,
+        }
+    }
+
+    /// Add a deprecation reason
+    #[must_use]
+    pub fn with_deprecation_reason(mut self, reason: impl Into<String>) -> Self {
+        self.deprecation_reason = Some(reason.into());
+        self
+    }
+}
+
 /// Statistics about schema types
 #[derive(Debug, Clone, Default)]
 pub struct SchemaStats {

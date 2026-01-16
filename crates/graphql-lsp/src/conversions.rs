@@ -6,7 +6,9 @@
 //!
 //! These conversions are stateless and can be used from any LSP handler.
 
-use lsp_types::{Diagnostic, DiagnosticSeverity, Location, Position, Range};
+use lsp_types::{
+    CodeLens, Command, Diagnostic, DiagnosticSeverity, Location, Position, Range, Uri,
+};
 
 /// Convert LSP Position to graphql-ide Position
 pub const fn convert_lsp_position(pos: Position) -> graphql_ide::Position {
@@ -156,6 +158,55 @@ pub fn convert_ide_workspace_symbol(
         location: lsp_types::OneOf::Left(convert_ide_location(&symbol.location)),
         container_name: symbol.container_name,
         tags: None,
+        data: None,
+    }
+}
+
+/// Convert graphql-ide `CodeLensInfo` to LSP `CodeLens`
+///
+/// Creates a code lens that shows the usage count for deprecated fields.
+/// When clicked, it navigates to the usages using the "find all references" command.
+pub fn convert_ide_code_lens_info(info: &graphql_ide::CodeLensInfo, uri: &Uri) -> CodeLens {
+    let title = if info.usage_count == 1 {
+        "1 usage remaining".to_string()
+    } else {
+        format!("{} usages remaining", info.usage_count)
+    };
+
+    // Create the command that will be executed when the code lens is clicked.
+    // We use our custom graphql-lsp.showReferences command which handles the
+    // JSON-to-VSCode type conversion. See editors/vscode/src/extension.ts for
+    // why this wrapper is necessary (LSP sends JSON, but VSCode commands need
+    // native types with methods).
+    let command = if info.usage_count > 0 {
+        // Convert IDE locations to LSP locations for the command arguments
+        let lsp_locations: Vec<Location> = info
+            .usage_locations
+            .iter()
+            .map(convert_ide_location)
+            .collect();
+
+        Some(Command {
+            title,
+            command: "graphql-lsp.showReferences".to_string(),
+            arguments: Some(vec![
+                serde_json::to_value(uri.to_string()).unwrap(),
+                serde_json::to_value(convert_ide_position(info.range.start)).unwrap(),
+                serde_json::to_value(lsp_locations).unwrap(),
+            ]),
+        })
+    } else {
+        // For code lenses with 0 usages, just show the title (no action)
+        Some(Command {
+            title,
+            command: String::new(),
+            arguments: None,
+        })
+    };
+
+    CodeLens {
+        range: convert_ide_range(info.range),
+        command,
         data: None,
     }
 }

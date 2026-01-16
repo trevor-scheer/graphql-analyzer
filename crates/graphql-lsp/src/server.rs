@@ -1,20 +1,22 @@
 use crate::conversions::{
-    convert_ide_completion_item, convert_ide_diagnostic, convert_ide_document_symbol,
-    convert_ide_hover, convert_ide_location, convert_ide_workspace_symbol, convert_lsp_position,
+    convert_ide_code_lens_info, convert_ide_completion_item, convert_ide_diagnostic,
+    convert_ide_document_symbol, convert_ide_hover, convert_ide_location,
+    convert_ide_workspace_symbol, convert_lsp_position,
 };
 use crate::workspace::WorkspaceManager;
 use graphql_config::find_config;
 use lsp_types::{
     ClientCapabilities, CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand,
-    CodeActionParams, CodeActionResponse, CompletionOptions, CompletionParams, CompletionResponse,
-    Diagnostic, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams,
-    FileChangeType, FileSystemWatcher, GotoDefinitionParams, GotoDefinitionResponse, Hover,
-    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
-    Location, MessageActionItem, MessageType, OneOf, ReferenceParams, SemanticToken,
-    SemanticTokenModifier, SemanticTokenType, SemanticTokens, SemanticTokensFullOptions,
-    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
+    CodeActionParams, CodeActionResponse, CodeLens, CodeLensOptions, CodeLensParams,
+    CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
+    DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, FileChangeType,
+    FileSystemWatcher, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
+    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
+    MessageActionItem, MessageType, OneOf, ReferenceParams, SemanticToken, SemanticTokenModifier,
+    SemanticTokenType, SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend,
+    SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
     SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, SymbolInformation,
     TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri, WorkDoneProgressOptions,
     WorkspaceEdit, WorkspaceSymbol, WorkspaceSymbolParams,
@@ -166,6 +168,7 @@ documents: "**/*.graphql"
         workspace_path: &Path,
         config: &graphql_config::GraphQLConfig,
     ) {
+        const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
         let start = std::time::Instant::now();
         let projects: Vec<_> = config.projects().collect();
         tracing::info!("Loading files for {} project(s)", projects.len());
@@ -233,7 +236,6 @@ documents: "**/*.graphql"
                 );
 
                 // Show warning for large file counts
-                const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
                 if total_files_loaded >= MAX_FILES_WARNING_THRESHOLD {
                     tracing::warn!(
                         "Loading large number of files ({}), this may take a while...",
@@ -527,6 +529,11 @@ impl LanguageServer for GraphQLLanguageServer {
             .and_then(|td| td.semantic_tokens.as_ref())
             .is_some();
 
+        // Check if client supports code lens
+        let supports_code_lens = text_document_caps
+            .and_then(|td| td.code_lens.as_ref())
+            .is_some();
+
         tracing::info!(
             supports_hover,
             supports_completion,
@@ -535,6 +542,7 @@ impl LanguageServer for GraphQLLanguageServer {
             supports_document_symbols,
             supports_workspace_symbols,
             supports_semantic_tokens,
+            supports_code_lens,
             "Client capabilities detected"
         );
 
@@ -606,6 +614,9 @@ impl LanguageServer for GraphQLLanguageServer {
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["graphql.checkStatus".to_string()],
                     work_done_progress_options: WorkDoneProgressOptions::default(),
+                }),
+                code_lens_provider: supports_code_lens.then_some(CodeLensOptions {
+                    resolve_provider: Some(true),
                 }),
                 ..Default::default()
             },
@@ -1135,7 +1146,7 @@ impl LanguageServer for GraphQLLanguageServer {
 
         let mut all_symbols = Vec::new();
 
-        for entry in self.workspace.hosts.iter() {
+        for entry in &self.workspace.hosts {
             let host = entry.value();
             let analysis = {
                 let host_guard = host.lock().await;
@@ -1263,7 +1274,7 @@ impl LanguageServer for GraphQLLanguageServer {
         if params.command.as_str() == "graphql.checkStatus" {
             let mut status_lines = Vec::new();
 
-            for workspace_entry in self.workspace.workspace_roots.iter() {
+            for workspace_entry in &self.workspace.workspace_roots {
                 let workspace_uri = workspace_entry.key();
                 let workspace_path = workspace_entry.value();
 
@@ -1437,5 +1448,50 @@ impl LanguageServer for GraphQLLanguageServer {
         } else {
             Ok(Some(actions))
         }
+    }
+
+    async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
+        let uri = params.text_document.uri;
+        tracing::debug!("Code lens requested: {:?}", uri);
+
+        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
+        else {
+            tracing::debug!("No project found for document: {:?}", uri);
+            return Ok(None);
+        };
+
+        let host = self
+            .workspace
+            .get_or_create_host(&workspace_uri, &project_name);
+        let analysis = {
+            let host_guard = host.lock().await;
+            host_guard.snapshot()
+        };
+
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
+
+        let code_lenses = analysis.deprecated_field_code_lenses(&file_path);
+
+        if code_lenses.is_empty() {
+            tracing::debug!("No code lenses found for {:?}", uri);
+            return Ok(None);
+        }
+
+        let lsp_code_lenses: Vec<CodeLens> = code_lenses
+            .iter()
+            .map(|cl| convert_ide_code_lens_info(cl, &uri))
+            .collect();
+
+        tracing::debug!(
+            "Returning {} code lenses for {:?}",
+            lsp_code_lenses.len(),
+            uri
+        );
+        Ok(Some(lsp_code_lenses))
+    }
+
+    async fn code_lens_resolve(&self, code_lens: CodeLens) -> Result<CodeLens> {
+        // Code lens is already resolved with command, just return it
+        Ok(code_lens)
     }
 }

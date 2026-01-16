@@ -3,15 +3,15 @@
 //! This module provides the `WorkspaceManager` struct which manages:
 //! - Workspace folder tracking
 //! - Configuration paths and loaded configs
-//! - AnalysisHost instances per workspace/project
+//! - `AnalysisHost` instances per workspace/project
 //! - File-to-project mapping for efficient lookups
 //!
 //! ## Architecture
 //!
 //! The workspace manager separates concerns:
 //! - **Server**: Handles LSP protocol messages
-//! - **WorkspaceManager**: Manages workspace state and project data
-//! - **AnalysisHost** (in graphql-ide): Handles IDE features for a single project
+//! - **`WorkspaceManager`**: Manages workspace state and project data
+//! - **`AnalysisHost`** (in graphql-ide): Handles IDE features for a single project
 
 use dashmap::DashMap;
 use graphql_ide::AnalysisHost;
@@ -26,7 +26,7 @@ use tower_lsp_server::UriExt;
 /// This struct holds all per-workspace and per-project data:
 /// - Workspace folder paths
 /// - Configuration file paths and loaded configs
-/// - AnalysisHost instances (one per project)
+/// - `AnalysisHost` instances (one per project)
 /// - Document version tracking
 /// - File-to-project mapping
 pub struct WorkspaceManager {
@@ -96,7 +96,7 @@ impl WorkspaceManager {
 
         // Fall back to searching configs for pattern matching
         let doc_path = document_uri.to_file_path()?;
-        for workspace_entry in self.workspace_roots.iter() {
+        for workspace_entry in &self.workspace_roots {
             let workspace_uri = workspace_entry.key();
             let workspace_path = workspace_entry.value();
 
