@@ -168,6 +168,7 @@ documents: "**/*.graphql"
         workspace_path: &Path,
         config: &graphql_config::GraphQLConfig,
     ) {
+        const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
         let start = std::time::Instant::now();
         let projects: Vec<_> = config.projects().collect();
         tracing::info!("Loading files for {} project(s)", projects.len());
@@ -235,7 +236,6 @@ documents: "**/*.graphql"
                 );
 
                 // Show warning for large file counts
-                const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
                 if total_files_loaded >= MAX_FILES_WARNING_THRESHOLD {
                     tracing::warn!(
                         "Loading large number of files ({}), this may take a while...",
@@ -615,7 +615,7 @@ impl LanguageServer for GraphQLLanguageServer {
                     commands: vec!["graphql.checkStatus".to_string()],
                     work_done_progress_options: WorkDoneProgressOptions::default(),
                 }),
-                code_lens_provider: supports_code_lens.then(|| CodeLensOptions {
+                code_lens_provider: supports_code_lens.then_some(CodeLensOptions {
                     resolve_provider: Some(true),
                 }),
                 ..Default::default()
@@ -1146,7 +1146,7 @@ impl LanguageServer for GraphQLLanguageServer {
 
         let mut all_symbols = Vec::new();
 
-        for entry in self.workspace.hosts.iter() {
+        for entry in &self.workspace.hosts {
             let host = entry.value();
             let analysis = {
                 let host_guard = host.lock().await;
@@ -1274,7 +1274,7 @@ impl LanguageServer for GraphQLLanguageServer {
         if params.command.as_str() == "graphql.checkStatus" {
             let mut status_lines = Vec::new();
 
-            for workspace_entry in self.workspace.workspace_roots.iter() {
+            for workspace_entry in &self.workspace.workspace_roots {
                 let workspace_uri = workspace_entry.key();
                 let workspace_path = workspace_entry.value();
 
@@ -1454,12 +1454,15 @@ impl LanguageServer for GraphQLLanguageServer {
         let uri = params.text_document.uri;
         tracing::debug!("Code lens requested: {:?}", uri);
 
-        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri) else {
+        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
+        else {
             tracing::debug!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
-        let host = self.workspace.get_or_create_host(&workspace_uri, &project_name);
+        let host = self
+            .workspace
+            .get_or_create_host(&workspace_uri, &project_name);
         let analysis = {
             let host_guard = host.lock().await;
             host_guard.snapshot()
@@ -1475,7 +1478,7 @@ impl LanguageServer for GraphQLLanguageServer {
         }
 
         let lsp_code_lenses: Vec<CodeLens> = code_lenses
-            .into_iter()
+            .iter()
             .map(|cl| convert_ide_code_lens_info(cl, &uri))
             .collect();
 

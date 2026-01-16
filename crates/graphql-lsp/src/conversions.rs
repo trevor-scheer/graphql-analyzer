@@ -166,7 +166,7 @@ pub fn convert_ide_workspace_symbol(
 ///
 /// Creates a code lens that shows the usage count for deprecated fields.
 /// When clicked, it navigates to the usages using the "find all references" command.
-pub fn convert_ide_code_lens_info(info: graphql_ide::CodeLensInfo, uri: &Uri) -> CodeLens {
+pub fn convert_ide_code_lens_info(info: &graphql_ide::CodeLensInfo, uri: &Uri) -> CodeLens {
     let title = if info.usage_count == 0 {
         "0 usages remaining (safe to remove)".to_string()
     } else if info.usage_count == 1 {
