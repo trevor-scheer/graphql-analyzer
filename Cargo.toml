@@ -14,6 +14,7 @@ members = [
     "crates/graphql-ide",
     "benches",
     ".husky",
+    "xtask",
 ]
 
 [workspace.package]

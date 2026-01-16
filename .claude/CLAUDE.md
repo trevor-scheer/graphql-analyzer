@@ -56,6 +56,10 @@ cd editors/vscode
 npm run compile                 # Build extension
 npm run format                  # Format TypeScript
 npm run lint                    # Lint TypeScript
+
+# Quick Install (builds LSP + installs extension)
+cargo xtask install             # Debug build
+cargo xtask install --release   # Release build
 ```
 
 ### Critical File Locations
@@ -671,6 +675,13 @@ npm run package
 
 # Install locally
 code --install-extension graphql-lsp-*.vsix
+```
+
+Or use the xtask shortcut which does all of the above in one command:
+
+```bash
+cargo xtask install          # Debug build
+cargo xtask install --release  # Release build
 ```
 
 ---

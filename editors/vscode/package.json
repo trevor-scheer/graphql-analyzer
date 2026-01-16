@@ -4,7 +4,7 @@
   "description": "GraphQL Language Server with validation, completion, and go-to-definition",
   "version": "0.1.1",
   "repository": "https://github.com/trevor-scheer/graphql-lsp",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE.md",
   "publisher": "trevor-scheer",
   "engines": {
     "vscode": "^1.75.0"

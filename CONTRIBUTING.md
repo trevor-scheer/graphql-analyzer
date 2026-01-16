@@ -112,6 +112,20 @@ code .
 
 The extension will automatically use `target/debug/graphql-lsp` when running from the repository.
 
+### Quick Install (xtask)
+
+The project includes an `xtask` command that builds the LSP server and installs the VSCode extension in one step:
+
+```bash
+# Build LSP server (debug) and install extension
+cargo xtask install
+
+# Build LSP server (release) and install extension
+cargo xtask install --release
+```
+
+This is the fastest way to test changes in your local VSCode instance.
+
 ---
 
 ## Making Changes
