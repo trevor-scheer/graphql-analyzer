@@ -1454,12 +1454,12 @@ impl LanguageServer for GraphQLLanguageServer {
         let uri = params.text_document.uri;
         tracing::debug!("Code lens requested: {:?}", uri);
 
-        let Some((workspace_uri, project_name)) = self.find_workspace_and_project(&uri) else {
+        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri) else {
             tracing::debug!("No project found for document: {:?}", uri);
             return Ok(None);
         };
 
-        let host = self.get_or_create_host(&workspace_uri, &project_name);
+        let host = self.workspace.get_or_create_host(&workspace_uri, &project_name);
         let analysis = {
             let host_guard = host.lock().await;
             host_guard.snapshot()

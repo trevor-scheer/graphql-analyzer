@@ -168,24 +168,33 @@ pub fn convert_ide_workspace_symbol(
 /// When clicked, it navigates to the usages using the "find all references" command.
 pub fn convert_ide_code_lens_info(info: graphql_ide::CodeLensInfo, uri: &Uri) -> CodeLens {
     let title = if info.usage_count == 0 {
-        "0 usages (safe to remove)".to_string()
+        "0 usages remaining (safe to remove)".to_string()
     } else if info.usage_count == 1 {
-        "1 usage".to_string()
+        "1 usage remaining".to_string()
     } else {
-        format!("{} usages", info.usage_count)
+        format!("{} usages remaining", info.usage_count)
     };
 
     // Create the command that will be executed when the code lens is clicked.
-    // We use editor.action.findReferences which is the standard VSCode command
-    // for showing all references to a symbol.
+    // We use our custom graphql-lsp.showReferences command which handles the
+    // JSON-to-VSCode type conversion. See editors/vscode/src/extension.ts for
+    // why this wrapper is necessary (LSP sends JSON, but VSCode commands need
+    // native types with methods).
     let command = if info.usage_count > 0 {
-        // For code lenses with usages, clicking shows references
+        // Convert IDE locations to LSP locations for the command arguments
+        let lsp_locations: Vec<Location> = info
+            .usage_locations
+            .iter()
+            .map(convert_ide_location)
+            .collect();
+
         Some(Command {
             title,
-            command: "editor.action.findReferences".to_string(),
+            command: "graphql-lsp.showReferences".to_string(),
             arguments: Some(vec![
                 serde_json::to_value(uri.to_string()).unwrap(),
                 serde_json::to_value(convert_ide_position(info.range.start)).unwrap(),
+                serde_json::to_value(lsp_locations).unwrap(),
             ]),
         })
     } else {
