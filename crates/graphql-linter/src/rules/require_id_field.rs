@@ -1562,7 +1562,7 @@ type Trainer {
 ";
 
         // Two separate gql blocks - fragment in one, usage in another
-        let ts_source = r#"
+        let ts_source = r"
 import { gql } from '@apollo/client';
 
 export const TRAINER_FRAGMENT = gql`
@@ -1579,7 +1579,7 @@ export const BATTLE_FRAGMENT = gql`
         }
     }
 `;
-"#;
+";
 
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, schema, ts_source, FileKind::TypeScript);

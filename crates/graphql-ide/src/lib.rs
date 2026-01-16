@@ -5536,8 +5536,7 @@ query GetUser {
 
         assert!(
             !deprecated_tokens.is_empty(),
-            "Should have at least one deprecated token, got tokens: {:?}",
-            tokens
+            "Should have at least one deprecated token, got tokens: {tokens:?}"
         );
 
         // Verify the deprecated token is a Property (field) type
