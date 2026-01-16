@@ -1,19 +1,19 @@
 [workspace]
 resolver = "2"
-default-members = ["crates/graphql-cli"]
 members = [
     "crates/graphql-config",
     "crates/graphql-extract",
     "crates/graphql-introspect",
     "crates/graphql-lsp",
     "crates/graphql-cli",
-    ".husky", "crates/graphql-linter",
+    "crates/graphql-linter",
     "crates/graphql-db",
     "crates/graphql-syntax",
     "crates/graphql-hir",
     "crates/graphql-analysis",
     "crates/graphql-ide",
     "benches",
+    ".husky",
 ]
 
 [workspace.package]
