@@ -6,6 +6,67 @@ use std::sync::Arc;
 type SchemaFieldsMap<'a> =
     HashMap<(Arc<str>, Arc<str>), (graphql_db::FileId, &'a graphql_hir::FieldSignature)>;
 
+/// Information about how a schema field is used across all operations
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldUsage {
+    /// The type that contains this field
+    pub type_name: Arc<str>,
+    /// The name of the field
+    pub field_name: Arc<str>,
+    /// How many times the field is used (across all operations)
+    pub usage_count: usize,
+    /// Names of operations that use this field
+    pub operations: Vec<Arc<str>>,
+}
+
+/// Summary of field usage coverage for the entire project
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FieldCoverageReport {
+    /// Total number of schema fields
+    pub total_fields: usize,
+    /// Number of fields that are used in at least one operation
+    pub used_fields: usize,
+    /// Field usage details keyed by (`type_name`, `field_name`)
+    pub field_usages: HashMap<(Arc<str>, Arc<str>), FieldUsage>,
+    /// Coverage statistics by type
+    pub type_coverage: HashMap<Arc<str>, TypeCoverage>,
+}
+
+impl FieldCoverageReport {
+    /// Calculate coverage as a percentage (0.0 to 100.0)
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn coverage_percentage(&self) -> f64 {
+        if self.total_fields == 0 {
+            100.0
+        } else {
+            (self.used_fields as f64 / self.total_fields as f64) * 100.0
+        }
+    }
+}
+
+/// Coverage statistics for a single type
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TypeCoverage {
+    /// Total number of fields on this type
+    pub total_fields: usize,
+    /// Number of fields that are used
+    pub used_fields: usize,
+}
+
+impl TypeCoverage {
+    /// Calculate coverage as a percentage (0.0 to 100.0)
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn coverage_percentage(&self) -> f64 {
+        if self.total_fields == 0 {
+            100.0
+        } else {
+            (self.used_fields as f64 / self.total_fields as f64) * 100.0
+        }
+    }
+}
+
 #[salsa::tracked]
 pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId, Diagnostic)>> {
     let project_files = db
@@ -143,6 +204,238 @@ pub fn find_unused_fragments(
     }
 
     Arc::new(unused)
+}
+
+/// Analyze field usage across all operations in the project
+///
+/// Returns detailed usage information for every schema field,
+/// including which operations use each field and how many times.
+#[salsa::tracked]
+#[allow(clippy::too_many_lines)]
+pub fn analyze_field_usage(db: &dyn GraphQLAnalysisDatabase) -> Arc<FieldCoverageReport> {
+    let project_files = db
+        .project_files()
+        .expect("project files must be set for project-wide analysis");
+    let schema = graphql_hir::schema_types(db, project_files);
+    let operations = graphql_hir::all_operations(db, project_files);
+    let all_fragments = graphql_hir::all_fragments(db, project_files);
+
+    // Build document files lookup
+    let doc_ids = project_files.document_file_ids(db).ids(db);
+    let document_files: Vec<(
+        graphql_db::FileId,
+        graphql_db::FileContent,
+        graphql_db::FileMetadata,
+    )> = doc_ids
+        .iter()
+        .filter_map(|file_id| {
+            graphql_db::file_lookup(db, project_files, *file_id)
+                .map(|(content, metadata)| (*file_id, content, metadata))
+        })
+        .collect();
+
+    // Initialize field usage map with all schema fields
+    // Only include Object and Interface types - InputObject, Scalar, Enum, Union don't have
+    // selectable fields in the same sense (InputObject fields are provided, not selected)
+    let mut field_usages: HashMap<(Arc<str>, Arc<str>), FieldUsage> = HashMap::new();
+    let mut type_coverage: HashMap<Arc<str>, TypeCoverage> = HashMap::new();
+    let mut total_fields = 0;
+
+    for (type_name, type_def) in schema {
+        // Skip non-selectable types
+        if !matches!(
+            type_def.kind,
+            graphql_hir::TypeDefKind::Object | graphql_hir::TypeDefKind::Interface
+        ) {
+            continue;
+        }
+
+        let field_count = type_def.fields.len();
+        type_coverage.insert(
+            type_name.clone(),
+            TypeCoverage {
+                total_fields: field_count,
+                used_fields: 0,
+            },
+        );
+        total_fields += field_count;
+
+        for field in &type_def.fields {
+            field_usages.insert(
+                (type_name.clone(), field.name.clone()),
+                FieldUsage {
+                    type_name: type_name.clone(),
+                    field_name: field.name.clone(),
+                    usage_count: 0,
+                    operations: Vec::new(),
+                },
+            );
+        }
+    }
+
+    // Track field usages per operation to support usage_count and operations list
+    for operation in operations.iter() {
+        let root_type_name = match operation.operation_type {
+            graphql_hir::OperationType::Query => "Query",
+            graphql_hir::OperationType::Mutation => "Mutation",
+            graphql_hir::OperationType::Subscription => "Subscription",
+        };
+
+        let operation_name = operation
+            .name
+            .as_ref()
+            .map_or_else(|| Arc::from("<anonymous>"), Arc::clone);
+
+        if let Some((_, content, metadata)) = document_files
+            .iter()
+            .find(|(fid, _, _)| *fid == operation.file_id)
+        {
+            let body = graphql_hir::operation_body(db, *content, *metadata, operation.index);
+
+            // Collect fields used in this operation
+            let mut operation_fields: HashSet<(Arc<str>, Arc<str>)> = HashSet::new();
+            let root_type = Arc::from(root_type_name);
+            collect_field_usages_from_selections(
+                &body.selections,
+                &root_type,
+                schema,
+                all_fragments,
+                db,
+                &document_files,
+                &mut operation_fields,
+                &mut HashSet::new(),
+            );
+
+            // Update field usage counts
+            for (type_name, field_name) in operation_fields {
+                if let Some(usage) = field_usages.get_mut(&(type_name.clone(), field_name.clone()))
+                {
+                    usage.usage_count += 1;
+                    if !usage.operations.contains(&operation_name) {
+                        usage.operations.push(operation_name.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    // Calculate type coverage (count used fields per type)
+    let mut used_fields_count = 0;
+    for usage in field_usages.values() {
+        if usage.usage_count > 0 {
+            used_fields_count += 1;
+            if let Some(type_cov) = type_coverage.get_mut(&usage.type_name) {
+                type_cov.used_fields += 1;
+            }
+        }
+    }
+
+    Arc::new(FieldCoverageReport {
+        total_fields,
+        used_fields: used_fields_count,
+        field_usages,
+        type_coverage,
+    })
+}
+
+/// Helper to collect field usages from selections (for field usage analysis)
+#[allow(clippy::too_many_arguments)]
+fn collect_field_usages_from_selections(
+    selections: &[graphql_hir::Selection],
+    current_type: &Arc<str>,
+    schema: &HashMap<Arc<str>, graphql_hir::TypeDef>,
+    all_fragments: &HashMap<Arc<str>, graphql_hir::FragmentStructure>,
+    db: &dyn GraphQLAnalysisDatabase,
+    document_files: &[(
+        graphql_db::FileId,
+        graphql_db::FileContent,
+        graphql_db::FileMetadata,
+    )],
+    used_fields: &mut HashSet<(Arc<str>, Arc<str>)>,
+    visited_fragments: &mut HashSet<Arc<str>>,
+) {
+    for selection in selections {
+        match selection {
+            graphql_hir::Selection::Field {
+                name,
+                selection_set,
+                ..
+            } => {
+                // Record this field usage
+                used_fields.insert((current_type.clone(), name.clone()));
+
+                // Get the field's return type to recurse into nested selections
+                if let Some(type_def) = schema.get(current_type) {
+                    if let Some(field) = type_def.fields.iter().find(|f| f.name == *name) {
+                        let field_type = unwrap_type_name(&field.type_ref.name);
+
+                        if !selection_set.is_empty() {
+                            collect_field_usages_from_selections(
+                                selection_set,
+                                &field_type,
+                                schema,
+                                all_fragments,
+                                db,
+                                document_files,
+                                used_fields,
+                                visited_fragments,
+                            );
+                        }
+                    }
+                }
+            }
+            graphql_hir::Selection::FragmentSpread {
+                name: fragment_name,
+            } => {
+                if visited_fragments.contains(fragment_name) {
+                    continue;
+                }
+                visited_fragments.insert(fragment_name.clone());
+
+                if let Some(fragment) = all_fragments.get(fragment_name) {
+                    if let Some((_, content, metadata)) = document_files
+                        .iter()
+                        .find(|(fid, _, _)| *fid == fragment.file_id)
+                    {
+                        let fragment_body = graphql_hir::fragment_body(
+                            db,
+                            *content,
+                            *metadata,
+                            fragment_name.clone(),
+                        );
+
+                        collect_field_usages_from_selections(
+                            &fragment_body.selections,
+                            &fragment.type_condition,
+                            schema,
+                            all_fragments,
+                            db,
+                            document_files,
+                            used_fields,
+                            visited_fragments,
+                        );
+                    }
+                }
+            }
+            graphql_hir::Selection::InlineFragment {
+                type_condition,
+                selection_set,
+            } => {
+                let fragment_type = type_condition.as_ref().unwrap_or(current_type);
+
+                collect_field_usages_from_selections(
+                    selection_set,
+                    fragment_type,
+                    schema,
+                    all_fragments,
+                    db,
+                    document_files,
+                    used_fields,
+                    visited_fragments,
+                );
+            }
+        }
+    }
 }
 
 /// Collect a fragment and all fragments it transitively spreads
@@ -610,5 +903,263 @@ mod tests {
         assert_eq!(unwrap_type_name("[String!]"), Arc::from("String"));
         assert_eq!(unwrap_type_name("[String!]!"), Arc::from("String"));
         assert_eq!(unwrap_type_name("[[String]]"), Arc::from("String"));
+    }
+
+    #[test]
+    fn test_analyze_field_usage_basic() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from(
+                r#"
+                type Query {
+                    user: User
+                }
+
+                type User {
+                    id: ID!
+                    name: String!
+                    email: String!
+                }
+                "#,
+            ),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        // Operation that uses id and name, not email
+        let doc_id = FileId::new(1);
+        let doc_content = FileContent::new(
+            &db,
+            Arc::from(
+                r#"
+                query GetUser {
+                    user {
+                        id
+                        name
+                    }
+                }
+                "#,
+            ),
+        );
+        let doc_metadata = FileMetadata::new(
+            &db,
+            doc_id,
+            FileUri::new("query.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let project_files = graphql_db::test_utils::create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
+        );
+
+        db.set_project_files(Some(project_files));
+
+        let coverage = analyze_field_usage(&db);
+
+        // Check overall stats
+        assert_eq!(coverage.total_fields, 4); // Query.user, User.id, User.name, User.email
+        assert_eq!(coverage.used_fields, 3); // Query.user, User.id, User.name
+
+        // Check specific field usages
+        let user_id = coverage
+            .field_usages
+            .get(&(Arc::from("User"), Arc::from("id")));
+        assert!(user_id.is_some());
+        assert_eq!(user_id.unwrap().usage_count, 1);
+        assert!(user_id.unwrap().operations.contains(&Arc::from("GetUser")));
+
+        let user_email = coverage
+            .field_usages
+            .get(&(Arc::from("User"), Arc::from("email")));
+        assert!(user_email.is_some());
+        assert_eq!(user_email.unwrap().usage_count, 0);
+    }
+
+    #[test]
+    fn test_analyze_field_usage_multiple_operations() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from(
+                r#"
+                type Query {
+                    user: User
+                }
+
+                type User {
+                    id: ID!
+                    name: String!
+                }
+                "#,
+            ),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        // Two operations using the same fields
+        let doc_id = FileId::new(1);
+        let doc_content = FileContent::new(
+            &db,
+            Arc::from(
+                r#"
+                query GetUser {
+                    user {
+                        id
+                        name
+                    }
+                }
+
+                query GetUserName {
+                    user {
+                        name
+                    }
+                }
+                "#,
+            ),
+        );
+        let doc_metadata = FileMetadata::new(
+            &db,
+            doc_id,
+            FileUri::new("query.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let project_files = graphql_db::test_utils::create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
+        );
+
+        db.set_project_files(Some(project_files));
+
+        let coverage = analyze_field_usage(&db);
+
+        // User.name is used in 2 operations
+        let user_name = coverage
+            .field_usages
+            .get(&(Arc::from("User"), Arc::from("name")));
+        assert!(user_name.is_some());
+        assert_eq!(user_name.unwrap().usage_count, 2);
+        assert_eq!(user_name.unwrap().operations.len(), 2);
+
+        // User.id is used in 1 operation
+        let user_id = coverage
+            .field_usages
+            .get(&(Arc::from("User"), Arc::from("id")));
+        assert!(user_id.is_some());
+        assert_eq!(user_id.unwrap().usage_count, 1);
+    }
+
+    #[test]
+    fn test_analyze_field_usage_with_fragments() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from(
+                r#"
+                type Query {
+                    user: User
+                }
+
+                type User {
+                    id: ID!
+                    name: String!
+                    email: String!
+                }
+                "#,
+            ),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        // Operation using fragment
+        let doc_id = FileId::new(1);
+        let doc_content = FileContent::new(
+            &db,
+            Arc::from(
+                r#"
+                query GetUser {
+                    user {
+                        ...UserFields
+                    }
+                }
+
+                fragment UserFields on User {
+                    id
+                    email
+                }
+                "#,
+            ),
+        );
+        let doc_metadata = FileMetadata::new(
+            &db,
+            doc_id,
+            FileUri::new("query.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let project_files = graphql_db::test_utils::create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
+        );
+
+        db.set_project_files(Some(project_files));
+
+        let coverage = analyze_field_usage(&db);
+
+        // Email is used via fragment
+        let user_email = coverage
+            .field_usages
+            .get(&(Arc::from("User"), Arc::from("email")));
+        assert!(user_email.is_some());
+        assert_eq!(user_email.unwrap().usage_count, 1);
+
+        // Name is not used
+        let user_name = coverage
+            .field_usages
+            .get(&(Arc::from("User"), Arc::from("name")));
+        assert!(user_name.is_some());
+        assert_eq!(user_name.unwrap().usage_count, 0);
+    }
+
+    #[test]
+    fn test_field_coverage_report_percentage() {
+        let mut report = FieldCoverageReport::default();
+        report.total_fields = 10;
+        report.used_fields = 7;
+
+        assert!((report.coverage_percentage() - 70.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_type_coverage_percentage() {
+        let coverage = TypeCoverage {
+            total_fields: 5,
+            used_fields: 4,
+        };
+
+        assert!((coverage.coverage_percentage() - 80.0).abs() < 0.01);
     }
 }

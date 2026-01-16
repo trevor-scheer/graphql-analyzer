@@ -8,6 +8,7 @@ authors.workspace = true
 description = "CLI tool for GraphQL validation and linting"
 keywords = ["graphql", "cli", "validation", "linting"]
 categories = ["command-line-utilities", "development-tools"]
+default-run = "graphql"
 
 [package.metadata.dist]
 dist = true

@@ -101,6 +101,17 @@ enum Commands {
         #[arg(short, long, value_enum, default_value = "human")]
         format: OutputFormat,
     },
+
+    /// Show schema field coverage by operations
+    Coverage {
+        /// Output format
+        #[arg(short, long, value_enum, default_value = "human")]
+        format: OutputFormat,
+
+        /// Filter by type name (e.g., "User", "Query")
+        #[arg(long, value_name = "TYPE")]
+        r#type: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -145,6 +156,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Fragments { format } => {
             commands::fragments::run(cli.config, cli.project.as_deref(), format)
+        }
+        Commands::Coverage { format, r#type } => {
+            commands::coverage::run(cli.config, cli.project.as_deref(), format, r#type)
         }
     };
 
