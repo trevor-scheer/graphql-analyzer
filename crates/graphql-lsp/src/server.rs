@@ -1,6 +1,6 @@
 use crate::conversions::{
-    convert_ide_code_lens_info, convert_ide_completion_item, convert_ide_diagnostic,
-    convert_ide_document_symbol, convert_ide_hover, convert_ide_location,
+    convert_ide_code_lens, convert_ide_code_lens_info, convert_ide_completion_item,
+    convert_ide_diagnostic, convert_ide_document_symbol, convert_ide_hover, convert_ide_location,
     convert_ide_workspace_symbol, convert_lsp_position,
 };
 use crate::workspace::WorkspaceManager;
@@ -1470,18 +1470,44 @@ impl LanguageServer for GraphQLLanguageServer {
         };
 
         let file_path = graphql_ide::FilePath::new(uri.to_string());
+        let mut lsp_code_lenses: Vec<CodeLens> = Vec::new();
 
-        let code_lenses = analysis.deprecated_field_code_lenses(&file_path);
+        // Code lenses for deprecated fields (in schema files)
+        let deprecated_lenses = analysis.deprecated_field_code_lenses(&file_path);
+        lsp_code_lenses.extend(
+            deprecated_lenses
+                .iter()
+                .map(|cl| convert_ide_code_lens_info(cl, &uri)),
+        );
 
-        if code_lenses.is_empty() {
+        // Code lenses for fragment definitions (showing reference counts)
+        let fragment_lenses = analysis.code_lenses(&file_path);
+        for lens in &fragment_lenses {
+            // Get fragment name from the command arguments (it's the 3rd argument)
+            let fragment_name = lens
+                .command
+                .as_ref()
+                .and_then(|cmd| cmd.arguments.get(2))
+                .map(String::as_str);
+
+            // Get references for this fragment
+            let references: Vec<lsp_types::Location> = if let Some(name) = fragment_name {
+                analysis
+                    .find_fragment_references(name, false)
+                    .iter()
+                    .map(convert_ide_location)
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+            lsp_code_lenses.push(convert_ide_code_lens(lens, &uri, &references));
+        }
+
+        if lsp_code_lenses.is_empty() {
             tracing::debug!("No code lenses found for {:?}", uri);
             return Ok(None);
         }
-
-        let lsp_code_lenses: Vec<CodeLens> = code_lenses
-            .iter()
-            .map(|cl| convert_ide_code_lens_info(cl, &uri))
-            .collect();
 
         tracing::debug!(
             "Returning {} code lenses for {:?}",

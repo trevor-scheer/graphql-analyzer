@@ -1808,7 +1808,7 @@ impl Analysis {
     }
 
     /// Find all references to a fragment
-    fn find_fragment_references(
+    pub fn find_fragment_references(
         &self,
         fragment_name: &str,
         include_declaration: bool,
@@ -2625,8 +2625,7 @@ impl Analysis {
 
             // Get the range for the fragment definition line
             for doc in parse.documents() {
-                if let Some(ranges) =
-                    find_fragment_definition_full_range(doc.tree, &fragment.name)
+                if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name)
                 {
                     let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
                     let range = adjust_range_for_line_offset(
