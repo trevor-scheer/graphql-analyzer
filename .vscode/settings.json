@@ -36,5 +36,6 @@
   "files.watcherExclude": {
     "**/target/**": true,
     "**/node_modules/**": true
-  }
+  },
+  "graphql.server.path": "/Users/trevor/Repositories/graphql-lsp/target/debug"
 }

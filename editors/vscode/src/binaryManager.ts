@@ -244,8 +244,20 @@ export async function findServerBinary(
     const expandedCustomPath = expandTilde(customPath.trim());
     outputChannel.appendLine(`Checking custom path: ${expandedCustomPath}`);
     if (fs.existsSync(expandedCustomPath)) {
-      outputChannel.appendLine(`Found binary at custom path: ${expandedCustomPath}`);
-      return expandedCustomPath;
+      const stats = fs.statSync(expandedCustomPath);
+      if (stats.isDirectory()) {
+        const platformInfo = getPlatformInfo();
+        const binaryInDir = path.join(expandedCustomPath, platformInfo.binaryName);
+        if (fs.existsSync(binaryInDir)) {
+          outputChannel.appendLine(`Found binary in custom directory: ${binaryInDir}`);
+          return binaryInDir;
+        } else {
+          outputChannel.appendLine(`Custom path is a directory but binary not found: ${binaryInDir}`);
+        }
+      } else {
+        outputChannel.appendLine(`Found binary at custom path: ${expandedCustomPath}`);
+        return expandedCustomPath;
+      }
     } else {
       outputChannel.appendLine(`Custom path does not exist: ${expandedCustomPath}`);
     }
@@ -256,8 +268,20 @@ export async function findServerBinary(
     const envPath = expandTilde(envPathRaw.trim());
     outputChannel.appendLine(`Checking GRAPHQL_LSP_PATH: ${envPath}`);
     if (fs.existsSync(envPath)) {
-      outputChannel.appendLine(`Found binary at GRAPHQL_LSP_PATH: ${envPath}`);
-      return envPath;
+      const stats = fs.statSync(envPath);
+      if (stats.isDirectory()) {
+        const platformInfo = getPlatformInfo();
+        const binaryInDir = path.join(envPath, platformInfo.binaryName);
+        if (fs.existsSync(binaryInDir)) {
+          outputChannel.appendLine(`Found binary in GRAPHQL_LSP_PATH directory: ${binaryInDir}`);
+          return binaryInDir;
+        } else {
+          outputChannel.appendLine(`GRAPHQL_LSP_PATH is a directory but binary not found: ${binaryInDir}`);
+        }
+      } else {
+        outputChannel.appendLine(`Found binary at GRAPHQL_LSP_PATH: ${envPath}`);
+        return envPath;
+      }
     } else {
       outputChannel.appendLine(`GRAPHQL_LSP_PATH does not exist: ${envPath}`);
     }
