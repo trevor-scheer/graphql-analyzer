@@ -98,7 +98,7 @@ impl CliAnalysisHost {
                     _ => FileKind::ExecutableGraphQL, // .graphql, .gql, or unknown
                 };
 
-                host.add_file(&FilePath::new(path.to_string_lossy()), &content, kind, 0);
+                host.add_file(&FilePath::new(path.to_string_lossy()), &content, kind);
                 loaded_files.push(path);
             }
         }
@@ -336,7 +336,7 @@ impl CliAnalysisHost {
         // For simplicity, default to ExecutableGraphQL kind
         let kind = FileKind::ExecutableGraphQL;
 
-        self.host.add_file(&file_path, content, kind, 0);
+        self.host.add_file(&file_path, content, kind);
 
         // Update loaded files list if this is a new file
         if !self.loaded_files.contains(&path.to_path_buf()) {

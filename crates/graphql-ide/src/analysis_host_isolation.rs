@@ -16,7 +16,7 @@ fn test_analysis_host_isolation_between_projects() {
     // Project 1: StarWars
     let mut host1 = AnalysisHost::new();
     let path1 = FilePath::new("file:///starwars/schema.graphql");
-    host1.add_file(&path1, "type Query { hero: String }", FileKind::Schema, 0);
+    host1.add_file(&path1, "type Query { hero: String }", FileKind::Schema);
     host1.rebuild_project_files();
 
     // Scope the snapshot so it's dropped before the next mutation
@@ -31,12 +31,7 @@ fn test_analysis_host_isolation_between_projects() {
     // Project 2: Pokemon
     let mut host2 = AnalysisHost::new();
     let path2 = FilePath::new("file:///pokemon/schema.graphql");
-    host2.add_file(
-        &path2,
-        "type Query { pokemon: String }",
-        FileKind::Schema,
-        0,
-    );
+    host2.add_file(&path2, "type Query { pokemon: String }", FileKind::Schema);
     host2.rebuild_project_files();
 
     {
@@ -49,7 +44,7 @@ fn test_analysis_host_isolation_between_projects() {
 
     // Add a file to project 1 that would be invalid in project 2
     let file1 = FilePath::new("file:///starwars/query.graphql");
-    host1.add_file(&file1, "query { hero }", FileKind::ExecutableGraphQL, 0);
+    host1.add_file(&file1, "query { hero }", FileKind::ExecutableGraphQL);
     host1.rebuild_project_files();
 
     {
@@ -62,7 +57,7 @@ fn test_analysis_host_isolation_between_projects() {
 
     // Add a file to project 2 that would be invalid in project 1
     let file2 = FilePath::new("file:///pokemon/query.graphql");
-    host2.add_file(&file2, "query { pokemon }", FileKind::ExecutableGraphQL, 0);
+    host2.add_file(&file2, "query { pokemon }", FileKind::ExecutableGraphQL);
     host2.rebuild_project_files();
 
     {
@@ -79,7 +74,6 @@ fn test_analysis_host_isolation_between_projects() {
         &file1_invalid,
         "query { pokemon }",
         FileKind::ExecutableGraphQL,
-        0,
     );
     host1.rebuild_project_files();
 
@@ -96,7 +90,6 @@ fn test_analysis_host_isolation_between_projects() {
         &file2_invalid,
         "query { hero }",
         FileKind::ExecutableGraphQL,
-        0,
     );
     host2.rebuild_project_files();
 
