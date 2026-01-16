@@ -53,9 +53,10 @@ mod types;
 
 // Re-export types from the types module
 pub use types::{
-    CodeFix, CodeLensInfo, CompletionItem, CompletionKind, Diagnostic, DiagnosticSeverity,
-    DocumentSymbol, FilePath, HoverResult, InsertTextFormat, Location, Position, Range,
-    SchemaStats, SymbolKind, TextEdit, WorkspaceSymbol,
+    CodeFix, CodeLens, CodeLensCommand, CodeLensInfo, CompletionItem, CompletionKind, Diagnostic,
+    DiagnosticSeverity, DocumentSymbol, FilePath, FragmentReference, FragmentUsage, HoverResult,
+    InsertTextFormat, Location, Position, Range, SchemaStats, SymbolKind, TextEdit,
+    WorkspaceSymbol,
 };
 
 // Re-export helpers for internal use
@@ -1807,7 +1808,7 @@ impl Analysis {
     }
 
     /// Find all references to a fragment
-    fn find_fragment_references(
+    pub fn find_fragment_references(
         &self,
         fragment_name: &str,
         include_declaration: bool,
@@ -2470,6 +2471,190 @@ impl Analysis {
         }
 
         None
+    }
+
+    /// Get fragment usage analysis for the project
+    ///
+    /// Returns information about each fragment: its definition location,
+    /// all usages (fragment spreads), and transitive dependencies.
+    pub fn fragment_usages(&self) -> Vec<FragmentUsage> {
+        let Some(project_files) = self.project_files else {
+            return Vec::new();
+        };
+
+        let fragments = graphql_hir::all_fragments(&self.db, project_files);
+        let mut results = Vec::new();
+
+        for (name, fragment) in fragments {
+            // Get definition location
+            let Some((def_file, def_range)) = self.get_fragment_def_info(fragment) else {
+                continue;
+            };
+
+            // Get all usages (fragment spreads) excluding the definition
+            let spread_locations = self.find_fragment_references(name, false);
+            let usages: Vec<FragmentReference> = spread_locations
+                .into_iter()
+                .map(FragmentReference::new)
+                .collect();
+
+            // Get transitive dependencies using the fragment spreads index
+            let transitive_deps = self.compute_transitive_dependencies(name, project_files);
+
+            results.push(FragmentUsage {
+                name: name.to_string(),
+                definition_file: def_file,
+                definition_range: def_range,
+                usages,
+                transitive_dependencies: transitive_deps,
+            });
+        }
+
+        // Sort by name for consistent ordering
+        results.sort_by(|a, b| a.name.cmp(&b.name));
+        results
+    }
+
+    /// Get fragment definition file and range
+    fn get_fragment_def_info(
+        &self,
+        fragment: &graphql_hir::FragmentStructure,
+    ) -> Option<(FilePath, Range)> {
+        let registry = self.registry.read();
+        let file_path = registry.get_path(fragment.file_id)?;
+        let content = registry.get_content(fragment.file_id)?;
+        let metadata = registry.get_metadata(fragment.file_id)?;
+        drop(registry);
+
+        let parse = graphql_syntax::parse(&self.db, content, metadata);
+        let line_offset = metadata.line_offset(&self.db);
+
+        for doc in parse.documents() {
+            if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name) {
+                let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                let range = adjust_range_for_line_offset(
+                    offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
+                    line_offset,
+                );
+                return Some((file_path, range));
+            }
+        }
+
+        None
+    }
+
+    /// Compute transitive fragment dependencies
+    fn compute_transitive_dependencies(
+        &self,
+        fragment_name: &str,
+        project_files: graphql_db::ProjectFiles,
+    ) -> Vec<String> {
+        let spreads_index = graphql_hir::fragment_spreads_index(&self.db, project_files);
+
+        let mut visited = std::collections::HashSet::new();
+        let mut to_visit = Vec::new();
+
+        // Start with direct dependencies
+        if let Some(direct_deps) = spreads_index.get(fragment_name) {
+            to_visit.extend(direct_deps.iter().cloned());
+        }
+
+        while let Some(dep_name) = to_visit.pop() {
+            if !visited.insert(dep_name.clone()) {
+                continue; // Already visited (handles cycles)
+            }
+
+            // Add transitive dependencies
+            if let Some(nested_deps) = spreads_index.get(&dep_name) {
+                for nested in nested_deps {
+                    if !visited.contains(nested) {
+                        to_visit.push(nested.clone());
+                    }
+                }
+            }
+        }
+
+        let mut deps: Vec<String> = visited.into_iter().map(|s| s.to_string()).collect();
+        deps.sort();
+        deps
+    }
+
+    /// Get code lenses for a file
+    ///
+    /// Returns code lenses for fragment definitions showing reference counts.
+    pub fn code_lenses(&self, file: &FilePath) -> Vec<CodeLens> {
+        let (content, metadata, file_id) = {
+            let registry = self.registry.read();
+
+            let Some(file_id) = registry.get_file_id(file) else {
+                return Vec::new();
+            };
+
+            let Some(content) = registry.get_content(file_id) else {
+                return Vec::new();
+            };
+            let Some(metadata) = registry.get_metadata(file_id) else {
+                return Vec::new();
+            };
+            drop(registry);
+
+            (content, metadata, file_id)
+        };
+
+        // Verify project files are loaded (fragment_usages needs them)
+        if self.project_files.is_none() {
+            return Vec::new();
+        }
+
+        // Get fragment usage information
+        let fragment_usages = self.fragment_usages();
+
+        // Get fragments defined in this file
+        let structure = graphql_hir::file_structure(&self.db, file_id, content, metadata);
+
+        let mut lenses = Vec::new();
+        let parse = graphql_syntax::parse(&self.db, content, metadata);
+
+        for fragment in &structure.fragments {
+            // Find usage info for this fragment
+            let usage_count = fragment_usages
+                .iter()
+                .find(|u| u.name == fragment.name.as_ref())
+                .map_or(0, FragmentUsage::usage_count);
+
+            // Get the range for the fragment definition line
+            for doc in parse.documents() {
+                if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name)
+                {
+                    let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                    #[allow(clippy::cast_possible_truncation)]
+                    let range = adjust_range_for_line_offset(
+                        offset_range_to_range(&doc_line_index, ranges.def_start, ranges.def_start),
+                        doc.line_offset as u32,
+                    );
+
+                    let title = if usage_count == 1 {
+                        "1 reference".to_string()
+                    } else {
+                        format!("{usage_count} references")
+                    };
+
+                    // Create command to show references when clicked
+                    let command = CodeLensCommand::new("editor.action.showReferences", &title)
+                        .with_arguments(vec![
+                            file.as_str().to_string(),
+                            format!("{}:{}", range.start.line, range.start.character),
+                            fragment.name.to_string(),
+                        ]);
+
+                    lenses.push(CodeLens::new(range, title).with_command(command));
+                    break; // Found the fragment, no need to check other documents
+                }
+            }
+        }
+
+        tracing::debug!(lens_count = lenses.len(), "code_lenses: returning");
+        lenses
     }
 }
 

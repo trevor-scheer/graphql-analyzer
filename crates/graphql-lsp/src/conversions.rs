@@ -210,3 +210,39 @@ pub fn convert_ide_code_lens_info(info: &graphql_ide::CodeLensInfo, uri: &Uri) -
         data: None,
     }
 }
+
+/// Convert graphql-ide `CodeLens` to LSP `CodeLens`
+///
+/// Creates a code lens for fragment definitions showing reference counts.
+/// When clicked, it triggers the find references command at the fragment location.
+pub fn convert_ide_code_lens(
+    lens: &graphql_ide::CodeLens,
+    uri: &Uri,
+    references: &[Location],
+) -> CodeLens {
+    let command = if references.is_empty() {
+        // No references - show title only (no action)
+        Some(Command {
+            title: lens.title.clone(),
+            command: String::new(),
+            arguments: None,
+        })
+    } else {
+        // Has references - make clickable to show them
+        Some(Command {
+            title: lens.title.clone(),
+            command: "graphql-lsp.showReferences".to_string(),
+            arguments: Some(vec![
+                serde_json::to_value(uri.to_string()).unwrap(),
+                serde_json::to_value(convert_ide_position(lens.range.start)).unwrap(),
+                serde_json::to_value(references).unwrap(),
+            ]),
+        })
+    };
+
+    CodeLens {
+        range: convert_ide_range(lens.range),
+        command,
+        data: None,
+    }
+}

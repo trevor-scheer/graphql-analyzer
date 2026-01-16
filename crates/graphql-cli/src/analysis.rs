@@ -375,6 +375,17 @@ impl CliAnalysisHost {
 
         results
     }
+
+    /// Get fragment usage analysis for the project
+    ///
+    /// Returns information about all fragments including:
+    /// - Definition location
+    /// - Usage count and locations
+    /// - Transitive dependencies
+    pub fn fragment_usages(&self) -> Vec<graphql_ide::FragmentUsage> {
+        let snapshot = self.host.snapshot();
+        snapshot.fragment_usages()
+    }
 }
 
 /// Count fragment spreads in a selection set

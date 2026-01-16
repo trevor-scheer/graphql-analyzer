@@ -1817,4 +1817,108 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_file_structure_finds_fragments_in_typescript() {
+        let db = TestDatabase::default();
+        let file_id = FileId::new(100);
+
+        // TypeScript content with a fragment
+        let ts_content = r#"
+import { gql } from "@apollo/client";
+
+const MY_FRAGMENT = gql`
+  fragment TestFragment on Pokemon {
+    id
+    name
+  }
+`;
+"#;
+
+        let content = FileContent::new(&db, Arc::from(ts_content));
+        let metadata =
+            FileMetadata::new(&db, file_id, FileUri::new("test.ts"), FileKind::TypeScript);
+
+        let structure = file_structure(&db, file_id, content, metadata);
+
+        println!("Operations: {:?}", structure.operations.len());
+        println!("Fragments: {:?}", structure.fragments.len());
+        for frag in &structure.fragments {
+            println!("  Found fragment: {}", frag.name);
+        }
+
+        assert_eq!(
+            structure.fragments.len(),
+            1,
+            "Expected to find 1 fragment in TypeScript file"
+        );
+        assert_eq!(structure.fragments[0].name.as_ref(), "TestFragment");
+    }
+
+    #[test]
+    fn test_all_fragments_includes_typescript_files() {
+        let db = TestDatabase::default();
+
+        // Create a pure GraphQL file with a fragment
+        let graphql_file_id = FileId::new(1);
+        let graphql_content =
+            FileContent::new(&db, Arc::from("fragment GraphQLFragment on User { id }"));
+        let graphql_metadata = FileMetadata::new(
+            &db,
+            graphql_file_id,
+            FileUri::new("test.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        // Create a TypeScript file with a fragment
+        let ts_file_id = FileId::new(2);
+        let ts_content = FileContent::new(
+            &db,
+            Arc::from(
+                r#"
+import { gql } from "@apollo/client";
+
+const FRAG = gql`
+  fragment TSFragment on Pokemon {
+    id
+    name
+  }
+`;
+"#,
+            ),
+        );
+        let ts_metadata = FileMetadata::new(
+            &db,
+            ts_file_id,
+            FileUri::new("test.ts"),
+            FileKind::TypeScript,
+        );
+
+        // Create project files with both documents
+        let project_files = create_project_files(
+            &db,
+            &[], // No schema files
+            &[
+                (graphql_file_id, graphql_content, graphql_metadata),
+                (ts_file_id, ts_content, ts_metadata),
+            ],
+        );
+
+        let fragments = all_fragments(&db, project_files);
+
+        println!("Total fragments found: {}", fragments.len());
+        for (name, _) in fragments.iter() {
+            println!("  Found fragment: {}", name);
+        }
+
+        assert!(
+            fragments.contains_key(&Arc::from("GraphQLFragment")),
+            "Should find fragment from .graphql file"
+        );
+        assert!(
+            fragments.contains_key(&Arc::from("TSFragment")),
+            "Should find fragment from .ts file"
+        );
+        assert_eq!(fragments.len(), 2, "Should find exactly 2 fragments");
+    }
 }

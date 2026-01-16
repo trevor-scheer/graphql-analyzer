@@ -94,6 +94,13 @@ enum Commands {
         #[arg(short, long, value_enum, default_value = "human")]
         format: OutputFormat,
     },
+
+    /// Analyze fragment usage across the project
+    Fragments {
+        /// Output format
+        #[arg(short, long, value_enum, default_value = "human")]
+        format: OutputFormat,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -135,6 +142,9 @@ async fn main() -> anyhow::Result<()> {
         Commands::Schema { command } => commands::schema::run(command).await,
         Commands::Stats { format } => {
             commands::stats::run(cli.config, cli.project.as_deref(), format)
+        }
+        Commands::Fragments { format } => {
+            commands::fragments::run(cli.config, cli.project.as_deref(), format)
         }
     };
 

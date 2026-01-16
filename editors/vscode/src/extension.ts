@@ -11,9 +11,9 @@ import {
   StatusBarAlignment,
   TextEditor,
   TextEditorDecorationType,
-  Range,
-  Position,
   Uri,
+  Position,
+  Range,
 } from "vscode";
 import {
   LanguageClient,

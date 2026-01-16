@@ -459,6 +459,106 @@ impl SchemaStats {
     }
 }
 
+/// A reference to a fragment spread
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FragmentReference {
+    /// Location of the fragment spread
+    pub location: Location,
+}
+
+impl FragmentReference {
+    #[must_use]
+    pub const fn new(location: Location) -> Self {
+        Self { location }
+    }
+}
+
+/// Fragment usage analysis result
+///
+/// Contains information about how a fragment is used across the project,
+/// including its definition location, all usages, and transitive dependencies.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FragmentUsage {
+    /// Fragment name
+    pub name: String,
+    /// File where the fragment is defined
+    pub definition_file: FilePath,
+    /// Range of the fragment definition (just the name)
+    pub definition_range: Range,
+    /// All locations where this fragment is spread
+    pub usages: Vec<FragmentReference>,
+    /// Names of other fragments this fragment depends on (transitively)
+    pub transitive_dependencies: Vec<String>,
+}
+
+impl FragmentUsage {
+    /// Get the number of usages (excluding the definition)
+    #[must_use]
+    pub fn usage_count(&self) -> usize {
+        self.usages.len()
+    }
+
+    /// Check if this fragment is unused (has no references)
+    #[must_use]
+    pub fn is_unused(&self) -> bool {
+        self.usages.is_empty()
+    }
+}
+
+/// Code lens information for displaying actionable info above definitions
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeLens {
+    /// Range where the code lens should be displayed
+    pub range: Range,
+    /// Title to display (e.g., "5 references")
+    pub title: String,
+    /// Optional command to execute when clicked
+    pub command: Option<CodeLensCommand>,
+}
+
+impl CodeLens {
+    pub fn new(range: Range, title: impl Into<String>) -> Self {
+        Self {
+            range,
+            title: title.into(),
+            command: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_command(mut self, command: CodeLensCommand) -> Self {
+        self.command = Some(command);
+        self
+    }
+}
+
+/// Command associated with a code lens
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeLensCommand {
+    /// Command identifier
+    pub command: String,
+    /// Human-readable title
+    pub title: String,
+    /// Optional arguments for the command
+    pub arguments: Vec<String>,
+}
+
+impl CodeLensCommand {
+    pub fn new(command: impl Into<String>, title: impl Into<String>) -> Self {
+        Self {
+            command: command.into(),
+            title: title.into(),
+            arguments: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_arguments(mut self, args: Vec<String>) -> Self {
+        self.arguments = args;
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
