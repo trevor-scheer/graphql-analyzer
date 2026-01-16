@@ -401,6 +401,104 @@ impl From<Arc<graphql_analysis::FieldCoverageReport>> for FieldCoverageReport {
     }
 }
 
+/// Per-field complexity breakdown
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldComplexity {
+    /// Field path from root (e.g., "posts.author.name")
+    pub path: String,
+    /// Field name
+    pub name: String,
+    /// Complexity score for this field
+    pub complexity: u32,
+    /// List multiplier (for list fields like `[Post!]!`)
+    pub multiplier: u32,
+    /// Depth level (0 = root level)
+    pub depth: u32,
+    /// Whether this is a connection pattern (edges/nodes pagination)
+    pub is_connection: bool,
+    /// Warning message if any (e.g., nested pagination)
+    pub warning: Option<String>,
+}
+
+impl FieldComplexity {
+    pub fn new(path: impl Into<String>, name: impl Into<String>, complexity: u32) -> Self {
+        Self {
+            path: path.into(),
+            name: name.into(),
+            complexity,
+            multiplier: 1,
+            depth: 0,
+            is_connection: false,
+            warning: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_multiplier(mut self, multiplier: u32) -> Self {
+        self.multiplier = multiplier;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_depth(mut self, depth: u32) -> Self {
+        self.depth = depth;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_connection(mut self, is_connection: bool) -> Self {
+        self.is_connection = is_connection;
+        self
+    }
+
+    #[must_use]
+    pub fn with_warning(mut self, warning: impl Into<String>) -> Self {
+        self.warning = Some(warning.into());
+        self
+    }
+}
+
+/// Complexity analysis result for an operation
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComplexityAnalysis {
+    /// Operation name (or "<anonymous>" for unnamed operations)
+    pub operation_name: String,
+    /// Operation type (query, mutation, subscription)
+    pub operation_type: String,
+    /// Total calculated complexity score
+    pub total_complexity: u32,
+    /// Maximum selection depth
+    pub depth: u32,
+    /// Per-field complexity breakdown
+    pub breakdown: Vec<FieldComplexity>,
+    /// Warnings about potential issues (nested pagination, etc.)
+    pub warnings: Vec<String>,
+    /// File path containing this operation
+    pub file: FilePath,
+    /// Range of the operation in the file
+    pub range: Range,
+}
+
+impl ComplexityAnalysis {
+    pub fn new(
+        operation_name: impl Into<String>,
+        operation_type: impl Into<String>,
+        file: FilePath,
+        range: Range,
+    ) -> Self {
+        Self {
+            operation_name: operation_name.into(),
+            operation_type: operation_type.into(),
+            total_complexity: 0,
+            depth: 0,
+            breakdown: Vec::new(),
+            warnings: Vec::new(),
+            file,
+            range,
+        }
+    }
+}
+
 /// Input: Lint configuration
 ///
 /// This is a Salsa input so that config changes properly invalidate dependent queries.
@@ -1344,6 +1442,109 @@ impl Analysis {
             usage_count: usage.usage_count,
             operations: usage.operations.iter().map(ToString::to_string).collect(),
         })
+    }
+
+    /// Get complexity analysis for all operations in the project
+    ///
+    /// Analyzes each operation's selection set to calculate:
+    /// - Total complexity score (with list multipliers)
+    /// - Maximum depth
+    /// - Per-field complexity breakdown
+    /// - Connection pattern detection (Relay-style edges/nodes/pageInfo)
+    /// - Warnings about potential issues (nested pagination, etc.)
+    pub fn complexity_analysis(&self) -> Vec<ComplexityAnalysis> {
+        let Some(project_files) = self.project_files else {
+            return Vec::new();
+        };
+
+        // Get all operations in the project
+        let operations = graphql_hir::all_operations(&self.db, project_files);
+        let schema_types = graphql_hir::schema_types(&self.db, project_files);
+
+        let mut results = Vec::new();
+
+        for operation in operations.iter() {
+            // Get file information for this operation
+            let registry = self.registry.read();
+            let Some(file_path) = registry.get_path(operation.file_id) else {
+                continue;
+            };
+            let Some(content) = registry.get_content(operation.file_id) else {
+                continue;
+            };
+            let Some(metadata) = registry.get_metadata(operation.file_id) else {
+                continue;
+            };
+            drop(registry);
+
+            // Get operation body
+            let body = graphql_hir::operation_body(&self.db, content, metadata, operation.index);
+
+            // Calculate operation range
+            let line_offset = metadata.line_offset(&self.db);
+
+            // Get operation location for the range
+            let range = if let Some(ref name) = operation.name {
+                let parse = graphql_syntax::parse(&self.db, content, metadata);
+                let mut found_range = None;
+                for doc in parse.documents() {
+                    if let Some(ranges) = find_operation_definition_ranges(doc.tree, name) {
+                        let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                        #[allow(clippy::cast_possible_truncation)]
+                        let doc_line_offset = doc.line_offset as u32 + line_offset;
+                        found_range = Some(adjust_range_for_line_offset(
+                            offset_range_to_range(
+                                &doc_line_index,
+                                ranges.def_start,
+                                ranges.def_end,
+                            ),
+                            doc_line_offset,
+                        ));
+                        break;
+                    }
+                }
+                found_range.unwrap_or_else(|| Range::new(Position::new(0, 0), Position::new(0, 0)))
+            } else {
+                Range::new(Position::new(0, 0), Position::new(0, 0))
+            };
+
+            // Create complexity analysis
+            let op_name = operation
+                .name
+                .as_ref()
+                .map_or_else(|| "<anonymous>".to_string(), ToString::to_string);
+
+            let op_type = match operation.operation_type {
+                graphql_hir::OperationType::Query => "query",
+                graphql_hir::OperationType::Mutation => "mutation",
+                graphql_hir::OperationType::Subscription => "subscription",
+            };
+
+            let mut analysis = ComplexityAnalysis::new(op_name, op_type, file_path, range);
+
+            // Get the root type for this operation
+            let root_type_name = match operation.operation_type {
+                graphql_hir::OperationType::Query => "Query",
+                graphql_hir::OperationType::Mutation => "Mutation",
+                graphql_hir::OperationType::Subscription => "Subscription",
+            };
+
+            // Analyze the operation body
+            analyze_selections(
+                &body.selections,
+                schema_types,
+                root_type_name,
+                "",
+                0,
+                1,
+                &mut analysis,
+                false,
+            );
+
+            results.push(analysis);
+        }
+
+        results
     }
 
     /// Get completions at a position
@@ -3174,6 +3375,141 @@ fn get_field_children(
     }
 
     children
+}
+
+/// Analyze selections recursively to calculate complexity
+#[allow(clippy::too_many_arguments)]
+fn analyze_selections(
+    selections: &[graphql_hir::Selection],
+    schema_types: &std::collections::HashMap<Arc<str>, graphql_hir::TypeDef>,
+    parent_type_name: &str,
+    path_prefix: &str,
+    depth: u32,
+    multiplier: u32,
+    analysis: &mut ComplexityAnalysis,
+    in_connection: bool,
+) {
+    // Update max depth
+    if depth > analysis.depth {
+        analysis.depth = depth;
+    }
+
+    for selection in selections {
+        match selection {
+            graphql_hir::Selection::Field {
+                name,
+                selection_set,
+                ..
+            } => {
+                let field_name = name.to_string();
+                let path = if path_prefix.is_empty() {
+                    field_name.clone()
+                } else {
+                    format!("{path_prefix}.{field_name}")
+                };
+
+                // Get field type info from schema
+                let (is_list, inner_type_name) =
+                    get_type_info(schema_types, parent_type_name, &field_name);
+
+                // Calculate field multiplier
+                let field_multiplier = if is_list {
+                    multiplier * 10 // Default list multiplier
+                } else {
+                    multiplier
+                };
+
+                // Check for connection pattern
+                let field_is_connection =
+                    is_connection_pattern(&field_name, schema_types, &inner_type_name);
+
+                // Warn about nested pagination
+                if in_connection && field_is_connection {
+                    analysis.warnings.push(format!(
+                        "Nested pagination detected at {path}. This can cause performance issues."
+                    ));
+                }
+
+                // Calculate complexity for this field
+                let field_complexity = field_multiplier;
+                analysis.total_complexity += field_complexity;
+
+                // Add to breakdown
+                let mut fc = FieldComplexity::new(&path, &field_name, field_complexity)
+                    .with_multiplier(if is_list { 10 } else { 1 })
+                    .with_depth(depth)
+                    .with_connection(field_is_connection);
+
+                if in_connection && field_is_connection {
+                    fc = fc.with_warning("Nested pagination");
+                }
+
+                analysis.breakdown.push(fc);
+
+                // Recurse into nested selections
+                if !selection_set.is_empty() {
+                    analyze_selections(
+                        selection_set,
+                        schema_types,
+                        &inner_type_name,
+                        &path,
+                        depth + 1,
+                        field_multiplier,
+                        analysis,
+                        field_is_connection || in_connection,
+                    );
+                }
+            }
+            graphql_hir::Selection::FragmentSpread { .. }
+            | graphql_hir::Selection::InlineFragment { .. } => {
+                // For simplicity, we don't deeply analyze fragment spreads in this implementation
+                // A full implementation would resolve the fragment and analyze its selections
+            }
+        }
+    }
+}
+
+/// Check if a field follows the Relay connection pattern (edges/nodes/pageInfo)
+fn is_connection_pattern(
+    _field_name: &str,
+    schema_types: &std::collections::HashMap<Arc<str>, graphql_hir::TypeDef>,
+    type_name: &str,
+) -> bool {
+    // Check if the return type has edges, nodes, or pageInfo fields
+    if let Some(type_def) = schema_types.get(type_name) {
+        if type_def.kind == graphql_hir::TypeDefKind::Object {
+            let has_edges = type_def.fields.iter().any(|f| f.name.as_ref() == "edges");
+            let has_page_info = type_def
+                .fields
+                .iter()
+                .any(|f| f.name.as_ref() == "pageInfo");
+            let has_nodes = type_def.fields.iter().any(|f| f.name.as_ref() == "nodes");
+
+            return (has_edges || has_nodes) && has_page_info;
+        }
+    }
+    false
+}
+
+/// Get type information for a field: (`is_list`, `inner_type_name`)
+fn get_type_info(
+    schema_types: &std::collections::HashMap<Arc<str>, graphql_hir::TypeDef>,
+    parent_type_name: &str,
+    field_name: &str,
+) -> (bool, String) {
+    if let Some(type_def) = schema_types.get(parent_type_name) {
+        if type_def.kind == graphql_hir::TypeDefKind::Object {
+            if let Some(field) = type_def
+                .fields
+                .iter()
+                .find(|f| f.name.as_ref() == field_name)
+            {
+                let type_ref = &field.type_ref;
+                return (type_ref.is_list, type_ref.name.to_string());
+            }
+        }
+    }
+    (false, "Unknown".to_string())
 }
 
 #[cfg(test)]
@@ -6272,5 +6608,195 @@ type User {
             code_lenses.is_empty(),
             "Document files should not have code lenses for deprecated fields"
         );
+    }
+
+    #[test]
+    fn test_complexity_analysis_basic() {
+        let mut host = AnalysisHost::new();
+
+        // Add schema
+        let schema = r#"
+type Query {
+    user(id: ID!): User
+    posts: [Post!]!
+}
+
+type User {
+    id: ID!
+    name: String!
+    email: String
+    posts: [Post!]!
+}
+
+type Post {
+    id: ID!
+    title: String!
+    author: User!
+    comments: [Comment!]!
+}
+
+type Comment {
+    id: ID!
+    text: String!
+}
+"#;
+        host.add_file(
+            &FilePath::new("file:///schema.graphql"),
+            schema,
+            FileKind::Schema,
+            0,
+        );
+
+        // Add operation
+        let query = r#"
+query GetUser {
+    user(id: "123") {
+        id
+        name
+        posts {
+            id
+            title
+        }
+    }
+}
+"#;
+        host.add_file(
+            &FilePath::new("file:///query.graphql"),
+            query,
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let results = snapshot.complexity_analysis();
+
+        assert_eq!(results.len(), 1);
+        let analysis = &results[0];
+
+        assert_eq!(analysis.operation_name, "GetUser");
+        assert_eq!(analysis.operation_type, "query");
+        assert!(analysis.total_complexity > 0);
+        assert!(analysis.depth > 0);
+    }
+
+    #[test]
+    fn test_complexity_analysis_list_fields() {
+        let mut host = AnalysisHost::new();
+
+        // Add schema
+        let schema = r#"
+type Query {
+    posts: [Post!]!
+}
+
+type Post {
+    id: ID!
+    title: String!
+}
+"#;
+        host.add_file(
+            &FilePath::new("file:///schema.graphql"),
+            schema,
+            FileKind::Schema,
+            0,
+        );
+
+        // Add operation with list field
+        let query = r#"
+query GetPosts {
+    posts {
+        id
+        title
+    }
+}
+"#;
+        host.add_file(
+            &FilePath::new("file:///query.graphql"),
+            query,
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let results = snapshot.complexity_analysis();
+
+        assert_eq!(results.len(), 1);
+        let analysis = &results[0];
+
+        // List field should have multiplier applied
+        assert!(analysis.total_complexity >= 10); // Default list multiplier is 10
+    }
+
+    #[test]
+    fn test_complexity_analysis_connection_detection() {
+        let mut host = AnalysisHost::new();
+
+        // Add schema with Relay connection pattern
+        let schema = r#"
+type Query {
+    users(first: Int): UserConnection!
+}
+
+type UserConnection {
+    edges: [UserEdge!]!
+    pageInfo: PageInfo!
+}
+
+type UserEdge {
+    node: User!
+    cursor: String!
+}
+
+type User {
+    id: ID!
+    name: String!
+}
+
+type PageInfo {
+    hasNextPage: Boolean!
+}
+"#;
+        host.add_file(
+            &FilePath::new("file:///schema.graphql"),
+            schema,
+            FileKind::Schema,
+            0,
+        );
+
+        // Add operation with connection pattern
+        let query = r#"
+query GetUsers {
+    users(first: 10) {
+        edges {
+            node {
+                id
+                name
+            }
+        }
+    }
+}
+"#;
+        host.add_file(
+            &FilePath::new("file:///query.graphql"),
+            query,
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let results = snapshot.complexity_analysis();
+
+        assert_eq!(results.len(), 1);
+        let analysis = &results[0];
+
+        // Should detect connection pattern in breakdown
+        let has_connection_field = analysis.breakdown.iter().any(|f| f.is_connection);
+        assert!(has_connection_field);
     }
 }

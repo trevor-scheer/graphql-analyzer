@@ -112,6 +112,21 @@ enum Commands {
         #[arg(long, value_name = "TYPE")]
         r#type: Option<String>,
     },
+
+    /// Analyze query complexity for GraphQL operations
+    Complexity {
+        /// Output format
+        #[arg(short, long, value_enum, default_value = "human")]
+        format: OutputFormat,
+
+        /// Complexity threshold - exit with error if any operation exceeds this value
+        #[arg(short, long)]
+        threshold: Option<u32>,
+
+        /// Show per-field complexity breakdown
+        #[arg(short, long)]
+        breakdown: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -160,6 +175,17 @@ async fn main() -> anyhow::Result<()> {
         Commands::Coverage { format, r#type } => {
             commands::coverage::run(cli.config, cli.project.as_deref(), format, r#type)
         }
+        Commands::Complexity {
+            format,
+            threshold,
+            breakdown,
+        } => commands::complexity::run(
+            cli.config,
+            cli.project.as_deref(),
+            format,
+            threshold,
+            breakdown,
+        ),
     };
 
     #[cfg(feature = "otel")]
