@@ -2614,7 +2614,6 @@ impl Analysis {
 
         let mut lenses = Vec::new();
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_offset = metadata.line_offset(&self.db);
 
         for fragment in &structure.fragments {
             // Find usage info for this fragment
@@ -2628,9 +2627,10 @@ impl Analysis {
                 if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name)
                 {
                     let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                    #[allow(clippy::cast_possible_truncation)]
                     let range = adjust_range_for_line_offset(
                         offset_range_to_range(&doc_line_index, ranges.def_start, ranges.def_start),
-                        line_offset,
+                        doc.line_offset as u32,
                     );
 
                     let title = if usage_count == 1 {
