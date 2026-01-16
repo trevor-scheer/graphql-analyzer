@@ -44,6 +44,10 @@ pub fn validate_file(
         let referenced_fragments =
             collect_referenced_fragments_transitive(doc.tree, project_files, db);
 
+        // Collect fragment names defined in this document block
+        // We need to skip these when adding referenced fragments to avoid duplicates
+        let local_fragments = collect_local_fragment_names(doc.ast);
+
         let valid_schema = apollo_compiler::validation::Valid::assume_valid_ref(schema.as_ref());
         let mut errors = apollo_compiler::validation::DiagnosticList::new(Arc::default());
         let mut builder =
@@ -57,11 +61,13 @@ pub fn validate_file(
         // This ensures that changing fragment A only invalidates files that actually use A
         // Using fragment_ast instead of fragment_source avoids re-parsing
         let mut added_fragments = std::collections::HashSet::new();
-        let mut added_ast_ptrs = std::collections::HashSet::new();
-        // Pre-populate with current document's AST to avoid adding it again when fragments
-        // in the same document reference each other
-        added_ast_ptrs.insert(Arc::as_ptr(&doc_ast) as usize);
         for fragment_name in &referenced_fragments {
+            // Skip fragments that are already in the current document block
+            // This prevents duplicate definition errors when fragments in the same file
+            // reference each other (the document AST already contains all local fragments)
+            if local_fragments.contains(fragment_name) {
+                continue;
+            }
             let key: Arc<str> = Arc::from(fragment_name.as_str());
             if !added_fragments.insert(key.clone()) {
                 continue;
@@ -69,11 +75,7 @@ pub fn validate_file(
             // Fine-grained query: only creates dependency on this specific fragment
             // Uses cached AST instead of re-parsing source text
             if let Some(fragment_ast) = graphql_hir::fragment_ast(db, project_files, key) {
-                // Multiple fragments may share the same AST document
-                let ptr = Arc::as_ptr(&fragment_ast) as usize;
-                if added_ast_ptrs.insert(ptr) {
-                    builder.add_ast_document(&fragment_ast, false);
-                }
+                builder.add_ast_document(&fragment_ast, false);
             }
         }
 
@@ -204,6 +206,23 @@ fn collect_referenced_fragments_from_tree(
     }
 
     referenced
+}
+
+/// Collect fragment names defined in a document AST
+/// Used to skip adding fragments that are already in the current document block
+fn collect_local_fragment_names(
+    ast: &apollo_compiler::ast::Document,
+) -> std::collections::HashSet<String> {
+    ast.definitions
+        .iter()
+        .filter_map(|def| {
+            if let apollo_compiler::ast::Definition::FragmentDefinition(frag) = def {
+                Some(frag.name.to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Recursively collect fragment spreads from a selection set
@@ -737,6 +756,69 @@ mod tests {
         assert!(
             !has_unknown_fragment_error,
             "Fragment 'UserFields' should resolve even with parse errors in the document. Diagnostics: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn test_fragment_only_file_no_duplicate_errors() {
+        let db = TestDatabase::default();
+
+        // Create schema
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from(
+                "type Query { user: User } type User { id: ID! name: String! email: String }",
+            ),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        // Create a fragment-only file with multiple fragments where one references another
+        // This is a common pattern - UserFields spreads UserBasicFields
+        let frag_id = FileId::new(1);
+        let frag_content = FileContent::new(
+            &db,
+            Arc::from(
+                "fragment UserBasicFields on User { id name }\n\
+                 fragment UserFields on User { ...UserBasicFields email }",
+            ),
+        );
+        let frag_metadata = FileMetadata::new(
+            &db,
+            frag_id,
+            FileUri::new("fragments.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let project_files = create_project_files(
+            &db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(frag_id, frag_content, frag_metadata)],
+        );
+
+        // Validate the fragment file - should NOT report duplicate definition errors
+        let diagnostics = validate_file(&db, frag_content, frag_metadata, project_files);
+
+        let has_duplicate_error = diagnostics.iter().any(|d| {
+            d.message.contains("already defined")
+                || d.message.contains("duplicate")
+                || d.message.contains("defined twice")
+        });
+
+        assert!(
+            !has_duplicate_error,
+            "Fragment-only file should not have duplicate definition errors. Got: {diagnostics:?}"
+        );
+
+        // Also verify there are no other errors
+        assert!(
+            diagnostics.is_empty(),
+            "Fragment-only file with valid fragments should have no errors. Got: {diagnostics:?}"
         );
     }
 }
