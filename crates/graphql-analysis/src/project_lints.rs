@@ -211,6 +211,7 @@ pub fn find_unused_fragments(
 /// Returns detailed usage information for every schema field,
 /// including which operations use each field and how many times.
 #[salsa::tracked]
+#[allow(clippy::too_many_lines)]
 pub fn analyze_field_usage(db: &dyn GraphQLAnalysisDatabase) -> Arc<FieldCoverageReport> {
     let project_files = db
         .project_files()
@@ -234,11 +235,21 @@ pub fn analyze_field_usage(db: &dyn GraphQLAnalysisDatabase) -> Arc<FieldCoverag
         .collect();
 
     // Initialize field usage map with all schema fields
+    // Only include Object and Interface types - InputObject, Scalar, Enum, Union don't have
+    // selectable fields in the same sense (InputObject fields are provided, not selected)
     let mut field_usages: HashMap<(Arc<str>, Arc<str>), FieldUsage> = HashMap::new();
     let mut type_coverage: HashMap<Arc<str>, TypeCoverage> = HashMap::new();
     let mut total_fields = 0;
 
     for (type_name, type_def) in schema {
+        // Skip non-selectable types
+        if !matches!(
+            type_def.kind,
+            graphql_hir::TypeDefKind::Object | graphql_hir::TypeDefKind::Interface
+        ) {
+            continue;
+        }
+
         let field_count = type_def.fields.len();
         type_coverage.insert(
             type_name.clone(),
