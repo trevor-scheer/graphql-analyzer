@@ -394,6 +394,18 @@ impl CliAnalysisHost {
         let snapshot = self.host.snapshot();
         snapshot.field_coverage()
     }
+
+    /// Get complexity analysis for all operations in the project
+    ///
+    /// Analyzes each operation's selection set to calculate:
+    /// - Total complexity score (with list multipliers)
+    /// - Maximum depth
+    /// - Per-field complexity breakdown
+    /// - Warnings about potential issues (nested pagination, etc.)
+    pub fn complexity_analysis(&self) -> Vec<graphql_ide::ComplexityAnalysis> {
+        let snapshot = self.host.snapshot();
+        snapshot.complexity_analysis()
+    }
 }
 
 /// Count fragment spreads in a selection set
