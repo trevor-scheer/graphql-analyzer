@@ -42,22 +42,17 @@ pub fn validate_schema_file(
                 "Schema validation failed"
             );
 
-            // Get line offset for TypeScript/JavaScript extraction
-            let line_offset = metadata.line_offset(db);
-
             #[allow(clippy::cast_possible_truncation, clippy::option_if_let_else)]
             for apollo_diag in with_errors.errors.iter() {
                 let range = if let Some(loc_range) = apollo_diag.line_column_range() {
                     DiagnosticRange {
                         start: Position {
                             // apollo-compiler uses 1-indexed, we use 0-indexed
-                            // Casting usize to u32 is safe for line/column numbers in practice
-                            // Add line_offset to adjust for TypeScript/JavaScript extraction
-                            line: loc_range.start.line.saturating_sub(1) as u32 + line_offset,
+                            line: loc_range.start.line.saturating_sub(1) as u32,
                             character: loc_range.start.column.saturating_sub(1) as u32,
                         },
                         end: Position {
-                            line: loc_range.end.line.saturating_sub(1) as u32 + line_offset,
+                            line: loc_range.end.line.saturating_sub(1) as u32,
                             character: loc_range.end.column.saturating_sub(1) as u32,
                         },
                     }

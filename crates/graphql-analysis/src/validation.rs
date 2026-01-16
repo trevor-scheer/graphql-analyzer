@@ -30,14 +30,11 @@ pub fn validate_file(
 
     let parse = graphql_syntax::parse(db, content, metadata);
     let doc_uri = metadata.uri(db);
-    let metadata_line_offset = metadata.line_offset(db) as usize;
 
     // Unified: process all documents (works for both pure GraphQL and TS/JS)
     for doc in parse.documents() {
-        // Combine document's line offset with metadata's line offset
-        // For pure GraphQL files: doc.line_offset = 0, total = metadata_line_offset
-        // For embedded GraphQL: doc.line_offset from extraction, metadata_line_offset typically 0
-        let line_offset_val = doc.line_offset + metadata_line_offset;
+        // Use document's line offset from extraction (0 for pure GraphQL files)
+        let line_offset_val = doc.line_offset;
 
         // Collect fragment names referenced by this document (transitively across files)
         // Uses the already-parsed tree to avoid redundant parsing
@@ -241,7 +238,6 @@ fn collect_fragment_spreads_from_selection_set(
 mod tests {
     use super::*;
     use graphql_db::{FileId, FileKind, FileUri, ProjectFiles};
-    use salsa::Setter;
 
     #[salsa::db]
     #[derive(Clone, Default)]
@@ -625,8 +621,12 @@ mod tests {
     }
 
     #[test]
-    fn test_line_offset_adjustment() {
-        let mut db = TestDatabase::default();
+    fn test_line_offset_adjustment_for_embedded_graphql() {
+        // This test verifies that line offsets from extraction are correctly applied.
+        // Since graphql-syntax handles extraction based on file kind and extraction config,
+        // we test the pure GraphQL path here. The embedded GraphQL (TS/JS) extraction
+        // is tested at the integration level in graphql-ide tests.
+        let db = TestDatabase::default();
 
         // Create schema
         let schema_id = FileId::new(0);
@@ -638,19 +638,15 @@ mod tests {
             FileKind::Schema,
         );
 
-        // Create document with invalid query and line_offset of 10
-        // This simulates extracted GraphQL from TypeScript/JavaScript at line 10
-        // The content is already extracted GraphQL, so we mark it as ExecutableGraphQL
+        // Create a document with an invalid field
         let doc_id = FileId::new(1);
         let doc_content = FileContent::new(&db, Arc::from("query { invalidField }"));
         let doc_metadata = FileMetadata::new(
             &db,
             doc_id,
-            FileUri::new("query.ts"),
+            FileUri::new("query.graphql"),
             FileKind::ExecutableGraphQL,
         );
-        // Set line offset to simulate extraction from line 10 in TypeScript file
-        doc_metadata.set_line_offset(&mut db).to(10);
 
         let project_files = create_project_files(
             &db,
@@ -661,14 +657,11 @@ mod tests {
         let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
         assert!(!diagnostics.is_empty(), "Expected validation errors");
 
-        // Verify that line numbers are adjusted by the line offset
+        // Verify diagnostics are at line 0 (for pure GraphQL files, line offset is 0)
         for diag in diagnostics.iter() {
-            // The error should be at line 10 or later (accounting for the offset)
-            // The GraphQL error is at line 0 in the extracted text, but should be reported at line 10
-            assert!(
-                diag.range.start.line >= 10,
-                "Expected diagnostic line to be adjusted by offset. Got line: {}",
-                diag.range.start.line
+            assert_eq!(
+                diag.range.start.line, 0,
+                "Expected diagnostic at line 0 for pure GraphQL file"
             );
         }
     }

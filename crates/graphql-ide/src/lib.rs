@@ -404,12 +404,12 @@ impl graphql_analysis::GraphQLAnalysisDatabase for IdeDatabase {
 ///     let snapshot = host.snapshot();
 ///     snapshot.diagnostics(&file)
 /// }; // snapshot dropped here
-/// host.add_file(&file, new_content, kind, 0); // Safe: no snapshots exist
+/// host.add_file(&file, new_content, kind); // Safe: no snapshots exist
 ///
 /// // WRONG: Holding snapshot across mutation
 /// let snapshot = host.snapshot();
 /// let result = snapshot.diagnostics(&file);
-/// host.add_file(&file, new_content, kind, 0); // HANGS: snapshot still alive!
+/// host.add_file(&file, new_content, kind); // HANGS: snapshot still alive!
 /// ```
 pub struct AnalysisHost {
     db: IdeDatabase,
@@ -431,22 +431,14 @@ impl AnalysisHost {
     /// Add or update a file in the host
     ///
     /// This is a convenience method for adding files to the registry and database.
-    /// The `line_offset` parameter is used for TypeScript/JavaScript files where GraphQL
-    /// is extracted - it indicates the line number in the original source where the GraphQL starts.
     ///
     /// Returns `true` if this is a new file, `false` if it's an update to an existing file.
     ///
     /// **IMPORTANT**: Only call `rebuild_project_files()` when this returns `true` (new file).
     /// Content-only updates do NOT require rebuilding the project index.
-    pub fn add_file(
-        &mut self,
-        path: &FilePath,
-        content: &str,
-        kind: FileKind,
-        line_offset: u32,
-    ) -> bool {
+    pub fn add_file(&mut self, path: &FilePath, content: &str, kind: FileKind) -> bool {
         let mut registry = self.registry.write();
-        let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, kind, line_offset);
+        let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, kind);
         is_new
     }
 
@@ -475,11 +467,10 @@ impl AnalysisHost {
         path: &FilePath,
         content: &str,
         kind: FileKind,
-        line_offset: u32,
     ) -> (bool, Analysis) {
         // Single lock acquisition for both operations
         let mut registry = self.registry.write();
-        let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, kind, line_offset);
+        let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, kind);
 
         // If this is a new file, rebuild the index before creating snapshot
         if is_new {
@@ -539,7 +530,6 @@ impl AnalysisHost {
             &FilePath::new("apollo_client_builtins.graphql".to_string()),
             APOLLO_CLIENT_BUILTINS,
             FileKind::Schema,
-            0,
         );
         let mut count = 1;
 
@@ -597,14 +587,10 @@ impl AnalysisHost {
                                                             file_uri.clone()
                                                         };
 
-                                                        #[allow(clippy::cast_possible_truncation)]
-                                                        let line_offset =
-                                                            block.location.range.start.line as u32;
                                                         self.add_file(
                                                             &FilePath::new(block_uri),
                                                             &block.source,
                                                             FileKind::Schema,
-                                                            line_offset,
                                                         );
                                                         count += 1;
                                                     }
@@ -632,7 +618,6 @@ impl AnalysisHost {
                                         &FilePath::new(file_uri),
                                         &content,
                                         FileKind::Schema,
-                                        0,
                                     );
                                     count += 1;
                                 }
@@ -796,7 +781,7 @@ impl AnalysisHost {
 
         // Batch add all files
         for (file_path, content, file_kind) in files_to_add {
-            self.add_file(&file_path, &content, file_kind, 0);
+            self.add_file(&file_path, &content, file_kind);
         }
 
         loaded_files
@@ -1227,9 +1212,7 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        let metadata_line_offset = metadata.line_offset(&self.db);
-        let (block_context, adjusted_position) =
-            find_block_for_position(&parse, position, metadata_line_offset)?;
+        let (block_context, adjusted_position) = find_block_for_position(&parse, position)?;
 
         // Create line index from block source (all documents now have source)
         let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);
@@ -1363,9 +1346,7 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        let metadata_line_offset = metadata.line_offset(&self.db);
-        let (block_context, adjusted_position) =
-            find_block_for_position(&parse, position, metadata_line_offset)?;
+        let (block_context, adjusted_position) = find_block_for_position(&parse, position)?;
 
         tracing::debug!(
             "Hover: original position {:?}, block line_offset {}, adjusted position {:?}",
@@ -1502,9 +1483,7 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        let metadata_line_offset = metadata.line_offset(&self.db);
-        let (block_context, adjusted_position) =
-            find_block_for_position(&parse, position, metadata_line_offset)?;
+        let (block_context, adjusted_position) = find_block_for_position(&parse, position)?;
 
         tracing::debug!(
             "Goto definition: original position {:?}, block line_offset {}, adjusted position {:?}",
@@ -1561,7 +1540,6 @@ impl Analysis {
 
                     let schema_parse =
                         graphql_syntax::parse(&self.db, schema_content, schema_metadata);
-                    let schema_line_offset = schema_metadata.line_offset(&self.db);
 
                     for doc in schema_parse.documents() {
                         if let Some(ranges) =
@@ -1574,9 +1552,8 @@ impl Analysis {
                                 ranges.name_end,
                             );
                             #[allow(clippy::cast_possible_truncation)]
-                            let doc_line_offset = doc.line_offset as u32 + schema_line_offset;
                             let adjusted_range =
-                                adjust_range_for_line_offset(range, doc_line_offset);
+                                adjust_range_for_line_offset(range, doc.line_offset as u32);
                             return Some(vec![Location::new(file_path, adjusted_range)]);
                         }
                     }
@@ -1620,15 +1597,9 @@ impl Analysis {
                 drop(registry);
 
                 let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
-                let def_line_offset = def_metadata.line_offset(&self.db);
 
-                let range = find_fragment_definition_in_parse(
-                    &def_parse,
-                    &name,
-                    def_content,
-                    &self.db,
-                    def_line_offset,
-                )?;
+                let range =
+                    find_fragment_definition_in_parse(&def_parse, &name, def_content, &self.db)?;
 
                 Some(vec![Location::new(file_path, range)])
             }
@@ -1649,14 +1620,12 @@ impl Analysis {
 
                     let schema_parse =
                         graphql_syntax::parse(&self.db, schema_content, schema_metadata);
-                    let schema_line_offset = schema_metadata.line_offset(&self.db);
 
                     if let Some(range) = find_type_definition_in_parse(
                         &schema_parse,
                         &name,
                         schema_content,
                         &self.db,
-                        schema_line_offset,
                     ) {
                         return Some(vec![Location::new(file_path, range)]);
                     }
@@ -1711,19 +1680,17 @@ impl Analysis {
 
                     let schema_parse =
                         graphql_syntax::parse(&self.db, schema_content, schema_metadata);
-                    let schema_line_offset = schema_metadata.line_offset(&self.db);
 
                     for doc in schema_parse.documents() {
                         let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
                         #[allow(clippy::cast_possible_truncation)]
-                        let doc_line_offset = doc.line_offset as u32 + schema_line_offset;
                         if let Some(range) = find_argument_definition_in_tree(
                             doc.tree,
                             &parent_type_name,
                             &field_name,
                             &name,
                             &doc_line_index,
-                            doc_line_offset,
+                            doc.line_offset as u32,
                         ) {
                             return Some(vec![Location::new(file_path, range)]);
                         }
@@ -1774,9 +1741,7 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        let metadata_line_offset = metadata.line_offset(&self.db);
-        let (block_context, adjusted_position) =
-            find_block_for_position(&parse, position, metadata_line_offset)?;
+        let (block_context, adjusted_position) = find_block_for_position(&parse, position)?;
 
         tracing::debug!(
             "Find references: original position {:?}, block line_offset {}, adjusted position {:?}",
@@ -1832,14 +1797,12 @@ impl Analysis {
                     (file_path, def_content, def_metadata)
                 {
                     let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
-                    let def_line_offset = def_metadata.line_offset(&self.db);
 
                     if let Some(range) = find_fragment_definition_in_parse(
                         &def_parse,
                         fragment_name,
                         def_content,
                         &self.db,
-                        def_line_offset,
                     ) {
                         locations.push(Location::new(file_path, range));
                     }
@@ -1866,15 +1829,9 @@ impl Analysis {
             };
 
             let parse = graphql_syntax::parse(&self.db, content, metadata);
-            let line_offset = metadata.line_offset(&self.db);
 
-            let spread_ranges = find_fragment_spreads_in_parse(
-                &parse,
-                fragment_name,
-                content,
-                &self.db,
-                line_offset,
-            );
+            let spread_ranges =
+                find_fragment_spreads_in_parse(&parse, fragment_name, content, &self.db);
 
             for range in spread_ranges {
                 locations.push(Location::new(file_path.clone(), range));
@@ -1906,15 +1863,10 @@ impl Analysis {
                     (file_path, def_content, def_metadata)
                 {
                     let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
-                    let def_line_offset = def_metadata.line_offset(&self.db);
 
-                    if let Some(range) = find_type_definition_in_parse(
-                        &def_parse,
-                        type_name,
-                        def_content,
-                        &self.db,
-                        def_line_offset,
-                    ) {
+                    if let Some(range) =
+                        find_type_definition_in_parse(&def_parse, type_name, def_content, &self.db)
+                    {
                         locations.push(Location::new(file_path, range));
                     }
                 }
@@ -1939,10 +1891,8 @@ impl Analysis {
             };
 
             let parse = graphql_syntax::parse(&self.db, content, metadata);
-            let line_offset = metadata.line_offset(&self.db);
 
-            let type_ranges =
-                find_type_references_in_parse(&parse, type_name, content, &self.db, line_offset);
+            let type_ranges = find_type_references_in_parse(&parse, type_name, content, &self.db);
 
             for range in type_ranges {
                 locations.push(Location::new(file_path.clone(), range));
@@ -1986,7 +1936,6 @@ impl Analysis {
                 };
 
                 let parse = graphql_syntax::parse(&self.db, content, metadata);
-                let line_offset = metadata.line_offset(&self.db);
 
                 'schema_search: for doc in parse.documents() {
                     if let Some(ranges) =
@@ -1999,8 +1948,8 @@ impl Analysis {
                             ranges.name_end,
                         );
                         #[allow(clippy::cast_possible_truncation)]
-                        let doc_line_offset = doc.line_offset as u32 + line_offset;
-                        let adjusted_range = adjust_range_for_line_offset(range, doc_line_offset);
+                        let adjusted_range =
+                            adjust_range_for_line_offset(range, doc.line_offset as u32);
                         locations.push(Location::new(file_path, adjusted_range));
                         break 'schema_search; // Field definition found
                     }
@@ -2027,7 +1976,6 @@ impl Analysis {
             };
 
             let parse = graphql_syntax::parse(&self.db, content, metadata);
-            let line_offset = metadata.line_offset(&self.db);
 
             let field_ranges = find_field_usages_in_parse(
                 &parse,
@@ -2036,7 +1984,6 @@ impl Analysis {
                 schema_types,
                 content,
                 &self.db,
-                line_offset,
             );
 
             for range in field_ranges {
@@ -2079,12 +2026,11 @@ impl Analysis {
             (content, metadata)
         };
 
-        let (Some(content), Some(metadata)) = (content, metadata) else {
+        let (Some(content), Some(_metadata)) = (content, metadata) else {
             return code_lenses;
         };
 
         let line_index = graphql_syntax::line_index(&self.db, content);
-        let line_offset = metadata.line_offset(&self.db);
 
         // Iterate through all types and find deprecated fields in this file
         for type_def in schema_types.values() {
@@ -2108,10 +2054,7 @@ impl Analysis {
                 // Convert the field's name_range to editor coordinates
                 let name_start = field.name_range.start().into();
                 let name_end = field.name_range.end().into();
-                let range = adjust_range_for_line_offset(
-                    offset_range_to_range(&line_index, name_start, name_end),
-                    line_offset,
-                );
+                let range = offset_range_to_range(&line_index, name_start, name_end);
 
                 let mut code_lens = CodeLensInfo::new(
                     range,
@@ -2160,7 +2103,6 @@ impl Analysis {
         };
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let metadata_line_offset = metadata.line_offset(&self.db);
 
         let structure = graphql_hir::file_structure(&self.db, file_id, content, metadata);
 
@@ -2169,7 +2111,7 @@ impl Analysis {
         for doc in parse.documents() {
             let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
             #[allow(clippy::cast_possible_truncation)]
-            let doc_line_offset = doc.line_offset as u32 + metadata_line_offset;
+            let doc_line_offset = doc.line_offset as u32;
 
             let definitions = extract_all_definitions(doc.tree);
 
@@ -2395,16 +2337,14 @@ impl Analysis {
         drop(registry);
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let metadata_line_offset = metadata.line_offset(&self.db);
 
         for doc in parse.documents() {
             if let Some(ranges) = find_type_definition_full_range(doc.tree, &type_def.name) {
                 let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
                 #[allow(clippy::cast_possible_truncation)]
-                let doc_line_offset = doc.line_offset as u32 + metadata_line_offset;
                 let range = adjust_range_for_line_offset(
                     offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
-                    doc_line_offset,
+                    doc.line_offset as u32,
                 );
                 return Some(Location::new(file_path, range));
             }
@@ -2422,16 +2362,14 @@ impl Analysis {
         drop(registry);
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let metadata_line_offset = metadata.line_offset(&self.db);
 
         for doc in parse.documents() {
             if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name) {
                 let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
                 #[allow(clippy::cast_possible_truncation)]
-                let doc_line_offset = doc.line_offset as u32 + metadata_line_offset;
                 let range = adjust_range_for_line_offset(
                     offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
-                    doc_line_offset,
+                    doc.line_offset as u32,
                 );
                 return Some(Location::new(file_path, range));
             }
@@ -2454,16 +2392,14 @@ impl Analysis {
         drop(registry);
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let metadata_line_offset = metadata.line_offset(&self.db);
 
         for doc in parse.documents() {
             if let Some(ranges) = find_operation_definition_ranges(doc.tree, op_name) {
                 let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
                 #[allow(clippy::cast_possible_truncation)]
-                let doc_line_offset = doc.line_offset as u32 + metadata_line_offset;
                 let range = adjust_range_for_line_offset(
                     offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
-                    doc_line_offset,
+                    doc.line_offset as u32,
                 );
                 return Some(Location::new(file_path, range));
             }
@@ -2936,7 +2872,7 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a valid schema file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
         host.rebuild_project_files();
 
         // Get diagnostics
@@ -2980,7 +2916,7 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
 
         // Get initial diagnostics - snapshot is scoped to this block
         let diagnostics1 = {
@@ -2989,7 +2925,7 @@ fragment AttackActionInfo on AttackAction {
         }; // snapshot dropped here, before mutation
 
         // Update the file - safe because no snapshots exist
-        host.add_file(&path, "type Query { world: Int }", FileKind::Schema, 0);
+        host.add_file(&path, "type Query { world: Int }", FileKind::Schema);
 
         // Get new diagnostics - new snapshot for updated content
         let diagnostics2 = {
@@ -3076,7 +3012,7 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a schema file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
         host.rebuild_project_files();
 
         // Get hover at a position
@@ -3108,7 +3044,7 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a file with syntax errors (missing closing brace)
         let path = FilePath::new("file:///invalid.graphql");
-        host.add_file(&path, "type Query {", FileKind::Schema, 0);
+        host.add_file(&path, "type Query {", FileKind::Schema);
         host.rebuild_project_files();
 
         // Get hover on the Query type name (position 5 is in "Query")
@@ -3132,14 +3068,13 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type Query { battleParticipant(id: ID!): BattleParticipant }\ninterface BattleParticipant { id: ID! name: String! displayName: String! }\ntype BattlePokemon implements BattleParticipant { id: ID! name: String! displayName: String! currentHP: Int! }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         let (query_text, cursor_pos) = extract_cursor(
             "query { battleParticipant(id: \"1\") { id name ... on BattlePokemon { current*HP } } }",
         );
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3192,7 +3127,7 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a schema file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
 
         // Get completions at a position
         let snapshot = host.snapshot();
@@ -3221,7 +3156,7 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a file with syntax errors
         let path = FilePath::new("file:///invalid.graphql");
-        host.add_file(&path, "type Query {", FileKind::Schema, 0);
+        host.add_file(&path, "type Query {", FileKind::Schema);
 
         host.rebuild_project_files();
 
@@ -3240,7 +3175,7 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a schema file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
 
         // Get goto definition at a position (may not find anything, but shouldn't crash)
         let snapshot = host.snapshot();
@@ -3272,7 +3207,6 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type User { id: ID! name: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add a fragment definition
@@ -3281,13 +3215,12 @@ fragment AttackActionInfo on AttackAction {
             &fragment_file,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         // Add a query that uses the fragment
         let query_file = FilePath::new("file:///query.graphql");
         let query_text = "query { ...UserFields }";
-        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         // Get goto definition for the fragment spread (position at "UserFields")
@@ -3320,18 +3253,12 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type Query { user: User }\ntype User { id: ID }",
             FileKind::Schema,
-            0,
         );
 
         // Add a fragment that references User
         let fragment_file = FilePath::new("file:///fragment.graphql");
         let (fragment_text, cursor_pos) = extract_cursor("fragment F on U*ser { id }");
-        host.add_file(
-            &fragment_file,
-            &fragment_text,
-            FileKind::ExecutableGraphQL,
-            0,
-        );
+        host.add_file(&fragment_file, &fragment_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3353,13 +3280,12 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type Query { user: User }\ntype User { id: ID! }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         let (query_text, cursor_pos) = extract_cursor("query { u*ser }");
         dbg!(&query_text);
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3382,12 +3308,11 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type Query { user: User }\ntype User { name: String }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         let (query_text, cursor_pos) = extract_cursor("query { user { na*me } }");
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3408,7 +3333,7 @@ fragment AttackActionInfo on AttackAction {
         let schema_file = FilePath::new("file:///schema.graphql");
         let (schema_text, cursor_pos) =
             extract_cursor("type Query { user: U*ser }\ntype User { id: ID! }");
-        host.add_file(&schema_file, &schema_text, FileKind::Schema, 0);
+        host.add_file(&schema_file, &schema_text, FileKind::Schema);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3434,14 +3359,13 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type Query { battleParticipant(id: ID!): BattleParticipant }\ninterface BattleParticipant { id: ID! name: String! displayName: String! }\ntype BattlePokemon implements BattleParticipant { id: ID! name: String! displayName: String! currentHP: Int! }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         let (query_text, cursor_pos) = extract_cursor(
             "query { battleParticipant(id: \"1\") { id name ... on BattlePokemon { current*HP } } }",
         );
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3467,14 +3391,13 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type Query { user(id: ID!): User }\ntype User { id: ID! name: String! }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         // Cursor on $id in the argument value
         let (query_text, cursor_pos) =
             extract_cursor("query GetUser($id: ID!) { user(id: $i*d) { name } }");
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3502,13 +3425,12 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type Query { user(id: ID!, name: String): User }\ntype User { id: ID! }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         // Cursor on "id" argument name in the query
         let (query_text, cursor_pos) = extract_cursor("query { user(i*d: \"123\") { id } }");
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3534,13 +3456,12 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type Query { hello: String }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         // Cursor on the operation name "GetHello"
         let (query_text, cursor_pos) = extract_cursor("query GetH*ello { hello }");
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3563,7 +3484,7 @@ fragment AttackActionInfo on AttackAction {
         let schema_file = FilePath::new("file:///schema.graphql");
         let (schema_text, cursor_pos) =
             extract_cursor("interface Node { id: ID! }\ntype User implements No*de { id: ID! }");
-        host.add_file(&schema_file, &schema_text, FileKind::Schema, 0);
+        host.add_file(&schema_file, &schema_text, FileKind::Schema);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3589,7 +3510,7 @@ fragment AttackActionInfo on AttackAction {
         let schema_text = r#"interface Node { id: ID! }
 interface Timestamped { createdAt: String! }
 type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
-        host.add_file(&schema_file, schema_text, FileKind::Schema, 0);
+        host.add_file(&schema_file, schema_text, FileKind::Schema);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3620,7 +3541,7 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         let (schema_text, cursor_pos) = extract_cursor(
             "interface Node { id: ID! }\ninterface Entity implements No*de { id: ID!, name: String }",
         );
-        host.add_file(&schema_file, &schema_text, FileKind::Schema, 0);
+        host.add_file(&schema_file, &schema_text, FileKind::Schema);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3646,7 +3567,7 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         let (schema_text, cursor_pos) = extract_cursor(
             "interface Node { id: ID! }\ntype User { name: String }\nextend type User implements No*de",
         );
-        host.add_file(&schema_file, &schema_text, FileKind::Schema, 0);
+        host.add_file(&schema_file, &schema_text, FileKind::Schema);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3673,25 +3594,14 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &fragment_file,
             "fragment F on User { id }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         // Add queries that use the fragment
         let query1_file = FilePath::new("file:///query1.graphql");
-        host.add_file(
-            &query1_file,
-            "query { ...F }",
-            FileKind::ExecutableGraphQL,
-            0,
-        );
+        host.add_file(&query1_file, "query { ...F }", FileKind::ExecutableGraphQL);
 
         let query2_file = FilePath::new("file:///query2.graphql");
-        host.add_file(
-            &query2_file,
-            "query { ...F }",
-            FileKind::ExecutableGraphQL,
-            0,
-        );
+        host.add_file(&query2_file, "query { ...F }", FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         // Find references to the fragment (position at "F" in fragment definition)
@@ -3715,17 +3625,11 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &fragment_file,
             "fragment F on User { id }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         // Add a query that uses the fragment
         let query_file = FilePath::new("file:///query.graphql");
-        host.add_file(
-            &query_file,
-            "query { ...F }",
-            FileKind::ExecutableGraphQL,
-            0,
-        );
+        host.add_file(&query_file, "query { ...F }", FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         // Find references including declaration
@@ -3745,23 +3649,17 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
 
         // Add a type definition
         let user_file = FilePath::new("file:///user.graphql");
-        host.add_file(&user_file, "type User { id: ID }", FileKind::Schema, 0);
+        host.add_file(&user_file, "type User { id: ID }", FileKind::Schema);
 
         // Add types that reference User
         let query_file = FilePath::new("file:///query.graphql");
-        host.add_file(
-            &query_file,
-            "type Query { user: User }",
-            FileKind::Schema,
-            0,
-        );
+        host.add_file(&query_file, "type Query { user: User }", FileKind::Schema);
 
         let mutation_file = FilePath::new("file:///mutation.graphql");
         host.add_file(
             &mutation_file,
             "type Mutation { u: User }",
             FileKind::Schema,
-            0,
         );
         host.rebuild_project_files();
 
@@ -3783,16 +3681,11 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
 
         // Add a type definition
         let user_file = FilePath::new("file:///user.graphql");
-        host.add_file(&user_file, "type User { id: ID }", FileKind::Schema, 0);
+        host.add_file(&user_file, "type User { id: ID }", FileKind::Schema);
 
         // Add a type that references User
         let query_file = FilePath::new("file:///query.graphql");
-        host.add_file(
-            &query_file,
-            "type Query { user: User }",
-            FileKind::Schema,
-            0,
-        );
+        host.add_file(&query_file, "type Query { user: User }", FileKind::Schema);
         host.rebuild_project_files();
 
         // Find references including declaration
@@ -3816,7 +3709,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &schema_file,
             "type Query { user: User }\ntype User { id: ID! name: String! }",
             FileKind::Schema,
-            0,
         );
 
         // Add a query that uses the name field
@@ -3825,7 +3717,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &query_file,
             "query { user { id name } }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         // Add a fragment that also uses the name field
@@ -3834,7 +3725,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &fragment_file,
             "fragment UserFields on User { name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -3868,7 +3758,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &schema_file,
             "type Query { user: User }\ntype User { name: String! }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
@@ -3876,7 +3765,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &query_file,
             "query { user { name } }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -3913,7 +3801,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &schema_file,
             "type Query { user: User }\ntype User { profile: Profile }\ntype Profile { bio: String! }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
@@ -3921,7 +3808,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &query_file,
             "query { user { profile { bio } } }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -3946,7 +3832,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &schema_file,
             "type Query { node: Node }\ninterface Node { id: ID! }\ntype User implements Node { id: ID! name: String }",
             FileKind::Schema,
-            0,
         );
 
         // Query that uses the field on the implementing type
@@ -3955,7 +3840,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &query_file,
             "query { node { ... on User { id } } }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -3988,7 +3872,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add a fragment definition
@@ -3997,14 +3880,13 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &fragment_file,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         // Add a query with cursor in selection set
         let query_file = FilePath::new("file:///query.graphql");
         let query_text = "query { user { id } }";
         //                                 ^ cursor here at position 15 (right after { before id)
-        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         // Get completions inside the selection set (simulating user about to type)
@@ -4054,7 +3936,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add a fragment definition
@@ -4063,14 +3944,13 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &fragment_file,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         // Add a query with cursor OUTSIDE any selection set (at document level)
         let query_file = FilePath::new("file:///query.graphql");
         let query_text = "query { user { id } }\n";
         //                                       ^ cursor at end (position 22 on line 0)
-        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL);
 
         // Get completions at document level (NOT in a selection set)
         let snapshot = host.snapshot();
@@ -4097,7 +3977,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &schema_file,
             "type Mutation { forfeitBattle(battleId: ID!, trainerId: ID!): Battle } type Battle { id: ID! status: String winner: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add a fragment definition
@@ -4106,7 +3985,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &fragment_file,
             "fragment BattleDetailed on Battle { id status }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         // Add a mutation with cursor after fragment spread
@@ -4117,12 +3995,7 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
 
   }
 }";
-        host.add_file(
-            &mutation_file,
-            mutation_text,
-            FileKind::ExecutableGraphQL,
-            0,
-        );
+        host.add_file(&mutation_file, mutation_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         // Get completions after the fragment spread (line 3, position 4 - after newline)
@@ -4160,7 +4033,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &schema_file,
             "type Mutation { forfeitBattle(battleId: ID!, trainerId: ID!): Battle startBattle(trainerId: ID!): Battle } type Battle { id: ID! status: String winner: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add a fragment definition
@@ -4169,7 +4041,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &fragment_file,
             "fragment BattleDetailed on Battle { id status }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         // Add multiple mutations in the same file
@@ -4187,12 +4058,7 @@ mutation ForfeitBattle($battleId: ID!, $trainerId: ID!) {
 
   }
 }";
-        host.add_file(
-            &mutation_file,
-            mutation_text,
-            FileKind::ExecutableGraphQL,
-            0,
-        );
+        host.add_file(&mutation_file, mutation_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         // Get completions in the second mutation after the fragment spread (line 10, position 4)
@@ -4266,9 +4132,9 @@ type Move {
 
         let mut host = AnalysisHost::new();
         let schema_path = FilePath::new("file:///schema.graphql");
-        host.add_file(&schema_path, schema, FileKind::Schema, 0);
+        host.add_file(&schema_path, schema, FileKind::Schema);
         let gql_path = FilePath::new("file:///battle.graphql");
-        host.add_file(&gql_path, &graphql, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&gql_path, &graphql, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -4335,7 +4201,7 @@ enum Region { KANTO JOHTO }
         {
             let mut host = AnalysisHost::new();
             let schema_path = FilePath::new("file:///schema.graphql");
-            host.add_file(&schema_path, schema, FileKind::Schema, 0);
+            host.add_file(&schema_path, schema, FileKind::Schema);
 
             let (graphql1, pos1) = extract_cursor(
                 r#"
@@ -4361,7 +4227,7 @@ enum Region { KANTO JOHTO }
 "#,
             );
             let ts_path1 = FilePath::new("file:///test1.graphql");
-            host.add_file(&ts_path1, &graphql1, FileKind::ExecutableGraphQL, 0);
+            host.add_file(&ts_path1, &graphql1, FileKind::ExecutableGraphQL);
             host.rebuild_project_files();
 
             let snapshot = host.snapshot();
@@ -4385,7 +4251,7 @@ enum Region { KANTO JOHTO }
         {
             let mut host = AnalysisHost::new();
             let schema_path = FilePath::new("file:///schema.graphql");
-            host.add_file(&schema_path, schema, FileKind::Schema, 0);
+            host.add_file(&schema_path, schema, FileKind::Schema);
 
             let (graphql2, pos2) = extract_cursor(
                 r#"
@@ -4411,7 +4277,7 @@ enum Region { KANTO JOHTO }
 "#,
             );
             let ts_path2 = FilePath::new("file:///test2.graphql");
-            host.add_file(&ts_path2, &graphql2, FileKind::ExecutableGraphQL, 0);
+            host.add_file(&ts_path2, &graphql2, FileKind::ExecutableGraphQL);
             host.rebuild_project_files();
 
             let snapshot = host.snapshot();
@@ -4463,7 +4329,7 @@ enum Region { KANTO JOHTO }
         {
             let mut host = AnalysisHost::new();
             let schema_path = FilePath::new("file:///schema.graphql");
-            host.add_file(&schema_path, schema, FileKind::Schema, 0);
+            host.add_file(&schema_path, schema, FileKind::Schema);
 
             let (graphql1, pos1) = extract_cursor(
                 r#"
@@ -4484,7 +4350,7 @@ enum Region { KANTO JOHTO }
 "#,
             );
             let path1 = FilePath::new("file:///test1.graphql");
-            host.add_file(&path1, &graphql1, FileKind::ExecutableGraphQL, 0);
+            host.add_file(&path1, &graphql1, FileKind::ExecutableGraphQL);
             host.rebuild_project_files();
 
             let snapshot = host.snapshot();
@@ -4500,7 +4366,7 @@ enum Region { KANTO JOHTO }
         {
             let mut host = AnalysisHost::new();
             let schema_path = FilePath::new("file:///schema.graphql");
-            host.add_file(&schema_path, schema, FileKind::Schema, 0);
+            host.add_file(&schema_path, schema, FileKind::Schema);
 
             let (graphql2, pos2) = extract_cursor(
                 r#"
@@ -4521,7 +4387,7 @@ enum Region { KANTO JOHTO }
 "#,
             );
             let path2 = FilePath::new("file:///test2.graphql");
-            host.add_file(&path2, &graphql2, FileKind::ExecutableGraphQL, 0);
+            host.add_file(&path2, &graphql2, FileKind::ExecutableGraphQL);
             host.rebuild_project_files();
 
             let snapshot = host.snapshot();
@@ -4541,7 +4407,7 @@ enum Region { KANTO JOHTO }
         {
             let mut host = AnalysisHost::new();
             let schema_path = FilePath::new("file:///schema.graphql");
-            host.add_file(&schema_path, schema, FileKind::Schema, 0);
+            host.add_file(&schema_path, schema, FileKind::Schema);
 
             let (graphql3, pos3) = extract_cursor(
                 r#"
@@ -4563,7 +4429,7 @@ enum Region { KANTO JOHTO }
 "#,
             );
             let path3 = FilePath::new("file:///test3.graphql");
-            host.add_file(&path3, &graphql3, FileKind::ExecutableGraphQL, 0);
+            host.add_file(&path3, &graphql3, FileKind::ExecutableGraphQL);
             host.rebuild_project_files();
 
             let snapshot = host.snapshot();
@@ -4595,7 +4461,7 @@ type Item { id: ID! name: String! }
 
         let mut host = AnalysisHost::new();
         let schema_path = FilePath::new("file:///schema.graphql");
-        host.add_file(&schema_path, schema, FileKind::Schema, 0);
+        host.add_file(&schema_path, schema, FileKind::Schema);
 
         let (graphql, pos) = extract_cursor(
             r#"
@@ -4609,7 +4475,7 @@ query TestEvolution {
 "#,
         );
         let path = FilePath::new("file:///test.graphql");
-        host.add_file(&path, &graphql, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&path, &graphql, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -4700,7 +4566,7 @@ type Item { id: ID! name: String! }
 
         let mut host = AnalysisHost::new();
         let schema_path = FilePath::new("file:///schema.graphql");
-        host.add_file(&schema_path, schema, FileKind::Schema, 0);
+        host.add_file(&schema_path, schema, FileKind::Schema);
 
         let (graphql, pos) = extract_cursor(
             r#"
@@ -4714,7 +4580,7 @@ query TestEvolution {
 "#,
         );
         let path = FilePath::new("file:///test.graphql");
-        host.add_file(&path, &graphql, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&path, &graphql, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -4858,7 +4724,6 @@ export const GET_POKEMON = gql`
             &path,
             "type User {\n  id: ID!\n  name: String\n  email: String!\n}",
             FileKind::Schema,
-            0,
         );
         host.rebuild_project_files();
 
@@ -4896,7 +4761,6 @@ export const GET_POKEMON = gql`
             &schema_path,
             "type Query { user: String }\ntype Mutation { createUser: String }",
             FileKind::Schema,
-            0,
         );
 
         let path = FilePath::new("file:///queries.graphql");
@@ -4904,7 +4768,6 @@ export const GET_POKEMON = gql`
             &path,
             "query GetUser { user }\nmutation CreateUser { createUser }",
             FileKind::ExecutableGraphQL,
-            0,
         );
         host.rebuild_project_files();
 
@@ -4932,7 +4795,6 @@ export const GET_POKEMON = gql`
             &schema_path,
             "type User { id: ID! name: String }",
             FileKind::Schema,
-            0,
         );
 
         let path = FilePath::new("file:///fragments.graphql");
@@ -4940,7 +4802,6 @@ export const GET_POKEMON = gql`
             &path,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
         host.rebuild_project_files();
 
@@ -4963,7 +4824,6 @@ export const GET_POKEMON = gql`
             &schema_path,
             "type Query { user: User }\ntype User { id: ID! }\ntype Post { title: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add operations
@@ -4972,7 +4832,6 @@ export const GET_POKEMON = gql`
             &queries_path,
             "query GetUser { user { id } }\nquery GetUsers { user { id } }",
             FileKind::ExecutableGraphQL,
-            0,
         );
         host.rebuild_project_files();
 
@@ -5001,7 +4860,7 @@ export const GET_POKEMON = gql`
         let mut host = AnalysisHost::new();
 
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type UserProfile { id: ID! }", FileKind::Schema, 0);
+        host.add_file(&path, "type UserProfile { id: ID! }", FileKind::Schema);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -5301,7 +5160,6 @@ export const typeDefs = gql`
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add a fragment file with a single fragment
@@ -5310,7 +5168,6 @@ export const typeDefs = gql`
             &fragment_file,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -5349,7 +5206,6 @@ export const typeDefs = gql`
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add fragment file
@@ -5358,7 +5214,6 @@ export const typeDefs = gql`
             &fragment_file,
             "fragment UserFields on User { id }",
             FileKind::ExecutableGraphQL,
-            0,
         );
         host.rebuild_project_files();
 
@@ -5367,7 +5222,6 @@ export const typeDefs = gql`
             &fragment_file,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
         // Note: rebuild_project_files is NOT called here since is_new=false
 
@@ -5408,7 +5262,6 @@ export const typeDefs = gql`
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add fragment file with one URI format (simulating glob discovery)
@@ -5417,7 +5270,6 @@ export const typeDefs = gql`
             &fragment_file_glob,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
         host.rebuild_project_files();
 
@@ -5433,7 +5285,6 @@ export const typeDefs = gql`
             &fragment_file_glob,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
         assert!(
             !is_new,
@@ -5519,7 +5370,6 @@ query GetUser {
             &file_path,
             doc_content.trim(),
             graphql_db::FileKind::ExecutableGraphQL,
-            0,
         );
         host.rebuild_project_files();
 
@@ -5569,7 +5419,6 @@ query GetUser {
 type Pokemon { id: ID! name: String! }
 "#,
             FileKind::Schema,
-            0,
         );
 
         // Add a TypeScript file with embedded GraphQL
@@ -5585,7 +5434,7 @@ export const GET_POKEMON = gql`
   }
 `;
 "#;
-        host.add_file(&ts_file, ts_content, FileKind::TypeScript, 0);
+        host.add_file(&ts_file, ts_content, FileKind::TypeScript);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -5631,7 +5480,6 @@ type User {
     legacyId: String @deprecated(reason: "Use id instead")
 }"#,
             FileKind::Schema,
-            0,
         );
 
         // Add a document that uses the deprecated field
@@ -5646,7 +5494,6 @@ type User {
     }
 }"#,
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -5693,7 +5540,6 @@ type User {
     legacyId: String @deprecated(reason: "Use id instead")
 }"#,
             FileKind::Schema,
-            0,
         );
 
         // Add a document that does NOT use the deprecated field
@@ -5707,7 +5553,6 @@ type User {
     }
 }"#,
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -5748,7 +5593,6 @@ type User {
     legacyId: String @deprecated
 }"#,
             FileKind::Schema,
-            0,
         );
 
         // Add multiple documents using the deprecated field
@@ -5761,7 +5605,6 @@ type User {
     }
 }"#,
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         let doc_path2 = FilePath::new("file:///query2.graphql");
@@ -5773,7 +5616,6 @@ type User {
     }
 }"#,
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -5800,7 +5642,6 @@ type User {
             &schema_path,
             "type Query { user: User }\ntype User { id: ID! @deprecated }",
             FileKind::Schema,
-            0,
         );
 
         // Add a document file
@@ -5809,7 +5650,6 @@ type User {
             &doc_path,
             "query { user { id } }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();

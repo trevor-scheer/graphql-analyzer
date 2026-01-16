@@ -74,7 +74,6 @@ impl FileRegistry {
         path: &FilePath,
         content: &str,
         kind: FileKind,
-        line_offset: u32,
     ) -> (FileId, FileContent, FileMetadata, bool)
     where
         DB: salsa::Database,
@@ -89,13 +88,10 @@ impl FileRegistry {
             if let Some(&existing_content) = self.id_to_content.get(&existing_id) {
                 existing_content.set_text(db).to(content_arc);
 
-                // Update metadata if needed (kind or line_offset changed)
+                // Update metadata if needed (kind changed)
                 let metadata = self.id_to_metadata.get(&existing_id).copied().unwrap();
                 if metadata.kind(db) != kind {
                     metadata.set_kind(db).to(kind);
-                }
-                if metadata.line_offset(db) != line_offset {
-                    metadata.set_line_offset(db).to(line_offset);
                 }
 
                 // Note: FileEntry is NOT updated here - it still points to the same
@@ -119,9 +115,6 @@ impl FileRegistry {
         // Create new FileMetadata
         let uri = FileUri::new(uri_str);
         let metadata = FileMetadata::new(db, file_id, uri, kind);
-        if line_offset > 0 {
-            metadata.set_line_offset(db).to(line_offset);
-        }
         self.id_to_metadata.insert(file_id, metadata);
 
         // Create new FileEntry (for granular caching)
@@ -284,7 +277,6 @@ mod tests {
             &path,
             "type Query { hello: String }",
             FileKind::Schema,
-            0,
         );
 
         // Should indicate this is a new file
@@ -314,7 +306,6 @@ mod tests {
             &path,
             "type Query { hello: String }",
             FileKind::Schema,
-            0,
         );
         assert!(is_new1);
 
@@ -324,7 +315,6 @@ mod tests {
             &path,
             "type Query { world: String }",
             FileKind::Schema,
-            0,
         );
 
         // Should indicate this is NOT a new file (just an update)
@@ -352,7 +342,6 @@ mod tests {
             &path,
             "type Query { hello: String }",
             FileKind::Schema,
-            0,
         );
 
         // Remove the file
@@ -376,14 +365,12 @@ mod tests {
             &path1,
             "type Query { hello: String }",
             FileKind::Schema,
-            0,
         );
         let (file_id2, _, _, _) = registry.add_file(
             &mut db,
             &path2,
             "type Mutation { update: Boolean }",
             FileKind::Schema,
-            0,
         );
 
         let all_ids = registry.all_file_ids();

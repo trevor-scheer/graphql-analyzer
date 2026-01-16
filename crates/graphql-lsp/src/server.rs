@@ -775,19 +775,14 @@ impl LanguageServer for GraphQLLanguageServer {
         // For TS/JS files, store the original source and let the parsing layer handle extraction.
         // This preserves block boundaries and allows proper validation of separate documents.
         let final_content = content;
-        let line_offset = 0;
         let final_kind = file_kind;
 
         // === PHASE 3: Update file and get snapshot in one lock (optimized path) ===
         let file_path = graphql_ide::FilePath::new(uri.to_string());
         let snapshot = {
             let mut host_guard = host.lock().await;
-            let (_is_new, snapshot) = host_guard.update_file_and_snapshot(
-                &file_path,
-                &final_content,
-                final_kind,
-                line_offset,
-            );
+            let (_is_new, snapshot) =
+                host_guard.update_file_and_snapshot(&file_path, &final_content, final_kind);
             snapshot
         };
 
@@ -830,19 +825,14 @@ impl LanguageServer for GraphQLLanguageServer {
             // For TS/JS files, store the original source and let the parsing layer handle extraction.
             // This preserves block boundaries and allows proper validation of separate documents.
             let final_content = change.text.clone();
-            let line_offset = 0;
             let final_kind = file_kind;
 
             // === PHASE 3: Update file and get snapshot in one lock (optimized path) ===
             let file_path = graphql_ide::FilePath::new(uri.to_string());
             let snapshot = {
                 let mut host_guard = host.lock().await;
-                let (_is_new, snapshot) = host_guard.update_file_and_snapshot(
-                    &file_path,
-                    &final_content,
-                    final_kind,
-                    line_offset,
-                );
+                let (_is_new, snapshot) =
+                    host_guard.update_file_and_snapshot(&file_path, &final_content, final_kind);
                 snapshot
             };
 

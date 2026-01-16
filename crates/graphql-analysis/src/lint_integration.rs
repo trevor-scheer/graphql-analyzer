@@ -89,7 +89,7 @@ fn lint_file_impl(
         ));
     } else if file_kind.is_schema() {
         tracing::debug!(uri = %uri, "Running schema lints");
-        diagnostics.extend(schema_lints(db, file_id, content, metadata, project_files));
+        diagnostics.extend(schema_lints(db, file_id, content, project_files));
     }
 
     tracing::debug!(diagnostics = diagnostics.len(), "Linting complete");
@@ -136,7 +136,6 @@ fn standalone_document_lints(
         diagnostics.extend(convert_lint_diagnostics(
             db,
             content,
-            metadata,
             lint_diags,
             rule.name(),
             severity,
@@ -185,7 +184,6 @@ fn document_schema_lints(
         diagnostics.extend(convert_lint_diagnostics(
             db,
             content,
-            metadata,
             lint_diags,
             rule.name(),
             severity,
@@ -201,7 +199,6 @@ fn schema_lints(
     db: &dyn GraphQLAnalysisDatabase,
     _file_id: FileId,
     _content: FileContent,
-    _metadata: FileMetadata,
     _project_files: ProjectFiles,
 ) -> Vec<Diagnostic> {
     let _lint_config = db.lint_config();
@@ -264,8 +261,7 @@ fn project_lint_diagnostics_impl(
         );
 
         for (file_id, file_lint_diags) in lint_diags {
-            let Some((content, metadata)) =
-                find_file_content_and_metadata(db, project_files, file_id)
+            let Some((content, _)) = find_file_content_and_metadata(db, project_files, file_id)
             else {
                 tracing::warn!(?file_id, "Could not find content for file");
                 continue;
@@ -274,14 +270,8 @@ fn project_lint_diagnostics_impl(
             let severity = lint_config
                 .get_severity(rule.name())
                 .map_or(Severity::Warning, convert_severity);
-            let converted = convert_lint_diagnostics(
-                db,
-                content,
-                metadata,
-                file_lint_diags,
-                rule.name(),
-                severity,
-            );
+            let converted =
+                convert_lint_diagnostics(db, content, file_lint_diags, rule.name(), severity);
             diagnostics_by_file
                 .entry(file_id)
                 .or_default()
@@ -394,13 +384,11 @@ pub fn project_lint_diagnostics_with_fixes(
 /// - We build a `LineIndex` from `block_source` to convert byte offsets to line/column
 /// - We add `block_line_offset` to get the correct position in the original file
 ///
-/// For pure GraphQL files (no block context), we use the full file's `LineIndex`
-/// and `metadata.line_offset()`.
+/// For pure GraphQL files (no block context), we use the full file's `LineIndex`.
 #[allow(clippy::cast_possible_truncation)]
 fn convert_lint_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
-    _metadata: FileMetadata,
     lint_diags: Vec<graphql_linter::LintDiagnostic>,
     rule_name: &str,
     configured_severity: Severity,

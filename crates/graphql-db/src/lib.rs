@@ -87,10 +87,6 @@ pub struct FileMetadata {
     pub file_id: FileId,
     pub uri: FileUri,
     pub kind: FileKind,
-    /// Line offset for extracted GraphQL (0 for pure GraphQL files)
-    /// For TypeScript/JavaScript files, this is the line number where the GraphQL starts
-    #[default]
-    pub line_offset: u32,
 }
 
 /// Input: Schema file ID list (identity only)

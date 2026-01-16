@@ -106,15 +106,13 @@ pub struct BlockContext<'a> {
 /// Find which GraphQL block contains the given position
 ///
 /// Iterates through all documents to find the one containing the cursor position.
-/// For pure GraphQL files (single document at `line_offset` 0), the position is
-/// adjusted by any metadata line offset.
+/// For pure GraphQL files (single document at `line_offset` 0), the position maps directly.
 /// For TS/JS files (multiple documents at various offsets), finds the block
 /// containing the position and adjusts accordingly.
 #[allow(clippy::cast_possible_truncation)]
 pub fn find_block_for_position(
     parse: &graphql_syntax::Parse,
     position: Position,
-    metadata_line_offset: u32,
 ) -> Option<(BlockContext<'_>, Position)> {
     // Iterate through all documents to find the one containing the position
     for doc in parse.documents() {
@@ -122,15 +120,8 @@ pub fn find_block_for_position(
         let doc_start_col = doc.column_offset as u32;
         let doc_lines = doc.source.chars().filter(|&c| c == '\n').count() as u32;
 
-        // For pure GraphQL files (doc_start_line == 0), also apply metadata_line_offset
-        let effective_start = if doc_start_line == 0 {
-            metadata_line_offset
-        } else {
-            doc_start_line
-        };
-
-        if position.line >= effective_start && position.line <= effective_start + doc_lines {
-            let adjusted_line = position.line - effective_start;
+        if position.line >= doc_start_line && position.line <= doc_start_line + doc_lines {
+            let adjusted_line = position.line - doc_start_line;
             let adjusted_col = if adjusted_line == 0 && doc_start_line > 0 {
                 position.character.saturating_sub(doc_start_col)
             } else {
@@ -141,7 +132,7 @@ pub fn find_block_for_position(
             return Some((
                 BlockContext {
                     tree: doc.tree,
-                    line_offset: effective_start,
+                    line_offset: doc_start_line,
                     block_source: doc.source,
                 },
                 adjusted_pos,
@@ -159,7 +150,6 @@ pub fn find_fragment_definition_in_parse(
     fragment_name: &str,
     content: graphql_db::FileContent,
     db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
-    metadata_line_offset: u32,
 ) -> Option<Range> {
     for doc in parse.documents() {
         if let Some((start_offset, end_offset)) =
@@ -167,13 +157,7 @@ pub fn find_fragment_definition_in_parse(
         {
             let line_index = graphql_syntax::LineIndex::new(doc.source);
             let range = offset_range_to_range(&line_index, start_offset, end_offset);
-            // For pure GraphQL (line_offset == 0), apply metadata_line_offset; otherwise use doc's offset
-            let effective_offset = if doc.line_offset == 0 {
-                metadata_line_offset
-            } else {
-                doc.line_offset as u32
-            };
-            return Some(adjust_range_for_line_offset(range, effective_offset));
+            return Some(adjust_range_for_line_offset(range, doc.line_offset as u32));
         }
     }
 
@@ -187,18 +171,12 @@ pub fn find_type_definition_in_parse(
     type_name: &str,
     content: graphql_db::FileContent,
     db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
-    metadata_line_offset: u32,
 ) -> Option<Range> {
     for doc in parse.documents() {
         if let Some((start_offset, end_offset)) = find_type_definition_range(doc.tree, type_name) {
             let line_index = graphql_syntax::LineIndex::new(doc.source);
             let range = offset_range_to_range(&line_index, start_offset, end_offset);
-            let effective_offset = if doc.line_offset == 0 {
-                metadata_line_offset
-            } else {
-                doc.line_offset as u32
-            };
-            return Some(adjust_range_for_line_offset(range, effective_offset));
+            return Some(adjust_range_for_line_offset(range, doc.line_offset as u32));
         }
     }
 
@@ -212,22 +190,16 @@ pub fn find_fragment_spreads_in_parse(
     fragment_name: &str,
     content: graphql_db::FileContent,
     db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
-    metadata_line_offset: u32,
 ) -> Vec<Range> {
     let mut results = Vec::new();
 
     for doc in parse.documents() {
         if let Some(offsets) = find_fragment_spreads(doc.tree, fragment_name) {
             let line_index = graphql_syntax::LineIndex::new(doc.source);
-            let effective_offset = if doc.line_offset == 0 {
-                metadata_line_offset
-            } else {
-                doc.line_offset as u32
-            };
             for offset in offsets {
                 let end_offset = offset + fragment_name.len();
                 let range = offset_range_to_range(&line_index, offset, end_offset);
-                results.push(adjust_range_for_line_offset(range, effective_offset));
+                results.push(adjust_range_for_line_offset(range, doc.line_offset as u32));
             }
         }
     }
@@ -242,22 +214,16 @@ pub fn find_type_references_in_parse(
     type_name: &str,
     content: graphql_db::FileContent,
     db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
-    metadata_line_offset: u32,
 ) -> Vec<Range> {
     let mut results = Vec::new();
 
     for doc in parse.documents() {
         if let Some(offsets) = find_type_references_in_tree(doc.tree, type_name) {
             let line_index = graphql_syntax::LineIndex::new(doc.source);
-            let effective_offset = if doc.line_offset == 0 {
-                metadata_line_offset
-            } else {
-                doc.line_offset as u32
-            };
             for offset in offsets {
                 let end_offset = offset + type_name.len();
                 let range = offset_range_to_range(&line_index, offset, end_offset);
-                results.push(adjust_range_for_line_offset(range, effective_offset));
+                results.push(adjust_range_for_line_offset(range, doc.line_offset as u32));
             }
         }
     }
@@ -274,21 +240,15 @@ pub fn find_field_usages_in_parse(
     schema_types: &std::collections::HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
     content: graphql_db::FileContent,
     db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
-    metadata_line_offset: u32,
 ) -> Vec<Range> {
     let mut results = Vec::new();
 
     for doc in parse.documents() {
         let line_index = graphql_syntax::LineIndex::new(doc.source);
         let ranges = find_field_usages_in_tree(doc.tree, type_name, field_name, schema_types);
-        let effective_offset = if doc.line_offset == 0 {
-            metadata_line_offset
-        } else {
-            doc.line_offset as u32
-        };
         for (start, end) in ranges {
             let range = offset_range_to_range(&line_index, start, end);
-            results.push(adjust_range_for_line_offset(range, effective_offset));
+            results.push(adjust_range_for_line_offset(range, doc.line_offset as u32));
         }
     }
 
