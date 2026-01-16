@@ -1537,22 +1537,29 @@ impl Analysis {
         match symbol {
             Symbol::FieldName { name } => {
                 let types = graphql_hir::schema_types(&self.db, project_files);
-                let parent_ctx = find_parent_type_at_offset(block_context.tree, offset)?;
 
-                // Use walk_type_stack_to_offset to properly resolve the parent type,
-                // which handles inline fragments correctly
-                let parent_type_name = symbol::walk_type_stack_to_offset(
-                    block_context.tree,
-                    types,
-                    offset,
-                    &parent_ctx.root_type,
-                )?;
+                // Try to find parent type from executable document (operation/fragment)
+                // or fall back to schema definition (type/interface)
+                let parent_type_name = if let Some(parent_ctx) =
+                    find_parent_type_at_offset(block_context.tree, offset)
+                {
+                    // Use walk_type_stack_to_offset to properly resolve the parent type,
+                    // which handles inline fragments correctly
+                    symbol::walk_type_stack_to_offset(
+                        block_context.tree,
+                        types,
+                        offset,
+                        &parent_ctx.root_type,
+                    )?
+                } else {
+                    // Try schema definition (field in type/interface definition)
+                    symbol::find_schema_field_parent_type(block_context.tree, offset)?
+                };
 
                 tracing::debug!(
-                    "Hover: resolved parent type '{}' for field '{}' (root: {})",
+                    "Hover: resolved parent type '{}' for field '{}'",
                     parent_type_name,
-                    name,
-                    parent_ctx.root_type
+                    name
                 );
 
                 // Look up the field in the parent type
@@ -3462,6 +3469,75 @@ fragment AttackActionInfo on AttackAction {
         let hover = hover.unwrap();
         assert!(hover.contents.contains("Query"));
         assert!(hover.contents.contains("Type"));
+    }
+
+    #[test]
+    fn test_hover_on_schema_field_definition() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema file with a type definition
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Pokemon {\n  name: String!\n  level: Int!\n}",
+            FileKind::Schema,
+            0,
+        );
+
+        // Add a document that uses this field
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "query GetPokemon { pokemon { name } }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        // Get hover on "name" field in the schema definition (line 1, col 2 = "name")
+        let snapshot = host.snapshot();
+        let hover = snapshot.hover(&schema_path, Position::new(1, 2));
+
+        // Should return hover information for the field
+        assert!(hover.is_some(), "Expected hover on schema field definition");
+        let hover = hover.unwrap();
+        assert!(hover.contents.contains("Field"), "Should contain 'Field'");
+        assert!(hover.contents.contains("name"), "Should contain field name");
+        assert!(hover.contents.contains("String"), "Should contain type");
+        // Field is used in one operation, so should show usage count
+        assert!(
+            hover.contents.contains("Used in"),
+            "Should contain usage information"
+        );
+    }
+
+    #[test]
+    fn test_hover_on_schema_field_shows_unused() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema file with a type definition
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Pokemon {\n  name: String!\n  level: Int!\n}",
+            FileKind::Schema,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        // Get hover on "level" field which is not used in any operation
+        let snapshot = host.snapshot();
+        let hover = snapshot.hover(&schema_path, Position::new(2, 2));
+
+        // Should show "0 operations (unused)"
+        assert!(hover.is_some(), "Expected hover on schema field definition");
+        let hover = hover.unwrap();
+        assert!(
+            hover.contents.contains("0 operations"),
+            "Should indicate unused field"
+        );
     }
 
     #[test]
