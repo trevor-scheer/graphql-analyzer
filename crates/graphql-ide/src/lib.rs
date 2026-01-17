@@ -37,7 +37,6 @@
 mod analysis_host_isolation;
 
 use std::collections::HashMap;
-use std::fmt::Write as _;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
@@ -50,6 +49,10 @@ pub use file_registry::FileRegistry;
 mod helpers;
 pub(crate) mod symbol;
 mod types;
+
+// Feature modules
+mod completion;
+mod hover;
 
 // Re-export types from the types module
 pub use types::{
@@ -74,7 +77,7 @@ pub use helpers::unwrap_type_to_name;
 use symbol::{
     extract_all_definitions, find_field_definition_full_range, find_fragment_definition_full_range,
     find_operation_definition_ranges, find_parent_type_at_offset, find_schema_field_parent_type,
-    find_symbol_at_offset, find_type_definition_full_range, is_in_selection_set, Symbol,
+    find_symbol_at_offset, find_type_definition_full_range, Symbol,
 };
 
 // Re-export database types that IDE layer needs
@@ -1465,9 +1468,6 @@ impl Analysis {
             // Get operation body
             let body = graphql_hir::operation_body(&self.db, content, metadata, operation.index);
 
-            // Calculate operation range
-            let line_offset = metadata.line_offset(&self.db);
-
             // Get operation location for the range
             let range = if let Some(ref name) = operation.name {
                 let parse = graphql_syntax::parse(&self.db, content, metadata);
@@ -1476,7 +1476,7 @@ impl Analysis {
                     if let Some(ranges) = find_operation_definition_ranges(doc.tree, name) {
                         let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
                         #[allow(clippy::cast_possible_truncation)]
-                        let doc_line_offset = doc.line_offset as u32 + line_offset;
+                        let doc_line_offset = doc.line_offset as u32;
                         found_range = Some(adjust_range_for_line_offset(
                             offset_range_to_range(
                                 &doc_line_index,
@@ -1535,298 +1535,17 @@ impl Analysis {
     /// Get completions at a position
     ///
     /// Returns a list of completion items appropriate for the context.
-    #[allow(clippy::too_many_lines)]
     pub fn completions(&self, file: &FilePath, position: Position) -> Option<Vec<CompletionItem>> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let file_id = registry.get_file_id(file)?;
-
-            let content = registry.get_content(file_id)?;
-            let metadata = registry.get_metadata(file_id)?;
-            drop(registry);
-
-            (content, metadata)
-        };
-
-        let parse = graphql_syntax::parse(&self.db, content, metadata);
-
-        let (block_context, adjusted_position) = find_block_for_position(&parse, position)?;
-
-        // Create line index from block source (all documents now have source)
-        let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);
-        let offset = position_to_offset(&block_line_index, adjusted_position)?;
-
-        // Find what symbol we're completing (or near) using the correct tree
-        let symbol = find_symbol_at_offset(block_context.tree, offset);
-
-        // Determine completion context and provide appropriate completions
-        match symbol {
-            Some(Symbol::FragmentSpread { .. }) => {
-                // Complete fragment names when on a fragment spread
-                let Some(project_files) = self.project_files else {
-                    return Some(Vec::new());
-                };
-                let fragments = graphql_hir::all_fragments(&self.db, project_files);
-
-                let items: Vec<CompletionItem> = fragments
-                    .keys()
-                    .map(|name| CompletionItem::new(name.to_string(), CompletionKind::Fragment))
-                    .collect();
-
-                Some(items)
-            }
-            None | Some(Symbol::FieldName { .. }) => {
-                // Show fields from parent type in selection set or on field name
-                let Some(project_files) = self.project_files else {
-                    return Some(Vec::new());
-                };
-                let types = graphql_hir::schema_types(&self.db, project_files);
-
-                let in_selection_set = is_in_selection_set(block_context.tree, offset);
-                if in_selection_set {
-                    // Use a stack-based type walker to resolve the parent type at the cursor
-                    let parent_ctx = find_parent_type_at_offset(block_context.tree, offset)?;
-                    let parent_type_name = symbol::walk_type_stack_to_offset(
-                        block_context.tree,
-                        types,
-                        offset,
-                        &parent_ctx.root_type,
-                    )?;
-
-                    types.get(parent_type_name.as_str()).map_or_else(
-                        || Some(Vec::new()),
-                        |parent_type| {
-                            // For union types, suggest inline fragments for each union member
-                            if parent_type.kind == graphql_hir::TypeDefKind::Union {
-                                let items: Vec<CompletionItem> = parent_type
-                                    .union_members
-                                    .iter()
-                                    .map(|member| {
-                                        CompletionItem::new(
-                                            format!("... on {member}"),
-                                            CompletionKind::Type,
-                                        )
-                                        .with_insert_text(format!("... on {member} {{\n  $0\n}}"))
-                                        .with_insert_text_format(InsertTextFormat::Snippet)
-                                    })
-                                    .collect();
-                                return Some(items);
-                            }
-
-                            // For object types and interfaces, suggest fields
-                            let mut items: Vec<CompletionItem> = parent_type
-                                .fields
-                                .iter()
-                                .map(|field| {
-                                    CompletionItem::new(
-                                        field.name.to_string(),
-                                        CompletionKind::Field,
-                                    )
-                                    .with_detail(format_type_ref(&field.type_ref))
-                                })
-                                .collect();
-
-                            // If interface, add inline fragment suggestions for implementing types
-                            // (fields from implementing types are only accessible via inline fragments)
-                            if parent_type.kind == graphql_hir::TypeDefKind::Interface {
-                                for type_def in types.values() {
-                                    if type_def.implements.contains(&parent_type.name) {
-                                        // Add inline fragment suggestion for this implementing type
-                                        let type_name = &type_def.name;
-                                        let inline_fragment_label = format!("... on {type_name}");
-                                        if !items
-                                            .iter()
-                                            .any(|i| i.label.as_str() == inline_fragment_label)
-                                        {
-                                            items.push(
-                                                CompletionItem::new(
-                                                    inline_fragment_label,
-                                                    CompletionKind::Type,
-                                                )
-                                                .with_insert_text(format!(
-                                                    "... on {type_name} {{\n  $0\n}}"
-                                                ))
-                                                .with_insert_text_format(InsertTextFormat::Snippet)
-                                                .with_sort_text(format!("z_{type_name}")), // Sort after fields
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                            Some(items)
-                        },
-                    )
-                } else {
-                    // Not in a selection set - we're at document level
-                    Some(Vec::new())
-                }
-            }
-            _ => Some(Vec::new()),
-        }
+        let registry = self.registry.read();
+        completion::completions(&self.db, &registry, self.project_files, file, position)
     }
 
     /// Get hover information at a position
     ///
     /// Returns documentation, type information, etc.
-    #[allow(clippy::too_many_lines)]
     pub fn hover(&self, file: &FilePath, position: Position) -> Option<HoverResult> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let file_id = registry.get_file_id(file)?;
-
-            let content = registry.get_content(file_id)?;
-            let metadata = registry.get_metadata(file_id)?;
-            drop(registry);
-
-            (content, metadata)
-        };
-
-        let parse = graphql_syntax::parse(&self.db, content, metadata);
-
-        let (block_context, adjusted_position) = find_block_for_position(&parse, position)?;
-
-        tracing::debug!(
-            "Hover: original position {:?}, block line_offset {}, adjusted position {:?}",
-            position,
-            block_context.line_offset,
-            adjusted_position
-        );
-
-        // Create line index from block source (all documents now have source)
-        let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);
-        let offset = position_to_offset(&block_line_index, adjusted_position)?;
-
-        // Try to find the symbol at the offset even if there are parse errors
-        // This allows hover to work on valid parts of a file with syntax errors elsewhere
-        let symbol = find_symbol_at_offset(block_context.tree, offset);
-
-        // If we couldn't find a symbol and there are parse errors, show the errors
-        if symbol.is_none() && parse.has_errors() {
-            let error_messages: Vec<&str> =
-                parse.errors().iter().map(|e| e.message.as_str()).collect();
-            return Some(HoverResult::new(format!(
-                "**Syntax Errors**\n\n{}",
-                error_messages.join("\n")
-            )));
-        }
-
-        let symbol = symbol?;
-
-        let project_files = self.project_files?;
-
-        match symbol {
-            Symbol::FieldName { name } => {
-                let types = graphql_hir::schema_types(&self.db, project_files);
-
-                // Try to find parent type from executable document (operation/fragment)
-                // or fall back to schema definition (type/interface)
-                let parent_type_name = if let Some(parent_ctx) =
-                    find_parent_type_at_offset(block_context.tree, offset)
-                {
-                    // Use walk_type_stack_to_offset to properly resolve the parent type,
-                    // which handles inline fragments correctly
-                    symbol::walk_type_stack_to_offset(
-                        block_context.tree,
-                        types,
-                        offset,
-                        &parent_ctx.root_type,
-                    )?
-                } else {
-                    // Try schema definition (field in type/interface definition)
-                    symbol::find_schema_field_parent_type(block_context.tree, offset)?
-                };
-
-                tracing::debug!(
-                    "Hover: resolved parent type '{}' for field '{}'",
-                    parent_type_name,
-                    name
-                );
-
-                // Look up the field in the parent type
-                let parent_type = types.get(parent_type_name.as_str())?;
-                let field = parent_type
-                    .fields
-                    .iter()
-                    .find(|f| f.name.as_ref() == name)?;
-
-                let mut hover_text = format!("**Field:** `{name}`\n\n");
-                let field_type = format_type_ref(&field.type_ref);
-                write!(hover_text, "**Type:** `{field_type}`\n\n").ok();
-
-                // Add field usage information (only if project files are available)
-                if self.project_files.is_some() {
-                    let coverage = graphql_analysis::analyze_field_usage(&self.db);
-                    let usage_key = (Arc::from(parent_type_name.as_str()), Arc::from(name));
-                    if let Some(usage) = coverage.field_usages.get(&usage_key) {
-                        let op_count = usage.operations.len();
-                        if op_count > 0 {
-                            write!(
-                                hover_text,
-                                "**Used in:** {op_count} operation{}\n\n",
-                                if op_count == 1 { "" } else { "s" }
-                            )
-                            .ok();
-                        } else {
-                            write!(hover_text, "**Used in:** 0 operations (unused)\n\n").ok();
-                        }
-                    }
-                }
-
-                if let Some(desc) = &field.description {
-                    write!(hover_text, "---\n\n{desc}\n\n").ok();
-                }
-
-                // Show deprecation info if the field is deprecated
-                if field.is_deprecated {
-                    write!(hover_text, "---\n\n").ok();
-                    if let Some(reason) = &field.deprecation_reason {
-                        write!(hover_text, "**Deprecated:** {reason}\n\n").ok();
-                    } else {
-                        write!(hover_text, "**Deprecated**\n\n").ok();
-                    }
-                }
-
-                Some(HoverResult::new(hover_text))
-            }
-            Symbol::TypeName { name } => {
-                let types = graphql_hir::schema_types(&self.db, project_files);
-                let type_def = types.get(name.as_str())?;
-
-                let mut hover_text = format!("**Type:** `{name}`\n\n");
-                let kind_str = match type_def.kind {
-                    graphql_hir::TypeDefKind::Object => "Object",
-                    graphql_hir::TypeDefKind::Interface => "Interface",
-                    graphql_hir::TypeDefKind::Union => "Union",
-                    graphql_hir::TypeDefKind::Enum => "Enum",
-                    graphql_hir::TypeDefKind::Scalar => "Scalar",
-                    graphql_hir::TypeDefKind::InputObject => "Input Object",
-                };
-                write!(hover_text, "**Kind:** {kind_str}\n\n").ok();
-
-                if let Some(desc) = &type_def.description {
-                    write!(hover_text, "---\n\n{desc}\n\n").ok();
-                }
-
-                Some(HoverResult::new(hover_text))
-            }
-            Symbol::FragmentSpread { name } => {
-                let fragments = graphql_hir::all_fragments(&self.db, project_files);
-                let fragment = fragments.get(name.as_str())?;
-
-                let hover_text = format!(
-                    "**Fragment:** `{}`\n\n**On Type:** `{}`\n\n",
-                    name, fragment.type_condition
-                );
-
-                Some(HoverResult::new(hover_text))
-            }
-            _ => {
-                // For other symbols, show basic info
-                Some(HoverResult::new(format!("Symbol: {symbol:?}")))
-            }
-        }
+        let registry = self.registry.read();
+        hover::hover(&self.db, &registry, self.project_files, file, position)
     }
 
     /// Get goto definition locations for the symbol at a position
@@ -2833,14 +2552,14 @@ impl Analysis {
         drop(registry);
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_offset = metadata.line_offset(&self.db);
 
         for doc in parse.documents() {
             if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name) {
                 let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                #[allow(clippy::cast_possible_truncation)]
                 let range = adjust_range_for_line_offset(
                     offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
-                    line_offset,
+                    doc.line_offset as u32,
                 );
                 return Some((file_path, range));
             }
@@ -3759,7 +3478,6 @@ fragment AttackActionInfo on AttackAction {
             &schema_path,
             "type Pokemon {\n  name: String!\n  level: Int!\n}",
             FileKind::Schema,
-            0,
         );
 
         // Add a document that uses this field
@@ -3768,7 +3486,6 @@ fragment AttackActionInfo on AttackAction {
             &doc_path,
             "query GetPokemon { pokemon { name } }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -3800,7 +3517,6 @@ fragment AttackActionInfo on AttackAction {
             &schema_path,
             "type Pokemon {\n  name: String!\n  level: Int!\n}",
             FileKind::Schema,
-            0,
         );
 
         host.rebuild_project_files();
@@ -4118,7 +3834,7 @@ fragment AttackActionInfo on AttackAction {
         let schema_file = FilePath::new("file:///schema.graphql");
         let (schema_text, cursor_pos) =
             extract_cursor("type User {\n  na*me: String!\n  age: Int!\n}");
-        host.add_file(&schema_file, &schema_text, FileKind::Schema, 0);
+        host.add_file(&schema_file, &schema_text, FileKind::Schema);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -6484,7 +6200,6 @@ type Comment {
             &FilePath::new("file:///schema.graphql"),
             schema,
             FileKind::Schema,
-            0,
         );
 
         // Add operation
@@ -6504,7 +6219,6 @@ query GetUser {
             &FilePath::new("file:///query.graphql"),
             query,
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -6540,7 +6254,6 @@ type Post {
             &FilePath::new("file:///schema.graphql"),
             schema,
             FileKind::Schema,
-            0,
         );
 
         // Add operation with list field
@@ -6556,7 +6269,6 @@ query GetPosts {
             &FilePath::new("file:///query.graphql"),
             query,
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -6604,7 +6316,6 @@ type PageInfo {
             &FilePath::new("file:///schema.graphql"),
             schema,
             FileKind::Schema,
-            0,
         );
 
         // Add operation with connection pattern
@@ -6624,7 +6335,6 @@ query GetUsers {
             &FilePath::new("file:///query.graphql"),
             query,
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
