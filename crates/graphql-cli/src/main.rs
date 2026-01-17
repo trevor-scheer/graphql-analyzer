@@ -1,6 +1,7 @@
 mod analysis;
 mod commands;
 mod progress;
+mod watch;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;

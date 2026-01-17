@@ -327,14 +327,16 @@ impl CliAnalysisHost {
         (depths, usages)
     }
 
-    /// Update a file (for watch mode - future enhancement)
-    #[allow(dead_code)]
+    /// Update a file (for watch mode)
     pub fn update_file(&mut self, path: &Path, content: &str) {
         let file_path = FilePath::new(path.to_string_lossy().to_string());
 
-        // Determine file kind based on whether it's in our loaded files
-        // For simplicity, default to ExecutableGraphQL kind
-        let kind = FileKind::ExecutableGraphQL;
+        // Determine file kind based on extension
+        let kind = match path.extension().and_then(|e| e.to_str()) {
+            Some("ts" | "tsx" | "mts" | "cts") => FileKind::TypeScript,
+            Some("js" | "jsx" | "mjs" | "cjs") => FileKind::JavaScript,
+            _ => FileKind::ExecutableGraphQL, // .graphql, .gql, or unknown
+        };
 
         self.host.add_file(&file_path, content, kind);
 

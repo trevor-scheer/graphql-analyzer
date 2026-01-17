@@ -23,14 +23,6 @@ pub fn run(
         message: String,
     }
 
-    if watch {
-        println!("{}", "Watch mode not yet implemented".yellow());
-        return Ok(());
-    }
-
-    // Start timing
-    let start_time = std::time::Instant::now();
-
     // Load config and validate project requirement
     let ctx = CommandContext::load(config_path, project_name, "validate")?;
 
@@ -42,6 +34,18 @@ pub fn run(
         .find(|(name, _)| *name == selected_name)
         .map(|(_, cfg)| cfg.clone())
         .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
+
+    if watch {
+        return crate::watch::run_watch(crate::watch::WatchConfig {
+            mode: crate::watch::WatchMode::Validate,
+            format,
+            project_config: &project_config,
+            base_dir: &ctx.base_dir,
+        });
+    }
+
+    // Start timing
+    let start_time = std::time::Instant::now();
 
     // Load and select project
     let spinner = if matches!(format, OutputFormat::Human) {
