@@ -12,7 +12,7 @@ pub fn run(
     config_path: Option<PathBuf>,
     project_name: Option<&str>,
     format: OutputFormat,
-    _watch: bool,
+    watch: bool,
 ) -> Result<()> {
     // Define diagnostic output structure for collecting warnings and errors
     struct DiagnosticOutput {
@@ -26,13 +26,10 @@ pub fn run(
         rule: Option<String>,
     }
 
-    // Start timing
-    let start_time = std::time::Instant::now();
-
     // Load config and validate project requirement
-    let ctx = CommandContext::load(config_path, project_name, "lint")?;
+    let ctx = CommandContext::load(config_path.clone(), project_name, "lint")?;
 
-    // Get project config
+    // Get project config (needed for both watch and normal mode)
     let selected_name = CommandContext::get_project_name(project_name);
     let project_config = ctx
         .config
@@ -40,6 +37,18 @@ pub fn run(
         .find(|(name, _)| *name == selected_name)
         .map(|(_, cfg)| cfg.clone())
         .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
+
+    if watch {
+        return crate::watch::run_watch(crate::watch::WatchConfig {
+            mode: crate::watch::WatchMode::Lint,
+            format,
+            project_config: &project_config,
+            base_dir: &ctx.base_dir,
+        });
+    }
+
+    // Start timing
+    let start_time = std::time::Instant::now();
 
     // Load and select project
     let spinner = if matches!(format, OutputFormat::Human) {
