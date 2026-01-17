@@ -1,0 +1,78 @@
+{
+  "name": "@graphql-lsp/testing",
+  "version": "0.1.1",
+  "description": "GraphQL testing utilities for Jest and Vitest",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./jest": {
+      "import": "./dist/jest.mjs",
+      "require": "./dist/jest.js",
+      "types": "./dist/jest.d.ts"
+    },
+    "./vitest": {
+      "import": "./dist/vitest.mjs",
+      "require": "./dist/vitest.js",
+      "types": "./dist/vitest.d.ts"
+    },
+    "./matchers": {
+      "import": "./dist/matchers.mjs",
+      "require": "./dist/matchers.js",
+      "types": "./dist/matchers.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "graphql",
+    "testing",
+    "jest",
+    "vitest",
+    "matchers",
+    "validation"
+  ],
+  "author": "Trevor Scheer",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trevor-scheer/graphql-lsp",
+    "directory": "packages/testing"
+  },
+  "peerDependencies": {
+    "jest": ">=29.0.0",
+    "vitest": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "jest": {
+      "optional": true
+    },
+    "vitest": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@graphql-lsp/node": "^0.1.1"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.7.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  }
+}
