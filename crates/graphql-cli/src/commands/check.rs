@@ -61,7 +61,7 @@ pub fn run(
     watch: bool,
 ) -> Result<()> {
     // Load config and validate project requirement
-    let ctx = CommandContext::load(config_path.clone(), project_name, "check")?;
+    let ctx = CommandContext::load(config_path, project_name, "check")?;
 
     // Get project config
     let selected_name = CommandContext::get_project_name(project_name);

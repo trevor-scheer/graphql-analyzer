@@ -26,6 +26,7 @@ pub enum WatchMode {
 }
 
 /// Configuration for watch mode.
+#[derive(Clone, Copy)]
 pub struct WatchConfig<'a> {
     pub mode: WatchMode,
     pub format: OutputFormat,
@@ -47,7 +48,8 @@ pub struct DiagnosticOutput {
 }
 
 /// Run watch mode with the given configuration.
-pub fn run_watch(config: WatchConfig) -> Result<()> {
+#[allow(clippy::too_many_lines)]
+pub fn run_watch(config: WatchConfig<'_>) -> Result<()> {
     let WatchConfig {
         mode,
         format,
@@ -87,11 +89,14 @@ pub fn run_watch(config: WatchConfig) -> Result<()> {
     // Set up file watcher with debouncing
     let (tx, rx) = mpsc::channel();
 
-    let mut debouncer = new_debouncer(Duration::from_millis(200), move |res: DebounceEventResult| {
-        if let Ok(events) = res {
-            let _ = tx.send(events);
-        }
-    })?;
+    let mut debouncer = new_debouncer(
+        Duration::from_millis(200),
+        move |res: DebounceEventResult| {
+            if let Ok(events) = res {
+                let _ = tx.send(events);
+            }
+        },
+    )?;
 
     // Watch all relevant directories
     for path in &watch_paths {
@@ -101,66 +106,56 @@ pub fn run_watch(config: WatchConfig) -> Result<()> {
     }
 
     // Main watch loop
-    loop {
-        match rx.recv() {
-            Ok(events) => {
-                // Collect changed files
-                let changed_files: HashSet<PathBuf> = events
-                    .into_iter()
-                    .filter_map(|event| {
-                        let path = event.path;
-                        if should_process_file(&path, project_config) {
-                            Some(path)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
-                if changed_files.is_empty() {
-                    continue;
+    while let Ok(events) = rx.recv() {
+        // Collect changed files
+        let changed_files: HashSet<PathBuf> = events
+            .into_iter()
+            .filter_map(|event| {
+                let path = event.path;
+                if should_process_file(&path, project_config) {
+                    Some(path)
+                } else {
+                    None
                 }
+            })
+            .collect();
 
-                // Update changed files
-                for path in &changed_files {
-                    if path.exists() {
-                        if let Ok(content) = std::fs::read_to_string(path) {
-                            host.update_file(path, &content);
-                        }
-                    } else {
-                        // File was deleted - we could remove it, but for now just skip
-                        continue;
-                    }
-                }
+        if changed_files.is_empty() {
+            continue;
+        }
 
-                // Clear screen for human output
-                if matches!(format, OutputFormat::Human) {
-                    print!("\x1B[2J\x1B[1;1H"); // Clear screen and move to top
-                    let files_list: Vec<_> = changed_files
-                        .iter()
-                        .filter_map(|p| p.file_name())
-                        .map(|n| n.to_string_lossy().to_string())
-                        .collect();
-                    println!(
-                        "{} {}",
-                        "Change detected:".cyan(),
-                        files_list.join(", ").dimmed()
-                    );
-                    println!();
-                }
-
-                // Re-run diagnostics
-                run_diagnostics(&host, mode, format);
-
-                if matches!(format, OutputFormat::Human) {
-                    println!();
-                    println!("{}", "Watching for changes...".dimmed());
+        // Update changed files
+        for path in &changed_files {
+            if path.exists() {
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    host.update_file(path, &content);
                 }
             }
-            Err(_) => {
-                // Channel closed, exit
-                break;
-            }
+            // Files that were deleted are just skipped
+        }
+
+        // Clear screen for human output
+        if matches!(format, OutputFormat::Human) {
+            print!("\x1B[2J\x1B[1;1H"); // Clear screen and move to top
+            let files_list: Vec<_> = changed_files
+                .iter()
+                .filter_map(|p| p.file_name())
+                .map(|n| n.to_string_lossy().to_string())
+                .collect();
+            println!(
+                "{} {}",
+                "Change detected:".cyan(),
+                files_list.join(", ").dimmed()
+            );
+            println!();
+        }
+
+        // Re-run diagnostics
+        run_diagnostics(&host, mode, format);
+
+        if matches!(format, OutputFormat::Human) {
+            println!();
+            println!("{}", "Watching for changes...".dimmed());
         }
     }
 
@@ -168,6 +163,7 @@ pub fn run_watch(config: WatchConfig) -> Result<()> {
 }
 
 /// Run diagnostics based on the watch mode.
+#[allow(clippy::too_many_lines)]
 fn run_diagnostics(host: &CliAnalysisHost, mode: WatchMode, format: OutputFormat) {
     let mut all_issues: Vec<DiagnosticOutput> = Vec::new();
 
@@ -321,10 +317,9 @@ fn run_diagnostics(host: &CliAnalysisHost, mode: WatchMode, format: OutputFormat
 fn get_watch_paths(project_config: &ProjectConfig, base_dir: &Path) -> Vec<PathBuf> {
     let mut paths = HashSet::new();
 
-    // Add schema paths
-    for schema_source in &project_config.schema {
-        if let graphql_config::SchemaSource::File(pattern) = schema_source {
-            // Get the directory part of the glob pattern
+    // Add schema paths (skip URLs)
+    for pattern in project_config.schema.paths() {
+        if !pattern.starts_with("http://") && !pattern.starts_with("https://") {
             let pattern_path = base_dir.join(pattern);
             if let Some(parent) = get_glob_base_dir(&pattern_path) {
                 paths.insert(parent);
@@ -333,10 +328,12 @@ fn get_watch_paths(project_config: &ProjectConfig, base_dir: &Path) -> Vec<PathB
     }
 
     // Add document paths
-    for doc_glob in &project_config.documents {
-        let pattern_path = base_dir.join(doc_glob);
-        if let Some(parent) = get_glob_base_dir(&pattern_path) {
-            paths.insert(parent);
+    if let Some(ref documents) = project_config.documents {
+        for pattern in documents.patterns() {
+            let pattern_path = base_dir.join(pattern);
+            if let Some(parent) = get_glob_base_dir(&pattern_path) {
+                paths.insert(parent);
+            }
         }
     }
 
@@ -350,7 +347,7 @@ fn get_watch_paths(project_config: &ProjectConfig, base_dir: &Path) -> Vec<PathB
 
 /// Get the base directory for a glob pattern (the non-glob prefix).
 fn get_glob_base_dir(pattern: &Path) -> Option<PathBuf> {
-    let pattern_str = pattern.to_string_lossy();
+    let _pattern_str = pattern.to_string_lossy();
 
     // Find the first component with glob characters
     let mut base = PathBuf::new();
@@ -373,7 +370,7 @@ fn get_glob_base_dir(pattern: &Path) -> Option<PathBuf> {
 
     // If base is a file, use its parent
     if base.is_file() {
-        return base.parent().map(|p| p.to_path_buf());
+        return base.parent().map(Path::to_path_buf);
     }
 
     // If base exists as a directory, use it
@@ -382,7 +379,7 @@ fn get_glob_base_dir(pattern: &Path) -> Option<PathBuf> {
     }
 
     // Otherwise try parent
-    base.parent().map(|p| p.to_path_buf())
+    base.parent().map(Path::to_path_buf)
 }
 
 /// Check if a file should be processed based on extension.

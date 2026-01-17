@@ -27,7 +27,7 @@ pub fn run(
     }
 
     // Load config and validate project requirement
-    let ctx = CommandContext::load(config_path.clone(), project_name, "lint")?;
+    let ctx = CommandContext::load(config_path, project_name, "lint")?;
 
     // Get project config (needed for both watch and normal mode)
     let selected_name = CommandContext::get_project_name(project_name);
