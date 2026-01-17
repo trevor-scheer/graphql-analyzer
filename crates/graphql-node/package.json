@@ -1,0 +1,53 @@
+{
+  "name": "@graphql-lsp/node",
+  "version": "0.1.1",
+  "description": "Native Node.js bindings for GraphQL validation and linting",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trevor-scheer/graphql-lsp"
+  },
+  "keywords": [
+    "graphql",
+    "validation",
+    "linting",
+    "typescript",
+    "napi",
+    "native"
+  ],
+  "author": "Trevor Scheer",
+  "license": "MIT OR Apache-2.0",
+  "engines": {
+    "node": ">= 16"
+  },
+  "napi": {
+    "name": "graphql-node",
+    "triples": {
+      "defaults": true,
+      "additional": [
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-gnu",
+        "aarch64-unknown-linux-musl",
+        "aarch64-apple-darwin",
+        "x86_64-unknown-freebsd"
+      ]
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "*.node"
+  ],
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.0"
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "universal": "napi universal",
+    "version": "napi version"
+  }
+}
