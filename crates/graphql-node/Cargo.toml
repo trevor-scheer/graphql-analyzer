@@ -1,0 +1,32 @@
+[package]
+name = "graphql-node"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+description = "Node.js bindings for GraphQL validation and linting"
+keywords = ["graphql", "nodejs", "napi", "validation", "linting"]
+categories = ["development-tools", "api-bindings"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Internal dependencies
+graphql-db = { path = "../graphql-db" }
+graphql-syntax = { path = "../graphql-syntax" }
+graphql-hir = { path = "../graphql-hir" }
+graphql-analysis = { path = "../graphql-analysis" }
+graphql-linter = { path = "../graphql-linter" }
+graphql-ide = { path = "../graphql-ide" }
+
+# napi-rs bindings
+napi = { version = "2", default-features = false, features = ["napi9", "serde-json"] }
+napi-derive = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[build-dependencies]
+napi-build = "2"
