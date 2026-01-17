@@ -1465,8 +1465,9 @@ impl Analysis {
             // Get operation body
             let body = graphql_hir::operation_body(&self.db, content, metadata, operation.index);
 
-            // Calculate operation range
-            let line_offset = metadata.line_offset(&self.db);
+            // For embedded GraphQL, each doc already has its line_offset
+            // No additional file-level offset needed
+            let line_offset = 0u32;
 
             // Get operation location for the range
             let range = if let Some(ref name) = operation.name {
@@ -2833,9 +2834,11 @@ impl Analysis {
         drop(registry);
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_offset = metadata.line_offset(&self.db);
 
         for doc in parse.documents() {
+            // Use doc.line_offset directly - it already contains the embedded block offset
+            #[allow(clippy::cast_possible_truncation)]
+            let line_offset = doc.line_offset as u32;
             if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name) {
                 let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
                 let range = adjust_range_for_line_offset(

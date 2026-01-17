@@ -12,6 +12,7 @@ members = [
     "crates/graphql-hir",
     "crates/graphql-analysis",
     "crates/graphql-ide",
+    "crates/graphql-wasm",
     "benches",
     ".husky",
     "xtask",
