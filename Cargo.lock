@@ -1154,6 +1154,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "graphql-test-utils"
+version = "0.1.1"
+dependencies = [
+ "graphql-analysis",
+ "graphql-db",
+ "graphql-hir",
+ "graphql-syntax",
+ "salsa",
+]
+
+[[package]]
 name = "h2"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
