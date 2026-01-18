@@ -95,6 +95,18 @@
           "default": "",
           "description": "Path to the graphql-lsp server executable. If empty, the extension will search for it in PATH or download it automatically."
         },
+        "graphql.server.logLevel": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "debug",
+            "trace"
+          ],
+          "default": "info",
+          "description": "Log level for the LSP server (sets RUST_LOG environment variable)."
+        },
         "graphql.server.env": {
           "type": "object",
           "default": {},

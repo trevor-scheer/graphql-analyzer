@@ -181,6 +181,7 @@ function setupDecorationListeners(context: ExtensionContext): void {
 async function startLanguageServer(context: ExtensionContext): Promise<void> {
   const config = workspace.getConfiguration("graphql");
   const customPath = config.get<string>("server.path");
+  const logLevel = config.get<string>("server.logLevel") || "info";
 
   const serverCommand = await findServerBinary(context, outputChannel, customPath);
   outputChannel.appendLine(`Using LSP server at: ${serverCommand}`);
@@ -192,7 +193,7 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
     options: {
       env: {
         ...process.env,
-        RUST_LOG: process.env.RUST_LOG || "debug",
+        RUST_LOG: process.env.RUST_LOG || logLevel,
         ...serverEnv,
       },
     },
