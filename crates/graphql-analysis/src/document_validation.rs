@@ -213,8 +213,13 @@ fn is_builtin_scalar(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use graphql_db::test_utils::create_project_files;
     use graphql_db::{FileContent, FileKind, FileMetadata, FileUri};
 
+    // TestDatabase for document_validation tests.
+    // Note: We can't use graphql_test_utils::TestDatabase here because it would
+    // create a cyclic dependency (graphql-test-utils depends on graphql-analysis).
+    // This TestDatabase stores project_files in a Cell for the GraphQLHirDatabase trait.
     #[salsa::db]
     #[derive(Clone)]
     struct TestDatabase {
@@ -253,37 +258,9 @@ mod tests {
     #[salsa::db]
     impl crate::GraphQLAnalysisDatabase for TestDatabase {}
 
-    /// Helper to create `ProjectFiles` for tests using the new granular structure
-    fn create_project_files(
-        db: &TestDatabase,
-        schema_files: &[(graphql_db::FileId, FileContent, FileMetadata)],
-        document_files: &[(graphql_db::FileId, FileContent, FileMetadata)],
-    ) -> graphql_db::ProjectFiles {
-        let schema_ids: Vec<graphql_db::FileId> =
-            schema_files.iter().map(|(id, _, _)| *id).collect();
-        let doc_ids: Vec<graphql_db::FileId> =
-            document_files.iter().map(|(id, _, _)| *id).collect();
-
-        let mut entries = std::collections::HashMap::new();
-        for (id, content, metadata) in schema_files {
-            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
-            entries.insert(*id, entry);
-        }
-        for (id, content, metadata) in document_files {
-            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
-            entries.insert(*id, entry);
-        }
-
-        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(schema_ids));
-        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_ids));
-        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(entries));
-
-        graphql_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
-    }
-
     #[test]
     fn test_unknown_variable_type() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
         let file_id = graphql_db::FileId::new(0);
 
         let doc_content = "query GetUser($input: UserInput!) { user }";
@@ -296,7 +273,7 @@ mod tests {
         );
 
         // Set up project files
-        let project_files = create_project_files(&db, &[], &[(file_id, content, metadata)]);
+        let project_files = create_project_files(&mut db, &[], &[(file_id, content, metadata)]);
         db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, content, metadata);
@@ -312,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_variable_invalid_input_type() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         // First, add schema
         let schema_file_id = graphql_db::FileId::new(0);
@@ -337,7 +314,7 @@ mod tests {
         );
 
         let project_files = create_project_files(
-            &db,
+            &mut db,
             &[(schema_file_id, schema_fc, schema_metadata)],
             &[(doc_file_id, doc_fc, doc_metadata)],
         );
@@ -356,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_fragment_unknown_type_condition() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
         let file_id = graphql_db::FileId::new(0);
 
         let doc_content = "fragment UserFields on User { id }";
@@ -368,7 +345,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = create_project_files(&db, &[], &[(file_id, content, metadata)]);
+        let project_files = create_project_files(&mut db, &[], &[(file_id, content, metadata)]);
         db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, content, metadata);
@@ -384,7 +361,7 @@ mod tests {
 
     #[test]
     fn test_fragment_invalid_type_condition() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         // Add schema with scalar type
         let schema_file_id = graphql_db::FileId::new(0);
@@ -409,7 +386,7 @@ mod tests {
         );
 
         let project_files = create_project_files(
-            &db,
+            &mut db,
             &[(schema_file_id, schema_fc, schema_metadata)],
             &[(doc_file_id, doc_fc, doc_metadata)],
         );
@@ -429,7 +406,7 @@ mod tests {
 
     #[test]
     fn test_missing_root_type() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
         let file_id = graphql_db::FileId::new(0);
 
         let doc_content = "query { hello }";
@@ -441,7 +418,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = create_project_files(&db, &[], &[(file_id, content, metadata)]);
+        let project_files = create_project_files(&mut db, &[], &[(file_id, content, metadata)]);
         db.set_project_files(Some(project_files));
 
         let diagnostics = validate_document_file(&db, content, metadata);
@@ -457,7 +434,7 @@ mod tests {
 
     #[test]
     fn test_valid_document() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         // Add schema
         let schema_file_id = graphql_db::FileId::new(0);
@@ -491,7 +468,7 @@ mod tests {
         );
 
         let project_files = create_project_files(
-            &db,
+            &mut db,
             &[(schema_file_id, schema_fc, schema_metadata)],
             &[(doc_file_id, doc_fc, doc_metadata)],
         );

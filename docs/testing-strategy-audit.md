@@ -799,14 +799,14 @@ After restructuring:
 
 ## Next Steps
 
-1. [ ] Create `graphql-test-utils` crate
-2. [ ] Implement core TestDatabase
-3. [ ] Implement project builder
-4. [ ] Migrate graphql-hir tests
-5. [ ] Migrate graphql-analysis tests
+1. [x] Create `graphql-test-utils` crate
+2. [x] Implement core TestDatabase
+3. [x] Implement project builder
+4. [x] Migrate graphql-hir tests
+5. [x] Migrate graphql-analysis tests
 6. [ ] Add insta dependency
 7. [ ] Convert diagnostic tests to snapshots
-8. [ ] Create shared fixtures
+8. [x] Create shared fixtures
 9. [ ] Add integration test directories
 10. [ ] Update CLAUDE.md with testing guidelines
 
@@ -833,3 +833,118 @@ After restructuring:
 - `crates/graphql-linter/src/rules/*.rs` (standardize helpers)
 - `Cargo.toml` (add graphql-test-utils to workspace)
 - `.claude/CLAUDE.md` (add testing guidelines)
+
+---
+
+## Implementation Notes
+
+### Difficulties Encountered
+
+#### Cyclic Dependency Constraints
+
+The most significant challenge in implementing shared test infrastructure was **cyclic dev-dependencies** in Cargo.
+
+**Problem**: When `graphql-test-utils` depends on `graphql-analysis` (to implement `GraphQLAnalysisDatabase` on `TestDatabase`), and `graphql-analysis` then adds `graphql-test-utils` as a dev-dependency, Cargo creates a cyclic dependency. This causes version conflicts:
+
+```
+error: failed to select a version for `graphql-hir`
+required by package `graphql-test-utils`
+multiple different versions of crate `graphql_hir` in the dependency graph
+```
+
+**Solution**: Made `graphql-analysis` an optional dependency via a feature flag:
+
+```toml
+[features]
+default = []
+analysis = ["dep:graphql-analysis"]
+```
+
+Crates use this accordingly:
+- **graphql-hir, graphql-analysis**: Keep their own local `TestDatabase` (can't use the shared one due to cycles)
+- **graphql-linter, graphql-ide**: Use `graphql-test-utils` without the `analysis` feature
+- **Higher-level crates**: Can use `graphql-test-utils` with `analysis` feature if they don't depend on analysis
+
+#### Immutable vs Mutable Database References
+
+**Problem**: The shared `create_project_files()` helper requires `&mut db` (to create Salsa inputs), but most test code used `&db`.
+
+**Solution**: Updated all test functions to use `let mut db` instead of `let db`. This is a mechanical change but required touching every test.
+
+#### TestDatabase Specializations
+
+**Problem**: Some crates need specialized `TestDatabase` implementations. For example, `document_validation.rs` stores `project_files` in a `Cell` to implement `GraphQLHirDatabase::project_files()`.
+
+**Solution**: Keep specialized `TestDatabase` implementations where needed. The shared infrastructure provides a baseline, not a one-size-fits-all solution.
+
+### Design Decisions
+
+1. **`graphql_db::test_utils` module**: Put basic helpers (`create_project_files`) in the foundation crate (`graphql-db`) with a `test-utils` feature flag. This avoids cycles for low-level crates.
+
+2. **`graphql-test-utils` crate**: Higher-level utilities (builders, fixtures, cursor extraction) go in a dedicated crate that can depend on multiple layers.
+
+3. **Feature-gated analysis support**: The `analysis` feature on `graphql-test-utils` enables `GraphQLAnalysisDatabase` impl. Only enable when needed and when dependency cycles aren't a concern.
+
+---
+
+## Testing Strategy Reference
+
+### When to Use Which Testing Pattern
+
+| Crate Layer | TestDatabase Source | ProjectFiles Helper |
+|-------------|---------------------|---------------------|
+| graphql-db | `RootDatabase` directly | `test_utils::create_project_files` |
+| graphql-syntax | None needed (standalone parsing) | N/A |
+| graphql-hir | Local `TestDatabase` | `graphql_db::test_utils::create_project_files` |
+| graphql-analysis | Local `TestDatabase` | `graphql_db::test_utils::create_project_files` |
+| graphql-linter | `graphql_test_utils::TestDatabase` | `graphql_test_utils::TestProjectBuilder` |
+| graphql-ide | `graphql_test_utils::TestDatabase` (with analysis) | `graphql_test_utils::TestProjectBuilder` |
+
+### Key Principles
+
+1. **Use the shared infrastructure when possible**: Reduces duplication and ensures consistency
+2. **Keep local TestDatabase when cycles prevent sharing**: Add a comment explaining why
+3. **Prefer `TestProjectBuilder` for multi-file tests**: More readable than manual file setup
+4. **Use inline fixtures for small tests**: `test_project(schema, doc)` is fine for simple cases
+5. **Use shared fixtures for large/complex schemas**: Avoids duplication across tests
+
+### Example: Writing a New Test
+
+```rust
+// Simple single-file test
+#[test]
+fn test_validates_field() {
+    let (db, project) = test_project(
+        "type Query { user: User } type User { id: ID! }",
+        "query { user { invalidField } }",
+    );
+    // ... assertions
+}
+
+// Multi-file test with fragments
+#[test]
+fn test_cross_file_fragment() {
+    let (db, project) = TestProjectBuilder::new()
+        .with_schema("schema.graphql", NESTED_SCHEMA)
+        .with_document("fragments.graphql", "fragment UserFields on User { id }")
+        .with_document("query.graphql", "query { user { ...UserFields } }")
+        .build();
+    // ... assertions
+}
+
+// IDE feature test with cursor
+#[test]
+fn test_goto_definition() {
+    let (source, pos) = extract_cursor("query { user { *name } }");
+    let (db, project) = test_project(BASIC_SCHEMA, &source);
+    let result = goto_definition(&db, "query.graphql", pos);
+    // ... assertions
+}
+```
+
+### Future Considerations
+
+1. **Snapshot testing**: Consider `insta` for complex diagnostic output validation
+2. **Property-based testing**: Consider `proptest` for parser edge cases
+3. **Per-crate integration tests**: Add `tests/` directories for public API testing
+4. **Benchmark tests**: Use Criterion for performance regression testing

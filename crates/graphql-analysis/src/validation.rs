@@ -256,8 +256,12 @@ fn collect_fragment_spreads_from_selection_set(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::{FileId, FileKind, FileUri, ProjectFiles};
+    use graphql_db::test_utils::create_project_files;
+    use graphql_db::{FileId, FileKind, FileUri};
 
+    // TestDatabase for graphql-analysis tests.
+    // Note: We can't use graphql_test_utils::TestDatabase here because it would
+    // create a cyclic dependency (graphql-test-utils depends on graphql-analysis).
     #[salsa::db]
     #[derive(Clone, Default)]
     struct TestDatabase {
@@ -276,35 +280,9 @@ mod tests {
     #[salsa::db]
     impl crate::GraphQLAnalysisDatabase for TestDatabase {}
 
-    /// Helper to create `ProjectFiles` for tests using the new granular structure
-    fn create_project_files(
-        db: &TestDatabase,
-        schema_files: &[(FileId, FileContent, FileMetadata)],
-        document_files: &[(FileId, FileContent, FileMetadata)],
-    ) -> ProjectFiles {
-        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
-        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
-
-        let mut entries = std::collections::HashMap::new();
-        for (id, content, metadata) in schema_files {
-            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
-            entries.insert(*id, entry);
-        }
-        for (id, content, metadata) in document_files {
-            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
-            entries.insert(*id, entry);
-        }
-
-        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(schema_ids));
-        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_ids));
-        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(entries));
-
-        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
-    }
-
     #[test]
     fn test_validate_file_no_schema() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
         let file_id = FileId::new(0);
 
         let content = FileContent::new(&db, Arc::from("query { hello }"));
@@ -316,7 +294,7 @@ mod tests {
         );
 
         // Empty project files (no schema)
-        let project_files = create_project_files(&db, &[], &[]);
+        let project_files = create_project_files(&mut db, &[], &[]);
 
         let diagnostics = validate_file(&db, content, metadata, project_files);
         assert_eq!(
@@ -328,7 +306,7 @@ mod tests {
 
     #[test]
     fn test_validate_file_with_valid_fragment() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         // Create schema
         let schema_id = FileId::new(0);
@@ -355,7 +333,7 @@ mod tests {
         );
 
         let project_files = create_project_files(
-            &db,
+            &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
         );
@@ -370,7 +348,7 @@ mod tests {
 
     #[test]
     fn test_validate_file_with_invalid_fragment() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         // Create schema
         let schema_id = FileId::new(0);
@@ -397,7 +375,7 @@ mod tests {
         );
 
         let project_files = create_project_files(
-            &db,
+            &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
         );
@@ -417,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_validate_file_invalid_field() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         // Create schema
         let schema_id = FileId::new(0);
@@ -440,7 +418,7 @@ mod tests {
         );
 
         let project_files = create_project_files(
-            &db,
+            &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
         );
@@ -460,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_validate_file_valid_query() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         // Create schema
         let schema_id = FileId::new(0);
@@ -483,7 +461,7 @@ mod tests {
         );
 
         let project_files = create_project_files(
-            &db,
+            &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
         );
@@ -498,7 +476,7 @@ mod tests {
 
     #[test]
     fn test_validate_file_missing_required_argument() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         // Create schema with required argument
         let schema_id = FileId::new(0);
@@ -522,7 +500,7 @@ mod tests {
         );
 
         let project_files = create_project_files(
-            &db,
+            &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
         );
@@ -542,7 +520,7 @@ mod tests {
 
     #[test]
     fn test_validate_file_invalid_variable_type() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         // Create schema
         let schema_id = FileId::new(0);
@@ -565,7 +543,7 @@ mod tests {
         );
 
         let project_files = create_project_files(
-            &db,
+            &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
         );
@@ -585,7 +563,7 @@ mod tests {
 
     #[test]
     fn test_cross_file_fragment_resolution() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         // Create schema
         let schema_id = FileId::new(0);
@@ -622,7 +600,7 @@ mod tests {
         );
 
         let project_files = create_project_files(
-            &db,
+            &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[
                 (frag_id, frag_content, frag_metadata),
@@ -645,7 +623,7 @@ mod tests {
         // Since graphql-syntax handles extraction based on file kind and extraction config,
         // we test the pure GraphQL path here. The embedded GraphQL (TS/JS) extraction
         // is tested at the integration level in graphql-ide tests.
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         // Create schema
         let schema_id = FileId::new(0);
@@ -668,7 +646,7 @@ mod tests {
         );
 
         let project_files = create_project_files(
-            &db,
+            &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
         );
@@ -687,7 +665,7 @@ mod tests {
 
     #[test]
     fn test_fragment_collection_with_parse_errors() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         // Create schema
         let schema_id = FileId::new(0);
@@ -728,7 +706,7 @@ mod tests {
         );
 
         let project_files = create_project_files(
-            &db,
+            &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[
                 (frag_id, frag_content, frag_metadata),
@@ -754,7 +732,7 @@ mod tests {
 
     #[test]
     fn test_fragment_only_file_no_duplicate_errors() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         // Create schema
         let schema_id = FileId::new(0);
@@ -789,7 +767,7 @@ mod tests {
         );
 
         let project_files = create_project_files(
-            &db,
+            &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(frag_id, frag_content, frag_metadata)],
         );

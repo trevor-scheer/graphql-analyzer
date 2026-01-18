@@ -196,14 +196,15 @@ mod tests {
     use super::*;
     use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
 
-    // Test database wrapper
+    // TestDatabase for graphql-analysis tests.
+    // Note: We can't use graphql_test_utils::TestDatabase here because it would
+    // create a cyclic dependency (graphql-test-utils depends on graphql-analysis).
     #[salsa::db]
     #[derive(Clone, Default)]
     struct TestDatabase {
         storage: salsa::Storage<Self>,
     }
 
-    // Implement the database traits for testing
     #[salsa::db]
     impl salsa::Database for TestDatabase {}
 
