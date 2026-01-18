@@ -747,7 +747,11 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    // Test database that implements all required traits
+    // TestDatabase for graphql-hir tests.
+    // Note: We can't use graphql_test_utils::TestDatabase here because it would
+    // create a cyclic dependency (graphql-test-utils depends on graphql-analysis
+    // which depends on graphql-hir). Instead, we define a minimal TestDatabase
+    // that only implements the traits needed for this crate's tests.
     #[salsa::db]
     #[derive(Clone, Default)]
     struct TestDatabase {
@@ -763,36 +767,20 @@ mod tests {
     #[salsa::db]
     impl GraphQLHirDatabase for TestDatabase {}
 
-    /// Helper to create `ProjectFiles` with the new granular structure
+    /// Helper to create `ProjectFiles` for tests.
+    /// Uses graphql_db::test_utils but with our local TestDatabase.
     fn create_project_files(
-        db: &TestDatabase,
+        db: &mut TestDatabase,
         schema_files: &[(FileId, FileContent, FileMetadata)],
         document_files: &[(FileId, FileContent, FileMetadata)],
     ) -> graphql_db::ProjectFiles {
-        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
-        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
-
-        let mut entries = HashMap::new();
-        for (id, content, metadata) in schema_files {
-            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
-            entries.insert(*id, entry);
-        }
-        for (id, content, metadata) in document_files {
-            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
-            entries.insert(*id, entry);
-        }
-
-        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(schema_ids));
-        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_ids));
-        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(entries));
-
-        graphql_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        graphql_db::test_utils::create_project_files(db, schema_files, document_files)
     }
 
     #[test]
     fn test_schema_types_empty() {
-        let db = TestDatabase::default();
-        let project_files = create_project_files(&db, &[], &[]);
+        let mut db = TestDatabase::default();
+        let project_files = create_project_files(&mut db, &[], &[]);
         let types = schema_types(&db, project_files);
         assert_eq!(types.len(), 0);
     }
@@ -872,7 +860,7 @@ mod tests {
             (file1_id, file1_content, file1_metadata),
             (file2_id, file2_content, file2_metadata),
         ];
-        let project_files = create_project_files(&db, &[], &doc_files);
+        let project_files = create_project_files(&mut db, &[], &doc_files);
 
         // First call: compute file_structure for both files to warm the cache
         let _ = counted_file_structure(&db, file1_id, file1_content, file1_metadata);
@@ -955,7 +943,7 @@ mod tests {
             (file1_id, file1_content, file1_metadata),
             (file2_id, file2_content, file2_metadata),
         ];
-        let project_files = create_project_files(&db, &[], &doc_files);
+        let project_files = create_project_files(&mut db, &[], &doc_files);
 
         // Warm the cache
         let frags1 = all_fragments(&db, project_files);
@@ -987,7 +975,7 @@ mod tests {
 
     #[test]
     fn test_fragment_source_per_fragment_lookup() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         // Create two document files with different fragments
         let file1_id = FileId::new(0);
@@ -1014,7 +1002,7 @@ mod tests {
             (file1_id, file1_content, file1_metadata),
             (file2_id, file2_content, file2_metadata),
         ];
-        let project_files = create_project_files(&db, &[], &doc_files);
+        let project_files = create_project_files(&mut db, &[], &doc_files);
 
         // Query individual fragment sources
         let user_source = fragment_source(&db, project_files, Arc::from("UserFields"));
@@ -1064,7 +1052,7 @@ mod tests {
             (file1_id, file1_content, file1_metadata),
             (file2_id, file2_content, file2_metadata),
         ];
-        let project_files = create_project_files(&db, &[], &doc_files);
+        let project_files = create_project_files(&mut db, &[], &doc_files);
 
         // Warm the cache by querying both fragments
         let user_source_1 = fragment_source(&db, project_files, Arc::from("UserFields"));
@@ -1857,7 +1845,7 @@ const MY_FRAGMENT = gql`
 
     #[test]
     fn test_all_fragments_includes_typescript_files() {
-        let db = TestDatabase::default();
+        let mut db = TestDatabase::default();
 
         // Create a pure GraphQL file with a fragment
         let graphql_file_id = FileId::new(1);
@@ -1896,7 +1884,7 @@ const FRAG = gql`
 
         // Create project files with both documents
         let project_files = create_project_files(
-            &db,
+            &mut db,
             &[], // No schema files
             &[
                 (graphql_file_id, graphql_content, graphql_metadata),
