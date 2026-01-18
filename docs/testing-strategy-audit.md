@@ -808,7 +808,7 @@ After restructuring:
 7. [ ] Convert diagnostic tests to snapshots
 8. [x] Create shared fixtures
 9. [ ] Add integration test directories
-10. [ ] Update CLAUDE.md with testing guidelines
+10. [x] Update CLAUDE.md with testing guidelines
 
 ---
 

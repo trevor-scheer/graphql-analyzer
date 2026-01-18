@@ -501,6 +501,58 @@ cargo test --test '*'
 - **Integration tests**: In `tests/` directory
 - **Snapshot tests**: Using `cargo-insta` (if applicable)
 
+### Shared Test Infrastructure
+
+The project provides shared test utilities to reduce boilerplate and ensure consistency:
+
+#### graphql_db::test_utils
+
+Basic helpers available to all crates (enable with `features = ["test-utils"]`):
+
+```rust
+use graphql_db::test_utils::create_project_files;
+
+let project_files = create_project_files(
+    &mut db,
+    &[(schema_id, schema_content, schema_metadata)],  // schema files
+    &[(doc_id, doc_content, doc_metadata)],           // document files
+);
+```
+
+#### graphql-test-utils crate
+
+Higher-level utilities for tests that need a complete database setup:
+
+```rust
+use graphql_test_utils::{test_project, TestProjectBuilder, TestDatabase};
+
+// Simple single-file test
+let (db, project) = test_project(
+    "type Query { user: User } type User { id: ID! }",
+    "query { user { id } }",
+);
+
+// Multi-file test with builder
+let (db, project) = TestProjectBuilder::new()
+    .with_schema("schema.graphql", BASIC_SCHEMA)
+    .with_document("fragments.graphql", "fragment UserFields on User { id }")
+    .with_document("query.graphql", "query { user { ...UserFields } }")
+    .build();
+```
+
+#### Choosing the Right Pattern
+
+| Crate Layer | TestDatabase Source | When to Use |
+|-------------|---------------------|-------------|
+| graphql-db | `RootDatabase` directly | Foundation layer tests |
+| graphql-syntax | None needed | Standalone parsing tests |
+| graphql-hir | Local `TestDatabase` | Due to cyclic dependency constraints |
+| graphql-analysis | Local `TestDatabase` | Due to cyclic dependency constraints |
+| graphql-linter | `RootDatabase` | Lint rules work with base database |
+| graphql-ide, higher | `graphql_test_utils::TestDatabase` | Full stack tests |
+
+**Note**: graphql-hir and graphql-analysis keep local `TestDatabase` definitions because `graphql-test-utils` depends on `graphql-analysis`, which would create a cyclic dependency. These crates still use `graphql_db::test_utils::create_project_files` to avoid duplicating that helper.
+
 ### Writing Tests
 
 Tests should prioritize **human readability**. A test that's easy to understand is easy to maintain and debug.
@@ -513,31 +565,53 @@ Tests should prioritize **human readability**. A test that's easy to understand 
 - **Name tests descriptively** - the name should explain what's being tested and expected behavior
 - **Keep tests focused** - one logical assertion per test when possible
 
-#### Example Structure
+#### Example: Validation Test
 
 ```rust
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // Helper function reduces boilerplate and clarifies intent
-    fn validate(schema: &str, document: &str) -> Vec<Diagnostic> {
-        let db = TestDatabase::new();
-        db.set_schema(schema);
-        db.set_document(document);
-        db.diagnostics()
-    }
+    use graphql_db::test_utils::create_project_files;
 
     #[test]
-    fn fragment_spread_on_wrong_type_reports_error() {
-        let diagnostics = validate(
-            "type Query { user: User } type User { name: String }",
-            "query { user { ...AdminFields } } fragment AdminFields on Admin { role }",
+    fn test_invalid_field_reports_error() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(&db, Arc::from("type Query { user: User } type User { id: ID! }"));
+        let schema_metadata = FileMetadata::new(&db, schema_id, FileUri::new("schema.graphql"), FileKind::Schema);
+
+        let doc_id = FileId::new(1);
+        let doc_content = FileContent::new(&db, Arc::from("query { user { invalidField } }"));
+        let doc_metadata = FileMetadata::new(&db, doc_id, FileUri::new("query.graphql"), FileKind::ExecutableGraphQL);
+
+        let project_files = create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
         );
 
-        assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Admin"));
+        let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
+
+        assert!(!diagnostics.is_empty());
+        assert!(diagnostics[0].message.contains("invalidField"));
     }
+}
+```
+
+#### Example: IDE Feature Test with Cursor
+
+```rust
+use graphql_test_utils::{extract_cursor, test_project};
+
+#[test]
+fn test_goto_definition_finds_field() {
+    let (source, pos) = extract_cursor("query { user { *name } }");
+    let (db, project) = test_project(BASIC_SCHEMA, &source);
+
+    let result = goto_definition(&db, "query.graphql", pos);
+
+    assert!(result.is_some());
 }
 ```
 
