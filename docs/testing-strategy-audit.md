@@ -807,7 +807,7 @@ After restructuring:
 6. [x] Add insta dependency
 7. [x] Convert diagnostic tests to snapshots
 8. [x] Create shared fixtures
-9. [ ] Add integration test directories
+9. [x] Add integration test directories
 10. [x] Update CLAUDE.md with testing guidelines
 
 ---
