@@ -3,15 +3,20 @@
 //! This module provides pre-configured test databases that implement all the
 //! necessary Salsa traits for GraphQL LSP testing. Use these instead of defining
 //! your own `TestDatabase` in each test module.
+//!
+//! ## Feature Flags
+//!
+//! - `analysis`: Adds `GraphQLAnalysisDatabase` impl to `TestDatabase`.
+//!   Only enable for crates that don't transitively depend on graphql-analysis.
 
 use std::sync::Arc;
 
 use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
 
-/// Test database with all GraphQL LSP traits implemented.
+/// Test database with GraphQL LSP traits implemented.
 ///
-/// This database implements all the traits needed for testing across the
-/// GraphQL LSP stack: syntax, HIR, and analysis layers.
+/// By default, implements syntax and HIR traits. Enable the `analysis` feature
+/// to also implement `GraphQLAnalysisDatabase`.
 ///
 /// # Example
 ///
@@ -43,6 +48,7 @@ impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {}
 #[salsa::db]
 impl graphql_hir::GraphQLHirDatabase for TestDatabase {}
 
+#[cfg(feature = "analysis")]
 #[salsa::db]
 impl graphql_analysis::GraphQLAnalysisDatabase for TestDatabase {}
 
@@ -100,6 +106,7 @@ impl graphql_hir::GraphQLHirDatabase for TestDatabaseWithProject {
     }
 }
 
+#[cfg(feature = "analysis")]
 #[salsa::db]
 impl graphql_analysis::GraphQLAnalysisDatabase for TestDatabaseWithProject {}
 
