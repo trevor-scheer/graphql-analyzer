@@ -1,5 +1,6 @@
 mod conversions;
 mod server;
+mod workspace;
 
 use server::GraphQLLanguageServer;
 use tower_lsp_server::{LspService, Server};

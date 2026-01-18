@@ -8,27 +8,24 @@ use text_size::TextRange;
 /// Convert a `TextRange` (byte offsets) to `DiagnosticRange` (line/column)
 ///
 /// Uses the `LineIndex` to convert byte offsets to line/column positions.
-/// Also applies `line_offset` for TypeScript/JavaScript files.
 #[allow(clippy::cast_possible_truncation)]
 fn text_range_to_diagnostic_range(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
-    metadata: FileMetadata,
     range: TextRange,
 ) -> DiagnosticRange {
     let line_index = graphql_syntax::line_index(db, content);
-    let line_offset = metadata.line_offset(db);
 
     let (start_line, start_col) = line_index.line_col(range.start().into());
     let (end_line, end_col) = line_index.line_col(range.end().into());
 
     DiagnosticRange {
         start: Position {
-            line: start_line as u32 + line_offset,
+            line: start_line as u32,
             character: start_col as u32,
         },
         end: Position {
-            line: end_line as u32 + line_offset,
+            line: end_line as u32,
             character: end_col as u32,
         },
     }
@@ -70,7 +67,7 @@ pub fn validate_document_file(
                 // Use the name range if available, otherwise fall back to operation range
                 let range = op_structure
                     .name_range
-                    .map(|r| text_range_to_diagnostic_range(db, content, metadata, r))
+                    .map(|r| text_range_to_diagnostic_range(db, content, r))
                     .unwrap_or_default();
                 diagnostics.push(Diagnostic::error(
                     format!("Operation name '{name}' is not unique"),
@@ -80,8 +77,7 @@ pub fn validate_document_file(
         }
 
         // Note: VariableSignature doesn't have position info, so we use the operation range
-        let op_range =
-            text_range_to_diagnostic_range(db, content, metadata, op_structure.operation_range);
+        let op_range = text_range_to_diagnostic_range(db, content, op_structure.operation_range);
         for var in &op_structure.variables {
             validate_variable_type(&var.type_ref, schema, op_range, &mut diagnostics);
         }
@@ -93,8 +89,7 @@ pub fn validate_document_file(
         };
 
         if !schema.contains_key(&Arc::from(root_type_name)) {
-            let range =
-                text_range_to_diagnostic_range(db, content, metadata, op_structure.operation_range);
+            let range = text_range_to_diagnostic_range(db, content, op_structure.operation_range);
             diagnostics.push(Diagnostic::error(
                 format!("Schema does not define a '{root_type_name}' type"),
                 range,
@@ -115,20 +110,15 @@ pub fn validate_document_file(
             .count();
 
         if count > 1 {
-            let range =
-                text_range_to_diagnostic_range(db, content, metadata, frag_structure.name_range);
+            let range = text_range_to_diagnostic_range(db, content, frag_structure.name_range);
             diagnostics.push(Diagnostic::error(
                 format!("Fragment name '{}' is not unique", frag_structure.name),
                 range,
             ));
         }
 
-        let type_condition_range = text_range_to_diagnostic_range(
-            db,
-            content,
-            metadata,
-            frag_structure.type_condition_range,
-        );
+        let type_condition_range =
+            text_range_to_diagnostic_range(db, content, frag_structure.type_condition_range);
         validate_fragment_type_condition(
             frag_structure,
             schema,

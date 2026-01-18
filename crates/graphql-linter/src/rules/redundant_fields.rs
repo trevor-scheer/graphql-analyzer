@@ -55,19 +55,20 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
         let mut diagnostics = Vec::new();
 
         let parse = graphql_syntax::parse(db, content, metadata);
-        if !parse.errors.is_empty() {
+        if parse.has_errors() {
             return diagnostics;
         }
 
-        let doc_cst = parse.tree.document();
-
-        // Collect fragment definitions from the current document
+        // Collect fragment definitions from the current document (all blocks)
         let mut fragments = FragmentRegistry::new();
-        for definition in doc_cst.definitions() {
-            if let cst::Definition::FragmentDefinition(fragment) = definition {
-                if let Some(name) = fragment.fragment_name().and_then(|n| n.name()) {
-                    let fragment_name = name.text().to_string();
-                    fragments.register(fragment_name, fragment.clone());
+        for doc in parse.documents() {
+            let doc_cst = doc.tree.document();
+            for definition in doc_cst.definitions() {
+                if let cst::Definition::FragmentDefinition(fragment) = definition {
+                    if let Some(name) = fragment.fragment_name().and_then(|n| n.name()) {
+                        let fragment_name = name.text().to_string();
+                        fragments.register(fragment_name, fragment.clone());
+                    }
                 }
             }
         }
@@ -91,16 +92,19 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
             {
                 // Parse the file (cached by Salsa)
                 let fragment_parse = graphql_syntax::parse(db, file_content, file_metadata);
-                if fragment_parse.errors.is_empty() {
-                    let fragment_doc_cst = fragment_parse.tree.document();
-
-                    // Find the fragment definition
-                    for definition in fragment_doc_cst.definitions() {
-                        if let cst::Definition::FragmentDefinition(fragment) = definition {
-                            if let Some(name) = fragment.fragment_name().and_then(|n| n.name()) {
-                                if name.text() == fragment_name.as_ref() {
-                                    fragments.register(fragment_name.to_string(), fragment.clone());
-                                    break;
+                if !fragment_parse.has_errors() {
+                    // Find the fragment definition in all documents
+                    'outer: for fragment_doc in fragment_parse.documents() {
+                        let fragment_doc_cst = fragment_doc.tree.document();
+                        for definition in fragment_doc_cst.definitions() {
+                            if let cst::Definition::FragmentDefinition(fragment) = definition {
+                                if let Some(name) = fragment.fragment_name().and_then(|n| n.name())
+                                {
+                                    if name.text() == fragment_name.as_ref() {
+                                        fragments
+                                            .register(fragment_name.to_string(), fragment.clone());
+                                        break 'outer;
+                                    }
                                 }
                             }
                         }
@@ -109,23 +113,21 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
             }
         }
 
-        // Check main document for redundant fields (for .graphql files only)
-        // For TS/JS files, parse.tree is the first block and we check all blocks below
-        let file_kind = metadata.kind(db);
-        if file_kind == graphql_db::FileKind::ExecutableGraphQL
-            || file_kind == graphql_db::FileKind::Schema
-        {
-            check_document_for_redundancy(&doc_cst, &fragments, &mut diagnostics);
-        }
+        // Unified: check all documents for redundant fields
+        for doc in parse.documents() {
+            let doc_cst = doc.tree.document();
+            let mut doc_diagnostics = Vec::new();
+            check_document_for_redundancy(&doc_cst, &fragments, &mut doc_diagnostics, doc.source);
 
-        // Check selection sets in extracted blocks (TypeScript/JavaScript)
-        for block in &parse.blocks {
-            let block_doc = block.tree.document();
-            let mut block_diagnostics = Vec::new();
-            check_document_for_redundancy(&block_doc, &fragments, &mut block_diagnostics);
-            // Add block context to each diagnostic for proper position calculation
-            for diag in block_diagnostics {
-                diagnostics.push(diag.with_block_context(block.line, block.source.clone()));
+            // Add block context for embedded GraphQL (line_offset > 0)
+            if doc.line_offset > 0 {
+                for diag in doc_diagnostics {
+                    diagnostics.push(
+                        diag.with_block_context(doc.line_offset, std::sync::Arc::from(doc.source)),
+                    );
+                }
+            } else {
+                diagnostics.extend(doc_diagnostics);
             }
         }
 
@@ -138,17 +140,28 @@ fn check_document_for_redundancy(
     doc_cst: &cst::Document,
     fragments: &FragmentRegistry,
     diagnostics: &mut Vec<LintDiagnostic>,
+    source: &str,
 ) {
     for definition in doc_cst.definitions() {
         match definition {
             cst::Definition::OperationDefinition(operation) => {
                 if let Some(selection_set) = operation.selection_set() {
-                    check_selection_set_for_redundancy(&selection_set, fragments, diagnostics);
+                    check_selection_set_for_redundancy(
+                        &selection_set,
+                        fragments,
+                        diagnostics,
+                        source,
+                    );
                 }
             }
             cst::Definition::FragmentDefinition(fragment) => {
                 if let Some(selection_set) = fragment.selection_set() {
-                    check_selection_set_for_redundancy(&selection_set, fragments, diagnostics);
+                    check_selection_set_for_redundancy(
+                        &selection_set,
+                        fragments,
+                        diagnostics,
+                        source,
+                    );
                 }
             }
             _ => {}
@@ -247,12 +260,57 @@ impl FragmentRegistry {
     }
 }
 
+/// Compute a deletion range that removes the entire line when appropriate.
+///
+/// If the field occupies a line by itself (only whitespace before and after),
+/// the deletion will include the leading whitespace and trailing newline.
+/// Otherwise, only the field text itself is deleted.
+fn compute_line_deletion_range(
+    source: &str,
+    field_start: usize,
+    field_end: usize,
+) -> (usize, usize) {
+    let bytes = source.as_bytes();
+
+    // Find start of line (position after previous newline, or 0)
+    let line_start = bytes[..field_start]
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map_or(0, |pos| pos + 1);
+
+    // Find end of line (position after newline, or end of source)
+    let line_end = bytes[field_end..]
+        .iter()
+        .position(|&b| b == b'\n')
+        .map_or(source.len(), |pos| field_end + pos + 1);
+
+    // Check if only whitespace exists before the field on this line
+    let only_whitespace_before = bytes[line_start..field_start]
+        .iter()
+        .all(|&b| b == b' ' || b == b'\t');
+
+    // Check if only whitespace exists after the field before the newline/EOF
+    let content_after_field = if line_end > field_end && bytes[line_end - 1] == b'\n' {
+        &bytes[field_end..line_end - 1]
+    } else {
+        &bytes[field_end..line_end]
+    };
+    let only_whitespace_after = content_after_field.iter().all(|&b| b == b' ' || b == b'\t');
+
+    if only_whitespace_before && only_whitespace_after {
+        (line_start, line_end)
+    } else {
+        (field_start, field_end)
+    }
+}
+
 /// Check a selection set for redundant fields
 #[allow(clippy::too_many_lines)]
 fn check_selection_set_for_redundancy(
     selection_set: &cst::SelectionSet,
     fragments: &FragmentRegistry,
     diagnostics: &mut Vec<LintDiagnostic>,
+    source: &str,
 ) {
     let selections: Vec<_> = selection_set.selections().collect();
 
@@ -311,9 +369,11 @@ fn check_selection_set_for_redundancy(
                         "Field {field_desc} is selected multiple times in the same selection set"
                     );
 
+                    let (delete_start, delete_end) =
+                        compute_line_deletion_range(source, field_start, field_end);
                     let fix = CodeFix::new(
                         format!("Remove duplicate field {field_desc}"),
-                        vec![TextEdit::delete(field_start, field_end)],
+                        vec![TextEdit::delete(delete_start, delete_end)],
                     );
 
                     diagnostics.push(
@@ -368,9 +428,11 @@ fn check_selection_set_for_redundancy(
                         "Field {field_desc} is redundant - already included in {fragment_list}"
                     );
 
+                    let (delete_start, delete_end) =
+                        compute_line_deletion_range(source, field_start, field_end);
                     let fix = CodeFix::new(
                         format!("Remove redundant field {field_desc}"),
-                        vec![TextEdit::delete(field_start, field_end)],
+                        vec![TextEdit::delete(delete_start, delete_end)],
                     );
 
                     diagnostics.push(
@@ -387,12 +449,69 @@ fn check_selection_set_for_redundancy(
 
             // Recursively check nested selection sets
             if let Some(nested_set) = field.selection_set() {
-                check_selection_set_for_redundancy(&nested_set, fragments, diagnostics);
+                check_selection_set_for_redundancy(&nested_set, fragments, diagnostics, source);
             }
         } else if let cst::Selection::InlineFragment(inline_fragment) = selection {
             if let Some(nested_set) = inline_fragment.selection_set() {
-                check_selection_set_for_redundancy(&nested_set, fragments, diagnostics);
+                check_selection_set_for_redundancy(&nested_set, fragments, diagnostics, source);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compute_line_deletion_range;
+
+    #[test]
+    fn test_field_alone_on_line() {
+        // Field is alone on its line - should delete entire line including newline
+        let source = "fragment Foo on Type {\n  ...Bar\n  id\n  name\n}";
+        //                                          ^--^ field "id" at offsets 34-36
+        let (start, end) = compute_line_deletion_range(source, 34, 36);
+        // Should delete from start of line (32) to after newline (37)
+        assert_eq!(start, 32); // "  id\n" starts at 32
+        assert_eq!(end, 37); // newline is at 36, so end after newline is 37
+    }
+
+    #[test]
+    fn test_field_with_other_content_on_line() {
+        // Field is on a line with other content - should only delete field
+        let source = "{ ...Bar id name }";
+        //              ^--^ field "id" at offsets 9-11
+        let (start, end) = compute_line_deletion_range(source, 9, 11);
+        // Should only delete the field itself
+        assert_eq!(start, 9);
+        assert_eq!(end, 11);
+    }
+
+    #[test]
+    fn test_first_line_field() {
+        // Field on first line by itself
+        let source = "  id\nname";
+        let (start, end) = compute_line_deletion_range(source, 2, 4);
+        // Should delete from 0 to 5 (including newline)
+        assert_eq!(start, 0);
+        assert_eq!(end, 5);
+    }
+
+    #[test]
+    fn test_last_line_field_no_trailing_newline() {
+        // Field on last line without trailing newline
+        let source = "name\n  id";
+        let (start, end) = compute_line_deletion_range(source, 7, 9);
+        // Should delete from 5 to 9 (line start to end of source)
+        assert_eq!(start, 5);
+        assert_eq!(end, 9);
+    }
+
+    #[test]
+    fn test_field_with_trailing_whitespace() {
+        // Field with trailing whitespace before newline
+        let source = "fragment Foo on Type {\n  id  \n}";
+        let (start, end) = compute_line_deletion_range(source, 25, 27);
+        // Should delete entire line including trailing whitespace and newline
+        assert_eq!(start, 23); // start of "  id  \n"
+        assert_eq!(end, 30); // after newline
     }
 }

@@ -53,9 +53,10 @@ mod types;
 
 // Re-export types from the types module
 pub use types::{
-    CodeFix, CompletionItem, CompletionKind, Diagnostic, DiagnosticSeverity, DocumentSymbol,
-    FilePath, HoverResult, InsertTextFormat, Location, Position, Range, SchemaStats, SymbolKind,
-    TextEdit, WorkspaceSymbol,
+    CodeFix, CodeLens, CodeLensCommand, CodeLensInfo, CompletionItem, CompletionKind, Diagnostic,
+    DiagnosticSeverity, DocumentSymbol, FilePath, FragmentReference, FragmentUsage, HoverResult,
+    InsertTextFormat, Location, Position, Range, SchemaStats, SymbolKind, TextEdit,
+    WorkspaceSymbol,
 };
 
 // Re-export helpers for internal use
@@ -78,6 +79,62 @@ use symbol::{
 
 // Re-export database types that IDE layer needs
 pub use graphql_db::FileKind;
+
+/// Information about a loaded file from document discovery
+#[derive(Debug, Clone)]
+pub struct LoadedFile {
+    /// The file path (as a URI string)
+    pub path: FilePath,
+    /// The determined file kind
+    pub kind: FileKind,
+}
+
+/// Expand brace patterns like `{ts,tsx}` into multiple patterns
+///
+/// This is needed because the glob crate doesn't support brace expansion.
+/// For example, `**/*.{ts,tsx}` expands to `["**/*.ts", "**/*.tsx"]`.
+fn expand_braces(pattern: &str) -> Vec<String> {
+    if let Some(start) = pattern.find('{') {
+        if let Some(end) = pattern.find('}') {
+            let before = &pattern[..start];
+            let after = &pattern[end + 1..];
+            let options = &pattern[start + 1..end];
+
+            return options
+                .split(',')
+                .map(|opt| format!("{before}{opt}{after}"))
+                .collect();
+        }
+    }
+
+    vec![pattern.to_string()]
+}
+
+/// Determine `FileKind` for a document file based on its path.
+///
+/// This is used for files loaded from the `documents` configuration.
+/// - `.ts`/`.tsx` files → TypeScript
+/// - `.js`/`.jsx` files → JavaScript
+/// - `.graphql`/`.gql` files → `ExecutableGraphQL`
+///
+/// Note: Files from the `schema` configuration are always `FileKind::Schema`,
+/// regardless of their extension.
+#[allow(clippy::case_sensitive_file_extension_comparisons)]
+fn determine_document_file_kind(path: &str, _content: &str) -> FileKind {
+    if path.ends_with(".ts") || path.ends_with(".tsx") {
+        FileKind::TypeScript
+    } else if path.ends_with(".js") || path.ends_with(".jsx") {
+        FileKind::JavaScript
+    } else {
+        FileKind::ExecutableGraphQL
+    }
+}
+
+/// Convert a filesystem path to a `FilePath` (URI format)
+fn path_to_file_path(path: &std::path::Path) -> FilePath {
+    let uri_string = path_to_file_uri(path);
+    FilePath::new(uri_string)
+}
 
 #[cfg(test)]
 /// Helper for tests: extracts cursor position from a string with a `*` marker.
@@ -125,6 +182,322 @@ fn extract_cursor(input: &str) -> (String, Position) {
 }
 
 // POD types are now defined in types.rs and re-exported above
+
+/// Semantic token type for syntax highlighting
+///
+/// These map to LSP semantic token types and provide rich syntax highlighting
+/// based on semantic analysis (e.g., knowing if a field is deprecated).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemanticTokenType {
+    /// GraphQL type names (User, Post, etc.)
+    Type,
+    /// Field names in selection sets
+    Property,
+    /// Variables ($id, $limit)
+    Variable,
+    /// Fragment names
+    Function,
+    /// Enum values (ACTIVE, PENDING)
+    EnumMember,
+    /// Keywords (query, mutation, fragment, on)
+    Keyword,
+    /// String literals
+    String,
+    /// Number literals
+    Number,
+}
+
+impl SemanticTokenType {
+    /// Index into the legend (must match order in LSP capability registration)
+    #[must_use]
+    pub const fn index(self) -> u32 {
+        match self {
+            Self::Type => 0,
+            Self::Property => 1,
+            Self::Variable => 2,
+            Self::Function => 3,
+            Self::EnumMember => 4,
+            Self::Keyword => 5,
+            Self::String => 6,
+            Self::Number => 7,
+        }
+    }
+}
+
+/// Semantic token modifier for additional styling
+///
+/// These are combined as a bitmask and provide additional semantic information
+/// like deprecation status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticTokenModifiers(u32);
+
+impl SemanticTokenModifiers {
+    /// No modifiers
+    pub const NONE: Self = Self(0);
+    /// Element is deprecated (triggers strikethrough in editors)
+    pub const DEPRECATED: Self = Self(1 << 0);
+    /// Element is a definition site
+    pub const DEFINITION: Self = Self(1 << 1);
+
+    /// Create from raw bitmask
+    #[must_use]
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    /// Get raw bitmask value
+    #[must_use]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// Combine modifiers
+    #[must_use]
+    pub const fn with(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// Check if a modifier is set
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        (self.0 & other.0) == other.0
+    }
+}
+
+/// A semantic token for syntax highlighting
+///
+/// Tokens are emitted in document order and converted to delta encoding
+/// by the LSP layer before being sent to the client.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticToken {
+    /// Start position of the token
+    pub start: Position,
+    /// Length of the token in UTF-16 code units
+    pub length: u32,
+    /// Token type
+    pub token_type: SemanticTokenType,
+    /// Token modifiers (bitmask)
+    pub modifiers: SemanticTokenModifiers,
+}
+
+impl SemanticToken {
+    #[must_use]
+    pub const fn new(
+        start: Position,
+        length: u32,
+        token_type: SemanticTokenType,
+        modifiers: SemanticTokenModifiers,
+    ) -> Self {
+        Self {
+            start,
+            length,
+            token_type,
+            modifiers,
+        }
+    }
+}
+
+/// Field usage information for a single field
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldUsageInfo {
+    /// Number of operations that use this field
+    pub usage_count: usize,
+    /// Names of operations that use this field
+    pub operations: Vec<String>,
+}
+
+/// Coverage information for a single type
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeCoverageInfo {
+    /// Name of the type
+    pub type_name: String,
+    /// Total number of fields on this type
+    pub total_fields: usize,
+    /// Number of fields that are used in operations
+    pub used_fields: usize,
+}
+
+impl TypeCoverageInfo {
+    /// Calculate coverage as a percentage (0.0 to 100.0)
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn coverage_percentage(&self) -> f64 {
+        if self.total_fields == 0 {
+            100.0
+        } else {
+            (self.used_fields as f64 / self.total_fields as f64) * 100.0
+        }
+    }
+}
+
+/// Field usage coverage report for an entire project
+#[derive(Debug, Clone, Default)]
+pub struct FieldCoverageReport {
+    /// Total number of fields in the schema
+    pub total_fields: usize,
+    /// Number of fields used in at least one operation
+    pub used_fields: usize,
+    /// Coverage by type
+    pub types: Vec<TypeCoverageInfo>,
+    /// Detailed field usages (`type_name`, `field_name`) -> usage info
+    pub field_usages: HashMap<(String, String), FieldUsageInfo>,
+}
+
+impl FieldCoverageReport {
+    /// Calculate overall coverage as a percentage (0.0 to 100.0)
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn coverage_percentage(&self) -> f64 {
+        if self.total_fields == 0 {
+            100.0
+        } else {
+            (self.used_fields as f64 / self.total_fields as f64) * 100.0
+        }
+    }
+
+    /// Get all unused fields as (`type_name`, `field_name`) tuples
+    #[must_use]
+    pub fn unused_fields(&self) -> Vec<(String, String)> {
+        self.field_usages
+            .iter()
+            .filter(|(_, info)| info.usage_count == 0)
+            .map(|((type_name, field_name), _)| (type_name.clone(), field_name.clone()))
+            .collect()
+    }
+}
+
+impl From<Arc<graphql_analysis::FieldCoverageReport>> for FieldCoverageReport {
+    fn from(report: Arc<graphql_analysis::FieldCoverageReport>) -> Self {
+        let types: Vec<TypeCoverageInfo> = report
+            .type_coverage
+            .iter()
+            .map(|(name, coverage)| TypeCoverageInfo {
+                type_name: name.to_string(),
+                total_fields: coverage.total_fields,
+                used_fields: coverage.used_fields,
+            })
+            .collect();
+
+        let field_usages: HashMap<(String, String), FieldUsageInfo> = report
+            .field_usages
+            .iter()
+            .map(|((type_name, field_name), usage)| {
+                (
+                    (type_name.to_string(), field_name.to_string()),
+                    FieldUsageInfo {
+                        usage_count: usage.usage_count,
+                        operations: usage.operations.iter().map(ToString::to_string).collect(),
+                    },
+                )
+            })
+            .collect();
+
+        Self {
+            total_fields: report.total_fields,
+            used_fields: report.used_fields,
+            types,
+            field_usages,
+        }
+    }
+}
+
+/// Per-field complexity breakdown
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldComplexity {
+    /// Field path from root (e.g., "posts.author.name")
+    pub path: String,
+    /// Field name
+    pub name: String,
+    /// Complexity score for this field
+    pub complexity: u32,
+    /// List multiplier (for list fields like `[Post!]!`)
+    pub multiplier: u32,
+    /// Depth level (0 = root level)
+    pub depth: u32,
+    /// Whether this is a connection pattern (edges/nodes pagination)
+    pub is_connection: bool,
+    /// Warning message if any (e.g., nested pagination)
+    pub warning: Option<String>,
+}
+
+impl FieldComplexity {
+    pub fn new(path: impl Into<String>, name: impl Into<String>, complexity: u32) -> Self {
+        Self {
+            path: path.into(),
+            name: name.into(),
+            complexity,
+            multiplier: 1,
+            depth: 0,
+            is_connection: false,
+            warning: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_multiplier(mut self, multiplier: u32) -> Self {
+        self.multiplier = multiplier;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_depth(mut self, depth: u32) -> Self {
+        self.depth = depth;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_connection(mut self, is_connection: bool) -> Self {
+        self.is_connection = is_connection;
+        self
+    }
+
+    #[must_use]
+    pub fn with_warning(mut self, warning: impl Into<String>) -> Self {
+        self.warning = Some(warning.into());
+        self
+    }
+}
+
+/// Complexity analysis result for an operation
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComplexityAnalysis {
+    /// Operation name (or "<anonymous>" for unnamed operations)
+    pub operation_name: String,
+    /// Operation type (query, mutation, subscription)
+    pub operation_type: String,
+    /// Total calculated complexity score
+    pub total_complexity: u32,
+    /// Maximum selection depth
+    pub depth: u32,
+    /// Per-field complexity breakdown
+    pub breakdown: Vec<FieldComplexity>,
+    /// Warnings about potential issues (nested pagination, etc.)
+    pub warnings: Vec<String>,
+    /// File path containing this operation
+    pub file: FilePath,
+    /// Range of the operation in the file
+    pub range: Range,
+}
+
+impl ComplexityAnalysis {
+    pub fn new(
+        operation_name: impl Into<String>,
+        operation_type: impl Into<String>,
+        file: FilePath,
+        range: Range,
+    ) -> Self {
+        Self {
+            operation_name: operation_name.into(),
+            operation_type: operation_type.into(),
+            total_complexity: 0,
+            depth: 0,
+            breakdown: Vec::new(),
+            warnings: Vec::new(),
+            file,
+            range,
+        }
+    }
+}
 
 /// Input: Lint configuration
 ///
@@ -204,7 +577,11 @@ impl graphql_syntax::GraphQLSyntaxDatabase for IdeDatabase {
 }
 
 #[salsa::db]
-impl graphql_hir::GraphQLHirDatabase for IdeDatabase {}
+impl graphql_hir::GraphQLHirDatabase for IdeDatabase {
+    fn project_files(&self) -> Option<graphql_db::ProjectFiles> {
+        *self.project_files.read()
+    }
+}
 
 #[salsa::db]
 impl graphql_analysis::GraphQLAnalysisDatabase for IdeDatabase {
@@ -234,12 +611,12 @@ impl graphql_analysis::GraphQLAnalysisDatabase for IdeDatabase {
 ///     let snapshot = host.snapshot();
 ///     snapshot.diagnostics(&file)
 /// }; // snapshot dropped here
-/// host.add_file(&file, new_content, kind, 0); // Safe: no snapshots exist
+/// host.add_file(&file, new_content, kind); // Safe: no snapshots exist
 ///
 /// // WRONG: Holding snapshot across mutation
 /// let snapshot = host.snapshot();
 /// let result = snapshot.diagnostics(&file);
-/// host.add_file(&file, new_content, kind, 0); // HANGS: snapshot still alive!
+/// host.add_file(&file, new_content, kind); // HANGS: snapshot still alive!
 /// ```
 pub struct AnalysisHost {
     db: IdeDatabase,
@@ -261,22 +638,14 @@ impl AnalysisHost {
     /// Add or update a file in the host
     ///
     /// This is a convenience method for adding files to the registry and database.
-    /// The `line_offset` parameter is used for TypeScript/JavaScript files where GraphQL
-    /// is extracted - it indicates the line number in the original source where the GraphQL starts.
     ///
     /// Returns `true` if this is a new file, `false` if it's an update to an existing file.
     ///
     /// **IMPORTANT**: Only call `rebuild_project_files()` when this returns `true` (new file).
     /// Content-only updates do NOT require rebuilding the project index.
-    pub fn add_file(
-        &mut self,
-        path: &FilePath,
-        content: &str,
-        kind: FileKind,
-        line_offset: u32,
-    ) -> bool {
+    pub fn add_file(&mut self, path: &FilePath, content: &str, kind: FileKind) -> bool {
         let mut registry = self.registry.write();
-        let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, kind, line_offset);
+        let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, kind);
         is_new
     }
 
@@ -305,11 +674,10 @@ impl AnalysisHost {
         path: &FilePath,
         content: &str,
         kind: FileKind,
-        line_offset: u32,
     ) -> (bool, Analysis) {
         // Single lock acquisition for both operations
         let mut registry = self.registry.write();
-        let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, kind, line_offset);
+        let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, kind);
 
         // If this is a new file, rebuild the index before creating snapshot
         if is_new {
@@ -369,7 +737,6 @@ impl AnalysisHost {
             &FilePath::new("apollo_client_builtins.graphql".to_string()),
             APOLLO_CLIENT_BUILTINS,
             FileKind::Schema,
-            0,
         );
         let mut count = 1;
 
@@ -427,14 +794,10 @@ impl AnalysisHost {
                                                             file_uri.clone()
                                                         };
 
-                                                        #[allow(clippy::cast_possible_truncation)]
-                                                        let line_offset =
-                                                            block.location.range.start.line as u32;
                                                         self.add_file(
                                                             &FilePath::new(block_uri),
                                                             &block.source,
                                                             FileKind::Schema,
-                                                            line_offset,
                                                         );
                                                         count += 1;
                                                     }
@@ -462,7 +825,6 @@ impl AnalysisHost {
                                         &FilePath::new(file_uri),
                                         &content,
                                         FileKind::Schema,
-                                        0,
                                     );
                                     count += 1;
                                 }
@@ -524,6 +886,124 @@ impl AnalysisHost {
             .extract_config_input
             .map(|input| (*input.config(&self.db)).clone())
             .unwrap_or_default()
+    }
+
+    /// Load document files from a project configuration
+    ///
+    /// This method handles:
+    /// - Glob pattern expansion (including brace expansion like `{ts,tsx}`)
+    /// - File reading and content extraction
+    /// - File kind determination based on extension
+    /// - Batch file registration (more efficient than individual `add_file` calls)
+    ///
+    /// Returns information about loaded files for indexing purposes.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The project configuration containing document patterns
+    /// * `workspace_path` - The base directory for glob pattern resolution
+    ///
+    /// # Returns
+    ///
+    /// A vector of `LoadedFile` structs containing file paths and metadata.
+    /// The caller can use this information to build file-to-project indexes.
+    #[allow(clippy::too_many_lines)]
+    pub fn load_documents_from_config(
+        &mut self,
+        config: &graphql_config::ProjectConfig,
+        workspace_path: &std::path::Path,
+    ) -> Vec<LoadedFile> {
+        let Some(documents_config) = &config.documents else {
+            return Vec::new();
+        };
+
+        let patterns: Vec<String> = documents_config
+            .patterns()
+            .into_iter()
+            .map(std::string::ToString::to_string)
+            .collect();
+
+        let mut loaded_files: Vec<LoadedFile> = Vec::new();
+        let mut files_to_add: Vec<(FilePath, String, FileKind)> = Vec::new();
+
+        for pattern in patterns {
+            // Skip negation patterns
+            if pattern.trim().starts_with('!') {
+                continue;
+            }
+
+            let expanded_patterns = expand_braces(&pattern);
+
+            for expanded_pattern in expanded_patterns {
+                let full_pattern = workspace_path.join(&expanded_pattern);
+
+                match glob::glob(&full_pattern.display().to_string()) {
+                    Ok(paths) => {
+                        for entry in paths {
+                            match entry {
+                                Ok(path) if path.is_file() => {
+                                    // Skip node_modules
+                                    if path.components().any(|c| c.as_os_str() == "node_modules") {
+                                        continue;
+                                    }
+
+                                    // Read file content
+                                    match std::fs::read_to_string(&path) {
+                                        Ok(content) => {
+                                            let path_str = path.display().to_string();
+                                            let file_kind =
+                                                determine_document_file_kind(&path_str, &content);
+
+                                            let file_path = path_to_file_path(&path);
+
+                                            loaded_files.push(LoadedFile {
+                                                path: file_path.clone(),
+                                                kind: file_kind,
+                                            });
+
+                                            files_to_add.push((file_path, content, file_kind));
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                "Failed to read file {}: {}",
+                                                path.display(),
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+                                Ok(_) => {}
+                                Err(e) => {
+                                    tracing::warn!("Glob entry error: {}", e);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Invalid glob pattern '{}': {}", expanded_pattern, e);
+                    }
+                }
+            }
+        }
+
+        // Batch add all files
+        for (file_path, content, file_kind) in files_to_add {
+            self.add_file(&file_path, &content, file_kind);
+        }
+
+        loaded_files
+    }
+
+    /// Iterate over all files in the host
+    ///
+    /// Returns an iterator of `FilePath` for all registered files.
+    pub fn files(&self) -> Vec<FilePath> {
+        let registry = self.registry.read();
+        registry
+            .all_file_ids()
+            .into_iter()
+            .filter_map(|file_id| registry.get_path(file_id))
+            .collect()
     }
 
     /// Get an immutable snapshot for analysis
@@ -691,6 +1171,71 @@ impl Analysis {
         lint_diagnostics.iter().map(convert_diagnostic).collect()
     }
 
+    /// Get semantic tokens for a file
+    ///
+    /// Returns tokens for syntax highlighting with semantic information,
+    /// including deprecation status for fields.
+    #[allow(clippy::too_many_lines)]
+    pub fn semantic_tokens(&self, file: &FilePath) -> Vec<SemanticToken> {
+        let (content, metadata) = {
+            let registry = self.registry.read();
+
+            // Look up FileId from FilePath
+            let Some(file_id) = registry.get_file_id(file) else {
+                return Vec::new();
+            };
+
+            // Get FileContent and FileMetadata
+            let Some(content) = registry.get_content(file_id) else {
+                return Vec::new();
+            };
+            let Some(metadata) = registry.get_metadata(file_id) else {
+                return Vec::new();
+            };
+            drop(registry);
+
+            (content, metadata)
+        };
+
+        // Parse the file
+        let parse = graphql_syntax::parse(&self.db, content, metadata);
+        if parse.has_errors() {
+            // Don't provide semantic tokens for files with parse errors
+            return Vec::new();
+        }
+
+        // Get schema types if available (for deprecation checks)
+        // schema_types returns a reference due to Salsa's returns(ref) optimization
+        let schema_types: Option<&std::collections::HashMap<Arc<str>, graphql_hir::TypeDef>> = self
+            .project_files
+            .map(|pf| graphql_hir::schema_types(&self.db, pf));
+
+        let mut tokens = Vec::new();
+
+        // Unified: collect tokens from all documents (works for both pure GraphQL and TS/JS)
+        #[allow(clippy::cast_possible_truncation)]
+        for doc in parse.documents() {
+            let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+            collect_semantic_tokens_from_document(
+                &doc.tree.document(),
+                &doc_line_index,
+                doc.line_offset as u32,
+                schema_types,
+                &mut tokens,
+            );
+        }
+
+        // Sort tokens by position (required for delta encoding)
+        tokens.sort_by(|a, b| {
+            a.start
+                .line
+                .cmp(&b.start.line)
+                .then_with(|| a.start.character.cmp(&b.start.character))
+        });
+
+        tokens
+    }
+
     /// Get project-wide lint diagnostics (e.g., unused fields, unique names)
     ///
     /// Returns a map of file paths -> diagnostics for project-wide lint rules.
@@ -713,6 +1258,73 @@ impl Analysis {
                     results.insert(file_path, converted);
                 }
             }
+        }
+
+        results
+    }
+
+    /// Get all diagnostics for all files, merging per-file and project-wide diagnostics
+    ///
+    /// This is a convenience method for publishing diagnostics. It:
+    /// 1. Gets per-file diagnostics (parse errors, validation errors, per-file lint rules)
+    /// 2. Gets project-wide lint diagnostics (unused fields, etc.)
+    /// 3. Merges them per file
+    ///
+    /// Returns a map of file paths -> all diagnostics for that file.
+    pub fn all_diagnostics(&self) -> HashMap<FilePath, Vec<Diagnostic>> {
+        let mut results: HashMap<FilePath, Vec<Diagnostic>> = HashMap::new();
+
+        // Get all registered files
+        let all_file_paths: Vec<FilePath> = {
+            let registry = self.registry.read();
+            registry
+                .all_file_ids()
+                .into_iter()
+                .filter_map(|file_id| registry.get_path(file_id))
+                .collect()
+        };
+
+        // Get per-file diagnostics for all files
+        for file_path in &all_file_paths {
+            let per_file = self.diagnostics(file_path);
+            if !per_file.is_empty() {
+                results.insert(file_path.clone(), per_file);
+            }
+        }
+
+        // Get project-wide diagnostics and merge
+        let project_diagnostics = self.project_lint_diagnostics();
+        for (file_path, diagnostics) in project_diagnostics {
+            results.entry(file_path).or_default().extend(diagnostics);
+        }
+
+        results
+    }
+
+    /// Get all diagnostics for a specific set of files, merging per-file and project-wide diagnostics
+    ///
+    /// This is useful when you want diagnostics for specific files (e.g., loaded document files)
+    /// rather than all files in the registry.
+    pub fn all_diagnostics_for_files(
+        &self,
+        files: &[FilePath],
+    ) -> HashMap<FilePath, Vec<Diagnostic>> {
+        let mut results: HashMap<FilePath, Vec<Diagnostic>> = HashMap::new();
+
+        // Get per-file diagnostics for specified files
+        for file_path in files {
+            let per_file = self.diagnostics(file_path);
+            if !per_file.is_empty() {
+                results.insert(file_path.clone(), per_file);
+            }
+        }
+
+        // Get project-wide diagnostics and merge
+        let project_diagnostics = self.project_lint_diagnostics();
+        for (file_path, diagnostics) in project_diagnostics {
+            // Only include if the file is in our set OR it's a schema file with issues
+            // (project-wide lints like unused_fields report on schema files)
+            results.entry(file_path).or_default().extend(diagnostics);
         }
 
         results
@@ -788,6 +1400,138 @@ impl Analysis {
         Some(content.text(&self.db).to_string())
     }
 
+    /// Get field usage coverage report for the project
+    ///
+    /// Analyzes which schema fields are used in operations and returns
+    /// detailed coverage statistics. This is useful for understanding
+    /// schema usage patterns and finding unused fields.
+    pub fn field_coverage(&self) -> Option<FieldCoverageReport> {
+        let _ = self.project_files?;
+        Some(FieldCoverageReport::from(
+            graphql_analysis::analyze_field_usage(&self.db),
+        ))
+    }
+
+    /// Get field usage for a specific field
+    ///
+    /// Returns usage information for a field if it exists in the schema.
+    /// Useful for enhancing hover to show "Used in N operations".
+    pub fn field_usage(&self, type_name: &str, field_name: &str) -> Option<FieldUsageInfo> {
+        let _ = self.project_files?;
+        let coverage = graphql_analysis::analyze_field_usage(&self.db);
+        let key = (
+            std::sync::Arc::from(type_name),
+            std::sync::Arc::from(field_name),
+        );
+        coverage.field_usages.get(&key).map(|usage| FieldUsageInfo {
+            usage_count: usage.usage_count,
+            operations: usage.operations.iter().map(ToString::to_string).collect(),
+        })
+    }
+
+    /// Get complexity analysis for all operations in the project
+    ///
+    /// Analyzes each operation's selection set to calculate:
+    /// - Total complexity score (with list multipliers)
+    /// - Maximum depth
+    /// - Per-field complexity breakdown
+    /// - Connection pattern detection (Relay-style edges/nodes/pageInfo)
+    /// - Warnings about potential issues (nested pagination, etc.)
+    pub fn complexity_analysis(&self) -> Vec<ComplexityAnalysis> {
+        let Some(project_files) = self.project_files else {
+            return Vec::new();
+        };
+
+        // Get all operations in the project
+        let operations = graphql_hir::all_operations(&self.db, project_files);
+        let schema_types = graphql_hir::schema_types(&self.db, project_files);
+
+        let mut results = Vec::new();
+
+        for operation in operations.iter() {
+            // Get file information for this operation
+            let registry = self.registry.read();
+            let Some(file_path) = registry.get_path(operation.file_id) else {
+                continue;
+            };
+            let Some(content) = registry.get_content(operation.file_id) else {
+                continue;
+            };
+            let Some(metadata) = registry.get_metadata(operation.file_id) else {
+                continue;
+            };
+            drop(registry);
+
+            // Get operation body
+            let body = graphql_hir::operation_body(&self.db, content, metadata, operation.index);
+
+            // Calculate operation range
+            let line_offset = metadata.line_offset(&self.db);
+
+            // Get operation location for the range
+            let range = if let Some(ref name) = operation.name {
+                let parse = graphql_syntax::parse(&self.db, content, metadata);
+                let mut found_range = None;
+                for doc in parse.documents() {
+                    if let Some(ranges) = find_operation_definition_ranges(doc.tree, name) {
+                        let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                        #[allow(clippy::cast_possible_truncation)]
+                        let doc_line_offset = doc.line_offset as u32 + line_offset;
+                        found_range = Some(adjust_range_for_line_offset(
+                            offset_range_to_range(
+                                &doc_line_index,
+                                ranges.def_start,
+                                ranges.def_end,
+                            ),
+                            doc_line_offset,
+                        ));
+                        break;
+                    }
+                }
+                found_range.unwrap_or_else(|| Range::new(Position::new(0, 0), Position::new(0, 0)))
+            } else {
+                Range::new(Position::new(0, 0), Position::new(0, 0))
+            };
+
+            // Create complexity analysis
+            let op_name = operation
+                .name
+                .as_ref()
+                .map_or_else(|| "<anonymous>".to_string(), ToString::to_string);
+
+            let op_type = match operation.operation_type {
+                graphql_hir::OperationType::Query => "query",
+                graphql_hir::OperationType::Mutation => "mutation",
+                graphql_hir::OperationType::Subscription => "subscription",
+            };
+
+            let mut analysis = ComplexityAnalysis::new(op_name, op_type, file_path, range);
+
+            // Get the root type for this operation
+            let root_type_name = match operation.operation_type {
+                graphql_hir::OperationType::Query => "Query",
+                graphql_hir::OperationType::Mutation => "Mutation",
+                graphql_hir::OperationType::Subscription => "Subscription",
+            };
+
+            // Analyze the operation body
+            analyze_selections(
+                &body.selections,
+                schema_types,
+                root_type_name,
+                "",
+                0,
+                1,
+                &mut analysis,
+                false,
+            );
+
+            results.push(analysis);
+        }
+
+        results
+    }
+
     /// Get completions at a position
     ///
     /// Returns a list of completion items appropriate for the context.
@@ -807,17 +1551,11 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        let metadata_line_offset = metadata.line_offset(&self.db);
-        let (block_context, adjusted_position) =
-            find_block_for_position(&parse, position, metadata_line_offset)?;
+        let (block_context, adjusted_position) = find_block_for_position(&parse, position)?;
 
-        let offset = if let Some(block_source) = block_context.block_source {
-            let block_line_index = graphql_syntax::LineIndex::new(block_source);
-            position_to_offset(&block_line_index, adjusted_position)?
-        } else {
-            let line_index = graphql_syntax::line_index(&self.db, content);
-            position_to_offset(&line_index, adjusted_position)?
-        };
+        // Create line index from block source (all documents now have source)
+        let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);
+        let offset = position_to_offset(&block_line_index, adjusted_position)?;
 
         // Find what symbol we're completing (or near) using the correct tree
         let symbol = find_symbol_at_offset(block_context.tree, offset);
@@ -947,11 +1685,7 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        let line_index = graphql_syntax::line_index(&self.db, content);
-
-        let metadata_line_offset = metadata.line_offset(&self.db);
-        let (block_context, adjusted_position) =
-            find_block_for_position(&parse, position, metadata_line_offset)?;
+        let (block_context, adjusted_position) = find_block_for_position(&parse, position)?;
 
         tracing::debug!(
             "Hover: original position {:?}, block line_offset {}, adjusted position {:?}",
@@ -960,21 +1694,18 @@ impl Analysis {
             adjusted_position
         );
 
-        let offset = if let Some(block_source) = block_context.block_source {
-            let block_line_index = graphql_syntax::LineIndex::new(block_source);
-            position_to_offset(&block_line_index, adjusted_position)?
-        } else {
-            position_to_offset(&line_index, adjusted_position)?
-        };
+        // Create line index from block source (all documents now have source)
+        let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);
+        let offset = position_to_offset(&block_line_index, adjusted_position)?;
 
         // Try to find the symbol at the offset even if there are parse errors
         // This allows hover to work on valid parts of a file with syntax errors elsewhere
         let symbol = find_symbol_at_offset(block_context.tree, offset);
 
         // If we couldn't find a symbol and there are parse errors, show the errors
-        if symbol.is_none() && !parse.errors.is_empty() {
+        if symbol.is_none() && parse.has_errors() {
             let error_messages: Vec<&str> =
-                parse.errors.iter().map(|e| e.message.as_str()).collect();
+                parse.errors().iter().map(|e| e.message.as_str()).collect();
             return Some(HoverResult::new(format!(
                 "**Syntax Errors**\n\n{}",
                 error_messages.join("\n")
@@ -988,22 +1719,29 @@ impl Analysis {
         match symbol {
             Symbol::FieldName { name } => {
                 let types = graphql_hir::schema_types(&self.db, project_files);
-                let parent_ctx = find_parent_type_at_offset(&parse.tree, offset)?;
 
-                // Use walk_type_stack_to_offset to properly resolve the parent type,
-                // which handles inline fragments correctly
-                let parent_type_name = symbol::walk_type_stack_to_offset(
-                    &parse.tree,
-                    types,
-                    offset,
-                    &parent_ctx.root_type,
-                )?;
+                // Try to find parent type from executable document (operation/fragment)
+                // or fall back to schema definition (type/interface)
+                let parent_type_name = if let Some(parent_ctx) =
+                    find_parent_type_at_offset(block_context.tree, offset)
+                {
+                    // Use walk_type_stack_to_offset to properly resolve the parent type,
+                    // which handles inline fragments correctly
+                    symbol::walk_type_stack_to_offset(
+                        block_context.tree,
+                        types,
+                        offset,
+                        &parent_ctx.root_type,
+                    )?
+                } else {
+                    // Try schema definition (field in type/interface definition)
+                    symbol::find_schema_field_parent_type(block_context.tree, offset)?
+                };
 
                 tracing::debug!(
-                    "Hover: resolved parent type '{}' for field '{}' (root: {})",
+                    "Hover: resolved parent type '{}' for field '{}'",
                     parent_type_name,
-                    name,
-                    parent_ctx.root_type
+                    name
                 );
 
                 // Look up the field in the parent type
@@ -1017,8 +1755,37 @@ impl Analysis {
                 let field_type = format_type_ref(&field.type_ref);
                 write!(hover_text, "**Type:** `{field_type}`\n\n").ok();
 
+                // Add field usage information (only if project files are available)
+                if self.project_files.is_some() {
+                    let coverage = graphql_analysis::analyze_field_usage(&self.db);
+                    let usage_key = (Arc::from(parent_type_name.as_str()), Arc::from(name));
+                    if let Some(usage) = coverage.field_usages.get(&usage_key) {
+                        let op_count = usage.operations.len();
+                        if op_count > 0 {
+                            write!(
+                                hover_text,
+                                "**Used in:** {op_count} operation{}\n\n",
+                                if op_count == 1 { "" } else { "s" }
+                            )
+                            .ok();
+                        } else {
+                            write!(hover_text, "**Used in:** 0 operations (unused)\n\n").ok();
+                        }
+                    }
+                }
+
                 if let Some(desc) = &field.description {
                     write!(hover_text, "---\n\n{desc}\n\n").ok();
+                }
+
+                // Show deprecation info if the field is deprecated
+                if field.is_deprecated {
+                    write!(hover_text, "---\n\n").ok();
+                    if let Some(reason) = &field.deprecation_reason {
+                        write!(hover_text, "**Deprecated:** {reason}\n\n").ok();
+                    } else {
+                        write!(hover_text, "**Deprecated**\n\n").ok();
+                    }
                 }
 
                 Some(HoverResult::new(hover_text))
@@ -1081,11 +1848,7 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        let line_index = graphql_syntax::line_index(&self.db, content);
-
-        let metadata_line_offset = metadata.line_offset(&self.db);
-        let (block_context, adjusted_position) =
-            find_block_for_position(&parse, position, metadata_line_offset)?;
+        let (block_context, adjusted_position) = find_block_for_position(&parse, position)?;
 
         tracing::debug!(
             "Goto definition: original position {:?}, block line_offset {}, adjusted position {:?}",
@@ -1094,12 +1857,9 @@ impl Analysis {
             adjusted_position
         );
 
-        let offset = if let Some(block_source) = block_context.block_source {
-            let block_line_index = graphql_syntax::LineIndex::new(block_source);
-            position_to_offset(&block_line_index, adjusted_position)?
-        } else {
-            position_to_offset(&line_index, adjusted_position)?
-        };
+        // Create line index from block source (all documents now have source)
+        let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);
+        let offset = position_to_offset(&block_line_index, adjusted_position)?;
 
         let symbol = find_symbol_at_offset(block_context.tree, offset)?;
 
@@ -1107,24 +1867,30 @@ impl Analysis {
 
         match symbol {
             Symbol::FieldName { name } => {
-                let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
-
                 let schema_types = graphql_hir::schema_types(&self.db, project_files);
 
-                // Use walk_type_stack_to_offset to properly resolve the parent type,
-                // which handles inline fragments correctly
-                let parent_type_name = symbol::walk_type_stack_to_offset(
-                    block_context.tree,
-                    schema_types,
-                    offset,
-                    &parent_context.root_type,
-                )?;
+                // Try to find parent type from executable document (operation/fragment)
+                // or fall back to schema definition (type/interface)
+                let parent_type_name = if let Some(parent_ctx) =
+                    find_parent_type_at_offset(block_context.tree, offset)
+                {
+                    // Use walk_type_stack_to_offset to properly resolve the parent type,
+                    // which handles inline fragments correctly
+                    symbol::walk_type_stack_to_offset(
+                        block_context.tree,
+                        schema_types,
+                        offset,
+                        &parent_ctx.root_type,
+                    )?
+                } else {
+                    // We're on a schema field definition - get the parent type name
+                    symbol::find_schema_field_parent_type(block_context.tree, offset)?
+                };
 
                 tracing::debug!(
-                    "Field '{}' - resolved parent type '{}' (root: {})",
+                    "Field '{}' - resolved parent type '{}'",
                     name,
-                    parent_type_name,
-                    parent_context.root_type
+                    parent_type_name
                 );
 
                 schema_types.get(parent_type_name.as_str())?;
@@ -1145,46 +1911,21 @@ impl Analysis {
 
                     let schema_parse =
                         graphql_syntax::parse(&self.db, schema_content, schema_metadata);
-                    let schema_line_index = graphql_syntax::line_index(&self.db, schema_content);
-                    let schema_line_offset = schema_metadata.line_offset(&self.db);
 
-                    if schema_parse.blocks.is_empty() {
-                        // Pure GraphQL schema file
-                        if let Some(ranges) = find_field_definition_full_range(
-                            &schema_parse.tree,
-                            &parent_type_name,
-                            &name,
-                        ) {
+                    for doc in schema_parse.documents() {
+                        if let Some(ranges) =
+                            find_field_definition_full_range(doc.tree, &parent_type_name, &name)
+                        {
+                            let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
                             let range = offset_range_to_range(
-                                &schema_line_index,
+                                &doc_line_index,
                                 ranges.name_start,
                                 ranges.name_end,
                             );
+                            #[allow(clippy::cast_possible_truncation)]
                             let adjusted_range =
-                                adjust_range_for_line_offset(range, schema_line_offset);
+                                adjust_range_for_line_offset(range, doc.line_offset as u32);
                             return Some(vec![Location::new(file_path, adjusted_range)]);
-                        }
-                    } else {
-                        // TS/JS file with embedded schema (unlikely but handle it)
-                        for block in &schema_parse.blocks {
-                            if let Some(ranges) = find_field_definition_full_range(
-                                &block.tree,
-                                &parent_type_name,
-                                &name,
-                            ) {
-                                let block_line_index =
-                                    graphql_syntax::LineIndex::new(&block.source);
-                                let range = offset_range_to_range(
-                                    &block_line_index,
-                                    ranges.name_start,
-                                    ranges.name_end,
-                                );
-                                #[allow(clippy::cast_possible_truncation)]
-                                let block_line_offset = block.line as u32;
-                                let adjusted_range =
-                                    adjust_range_for_line_offset(range, block_line_offset);
-                                return Some(vec![Location::new(file_path, adjusted_range)]);
-                            }
                         }
                     }
                 }
@@ -1227,15 +1968,9 @@ impl Analysis {
                 drop(registry);
 
                 let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
-                let def_line_offset = def_metadata.line_offset(&self.db);
 
-                let range = find_fragment_definition_in_parse(
-                    &def_parse,
-                    &name,
-                    def_content,
-                    &self.db,
-                    def_line_offset,
-                )?;
+                let range =
+                    find_fragment_definition_in_parse(&def_parse, &name, def_content, &self.db)?;
 
                 Some(vec![Location::new(file_path, range)])
             }
@@ -1256,14 +1991,12 @@ impl Analysis {
 
                     let schema_parse =
                         graphql_syntax::parse(&self.db, schema_content, schema_metadata);
-                    let schema_line_offset = schema_metadata.line_offset(&self.db);
 
                     if let Some(range) = find_type_definition_in_parse(
                         &schema_parse,
                         &name,
                         schema_content,
                         &self.db,
-                        schema_line_offset,
                     ) {
                         return Some(vec![Location::new(file_path, range)]);
                     }
@@ -1273,23 +2006,13 @@ impl Analysis {
                 None
             }
             Symbol::VariableReference { name } => {
-                let range = if let Some(block_source) = block_context.block_source {
-                    let block_line_index = graphql_syntax::LineIndex::new(block_source);
-                    find_variable_definition_in_tree(
-                        block_context.tree,
-                        &name,
-                        &block_line_index,
-                        block_context.line_offset,
-                    )
-                } else {
-                    let file_line_index = graphql_syntax::line_index(&self.db, content);
-                    find_variable_definition_in_tree(
-                        block_context.tree,
-                        &name,
-                        &file_line_index,
-                        block_context.line_offset,
-                    )
-                };
+                let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);
+                let range = find_variable_definition_in_tree(
+                    block_context.tree,
+                    &name,
+                    &block_line_index,
+                    block_context.line_offset,
+                );
 
                 if let Some(range) = range {
                     let registry = self.registry.read();
@@ -1328,40 +2051,32 @@ impl Analysis {
 
                     let schema_parse =
                         graphql_syntax::parse(&self.db, schema_content, schema_metadata);
-                    let schema_line_index = graphql_syntax::line_index(&self.db, schema_content);
-                    let schema_line_offset = schema_metadata.line_offset(&self.db);
 
-                    if let Some(range) = find_argument_definition_in_tree(
-                        &schema_parse.tree,
-                        &parent_type_name,
-                        &field_name,
-                        &name,
-                        &schema_line_index,
-                        schema_line_offset,
-                    ) {
-                        return Some(vec![Location::new(file_path, range)]);
+                    for doc in schema_parse.documents() {
+                        let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                        #[allow(clippy::cast_possible_truncation)]
+                        if let Some(range) = find_argument_definition_in_tree(
+                            doc.tree,
+                            &parent_type_name,
+                            &field_name,
+                            &name,
+                            &doc_line_index,
+                            doc.line_offset as u32,
+                        ) {
+                            return Some(vec![Location::new(file_path, range)]);
+                        }
                     }
                 }
                 None
             }
             Symbol::OperationName { name } => {
-                let range = if let Some(block_source) = block_context.block_source {
-                    let block_line_index = graphql_syntax::LineIndex::new(block_source);
-                    find_operation_definition_in_tree(
-                        block_context.tree,
-                        &name,
-                        &block_line_index,
-                        block_context.line_offset,
-                    )
-                } else {
-                    let file_line_index = graphql_syntax::line_index(&self.db, content);
-                    find_operation_definition_in_tree(
-                        block_context.tree,
-                        &name,
-                        &file_line_index,
-                        block_context.line_offset,
-                    )
-                };
+                let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);
+                let range = find_operation_definition_in_tree(
+                    block_context.tree,
+                    &name,
+                    &block_line_index,
+                    block_context.line_offset,
+                );
 
                 if let Some(range) = range {
                     let registry = self.registry.read();
@@ -1397,11 +2112,7 @@ impl Analysis {
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        let line_index = graphql_syntax::line_index(&self.db, content);
-
-        let metadata_line_offset = metadata.line_offset(&self.db);
-        let (block_context, adjusted_position) =
-            find_block_for_position(&parse, position, metadata_line_offset)?;
+        let (block_context, adjusted_position) = find_block_for_position(&parse, position)?;
 
         tracing::debug!(
             "Find references: original position {:?}, block line_offset {}, adjusted position {:?}",
@@ -1410,12 +2121,9 @@ impl Analysis {
             adjusted_position
         );
 
-        let offset = if let Some(block_source) = block_context.block_source {
-            let block_line_index = graphql_syntax::LineIndex::new(block_source);
-            position_to_offset(&block_line_index, adjusted_position)?
-        } else {
-            position_to_offset(&line_index, adjusted_position)?
-        };
+        // Create line index from block source (all documents now have source)
+        let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);
+        let offset = position_to_offset(&block_line_index, adjusted_position)?;
 
         let symbol = find_symbol_at_offset(block_context.tree, offset)?;
 
@@ -1435,7 +2143,7 @@ impl Analysis {
     }
 
     /// Find all references to a fragment
-    fn find_fragment_references(
+    pub fn find_fragment_references(
         &self,
         fragment_name: &str,
         include_declaration: bool,
@@ -1460,14 +2168,12 @@ impl Analysis {
                     (file_path, def_content, def_metadata)
                 {
                     let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
-                    let def_line_offset = def_metadata.line_offset(&self.db);
 
                     if let Some(range) = find_fragment_definition_in_parse(
                         &def_parse,
                         fragment_name,
                         def_content,
                         &self.db,
-                        def_line_offset,
                     ) {
                         locations.push(Location::new(file_path, range));
                     }
@@ -1494,15 +2200,9 @@ impl Analysis {
             };
 
             let parse = graphql_syntax::parse(&self.db, content, metadata);
-            let line_offset = metadata.line_offset(&self.db);
 
-            let spread_ranges = find_fragment_spreads_in_parse(
-                &parse,
-                fragment_name,
-                content,
-                &self.db,
-                line_offset,
-            );
+            let spread_ranges =
+                find_fragment_spreads_in_parse(&parse, fragment_name, content, &self.db);
 
             for range in spread_ranges {
                 locations.push(Location::new(file_path.clone(), range));
@@ -1534,15 +2234,10 @@ impl Analysis {
                     (file_path, def_content, def_metadata)
                 {
                     let def_parse = graphql_syntax::parse(&self.db, def_content, def_metadata);
-                    let def_line_offset = def_metadata.line_offset(&self.db);
 
-                    if let Some(range) = find_type_definition_in_parse(
-                        &def_parse,
-                        type_name,
-                        def_content,
-                        &self.db,
-                        def_line_offset,
-                    ) {
+                    if let Some(range) =
+                        find_type_definition_in_parse(&def_parse, type_name, def_content, &self.db)
+                    {
                         locations.push(Location::new(file_path, range));
                     }
                 }
@@ -1567,10 +2262,8 @@ impl Analysis {
             };
 
             let parse = graphql_syntax::parse(&self.db, content, metadata);
-            let line_offset = metadata.line_offset(&self.db);
 
-            let type_ranges =
-                find_type_references_in_parse(&parse, type_name, content, &self.db, line_offset);
+            let type_ranges = find_type_references_in_parse(&parse, type_name, content, &self.db);
 
             for range in type_ranges {
                 locations.push(Location::new(file_path.clone(), range));
@@ -1614,17 +2307,23 @@ impl Analysis {
                 };
 
                 let parse = graphql_syntax::parse(&self.db, content, metadata);
-                let line_index = graphql_syntax::line_index(&self.db, content);
-                let line_offset = metadata.line_offset(&self.db);
 
-                if let Some(ranges) =
-                    find_field_definition_full_range(&parse.tree, type_name, field_name)
-                {
-                    let range =
-                        offset_range_to_range(&line_index, ranges.name_start, ranges.name_end);
-                    let adjusted_range = adjust_range_for_line_offset(range, line_offset);
-                    locations.push(Location::new(file_path, adjusted_range));
-                    break; // Field definition found
+                'schema_search: for doc in parse.documents() {
+                    if let Some(ranges) =
+                        find_field_definition_full_range(doc.tree, type_name, field_name)
+                    {
+                        let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                        let range = offset_range_to_range(
+                            &doc_line_index,
+                            ranges.name_start,
+                            ranges.name_end,
+                        );
+                        #[allow(clippy::cast_possible_truncation)]
+                        let adjusted_range =
+                            adjust_range_for_line_offset(range, doc.line_offset as u32);
+                        locations.push(Location::new(file_path, adjusted_range));
+                        break 'schema_search; // Field definition found
+                    }
                 }
             }
         }
@@ -1648,7 +2347,6 @@ impl Analysis {
             };
 
             let parse = graphql_syntax::parse(&self.db, content, metadata);
-            let line_offset = metadata.line_offset(&self.db);
 
             let field_ranges = find_field_usages_in_parse(
                 &parse,
@@ -1657,7 +2355,6 @@ impl Analysis {
                 schema_types,
                 content,
                 &self.db,
-                line_offset,
             );
 
             for range in field_ranges {
@@ -1668,10 +2365,95 @@ impl Analysis {
         locations
     }
 
+    /// Get code lenses for deprecated fields in a schema file
+    ///
+    /// Returns code lens information for each deprecated field definition,
+    /// including the usage count and locations for navigation.
+    pub fn deprecated_field_code_lenses(&self, file: &FilePath) -> Vec<CodeLensInfo> {
+        let mut code_lenses = Vec::new();
+
+        let Some(project_files) = self.project_files else {
+            return code_lenses;
+        };
+
+        // Get the file_id for this file
+        let file_id = {
+            let registry = self.registry.read();
+            registry.get_file_id(file)
+        };
+
+        let Some(file_id) = file_id else {
+            return code_lenses;
+        };
+
+        // Get schema types to find deprecated fields
+        let schema_types = graphql_hir::schema_types(&self.db, project_files);
+
+        // Get file content and metadata for line index
+        let (content, metadata) = {
+            let registry = self.registry.read();
+            let content = registry.get_content(file_id);
+            let metadata = registry.get_metadata(file_id);
+            (content, metadata)
+        };
+
+        let (Some(content), Some(_metadata)) = (content, metadata) else {
+            return code_lenses;
+        };
+
+        let line_index = graphql_syntax::line_index(&self.db, content);
+
+        // Iterate through all types and find deprecated fields in this file
+        for type_def in schema_types.values() {
+            // Only process types defined in the current file
+            if type_def.file_id != file_id {
+                continue;
+            }
+
+            for field in &type_def.fields {
+                if !field.is_deprecated {
+                    continue;
+                }
+
+                // Find usages of this deprecated field
+                let usage_locations = self.find_field_references(
+                    type_def.name.as_ref(),
+                    field.name.as_ref(),
+                    false, // don't include declaration
+                );
+
+                // Convert the field's name_range to editor coordinates
+                let name_start = field.name_range.start().into();
+                let name_end = field.name_range.end().into();
+                let range = offset_range_to_range(&line_index, name_start, name_end);
+
+                let mut code_lens = CodeLensInfo::new(
+                    range,
+                    type_def.name.as_ref(),
+                    field.name.as_ref(),
+                    usage_locations.len(),
+                    usage_locations,
+                );
+
+                if let Some(ref reason) = field.deprecation_reason {
+                    code_lens = code_lens.with_deprecation_reason(reason.as_ref());
+                }
+
+                code_lenses.push(code_lens);
+            }
+
+            // Note: Enum values with @deprecated could also be supported here
+            // by adding a find_enum_value_references method. Left for future work.
+        }
+
+        code_lenses
+    }
+
     /// Get document symbols for a file (hierarchical outline)
     ///
     /// Returns types, operations, and fragments with their fields as children.
     /// This powers the "Go to Symbol in Editor" (Cmd+Shift+O) feature.
+    #[allow(clippy::too_many_lines)]
     pub fn document_symbols(&self, file: &FilePath) -> Vec<DocumentSymbol> {
         let (content, metadata, file_id) = {
             let registry = self.registry.read();
@@ -1692,90 +2474,92 @@ impl Analysis {
         };
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_index = graphql_syntax::line_index(&self.db, content);
-
-        let line_offset = metadata.line_offset(&self.db);
 
         let structure = graphql_hir::file_structure(&self.db, file_id, content, metadata);
 
         let mut symbols = Vec::new();
 
-        let definitions = extract_all_definitions(&parse.tree);
+        for doc in parse.documents() {
+            let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+            #[allow(clippy::cast_possible_truncation)]
+            let doc_line_offset = doc.line_offset as u32;
 
-        for (name, kind, ranges) in definitions {
-            let range = adjust_range_for_line_offset(
-                offset_range_to_range(&line_index, ranges.def_start, ranges.def_end),
-                line_offset,
-            );
-            let selection_range = adjust_range_for_line_offset(
-                offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
-                line_offset,
-            );
+            let definitions = extract_all_definitions(doc.tree);
 
-            let symbol = match kind {
-                "object" => {
-                    let children = get_field_children(
-                        &structure,
-                        &name,
-                        &parse.tree,
-                        &line_index,
-                        line_offset,
-                    );
-                    DocumentSymbol::new(name, SymbolKind::Type, range, selection_range)
-                        .with_children(children)
-                }
-                "interface" => {
-                    let children = get_field_children(
-                        &structure,
-                        &name,
-                        &parse.tree,
-                        &line_index,
-                        line_offset,
-                    );
-                    DocumentSymbol::new(name, SymbolKind::Interface, range, selection_range)
-                        .with_children(children)
-                }
-                "input" => {
-                    let children = get_field_children(
-                        &structure,
-                        &name,
-                        &parse.tree,
-                        &line_index,
-                        line_offset,
-                    );
-                    DocumentSymbol::new(name, SymbolKind::Input, range, selection_range)
-                        .with_children(children)
-                }
-                "union" => DocumentSymbol::new(name, SymbolKind::Union, range, selection_range),
-                "enum" => {
-                    // For enums, we could add enum values as children
-                    DocumentSymbol::new(name, SymbolKind::Enum, range, selection_range)
-                }
-                "scalar" => DocumentSymbol::new(name, SymbolKind::Scalar, range, selection_range),
-                "query" => DocumentSymbol::new(name, SymbolKind::Query, range, selection_range),
-                "mutation" => {
-                    DocumentSymbol::new(name, SymbolKind::Mutation, range, selection_range)
-                }
-                "subscription" => {
-                    DocumentSymbol::new(name, SymbolKind::Subscription, range, selection_range)
-                }
-                "fragment" => {
-                    let detail = structure
-                        .fragments
-                        .iter()
-                        .find(|f| f.name.as_ref() == name)
-                        .map(|f| format!("on {}", f.type_condition));
-                    let mut sym =
-                        DocumentSymbol::new(name, SymbolKind::Fragment, range, selection_range);
-                    if let Some(d) = detail {
-                        sym = sym.with_detail(d);
+            for (name, kind, ranges) in definitions {
+                let range = adjust_range_for_line_offset(
+                    offset_range_to_range(&doc_line_index, ranges.def_start, ranges.def_end),
+                    doc_line_offset,
+                );
+                let selection_range = adjust_range_for_line_offset(
+                    offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
+                    doc_line_offset,
+                );
+
+                let symbol = match kind {
+                    "object" => {
+                        let children = get_field_children(
+                            &structure,
+                            &name,
+                            doc.tree,
+                            &doc_line_index,
+                            doc_line_offset,
+                        );
+                        DocumentSymbol::new(name, SymbolKind::Type, range, selection_range)
+                            .with_children(children)
                     }
-                    sym
-                }
-                _ => continue,
-            };
+                    "interface" => {
+                        let children = get_field_children(
+                            &structure,
+                            &name,
+                            doc.tree,
+                            &doc_line_index,
+                            doc_line_offset,
+                        );
+                        DocumentSymbol::new(name, SymbolKind::Interface, range, selection_range)
+                            .with_children(children)
+                    }
+                    "input" => {
+                        let children = get_field_children(
+                            &structure,
+                            &name,
+                            doc.tree,
+                            &doc_line_index,
+                            doc_line_offset,
+                        );
+                        DocumentSymbol::new(name, SymbolKind::Input, range, selection_range)
+                            .with_children(children)
+                    }
+                    "union" => DocumentSymbol::new(name, SymbolKind::Union, range, selection_range),
+                    "enum" => DocumentSymbol::new(name, SymbolKind::Enum, range, selection_range),
+                    "scalar" => {
+                        DocumentSymbol::new(name, SymbolKind::Scalar, range, selection_range)
+                    }
+                    "query" => DocumentSymbol::new(name, SymbolKind::Query, range, selection_range),
+                    "mutation" => {
+                        DocumentSymbol::new(name, SymbolKind::Mutation, range, selection_range)
+                    }
+                    "subscription" => {
+                        DocumentSymbol::new(name, SymbolKind::Subscription, range, selection_range)
+                    }
+                    "fragment" => {
+                        let detail = structure
+                            .fragments
+                            .iter()
+                            .find(|f| f.name.as_ref() == name)
+                            .map(|f| format!("on {}", f.type_condition));
+                        let mut sym =
+                            DocumentSymbol::new(name, SymbolKind::Fragment, range, selection_range);
+                        if let Some(d) = detail {
+                            sym = sym.with_detail(d);
+                        }
+                        sym
+                    }
+                    _ => continue,
+                };
 
-            symbols.push(symbol);
+                symbols.push(symbol);
+            }
         }
 
         symbols
@@ -1903,9 +2687,11 @@ impl Analysis {
             let parse = graphql_syntax::parse(&self.db, content, metadata);
             // Count directive definitions by checking if the definition is a directive
             // Directives in GraphQL SDL start with "directive @"
-            for definition in &parse.ast.definitions {
-                if definition.as_directive_definition().is_some() {
-                    stats.directives += 1;
+            for doc in parse.documents() {
+                for definition in &doc.ast.definitions {
+                    if definition.as_directive_definition().is_some() {
+                        stats.directives += 1;
+                    }
                 }
             }
         }
@@ -1922,16 +2708,20 @@ impl Analysis {
         drop(registry);
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_index = graphql_syntax::line_index(&self.db, content);
-        let line_offset = metadata.line_offset(&self.db);
 
-        let ranges = find_type_definition_full_range(&parse.tree, &type_def.name)?;
-        let range = adjust_range_for_line_offset(
-            offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
-            line_offset,
-        );
+        for doc in parse.documents() {
+            if let Some(ranges) = find_type_definition_full_range(doc.tree, &type_def.name) {
+                let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                #[allow(clippy::cast_possible_truncation)]
+                let range = adjust_range_for_line_offset(
+                    offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
+                    doc.line_offset as u32,
+                );
+                return Some(Location::new(file_path, range));
+            }
+        }
 
-        Some(Location::new(file_path, range))
+        None
     }
 
     /// Get location for a fragment definition
@@ -1943,16 +2733,20 @@ impl Analysis {
         drop(registry);
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_index = graphql_syntax::line_index(&self.db, content);
-        let line_offset = metadata.line_offset(&self.db);
 
-        let ranges = find_fragment_definition_full_range(&parse.tree, &fragment.name)?;
-        let range = adjust_range_for_line_offset(
-            offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
-            line_offset,
-        );
+        for doc in parse.documents() {
+            if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name) {
+                let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                #[allow(clippy::cast_possible_truncation)]
+                let range = adjust_range_for_line_offset(
+                    offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
+                    doc.line_offset as u32,
+                );
+                return Some(Location::new(file_path, range));
+            }
+        }
 
-        Some(Location::new(file_path, range))
+        None
     }
 
     /// Get location for an operation definition
@@ -1969,20 +2763,510 @@ impl Analysis {
         drop(registry);
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_index = graphql_syntax::line_index(&self.db, content);
+
+        for doc in parse.documents() {
+            if let Some(ranges) = find_operation_definition_ranges(doc.tree, op_name) {
+                let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                #[allow(clippy::cast_possible_truncation)]
+                let range = adjust_range_for_line_offset(
+                    offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
+                    doc.line_offset as u32,
+                );
+                return Some(Location::new(file_path, range));
+            }
+        }
+
+        None
+    }
+
+    /// Get fragment usage analysis for the project
+    ///
+    /// Returns information about each fragment: its definition location,
+    /// all usages (fragment spreads), and transitive dependencies.
+    pub fn fragment_usages(&self) -> Vec<FragmentUsage> {
+        let Some(project_files) = self.project_files else {
+            return Vec::new();
+        };
+
+        let fragments = graphql_hir::all_fragments(&self.db, project_files);
+        let mut results = Vec::new();
+
+        for (name, fragment) in fragments {
+            // Get definition location
+            let Some((def_file, def_range)) = self.get_fragment_def_info(fragment) else {
+                continue;
+            };
+
+            // Get all usages (fragment spreads) excluding the definition
+            let spread_locations = self.find_fragment_references(name, false);
+            let usages: Vec<FragmentReference> = spread_locations
+                .into_iter()
+                .map(FragmentReference::new)
+                .collect();
+
+            // Get transitive dependencies using the fragment spreads index
+            let transitive_deps = self.compute_transitive_dependencies(name, project_files);
+
+            results.push(FragmentUsage {
+                name: name.to_string(),
+                definition_file: def_file,
+                definition_range: def_range,
+                usages,
+                transitive_dependencies: transitive_deps,
+            });
+        }
+
+        // Sort by name for consistent ordering
+        results.sort_by(|a, b| a.name.cmp(&b.name));
+        results
+    }
+
+    /// Get fragment definition file and range
+    fn get_fragment_def_info(
+        &self,
+        fragment: &graphql_hir::FragmentStructure,
+    ) -> Option<(FilePath, Range)> {
+        let registry = self.registry.read();
+        let file_path = registry.get_path(fragment.file_id)?;
+        let content = registry.get_content(fragment.file_id)?;
+        let metadata = registry.get_metadata(fragment.file_id)?;
+        drop(registry);
+
+        let parse = graphql_syntax::parse(&self.db, content, metadata);
         let line_offset = metadata.line_offset(&self.db);
 
-        let ranges = find_operation_definition_ranges(&parse.tree, op_name)?;
-        let range = adjust_range_for_line_offset(
-            offset_range_to_range(&line_index, ranges.name_start, ranges.name_end),
-            line_offset,
-        );
+        for doc in parse.documents() {
+            if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name) {
+                let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                let range = adjust_range_for_line_offset(
+                    offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
+                    line_offset,
+                );
+                return Some((file_path, range));
+            }
+        }
 
-        Some(Location::new(file_path, range))
+        None
+    }
+
+    /// Compute transitive fragment dependencies
+    fn compute_transitive_dependencies(
+        &self,
+        fragment_name: &str,
+        project_files: graphql_db::ProjectFiles,
+    ) -> Vec<String> {
+        let spreads_index = graphql_hir::fragment_spreads_index(&self.db, project_files);
+
+        let mut visited = std::collections::HashSet::new();
+        let mut to_visit = Vec::new();
+
+        // Start with direct dependencies
+        if let Some(direct_deps) = spreads_index.get(fragment_name) {
+            to_visit.extend(direct_deps.iter().cloned());
+        }
+
+        while let Some(dep_name) = to_visit.pop() {
+            if !visited.insert(dep_name.clone()) {
+                continue; // Already visited (handles cycles)
+            }
+
+            // Add transitive dependencies
+            if let Some(nested_deps) = spreads_index.get(&dep_name) {
+                for nested in nested_deps {
+                    if !visited.contains(nested) {
+                        to_visit.push(nested.clone());
+                    }
+                }
+            }
+        }
+
+        let mut deps: Vec<String> = visited.into_iter().map(|s| s.to_string()).collect();
+        deps.sort();
+        deps
+    }
+
+    /// Get code lenses for a file
+    ///
+    /// Returns code lenses for fragment definitions showing reference counts.
+    pub fn code_lenses(&self, file: &FilePath) -> Vec<CodeLens> {
+        let (content, metadata, file_id) = {
+            let registry = self.registry.read();
+
+            let Some(file_id) = registry.get_file_id(file) else {
+                return Vec::new();
+            };
+
+            let Some(content) = registry.get_content(file_id) else {
+                return Vec::new();
+            };
+            let Some(metadata) = registry.get_metadata(file_id) else {
+                return Vec::new();
+            };
+            drop(registry);
+
+            (content, metadata, file_id)
+        };
+
+        // Verify project files are loaded (fragment_usages needs them)
+        if self.project_files.is_none() {
+            return Vec::new();
+        }
+
+        // Get fragment usage information
+        let fragment_usages = self.fragment_usages();
+
+        // Get fragments defined in this file
+        let structure = graphql_hir::file_structure(&self.db, file_id, content, metadata);
+
+        let mut lenses = Vec::new();
+        let parse = graphql_syntax::parse(&self.db, content, metadata);
+
+        for fragment in &structure.fragments {
+            // Find usage info for this fragment
+            let usage_count = fragment_usages
+                .iter()
+                .find(|u| u.name == fragment.name.as_ref())
+                .map_or(0, FragmentUsage::usage_count);
+
+            // Get the range for the fragment definition line
+            for doc in parse.documents() {
+                if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name)
+                {
+                    let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                    #[allow(clippy::cast_possible_truncation)]
+                    let range = adjust_range_for_line_offset(
+                        offset_range_to_range(&doc_line_index, ranges.def_start, ranges.def_start),
+                        doc.line_offset as u32,
+                    );
+
+                    let title = if usage_count == 1 {
+                        "1 reference".to_string()
+                    } else {
+                        format!("{usage_count} references")
+                    };
+
+                    // Create command to show references when clicked
+                    let command = CodeLensCommand::new("editor.action.showReferences", &title)
+                        .with_arguments(vec![
+                            file.as_str().to_string(),
+                            format!("{}:{}", range.start.line, range.start.character),
+                            fragment.name.to_string(),
+                        ]);
+
+                    lenses.push(CodeLens::new(range, title).with_command(command));
+                    break; // Found the fragment, no need to check other documents
+                }
+            }
+        }
+
+        tracing::debug!(lens_count = lenses.len(), "code_lenses: returning");
+        lenses
     }
 }
 
 // Helper functions are now in helpers.rs module
+
+/// Collect semantic tokens from a GraphQL document
+///
+/// Walks the document and emits tokens for fields, types, fragments, etc.
+/// Checks the schema to determine if fields are deprecated.
+#[allow(clippy::too_many_lines)]
+fn collect_semantic_tokens_from_document(
+    doc_cst: &apollo_parser::cst::Document,
+    line_index: &graphql_syntax::LineIndex,
+    line_offset: u32,
+    schema_types: Option<&std::collections::HashMap<Arc<str>, graphql_hir::TypeDef>>,
+    tokens: &mut Vec<SemanticToken>,
+) {
+    use apollo_parser::cst::{self, CstNode};
+
+    for definition in doc_cst.definitions() {
+        match definition {
+            cst::Definition::OperationDefinition(operation) => {
+                // Emit token for operation keyword (query, mutation, subscription)
+                if let Some(op_type) = operation.operation_type() {
+                    if let Some(token) = op_type
+                        .query_token()
+                        .or_else(|| op_type.mutation_token())
+                        .or_else(|| op_type.subscription_token())
+                    {
+                        emit_token_for_syntax_token(
+                            &token,
+                            line_index,
+                            line_offset,
+                            SemanticTokenType::Keyword,
+                            SemanticTokenModifiers::NONE,
+                            tokens,
+                        );
+                    }
+                }
+
+                // Determine root type for field deprecation checks
+                let root_type_name = operation.operation_type().map_or("Query", |op_type| {
+                    if op_type.query_token().is_some() {
+                        "Query"
+                    } else if op_type.mutation_token().is_some() {
+                        "Mutation"
+                    } else if op_type.subscription_token().is_some() {
+                        "Subscription"
+                    } else {
+                        "Query"
+                    }
+                });
+
+                // Process selection set
+                if let Some(selection_set) = operation.selection_set() {
+                    collect_tokens_from_selection_set(
+                        &selection_set,
+                        Some(root_type_name),
+                        schema_types,
+                        line_index,
+                        line_offset,
+                        tokens,
+                    );
+                }
+            }
+            cst::Definition::FragmentDefinition(fragment) => {
+                // Emit token for "fragment" keyword
+                if let Some(fragment_token) = fragment.fragment_token() {
+                    emit_token_for_syntax_token(
+                        &fragment_token,
+                        line_index,
+                        line_offset,
+                        SemanticTokenType::Keyword,
+                        SemanticTokenModifiers::NONE,
+                        tokens,
+                    );
+                }
+
+                // Emit token for "on" keyword
+                if let Some(type_condition) = fragment.type_condition() {
+                    if let Some(on_token) = type_condition.on_token() {
+                        emit_token_for_syntax_token(
+                            &on_token,
+                            line_index,
+                            line_offset,
+                            SemanticTokenType::Keyword,
+                            SemanticTokenModifiers::NONE,
+                            tokens,
+                        );
+                    }
+                    // Emit token for type name
+                    if let Some(named_type) = type_condition.named_type() {
+                        if let Some(name) = named_type.name() {
+                            emit_token_for_syntax_node(
+                                name.syntax(),
+                                line_index,
+                                line_offset,
+                                SemanticTokenType::Type,
+                                SemanticTokenModifiers::NONE,
+                                tokens,
+                            );
+                        }
+                    }
+                }
+
+                // Get fragment's type condition for field deprecation checks
+                let type_name = fragment
+                    .type_condition()
+                    .and_then(|tc| tc.named_type())
+                    .and_then(|nt| nt.name())
+                    .map(|name| name.text().to_string());
+
+                // Process selection set
+                if let Some(selection_set) = fragment.selection_set() {
+                    collect_tokens_from_selection_set(
+                        &selection_set,
+                        type_name.as_deref(),
+                        schema_types,
+                        line_index,
+                        line_offset,
+                        tokens,
+                    );
+                }
+            }
+            _ => {
+                // Schema definitions (type, interface, etc.) - skip for now
+            }
+        }
+    }
+}
+
+/// Collect semantic tokens from a selection set
+#[allow(clippy::too_many_lines)]
+fn collect_tokens_from_selection_set(
+    selection_set: &apollo_parser::cst::SelectionSet,
+    parent_type_name: Option<&str>,
+    schema_types: Option<&std::collections::HashMap<Arc<str>, graphql_hir::TypeDef>>,
+    line_index: &graphql_syntax::LineIndex,
+    line_offset: u32,
+    tokens: &mut Vec<SemanticToken>,
+) {
+    use apollo_parser::cst::{self, CstNode};
+
+    let parent_type = parent_type_name.and_then(|name| schema_types?.get(name));
+
+    for selection in selection_set.selections() {
+        match selection {
+            cst::Selection::Field(field) => {
+                if let Some(field_name_node) = field.name() {
+                    let field_name = field_name_node.text();
+
+                    // Check if field is deprecated
+                    let is_deprecated = parent_type
+                        .and_then(|pt| {
+                            pt.fields
+                                .iter()
+                                .find(|f| f.name.as_ref() == field_name.as_ref())
+                        })
+                        .is_some_and(|f| f.is_deprecated);
+
+                    let modifiers = if is_deprecated {
+                        SemanticTokenModifiers::DEPRECATED
+                    } else {
+                        SemanticTokenModifiers::NONE
+                    };
+
+                    emit_token_for_syntax_node(
+                        field_name_node.syntax(),
+                        line_index,
+                        line_offset,
+                        SemanticTokenType::Property,
+                        modifiers,
+                        tokens,
+                    );
+
+                    // Get field's return type for nested selection set
+                    let field_return_type = parent_type
+                        .and_then(|pt| {
+                            pt.fields
+                                .iter()
+                                .find(|f| f.name.as_ref() == field_name.as_ref())
+                        })
+                        .map(|f| f.type_ref.name.as_ref());
+
+                    // Recurse into nested selection set
+                    if let Some(nested_selection_set) = field.selection_set() {
+                        collect_tokens_from_selection_set(
+                            &nested_selection_set,
+                            field_return_type,
+                            schema_types,
+                            line_index,
+                            line_offset,
+                            tokens,
+                        );
+                    }
+                }
+            }
+            cst::Selection::FragmentSpread(spread) => {
+                // Emit token for "..." is not needed (punctuation)
+                // Emit token for fragment name
+                if let Some(name) = spread.fragment_name().and_then(|fn_| fn_.name()) {
+                    emit_token_for_syntax_node(
+                        name.syntax(),
+                        line_index,
+                        line_offset,
+                        SemanticTokenType::Function,
+                        SemanticTokenModifiers::NONE,
+                        tokens,
+                    );
+                }
+            }
+            cst::Selection::InlineFragment(inline) => {
+                // Emit token for "on" keyword and type name
+                if let Some(type_condition) = inline.type_condition() {
+                    if let Some(on_token) = type_condition.on_token() {
+                        emit_token_for_syntax_token(
+                            &on_token,
+                            line_index,
+                            line_offset,
+                            SemanticTokenType::Keyword,
+                            SemanticTokenModifiers::NONE,
+                            tokens,
+                        );
+                    }
+                    if let Some(named_type) = type_condition.named_type() {
+                        if let Some(name) = named_type.name() {
+                            emit_token_for_syntax_node(
+                                name.syntax(),
+                                line_index,
+                                line_offset,
+                                SemanticTokenType::Type,
+                                SemanticTokenModifiers::NONE,
+                                tokens,
+                            );
+                        }
+                    }
+                }
+
+                // Get type condition for nested selection set
+                let type_name = inline
+                    .type_condition()
+                    .and_then(|tc| tc.named_type())
+                    .and_then(|nt| nt.name())
+                    .map(|name| name.text().to_string());
+
+                let type_name_ref = type_name.as_deref().or(parent_type_name);
+
+                // Recurse into nested selection set
+                if let Some(selection_set) = inline.selection_set() {
+                    collect_tokens_from_selection_set(
+                        &selection_set,
+                        type_name_ref,
+                        schema_types,
+                        line_index,
+                        line_offset,
+                        tokens,
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Emit a semantic token for a syntax node
+#[allow(clippy::cast_possible_truncation)]
+fn emit_token_for_syntax_node(
+    node: &apollo_parser::SyntaxNode,
+    line_index: &graphql_syntax::LineIndex,
+    line_offset: u32,
+    token_type: SemanticTokenType,
+    modifiers: SemanticTokenModifiers,
+    tokens: &mut Vec<SemanticToken>,
+) {
+    let offset: usize = node.text_range().start().into();
+    let len: u32 = node.text_range().len().into();
+
+    let (line, col) = line_index.line_col(offset);
+    tokens.push(SemanticToken::new(
+        Position::new(line as u32 + line_offset, col as u32),
+        len,
+        token_type,
+        modifiers,
+    ));
+}
+
+/// Emit a semantic token for a syntax token (keyword, punctuation, etc.)
+#[allow(clippy::cast_possible_truncation)]
+fn emit_token_for_syntax_token(
+    token: &apollo_parser::SyntaxToken,
+    line_index: &graphql_syntax::LineIndex,
+    line_offset: u32,
+    token_type: SemanticTokenType,
+    modifiers: SemanticTokenModifiers,
+    tokens: &mut Vec<SemanticToken>,
+) {
+    let offset: usize = token.text_range().start().into();
+    let len: u32 = token.text_range().len().into();
+
+    let (line, col) = line_index.line_col(offset);
+    tokens.push(SemanticToken::new(
+        Position::new(line as u32 + line_offset, col as u32),
+        len,
+        token_type,
+        modifiers,
+    ));
+}
 
 /// Get field children for a type definition
 fn get_field_children(
@@ -2027,6 +3311,141 @@ fn get_field_children(
     }
 
     children
+}
+
+/// Analyze selections recursively to calculate complexity
+#[allow(clippy::too_many_arguments)]
+fn analyze_selections(
+    selections: &[graphql_hir::Selection],
+    schema_types: &std::collections::HashMap<Arc<str>, graphql_hir::TypeDef>,
+    parent_type_name: &str,
+    path_prefix: &str,
+    depth: u32,
+    multiplier: u32,
+    analysis: &mut ComplexityAnalysis,
+    in_connection: bool,
+) {
+    // Update max depth
+    if depth > analysis.depth {
+        analysis.depth = depth;
+    }
+
+    for selection in selections {
+        match selection {
+            graphql_hir::Selection::Field {
+                name,
+                selection_set,
+                ..
+            } => {
+                let field_name = name.to_string();
+                let path = if path_prefix.is_empty() {
+                    field_name.clone()
+                } else {
+                    format!("{path_prefix}.{field_name}")
+                };
+
+                // Get field type info from schema
+                let (is_list, inner_type_name) =
+                    get_type_info(schema_types, parent_type_name, &field_name);
+
+                // Calculate field multiplier
+                let field_multiplier = if is_list {
+                    multiplier * 10 // Default list multiplier
+                } else {
+                    multiplier
+                };
+
+                // Check for connection pattern
+                let field_is_connection =
+                    is_connection_pattern(&field_name, schema_types, &inner_type_name);
+
+                // Warn about nested pagination
+                if in_connection && field_is_connection {
+                    analysis.warnings.push(format!(
+                        "Nested pagination detected at {path}. This can cause performance issues."
+                    ));
+                }
+
+                // Calculate complexity for this field
+                let field_complexity = field_multiplier;
+                analysis.total_complexity += field_complexity;
+
+                // Add to breakdown
+                let mut fc = FieldComplexity::new(&path, &field_name, field_complexity)
+                    .with_multiplier(if is_list { 10 } else { 1 })
+                    .with_depth(depth)
+                    .with_connection(field_is_connection);
+
+                if in_connection && field_is_connection {
+                    fc = fc.with_warning("Nested pagination");
+                }
+
+                analysis.breakdown.push(fc);
+
+                // Recurse into nested selections
+                if !selection_set.is_empty() {
+                    analyze_selections(
+                        selection_set,
+                        schema_types,
+                        &inner_type_name,
+                        &path,
+                        depth + 1,
+                        field_multiplier,
+                        analysis,
+                        field_is_connection || in_connection,
+                    );
+                }
+            }
+            graphql_hir::Selection::FragmentSpread { .. }
+            | graphql_hir::Selection::InlineFragment { .. } => {
+                // For simplicity, we don't deeply analyze fragment spreads in this implementation
+                // A full implementation would resolve the fragment and analyze its selections
+            }
+        }
+    }
+}
+
+/// Check if a field follows the Relay connection pattern (edges/nodes/pageInfo)
+fn is_connection_pattern(
+    _field_name: &str,
+    schema_types: &std::collections::HashMap<Arc<str>, graphql_hir::TypeDef>,
+    type_name: &str,
+) -> bool {
+    // Check if the return type has edges, nodes, or pageInfo fields
+    if let Some(type_def) = schema_types.get(type_name) {
+        if type_def.kind == graphql_hir::TypeDefKind::Object {
+            let has_edges = type_def.fields.iter().any(|f| f.name.as_ref() == "edges");
+            let has_page_info = type_def
+                .fields
+                .iter()
+                .any(|f| f.name.as_ref() == "pageInfo");
+            let has_nodes = type_def.fields.iter().any(|f| f.name.as_ref() == "nodes");
+
+            return (has_edges || has_nodes) && has_page_info;
+        }
+    }
+    false
+}
+
+/// Get type information for a field: (`is_list`, `inner_type_name`)
+fn get_type_info(
+    schema_types: &std::collections::HashMap<Arc<str>, graphql_hir::TypeDef>,
+    parent_type_name: &str,
+    field_name: &str,
+) -> (bool, String) {
+    if let Some(type_def) = schema_types.get(parent_type_name) {
+        if type_def.kind == graphql_hir::TypeDefKind::Object {
+            if let Some(field) = type_def
+                .fields
+                .iter()
+                .find(|f| f.name.as_ref() == field_name)
+            {
+                let type_ref = &field.type_ref;
+                return (type_ref.is_list, type_ref.name.to_string());
+            }
+        }
+    }
+    (false, "Unknown".to_string())
 }
 
 #[cfg(test)]
@@ -2143,7 +3562,7 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a valid schema file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
         host.rebuild_project_files();
 
         // Get diagnostics
@@ -2187,7 +3606,7 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
 
         // Get initial diagnostics - snapshot is scoped to this block
         let diagnostics1 = {
@@ -2196,7 +3615,7 @@ fragment AttackActionInfo on AttackAction {
         }; // snapshot dropped here, before mutation
 
         // Update the file - safe because no snapshots exist
-        host.add_file(&path, "type Query { world: Int }", FileKind::Schema, 0);
+        host.add_file(&path, "type Query { world: Int }", FileKind::Schema);
 
         // Get new diagnostics - new snapshot for updated content
         let diagnostics2 = {
@@ -2283,7 +3702,7 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a schema file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
         host.rebuild_project_files();
 
         // Get hover at a position
@@ -2315,7 +3734,7 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a file with syntax errors (missing closing brace)
         let path = FilePath::new("file:///invalid.graphql");
-        host.add_file(&path, "type Query {", FileKind::Schema, 0);
+        host.add_file(&path, "type Query {", FileKind::Schema);
         host.rebuild_project_files();
 
         // Get hover on the Query type name (position 5 is in "Query")
@@ -2331,6 +3750,75 @@ fragment AttackActionInfo on AttackAction {
     }
 
     #[test]
+    fn test_hover_on_schema_field_definition() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema file with a type definition
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Pokemon {\n  name: String!\n  level: Int!\n}",
+            FileKind::Schema,
+            0,
+        );
+
+        // Add a document that uses this field
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "query GetPokemon { pokemon { name } }",
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        // Get hover on "name" field in the schema definition (line 1, col 2 = "name")
+        let snapshot = host.snapshot();
+        let hover = snapshot.hover(&schema_path, Position::new(1, 2));
+
+        // Should return hover information for the field
+        assert!(hover.is_some(), "Expected hover on schema field definition");
+        let hover = hover.unwrap();
+        assert!(hover.contents.contains("Field"), "Should contain 'Field'");
+        assert!(hover.contents.contains("name"), "Should contain field name");
+        assert!(hover.contents.contains("String"), "Should contain type");
+        // Field is used in one operation, so should show usage count
+        assert!(
+            hover.contents.contains("Used in"),
+            "Should contain usage information"
+        );
+    }
+
+    #[test]
+    fn test_hover_on_schema_field_shows_unused() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema file with a type definition
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Pokemon {\n  name: String!\n  level: Int!\n}",
+            FileKind::Schema,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        // Get hover on "level" field which is not used in any operation
+        let snapshot = host.snapshot();
+        let hover = snapshot.hover(&schema_path, Position::new(2, 2));
+
+        // Should show "0 operations (unused)"
+        assert!(hover.is_some(), "Expected hover on schema field definition");
+        let hover = hover.unwrap();
+        assert!(
+            hover.contents.contains("0 operations"),
+            "Should indicate unused field"
+        );
+    }
+
+    #[test]
     fn test_hover_field_in_inline_fragment() {
         let mut host = AnalysisHost::new();
 
@@ -2339,14 +3827,13 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type Query { battleParticipant(id: ID!): BattleParticipant }\ninterface BattleParticipant { id: ID! name: String! displayName: String! }\ntype BattlePokemon implements BattleParticipant { id: ID! name: String! displayName: String! currentHP: Int! }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         let (query_text, cursor_pos) = extract_cursor(
             "query { battleParticipant(id: \"1\") { id name ... on BattlePokemon { current*HP } } }",
         );
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2399,7 +3886,7 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a schema file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
 
         // Get completions at a position
         let snapshot = host.snapshot();
@@ -2428,7 +3915,7 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a file with syntax errors
         let path = FilePath::new("file:///invalid.graphql");
-        host.add_file(&path, "type Query {", FileKind::Schema, 0);
+        host.add_file(&path, "type Query {", FileKind::Schema);
 
         host.rebuild_project_files();
 
@@ -2447,7 +3934,7 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a schema file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema, 0);
+        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
 
         // Get goto definition at a position (may not find anything, but shouldn't crash)
         let snapshot = host.snapshot();
@@ -2479,7 +3966,6 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type User { id: ID! name: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add a fragment definition
@@ -2488,13 +3974,12 @@ fragment AttackActionInfo on AttackAction {
             &fragment_file,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         // Add a query that uses the fragment
         let query_file = FilePath::new("file:///query.graphql");
         let query_text = "query { ...UserFields }";
-        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         // Get goto definition for the fragment spread (position at "UserFields")
@@ -2527,18 +4012,12 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type Query { user: User }\ntype User { id: ID }",
             FileKind::Schema,
-            0,
         );
 
         // Add a fragment that references User
         let fragment_file = FilePath::new("file:///fragment.graphql");
         let (fragment_text, cursor_pos) = extract_cursor("fragment F on U*ser { id }");
-        host.add_file(
-            &fragment_file,
-            &fragment_text,
-            FileKind::ExecutableGraphQL,
-            0,
-        );
+        host.add_file(&fragment_file, &fragment_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2560,13 +4039,12 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type Query { user: User }\ntype User { id: ID! }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         let (query_text, cursor_pos) = extract_cursor("query { u*ser }");
         dbg!(&query_text);
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2589,12 +4067,11 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type Query { user: User }\ntype User { name: String }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         let (query_text, cursor_pos) = extract_cursor("query { user { na*me } }");
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2615,7 +4092,7 @@ fragment AttackActionInfo on AttackAction {
         let schema_file = FilePath::new("file:///schema.graphql");
         let (schema_text, cursor_pos) =
             extract_cursor("type Query { user: U*ser }\ntype User { id: ID! }");
-        host.add_file(&schema_file, &schema_text, FileKind::Schema, 0);
+        host.add_file(&schema_file, &schema_text, FileKind::Schema);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2633,6 +4110,32 @@ fragment AttackActionInfo on AttackAction {
     }
 
     #[test]
+    fn test_goto_definition_on_schema_field_returns_itself() {
+        // When cmd+clicking a schema field definition, return its own location.
+        // VSCode will then show "Find References" peek window as fallback.
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        let (schema_text, cursor_pos) =
+            extract_cursor("type User {\n  na*me: String!\n  age: Int!\n}");
+        host.add_file(&schema_file, &schema_text, FileKind::Schema, 0);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&schema_file, cursor_pos);
+
+        assert!(
+            locations.is_some(),
+            "Should return field's own location for schema field definition"
+        );
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), schema_file.as_str());
+        // Should point to the "name" field on line 1
+        assert_eq!(locations[0].range.start.line, 1);
+    }
+
+    #[test]
     fn test_goto_definition_field_in_inline_fragment() {
         let mut host = AnalysisHost::new();
 
@@ -2641,14 +4144,13 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type Query { battleParticipant(id: ID!): BattleParticipant }\ninterface BattleParticipant { id: ID! name: String! displayName: String! }\ntype BattlePokemon implements BattleParticipant { id: ID! name: String! displayName: String! currentHP: Int! }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         let (query_text, cursor_pos) = extract_cursor(
             "query { battleParticipant(id: \"1\") { id name ... on BattlePokemon { current*HP } } }",
         );
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2674,14 +4176,13 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type Query { user(id: ID!): User }\ntype User { id: ID! name: String! }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         // Cursor on $id in the argument value
         let (query_text, cursor_pos) =
             extract_cursor("query GetUser($id: ID!) { user(id: $i*d) { name } }");
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2709,13 +4210,12 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type Query { user(id: ID!, name: String): User }\ntype User { id: ID! }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         // Cursor on "id" argument name in the query
         let (query_text, cursor_pos) = extract_cursor("query { user(i*d: \"123\") { id } }");
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2741,13 +4241,12 @@ fragment AttackActionInfo on AttackAction {
             &schema_file,
             "type Query { hello: String }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         // Cursor on the operation name "GetHello"
         let (query_text, cursor_pos) = extract_cursor("query GetH*ello { hello }");
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2770,7 +4269,7 @@ fragment AttackActionInfo on AttackAction {
         let schema_file = FilePath::new("file:///schema.graphql");
         let (schema_text, cursor_pos) =
             extract_cursor("interface Node { id: ID! }\ntype User implements No*de { id: ID! }");
-        host.add_file(&schema_file, &schema_text, FileKind::Schema, 0);
+        host.add_file(&schema_file, &schema_text, FileKind::Schema);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2796,7 +4295,7 @@ fragment AttackActionInfo on AttackAction {
         let schema_text = r#"interface Node { id: ID! }
 interface Timestamped { createdAt: String! }
 type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
-        host.add_file(&schema_file, schema_text, FileKind::Schema, 0);
+        host.add_file(&schema_file, schema_text, FileKind::Schema);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2827,7 +4326,7 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         let (schema_text, cursor_pos) = extract_cursor(
             "interface Node { id: ID! }\ninterface Entity implements No*de { id: ID!, name: String }",
         );
-        host.add_file(&schema_file, &schema_text, FileKind::Schema, 0);
+        host.add_file(&schema_file, &schema_text, FileKind::Schema);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2853,7 +4352,7 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         let (schema_text, cursor_pos) = extract_cursor(
             "interface Node { id: ID! }\ntype User { name: String }\nextend type User implements No*de",
         );
-        host.add_file(&schema_file, &schema_text, FileKind::Schema, 0);
+        host.add_file(&schema_file, &schema_text, FileKind::Schema);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2880,25 +4379,14 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &fragment_file,
             "fragment F on User { id }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         // Add queries that use the fragment
         let query1_file = FilePath::new("file:///query1.graphql");
-        host.add_file(
-            &query1_file,
-            "query { ...F }",
-            FileKind::ExecutableGraphQL,
-            0,
-        );
+        host.add_file(&query1_file, "query { ...F }", FileKind::ExecutableGraphQL);
 
         let query2_file = FilePath::new("file:///query2.graphql");
-        host.add_file(
-            &query2_file,
-            "query { ...F }",
-            FileKind::ExecutableGraphQL,
-            0,
-        );
+        host.add_file(&query2_file, "query { ...F }", FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         // Find references to the fragment (position at "F" in fragment definition)
@@ -2922,17 +4410,11 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &fragment_file,
             "fragment F on User { id }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         // Add a query that uses the fragment
         let query_file = FilePath::new("file:///query.graphql");
-        host.add_file(
-            &query_file,
-            "query { ...F }",
-            FileKind::ExecutableGraphQL,
-            0,
-        );
+        host.add_file(&query_file, "query { ...F }", FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         // Find references including declaration
@@ -2952,23 +4434,17 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
 
         // Add a type definition
         let user_file = FilePath::new("file:///user.graphql");
-        host.add_file(&user_file, "type User { id: ID }", FileKind::Schema, 0);
+        host.add_file(&user_file, "type User { id: ID }", FileKind::Schema);
 
         // Add types that reference User
         let query_file = FilePath::new("file:///query.graphql");
-        host.add_file(
-            &query_file,
-            "type Query { user: User }",
-            FileKind::Schema,
-            0,
-        );
+        host.add_file(&query_file, "type Query { user: User }", FileKind::Schema);
 
         let mutation_file = FilePath::new("file:///mutation.graphql");
         host.add_file(
             &mutation_file,
             "type Mutation { u: User }",
             FileKind::Schema,
-            0,
         );
         host.rebuild_project_files();
 
@@ -2990,16 +4466,11 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
 
         // Add a type definition
         let user_file = FilePath::new("file:///user.graphql");
-        host.add_file(&user_file, "type User { id: ID }", FileKind::Schema, 0);
+        host.add_file(&user_file, "type User { id: ID }", FileKind::Schema);
 
         // Add a type that references User
         let query_file = FilePath::new("file:///query.graphql");
-        host.add_file(
-            &query_file,
-            "type Query { user: User }",
-            FileKind::Schema,
-            0,
-        );
+        host.add_file(&query_file, "type Query { user: User }", FileKind::Schema);
         host.rebuild_project_files();
 
         // Find references including declaration
@@ -3023,7 +4494,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &schema_file,
             "type Query { user: User }\ntype User { id: ID! name: String! }",
             FileKind::Schema,
-            0,
         );
 
         // Add a query that uses the name field
@@ -3032,7 +4502,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &query_file,
             "query { user { id name } }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         // Add a fragment that also uses the name field
@@ -3041,7 +4510,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &fragment_file,
             "fragment UserFields on User { name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -3075,7 +4543,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &schema_file,
             "type Query { user: User }\ntype User { name: String! }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
@@ -3083,7 +4550,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &query_file,
             "query { user { name } }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -3120,7 +4586,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &schema_file,
             "type Query { user: User }\ntype User { profile: Profile }\ntype Profile { bio: String! }",
             FileKind::Schema,
-            0,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
@@ -3128,7 +4593,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &query_file,
             "query { user { profile { bio } } }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -3153,7 +4617,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &schema_file,
             "type Query { node: Node }\ninterface Node { id: ID! }\ntype User implements Node { id: ID! name: String }",
             FileKind::Schema,
-            0,
         );
 
         // Query that uses the field on the implementing type
@@ -3162,7 +4625,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &query_file,
             "query { node { ... on User { id } } }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -3195,7 +4657,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add a fragment definition
@@ -3204,14 +4665,13 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &fragment_file,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         // Add a query with cursor in selection set
         let query_file = FilePath::new("file:///query.graphql");
         let query_text = "query { user { id } }";
         //                                 ^ cursor here at position 15 (right after { before id)
-        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         // Get completions inside the selection set (simulating user about to type)
@@ -3261,7 +4721,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add a fragment definition
@@ -3270,14 +4729,13 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &fragment_file,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         // Add a query with cursor OUTSIDE any selection set (at document level)
         let query_file = FilePath::new("file:///query.graphql");
         let query_text = "query { user { id } }\n";
         //                                       ^ cursor at end (position 22 on line 0)
-        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL);
 
         // Get completions at document level (NOT in a selection set)
         let snapshot = host.snapshot();
@@ -3304,7 +4762,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &schema_file,
             "type Mutation { forfeitBattle(battleId: ID!, trainerId: ID!): Battle } type Battle { id: ID! status: String winner: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add a fragment definition
@@ -3313,7 +4770,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &fragment_file,
             "fragment BattleDetailed on Battle { id status }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         // Add a mutation with cursor after fragment spread
@@ -3324,12 +4780,7 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
 
   }
 }";
-        host.add_file(
-            &mutation_file,
-            mutation_text,
-            FileKind::ExecutableGraphQL,
-            0,
-        );
+        host.add_file(&mutation_file, mutation_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         // Get completions after the fragment spread (line 3, position 4 - after newline)
@@ -3367,7 +4818,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &schema_file,
             "type Mutation { forfeitBattle(battleId: ID!, trainerId: ID!): Battle startBattle(trainerId: ID!): Battle } type Battle { id: ID! status: String winner: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add a fragment definition
@@ -3376,7 +4826,6 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
             &fragment_file,
             "fragment BattleDetailed on Battle { id status }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         // Add multiple mutations in the same file
@@ -3394,12 +4843,7 @@ mutation ForfeitBattle($battleId: ID!, $trainerId: ID!) {
 
   }
 }";
-        host.add_file(
-            &mutation_file,
-            mutation_text,
-            FileKind::ExecutableGraphQL,
-            0,
-        );
+        host.add_file(&mutation_file, mutation_text, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         // Get completions in the second mutation after the fragment spread (line 10, position 4)
@@ -3473,9 +4917,9 @@ type Move {
 
         let mut host = AnalysisHost::new();
         let schema_path = FilePath::new("file:///schema.graphql");
-        host.add_file(&schema_path, schema, FileKind::Schema, 0);
+        host.add_file(&schema_path, schema, FileKind::Schema);
         let gql_path = FilePath::new("file:///battle.graphql");
-        host.add_file(&gql_path, &graphql, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&gql_path, &graphql, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3542,7 +4986,7 @@ enum Region { KANTO JOHTO }
         {
             let mut host = AnalysisHost::new();
             let schema_path = FilePath::new("file:///schema.graphql");
-            host.add_file(&schema_path, schema, FileKind::Schema, 0);
+            host.add_file(&schema_path, schema, FileKind::Schema);
 
             let (graphql1, pos1) = extract_cursor(
                 r#"
@@ -3568,7 +5012,7 @@ enum Region { KANTO JOHTO }
 "#,
             );
             let ts_path1 = FilePath::new("file:///test1.graphql");
-            host.add_file(&ts_path1, &graphql1, FileKind::ExecutableGraphQL, 0);
+            host.add_file(&ts_path1, &graphql1, FileKind::ExecutableGraphQL);
             host.rebuild_project_files();
 
             let snapshot = host.snapshot();
@@ -3592,7 +5036,7 @@ enum Region { KANTO JOHTO }
         {
             let mut host = AnalysisHost::new();
             let schema_path = FilePath::new("file:///schema.graphql");
-            host.add_file(&schema_path, schema, FileKind::Schema, 0);
+            host.add_file(&schema_path, schema, FileKind::Schema);
 
             let (graphql2, pos2) = extract_cursor(
                 r#"
@@ -3618,7 +5062,7 @@ enum Region { KANTO JOHTO }
 "#,
             );
             let ts_path2 = FilePath::new("file:///test2.graphql");
-            host.add_file(&ts_path2, &graphql2, FileKind::ExecutableGraphQL, 0);
+            host.add_file(&ts_path2, &graphql2, FileKind::ExecutableGraphQL);
             host.rebuild_project_files();
 
             let snapshot = host.snapshot();
@@ -3670,7 +5114,7 @@ enum Region { KANTO JOHTO }
         {
             let mut host = AnalysisHost::new();
             let schema_path = FilePath::new("file:///schema.graphql");
-            host.add_file(&schema_path, schema, FileKind::Schema, 0);
+            host.add_file(&schema_path, schema, FileKind::Schema);
 
             let (graphql1, pos1) = extract_cursor(
                 r#"
@@ -3691,7 +5135,7 @@ enum Region { KANTO JOHTO }
 "#,
             );
             let path1 = FilePath::new("file:///test1.graphql");
-            host.add_file(&path1, &graphql1, FileKind::ExecutableGraphQL, 0);
+            host.add_file(&path1, &graphql1, FileKind::ExecutableGraphQL);
             host.rebuild_project_files();
 
             let snapshot = host.snapshot();
@@ -3707,7 +5151,7 @@ enum Region { KANTO JOHTO }
         {
             let mut host = AnalysisHost::new();
             let schema_path = FilePath::new("file:///schema.graphql");
-            host.add_file(&schema_path, schema, FileKind::Schema, 0);
+            host.add_file(&schema_path, schema, FileKind::Schema);
 
             let (graphql2, pos2) = extract_cursor(
                 r#"
@@ -3728,7 +5172,7 @@ enum Region { KANTO JOHTO }
 "#,
             );
             let path2 = FilePath::new("file:///test2.graphql");
-            host.add_file(&path2, &graphql2, FileKind::ExecutableGraphQL, 0);
+            host.add_file(&path2, &graphql2, FileKind::ExecutableGraphQL);
             host.rebuild_project_files();
 
             let snapshot = host.snapshot();
@@ -3748,7 +5192,7 @@ enum Region { KANTO JOHTO }
         {
             let mut host = AnalysisHost::new();
             let schema_path = FilePath::new("file:///schema.graphql");
-            host.add_file(&schema_path, schema, FileKind::Schema, 0);
+            host.add_file(&schema_path, schema, FileKind::Schema);
 
             let (graphql3, pos3) = extract_cursor(
                 r#"
@@ -3770,7 +5214,7 @@ enum Region { KANTO JOHTO }
 "#,
             );
             let path3 = FilePath::new("file:///test3.graphql");
-            host.add_file(&path3, &graphql3, FileKind::ExecutableGraphQL, 0);
+            host.add_file(&path3, &graphql3, FileKind::ExecutableGraphQL);
             host.rebuild_project_files();
 
             let snapshot = host.snapshot();
@@ -3802,7 +5246,7 @@ type Item { id: ID! name: String! }
 
         let mut host = AnalysisHost::new();
         let schema_path = FilePath::new("file:///schema.graphql");
-        host.add_file(&schema_path, schema, FileKind::Schema, 0);
+        host.add_file(&schema_path, schema, FileKind::Schema);
 
         let (graphql, pos) = extract_cursor(
             r#"
@@ -3816,7 +5260,7 @@ query TestEvolution {
 "#,
         );
         let path = FilePath::new("file:///test.graphql");
-        host.add_file(&path, &graphql, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&path, &graphql, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3907,7 +5351,7 @@ type Item { id: ID! name: String! }
 
         let mut host = AnalysisHost::new();
         let schema_path = FilePath::new("file:///schema.graphql");
-        host.add_file(&schema_path, schema, FileKind::Schema, 0);
+        host.add_file(&schema_path, schema, FileKind::Schema);
 
         let (graphql, pos) = extract_cursor(
             r#"
@@ -3921,7 +5365,7 @@ query TestEvolution {
 "#,
         );
         let path = FilePath::new("file:///test.graphql");
-        host.add_file(&path, &graphql, FileKind::ExecutableGraphQL, 0);
+        host.add_file(&path, &graphql, FileKind::ExecutableGraphQL);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -4065,7 +5509,6 @@ export const GET_POKEMON = gql`
             &path,
             "type User {\n  id: ID!\n  name: String\n  email: String!\n}",
             FileKind::Schema,
-            0,
         );
         host.rebuild_project_files();
 
@@ -4103,7 +5546,6 @@ export const GET_POKEMON = gql`
             &schema_path,
             "type Query { user: String }\ntype Mutation { createUser: String }",
             FileKind::Schema,
-            0,
         );
 
         let path = FilePath::new("file:///queries.graphql");
@@ -4111,7 +5553,6 @@ export const GET_POKEMON = gql`
             &path,
             "query GetUser { user }\nmutation CreateUser { createUser }",
             FileKind::ExecutableGraphQL,
-            0,
         );
         host.rebuild_project_files();
 
@@ -4139,7 +5580,6 @@ export const GET_POKEMON = gql`
             &schema_path,
             "type User { id: ID! name: String }",
             FileKind::Schema,
-            0,
         );
 
         let path = FilePath::new("file:///fragments.graphql");
@@ -4147,7 +5587,6 @@ export const GET_POKEMON = gql`
             &path,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
         host.rebuild_project_files();
 
@@ -4170,7 +5609,6 @@ export const GET_POKEMON = gql`
             &schema_path,
             "type Query { user: User }\ntype User { id: ID! }\ntype Post { title: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add operations
@@ -4179,7 +5617,6 @@ export const GET_POKEMON = gql`
             &queries_path,
             "query GetUser { user { id } }\nquery GetUsers { user { id } }",
             FileKind::ExecutableGraphQL,
-            0,
         );
         host.rebuild_project_files();
 
@@ -4208,7 +5645,7 @@ export const GET_POKEMON = gql`
         let mut host = AnalysisHost::new();
 
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type UserProfile { id: ID! }", FileKind::Schema, 0);
+        host.add_file(&path, "type UserProfile { id: ID! }", FileKind::Schema);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -4508,7 +5945,6 @@ export const typeDefs = gql`
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add a fragment file with a single fragment
@@ -4517,7 +5953,6 @@ export const typeDefs = gql`
             &fragment_file,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -4545,11 +5980,9 @@ export const typeDefs = gql`
     }
 
     #[test]
-    fn test_project_lint_detects_actual_duplicates() {
-        // Test that project-wide lints correctly detect duplicate fragments
-        // across multiple files
+    fn test_project_lint_no_duplicates_after_file_update() {
+        // Test that updating a file doesn't cause false duplicate detection
         let mut host = AnalysisHost::new();
-        // Enable the recommended lint rules (which includes unique_names)
         host.set_lint_config(graphql_linter::LintConfig::recommended());
 
         // Add a schema
@@ -4558,60 +5991,6 @@ export const typeDefs = gql`
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
             FileKind::Schema,
-            0,
-        );
-
-        // Add fragment in first file
-        let fragment_file1 = FilePath::new("file:///fragments1.graphql");
-        host.add_file(
-            &fragment_file1,
-            "fragment UserFields on User { id }",
-            FileKind::ExecutableGraphQL,
-            0,
-        );
-
-        // Add same-named fragment in second file (actual duplicate)
-        let fragment_file2 = FilePath::new("file:///fragments2.graphql");
-        host.add_file(
-            &fragment_file2,
-            "fragment UserFields on User { name }",
-            FileKind::ExecutableGraphQL,
-            0,
-        );
-
-        host.rebuild_project_files();
-
-        // Get project-wide diagnostics
-        let snapshot = host.snapshot();
-        let project_diagnostics = snapshot.project_lint_diagnostics();
-
-        // Should have unique_names errors for the duplicate fragment
-        let unique_names_errors: Vec<_> = project_diagnostics
-            .values()
-            .flatten()
-            .filter(|d| d.code.as_deref() == Some("unique_names"))
-            .collect();
-
-        assert!(
-            !unique_names_errors.is_empty(),
-            "Duplicate fragments across files should produce unique_names errors"
-        );
-    }
-
-    #[test]
-    fn test_project_lint_file_update_no_duplicates() {
-        // Test that updating a file's content doesn't cause duplicate fragment detection
-        let mut host = AnalysisHost::new();
-        // Enable the recommended lint rules (which includes unique_names)
-        host.set_lint_config(graphql_linter::LintConfig::recommended());
-
-        // Add a schema
-        let schema_file = FilePath::new("file:///schema.graphql");
-        host.add_file(
-            &schema_file,
-            "type Query { user: User } type User { id: ID! name: String }",
-            FileKind::Schema,
-            0,
         );
 
         // Add fragment file
@@ -4620,7 +5999,6 @@ export const typeDefs = gql`
             &fragment_file,
             "fragment UserFields on User { id }",
             FileKind::ExecutableGraphQL,
-            0,
         );
         host.rebuild_project_files();
 
@@ -4629,7 +6007,6 @@ export const typeDefs = gql`
             &fragment_file,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
         // Note: rebuild_project_files is NOT called here since is_new=false
 
@@ -4670,7 +6047,6 @@ export const typeDefs = gql`
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
             FileKind::Schema,
-            0,
         );
 
         // Add fragment file with one URI format (simulating glob discovery)
@@ -4679,7 +6055,6 @@ export const typeDefs = gql`
             &fragment_file_glob,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
         host.rebuild_project_files();
 
@@ -4695,7 +6070,6 @@ export const typeDefs = gql`
             &fragment_file_glob,
             "fragment UserFields on User { id name }",
             FileKind::ExecutableGraphQL,
-            0,
         );
         assert!(
             !is_new,
@@ -4721,5 +6095,548 @@ export const typeDefs = gql`
                 .map(|d| &d.message)
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_semantic_tokens_deprecated_field() {
+        use std::io::Write;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        // Create a schema with a deprecated field
+        let schema_content = r#"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    name: String!
+    legacyId: String @deprecated(reason: "Use id instead")
+}
+"#;
+        let schema_path = temp_dir.path().join("schema.graphql");
+        let mut file = std::fs::File::create(&schema_path).unwrap();
+        file.write_all(schema_content.as_bytes()).unwrap();
+
+        // Create a document that uses the deprecated field
+        let doc_content = r#"
+query GetUser {
+    user {
+        id
+        name
+        legacyId
+    }
+}
+"#;
+        let doc_path = temp_dir.path().join("query.graphql");
+        let mut doc_file = std::fs::File::create(&doc_path).unwrap();
+        doc_file.write_all(doc_content.as_bytes()).unwrap();
+
+        let config = graphql_config::ProjectConfig {
+            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(graphql_config::DocumentsConfig::Pattern(
+                "*.graphql".to_string(),
+            )),
+            include: None,
+            exclude: None,
+            lint: None,
+            extensions: None,
+        };
+
+        let mut host = AnalysisHost::new();
+        host.load_schemas_from_config(&config, temp_dir.path())
+            .unwrap();
+
+        // Manually add the document file
+        let doc_uri = format!("file://{}", doc_path.display());
+        let file_path = FilePath::new(&doc_uri);
+        host.add_file(
+            &file_path,
+            doc_content.trim(),
+            graphql_db::FileKind::ExecutableGraphQL,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Get semantic tokens
+        let tokens = snapshot.semantic_tokens(&file_path);
+
+        // Find the token for 'legacyId' field - it should have DEPRECATED modifier
+        let deprecated_tokens: Vec<_> = tokens
+            .iter()
+            .filter(|t| t.modifiers == SemanticTokenModifiers::DEPRECATED)
+            .collect();
+
+        assert!(
+            !deprecated_tokens.is_empty(),
+            "Should have at least one deprecated token, got tokens: {tokens:?}"
+        );
+
+        // Verify the deprecated token is a Property (field) type
+        let deprecated_field_token = deprecated_tokens
+            .iter()
+            .find(|t| t.token_type == SemanticTokenType::Property)
+            .expect("Should have a deprecated Property token");
+
+        // The legacyId field is on line 5 (0-indexed) in the query (after trim)
+        assert_eq!(
+            deprecated_field_token.start.line, 4,
+            "Deprecated field token should be on line 4 (0-indexed)"
+        );
+    }
+
+    #[test]
+    fn test_hover_field_in_typescript_file() {
+        // Reproduces issue #398: Hover is broken for fields in TypeScript files
+        //
+        // The bug: find_parent_type_at_offset and walk_type_stack_to_offset were using
+        // parse.tree (empty placeholder for TS files) instead of block_context.tree.
+
+        let mut host = AnalysisHost::new();
+
+        // Add a schema file
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            r#"type Query { pokemon(id: ID!): Pokemon }
+type Pokemon { id: ID! name: String! }
+"#,
+            FileKind::Schema,
+        );
+
+        // Add a TypeScript file with embedded GraphQL
+        let ts_file = FilePath::new("file:///query.ts");
+        let ts_content = r#"import { gql } from '@apollo/client';
+
+export const GET_POKEMON = gql`
+  query GetPokemon($id: ID!) {
+    pokemon(id: $id) {
+      id
+      name
+    }
+  }
+`;
+"#;
+        host.add_file(&ts_file, ts_content, FileKind::TypeScript);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Hover over the "name" field (line 6, character ~6 in the TS file)
+        // Line 6 (0-indexed) is "      name"
+        // The "name" field starts at character 6
+        let hover = snapshot.hover(&ts_file, Position::new(6, 7));
+
+        // Should return hover info for the field
+        assert!(
+            hover.is_some(),
+            "Hover should work for fields in TypeScript files (issue #398)"
+        );
+        let hover = hover.unwrap();
+        assert!(
+            hover.contents.contains("name"),
+            "Hover should show field name. Got: {}",
+            hover.contents
+        );
+        assert!(
+            hover.contents.contains("String"),
+            "Hover should show field type. Got: {}",
+            hover.contents
+        );
+    }
+
+    #[test]
+    fn test_deprecated_field_code_lenses() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema with a deprecated field
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            r#"type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    name: String!
+    legacyId: String @deprecated(reason: "Use id instead")
+}"#,
+            FileKind::Schema,
+        );
+
+        // Add a document that uses the deprecated field
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            r#"query GetUser {
+    user {
+        id
+        name
+        legacyId
+    }
+}"#,
+            FileKind::ExecutableGraphQL,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Get code lenses for the schema file (where the deprecated field is defined)
+        let code_lenses = snapshot.deprecated_field_code_lenses(&schema_path);
+
+        assert_eq!(
+            code_lenses.len(),
+            1,
+            "Should have exactly one code lens for the deprecated field"
+        );
+
+        let code_lens = &code_lenses[0];
+        assert_eq!(code_lens.type_name, "User");
+        assert_eq!(code_lens.field_name, "legacyId");
+        assert_eq!(
+            code_lens.usage_count, 1,
+            "Should have 1 usage of the deprecated field"
+        );
+        assert_eq!(
+            code_lens.deprecation_reason,
+            Some("Use id instead".to_string())
+        );
+    }
+
+    #[test]
+    fn test_deprecated_field_code_lenses_no_usages() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema with a deprecated field that is not used
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            r#"type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    name: String!
+    legacyId: String @deprecated(reason: "Use id instead")
+}"#,
+            FileKind::Schema,
+        );
+
+        // Add a document that does NOT use the deprecated field
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            r#"query GetUser {
+    user {
+        id
+        name
+    }
+}"#,
+            FileKind::ExecutableGraphQL,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Get code lenses for the schema file
+        let code_lenses = snapshot.deprecated_field_code_lenses(&schema_path);
+
+        assert_eq!(
+            code_lenses.len(),
+            1,
+            "Should have exactly one code lens for the deprecated field"
+        );
+
+        let code_lens = &code_lenses[0];
+        assert_eq!(
+            code_lens.usage_count, 0,
+            "Should have 0 usages of the deprecated field"
+        );
+    }
+
+    #[test]
+    fn test_deprecated_field_code_lenses_multiple_usages() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema with a deprecated field
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            r#"type Query {
+    user: User
+    users: [User!]!
+}
+
+type User {
+    id: ID!
+    legacyId: String @deprecated
+}"#,
+            FileKind::Schema,
+        );
+
+        // Add multiple documents using the deprecated field
+        let doc_path1 = FilePath::new("file:///query1.graphql");
+        host.add_file(
+            &doc_path1,
+            r#"query GetUser {
+    user {
+        legacyId
+    }
+}"#,
+            FileKind::ExecutableGraphQL,
+        );
+
+        let doc_path2 = FilePath::new("file:///query2.graphql");
+        host.add_file(
+            &doc_path2,
+            r#"query GetUsers {
+    users {
+        legacyId
+    }
+}"#,
+            FileKind::ExecutableGraphQL,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        let code_lenses = snapshot.deprecated_field_code_lenses(&schema_path);
+
+        assert_eq!(code_lenses.len(), 1);
+        assert_eq!(
+            code_lenses[0].usage_count, 2,
+            "Should have 2 usages of the deprecated field"
+        );
+        assert_eq!(code_lenses[0].usage_locations.len(), 2);
+    }
+
+    #[test]
+    fn test_deprecated_field_code_lenses_non_schema_file() {
+        let mut host = AnalysisHost::new();
+
+        // Add a schema
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { user: User }\ntype User { id: ID! @deprecated }",
+            FileKind::Schema,
+        );
+
+        // Add a document file
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "query { user { id } }",
+            FileKind::ExecutableGraphQL,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Get code lenses for the document file (not schema) - should be empty
+        // since code lenses only show on schema files where deprecated fields are defined
+        let code_lenses = snapshot.deprecated_field_code_lenses(&doc_path);
+        assert!(
+            code_lenses.is_empty(),
+            "Document files should not have code lenses for deprecated fields"
+        );
+    }
+
+    #[test]
+    fn test_complexity_analysis_basic() {
+        let mut host = AnalysisHost::new();
+
+        // Add schema
+        let schema = r#"
+type Query {
+    user(id: ID!): User
+    posts: [Post!]!
+}
+
+type User {
+    id: ID!
+    name: String!
+    email: String
+    posts: [Post!]!
+}
+
+type Post {
+    id: ID!
+    title: String!
+    author: User!
+    comments: [Comment!]!
+}
+
+type Comment {
+    id: ID!
+    text: String!
+}
+"#;
+        host.add_file(
+            &FilePath::new("file:///schema.graphql"),
+            schema,
+            FileKind::Schema,
+            0,
+        );
+
+        // Add operation
+        let query = r#"
+query GetUser {
+    user(id: "123") {
+        id
+        name
+        posts {
+            id
+            title
+        }
+    }
+}
+"#;
+        host.add_file(
+            &FilePath::new("file:///query.graphql"),
+            query,
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let results = snapshot.complexity_analysis();
+
+        assert_eq!(results.len(), 1);
+        let analysis = &results[0];
+
+        assert_eq!(analysis.operation_name, "GetUser");
+        assert_eq!(analysis.operation_type, "query");
+        assert!(analysis.total_complexity > 0);
+        assert!(analysis.depth > 0);
+    }
+
+    #[test]
+    fn test_complexity_analysis_list_fields() {
+        let mut host = AnalysisHost::new();
+
+        // Add schema
+        let schema = r#"
+type Query {
+    posts: [Post!]!
+}
+
+type Post {
+    id: ID!
+    title: String!
+}
+"#;
+        host.add_file(
+            &FilePath::new("file:///schema.graphql"),
+            schema,
+            FileKind::Schema,
+            0,
+        );
+
+        // Add operation with list field
+        let query = r#"
+query GetPosts {
+    posts {
+        id
+        title
+    }
+}
+"#;
+        host.add_file(
+            &FilePath::new("file:///query.graphql"),
+            query,
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let results = snapshot.complexity_analysis();
+
+        assert_eq!(results.len(), 1);
+        let analysis = &results[0];
+
+        // List field should have multiplier applied
+        assert!(analysis.total_complexity >= 10); // Default list multiplier is 10
+    }
+
+    #[test]
+    fn test_complexity_analysis_connection_detection() {
+        let mut host = AnalysisHost::new();
+
+        // Add schema with Relay connection pattern
+        let schema = r#"
+type Query {
+    users(first: Int): UserConnection!
+}
+
+type UserConnection {
+    edges: [UserEdge!]!
+    pageInfo: PageInfo!
+}
+
+type UserEdge {
+    node: User!
+    cursor: String!
+}
+
+type User {
+    id: ID!
+    name: String!
+}
+
+type PageInfo {
+    hasNextPage: Boolean!
+}
+"#;
+        host.add_file(
+            &FilePath::new("file:///schema.graphql"),
+            schema,
+            FileKind::Schema,
+            0,
+        );
+
+        // Add operation with connection pattern
+        let query = r#"
+query GetUsers {
+    users(first: 10) {
+        edges {
+            node {
+                id
+                name
+            }
+        }
+    }
+}
+"#;
+        host.add_file(
+            &FilePath::new("file:///query.graphql"),
+            query,
+            FileKind::ExecutableGraphQL,
+            0,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let results = snapshot.complexity_analysis();
+
+        assert_eq!(results.len(), 1);
+        let analysis = &results[0];
+
+        // Should detect connection pattern in breakdown
+        let has_connection_field = analysis.breakdown.iter().any(|f| f.is_connection);
+        assert!(has_connection_field);
     }
 }

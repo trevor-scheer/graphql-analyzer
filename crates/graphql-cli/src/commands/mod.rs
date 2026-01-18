@@ -1,6 +1,10 @@
 pub mod check;
 pub mod common;
+pub mod complexity;
+pub mod coverage;
+pub mod deprecations;
 pub mod fix;
+pub mod fragments;
 pub mod lint;
 pub mod schema;
 pub mod stats;

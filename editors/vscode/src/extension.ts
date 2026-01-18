@@ -7,27 +7,186 @@ import {
   OutputChannel,
   ProgressLocation,
   commands,
+  StatusBarItem,
+  StatusBarAlignment,
+  TextEditor,
+  TextEditorDecorationType,
+  Uri,
+  Position,
+  Range,
 } from "vscode";
 import {
   LanguageClient,
   LanguageClientOptions,
   ServerOptions,
   Executable,
+  State,
+  Location as LspLocation,
+  Position as LspPosition,
 } from "vscode-languageclient/node";
 import { findServerBinary } from "./binaryManager";
 
+// =============================================================================
+// LSP Command Arguments: Why Custom Commands Are Required
+// =============================================================================
+//
+// VSCode's built-in commands like `editor.action.showReferences` expect native
+// VSCode types (Uri, Position, Location) with actual methods on them. However,
+// LSP servers send JSON which produces plain objects without methods.
+//
+// The vscode-languageclient library does NOT auto-convert command arguments -
+// it only converts request/response payloads. This is a known limitation
+// confirmed by the vscode-languageserver-node maintainer:
+// https://github.com/microsoft/vscode-languageserver-node/issues/778
+//
+// Therefore, any LSP feature that needs to invoke VSCode commands with complex
+// types (like CodeLens → showReferences) MUST use a custom command wrapper that:
+// 1. Receives JSON arguments from the LSP server
+// 2. Converts them to native VSCode types using protocol2CodeConverter
+// 3. Calls the actual VSCode command
+//
+// This is the same pattern used by rust-analyzer and other mature LSP implementations.
+// See: https://github.com/rust-lang/rust-analyzer/blob/master/editors/code/src/commands.ts
+// =============================================================================
+
 console.log(">>> GraphQL LSP extension imports complete <<<");
+
+// Decoration type for deprecated GraphQL fields (strikethrough)
+const deprecatedDecorationType: TextEditorDecorationType = window.createTextEditorDecorationType({
+  textDecoration: "line-through",
+  opacity: "0.7",
+});
 
 let client: LanguageClient;
 let outputChannel: OutputChannel;
+let statusBarItem: StatusBarItem;
+
+function updateStatusBar(state: State): void {
+  switch (state) {
+    case State.Running:
+      statusBarItem.text = "$(check) GraphQL";
+      statusBarItem.tooltip = "GraphQL LSP is running";
+      statusBarItem.backgroundColor = undefined;
+      break;
+    case State.Starting:
+      statusBarItem.text = "$(sync~spin) GraphQL";
+      statusBarItem.tooltip = "GraphQL LSP is starting...";
+      statusBarItem.backgroundColor = undefined;
+      break;
+    case State.Stopped:
+      statusBarItem.text = "$(warning) GraphQL";
+      statusBarItem.tooltip = "GraphQL LSP is stopped";
+      statusBarItem.backgroundColor = undefined;
+      break;
+  }
+}
+
+// Languages that can contain embedded GraphQL
+const embeddedGraphQLLanguages = ["typescript", "typescriptreact", "javascript", "javascriptreact"];
+
+async function updateDeprecatedDecorations(editor: TextEditor): Promise<void> {
+  if (!client) {
+    return;
+  }
+
+  const document = editor.document;
+  const languageId = document.languageId;
+
+  // Only process files that can contain embedded GraphQL
+  if (!embeddedGraphQLLanguages.includes(languageId)) {
+    return;
+  }
+
+  try {
+    // Request semantic tokens from our LSP server
+    const result = await client.sendRequest<{
+      data?: number[];
+    } | null>("textDocument/semanticTokens/full", {
+      textDocument: { uri: document.uri.toString() },
+    });
+
+    if (!result || !result.data || result.data.length === 0) {
+      // Clear decorations if no tokens
+      editor.setDecorations(deprecatedDecorationType, []);
+      return;
+    }
+
+    // Parse the delta-encoded tokens to find deprecated ones
+    // Format: [deltaLine, deltaStart, length, tokenType, modifiers, ...]
+    const deprecatedRanges: Range[] = [];
+    let currentLine = 0;
+    let currentChar = 0;
+
+    for (let i = 0; i < result.data.length; i += 5) {
+      const deltaLine = result.data[i];
+      const deltaStart = result.data[i + 1];
+      const length = result.data[i + 2];
+      // const tokenType = result.data[i + 3]; // Not needed for this
+      const modifiers = result.data[i + 4];
+
+      // Update position
+      if (deltaLine > 0) {
+        currentLine += deltaLine;
+        currentChar = deltaStart;
+      } else {
+        currentChar += deltaStart;
+      }
+
+      // Check if deprecated modifier is set (bit 0)
+      const isDeprecated = (modifiers & 1) !== 0;
+
+      if (isDeprecated) {
+        const startPos = new Position(currentLine, currentChar);
+        const endPos = new Position(currentLine, currentChar + length);
+        deprecatedRanges.push(new Range(startPos, endPos));
+      }
+    }
+
+    editor.setDecorations(deprecatedDecorationType, deprecatedRanges);
+  } catch {
+    // Silently ignore errors - the file may not be in a GraphQL project
+  }
+}
+
+function setupDecorationListeners(context: ExtensionContext): void {
+  // Update decorations when active editor changes
+  context.subscriptions.push(
+    window.onDidChangeActiveTextEditor((editor) => {
+      if (editor) {
+        updateDeprecatedDecorations(editor);
+      }
+    })
+  );
+
+  // Update decorations when document changes (debounced)
+  let debounceTimer: NodeJS.Timeout | undefined;
+  context.subscriptions.push(
+    workspace.onDidChangeTextDocument((event) => {
+      const editor = window.activeTextEditor;
+      if (editor && editor.document === event.document) {
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+        }
+        debounceTimer = setTimeout(() => updateDeprecatedDecorations(editor), 500);
+      }
+    })
+  );
+
+  // Update current editor immediately
+  if (window.activeTextEditor) {
+    updateDeprecatedDecorations(window.activeTextEditor);
+  }
+}
 
 async function startLanguageServer(context: ExtensionContext): Promise<void> {
-  const config = workspace.getConfiguration("graphql-lsp");
-  const customPath = config.get<string>("serverPath");
-  const logLevel = config.get<string>("logLevel") || "info";
+  const config = workspace.getConfiguration("graphql");
+  const customPath = config.get<string>("server.path");
+  const logLevel = config.get<string>("server.logLevel") || "info";
 
   const serverCommand = await findServerBinary(context, outputChannel, customPath);
   outputChannel.appendLine(`Using LSP server at: ${serverCommand}`);
+
+  const serverEnv = config.get<Record<string, string>>("server.env") || {};
 
   const run: Executable = {
     command: serverCommand,
@@ -35,6 +194,7 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
       env: {
         ...process.env,
         RUST_LOG: process.env.RUST_LOG || logLevel,
+        ...serverEnv,
       },
     },
   };
@@ -68,6 +228,10 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
     clientOptions
   );
 
+  client.onDidChangeState((event) => {
+    updateStatusBar(event.newState);
+  });
+
   outputChannel.appendLine("Starting language client...");
 
   await window.withProgress(
@@ -81,34 +245,26 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
 
       await client.start();
       outputChannel.appendLine("Language client started successfully!");
-
-      progress.report({ message: "Loading GraphQL configuration..." });
-
-      await new Promise<void>((resolve) => {
-        const disposable = client.onNotification("window/logMessage", (params) => {
-          if (params.message === "GraphQL config loaded successfully") {
-            window.showInformationMessage("GraphQL LSP: Configuration loaded successfully");
-            disposable.dispose();
-            resolve();
-          }
-        });
-
-        setTimeout(() => {
-          disposable.dispose();
-          resolve();
-        }, 5000);
-      });
     }
   );
 }
 
 export async function activate(context: ExtensionContext) {
   outputChannel = window.createOutputChannel("GraphQL LSP Debug");
-  outputChannel.show(true);
   outputChannel.appendLine("=== GraphQL LSP extension activating ===");
+
+  statusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 100);
+  statusBarItem.command = "graphql-lsp.checkStatus";
+  statusBarItem.text = "$(sync~spin) GraphQL";
+  statusBarItem.tooltip = "GraphQL LSP is starting...";
+  statusBarItem.show();
+  context.subscriptions.push(statusBarItem);
 
   try {
     await startLanguageServer(context);
+
+    // Setup decoration listeners for deprecated fields in TS/JS files
+    setupDecorationListeners(context);
 
     const reloadCommand = commands.registerCommand("graphql-lsp.restartServer", async () => {
       outputChannel.appendLine("=== Restarting GraphQL LSP ===");
@@ -125,6 +281,7 @@ export async function activate(context: ExtensionContext) {
       } catch (error) {
         const errorMessage = `Failed to restart GraphQL LSP: ${error}`;
         outputChannel.appendLine(errorMessage);
+        outputChannel.show(true);
         window.showErrorMessage(errorMessage);
       }
     });
@@ -147,18 +304,44 @@ export async function activate(context: ExtensionContext) {
       } catch (error) {
         const errorMessage = `Failed to check status: ${error}`;
         outputChannel.appendLine(errorMessage);
+        outputChannel.show(true);
         window.showErrorMessage(errorMessage);
       }
     });
 
-    context.subscriptions.push(reloadCommand, checkStatusCommand);
+    // Command wrapper for CodeLens "show references" functionality.
+    // The LSP server sends this command with JSON arguments; we convert them
+    // to native VSCode types before calling editor.action.showReferences.
+    // See the comment block at the top of this file for why this is necessary.
+    const showReferencesCommand = commands.registerCommand(
+      "graphql-lsp.showReferences",
+      async (uriString: string, position: LspPosition, locations: LspLocation[]) => {
+        if (!client) {
+          return;
+        }
+
+        const converter = client.protocol2CodeConverter;
+        await commands.executeCommand(
+          "editor.action.showReferences",
+          Uri.parse(uriString),
+          converter.asPosition(position),
+          locations.map((loc) => converter.asLocation(loc))
+        );
+      }
+    );
+
+    context.subscriptions.push(reloadCommand, checkStatusCommand, showReferencesCommand);
   } catch (error) {
     const errorMessage = `Failed to start GraphQL LSP: ${error}`;
     outputChannel.appendLine(errorMessage);
+    outputChannel.show(true);
     window.showErrorMessage(errorMessage);
-    throw error;
+    statusBarItem.text = "$(error) GraphQL";
+    statusBarItem.tooltip = `GraphQL LSP failed to start: ${error}`;
+    // Don't throw - allow partial activation so restart command can still work
   }
 
+  context.subscriptions.push(outputChannel);
   outputChannel.appendLine("Extension activated!");
   console.log("=== Extension activation complete ===");
 }

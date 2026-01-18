@@ -75,6 +75,13 @@ enum Commands {
         watch: bool,
     },
 
+    /// List all deprecated field usages across the project
+    Deprecations {
+        /// Output format
+        #[arg(short, long, value_enum, default_value = "human")]
+        format: OutputFormat,
+    },
+
     /// Schema-related commands (download, etc.)
     Schema {
         #[command(subcommand)]
@@ -86,6 +93,39 @@ enum Commands {
         /// Output format
         #[arg(short, long, value_enum, default_value = "human")]
         format: OutputFormat,
+    },
+
+    /// Analyze fragment usage across the project
+    Fragments {
+        /// Output format
+        #[arg(short, long, value_enum, default_value = "human")]
+        format: OutputFormat,
+    },
+
+    /// Show schema field coverage by operations
+    Coverage {
+        /// Output format
+        #[arg(short, long, value_enum, default_value = "human")]
+        format: OutputFormat,
+
+        /// Filter by type name (e.g., "User", "Query")
+        #[arg(long, value_name = "TYPE")]
+        r#type: Option<String>,
+    },
+
+    /// Analyze query complexity for GraphQL operations
+    Complexity {
+        /// Output format
+        #[arg(short, long, value_enum, default_value = "human")]
+        format: OutputFormat,
+
+        /// Complexity threshold - exit with error if any operation exceeds this value
+        #[arg(short, long)]
+        threshold: Option<u32>,
+
+        /// Show per-field complexity breakdown
+        #[arg(short, long)]
+        breakdown: bool,
     },
 }
 
@@ -122,10 +162,30 @@ async fn main() -> anyhow::Result<()> {
         Commands::Check { format, watch } => {
             commands::check::run(cli.config, cli.project.as_deref(), format, watch)
         }
+        Commands::Deprecations { format } => {
+            commands::deprecations::run(cli.config, cli.project.as_deref(), format)
+        }
         Commands::Schema { command } => commands::schema::run(command).await,
         Commands::Stats { format } => {
             commands::stats::run(cli.config, cli.project.as_deref(), format)
         }
+        Commands::Fragments { format } => {
+            commands::fragments::run(cli.config, cli.project.as_deref(), format)
+        }
+        Commands::Coverage { format, r#type } => {
+            commands::coverage::run(cli.config, cli.project.as_deref(), format, r#type)
+        }
+        Commands::Complexity {
+            format,
+            threshold,
+            breakdown,
+        } => commands::complexity::run(
+            cli.config,
+            cli.project.as_deref(),
+            format,
+            threshold,
+            breakdown,
+        ),
     };
 
     #[cfg(feature = "otel")]

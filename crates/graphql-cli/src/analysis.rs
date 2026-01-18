@@ -98,7 +98,7 @@ impl CliAnalysisHost {
                     _ => FileKind::ExecutableGraphQL, // .graphql, .gql, or unknown
                 };
 
-                host.add_file(&FilePath::new(path.to_string_lossy()), &content, kind, 0);
+                host.add_file(&FilePath::new(path.to_string_lossy()), &content, kind);
                 loaded_files.push(path);
             }
         }
@@ -336,7 +336,7 @@ impl CliAnalysisHost {
         // For simplicity, default to ExecutableGraphQL kind
         let kind = FileKind::ExecutableGraphQL;
 
-        self.host.add_file(&file_path, content, kind, 0);
+        self.host.add_file(&file_path, content, kind);
 
         // Update loaded files list if this is a new file
         if !self.loaded_files.contains(&path.to_path_buf()) {
@@ -374,6 +374,37 @@ impl CliAnalysisHost {
         }
 
         results
+    }
+
+    /// Get fragment usage analysis for the project
+    ///
+    /// Returns information about all fragments including:
+    /// - Definition location
+    /// - Usage count and locations
+    /// - Transitive dependencies
+    pub fn fragment_usages(&self) -> Vec<graphql_ide::FragmentUsage> {
+        let snapshot = self.host.snapshot();
+        snapshot.fragment_usages()
+    }
+
+    /// Get field coverage report for the project
+    ///
+    /// Returns coverage statistics showing which schema fields are used in operations.
+    pub fn field_coverage(&self) -> Option<graphql_ide::FieldCoverageReport> {
+        let snapshot = self.host.snapshot();
+        snapshot.field_coverage()
+    }
+
+    /// Get complexity analysis for all operations in the project
+    ///
+    /// Analyzes each operation's selection set to calculate:
+    /// - Total complexity score (with list multipliers)
+    /// - Maximum depth
+    /// - Per-field complexity breakdown
+    /// - Warnings about potential issues (nested pagination, etc.)
+    pub fn complexity_analysis(&self) -> Vec<graphql_ide::ComplexityAnalysis> {
+        let snapshot = self.host.snapshot();
+        snapshot.complexity_analysis()
     }
 }
 

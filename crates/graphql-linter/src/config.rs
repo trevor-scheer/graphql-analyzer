@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn test_simple_preset() {
-        let yaml = r#"recommended"#;
+        let yaml = r"recommended";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         assert!(matches!(
             config,
@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn test_preset_list() {
-        let yaml = r#"[recommended]"#;
+        let yaml = r"[recommended]";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         assert!(matches!(
             config,
@@ -306,11 +306,11 @@ mod tests {
 
     #[test]
     fn test_rules_only() {
-        let yaml = r#"
+        let yaml = r"
 rules:
   unique_names: error
   no_deprecated: warn
-"#;
+";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
             config.get_severity("unique_names"),
@@ -325,11 +325,11 @@ rules:
 
     #[test]
     fn test_extends_single() {
-        let yaml = r#"
+        let yaml = r"
 extends: recommended
 rules:
   no_deprecated: off
-"#;
+";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         assert!(config.is_enabled("unique_names"));
         assert!(!config.is_enabled("no_deprecated"));
@@ -338,11 +338,11 @@ rules:
 
     #[test]
     fn test_extends_multiple() {
-        let yaml = r#"
+        let yaml = r"
 extends: [recommended]
 rules:
   unused_fields: warn
-"#;
+";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         assert!(config.is_enabled("unique_names"));
         assert!(config.is_enabled("unused_fields"));
@@ -350,12 +350,12 @@ rules:
 
     #[test]
     fn test_extends_with_override() {
-        let yaml = r#"
+        let yaml = r"
 extends: recommended
 rules:
   unique_names: warn
   require_id_field: off
-"#;
+";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
             config.get_severity("unique_names"),
@@ -374,10 +374,10 @@ rules:
     #[test]
     fn test_merge_preset_with_rules() {
         let base = LintConfig::recommended();
-        let override_yaml = r#"
+        let override_yaml = r"
 rules:
   unused_fields: error
-"#;
+";
         let override_config: LintConfig = serde_yaml::from_str(override_yaml).unwrap();
         let merged = base.merge(&override_config);
 
@@ -387,15 +387,15 @@ rules:
 
     #[test]
     fn test_merge_extends_override_severity() {
-        let base_yaml = r#"
+        let base_yaml = r"
 extends: recommended
-"#;
+";
         let base: LintConfig = serde_yaml::from_str(base_yaml).unwrap();
 
-        let override_yaml = r#"
+        let override_yaml = r"
 rules:
   no_deprecated: off
-"#;
+";
         let override_config: LintConfig = serde_yaml::from_str(override_yaml).unwrap();
         let merged = base.merge(&override_config);
 
@@ -417,10 +417,10 @@ rules:
 
     #[test]
     fn test_validate_invalid_rule() {
-        let yaml = r#"
+        let yaml = r"
 rules:
   not_a_rule: error
-"#;
+";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         let result = config.validate();
         assert!(result.is_err());

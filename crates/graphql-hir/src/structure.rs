@@ -44,6 +44,8 @@ pub struct FieldSignature {
     pub description: Option<Arc<str>>,
     pub is_deprecated: bool,
     pub deprecation_reason: Option<Arc<str>>,
+    /// The text range of the field name
+    pub name_range: TextRange,
 }
 
 /// Reference to a type (with list/non-null wrappers)
@@ -205,10 +207,12 @@ pub fn file_structure(
     let mut fragments = Vec::new();
 
     for (block_idx, doc) in parse.documents().enumerate() {
-        // Create block context - for pure GraphQL files, source is None
-        let block_ctx = match doc.source {
-            Some(src) => BlockContext::embedded(doc.line_offset, Arc::from(src)),
-            None => BlockContext::pure_graphql(),
+        // For embedded GraphQL (line_offset > 0), include block context
+        // For pure GraphQL (line_offset == 0), no block context needed
+        let block_ctx = if doc.line_offset > 0 {
+            BlockContext::embedded(doc.line_offset, Arc::from(doc.source))
+        } else {
+            BlockContext::pure_graphql()
         };
 
         extract_from_document(
@@ -547,6 +551,7 @@ fn extract_field_signature(field: &ast::FieldDefinition) -> FieldSignature {
         description,
         is_deprecated,
         deprecation_reason,
+        name_range: name_range(&field.name),
     }
 }
 
@@ -564,6 +569,7 @@ fn extract_input_field_signature(field: &ast::InputValueDefinition) -> FieldSign
         description,
         is_deprecated,
         deprecation_reason,
+        name_range: name_range(&field.name),
     }
 }
 

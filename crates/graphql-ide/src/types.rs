@@ -376,6 +376,55 @@ impl WorkspaceSymbol {
     }
 }
 
+/// Code lens information for a deprecated field
+///
+/// Used to show usage counts for deprecated fields in schema files.
+/// The code lens appears above the field definition and shows how many
+/// usages exist across the project.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeLensInfo {
+    /// Range where the code lens should appear (field definition range)
+    pub range: Range,
+    /// Number of usages of this deprecated field
+    pub usage_count: usize,
+    /// The type name that contains the deprecated field
+    pub type_name: String,
+    /// The deprecated field name
+    pub field_name: String,
+    /// Optional deprecation reason
+    pub deprecation_reason: Option<String>,
+    /// Locations of all usages (for navigation)
+    pub usage_locations: Vec<Location>,
+}
+
+impl CodeLensInfo {
+    /// Create a new code lens for a deprecated field
+    #[must_use]
+    pub fn new(
+        range: Range,
+        type_name: impl Into<String>,
+        field_name: impl Into<String>,
+        usage_count: usize,
+        usage_locations: Vec<Location>,
+    ) -> Self {
+        Self {
+            range,
+            usage_count,
+            type_name: type_name.into(),
+            field_name: field_name.into(),
+            deprecation_reason: None,
+            usage_locations,
+        }
+    }
+
+    /// Add a deprecation reason
+    #[must_use]
+    pub fn with_deprecation_reason(mut self, reason: impl Into<String>) -> Self {
+        self.deprecation_reason = Some(reason.into());
+        self
+    }
+}
+
 /// Statistics about schema types
 #[derive(Debug, Clone, Default)]
 pub struct SchemaStats {
@@ -407,6 +456,106 @@ impl SchemaStats {
             + self.enums
             + self.scalars
             + self.input_objects
+    }
+}
+
+/// A reference to a fragment spread
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FragmentReference {
+    /// Location of the fragment spread
+    pub location: Location,
+}
+
+impl FragmentReference {
+    #[must_use]
+    pub const fn new(location: Location) -> Self {
+        Self { location }
+    }
+}
+
+/// Fragment usage analysis result
+///
+/// Contains information about how a fragment is used across the project,
+/// including its definition location, all usages, and transitive dependencies.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FragmentUsage {
+    /// Fragment name
+    pub name: String,
+    /// File where the fragment is defined
+    pub definition_file: FilePath,
+    /// Range of the fragment definition (just the name)
+    pub definition_range: Range,
+    /// All locations where this fragment is spread
+    pub usages: Vec<FragmentReference>,
+    /// Names of other fragments this fragment depends on (transitively)
+    pub transitive_dependencies: Vec<String>,
+}
+
+impl FragmentUsage {
+    /// Get the number of usages (excluding the definition)
+    #[must_use]
+    pub fn usage_count(&self) -> usize {
+        self.usages.len()
+    }
+
+    /// Check if this fragment is unused (has no references)
+    #[must_use]
+    pub fn is_unused(&self) -> bool {
+        self.usages.is_empty()
+    }
+}
+
+/// Code lens information for displaying actionable info above definitions
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeLens {
+    /// Range where the code lens should be displayed
+    pub range: Range,
+    /// Title to display (e.g., "5 references")
+    pub title: String,
+    /// Optional command to execute when clicked
+    pub command: Option<CodeLensCommand>,
+}
+
+impl CodeLens {
+    pub fn new(range: Range, title: impl Into<String>) -> Self {
+        Self {
+            range,
+            title: title.into(),
+            command: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_command(mut self, command: CodeLensCommand) -> Self {
+        self.command = Some(command);
+        self
+    }
+}
+
+/// Command associated with a code lens
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeLensCommand {
+    /// Command identifier
+    pub command: String,
+    /// Human-readable title
+    pub title: String,
+    /// Optional arguments for the command
+    pub arguments: Vec<String>,
+}
+
+impl CodeLensCommand {
+    pub fn new(command: impl Into<String>, title: impl Into<String>) -> Self {
+        Self {
+            command: command.into(),
+            title: title.into(),
+            arguments: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_arguments(mut self, args: Vec<String>) -> Self {
+        self.arguments = args;
+        self
     }
 }
 

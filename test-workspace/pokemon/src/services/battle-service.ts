@@ -128,12 +128,18 @@ export const SWITCH_POKEMON_IN_BATTLE = gql`
             }
             toPokemon {
               pokemon {
-                name
+                ...PokemonName
               }
             }
           }
         }
       }
     }
+  }
+`;
+
+const frag = gql`
+  fragment PokemonName on Pokemon {
+    name
   }
 `;

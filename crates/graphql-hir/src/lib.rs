@@ -231,30 +231,21 @@ pub fn fragment_file_index(
 #[salsa::tracked]
 pub fn file_fragment_sources(
     db: &dyn GraphQLHirDatabase,
-    file_id: graphql_db::FileId,
+    _file_id: graphql_db::FileId,
     content: graphql_db::FileContent,
     metadata: graphql_db::FileMetadata,
 ) -> Arc<HashMap<Arc<str>, Arc<str>>> {
-    let kind = metadata.kind(db);
     let parse = graphql_syntax::parse(db, content, metadata);
     let mut sources = HashMap::new();
 
-    if kind == graphql_db::FileKind::TypeScript || kind == graphql_db::FileKind::JavaScript {
-        // For TS/JS files, map each fragment to its specific block
-        for block in &parse.blocks {
-            for def in &block.ast.definitions {
-                if let apollo_compiler::ast::Definition::FragmentDefinition(frag) = def {
-                    let name: Arc<str> = Arc::from(frag.name.as_str());
-                    sources.insert(name, block.source.clone());
-                }
+    // Unified: iterate over all documents (works for both pure GraphQL and TS/JS)
+    for doc in parse.documents() {
+        let source: Arc<str> = Arc::from(doc.source);
+        for def in &doc.ast.definitions {
+            if let apollo_compiler::ast::Definition::FragmentDefinition(frag) = def {
+                let name: Arc<str> = Arc::from(frag.name.as_str());
+                sources.insert(name, source.clone());
             }
-        }
-    } else {
-        // For pure GraphQL files, use the entire file content
-        let file_frags = file_fragments(db, file_id, content, metadata);
-        let text = content.text(db);
-        for fragment in file_frags.iter() {
-            sources.insert(fragment.name.clone(), text.clone());
         }
     }
 
@@ -264,35 +255,25 @@ pub fn file_fragment_sources(
 /// Per-file query for fragment ASTs in a single file.
 /// Returns a map of fragment name -> AST document containing that fragment.
 /// This enables caching of parsed ASTs to avoid re-parsing during validation.
-///
-/// For TS/JS files, returns the block's AST. For pure GraphQL files, returns the file's AST.
-/// This mirrors the behavior of `file_fragment_sources` but returns ASTs instead of source text.
 #[salsa::tracked]
 pub fn file_fragment_asts(
     db: &dyn GraphQLHirDatabase,
-    file_id: graphql_db::FileId,
+    _file_id: graphql_db::FileId,
     content: graphql_db::FileContent,
     metadata: graphql_db::FileMetadata,
 ) -> Arc<HashMap<Arc<str>, Arc<apollo_compiler::ast::Document>>> {
-    let kind = metadata.kind(db);
     let parse = graphql_syntax::parse(db, content, metadata);
     let mut asts = HashMap::new();
 
-    if kind == graphql_db::FileKind::TypeScript || kind == graphql_db::FileKind::JavaScript {
-        // For TS/JS files, map each fragment to its specific block's AST
-        for block in &parse.blocks {
-            for def in &block.ast.definitions {
-                if let apollo_compiler::ast::Definition::FragmentDefinition(frag) = def {
-                    let name: Arc<str> = Arc::from(frag.name.as_str());
-                    asts.insert(name, block.ast.clone());
-                }
+    // Unified: iterate over all documents (works for both pure GraphQL and TS/JS)
+    for doc in parse.documents() {
+        // Clone the AST Arc for this document
+        let ast_arc = Arc::new(doc.ast.clone());
+        for def in &doc.ast.definitions {
+            if let apollo_compiler::ast::Definition::FragmentDefinition(frag) = def {
+                let name: Arc<str> = Arc::from(frag.name.as_str());
+                asts.insert(name, ast_arc.clone());
             }
-        }
-    } else {
-        // For pure GraphQL files, use the file's AST for all fragments
-        let file_frags = file_fragments(db, file_id, content, metadata);
-        for fragment in file_frags.iter() {
-            asts.insert(fragment.name.clone(), parse.ast.clone());
         }
     }
 
@@ -509,22 +490,9 @@ pub fn file_used_fragment_names(
         }
     }
 
-    // Process main AST definitions
-    for definition in &parse.ast.definitions {
-        match definition {
-            apollo_compiler::ast::Definition::OperationDefinition(op) => {
-                collect_spreads(&op.selection_set, &mut used);
-            }
-            apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
-                collect_spreads(&frag.selection_set, &mut used);
-            }
-            _ => {}
-        }
-    }
-
-    // Process extracted blocks (TypeScript/JavaScript)
-    for block in &parse.blocks {
-        for definition in &block.ast.definitions {
+    // Unified: process all documents (works for both pure GraphQL and TS/JS)
+    for doc in parse.documents() {
+        for definition in &doc.ast.definitions {
             match definition {
                 apollo_compiler::ast::Definition::OperationDefinition(op) => {
                     collect_spreads(&op.selection_set, &mut used);
@@ -733,35 +701,9 @@ pub fn file_schema_coordinates(
         }
     }
 
-    // Process main AST definitions
-    for definition in &parse.ast.definitions {
-        match definition {
-            apollo_compiler::ast::Definition::OperationDefinition(op) => {
-                let root_type = match op.operation_type {
-                    apollo_compiler::ast::OperationType::Query => query_type.as_ref(),
-                    apollo_compiler::ast::OperationType::Mutation => mutation_type.as_ref(),
-                    apollo_compiler::ast::OperationType::Subscription => subscription_type.as_ref(),
-                };
-                if let Some(root) = root_type {
-                    collect_coordinates(&op.selection_set, root, schema_types, &mut coordinates);
-                }
-            }
-            apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
-                let frag_type = Arc::from(frag.type_condition.as_str());
-                collect_coordinates(
-                    &frag.selection_set,
-                    &frag_type,
-                    schema_types,
-                    &mut coordinates,
-                );
-            }
-            _ => {}
-        }
-    }
-
-    // Process extracted blocks (TypeScript/JavaScript)
-    for block in &parse.blocks {
-        for definition in &block.ast.definitions {
+    // Unified: process all documents (works for both pure GraphQL and TS/JS)
+    for doc in parse.documents() {
+        for definition in &doc.ast.definitions {
             match definition {
                 apollo_compiler::ast::Definition::OperationDefinition(op) => {
                     let root_type = match op.operation_type {
@@ -1874,5 +1816,109 @@ mod tests {
                 executions
             );
         }
+    }
+
+    #[test]
+    fn test_file_structure_finds_fragments_in_typescript() {
+        let db = TestDatabase::default();
+        let file_id = FileId::new(100);
+
+        // TypeScript content with a fragment
+        let ts_content = r#"
+import { gql } from "@apollo/client";
+
+const MY_FRAGMENT = gql`
+  fragment TestFragment on Pokemon {
+    id
+    name
+  }
+`;
+"#;
+
+        let content = FileContent::new(&db, Arc::from(ts_content));
+        let metadata =
+            FileMetadata::new(&db, file_id, FileUri::new("test.ts"), FileKind::TypeScript);
+
+        let structure = file_structure(&db, file_id, content, metadata);
+
+        println!("Operations: {:?}", structure.operations.len());
+        println!("Fragments: {:?}", structure.fragments.len());
+        for frag in &structure.fragments {
+            println!("  Found fragment: {}", frag.name);
+        }
+
+        assert_eq!(
+            structure.fragments.len(),
+            1,
+            "Expected to find 1 fragment in TypeScript file"
+        );
+        assert_eq!(structure.fragments[0].name.as_ref(), "TestFragment");
+    }
+
+    #[test]
+    fn test_all_fragments_includes_typescript_files() {
+        let db = TestDatabase::default();
+
+        // Create a pure GraphQL file with a fragment
+        let graphql_file_id = FileId::new(1);
+        let graphql_content =
+            FileContent::new(&db, Arc::from("fragment GraphQLFragment on User { id }"));
+        let graphql_metadata = FileMetadata::new(
+            &db,
+            graphql_file_id,
+            FileUri::new("test.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        // Create a TypeScript file with a fragment
+        let ts_file_id = FileId::new(2);
+        let ts_content = FileContent::new(
+            &db,
+            Arc::from(
+                r#"
+import { gql } from "@apollo/client";
+
+const FRAG = gql`
+  fragment TSFragment on Pokemon {
+    id
+    name
+  }
+`;
+"#,
+            ),
+        );
+        let ts_metadata = FileMetadata::new(
+            &db,
+            ts_file_id,
+            FileUri::new("test.ts"),
+            FileKind::TypeScript,
+        );
+
+        // Create project files with both documents
+        let project_files = create_project_files(
+            &db,
+            &[], // No schema files
+            &[
+                (graphql_file_id, graphql_content, graphql_metadata),
+                (ts_file_id, ts_content, ts_metadata),
+            ],
+        );
+
+        let fragments = all_fragments(&db, project_files);
+
+        println!("Total fragments found: {}", fragments.len());
+        for (name, _) in fragments.iter() {
+            println!("  Found fragment: {}", name);
+        }
+
+        assert!(
+            fragments.contains_key(&Arc::from("GraphQLFragment")),
+            "Should find fragment from .graphql file"
+        );
+        assert!(
+            fragments.contains_key(&Arc::from("TSFragment")),
+            "Should find fragment from .ts file"
+        );
+        assert_eq!(fragments.len(), 2, "Should find exactly 2 fragments");
     }
 }
