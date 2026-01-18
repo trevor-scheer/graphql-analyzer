@@ -805,7 +805,7 @@ After restructuring:
 4. [x] Migrate graphql-hir tests
 5. [x] Migrate graphql-analysis tests
 6. [x] Add insta dependency
-7. [ ] Convert diagnostic tests to snapshots
+7. [x] Convert diagnostic tests to snapshots
 8. [x] Create shared fixtures
 9. [ ] Add integration test directories
 10. [x] Update CLAUDE.md with testing guidelines

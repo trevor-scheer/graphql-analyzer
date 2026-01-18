@@ -547,4 +547,32 @@ query($id: ID!) {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("Anonymous query operation"));
     }
+
+    /// Snapshot test demonstrating insta for diagnostic output
+    #[test]
+    fn test_anonymous_operations_snapshot() {
+        let db = RootDatabase::default();
+        let rule = NoAnonymousOperationsRuleImpl;
+
+        let source = r#"
+query { users { id } }
+mutation { updateUser(id: "1") { id } }
+subscription { onUserUpdate { id } }
+"#;
+
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+        let project_files = create_test_project_files(&db);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+
+        let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
+        insta::assert_yaml_snapshot!(messages);
+    }
 }

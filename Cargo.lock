@@ -1092,6 +1092,7 @@ dependencies = [
  "graphql-db",
  "graphql-hir",
  "graphql-syntax",
+ "insta",
  "serde",
  "serde_json",
  "serde_yaml",
