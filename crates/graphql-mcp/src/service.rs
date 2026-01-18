@@ -101,7 +101,7 @@ impl McpService {
                                     Some("js" | "jsx") => FileKind::JavaScript,
                                     _ => FileKind::ExecutableGraphQL,
                                 };
-                                host.add_file(&file_path, &content, kind, 0);
+                                host.add_file(&file_path, &content, kind);
                             }
                         }
                     }
@@ -127,7 +127,7 @@ impl McpService {
         // In owned mode, add the document to the host temporarily
         if let Some(ref mut host) = self.host {
             let fp = FilePath::new(file_path.clone());
-            host.add_file(&fp, &params.document, FileKind::ExecutableGraphQL, 0);
+            host.add_file(&fp, &params.document, FileKind::ExecutableGraphQL);
             host.rebuild_project_files();
         }
 
@@ -163,7 +163,7 @@ impl McpService {
         // In owned mode, add the document to the host temporarily
         if let Some(ref mut host) = self.host {
             let fp = FilePath::new(file_path.to_string());
-            host.add_file(&fp, document, FileKind::ExecutableGraphQL, 0);
+            host.add_file(&fp, document, FileKind::ExecutableGraphQL);
             host.rebuild_project_files();
         }
 
@@ -222,7 +222,6 @@ mod tests {
                 &FilePath::new("schema.graphql".to_string()),
                 "type Query { hello: String }",
                 FileKind::Schema,
-                0,
             );
             host.rebuild_project_files();
         }
@@ -260,7 +259,6 @@ mod tests {
                 &FilePath::new("schema.graphql".to_string()),
                 "type Query { hello: String }",
                 FileKind::Schema,
-                0,
             );
             host.rebuild_project_files();
         }
