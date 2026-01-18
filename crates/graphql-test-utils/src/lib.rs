@@ -37,6 +37,7 @@
 //!
 //! The most commonly used items are re-exported at the crate root for convenience.
 
+pub mod assertions;
 pub mod cursor;
 pub mod database;
 pub mod fixtures;
@@ -53,3 +54,9 @@ pub use graphql_db::tracking;
 
 // Re-export common types needed for test setup
 pub use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+
+// Re-export insta for snapshot testing
+pub use insta;
+
+// Re-export assertion helpers
+pub use assertions::{format_diagnostic_messages, format_diagnostics};
