@@ -31,6 +31,7 @@ impl StandaloneDocumentLintRule for OperationNameSuffixRuleImpl {
         content: FileContent,
         metadata: FileMetadata,
         _project_files: ProjectFiles,
+        _options: Option<&serde_json::Value>,
     ) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
 

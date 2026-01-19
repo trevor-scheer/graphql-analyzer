@@ -988,7 +988,7 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         };
 
-let host = self
+        let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
         let Some(analysis) = Self::try_snapshot_with_timeout(&host).await else {
@@ -1017,7 +1017,7 @@ let host = self
             return Ok(None);
         };
 
-let host = self
+        let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
         let Some(analysis) = Self::try_snapshot_with_timeout(&host).await else {
@@ -1048,7 +1048,7 @@ let host = self
             return Ok(None);
         };
 
-let host = self
+        let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
         let Some(analysis) = Self::try_snapshot_with_timeout(&host).await else {
@@ -1081,7 +1081,7 @@ let host = self
             return Ok(None);
         };
 
-let host = self
+        let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
         let Some(analysis) = Self::try_snapshot_with_timeout(&host).await else {
@@ -1121,7 +1121,7 @@ let host = self
             return Ok(None);
         };
 
-let host = self
+        let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
         let Some(analysis) = Self::try_snapshot_with_timeout(&host).await else {

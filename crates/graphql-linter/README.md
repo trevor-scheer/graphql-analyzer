@@ -226,6 +226,27 @@ extensions:
 - `warn` - Show as warning
 - `error` - Show as error
 
+### Rule Options
+
+Some rules support additional configuration options. Options can be specified using either ESLint-style array syntax or object syntax:
+
+```yaml
+# ESLint-style array: [severity, options]
+lint:
+  rules:
+    require_id_field: [warn, { fields: ["id", "uuid"] }]
+
+# Object style
+lint:
+  rules:
+    require_id_field:
+      severity: warn
+      options:
+        fields: ["id", "uuid"]
+```
+
+See individual rule documentation for available options.
+
 ## Built-in Rules
 
 ### redundant_fields
@@ -264,6 +285,72 @@ The rule handles:
 - Transitive redundancy (field in fragment that includes other fragments)
 - Circular fragment references (prevents infinite loops)
 - Aliased fields (only same alias is considered redundant)
+
+### require_id_field
+
+**Type**: DocumentSchemaRule
+**Default**: `warn`
+**Performance**: Fast
+
+Warns when selection sets on types that have an `id` field don't include it. This is useful for ensuring cache normalization works correctly with tools like Apollo Client.
+
+**Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `fields` | `string[]` | `["id"]` | Field names to require if they exist on the type |
+
+**Configuration examples:**
+
+```yaml
+# Default: require 'id' field
+lint:
+  rules:
+    require_id_field: warn
+
+# Require a different field (e.g., for Relay-style nodeId)
+lint:
+  rules:
+    require_id_field: [warn, { fields: ["nodeId"] }]
+
+# Require multiple fields (if they exist on the type)
+lint:
+  rules:
+    require_id_field:
+      severity: warn
+      options:
+        fields: ["id", "uuid"]
+
+# Disable the rule
+lint:
+  rules:
+    require_id_field: off
+```
+
+**Example:**
+
+```graphql
+# Schema
+type User {
+  id: ID!
+  name: String!
+}
+
+# Query
+query GetUser {
+  user {
+    name  # ⚠️ Warning: Selection set on type 'User' should include the 'id' field
+  }
+}
+
+# Fixed
+query GetUser {
+  user {
+    id    # ✅ OK
+    name
+  }
+}
+```
 
 ### no_deprecated
 

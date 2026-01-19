@@ -54,6 +54,7 @@ impl StandaloneDocumentLintRule for NoAnonymousOperationsRuleImpl {
         content: FileContent,
         metadata: FileMetadata,
         _project_files: ProjectFiles,
+        _options: Option<&serde_json::Value>,
     ) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
 
@@ -184,7 +185,7 @@ query {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("Anonymous query operation"));
@@ -215,7 +216,7 @@ query {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("Anonymous query operation"));
@@ -246,7 +247,7 @@ mutation {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
@@ -279,7 +280,7 @@ subscription {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
@@ -312,7 +313,7 @@ query GetUser {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 0);
     }
@@ -341,7 +342,7 @@ mutation UpdateUser {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 0);
     }
@@ -370,7 +371,7 @@ subscription OnMessageAdded {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 0);
     }
@@ -410,7 +411,7 @@ query {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Should have 2 diagnostics - one for the anonymous mutation, one for the anonymous query
         assert_eq!(diagnostics.len(), 2);
@@ -451,7 +452,7 @@ query GetUser {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Fragment definitions should be ignored, query is named
         assert_eq!(diagnostics.len(), 0);
@@ -481,7 +482,7 @@ query {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Even a single anonymous operation should fail (per user's request)
         assert_eq!(diagnostics.len(), 1);
@@ -512,7 +513,7 @@ query GetUserById($id: ID!) {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 0);
     }
@@ -541,7 +542,7 @@ query($id: ID!) {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("Anonymous query operation"));
@@ -569,7 +570,7 @@ subscription { onUserUpdate { id } }
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
         insta::assert_yaml_snapshot!(messages);
