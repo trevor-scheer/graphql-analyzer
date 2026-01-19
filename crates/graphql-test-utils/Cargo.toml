@@ -14,7 +14,7 @@ categories = ["development-tools::testing"]
 default = []
 
 [dependencies]
-graphql-base-db = { path = "../graphql-base-db", features = ["test-utils"] }
+graphql-base-db = { path = "../graphql-base-db" }
 graphql-syntax = { path = "../graphql-syntax" }
 graphql-hir = { path = "../graphql-hir" }
 graphql-analysis = { path = "../graphql-analysis" }

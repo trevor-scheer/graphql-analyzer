@@ -136,7 +136,7 @@ impl TestProjectBuilder {
         }
 
         let project_files =
-            graphql_base_db::test_utils::create_project_files(&mut db, &schema_tuples, &doc_tuples);
+            crate::database::create_project_files(&mut db, &schema_tuples, &doc_tuples);
 
         (db, project_files)
     }
@@ -214,7 +214,7 @@ impl TestProjectBuilder {
         }
 
         let project_files =
-            graphql_base_db::test_utils::create_project_files(&mut db, &schema_tuples, &doc_tuples);
+            crate::database::create_project_files(&mut db, &schema_tuples, &doc_tuples);
 
         TestProject {
             db,

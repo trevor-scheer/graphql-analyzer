@@ -213,8 +213,8 @@ fn is_builtin_scalar(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_base_db::test_utils::create_project_files;
     use graphql_base_db::{FileContent, FileKind, FileMetadata, FileUri};
+    use graphql_test_utils::create_project_files;
 
     // TestDatabase for document_validation tests.
     // Note: We can't use graphql_test_utils::TestDatabase here because it would

@@ -9,8 +9,5 @@ description = "Salsa database foundation for GraphQL LSP"
 keywords = ["graphql", "salsa", "incremental"]
 categories = ["development-tools"]
 
-[features]
-test-utils = []
-
 [dependencies]
 salsa = { workspace = true }

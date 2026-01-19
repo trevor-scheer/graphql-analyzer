@@ -663,7 +663,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_base_db::test_utils::create_project_files(
+        let project_files = graphql_test_utils::create_project_files(
             &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
@@ -734,7 +734,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_base_db::test_utils::create_project_files(
+        let project_files = graphql_test_utils::create_project_files(
             &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
@@ -808,7 +808,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_base_db::test_utils::create_project_files(
+        let project_files = graphql_test_utils::create_project_files(
             &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
@@ -884,7 +884,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_base_db::test_utils::create_project_files(
+        let project_files = graphql_test_utils::create_project_files(
             &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
@@ -961,7 +961,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_base_db::test_utils::create_project_files(
+        let project_files = graphql_test_utils::create_project_files(
             &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
@@ -1045,7 +1045,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_base_db::test_utils::create_project_files(
+        let project_files = graphql_test_utils::create_project_files(
             &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
@@ -1125,7 +1125,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_base_db::test_utils::create_project_files(
+        let project_files = graphql_test_utils::create_project_files(
             &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],

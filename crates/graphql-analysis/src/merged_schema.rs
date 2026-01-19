@@ -220,8 +220,7 @@ mod tests {
             FileKind::Schema,
         );
         let schema_files = [(file_id, content, metadata)];
-        let project_files =
-            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+        let project_files = graphql_test_utils::create_project_files(&mut db, &schema_files, &[]);
         let schema = merged_schema(&db, project_files);
         assert!(
             schema.is_some(),
@@ -261,8 +260,7 @@ mod tests {
             (file1_id, content1, metadata1),
             (file2_id, content2, metadata2),
         ];
-        let project_files =
-            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+        let project_files = graphql_test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -307,8 +305,7 @@ mod tests {
             (file1_id, content1, metadata1),
             (file2_id, content2, metadata2),
         ];
-        let project_files =
-            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+        let project_files = graphql_test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -343,7 +340,7 @@ mod tests {
     fn test_merged_schema_no_files() {
         let mut db = TestDatabase::default();
 
-        let project_files = graphql_base_db::test_utils::create_project_files(&mut db, &[], &[]);
+        let project_files = graphql_test_utils::create_project_files(&mut db, &[], &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(schema.is_none(), "Expected None when no schema files exist");
@@ -363,8 +360,7 @@ mod tests {
         );
 
         let schema_files = [(file_id, content, metadata)];
-        let project_files =
-            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+        let project_files = graphql_test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -391,8 +387,7 @@ mod tests {
         );
 
         let schema_files = [(file_id, content, metadata)];
-        let project_files =
-            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+        let project_files = graphql_test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -425,8 +420,7 @@ mod tests {
         );
 
         let schema_files = [(file_id, content, metadata)];
-        let project_files =
-            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+        let project_files = graphql_test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let result = merged_schema_with_diagnostics(&db, project_files);
 
@@ -474,8 +468,7 @@ mod tests {
         );
 
         let schema_files = [(file_id, content, metadata)];
-        let project_files =
-            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+        let project_files = graphql_test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let result = merged_schema_with_diagnostics(&db, project_files);
 
@@ -515,8 +508,7 @@ mod tests {
         );
 
         let schema_files = [(file_id, content, metadata)];
-        let project_files =
-            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+        let project_files = graphql_test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let result = merged_schema_with_diagnostics(&db, project_files);
 
@@ -565,8 +557,7 @@ mod tests {
         );
 
         let schema_files = [(file_id, content, metadata)];
-        let project_files =
-            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+        let project_files = graphql_test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let result = merged_schema_with_diagnostics(&db, project_files);
 

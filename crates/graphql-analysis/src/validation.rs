@@ -256,8 +256,8 @@ fn collect_fragment_spreads_from_selection_set(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_base_db::test_utils::create_project_files;
     use graphql_base_db::{FileId, FileKind, FileUri};
+    use graphql_test_utils::create_project_files;
 
     // TestDatabase for graphql-analysis tests.
     // Note: We can't use graphql_test_utils::TestDatabase here because it would

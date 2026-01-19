@@ -42,17 +42,16 @@ pub mod cursor;
 pub mod database;
 pub mod fixtures;
 pub mod project;
+pub mod tracking;
 
 // Re-export commonly used items at crate root
 pub use cursor::{extract_cursor, extract_cursors, Position};
 pub use database::{
-    file_content, file_metadata, RootDatabase, TestDatabase, TestDatabaseWithProject,
+    create_project_files, file_content, file_metadata, RootDatabase, TestDatabase,
+    TestDatabaseWithProject,
 };
 pub use project::{test_documents_only, test_project, test_schema_only, TestProjectBuilder};
-
-// Re-export graphql-db test utilities
-pub use graphql_base_db::test_utils::create_project_files;
-pub use graphql_base_db::tracking;
+pub use tracking::{queries, TrackedDatabase};
 
 // Re-export common types needed for test setup
 pub use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};

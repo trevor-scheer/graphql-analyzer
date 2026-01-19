@@ -10,7 +10,11 @@
 //! - `TestDatabaseWithProject` - A database variant that stores `ProjectFiles` in a Cell,
 //!   allowing tests to set project context after database construction.
 
-use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+use graphql_base_db::{
+    DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileKind, FileMetadata, FileUri,
+    ProjectFiles, SchemaFileIds,
+};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 // Re-export RootDatabase from graphql-ide-db for convenience
@@ -89,4 +93,33 @@ pub fn file_metadata(
     kind: FileKind,
 ) -> FileMetadata {
     FileMetadata::new(db, FileId::new(id), FileUri::new(uri), kind)
+}
+
+/// Helper to create `ProjectFiles` for tests.
+///
+/// This function takes lists of schema and document files and creates
+/// the proper granular Salsa inputs (`SchemaFileIds`, `DocumentFileIds`, `FileEntryMap`).
+pub fn create_project_files<DB: salsa::Database>(
+    db: &mut DB,
+    schema_files: &[(FileId, FileContent, FileMetadata)],
+    document_files: &[(FileId, FileContent, FileMetadata)],
+) -> ProjectFiles {
+    let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
+    let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
+
+    let mut entries = HashMap::new();
+    for (id, content, metadata) in schema_files {
+        let entry = FileEntry::new(db, *content, *metadata);
+        entries.insert(*id, entry);
+    }
+    for (id, content, metadata) in document_files {
+        let entry = FileEntry::new(db, *content, *metadata);
+        entries.insert(*id, entry);
+    }
+
+    let schema_file_ids = SchemaFileIds::new(db, Arc::new(schema_ids));
+    let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
+    let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
+
+    ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
 }

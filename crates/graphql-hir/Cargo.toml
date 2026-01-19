@@ -18,4 +18,4 @@ apollo-compiler = { workspace = true }
 text-size = "1.1"
 
 [dev-dependencies]
-graphql-base-db = { path = "../graphql-base-db", features = ["test-utils"] }
+graphql-test-utils = { path = "../graphql-test-utils" }

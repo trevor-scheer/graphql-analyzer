@@ -10,10 +10,6 @@ description = "Salsa database for GraphQL IDE features"
 keywords = ["graphql", "salsa", "incremental", "ide"]
 categories = ["development-tools"]
 
-[features]
-default = []
-test-utils = ["graphql-base-db/test-utils"]
-
 [dependencies]
 # Core database dependencies - graphql-analysis brings in the full chain
 graphql-base-db = { path = "../graphql-base-db" }

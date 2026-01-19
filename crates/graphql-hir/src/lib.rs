@@ -775,7 +775,7 @@ mod tests {
         schema_files: &[(FileId, FileContent, FileMetadata)],
         document_files: &[(FileId, FileContent, FileMetadata)],
     ) -> graphql_base_db::ProjectFiles {
-        graphql_base_db::test_utils::create_project_files(db, schema_files, document_files)
+        graphql_test_utils::create_project_files(db, schema_files, document_files)
     }
 
     #[test]
@@ -1111,7 +1111,7 @@ mod tests {
     )]
     mod caching_tests {
         use super::*;
-        use graphql_base_db::tracking::queries;
+        use graphql_test_utils::tracking::queries;
         use salsa::{Event, EventKind, Setter, Storage};
         use std::sync::Mutex;
 
