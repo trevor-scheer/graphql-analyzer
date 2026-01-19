@@ -559,6 +559,63 @@ impl CodeLensCommand {
     }
 }
 
+/// Result of loading schemas from configuration.
+///
+/// This type captures both the successfully loaded local schemas and any
+/// remote introspection configurations that require async fetching.
+#[derive(Debug, Clone)]
+pub struct SchemaLoadResult {
+    /// Number of schema files successfully loaded (includes Apollo client builtins)
+    pub loaded_count: usize,
+    /// Pending introspection configurations that need async fetching.
+    /// These require network access and should be handled asynchronously
+    /// by the calling layer (e.g., LSP server).
+    pub pending_introspections: Vec<PendingIntrospection>,
+}
+
+/// A pending remote schema introspection request.
+///
+/// This represents a remote GraphQL endpoint that should be introspected
+/// to fetch its schema. The caller is responsible for performing the async
+/// introspection and registering the resulting SDL as a virtual file.
+#[derive(Debug, Clone)]
+pub struct PendingIntrospection {
+    /// The GraphQL endpoint URL to introspect
+    pub url: String,
+    /// HTTP headers to include in the introspection request (e.g., for authentication)
+    pub headers: Option<std::collections::HashMap<String, String>>,
+    /// Request timeout in seconds (default: 30)
+    pub timeout: Option<u64>,
+    /// Number of retry attempts on failure (default: 0)
+    pub retry: Option<u32>,
+}
+
+impl PendingIntrospection {
+    /// Create a new pending introspection from a config
+    #[must_use]
+    pub fn from_config(config: &graphql_config::IntrospectionSchemaConfig) -> Self {
+        Self {
+            url: config.url.clone(),
+            headers: config.headers.clone(),
+            timeout: config.timeout,
+            retry: config.retry,
+        }
+    }
+
+    /// Generate a virtual file URI for this introspection endpoint.
+    /// Uses the format `introspection://<host>/<path>` to uniquely identify
+    /// remote schemas.
+    #[must_use]
+    pub fn virtual_uri(&self) -> String {
+        format!(
+            "introspection://{}",
+            self.url
+                .trim_start_matches("https://")
+                .trim_start_matches("http://")
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

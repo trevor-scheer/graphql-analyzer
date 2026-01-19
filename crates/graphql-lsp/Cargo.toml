@@ -23,6 +23,7 @@ graphql-config = { path = "../graphql-config" }
 graphql-extract = { path = "../graphql-extract" }
 graphql-ide = { path = "../graphql-ide" }
 graphql-syntax = { path = "../graphql-syntax" }
+graphql-introspect = { path = "../graphql-introspect" }
 
 # GraphQL
 apollo-compiler = { workspace = true }
