@@ -7,11 +7,11 @@ use graphql_linter::LintDiagnostic;
 use std::path::PathBuf;
 
 /// Represents a fix to apply to a file
-struct FileFix {
+pub struct FileFix {
     /// The file path
-    path: PathBuf,
+    pub path: PathBuf,
     /// All diagnostics with fixes for this file
-    diagnostics: Vec<LintDiagnostic>,
+    pub diagnostics: Vec<LintDiagnostic>,
 }
 
 #[allow(clippy::needless_pass_by_value)] // rule_filter comes from clap and can't be borrowed
@@ -113,7 +113,7 @@ pub fn run(
 }
 
 /// Collect all diagnostics with fixes from the analysis host
-fn collect_fixable_diagnostics(
+pub fn collect_fixable_diagnostics(
     host: &CliAnalysisHost,
     rule_filter: Option<&[String]>,
 ) -> Vec<FileFix> {
@@ -190,7 +190,7 @@ fn display_dry_run(fixes: &[FileFix], format: OutputFormat) {
 }
 
 /// Apply fixes to files
-fn apply_fixes(fixes: &[FileFix], format: OutputFormat) -> Result<()> {
+pub fn apply_fixes(fixes: &[FileFix], format: OutputFormat) -> Result<()> {
     for file_fix in fixes {
         apply_file_fixes(file_fix, format)?;
     }

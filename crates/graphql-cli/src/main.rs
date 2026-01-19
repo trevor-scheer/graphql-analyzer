@@ -44,6 +44,10 @@ enum Commands {
         /// Watch mode - re-lint on file changes
         #[arg(short, long)]
         watch: bool,
+
+        /// Automatically fix lint issues that have safe fixes
+        #[arg(long)]
+        fix: bool,
     },
 
     /// Automatically fix lint issues that have safe fixes
@@ -151,8 +155,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::Validate { format, watch } => {
             commands::validate::run(cli.config, cli.project.as_deref(), format, watch)
         }
-        Commands::Lint { format, watch } => {
-            commands::lint::run(cli.config, cli.project.as_deref(), format, watch)
+        Commands::Lint { format, watch, fix } => {
+            commands::lint::run(cli.config, cli.project.as_deref(), format, watch, fix)
         }
         Commands::Fix {
             dry_run,
