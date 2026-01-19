@@ -297,16 +297,88 @@ When validating operations, you MUST:
 - **Type Names**: Must be unique within the schema
 - **Anonymous Operations**: Only allowed when a document contains a single operation
 
-### The Golden Invariant
+### Cache Invariants
 
-> **"Editing a document's body never invalidates global schema knowledge"**
+The Salsa-based architecture relies on several cache invariants to ensure efficient incremental computation. These invariants define what changes should NOT invalidate what caches.
 
-This principle drives the architecture:
+#### 1. Structure/Body Separation
 
-- **Structure** (stable): Type names, field signatures, operation names, fragment names
-- **Bodies** (dynamic): Selection sets, field selections, directives
+> Editing body content never invalidates structure queries.
 
-By separating structure from bodies, we achieve fine-grained incremental recomputation.
+**Structure** (stable): Type names, field signatures, operation names, fragment names
+**Bodies** (dynamic): Selection sets, field selections, directives
+
+```graphql
+# Editing this operation's selection set...
+query GetUser {
+  user { id name email }  # <-- change this
+}
+
+# ...does NOT re-compute schema_types() or all_fragments()
+```
+
+#### 2. File Isolation
+
+> Editing file A never invalidates unrelated queries for file B.
+
+```
+files:
+  schema.graphql    # schema types
+  operations.graphql  # operations
+  fragments.graphql   # fragments
+
+# Editing operations.graphql does NOT re-parse schema.graphql or fragments.graphql
+```
+
+#### 3. Query Type Isolation
+
+> Schema changes don't invalidate unrelated document queries; document changes don't invalidate unrelated schema queries.
+
+```
+# Adding a new type to schema.graphql...
+type Admin { role: String }
+
+# ...does NOT invalidate operation_body() for existing operations
+# (though validation results may change)
+```
+
+#### 4. Index Stability
+
+> Global indexes remain cached when edits don't change index keys (names/signatures).
+
+```graphql
+# Editing a fragment's body...
+fragment UserFields on User {
+  id name avatar  # <-- add 'avatar'
+}
+
+# ...does NOT invalidate all_fragments() index
+# (the fragment name "UserFields" hasn't changed)
+```
+
+#### 5. O(1) Incremental Updates
+
+> Editing 1 of N files costs O(1), not O(N).
+
+```
+# Project with 100 files
+# Editing 1 file should only re-process that 1 file
+# Not all 100 files
+```
+
+#### 6. Lazy Body Evaluation
+
+> Body queries only execute when their results are actually needed.
+
+```rust
+// Getting schema types does NOT trigger operation_body() queries
+let types = schema_types(db);  // Only structure queries run
+
+// Body queries run on-demand during validation
+let diagnostics = file_diagnostics(db, file_id);  // Now bodies are needed
+```
+
+By maintaining these invariants, we achieve fine-grained incremental recomputation that keeps the IDE responsive during active development.
 
 ### Salsa Query System
 
@@ -579,10 +651,11 @@ cargo bench -- --baseline main
 
 #### What the Benchmarks Validate
 
-1. **Salsa Caching**: Warm queries should be 100-1000x faster than cold queries
-2. **Golden Invariant**: Editing operation bodies doesn't invalidate schema cache (< 100ns)
-3. **Fragment Resolution**: Cross-file fragment resolution benefits from caching
-4. **AnalysisHost Performance**: High-level IDE API performance
+1. **Basic Memoization**: Warm queries should be 100-1000x faster than cold queries
+2. **Structure/Body Separation**: Editing operation bodies doesn't invalidate schema cache (< 100ns)
+3. **Index Stability**: Fragment index remains cached across body edits
+4. **O(1) Updates**: Editing 1 of N files is O(1), not O(N)
+5. **AnalysisHost Performance**: High-level IDE API performance
 
 #### Interpreting Results
 
@@ -592,10 +665,10 @@ Criterion generates HTML reports in `target/criterion/`. Open `target/criterion/
 - Regression detection
 - Comparison with previous runs
 
-**Expected results if architecture is working correctly:**
+**Expected results if cache invariants hold:**
 
 - Warm vs Cold: 100-1000x speedup
-- Golden Invariant: < 100 nanoseconds
+- Structure/Body Separation: < 100 nanoseconds for schema query after body edit
 - Fragment Resolution: ~10x speedup with caching
 
 ---
