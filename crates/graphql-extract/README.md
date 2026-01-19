@@ -72,7 +72,7 @@ let lang = Language::from_path("file.jsx")?;
 ### Basic Tagged Template Literal
 
 ```typescript
-import { gql } from 'graphql-tag';
+import { gql } from "graphql-tag";
 
 const query = gql`
   query GetUser($id: ID!) {
@@ -87,8 +87,20 @@ const query = gql`
 ### Multiple Queries in One File
 
 ```typescript
-const query1 = gql`query A { user { id } }`;
-const query2 = gql`query B { posts { title } }`;
+const query1 = gql`
+  query A {
+    user {
+      id
+    }
+  }
+`;
+const query2 = gql`
+  query B {
+    posts {
+      title
+    }
+  }
+`;
 ```
 
 ### Fragments
@@ -115,17 +127,28 @@ const query = gql`
 ### Call Expressions with Arguments
 
 ```typescript
-const fragment1 = graphql`fragment F1 on User { id }`;
-const fragment2 = graphql`fragment F2 on User { name }`;
-
-const document = graphql(`
-  query GetUser {
-    user {
-      ...F1
-      ...F2
-    }
+const fragment1 = graphql`
+  fragment F1 on User {
+    id
   }
-`, [fragment1, fragment2]);
+`;
+const fragment2 = graphql`
+  fragment F2 on User {
+    name
+  }
+`;
+
+const document = graphql(
+  `
+    query GetUser {
+      user {
+        ...F1
+        ...F2
+      }
+    }
+  `,
+  [fragment1, fragment2],
+);
 ```
 
 The extractor processes the first argument (the template literal) and ignores additional arguments.
@@ -156,10 +179,12 @@ let result = extract_from_file("src/queries.ts", &config)?;
 By default, the extractor recognizes:
 
 **Tag identifiers:**
+
 - `gql`
 - `graphql`
 
 **Modules:**
+
 - `graphql-tag`
 - `@apollo/client`
 - `apollo-server`
@@ -173,11 +198,11 @@ By default, the extractor only extracts GraphQL from recognized module imports:
 
 ```typescript
 // ✓ Will be extracted (gql imported from graphql-tag)
-import { gql } from 'graphql-tag';
+import { gql } from "graphql-tag";
 const query = gql`query { ... }`;
 
 // ✗ Will NOT be extracted (gql imported from unknown module)
-import { gql } from 'unknown-module';
+import { gql } from "unknown-module";
 const query = gql`query { ... }`;
 
 // ✗ Will NOT be extracted by default (no import)
@@ -217,6 +242,7 @@ pub struct Position {
 ```
 
 This enables:
+
 - **Accurate error reporting** at the correct line in the original file
 - **Goto definition** navigation from code to GraphQL definitions
 - **Hover information** showing type info in embedded GraphQL
@@ -257,6 +283,7 @@ impl Language {
 ```
 
 File extensions:
+
 - `.ts`, `.tsx` → TypeScript
 - `.js`, `.jsx` → JavaScript
 
@@ -327,6 +354,7 @@ let result = extract_from_file("Component.tsx", &relay_config)?;
 ### Parser
 
 Uses [SWC (Speedy Web Compiler)](https://swc.rs/) for parsing:
+
 - Fast, production-ready TypeScript/JavaScript parser
 - Full support for modern JavaScript features including JSX/TSX
 - Accurate source location information
@@ -334,6 +362,7 @@ Uses [SWC (Speedy Web Compiler)](https://swc.rs/) for parsing:
 ### AST Traversal
 
 Traverses the SWC AST looking for:
+
 - `TaggedTemplateExpression` nodes with matching tag names
 - Import statements from recognized modules
 - Template literals containing GraphQL
@@ -341,6 +370,7 @@ Traverses the SWC AST looking for:
 ### Error Handling
 
 Handles common edge cases:
+
 - Malformed TypeScript/JavaScript (returns parse errors)
 - Non-GraphQL tagged templates (silently ignored)
 - Empty template literals (skipped)

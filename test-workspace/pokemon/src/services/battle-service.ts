@@ -106,11 +106,7 @@ export const GET_BATTLE_HISTORY = gql`
 `;
 
 export const SWITCH_POKEMON_IN_BATTLE = gql`
-  mutation SwitchPokemonInBattle(
-    $battleId: ID!
-    $trainerId: ID!
-    $newPokemonId: ID!
-  ) {
+  mutation SwitchPokemonInBattle($battleId: ID!, $trainerId: ID!, $newPokemonId: ID!) {
     performBattleAction(
       battleId: $battleId
       trainerId: $trainerId

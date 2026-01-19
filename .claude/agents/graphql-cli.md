@@ -22,6 +22,7 @@ You have deep knowledge of:
 ## When to Consult This Agent
 
 Consult this agent when:
+
 - Understanding GraphQL project configuration standards
 - Implementing CLI commands for validation and linting
 - Understanding how other GraphQL tools approach similar problems
@@ -34,6 +35,7 @@ Consult this agent when:
 The standard for GraphQL project configuration:
 
 ### Configuration File Names
+
 - `.graphqlrc`
 - `.graphqlrc.json`
 - `.graphqlrc.yaml`
@@ -44,6 +46,7 @@ The standard for GraphQL project configuration:
 - `graphql.config.ts`
 
 ### Configuration Structure
+
 ```yaml
 # Single project
 schema: schema.graphql
@@ -62,6 +65,7 @@ projects:
 ```
 
 ### Schema Sources
+
 - Local files: `schema.graphql`
 - Glob patterns: `src/**/*.graphql`
 - URLs: `https://api.example.com/graphql`
@@ -72,12 +76,14 @@ projects:
 Popular code generation tool:
 
 ### Common Plugins
+
 - `typescript`: TypeScript type generation
 - `typescript-operations`: Types for operations
 - `typescript-react-apollo`: React hooks
 - `typed-document-node`: Typed document nodes
 
 ### Configuration
+
 ```yaml
 schema: schema.graphql
 documents: "src/**/*.graphql"
@@ -93,12 +99,14 @@ generates:
 Schema management and validation:
 
 ### Features
+
 - Schema diffing (breaking changes detection)
 - Schema validation
 - Coverage reporting
 - Similar fields detection
 
 ### CLI Commands
+
 ```bash
 graphql-inspector diff old.graphql new.graphql
 graphql-inspector validate schema.graphql
@@ -108,6 +116,7 @@ graphql-inspector coverage schema.graphql documents/**/*.graphql
 ## Integration with This Project
 
 This project's CLI should:
+
 - Follow graphql-config standards
 - Provide familiar command patterns
 - Interoperate with existing tooling

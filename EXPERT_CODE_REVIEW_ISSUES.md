@@ -9,6 +9,7 @@ This document contains issues identified during the comprehensive SME expert cod
 ## Table of Contents
 
 ### Critical Issues
+
 1. [UTF-16 Position Handling Incorrect](#issue-1-utf-16-position-handling-incorrect)
 2. [Panic on Unsaved Files (untitled:// URIs)](#issue-2-panic-on-unsaved-files)
 3. [apollo-compiler Error Positions Ignored](#issue-3-apollo-compiler-error-positions-ignored)
@@ -17,6 +18,7 @@ This document contains issues identified during the comprehensive SME expert cod
 6. [Path Traversal Vulnerability in Glob Patterns](#issue-6-path-traversal-vulnerability-in-glob-patterns)
 
 ### High Priority Issues
+
 7. [Early Return on Parse Errors Masks Fragment Collection](#issue-7-early-return-on-parse-errors-masks-fragment-collection)
 8. [Client Capabilities Ignored During Initialization](#issue-8-client-capabilities-ignored-during-initialization)
 9. [No Request Cancellation Support](#issue-9-no-request-cancellation-support)
@@ -86,6 +88,7 @@ From [LSP Spec Section 3.17](https://microsoft.github.io/language-server-protoco
 #### Test Case 1: Emoji in GraphQL file
 
 Create a test file `emoji.graphql`:
+
 ```graphql
 # 🚀 Launch query
 query GetUser {
@@ -104,6 +107,7 @@ query GetUser {
 #### Test Case 2: CJK Characters
 
 Create a test file `cjk.graphql`:
+
 ```graphql
 # 用户查询
 query GetUser {
@@ -540,6 +544,7 @@ pub fn snapshot(&self) -> Analysis {
 ### Impact
 
 Cascading failure scenario:
+
 1. Thread A holds write lock on registry
 2. Thread A panics (e.g., from another `.unwrap()` call)
 3. Lock becomes poisoned
@@ -635,6 +640,7 @@ pub fn add_file(&mut self, ...) -> bool {
 ```
 
 **Tradeoffs**:
+
 - ✅ Zero-cost abstraction, never poisons
 - ✅ Faster than std::sync::RwLock
 - ✅ Used by rust-analyzer
@@ -656,6 +662,7 @@ pub fn add_file(&mut self, ...) -> bool {
 ```
 
 **Tradeoffs**:
+
 - ✅ No new dependencies
 - ⚠️ More verbose code
 - ⚠️ May hide underlying bugs that caused the poison
@@ -811,6 +818,7 @@ pub fn snapshot(&self) -> Analysis {
 ```
 
 **Tradeoffs**:
+
 - ✅ True isolation
 - ⚠️ Memory overhead (copies all file data)
 - ⚠️ Clone must be implemented for FileRegistry
@@ -840,6 +848,7 @@ impl AnalysisHost {
 ```
 
 **Tradeoffs**:
+
 - ✅ True isolation
 - ✅ Cheaper snapshots (just Arc clone)
 - ⚠️ More expensive mutations (full clone on each change)
@@ -989,6 +998,7 @@ Ok(path) if path.is_file() => {
 ```
 
 **Tradeoffs**:
+
 - ✅ Prevents path traversal attacks
 - ⚠️ May break legitimate symlinks to files outside workspace
 - ⚠️ Adds filesystem syscalls for canonicalization
@@ -1038,6 +1048,7 @@ apollo-parser is **error-tolerant**: it always produces a CST even with syntax e
 ### Reproduction Steps
 
 Create `query.graphql`:
+
 ```graphql
 query GetUser {
   ...UserFragment
@@ -1046,6 +1057,7 @@ query GetUser {
 ```
 
 Create `fragment.graphql`:
+
 ```graphql
 fragment UserFragment on User {
   id
@@ -1340,6 +1352,7 @@ The `no_anonymous_operations` lint rule rejects ALL anonymous operations, but th
 > "An executable document is only valid if it contains at most one anonymous operation definition"
 
 This means:
+
 - ✅ Document with 1 anonymous operation: **VALID**
 - ❌ Document with 2+ operations where any is anonymous: Invalid
 
@@ -1407,6 +1420,7 @@ query GetPosts {
 ### Proposed Solution
 
 Update the rule to only flag anonymous operations when:
+
 1. There are multiple operations in the document, AND
 2. At least one is anonymous
 
@@ -1456,7 +1470,7 @@ type User implements Node {
 }
 
 type Post implements Node {
-  id: Int!  # WRONG TYPE - SPEC VIOLATION
+  id: Int! # WRONG TYPE - SPEC VIOLATION
   name: String!
 }
 ```
@@ -1514,9 +1528,11 @@ This schema should error but doesn't:
 
 ```graphql
 scalar DateTime
-interface Node { id: ID! }
+interface Node {
+  id: ID!
+}
 
-union SearchResult = DateTime | Node  # BOTH INVALID
+union SearchResult = DateTime | Node # BOTH INVALID
 ```
 
 ### Proposed Solution
@@ -1741,10 +1757,10 @@ let client = reqwest::Client::builder()
 
 ## Summary
 
-| Priority | Count | Categories |
-|----------|-------|------------|
-| Critical | 6 | Panics, Security, Thread Safety |
-| High | 12 | Performance, Spec Compliance, UX |
-| **Total** | **18** | |
+| Priority  | Count  | Categories                       |
+| --------- | ------ | -------------------------------- |
+| Critical  | 6      | Panics, Security, Thread Safety  |
+| High      | 12     | Performance, Spec Compliance, UX |
+| **Total** | **18** |                                  |
 
 All issues should be labeled with `claude` in addition to their specific labels.

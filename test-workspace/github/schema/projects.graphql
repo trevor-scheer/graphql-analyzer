@@ -35,14 +35,26 @@ type ProjectV2 implements Node & Closable & Updatable {
   """
   A list of fields in the project.
   """
-  fields(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2FieldOrder): ProjectV2FieldConfigurationConnection!
+  fields(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: ProjectV2FieldOrder
+  ): ProjectV2FieldConfigurationConnection!
 
   id: ID!
 
   """
   A list of items in the project.
   """
-  items(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2ItemOrder): ProjectV2ItemConnection!
+  items(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: ProjectV2ItemOrder
+  ): ProjectV2ItemConnection!
 
   """
   The project number.
@@ -67,7 +79,13 @@ type ProjectV2 implements Node & Closable & Updatable {
   """
   The repositories linked to the project.
   """
-  repositories(first: Int, after: String, last: Int, before: String, orderBy: RepositoryOrder): RepositoryConnection!
+  repositories(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: RepositoryOrder
+  ): RepositoryConnection!
 
   """
   The HTTP path for the project.
@@ -122,7 +140,13 @@ type ProjectV2 implements Node & Closable & Updatable {
   """
   A list of views in the project.
   """
-  views(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2ViewOrder): ProjectV2ViewConnection!
+  views(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: ProjectV2ViewOrder
+  ): ProjectV2ViewConnection!
 
   """
   A list of workflows in the project.
@@ -164,7 +188,13 @@ type ProjectV2Item implements Node {
   """
   A list of field values for the item.
   """
-  fieldValues(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2ItemFieldValueOrder): ProjectV2ItemFieldValueConnection!
+  fieldValues(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: ProjectV2ItemFieldValueOrder
+  ): ProjectV2ItemFieldValueConnection!
 
   id: ID!
 
@@ -207,7 +237,13 @@ type DraftIssue implements Node {
   creator: Actor
   id: ID!
   projectV2Items(first: Int, after: String, last: Int, before: String): ProjectV2ItemConnection!
-  projectsV2(first: Int, after: String, last: Int, before: String, query: String): ProjectV2Connection!
+  projectsV2(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    query: String
+  ): ProjectV2Connection!
   title: String!
   updatedAt: DateTime!
 }
@@ -215,7 +251,10 @@ type DraftIssue implements Node {
 """
 A field in a project.
 """
-union ProjectV2FieldConfiguration = ProjectV2Field | ProjectV2IterationField | ProjectV2SingleSelectField
+union ProjectV2FieldConfiguration =
+  | ProjectV2Field
+  | ProjectV2IterationField
+  | ProjectV2SingleSelectField
 
 type ProjectV2Field implements Node & ProjectV2FieldCommon {
   createdAt: DateTime!
@@ -320,7 +359,18 @@ enum ProjectV2FieldOrderField {
 """
 A field value in a project item.
 """
-union ProjectV2ItemFieldValue = ProjectV2ItemFieldDateValue | ProjectV2ItemFieldIterationValue | ProjectV2ItemFieldNumberValue | ProjectV2ItemFieldSingleSelectValue | ProjectV2ItemFieldTextValue | ProjectV2ItemFieldMilestoneValue | ProjectV2ItemFieldLabelValue | ProjectV2ItemFieldPullRequestValue | ProjectV2ItemFieldRepositoryValue | ProjectV2ItemFieldReviewerValue | ProjectV2ItemFieldUserValue
+union ProjectV2ItemFieldValue =
+  | ProjectV2ItemFieldDateValue
+  | ProjectV2ItemFieldIterationValue
+  | ProjectV2ItemFieldNumberValue
+  | ProjectV2ItemFieldSingleSelectValue
+  | ProjectV2ItemFieldTextValue
+  | ProjectV2ItemFieldMilestoneValue
+  | ProjectV2ItemFieldLabelValue
+  | ProjectV2ItemFieldPullRequestValue
+  | ProjectV2ItemFieldRepositoryValue
+  | ProjectV2ItemFieldReviewerValue
+  | ProjectV2ItemFieldUserValue
 
 type ProjectV2ItemFieldDateValue implements Node & ProjectV2ItemFieldValueCommon {
   createdAt: DateTime!
@@ -401,7 +451,13 @@ type ProjectV2ItemFieldLabelValue implements Node {
 type ProjectV2ItemFieldPullRequestValue implements Node {
   field: ProjectV2FieldConfiguration!
   id: ID!
-  pullRequests(first: Int, after: String, last: Int, before: String, orderBy: PullRequestOrder): PullRequestConnection
+  pullRequests(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: PullRequestOrder
+  ): PullRequestConnection
 }
 
 type ProjectV2ItemFieldRepositoryValue implements Node {
@@ -486,12 +542,24 @@ type ProjectV2View implements Node {
   """
   The fields in the view.
   """
-  fields(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2FieldOrder): ProjectV2FieldConfigurationConnection
+  fields(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: ProjectV2FieldOrder
+  ): ProjectV2FieldConfigurationConnection
 
   """
   The group-by fields for the view.
   """
-  groupByFields(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2FieldOrder): ProjectV2FieldConfigurationConnection
+  groupByFields(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: ProjectV2FieldOrder
+  ): ProjectV2FieldConfigurationConnection
 
   id: ID!
 
@@ -518,7 +586,13 @@ type ProjectV2View implements Node {
   """
   The sort-by fields for the view.
   """
-  sortByFields(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2FieldOrder): ProjectV2SortByFieldConnection
+  sortByFields(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: ProjectV2FieldOrder
+  ): ProjectV2SortByFieldConnection
 
   """
   Identifies the date and time when the object was last updated.
@@ -528,7 +602,13 @@ type ProjectV2View implements Node {
   """
   The vertical group-by fields for the view.
   """
-  verticalGroupByFields(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2FieldOrder): ProjectV2FieldConfigurationConnection
+  verticalGroupByFields(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: ProjectV2FieldOrder
+  ): ProjectV2FieldConfigurationConnection
 }
 
 type ProjectV2ViewConnection {

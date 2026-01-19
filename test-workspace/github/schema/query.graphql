@@ -20,12 +20,18 @@ type Query {
   """
   Look up an enterprise administrator invitation by token.
   """
-  enterpriseAdministratorInvitation(enterpriseSlug: String!, role: EnterpriseAdministratorRole!, userLogin: String!): EnterpriseAdministratorInvitation
+  enterpriseAdministratorInvitation(
+    enterpriseSlug: String!
+    role: EnterpriseAdministratorRole!
+    userLogin: String!
+  ): EnterpriseAdministratorInvitation
 
   """
   Look up an enterprise administrator invitation by token.
   """
-  enterpriseAdministratorInvitationByToken(invitationToken: String!): EnterpriseAdministratorInvitation
+  enterpriseAdministratorInvitationByToken(
+    invitationToken: String!
+  ): EnterpriseAdministratorInvitation
 
   """
   Look up open license details by license key.
@@ -40,7 +46,11 @@ type Query {
   """
   Get alphabetically sorted list of Marketplace categories.
   """
-  marketplaceCategories(includeCategories: [String!], excludeEmpty: Boolean, excludeSubcategories: Boolean): [MarketplaceCategory!]!
+  marketplaceCategories(
+    includeCategories: [String!]
+    excludeEmpty: Boolean
+    excludeSubcategories: Boolean
+  ): [MarketplaceCategory!]!
 
   """
   Look up a Marketplace category by its slug.
@@ -55,7 +65,21 @@ type Query {
   """
   Look up Marketplace listings.
   """
-  marketplaceListings(first: Int, after: String, last: Int, before: String, categorySlug: String, useTopicAliases: Boolean, viewerCanAdmin: Boolean, adminId: ID, organizationId: ID, allStates: Boolean, slugs: [String], primaryCategoryOnly: Boolean = false, withFreeTrialsOnly: Boolean = false): MarketplaceListingConnection!
+  marketplaceListings(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    categorySlug: String
+    useTopicAliases: Boolean
+    viewerCanAdmin: Boolean
+    adminId: ID
+    organizationId: ID
+    allStates: Boolean
+    slugs: [String]
+    primaryCategoryOnly: Boolean = false
+    withFreeTrialsOnly: Boolean = false
+  ): MarketplaceListingConnection!
 
   """
   Return information about the GitHub instance.
@@ -105,12 +129,29 @@ type Query {
   """
   Perform a search across resources.
   """
-  search(first: Int, after: String, last: Int, before: String, query: String!, type: SearchType!): SearchResultItemConnection!
+  search(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    query: String!
+    type: SearchType!
+  ): SearchResultItemConnection!
 
   """
   GitHub Security Advisories.
   """
-  securityAdvisories(first: Int, after: String, last: Int, before: String, orderBy: SecurityAdvisoryOrder, identifier: SecurityAdvisoryIdentifierFilter, publishedSince: DateTime, updatedSince: DateTime, classifications: [SecurityAdvisoryClassification!]): SecurityAdvisoryConnection!
+  securityAdvisories(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: SecurityAdvisoryOrder
+    identifier: SecurityAdvisoryIdentifierFilter
+    publishedSince: DateTime
+    updatedSince: DateTime
+    classifications: [SecurityAdvisoryClassification!]
+  ): SecurityAdvisoryConnection!
 
   """
   Fetch a Security Advisory by its GHSA ID.
@@ -120,7 +161,17 @@ type Query {
   """
   Software Vulnerabilities documented by GitHub Security Advisories.
   """
-  securityVulnerabilities(first: Int, after: String, last: Int, before: String, orderBy: SecurityVulnerabilityOrder, ecosystem: SecurityAdvisoryEcosystem, package: String, severities: [SecurityAdvisorySeverity!], classifications: [SecurityAdvisoryClassification!]): SecurityVulnerabilityConnection!
+  securityVulnerabilities(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: SecurityVulnerabilityOrder
+    ecosystem: SecurityAdvisoryEcosystem
+    package: String
+    severities: [SecurityAdvisorySeverity!]
+    classifications: [SecurityAdvisoryClassification!]
+  ): SecurityVulnerabilityConnection!
 
   """
   Look up a topic by name.
@@ -281,7 +332,15 @@ type SearchResultItemEdge {
 """
 The results of a search.
 """
-union SearchResultItem = App | Discussion | Issue | MarketplaceListing | Organization | PullRequest | Repository | User
+union SearchResultItem =
+  | App
+  | Discussion
+  | Issue
+  | MarketplaceListing
+  | Organization
+  | PullRequest
+  | Repository
+  | User
 
 """
 A text match within a search result.
@@ -372,7 +431,7 @@ type MarketplaceCategory implements Node {
 
 """
 A listing in the GitHub integration marketplace.
-  """
+"""
 type MarketplaceListing implements Node {
   """
   The GitHub App this listing represents.
@@ -738,7 +797,17 @@ type SecurityAdvisory implements Node {
   """
   Vulnerabilities associated with this advisory.
   """
-  vulnerabilities(first: Int, after: String, last: Int, before: String, ecosystem: SecurityAdvisoryEcosystem, package: String, severities: [SecurityAdvisorySeverity!], classifications: [SecurityAdvisoryClassification!], orderBy: SecurityVulnerabilityOrder): SecurityVulnerabilityConnection!
+  vulnerabilities(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    ecosystem: SecurityAdvisoryEcosystem
+    package: String
+    severities: [SecurityAdvisorySeverity!]
+    classifications: [SecurityAdvisoryClassification!]
+    orderBy: SecurityVulnerabilityOrder
+  ): SecurityVulnerabilityConnection!
 
   """
   When the advisory was withdrawn, if ever.

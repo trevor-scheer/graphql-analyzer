@@ -52,7 +52,13 @@ type Organization implements Node & Actor & RepositoryOwner & Sponsor & Sponsora
   """
   The IP allow list entries for this organization.
   """
-  ipAllowListEntries(first: Int, after: String, last: Int, before: String, orderBy: IpAllowListEntryOrder): IpAllowListEntryConnection!
+  ipAllowListEntries(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: IpAllowListEntryOrder
+  ): IpAllowListEntryConnection!
 
   """
   The IP allow list for installed GitHub Apps.
@@ -82,7 +88,12 @@ type Organization implements Node & Actor & RepositoryOwner & Sponsor & Sponsora
   """
   A list of users who are members of this organization.
   """
-  membersWithRole(first: Int, after: String, last: Int, before: String): OrganizationMemberConnection!
+  membersWithRole(
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): OrganizationMemberConnection!
 
   """
   The organization's public profile name.
@@ -107,7 +118,16 @@ type Organization implements Node & Actor & RepositoryOwner & Sponsor & Sponsora
   """
   A list of packages.
   """
-  packages(first: Int, after: String, last: Int, before: String, names: [String], repositoryId: ID, packageType: PackageType, orderBy: PackageOrder): PackageConnection!
+  packages(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    names: [String]
+    repositoryId: ID
+    packageType: PackageType
+    orderBy: PackageOrder
+  ): PackageConnection!
 
   """
   A list of pending member invitations.
@@ -117,12 +137,24 @@ type Organization implements Node & Actor & RepositoryOwner & Sponsor & Sponsora
   """
   A list of pinnable items.
   """
-  pinnableItems(first: Int, after: String, last: Int, before: String, types: [PinnableItemType!]): PinnableItemConnection!
+  pinnableItems(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    types: [PinnableItemType!]
+  ): PinnableItemConnection!
 
   """
   A list of pinned items.
   """
-  pinnedItems(first: Int, after: String, last: Int, before: String, types: [PinnableItemType!]): PinnableItemConnection!
+  pinnedItems(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    types: [PinnableItemType!]
+  ): PinnableItemConnection!
 
   """
   The number of pinned items remaining.
@@ -132,12 +164,29 @@ type Organization implements Node & Actor & RepositoryOwner & Sponsor & Sponsora
   """
   A list of projects under the owner.
   """
-  projectsV2(first: Int, after: String, last: Int, before: String, query: String, orderBy: ProjectV2Order): ProjectV2Connection!
+  projectsV2(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    query: String
+    orderBy: ProjectV2Order
+  ): ProjectV2Connection!
 
   """
   A list of repositories that the organization owns.
   """
-  repositories(first: Int, after: String, last: Int, before: String, orderBy: RepositoryOrder, privacy: RepositoryPrivacy, isFork: Boolean, isLocked: Boolean, affiliations: [RepositoryAffiliation]): RepositoryConnection!
+  repositories(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: RepositoryOrder
+    privacy: RepositoryPrivacy
+    isFork: Boolean
+    isLocked: Boolean
+    affiliations: [RepositoryAffiliation]
+  ): RepositoryConnection!
 
   """
   Find a repository by name.
@@ -167,7 +216,18 @@ type Organization implements Node & Actor & RepositoryOwner & Sponsor & Sponsora
   """
   A list of teams in this organization.
   """
-  teams(first: Int, after: String, last: Int, before: String, orderBy: TeamOrder, query: String, userLogins: [String!], privacy: TeamPrivacy, role: TeamRole, rootTeamsOnly: Boolean): TeamConnection!
+  teams(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: TeamOrder
+    query: String
+    userLogins: [String!]
+    privacy: TeamPrivacy
+    role: TeamRole
+    rootTeamsOnly: Boolean
+  ): TeamConnection!
 
   """
   The HTTP path for listing teams.
@@ -264,7 +324,15 @@ Organization identity provider.
 """
 type OrganizationIdentityProvider implements Node {
   digestMethod: URI
-  externalIdentities(first: Int, after: String, last: Int, before: String, membersOnly: Boolean, login: String, userName: String): ExternalIdentityConnection!
+  externalIdentities(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    membersOnly: Boolean
+    login: String
+    userName: String
+  ): ExternalIdentityConnection!
   id: ID!
   idpCertificate: X509Certificate
   issuer: String
@@ -362,7 +430,15 @@ type Team implements Node & Subscribable {
   """
   Child teams.
   """
-  childTeams(first: Int, after: String, last: Int, before: String, orderBy: TeamOrder, userLogins: [String!], immediateOnly: Boolean = true): TeamConnection!
+  childTeams(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: TeamOrder
+    userLogins: [String!]
+    immediateOnly: Boolean = true
+  ): TeamConnection!
 
   """
   The slug with parent teams included.
@@ -392,7 +468,14 @@ type Team implements Node & Subscribable {
   """
   Team discussions.
   """
-  discussions(first: Int, after: String, last: Int, before: String, isPinned: Boolean, orderBy: TeamDiscussionOrder): TeamDiscussionConnection!
+  discussions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    isPinned: Boolean
+    orderBy: TeamDiscussionOrder
+  ): TeamDiscussionConnection!
 
   """
   The HTTP path for discussions.
@@ -419,12 +502,26 @@ type Team implements Node & Subscribable {
   """
   Team invitations.
   """
-  invitations(first: Int, after: String, last: Int, before: String): OrganizationInvitationConnection
+  invitations(
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): OrganizationInvitationConnection
 
   """
   Team members.
   """
-  members(first: Int, after: String, last: Int, before: String, query: String, membership: TeamMembershipType = ALL, role: TeamMemberRole, orderBy: TeamMemberOrder): TeamMemberConnection!
+  members(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    query: String
+    membership: TeamMembershipType = ALL
+    role: TeamMemberRole
+    orderBy: TeamMemberOrder
+  ): TeamMemberConnection!
 
   """
   The HTTP path for team members.
@@ -469,12 +566,27 @@ type Team implements Node & Subscribable {
   """
   Projects V2.
   """
-  projectsV2(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2Order, filterBy: ProjectV2Filters, query: String): ProjectV2Connection!
+  projectsV2(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: ProjectV2Order
+    filterBy: ProjectV2Filters
+    query: String
+  ): ProjectV2Connection!
 
   """
   A list of repositories this team has access to.
   """
-  repositories(first: Int, after: String, last: Int, before: String, orderBy: TeamRepositoryOrder, query: String): TeamRepositoryConnection!
+  repositories(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: TeamRepositoryOrder
+    query: String
+  ): TeamRepositoryConnection!
 
   """
   The HTTP path for team repositories.
@@ -578,7 +690,14 @@ type TeamDiscussion implements Node & Comment & Reactable & Subscribable & Unifo
   bodyHTML: HTML!
   bodyText: String!
   bodyVersion: String!
-  comments(first: Int, after: String, last: Int, before: String, orderBy: TeamDiscussionCommentOrder, fromComment: Int): TeamDiscussionCommentConnection!
+  comments(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: TeamDiscussionCommentOrder
+    fromComment: Int
+  ): TeamDiscussionCommentConnection!
   commentsResourcePath: URI!
   commentsUrl: URI!
   createdAt: DateTime!
@@ -592,7 +711,14 @@ type TeamDiscussion implements Node & Comment & Reactable & Subscribable & Unifo
   lastEditedAt: DateTime
   number: Int!
   publishedAt: DateTime
-  reactions(first: Int, after: String, last: Int, before: String, content: ReactionContent, orderBy: ReactionOrder): ReactionConnection!
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
   resourcePath: URI!
   team: Team!
   title: String!
@@ -636,7 +762,14 @@ type TeamDiscussionComment implements Node & Comment & Reactable & UniformResour
   lastEditedAt: DateTime
   number: Int!
   publishedAt: DateTime
-  reactions(first: Int, after: String, last: Int, before: String, content: ReactionContent, orderBy: ReactionOrder): ReactionConnection!
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
   resourcePath: URI!
   updatedAt: DateTime!
   url: URI!
@@ -771,7 +904,13 @@ type Package implements Node {
   repository: Repository
   statistics: PackageStatistics
   version(version: String!): PackageVersion
-  versions(first: Int, after: String, last: Int, before: String, orderBy: PackageVersionOrder): PackageVersionConnection!
+  versions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: PackageVersionOrder
+  ): PackageVersionConnection!
 }
 
 type PackageConnection {
@@ -787,7 +926,13 @@ type PackageEdge {
 }
 
 type PackageVersion implements Node {
-  files(first: Int, after: String, last: Int, before: String, orderBy: PackageFileOrder): PackageFileConnection!
+  files(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: PackageFileOrder
+  ): PackageFileConnection!
   id: ID!
   package: Package
   platform: String
@@ -900,7 +1045,13 @@ type Gist implements Node & Starrable & UniformResourceLocatable {
   pushedAt: DateTime
   resourcePath: URI!
   stargazerCount: Int!
-  stargazers(first: Int, after: String, last: Int, before: String, orderBy: StarOrder): StargazerConnection!
+  stargazers(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: StarOrder
+  ): StargazerConnection!
   updatedAt: DateTime!
   url: URI!
   viewerHasStarred: Boolean!
@@ -989,9 +1140,27 @@ type Enterprise implements Node {
   descriptionHTML: HTML!
   id: ID!
   location: String
-  members(first: Int, after: String, last: Int, before: String, orderBy: EnterpriseMemberOrder, query: String, organizationLogins: [String!], hasTwoFactorEnabled: Boolean, deployment: EnterpriseUserDeployment): EnterpriseMemberConnection!
+  members(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: EnterpriseMemberOrder
+    query: String
+    organizationLogins: [String!]
+    hasTwoFactorEnabled: Boolean
+    deployment: EnterpriseUserDeployment
+  ): EnterpriseMemberConnection!
   name: String!
-  organizations(first: Int, after: String, last: Int, before: String, orderBy: OrganizationOrder, query: String, viewerOrganizationRole: RoleInOrganization): OrganizationConnection!
+  organizations(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: OrganizationOrder
+    query: String
+    viewerOrganizationRole: RoleInOrganization
+  ): OrganizationConnection!
   ownerInfo: EnterpriseOwnerInfo
   resourcePath: URI!
   slug: String!
@@ -1044,7 +1213,15 @@ type EnterpriseUserAccount implements Actor & Node {
   id: ID!
   login: String!
   name: String
-  organizations(first: Int, after: String, last: Int, before: String, orderBy: OrganizationOrder, query: String, role: RoleInOrganization): EnterpriseOrganizationMembershipConnection!
+  organizations(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: OrganizationOrder
+    query: String
+    role: RoleInOrganization
+  ): EnterpriseOrganizationMembershipConnection!
   resourcePath: URI!
   updatedAt: DateTime!
   url: URI!
@@ -1092,12 +1269,35 @@ enum RoleInOrganization {
 }
 
 type EnterpriseOwnerInfo {
-  admins(first: Int, after: String, last: Int, before: String, orderBy: EnterpriseMemberOrder, query: String, organizationLogins: [String!], hasTwoFactorEnabled: Boolean, role: EnterpriseAdministratorRole): EnterpriseAdministratorConnection!
-  affiliatedUsersWithTwoFactorDisabled(first: Int, after: String, last: Int, before: String): UserConnection!
+  admins(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: EnterpriseMemberOrder
+    query: String
+    organizationLogins: [String!]
+    hasTwoFactorEnabled: Boolean
+    role: EnterpriseAdministratorRole
+  ): EnterpriseAdministratorConnection!
+  affiliatedUsersWithTwoFactorDisabled(
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): UserConnection!
   affiliatedUsersWithTwoFactorDisabledExist: Boolean!
   allowPrivateRepositoryForkingSetting: EnterpriseEnabledDisabledSettingValue!
   defaultRepositoryPermissionSetting: EnterpriseDefaultRepositoryPermissionSettingValue!
-  domains(first: Int, after: String, last: Int, before: String, isApproved: Boolean, isVerified: Boolean, orderBy: VerifiableDomainOrder): VerifiableDomainConnection!
+  domains(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    isApproved: Boolean
+    isVerified: Boolean
+    orderBy: VerifiableDomainOrder
+  ): VerifiableDomainConnection!
   ipAllowListEnabledSetting: IpAllowListEnabledSettingValue!
   isUpdatingDefaultRepositoryPermission: Boolean!
   isUpdatingTwoFactorRequirement: Boolean!
@@ -1114,13 +1314,45 @@ type EnterpriseOwnerInfo {
   membersCanViewDependencyInsightsSetting: EnterpriseEnabledDisabledSettingValue!
   notificationDeliveryRestrictionEnabledSetting: NotificationRestrictionSettingValue!
   organizationProjectsSetting: EnterpriseEnabledDisabledSettingValue!
-  outsideCollaborators(first: Int, after: String, last: Int, before: String, orderBy: EnterpriseMemberOrder, query: String, login: String, organizationLogins: [String!], visibility: RepositoryVisibility, hasTwoFactorEnabled: Boolean): EnterpriseOutsideCollaboratorConnection!
-  pendingAdminInvitations(first: Int, after: String, last: Int, before: String, orderBy: EnterpriseAdministratorInvitationOrder, query: String, role: EnterpriseAdministratorRole): EnterpriseAdministratorInvitationConnection!
-  pendingMemberInvitations(first: Int, after: String, last: Int, before: String, invitationSource: OrganizationInvitationSource, query: String): EnterprisePendingMemberInvitationConnection!
+  outsideCollaborators(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: EnterpriseMemberOrder
+    query: String
+    login: String
+    organizationLogins: [String!]
+    visibility: RepositoryVisibility
+    hasTwoFactorEnabled: Boolean
+  ): EnterpriseOutsideCollaboratorConnection!
+  pendingAdminInvitations(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: EnterpriseAdministratorInvitationOrder
+    query: String
+    role: EnterpriseAdministratorRole
+  ): EnterpriseAdministratorInvitationConnection!
+  pendingMemberInvitations(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    invitationSource: OrganizationInvitationSource
+    query: String
+  ): EnterprisePendingMemberInvitationConnection!
   repositoryProjectsSetting: EnterpriseEnabledDisabledSettingValue!
   samlIdentityProvider: EnterpriseIdentityProvider
   samlIdentityProviderSettingUrl: URI
-  supportEntitlements(first: Int, after: String, last: Int, before: String, orderBy: EnterpriseMemberOrder): EnterpriseMemberConnection!
+  supportEntitlements(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: EnterpriseMemberOrder
+  ): EnterpriseMemberConnection!
   teamDiscussionsSetting: EnterpriseEnabledDisabledSettingValue!
   twoFactorRequiredSetting: EnterpriseEnabledSettingValue!
 }
@@ -1185,7 +1417,13 @@ type EnterpriseOutsideCollaboratorConnection {
 type EnterpriseOutsideCollaboratorEdge {
   cursor: String!
   node: User
-  repositories(first: Int, after: String, last: Int, before: String, orderBy: RepositoryOrder): EnterpriseRepositoryInfoConnection!
+  repositories(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: RepositoryOrder
+  ): EnterpriseRepositoryInfoConnection!
 }
 
 type EnterpriseRepositoryInfoConnection {

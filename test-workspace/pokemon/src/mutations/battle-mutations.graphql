@@ -1,4 +1,3 @@
-
 # Start a new battle between two trainers
 mutation StartBattle($trainer1Id: ID!, $trainer2Id: ID!) {
   startBattle(trainer1Id: $trainer1Id, trainer2Id: $trainer2Id) {
@@ -18,11 +17,7 @@ mutation PerformAttack($battleId: ID!, $trainerId: ID!, $moveId: ID!) {
 }
 
 # Switch Pokemon
-mutation SwitchPokemon(
-  $battleId: ID!
-  $trainerId: ID!
-  $switchToPokemonId: ID!
-) {
+mutation SwitchPokemon($battleId: ID!, $trainerId: ID!, $switchToPokemonId: ID!) {
   performBattleAction(
     battleId: $battleId
     trainerId: $trainerId
@@ -33,12 +28,7 @@ mutation SwitchPokemon(
 }
 
 # Use an item in battle
-mutation UseItemInBattle(
-  $battleId: ID!
-  $trainerId: ID!
-  $itemId: ID!
-  $targetPokemonId: ID!
-) {
+mutation UseItemInBattle($battleId: ID!, $trainerId: ID!, $itemId: ID!, $targetPokemonId: ID!) {
   performBattleAction(
     battleId: $battleId
     trainerId: $trainerId

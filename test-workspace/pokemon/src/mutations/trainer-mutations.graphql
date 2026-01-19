@@ -1,4 +1,3 @@
-
 # Create a new trainer
 mutation CreateTrainer($input: CreateTrainerInput!) {
   createTrainer(input: $input) {
@@ -28,14 +27,10 @@ mutation RemovePokemonFromTeam($trainerId: ID!, $pokemonId: ID!) {
 }
 
 # Update a Pokemon in the team
-mutation UpdateTeamPokemon(
-  $trainerId: ID!
-  $pokemonId: ID!
-  $input: UpdateTeamPokemonInput!
-) {
+mutation UpdateTeamPokemon($trainerId: ID!, $pokemonId: ID!, $input: UpdateTeamPokemonInput!) {
   updateTeamPokemon(trainerId: $trainerId, pokemonId: $pokemonId, input: $input) {
     ...TeamPokemonDetailed
-  
+
     experience
   }
 }

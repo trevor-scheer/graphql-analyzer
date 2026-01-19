@@ -1,5 +1,5 @@
-import React from 'react';
-import { gql, useQuery } from '@apollo/client';
+import React from "react";
+import { gql, useQuery } from "@apollo/client";
 
 const GET_TRAINER_PROFILE = gql`
   query GetTrainerProfile($trainerId: ID!) {
@@ -80,10 +80,10 @@ export const TrainerProfile: React.FC<TrainerProfileProps> = ({ trainerId }) => 
           <div key={index} className="team-member">
             <h4>
               {teamMember.nickname || teamMember.pokemon.name}
-              {teamMember.isShiny && ' ✨'}
+              {teamMember.isShiny && " ✨"}
             </h4>
             <p>Level {teamMember.level}</p>
-            <p>Types: {teamMember.pokemon.types.join(', ')}</p>
+            <p>Types: {teamMember.pokemon.types.join(", ")}</p>
           </div>
         ))}
       </div>

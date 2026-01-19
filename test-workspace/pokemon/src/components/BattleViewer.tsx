@@ -1,5 +1,5 @@
-import React from 'react';
-import { gql, useQuery, useSubscription } from '@apollo/client';
+import React from "react";
+import { gql, useQuery, useSubscription } from "@apollo/client";
 
 const GET_BATTLE = gql`
   query GetBattleDetails($battleId: ID!) {
@@ -113,9 +113,7 @@ export const BattleViewer: React.FC<BattleViewerProps> = ({ battleId }) => {
     <div className="battle-viewer">
       <div className="battle-header">
         <h2>Battle #{battle.id}</h2>
-        <span className={`status ${battle.status.toLowerCase()}`}>
-          {battle.status}
-        </span>
+        <span className={`status ${battle.status.toLowerCase()}`}>{battle.status}</span>
       </div>
 
       <div className="trainers">
@@ -149,17 +147,17 @@ export const BattleViewer: React.FC<BattleViewerProps> = ({ battleId }) => {
         {battle.turns.map((turn: any) => (
           <div key={turn.turnNumber} className="turn">
             <strong>Turn {turn.turnNumber}:</strong> {turn.trainer.name}
-            {turn.action.__typename === 'AttackAction' && (
+            {turn.action.__typename === "AttackAction" && (
               <span>
-                {' '}
+                {" "}
                 used {turn.action.move.name} for {turn.action.damage} damage! (
                 {turn.action.wasEffective})
               </span>
             )}
-            {turn.action.__typename === 'SwitchAction' && (
+            {turn.action.__typename === "SwitchAction" && (
               <span>
-                {' '}
-                switched from {turn.action.fromPokemon.pokemon.name} to{' '}
+                {" "}
+                switched from {turn.action.fromPokemon.pokemon.name} to{" "}
                 {turn.action.toPokemon.pokemon.name}
               </span>
             )}

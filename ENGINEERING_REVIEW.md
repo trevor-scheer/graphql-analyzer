@@ -62,11 +62,11 @@ struct IdeDatabase {
 
 **Alternatives:**
 
-| Alternative | Pros | Cons |
-|-------------|------|------|
-| **Use `parking_lot::RwLock`** | Non-poisoning, faster than std | Adds dependency (already used) |
-| **Use `Arc<AtomicRefCell>`** | Explicit thread-safety with borrow checking | Less common pattern |
-| **Make configs immutable Salsa inputs** | Proper incremental semantics | More invasive change |
+| Alternative                             | Pros                                        | Cons                           |
+| --------------------------------------- | ------------------------------------------- | ------------------------------ |
+| **Use `parking_lot::RwLock`**           | Non-poisoning, faster than std              | Adds dependency (already used) |
+| **Use `Arc<AtomicRefCell>`**            | Explicit thread-safety with borrow checking | Less common pattern            |
+| **Make configs immutable Salsa inputs** | Proper incremental semantics                | More invasive change           |
 
 **Recommendation:** Use `parking_lot::RwLock` (already a dependency) for consistency with `AnalysisHost`. Long-term, consider making configs proper Salsa inputs for better incrementality.
 
@@ -82,6 +82,7 @@ apollo-compiler = { git = "https://github.com/trevor-scheer/apollo-rs.git", bran
 ```
 
 This creates:
+
 1. Maintenance burden to keep fork synchronized
 2. Inability to receive upstream security/bug fixes automatically
 3. Potential for divergence making upstream contribution harder
@@ -93,11 +94,11 @@ Work with Apollo team to upstream the required APIs. The `ExecutableDocument::bu
 
 **Alternatives:**
 
-| Alternative | Pros | Cons |
-|-------------|------|------|
-| **Upstream the changes** | Removes fork, benefits ecosystem | Requires Apollo team buy-in |
-| **Abstract behind trait** | Allows swapping implementations | Adds indirection |
-| **Document dependency clearly** | Transparency | Still has maintenance burden |
+| Alternative                     | Pros                             | Cons                         |
+| ------------------------------- | -------------------------------- | ---------------------------- |
+| **Upstream the changes**        | Removes fork, benefits ecosystem | Requires Apollo team buy-in  |
+| **Abstract behind trait**       | Allows swapping implementations  | Adds indirection             |
+| **Document dependency clearly** | Transparency                     | Still has maintenance burden |
 
 **Recommendation:** Prioritize upstreaming. In the interim, add CI job to track upstream changes and document the fork clearly.
 
@@ -113,6 +114,7 @@ The `graphql-ide` crate, which should be a thin translation layer between analys
 3. Contains its own `IdeDatabase` that wraps analysis database
 
 The crate has grown beyond its intended scope as a "POD types + thin API" layer. It now contains:
+
 - Full document symbol extraction logic
 - Symbol search implementation
 - Completion logic
@@ -124,17 +126,18 @@ This makes testing harder and violates the layered architecture principle.
 
 **Proposed Solution:**
 Split `graphql-ide` into:
+
 1. `graphql-ide-types` - POD types only (Position, Range, Location, etc.)
 2. `graphql-ide` - Thin translation calling analysis queries
 3. Move heavy logic to `graphql-analysis` as proper Salsa queries
 
 **Alternatives:**
 
-| Alternative | Pros | Cons |
-|-------------|------|------|
-| **Split into multiple crates** | Clean separation | More crates to manage |
+| Alternative                         | Pros                    | Cons                      |
+| ----------------------------------- | ----------------------- | ------------------------- |
+| **Split into multiple crates**      | Clean separation        | More crates to manage     |
 | **Make symbol logic Salsa queries** | Cacheable, incremential | Requires analysis changes |
-| **Keep but document boundaries** | Least invasive | Technical debt remains |
+| **Keep but document boundaries**    | Least invasive          | Technical debt remains    |
 
 **Recommendation:** Extract POD types first, then progressively move logic to proper queries.
 
@@ -190,11 +193,11 @@ impl Analysis {
 
 **Alternatives:**
 
-| Alternative | Pros | Cons |
-|-------------|------|------|
+| Alternative                 | Pros                                     | Cons                      |
+| --------------------------- | ---------------------------------------- | ------------------------- |
 | **Proper snapshot pattern** | Lock-free queries, matches rust-analyzer | Requires Salsa db cloning |
-| **Fine-grained locking** | Reduces contention | Complex, error-prone |
-| **Read-write split** | Separate read/write paths | Still requires locking |
+| **Fine-grained locking**    | Reduces contention                       | Complex, error-prone      |
+| **Read-write split**        | Separate read/write paths                | Still requires locking    |
 
 **Recommendation:** Implement proper snapshot pattern. Salsa databases are designed for cheap cloning.
 
@@ -244,11 +247,11 @@ async fn load_all_project_files(&self, ...) {
 
 **Alternatives:**
 
-| Alternative | Pros | Cons |
-|-------------|------|------|
-| **Batch updates** | Single lock acquisition | Memory usage for collecting |
-| **Background task** | Non-blocking | Complex coordination |
-| **Lock-free channel** | No locks during I/O | Requires architecture change |
+| Alternative           | Pros                    | Cons                         |
+| --------------------- | ----------------------- | ---------------------------- |
+| **Batch updates**     | Single lock acquisition | Memory usage for collecting  |
+| **Background task**   | Non-blocking            | Complex coordination         |
+| **Lock-free channel** | No locks during I/O     | Requires architecture change |
 
 **Recommendation:** Implement batched updates immediately; consider background loading for large projects.
 
@@ -307,11 +310,11 @@ This allows Salsa to track fine-grained dependencies.
 
 **Alternatives:**
 
-| Alternative | Pros | Cons |
-|-------------|------|------|
-| **Accumulators** | Fine-grained invalidation | Learning curve |
-| **Interned keys** | O(1) lookup by ID | Requires ID generation |
-| **Current approach** | Simple, works | Coarser invalidation |
+| Alternative          | Pros                      | Cons                   |
+| -------------------- | ------------------------- | ---------------------- |
+| **Accumulators**     | Fine-grained invalidation | Learning curve         |
+| **Interned keys**    | O(1) lookup by ID         | Requires ID generation |
+| **Current approach** | Simple, works             | Coarser invalidation   |
 
 **Recommendation:** Current approach is acceptable for MVP. Profile before optimizing.
 
@@ -358,11 +361,11 @@ if let Some(frag_ast) = graphql_hir::fragment_ast(db, project_files, key) {
 
 **Alternatives:**
 
-| Alternative | Pros | Cons |
-|-------------|------|------|
-| **Cache fragment AST** | No re-parsing | More memory |
-| **Single combined document** | One parse | Loses source file info |
-| **Accept current behavior** | Simple | Performance cost |
+| Alternative                  | Pros          | Cons                   |
+| ---------------------------- | ------------- | ---------------------- |
+| **Cache fragment AST**       | No re-parsing | More memory            |
+| **Single combined document** | One parse     | Loses source file info |
+| **Accept current behavior**  | Simple        | Performance cost       |
 
 **Recommendation:** Implement fragment AST caching; it's consistent with the incremental architecture.
 
@@ -406,11 +409,11 @@ pub enum IdeError {
 
 **Alternatives:**
 
-| Alternative | Pros | Cons |
-|-------------|------|------|
-| **thiserror everywhere** | Typed errors, no allocations | More boilerplate |
-| **anyhow everywhere** | Convenient | Loses type information |
-| **Mixed approach** | Pragmatic | Current inconsistency |
+| Alternative              | Pros                         | Cons                   |
+| ------------------------ | ---------------------------- | ---------------------- |
+| **thiserror everywhere** | Typed errors, no allocations | More boilerplate       |
+| **anyhow everywhere**    | Convenient                   | Loses type information |
+| **Mixed approach**       | Pragmatic                    | Current inconsistency  |
 
 **Recommendation:** Adopt the proposed layered approach; it balances type safety with convenience.
 
@@ -453,11 +456,11 @@ pub struct Parse {
 
 **Alternatives:**
 
-| Alternative | Pros | Cons |
-|-------------|------|------|
-| **Return errors as diagnostics** | User sees issues | More diagnostic types |
-| **Log warnings to client** | Non-intrusive | Easy to miss |
-| **Fail loudly** | Forces resolution | Bad UX |
+| Alternative                      | Pros              | Cons                  |
+| -------------------------------- | ----------------- | --------------------- |
+| **Return errors as diagnostics** | User sees issues  | More diagnostic types |
+| **Log warnings to client**       | Non-intrusive     | Easy to miss          |
+| **Fail loudly**                  | Forces resolution | Bad UX                |
 
 **Recommendation:** Add extraction errors to diagnostic output; users deserve visibility.
 
@@ -497,11 +500,11 @@ Then apply incremental changes to the internal document state.
 
 **Alternatives:**
 
-| Alternative | Pros | Cons |
-|-------------|------|------|
-| **Incremental sync** | Efficient, standard | More implementation work |
-| **Full sync + debouncing** | Simple | Still sends full doc |
-| **Full sync (current)** | Trivial | Inefficient |
+| Alternative                | Pros                | Cons                     |
+| -------------------------- | ------------------- | ------------------------ |
+| **Incremental sync**       | Efficient, standard | More implementation work |
+| **Full sync + debouncing** | Simple              | Still sends full doc     |
+| **Full sync (current)**    | Trivial             | Inefficient              |
 
 **Recommendation:** Implement incremental sync; it's expected for production LSP servers.
 
@@ -511,6 +514,7 @@ Then apply incremental changes to the internal document state.
 
 **Problem Statement:**
 The LSP server doesn't implement request cancellation. When a user types quickly, each keystroke can trigger:
+
 - `textDocument/didChange`
 - Validation
 - Potentially hover/completion requests
@@ -535,11 +539,11 @@ async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
 
 **Alternatives:**
 
-| Alternative | Pros | Cons |
-|-------------|------|------|
-| **tokio::select cancellation** | Clean, idiomatic | Requires cancel tokens |
-| **Salsa cancellation** | Integrated with queries | Complex setup |
-| **Ignore (current)** | Simple | Wastes resources |
+| Alternative                    | Pros                    | Cons                   |
+| ------------------------------ | ----------------------- | ---------------------- |
+| **tokio::select cancellation** | Clean, idiomatic        | Requires cancel tokens |
+| **Salsa cancellation**         | Integrated with queries | Complex setup          |
+| **Ignore (current)**           | Simple                  | Wastes resources       |
 
 **Recommendation:** Implement cancellation; it's critical for responsiveness.
 
@@ -559,6 +563,7 @@ async fn did_change(&self, params: DidChangeTextDocumentParams) {
 ```
 
 Document versions are crucial for:
+
 1. Detecting out-of-order updates
 2. Correlating diagnostics with document state
 3. Avoiding race conditions
@@ -616,17 +621,18 @@ pub struct FileId<'db> {
 ```
 
 This provides:
+
 1. Type-safe IDs tied to database lifetime
 2. Automatic deduplication
 3. Impossible to create invalid IDs
 
 **Alternatives:**
 
-| Alternative | Pros | Cons |
-|-------------|------|------|
-| **Salsa interning** | Type-safe, automatic | Lifetime complexity |
+| Alternative           | Pros                   | Cons                  |
+| --------------------- | ---------------------- | --------------------- |
+| **Salsa interning**   | Type-safe, automatic   | Lifetime complexity   |
 | **GenerationalArena** | Detects use-after-free | Additional dependency |
-| **Current approach** | Simple | No safety guarantees |
+| **Current approach**  | Simple                 | No safety guarantees  |
 
 **Recommendation:** Salsa interning is the idiomatic solution for this architecture.
 
@@ -664,11 +670,11 @@ This makes invalid states unrepresentable.
 
 **Alternatives:**
 
-| Alternative | Pros | Cons |
-|-------------|------|------|
-| **Enum encoding** | Invalid states unrepresentable | Breaking change |
-| **Smart constructors** | Validates on construction | Still allows invalid via fields |
-| **Document invariants** | No code change | Bugs possible |
+| Alternative             | Pros                           | Cons                            |
+| ----------------------- | ------------------------------ | ------------------------------- |
+| **Enum encoding**       | Invalid states unrepresentable | Breaking change                 |
+| **Smart constructors**  | Validates on construction      | Still allows invalid via fields |
+| **Document invariants** | No code change                 | Bugs possible                   |
 
 **Recommendation:** For HIR types, enum encoding is worth the breaking change. For POD types in graphql-ide, documentation may suffice.
 
@@ -883,6 +889,7 @@ Some TODOs have been present across multiple commits, indicating stalled work.
 **Agents Consulted:** N/A
 
 **Proposed Solution:**
+
 1. Create GitHub issues for each TODO
 2. Prioritize and schedule
 3. Remove TODOs that won't be addressed (document limitations instead)
@@ -904,6 +911,7 @@ Most modules lack comprehensive documentation:
 ```
 
 This is better than nothing but doesn't explain:
+
 - How to use the crate
 - Key types and their relationships
 - Error handling patterns
@@ -914,7 +922,7 @@ This is better than nothing but doesn't explain:
 **Proposed Solution:**
 Add rustdoc documentation with examples:
 
-```rust
+````rust
 //! # graphql-analysis
 //!
 //! This crate provides GraphQL validation and linting.
@@ -933,7 +941,7 @@ Add rustdoc documentation with examples:
 //!
 //! let diagnostics = file_diagnostics(&db, content, metadata, Some(project_files));
 //! ```
-```
+````
 
 **Recommendation:** Documentation is a feature; prioritize for public APIs.
 
@@ -973,14 +981,14 @@ Add rustdoc documentation with examples:
 
 ## Appendix: Agents Consulted
 
-| Agent | Areas Consulted |
-|-------|-----------------|
+| Agent             | Areas Consulted                                                  |
+| ----------------- | ---------------------------------------------------------------- |
 | **rust-analyzer** | Query design, incrementality, AnalysisHost pattern, cancellation |
-| **rust** | Error handling, thread safety, type design, API patterns |
-| **lsp** | Protocol compliance, text sync, cancellation, document lifecycle |
-| **graphql** | Spec compliance, fragment scoping, validation behavior |
-| **apollo-rs** | Parser usage, CST vs AST, validation API |
+| **rust**          | Error handling, thread safety, type design, API patterns         |
+| **lsp**           | Protocol compliance, text sync, cancellation, document lifecycle |
+| **graphql**       | Spec compliance, fragment scoping, validation behavior           |
+| **apollo-rs**     | Parser usage, CST vs AST, validation API                         |
 
 ---
 
-*This review was conducted using systematic analysis of the codebase and consultation with domain-specific Subject Matter Expert agents. All critiques include problem statements, proposed solutions, and alternatives with pros/cons for informed decision-making.*
+_This review was conducted using systematic analysis of the codebase and consultation with domain-specific Subject Matter Expert agents. All critiques include problem statements, proposed solutions, and alternatives with pros/cons for informed decision-making._

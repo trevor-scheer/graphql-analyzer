@@ -38,11 +38,13 @@ git log main..HEAD --oneline
 ## PR Title Guidelines
 
 **Do:**
+
 - Use conventional commit format: `feat: add goto definition for fragments`
 - Be specific and descriptive
 - Keep under 72 characters
 
 **Don't:**
+
 - Use emoji in titles
 - Use vague titles like "Updates" or "Fixes"
 - Include issue numbers in the title (put in body)
@@ -66,6 +68,7 @@ git log main..HEAD --oneline
 ### What NOT to Include
 
 **Never mention in PR descriptions:**
+
 - "All tests passing"
 - "Clippy is clean"
 - "No warnings"

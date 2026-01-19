@@ -22,11 +22,7 @@ extend type Query {
   """
   Admin-only: Get pending invitations.
   """
-  pendingInvitations(
-    first: Int
-    after: String
-    organizationId: ID
-  ): PendingInvitationConnection!
+  pendingInvitations(first: Int, after: String, organizationId: ID): PendingInvitationConnection!
 
   """
   Admin-only: Get flagged content.
@@ -62,7 +58,9 @@ extend type Mutation {
   """
   Admin-only: Bulk remove users from organization.
   """
-  bulkRemoveOrganizationMembers(input: BulkRemoveOrganizationMembersInput!): BulkRemoveOrganizationMembersPayload
+  bulkRemoveOrganizationMembers(
+    input: BulkRemoveOrganizationMembersInput!
+  ): BulkRemoveOrganizationMembersPayload
 }
 
 type AuditLogEntry implements Node {

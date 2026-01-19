@@ -1,18 +1,8 @@
 # Project mutations
 
-mutation CreateProjectV2(
-  $ownerId: ID!
-  $title: String!
-  $repositoryId: ID
-  $teamId: ID
-) {
+mutation CreateProjectV2($ownerId: ID!, $title: String!, $repositoryId: ID, $teamId: ID) {
   createProjectV2(
-    input: {
-      ownerId: $ownerId
-      title: $title
-      repositoryId: $repositoryId
-      teamId: $teamId
-    }
+    input: { ownerId: $ownerId, title: $title, repositoryId: $repositoryId, teamId: $teamId }
   ) {
     clientMutationId
     projectV2 {

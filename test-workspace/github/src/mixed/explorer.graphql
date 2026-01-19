@@ -168,7 +168,11 @@ query ExploreBranches($owner: String!, $name: String!, $first: Int = 30) {
 
 query ExploreTags($owner: String!, $name: String!, $first: Int = 30) {
   repository(owner: $owner, name: $name) {
-    refs(refPrefix: "refs/tags/", first: $first, orderBy: { field: TAG_COMMIT_DATE, direction: DESC }) {
+    refs(
+      refPrefix: "refs/tags/"
+      first: $first
+      orderBy: { field: TAG_COMMIT_DATE, direction: DESC }
+    ) {
       nodes {
         ...ExplorerTagInfo
       }

@@ -78,15 +78,15 @@ The crate includes comprehensive tests that verify Salsa's incremental computati
 
 ### Tests Included
 
-| Test | What It Verifies |
-|------|------------------|
-| `test_cache_hit_on_repeated_query` | Repeated queries don't re-execute (served from cache) |
-| `test_granular_caching_editing_one_file` | Editing file A doesn't invalidate queries for file B |
-| `test_unrelated_file_edit_doesnt_invalidate_schema` | Document changes don't affect schema queries |
-| `test_editing_one_of_many_files_is_o1_not_on` | O(1) recomputation when editing 1 of N files |
-| `test_fragment_index_not_invalidated_by_unrelated_edit` | Fragment cache stable across non-fragment edits |
+| Test                                                         | What It Verifies                                             |
+| ------------------------------------------------------------ | ------------------------------------------------------------ |
+| `test_cache_hit_on_repeated_query`                           | Repeated queries don't re-execute (served from cache)        |
+| `test_granular_caching_editing_one_file`                     | Editing file A doesn't invalidate queries for file B         |
+| `test_unrelated_file_edit_doesnt_invalidate_schema`          | Document changes don't affect schema queries                 |
+| `test_editing_one_of_many_files_is_o1_not_on`                | O(1) recomputation when editing 1 of N files                 |
+| `test_fragment_index_not_invalidated_by_unrelated_edit`      | Fragment cache stable across non-fragment edits              |
 | `test_golden_invariant_schema_stable_across_operation_edits` | **Critical**: Schema queries never re-run on operation edits |
-| `test_executions_since_for_debugging` | Debugging helper works correctly |
+| `test_executions_since_for_debugging`                        | Debugging helper works correctly                             |
 
 ### Golden Invariant Test
 
@@ -138,17 +138,18 @@ let body = operation_body(db, operation_id);
 
 Compared to direct CST access:
 
-| Direct CST | HIR |
-|------------|-----|
-| Manual traversal | Semantic queries |
+| Direct CST             | HIR                               |
+| ---------------------- | --------------------------------- |
+| Manual traversal       | Semantic queries                  |
 | Coarse-grained caching | Fine-grained structure/body split |
-| Eager processing | Lazy evaluation |
-| Manual invalidation | Automatic via Salsa |
-| No dependency tracking | Automatic via Salsa |
+| Eager processing       | Lazy evaluation                   |
+| Manual invalidation    | Automatic via Salsa               |
+| No dependency tracking | Automatic via Salsa               |
 
 ## Integration
 
 This crate will be used by:
+
 - `graphql-analysis` - Validation and linting (Phase 3)
 - `graphql-ide` - Language features (Phase 4)
 - `graphql-lsp` - LSP protocol adapter (Phase 5)

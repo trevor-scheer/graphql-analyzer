@@ -18,11 +18,12 @@ You have deep knowledge of:
 - **Query Language**: Operations (query, mutation, subscription), fragments, variables, directives
 - **Validation Rules**: All validation rules defined in the specification
 - **Execution Model**: How GraphQL servers resolve queries
-- **Introspection**: The introspection system and meta-fields (__schema, __type, etc.)
+- **Introspection**: The introspection system and meta-fields (**schema, **type, etc.)
 
 ## When to Consult This Agent
 
 Consult this agent when:
+
 - Implementing or validating GraphQL language features
 - Understanding nuances of the GraphQL specification
 - Determining correct validation behavior
@@ -34,23 +35,27 @@ Consult this agent when:
 ## Key Specification Details
 
 ### Document Structure
+
 - A document may contain operations and/or fragment definitions
 - A document with only fragments (no operations) is valid
 - Anonymous operations are only allowed when a document has exactly one operation
 
 ### Fragment Rules
+
 - Fragments have project-wide scope, not file scope
 - Fragment names must be unique across the entire project
 - Fragment spreads can reference fragments defined anywhere in the project
 - Circular fragment references must be detected and rejected
 
 ### Type System Rules
+
 - Type names must be unique within a schema
 - Built-in scalars: Int, Float, String, Boolean, ID
 - Custom scalars can be defined with `scalar` keyword
 - Interface implementations must include all interface fields
 
 ### Validation
+
 - Type validation happens against the schema
 - Selection sets must select fields that exist on the parent type
 - Arguments must match field/directive definitions

@@ -19,25 +19,25 @@ This skill audits tests for correctness against the project's testing standards.
 
 ### Unit Tests
 
-| Criterion | Requirement |
-|-----------|-------------|
-| **Location** | `src/*.rs` inline `#[cfg(test)] mod tests { ... }` |
-| **Scope** | ONE Salsa query or helper function |
-| **Database** | Local minimal `TestDatabase` (~15 lines, implements only required traits) |
-| **Access** | Can use `use super::*` for private items |
-| **Scenarios** | Single-file only |
-| **Caching** | No caching/invalidation verification |
+| Criterion     | Requirement                                                               |
+| ------------- | ------------------------------------------------------------------------- |
+| **Location**  | `src/*.rs` inline `#[cfg(test)] mod tests { ... }`                        |
+| **Scope**     | ONE Salsa query or helper function                                        |
+| **Database**  | Local minimal `TestDatabase` (~15 lines, implements only required traits) |
+| **Access**    | Can use `use super::*` for private items                                  |
+| **Scenarios** | Single-file only                                                          |
+| **Caching**   | No caching/invalidation verification                                      |
 
 ### Integration Tests
 
-| Criterion | Requirement |
-|-----------|-------------|
-| **Location** | `crates/<crate-name>/tests/*.rs` |
-| **Scope** | Multiple queries working together |
-| **Database** | `graphql_test_utils::TestDatabase` or `TrackedDatabase` |
-| **Access** | Public API only (treat crate as external) |
-| **Scenarios** | Multi-file, cross-file behavior |
-| **Caching** | Caching/invalidation verification when relevant |
+| Criterion     | Requirement                                             |
+| ------------- | ------------------------------------------------------- |
+| **Location**  | `crates/<crate-name>/tests/*.rs`                        |
+| **Scope**     | Multiple queries working together                       |
+| **Database**  | `graphql_test_utils::TestDatabase` or `TrackedDatabase` |
+| **Access**    | Public API only (treat crate as external)               |
+| **Scenarios** | Multi-file, cross-file behavior                         |
+| **Caching**   | Caching/invalidation verification when relevant         |
 
 ## Audit Checklist
 
@@ -52,11 +52,13 @@ For each test or test file, verify:
 ### 2. Correct TestDatabase Pattern
 
 For **unit tests** in crates that define Salsa traits (graphql-hir, graphql-analysis):
+
 - [ ] Uses a LOCAL `TestDatabase` defined in the test module (~15 lines)
 - [ ] Only implements traits actually needed by the crate
 - [ ] Does NOT use `graphql_test_utils::TestDatabase`
 
 For **integration tests**:
+
 - [ ] Uses `graphql_test_utils::TestDatabase` for standard tests
 - [ ] Uses `graphql_test_utils::TrackedDatabase` for caching verification tests
 - [ ] Imports from `graphql_test_utils`, not defining its own database
@@ -64,11 +66,13 @@ For **integration tests**:
 ### 3. Correct Scope
 
 Unit tests should:
+
 - [ ] Test ONE Salsa query or ONE helper function
 - [ ] NOT test multiple queries working together
 - [ ] NOT verify caching behavior
 
 Integration tests should:
+
 - [ ] Test behavior across multiple files OR
 - [ ] Test multiple queries working together OR
 - [ ] Verify Salsa caching/invalidation

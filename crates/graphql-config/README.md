@@ -93,16 +93,19 @@ projects:
 Schemas can be loaded from multiple sources:
 
 **Local files:**
+
 ```yaml
 schema: schema.graphql
 ```
 
 **Glob patterns:**
+
 ```yaml
 schema: schema/**/*.graphql
 ```
 
 **Multiple sources:**
+
 ```yaml
 schema:
   - schema.graphql
@@ -110,6 +113,7 @@ schema:
 ```
 
 **Remote URLs:**
+
 ```yaml
 schema: https://api.example.com/graphql
 ```
@@ -199,12 +203,14 @@ Checks if a project configuration uses a remote URL for its schema.
 ## Supported Configuration Files
 
 The library searches for these files in order:
+
 1. `.graphqlrc` (YAML or JSON)
 2. `.graphqlrc.yml`
 3. `.graphqlrc.yaml`
 4. `.graphqlrc.json`
 
 Future support planned for:
+
 - `graphql.config.js`
 - `graphql.config.ts`
 - `graphql` section in `package.json`
@@ -269,6 +275,7 @@ Uses the `glob` crate to resolve file patterns. Patterns are resolved relative t
 ### Error Handling
 
 Provides detailed error types for:
+
 - Missing configuration files (`ConfigError::NotFound`)
 - Invalid YAML/JSON syntax (`ConfigError::ParseError`)
 - Invalid configuration structure (`ConfigError::ValidationError`)

@@ -33,11 +33,7 @@ query GetUserRepositories(
   }
 }
 
-query GetUserContributions(
-  $login: String!
-  $first: Int = 30
-  $after: String
-) {
+query GetUserContributions($login: String!, $first: Int = 30, $after: String) {
   user(login: $login) {
     repositoriesContributedTo(
       first: $first
@@ -55,11 +51,7 @@ query GetUserContributions(
   }
 }
 
-query GetUserFollowers(
-  $login: String!
-  $first: Int = 30
-  $after: String
-) {
+query GetUserFollowers($login: String!, $first: Int = 30, $after: String) {
   user(login: $login) {
     followers(first: $first, after: $after) {
       totalCount
@@ -73,11 +65,7 @@ query GetUserFollowers(
   }
 }
 
-query GetUserFollowing(
-  $login: String!
-  $first: Int = 30
-  $after: String
-) {
+query GetUserFollowing($login: String!, $first: Int = 30, $after: String) {
   user(login: $login) {
     following(first: $first, after: $after) {
       totalCount

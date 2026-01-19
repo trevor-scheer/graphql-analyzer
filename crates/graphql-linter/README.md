@@ -212,12 +212,12 @@ extensions:
   cli:
     lint:
       rules:
-        unused_fields: error  # Enable expensive rule in CI
+        unused_fields: error # Enable expensive rule in CI
 
   lsp:
     lint:
       rules:
-        unused_fields: off  # Disable expensive rule in editor
+        unused_fields: off # Disable expensive rule in editor
 ```
 
 ### Severity Levels
@@ -296,8 +296,8 @@ Warns when selection sets on types that have an `id` field don't include it. Thi
 
 **Options:**
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
+| Option   | Type       | Default  | Description                                      |
+| -------- | ---------- | -------- | ------------------------------------------------ |
 | `fields` | `string[]` | `["id"]` | Field names to require if they exist on the type |
 
 **Configuration examples:**
@@ -339,14 +339,14 @@ type User {
 # Query
 query GetUser {
   user {
-    name  # ⚠️ Warning: Selection set on type 'User' should include the 'id' field
+    name # ⚠️ Warning: Selection set on type 'User' should include the 'id' field
   }
 }
 
 # Fixed
 query GetUser {
   user {
-    id    # ✅ OK
+    id # ✅ OK
     name
   }
 }

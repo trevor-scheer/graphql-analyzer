@@ -44,6 +44,7 @@ pub struct Location {
 ```
 
 Benefits:
+
 - Easy to construct and destructure
 - Easy to serialize/deserialize
 - No hidden state or invariants
@@ -52,6 +53,7 @@ Benefits:
 ### 2. Editor Coordinates
 
 All positions use editor coordinates (line/column), not byte offsets:
+
 - Lines are 0-indexed
 - Characters are 0-indexed (UTF-16 code units for LSP compatibility)
 - Ranges are half-open: `[start, end)`
@@ -59,6 +61,7 @@ All positions use editor coordinates (line/column), not byte offsets:
 ### 3. LSP-Agnostic
 
 The IDE layer knows nothing about the LSP protocol:
+
 - No `tower-lsp` types
 - No `lsp-types` dependencies
 - Pure Rust data structures
@@ -67,6 +70,7 @@ The IDE layer knows nothing about the LSP protocol:
 ### 4. Snapshot-Based Concurrency
 
 The `Analysis` type is a cheap, immutable snapshot:
+
 - Implements `Clone` (via salsa's database clone)
 - Thread-safe - can be sent to worker threads
 - Lock-free reads - all queries through salsa
@@ -201,6 +205,7 @@ let diagnostics = handle.join().unwrap();
 ```
 
 Salsa ensures that:
+
 - Queries on snapshots are lock-free
 - Results are cached and reused
 - Changes invalidate only affected queries
@@ -230,23 +235,25 @@ Salsa ensures that:
 
 After full implementation:
 
-| Feature | Target | Notes |
-|---------|--------|-------|
-| Diagnostics (first call) | <20ms | Parse + validate |
-| Diagnostics (cached) | <1ms | Salsa hit |
-| Completions | <10ms | O(1) schema lookup |
-| Hover | <5ms | O(1) symbol lookup |
-| Goto Definition | <5ms | Direct HIR query |
-| Find References | <50ms | Lazy search |
+| Feature                  | Target | Notes              |
+| ------------------------ | ------ | ------------------ |
+| Diagnostics (first call) | <20ms  | Parse + validate   |
+| Diagnostics (cached)     | <1ms   | Salsa hit          |
+| Completions              | <10ms  | O(1) schema lookup |
+| Hover                    | <5ms   | O(1) symbol lookup |
+| Goto Definition          | <5ms   | Direct HIR query   |
+| Find References          | <50ms  | Lazy search        |
 
 ## Testing
 
 Run tests:
+
 ```bash
 cargo test --package graphql-ide
 ```
 
 Run with coverage:
+
 ```bash
 cargo tarpaulin --package graphql-ide
 ```

@@ -176,10 +176,7 @@ type User implements Node & Actor & RepositoryOwner & Sponsor & Sponsorable & Un
   """
   Total amount received on GitHub Sponsors in cents.
   """
-  totalSponsorshipAmountAsSponsorInCents(
-    since: DateTime
-    until: DateTime
-  ): Int
+  totalSponsorshipAmountAsSponsorInCents(since: DateTime, until: DateTime): Int
 
   """
   The user's Twitter username.

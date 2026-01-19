@@ -93,6 +93,7 @@ Bug fixes should use two-commit structure:
 2. **Second commit**: Fix + any test updates
 
 Verify:
+
 - [ ] First commit's test actually fails without the fix
 - [ ] Second commit makes the test pass
 - [ ] No other tests broken
@@ -126,11 +127,13 @@ Verify:
 **Overall**: Approve with minor suggestions
 
 ### What I Reviewed
+
 - Changes to `crates/graphql-analysis/src/validation.rs`
 - New tests in `tests/validation_test.rs`
 - PR description and commit history
 
 ### Checklist Results
+
 - [x] Architecture: Correct layer, follows patterns
 - [x] Correctness: Logic looks sound
 - [x] Testing: Good coverage

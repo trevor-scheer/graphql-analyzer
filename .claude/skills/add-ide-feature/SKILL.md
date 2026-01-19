@@ -22,13 +22,13 @@ User Action → LSP Handler → graphql-ide → graphql-analysis → graphql-hir
 
 First, check the LSP specification for the method you're implementing:
 
-| Feature | LSP Method | Response Type |
-|---------|------------|---------------|
-| Hover | `textDocument/hover` | `Hover` |
-| Goto Definition | `textDocument/definition` | `Location` or `LocationLink[]` |
-| Find References | `textDocument/references` | `Location[]` |
-| Completion | `textDocument/completion` | `CompletionItem[]` |
-| Document Symbols | `textDocument/documentSymbol` | `DocumentSymbol[]` |
+| Feature          | LSP Method                    | Response Type                  |
+| ---------------- | ----------------------------- | ------------------------------ |
+| Hover            | `textDocument/hover`          | `Hover`                        |
+| Goto Definition  | `textDocument/definition`     | `Location` or `LocationLink[]` |
+| Find References  | `textDocument/references`     | `Location[]`                   |
+| Completion       | `textDocument/completion`     | `CompletionItem[]`             |
+| Document Symbols | `textDocument/documentSymbol` | `DocumentSymbol[]`             |
 
 ### 2. Define the POD Type
 

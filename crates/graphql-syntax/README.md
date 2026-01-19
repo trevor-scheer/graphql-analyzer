@@ -24,6 +24,7 @@ pub fn parse(
 ```
 
 Parses a file and returns:
+
 - Syntax tree (Arc for cheap cloning)
 - Extracted blocks (for TS/JS files)
 - Parse errors (syntax errors only, not validation)
@@ -52,6 +53,7 @@ Computes line boundaries for position conversions.
 ### ✅ Working
 
 The crate compiles and all tests pass. It successfully:
+
 - Parses GraphQL files using apollo-parser
 - Extracts and parses GraphQL from TypeScript/JavaScript
 - Caches results via Salsa
@@ -91,6 +93,7 @@ let (line, col) = line_idx.line_col(42);
 ## Integration
 
 This crate is used by:
+
 - `graphql-hir` - Extracts semantic structure from syntax trees
 - `graphql-analysis` (future) - Validation and linting
 - `graphql-ide` (future) - Syntax highlighting, folding, etc.
