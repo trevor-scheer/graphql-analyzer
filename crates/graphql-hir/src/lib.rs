@@ -87,12 +87,6 @@ pub trait GraphQLHirDatabase: graphql_syntax::GraphQLSyntaxDatabase {
     }
 }
 
-#[salsa::db]
-impl GraphQLHirDatabase for graphql_db::RootDatabase {
-    // Uses default implementation (returns None)
-    // Queries should accept ProjectFiles as a parameter instead
-}
-
 // ============================================================================
 // Per-file queries - these provide fine-grained caching
 // Each query depends only on the specific file's content, not all files

@@ -1,8 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
-use graphql_db::{
-    FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles, RootDatabase,
-};
+use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
 use graphql_ide::AnalysisHost;
+use graphql_ide_db::RootDatabase;
 use salsa::Setter;
 use std::sync::Arc;
 
@@ -437,7 +436,7 @@ fn bench_analysis_host_add_file(c: &mut Criterion) {
             |mut host| {
                 // Measure: Add schema file
                 let path = graphql_ide::FilePath::new("schema.graphql");
-                host.add_file(&path, SAMPLE_SCHEMA, graphql_ide::FileKind::Schema, 0);
+                host.add_file(&path, SAMPLE_SCHEMA, graphql_ide::FileKind::Schema);
                 black_box(());
             },
             BatchSize::SmallInput,
@@ -450,19 +449,13 @@ fn bench_analysis_host_diagnostics(c: &mut Criterion) {
         // Setup: AnalysisHost with schema and document
         let mut host = AnalysisHost::new();
         let schema_path = graphql_ide::FilePath::new("schema.graphql");
-        host.add_file(
-            &schema_path,
-            SAMPLE_SCHEMA,
-            graphql_ide::FileKind::Schema,
-            0,
-        );
+        host.add_file(&schema_path, SAMPLE_SCHEMA, graphql_ide::FileKind::Schema);
 
         let doc_path = graphql_ide::FilePath::new("query.graphql");
         host.add_file(
             &doc_path,
             SAMPLE_OPERATION,
             graphql_ide::FileKind::ExecutableGraphQL,
-            0,
         );
         host.rebuild_project_files();
 

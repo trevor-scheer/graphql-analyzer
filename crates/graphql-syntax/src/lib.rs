@@ -381,9 +381,6 @@ pub trait GraphQLSyntaxDatabase: salsa::Database {
     }
 }
 
-#[salsa::db]
-impl GraphQLSyntaxDatabase for graphql_db::RootDatabase {}
-
 #[cfg(test)]
 mod tests {
     use super::*;

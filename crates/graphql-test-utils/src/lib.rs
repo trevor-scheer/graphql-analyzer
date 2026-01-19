@@ -45,7 +45,9 @@ pub mod project;
 
 // Re-export commonly used items at crate root
 pub use cursor::{extract_cursor, extract_cursors, Position};
-pub use database::{file_content, file_metadata, TestDatabase, TestDatabaseWithProject};
+pub use database::{
+    file_content, file_metadata, RootDatabase, TestDatabase, TestDatabaseWithProject,
+};
 pub use project::{test_documents_only, test_project, test_schema_only, TestProjectBuilder};
 
 // Re-export graphql-db test utilities

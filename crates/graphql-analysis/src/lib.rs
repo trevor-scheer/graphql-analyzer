@@ -26,9 +26,6 @@ pub trait GraphQLAnalysisDatabase: graphql_hir::GraphQLHirDatabase {
     }
 }
 
-#[salsa::db]
-impl GraphQLAnalysisDatabase for graphql_db::RootDatabase {}
-
 /// Get validation diagnostics for a file, including syntax errors and
 /// validation errors.
 ///

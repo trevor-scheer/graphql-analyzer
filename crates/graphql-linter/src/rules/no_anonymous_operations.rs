@@ -148,9 +148,8 @@ fn get_operation_type(operation: &cst::OperationDefinition) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::{
-        FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles, RootDatabase,
-    };
+    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+    use graphql_ide_db::RootDatabase;
     use std::sync::Arc;
 
     fn create_test_project_files(db: &RootDatabase) -> ProjectFiles {

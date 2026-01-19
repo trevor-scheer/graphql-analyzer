@@ -13,6 +13,7 @@ harness = false
 
 [dependencies]
 graphql-db = { path = "../crates/graphql-db" }
+graphql-ide-db = { path = "../crates/graphql-ide-db" }
 graphql-syntax = { path = "../crates/graphql-syntax" }
 graphql-hir = { path = "../crates/graphql-hir" }
 graphql-analysis = { path = "../crates/graphql-analysis" }

@@ -264,7 +264,7 @@ impl FileRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::RootDatabase;
+    use graphql_ide_db::RootDatabase;
 
     #[test]
     fn test_file_registry_add_and_lookup() {

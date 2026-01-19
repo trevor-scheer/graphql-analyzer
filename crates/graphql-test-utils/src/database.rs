@@ -1,56 +1,23 @@
 //! Shared test database implementations.
 //!
-//! This module provides pre-configured test databases that implement all the
-//! necessary Salsa traits for GraphQL LSP testing. Use these instead of defining
-//! your own `TestDatabase` in each test module.
+//! This module provides access to test databases for GraphQL LSP testing.
 //!
-//! ## Feature Flags
+//! ## Available Databases
 //!
-//! - `analysis`: Adds `GraphQLAnalysisDatabase` impl to `TestDatabase`.
-//!   Only enable for crates that don't transitively depend on graphql-analysis.
-
-use std::sync::Arc;
+//! - `RootDatabase` - The standard Salsa database with all query traits implemented.
+//!   Re-exported from `graphql_ide_db`.
+//!
+//! - `TestDatabaseWithProject` - A database variant that stores `ProjectFiles` in a Cell,
+//!   allowing tests to set project context after database construction.
 
 use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+use std::sync::Arc;
 
-/// Test database with GraphQL LSP traits implemented.
-///
-/// By default, implements syntax and HIR traits. Enable the `analysis` feature
-/// to also implement `GraphQLAnalysisDatabase`.
-///
-/// # Example
-///
-/// ```ignore
-/// use graphql_test_utils::TestDatabase;
-/// use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
-///
-/// let db = TestDatabase::default();
-/// let content = FileContent::new(&db, "type Query { hello: String }".into());
-/// let metadata = FileMetadata::new(
-///     &db,
-///     FileId::new(0),
-///     FileUri::new("schema.graphql"),
-///     FileKind::Schema,
-/// );
-/// ```
-#[salsa::db]
-#[derive(Clone, Default)]
-pub struct TestDatabase {
-    storage: salsa::Storage<Self>,
-}
+// Re-export RootDatabase from graphql-ide-db for convenience
+pub use graphql_ide_db::RootDatabase;
 
-#[salsa::db]
-impl salsa::Database for TestDatabase {}
-
-#[salsa::db]
-impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {}
-
-#[salsa::db]
-impl graphql_hir::GraphQLHirDatabase for TestDatabase {}
-
-#[cfg(feature = "analysis")]
-#[salsa::db]
-impl graphql_analysis::GraphQLAnalysisDatabase for TestDatabase {}
+/// Backward-compatible alias for RootDatabase.
+pub type TestDatabase = RootDatabase;
 
 /// Test database with project files support via Cell.
 ///
@@ -106,7 +73,6 @@ impl graphql_hir::GraphQLHirDatabase for TestDatabaseWithProject {
     }
 }
 
-#[cfg(feature = "analysis")]
 #[salsa::db]
 impl graphql_analysis::GraphQLAnalysisDatabase for TestDatabaseWithProject {}
 

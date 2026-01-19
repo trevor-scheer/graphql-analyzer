@@ -12,14 +12,12 @@ categories = ["development-tools::testing"]
 
 [features]
 default = []
-# Include GraphQLAnalysisDatabase impl on TestDatabase.
-# Only enable this for crates that don't depend on graphql-analysis.
-analysis = ["dep:graphql-analysis"]
 
 [dependencies]
 graphql-db = { path = "../graphql-db", features = ["test-utils"] }
 graphql-syntax = { path = "../graphql-syntax" }
 graphql-hir = { path = "../graphql-hir" }
-graphql-analysis = { path = "../graphql-analysis", optional = true }
+graphql-analysis = { path = "../graphql-analysis" }
+graphql-ide-db = { path = "../graphql-ide-db" }
 salsa = { workspace = true }
 insta = { workspace = true }

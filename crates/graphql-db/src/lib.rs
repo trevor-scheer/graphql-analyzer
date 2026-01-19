@@ -168,25 +168,6 @@ pub fn file_lookup(
     Some((entry.content(db), entry.metadata(db)))
 }
 
-/// The root salsa database
-/// This is the main entry point for all queries
-#[salsa::db]
-#[derive(Clone, Default)]
-pub struct RootDatabase {
-    storage: salsa::Storage<Self>,
-}
-
-#[salsa::db]
-impl salsa::Database for RootDatabase {}
-
-impl RootDatabase {
-    /// Create a new database
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
 /// Query tracking for testing Salsa caching behavior
 ///
 /// This module provides utilities for verifying that Salsa's incremental computation
@@ -522,9 +503,20 @@ mod tests {
     use super::*;
     use salsa::Setter;
 
+    /// Simple test database for graphql-db tests.
+    /// Only implements `salsa::Database` - no higher-level query traits.
+    #[salsa::db]
+    #[derive(Clone, Default)]
+    struct TestDatabase {
+        storage: salsa::Storage<Self>,
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDatabase {}
+
     #[test]
     fn test_database_creation() {
-        let _db = RootDatabase::new();
+        let _db = TestDatabase::default();
     }
 
     #[test]
@@ -562,7 +554,7 @@ mod tests {
 
     #[test]
     fn test_file_content_creation() {
-        let db = RootDatabase::new();
+        let db = TestDatabase::default();
         let content: Arc<str> = Arc::from("type Query { hello: String }");
         let file_content = FileContent::new(&db, content);
 
@@ -574,7 +566,7 @@ mod tests {
 
     #[test]
     fn test_file_metadata_creation() {
-        let db = RootDatabase::new();
+        let db = TestDatabase::default();
         let file_id = FileId::new(0);
         let uri = FileUri::new("file:///test.graphql");
         let kind = FileKind::Schema;
@@ -588,7 +580,7 @@ mod tests {
 
     #[test]
     fn test_file_content_update() {
-        let mut db = RootDatabase::new();
+        let mut db = TestDatabase::default();
         let content1: Arc<str> = Arc::from("type Query { hello: String }");
         let file_content = FileContent::new(&db, content1);
 

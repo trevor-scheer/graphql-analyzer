@@ -1063,12 +1063,25 @@ dependencies = [
  "graphql-db",
  "graphql-extract",
  "graphql-hir",
+ "graphql-ide-db",
  "graphql-linter",
  "graphql-syntax",
  "parking_lot",
  "salsa",
  "tempfile",
  "tracing",
+]
+
+[[package]]
+name = "graphql-ide-db"
+version = "0.1.1"
+dependencies = [
+ "graphql-analysis",
+ "graphql-db",
+ "graphql-extract",
+ "graphql-hir",
+ "graphql-syntax",
+ "salsa",
 ]
 
 [[package]]
@@ -1091,6 +1104,7 @@ dependencies = [
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "graphql-db",
  "graphql-hir",
+ "graphql-ide-db",
  "graphql-syntax",
  "insta",
  "serde",
@@ -1138,6 +1152,7 @@ dependencies = [
  "graphql-db",
  "graphql-hir",
  "graphql-ide",
+ "graphql-ide-db",
  "graphql-syntax",
  "salsa",
 ]
@@ -1161,6 +1176,7 @@ dependencies = [
  "graphql-analysis",
  "graphql-db",
  "graphql-hir",
+ "graphql-ide-db",
  "graphql-syntax",
  "insta",
  "salsa",

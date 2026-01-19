@@ -576,6 +576,7 @@ fn unwrap_type_name(type_name: &str) -> Arc<str> {
 }
 
 #[cfg(test)]
+#[allow(clippy::needless_raw_string_hashes)]
 mod tests {
     use super::*;
     use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
@@ -1150,9 +1151,11 @@ mod tests {
 
     #[test]
     fn test_field_coverage_report_percentage() {
-        let mut report = FieldCoverageReport::default();
-        report.total_fields = 10;
-        report.used_fields = 7;
+        let report = FieldCoverageReport {
+            total_fields: 10,
+            used_fields: 7,
+            ..Default::default()
+        };
 
         assert!((report.coverage_percentage() - 70.0).abs() < 0.01);
     }
