@@ -17,6 +17,7 @@ graphql-lsp/
 │   ├── graphql-linter/       # Linting engine with custom rules
 │   ├── graphql-ide/          # Editor-facing IDE features API
 │   ├── graphql-lsp/          # LSP server implementation
+│   ├── graphql-mcp/          # MCP server for AI agents
 │   └── graphql-cli/          # CLI tool for CI/CD
 └── .claude/
     └── project-plan.md       # Comprehensive project plan
@@ -113,6 +114,27 @@ Language Server Protocol implementation for GraphQL.
 - Document symbols
 - Code actions
 
+### graphql-mcp
+
+MCP (Model Context Protocol) server for AI agent integration.
+
+**Features:**
+
+- Schema-aware validation
+- Linting with diagnostics
+- Multi-project support
+- On-demand project loading
+
+**Available Tools:**
+
+- `validate_document` - Validate GraphQL against schema
+- `lint_document` - Run lint rules on a document
+- `list_projects` - List available projects
+- `load_project` - Load a project on demand
+- `get_project_diagnostics` - Get diagnostics for all files
+
+See [graphql-mcp README](crates/graphql-mcp/README.md) for setup instructions.
+
 ### graphql-cli
 
 Command-line tool for validation, linting, and CI/CD integration.
@@ -121,6 +143,7 @@ Command-line tool for validation, linting, and CI/CD integration.
 
 - `graphql validate` - Validate schema and documents (Apollo compiler validation)
 - `graphql lint` - Run custom lint rules with configurable severity
+- `graphql mcp` - Start MCP server for AI agent integration
 - `graphql check` - Check for breaking changes (coming soon)
 
 ## Installation
@@ -342,6 +365,7 @@ cargo run -p graphql-lsp
   - Find references (fragments, types, fields)
   - Hover information
 - CLI tools (validate, lint) with JSON output
+- MCP server for AI agent integration
 - VSCode extension with automatic LSP binary download
 
 🚧 **In Progress:**
