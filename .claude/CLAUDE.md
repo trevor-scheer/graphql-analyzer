@@ -1254,8 +1254,15 @@ Skills provide contextual guidance for common workflows. They activate automatic
 | Add IDE Feature | `/add-ide-feature` | Implementing LSP features (hover, goto def, etc.) |
 | Debug LSP | `/debug-lsp` | Troubleshooting LSP server issues |
 | Review PR | `/review-pr` | Reviewing pull requests |
+| Audit Tests | `/audit-tests` | **Proactive**: After writing new tests (self-review) |
 
 Skills are located in `.claude/skills/` and are loaded into context when relevant.
+
+### Proactive Skills
+
+Some skills should be used **proactively** without waiting for user request:
+
+- **Audit Tests** (`/audit-tests`): Run after writing any new tests to self-review. Checks test placement (unit vs integration), TestDatabase patterns, and scope correctness.
 
 ---
 
