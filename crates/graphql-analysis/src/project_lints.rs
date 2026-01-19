@@ -103,10 +103,12 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
         .collect();
 
     for operation in operations.iter() {
+        #[allow(clippy::match_same_arms)]
         let root_type_name = match operation.operation_type {
             graphql_hir::OperationType::Query => "Query",
             graphql_hir::OperationType::Mutation => "Mutation",
             graphql_hir::OperationType::Subscription => "Subscription",
+            _ => "Query", // fallback for future operation types
         };
 
         if let Some((_, content, metadata)) = document_files
@@ -275,10 +277,12 @@ pub fn analyze_field_usage(db: &dyn GraphQLAnalysisDatabase) -> Arc<FieldCoverag
 
     // Track field usages per operation to support usage_count and operations list
     for operation in operations.iter() {
+        #[allow(clippy::match_same_arms)]
         let root_type_name = match operation.operation_type {
             graphql_hir::OperationType::Query => "Query",
             graphql_hir::OperationType::Mutation => "Mutation",
             graphql_hir::OperationType::Subscription => "Subscription",
+            _ => "Query", // fallback for future operation types
         };
 
         let operation_name = operation

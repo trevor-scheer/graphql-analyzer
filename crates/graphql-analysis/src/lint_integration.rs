@@ -4,11 +4,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Convert `LintSeverity` to Severity
-const fn convert_severity(lint_severity: graphql_linter::LintSeverity) -> Severity {
+#[allow(clippy::match_same_arms)]
+fn convert_severity(lint_severity: graphql_linter::LintSeverity) -> Severity {
     match lint_severity {
         graphql_linter::LintSeverity::Error => Severity::Error,
         graphql_linter::LintSeverity::Warn => Severity::Warning,
         graphql_linter::LintSeverity::Off => Severity::Info,
+        _ => Severity::Info, // fallback for future severity levels
     }
 }
 

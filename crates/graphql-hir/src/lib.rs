@@ -100,15 +100,15 @@ impl GraphQLHirDatabase for graphql_db::RootDatabase {
 
 /// Get type definitions from a single schema file
 /// This query is cached per-file - editing another file won't invalidate it
-#[salsa::tracked(returns(ref))]
+#[salsa::tracked]
 pub fn file_type_defs(
     db: &dyn GraphQLHirDatabase,
     file_id: FileId,
     content: graphql_db::FileContent,
     metadata: graphql_db::FileMetadata,
-) -> Vec<TypeDef> {
+) -> Arc<Vec<TypeDef>> {
     let structure = file_structure(db, file_id, content, metadata);
-    structure.type_defs.clone()
+    Arc::clone(&structure.type_defs)
 }
 
 /// Get fragments from a single document file
@@ -121,7 +121,7 @@ pub fn file_fragments(
     metadata: graphql_db::FileMetadata,
 ) -> Arc<Vec<FragmentStructure>> {
     let structure = file_structure(db, file_id, content, metadata);
-    Arc::new(structure.fragments.clone())
+    Arc::clone(&structure.fragments)
 }
 
 /// Get operations from a single document file
@@ -134,7 +134,7 @@ pub fn file_operations(
     metadata: graphql_db::FileMetadata,
 ) -> Arc<Vec<OperationStructure>> {
     let structure = file_structure(db, file_id, content, metadata);
-    Arc::new(structure.operations.clone())
+    Arc::clone(&structure.operations)
 }
 
 // ============================================================================
@@ -162,7 +162,7 @@ pub fn schema_types(
         // Use per-file lookup for granular caching
         if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
             let file_types = file_type_defs(db, *file_id, content, metadata);
-            for type_def in file_types {
+            for type_def in file_types.iter() {
                 types.insert(type_def.name.clone(), type_def.clone());
             }
         }
@@ -1843,7 +1843,7 @@ const MY_FRAGMENT = gql`
 
         println!("Operations: {:?}", structure.operations.len());
         println!("Fragments: {:?}", structure.fragments.len());
-        for frag in &structure.fragments {
+        for frag in structure.fragments.iter() {
             println!("  Found fragment: {}", frag.name);
         }
 

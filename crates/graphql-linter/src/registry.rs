@@ -5,33 +5,53 @@ use crate::rules::{
     UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
 };
 use crate::traits::{DocumentSchemaLintRule, ProjectLintRule, StandaloneDocumentLintRule};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
-#[must_use]
-pub fn standalone_document_rules() -> Vec<Arc<dyn StandaloneDocumentLintRule>> {
-    vec![
-        Arc::new(NoAnonymousOperationsRuleImpl),
-        Arc::new(OperationNameSuffixRuleImpl),
-        Arc::new(RedundantFieldsRuleImpl),
-        Arc::new(UnusedVariablesRuleImpl),
-    ]
-}
+/// Lazily initialized standalone document rules.
+/// Rules are created once and reused across all calls.
+static STANDALONE_DOCUMENT_RULES: LazyLock<Vec<Arc<dyn StandaloneDocumentLintRule>>> =
+    LazyLock::new(|| {
+        vec![
+            Arc::new(NoAnonymousOperationsRuleImpl),
+            Arc::new(OperationNameSuffixRuleImpl),
+            Arc::new(RedundantFieldsRuleImpl),
+            Arc::new(UnusedVariablesRuleImpl),
+        ]
+    });
 
-#[must_use]
-pub fn document_schema_rules() -> Vec<Arc<dyn DocumentSchemaLintRule>> {
-    vec![
-        Arc::new(NoDeprecatedRuleImpl),
-        Arc::new(RequireIdFieldRuleImpl),
-    ]
-}
+/// Lazily initialized document-schema rules.
+/// Rules are created once and reused across all calls.
+static DOCUMENT_SCHEMA_RULES: LazyLock<Vec<Arc<dyn DocumentSchemaLintRule>>> =
+    LazyLock::new(|| {
+        vec![
+            Arc::new(NoDeprecatedRuleImpl),
+            Arc::new(RequireIdFieldRuleImpl),
+        ]
+    });
 
-#[must_use]
-pub fn project_rules() -> Vec<Arc<dyn ProjectLintRule>> {
+/// Lazily initialized project rules.
+/// Rules are created once and reused across all calls.
+static PROJECT_RULES: LazyLock<Vec<Arc<dyn ProjectLintRule>>> = LazyLock::new(|| {
     vec![
         Arc::new(UniqueNamesRuleImpl),
         Arc::new(UnusedFieldsRuleImpl),
         Arc::new(UnusedFragmentsRuleImpl),
     ]
+});
+
+#[must_use]
+pub fn standalone_document_rules() -> &'static [Arc<dyn StandaloneDocumentLintRule>] {
+    &STANDALONE_DOCUMENT_RULES
+}
+
+#[must_use]
+pub fn document_schema_rules() -> &'static [Arc<dyn DocumentSchemaLintRule>] {
+    &DOCUMENT_SCHEMA_RULES
+}
+
+#[must_use]
+pub fn project_rules() -> &'static [Arc<dyn ProjectLintRule>] {
+    &PROJECT_RULES
 }
 
 #[must_use]

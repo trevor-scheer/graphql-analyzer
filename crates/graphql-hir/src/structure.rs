@@ -26,6 +26,7 @@ pub struct TypeDef {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum TypeDefKind {
     Object,
     Interface,
@@ -96,6 +97,7 @@ pub struct OperationStructure {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum OperationType {
     Query,
     Mutation,
@@ -129,13 +131,17 @@ pub struct FragmentStructure {
 }
 
 /// Summary of a file's structure (stable across body edits)
-/// Contains extracted names and signatures, but not bodies
+/// Contains extracted names and signatures, but not bodies.
+///
+/// Fields use `Arc<Vec<...>>` to enable cheap cloning without copying data.
+/// This is critical for performance: queries like `file_fragments` can return
+/// a clone of the Arc instead of cloning the entire vector.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FileStructureData {
     pub file_id: FileId,
-    pub type_defs: Vec<TypeDef>,
-    pub operations: Vec<OperationStructure>,
-    pub fragments: Vec<FragmentStructure>,
+    pub type_defs: Arc<Vec<TypeDef>>,
+    pub operations: Arc<Vec<OperationStructure>>,
+    pub fragments: Arc<Vec<FragmentStructure>>,
 }
 
 /// Extract a `TextRange` from an apollo-compiler `Node`
@@ -233,9 +239,9 @@ pub fn file_structure(
 
     Arc::new(FileStructureData {
         file_id,
-        type_defs,
-        operations,
-        fragments,
+        type_defs: Arc::new(type_defs),
+        operations: Arc::new(operations),
+        fragments: Arc::new(fragments),
     })
 }
 
