@@ -1329,7 +1329,11 @@ impl LanguageServer for GraphQLLanguageServer {
         }
     }
 
-    #[allow(clippy::cast_possible_truncation, clippy::mutable_key_type)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::mutable_key_type,
+        clippy::too_many_lines
+    )]
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = params.text_document.uri;
         let range = params.range;
@@ -1349,8 +1353,14 @@ impl LanguageServer for GraphQLLanguageServer {
 
         let file_path = graphql_ide::FilePath::new(uri.to_string());
 
-        // Get lint diagnostics with fixes for this file
-        let lint_diagnostics = analysis.lint_diagnostics_with_fixes(&file_path);
+        // Get lint diagnostics with fixes for this file (per-file rules)
+        let mut lint_diagnostics = analysis.lint_diagnostics_with_fixes(&file_path);
+
+        // Also get project-level diagnostics for this file (e.g., unused_fragments)
+        let project_diagnostics = analysis.project_lint_diagnostics_with_fixes();
+        if let Some(project_diags_for_file) = project_diagnostics.get(&file_path) {
+            lint_diagnostics.extend(project_diags_for_file.iter().cloned());
+        }
 
         if lint_diagnostics.is_empty() {
             return Ok(None);

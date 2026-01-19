@@ -333,7 +333,8 @@ impl LintConfig {
     fn recommended_severity(rule_name: &str) -> Option<LintSeverity> {
         match rule_name {
             "unique_names" | "no_anonymous_operations" => Some(LintSeverity::Error),
-            "no_deprecated" | "redundant_fields" | "require_id_field" => Some(LintSeverity::Warn),
+            "no_deprecated" | "redundant_fields" | "require_id_field" | "unused_fragments"
+            | "unused_fields" => Some(LintSeverity::Warn),
             _ => None,
         }
     }
@@ -408,7 +409,7 @@ mod tests {
         ));
         assert!(config.is_enabled("unique_names"));
         assert!(config.is_enabled("no_deprecated"));
-        assert!(!config.is_enabled("unused_fields"));
+        assert!(config.is_enabled("unused_fields"));
     }
 
     #[test]
