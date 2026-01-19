@@ -197,6 +197,38 @@ pub fn all_fragments(
     fragments
 }
 
+/// Index mapping fragment names to the number of fragments with that name.
+///
+/// This query provides O(1) lookup for fragment name uniqueness validation,
+/// replacing the O(n*m) pattern of calling `all_fragments()` for every fragment.
+///
+/// Uses granular per-file caching:
+/// - Depends on `DocumentFileIds` (only changes when files are added/removed)
+/// - Calls `file_defined_fragment_names` per-file (each cached independently)
+///
+/// When a single file changes, only that file's contribution is recomputed.
+#[salsa::tracked]
+pub fn project_fragment_name_index(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, usize>> {
+    let doc_ids = project_files.document_file_ids(db).ids(db);
+    let mut name_counts: HashMap<Arc<str>, usize> = HashMap::new();
+
+    for file_id in doc_ids.iter() {
+        if let Some((content, metadata)) =
+            graphql_base_db::file_lookup(db, project_files, *file_id)
+        {
+            let frag_names = file_defined_fragment_names(db, *file_id, content, metadata);
+            for name in frag_names.iter() {
+                *name_counts.entry(name.clone()).or_insert(0) += 1;
+            }
+        }
+    }
+
+    Arc::new(name_counts)
+}
+
 /// Index mapping fragment names to their file content and metadata
 /// Uses granular per-file caching for efficient invalidation.
 #[salsa::tracked]
