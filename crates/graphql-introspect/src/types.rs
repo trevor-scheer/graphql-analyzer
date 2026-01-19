@@ -150,6 +150,7 @@ pub struct IntrospectionTypeRefFull {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[non_exhaustive]
 pub enum TypeKind {
     Scalar,
     Object,
@@ -196,7 +197,7 @@ impl IntrospectionTypeRefFull {
                 || "[]".to_string(),
                 |of_type| format!("[{}]", of_type.to_type_string()),
             ),
-            _ => self.name.clone().unwrap_or_default(),
+            _ => self.name.as_deref().unwrap_or_default().to_string(),
         }
     }
 }

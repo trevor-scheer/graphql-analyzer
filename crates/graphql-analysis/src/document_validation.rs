@@ -53,7 +53,7 @@ pub fn validate_document_file(
         .expect("project files must be set for validation");
     let schema = graphql_hir::schema_types(db, project_files);
 
-    for op_structure in &structure.operations {
+    for op_structure in structure.operations.iter() {
         if let Some(name) = &op_structure.name {
             let all_ops = graphql_hir::all_operations(db, project_files);
 
@@ -82,10 +82,12 @@ pub fn validate_document_file(
             validate_variable_type(&var.type_ref, schema, op_range, &mut diagnostics);
         }
 
+        #[allow(clippy::match_same_arms)]
         let root_type_name = match op_structure.operation_type {
             graphql_hir::OperationType::Query => "Query",
             graphql_hir::OperationType::Mutation => "Mutation",
             graphql_hir::OperationType::Subscription => "Subscription",
+            _ => "Query", // fallback for future operation types
         };
 
         if !schema.contains_key(&Arc::from(root_type_name)) {
@@ -101,7 +103,7 @@ pub fn validate_document_file(
         // A future enhancement would be to integrate apollo-compiler's validator here.
     }
 
-    for frag_structure in &structure.fragments {
+    for frag_structure in structure.fragments.iter() {
         let all_fragments = graphql_hir::all_fragments(db, project_files);
 
         let count = all_fragments

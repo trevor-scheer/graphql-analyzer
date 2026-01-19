@@ -1466,7 +1466,8 @@ impl Analysis {
             let body = graphql_hir::operation_body(&self.db, content, metadata, operation.index);
 
             // Calculate operation range
-            let line_offset = metadata.line_offset(&self.db);
+            // Note: File-level line offset is always 0; per-document offsets come from doc.line_offset
+            let line_offset: u32 = 0;
 
             // Get operation location for the range
             let range = if let Some(ref name) = operation.name {
@@ -1499,19 +1500,23 @@ impl Analysis {
                 .as_ref()
                 .map_or_else(|| "<anonymous>".to_string(), ToString::to_string);
 
+            #[allow(clippy::match_same_arms)]
             let op_type = match operation.operation_type {
                 graphql_hir::OperationType::Query => "query",
                 graphql_hir::OperationType::Mutation => "mutation",
                 graphql_hir::OperationType::Subscription => "subscription",
+                _ => "query", // fallback for future operation types
             };
 
             let mut analysis = ComplexityAnalysis::new(op_name, op_type, file_path, range);
 
             // Get the root type for this operation
+            #[allow(clippy::match_same_arms)]
             let root_type_name = match operation.operation_type {
                 graphql_hir::OperationType::Query => "Query",
                 graphql_hir::OperationType::Mutation => "Mutation",
                 graphql_hir::OperationType::Subscription => "Subscription",
+                _ => "Query", // fallback for future operation types
             };
 
             // Analyze the operation body
@@ -1802,6 +1807,7 @@ impl Analysis {
                     graphql_hir::TypeDefKind::Enum => "Enum",
                     graphql_hir::TypeDefKind::Scalar => "Scalar",
                     graphql_hir::TypeDefKind::InputObject => "Input Object",
+                    _ => "Unknown",
                 };
                 write!(hover_text, "**Kind:** {kind_str}\n\n").ok();
 
@@ -2582,6 +2588,7 @@ impl Analysis {
         for (name, type_def) in types {
             if name.to_lowercase().contains(&query_lower) {
                 if let Some(location) = self.get_type_location(type_def) {
+                    #[allow(clippy::match_same_arms)]
                     let kind = match type_def.kind {
                         graphql_hir::TypeDefKind::Object => SymbolKind::Type,
                         graphql_hir::TypeDefKind::Interface => SymbolKind::Interface,
@@ -2589,6 +2596,7 @@ impl Analysis {
                         graphql_hir::TypeDefKind::Enum => SymbolKind::Enum,
                         graphql_hir::TypeDefKind::Scalar => SymbolKind::Scalar,
                         graphql_hir::TypeDefKind::InputObject => SymbolKind::Input,
+                        _ => SymbolKind::Type, // fallback for future type kinds
                     };
 
                     symbols.push(WorkspaceSymbol::new(name.to_string(), kind, location));
@@ -2618,16 +2626,18 @@ impl Analysis {
                 continue;
             };
             let structure = graphql_hir::file_structure(&self.db, *file_id, content, metadata);
-            for operation in &structure.operations {
+            for operation in structure.operations.iter() {
                 if let Some(op_name) = &operation.name {
                     if op_name.to_lowercase().contains(&query_lower) {
                         if let Some(location) = self.get_operation_location(operation) {
+                            #[allow(clippy::match_same_arms)]
                             let kind = match operation.operation_type {
                                 graphql_hir::OperationType::Query => SymbolKind::Query,
                                 graphql_hir::OperationType::Mutation => SymbolKind::Mutation,
                                 graphql_hir::OperationType::Subscription => {
                                     SymbolKind::Subscription
                                 }
+                                _ => SymbolKind::Query, // fallback for future operation types
                             };
 
                             symbols.push(WorkspaceSymbol::new(op_name.to_string(), kind, location));
@@ -2660,6 +2670,7 @@ impl Analysis {
                 graphql_hir::TypeDefKind::Enum => stats.enums += 1,
                 graphql_hir::TypeDefKind::Scalar => stats.scalars += 1,
                 graphql_hir::TypeDefKind::InputObject => stats.input_objects += 1,
+                _ => {} // ignore future type kinds
             }
             // Count fields for types that have fields
             stats.total_fields += type_def.fields.len();
@@ -2833,14 +2844,14 @@ impl Analysis {
         drop(registry);
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_offset = metadata.line_offset(&self.db);
 
         for doc in parse.documents() {
             if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name) {
                 let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                #[allow(clippy::cast_possible_truncation)]
                 let range = adjust_range_for_line_offset(
                     offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
-                    line_offset,
+                    doc.line_offset as u32,
                 );
                 return Some((file_path, range));
             }
@@ -2921,7 +2932,7 @@ impl Analysis {
         let mut lenses = Vec::new();
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        for fragment in &structure.fragments {
+        for fragment in structure.fragments.iter() {
             // Find usage info for this fragment
             let usage_count = fragment_usages
                 .iter()
@@ -3759,7 +3770,6 @@ fragment AttackActionInfo on AttackAction {
             &schema_path,
             "type Pokemon {\n  name: String!\n  level: Int!\n}",
             FileKind::Schema,
-            0,
         );
 
         // Add a document that uses this field
@@ -3768,7 +3778,6 @@ fragment AttackActionInfo on AttackAction {
             &doc_path,
             "query GetPokemon { pokemon { name } }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -3800,7 +3809,6 @@ fragment AttackActionInfo on AttackAction {
             &schema_path,
             "type Pokemon {\n  name: String!\n  level: Int!\n}",
             FileKind::Schema,
-            0,
         );
 
         host.rebuild_project_files();
@@ -4118,7 +4126,7 @@ fragment AttackActionInfo on AttackAction {
         let schema_file = FilePath::new("file:///schema.graphql");
         let (schema_text, cursor_pos) =
             extract_cursor("type User {\n  na*me: String!\n  age: Int!\n}");
-        host.add_file(&schema_file, &schema_text, FileKind::Schema, 0);
+        host.add_file(&schema_file, &schema_text, FileKind::Schema);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -6484,7 +6492,6 @@ type Comment {
             &FilePath::new("file:///schema.graphql"),
             schema,
             FileKind::Schema,
-            0,
         );
 
         // Add operation
@@ -6504,7 +6511,6 @@ query GetUser {
             &FilePath::new("file:///query.graphql"),
             query,
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -6540,7 +6546,6 @@ type Post {
             &FilePath::new("file:///schema.graphql"),
             schema,
             FileKind::Schema,
-            0,
         );
 
         // Add operation with list field
@@ -6556,7 +6561,6 @@ query GetPosts {
             &FilePath::new("file:///query.graphql"),
             query,
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -6604,7 +6608,6 @@ type PageInfo {
             &FilePath::new("file:///schema.graphql"),
             schema,
             FileKind::Schema,
-            0,
         );
 
         // Add operation with connection pattern
@@ -6624,7 +6627,6 @@ query GetUsers {
             &FilePath::new("file:///query.graphql"),
             query,
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();

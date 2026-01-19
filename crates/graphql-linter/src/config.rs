@@ -4,6 +4,7 @@ use std::collections::HashMap;
 /// Severity level for a lint rule
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum LintSeverity {
     Off,
     Warn,
@@ -13,6 +14,7 @@ pub enum LintSeverity {
 /// Configuration for a single lint rule
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum LintRuleConfig {
     /// Just a severity level (simple case)
     Severity(LintSeverity),
@@ -28,6 +30,7 @@ pub enum LintRuleConfig {
 /// Extends configuration - can be a single preset or multiple
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum ExtendsConfig {
     /// Single preset: `extends: recommended` or `lint: recommended`
     Single(String),
@@ -90,6 +93,7 @@ pub struct FullLintConfig {
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum LintConfig {
     /// Preset(s): `lint: recommended` or `lint: [recommended, strict]`
     Preset(ExtendsConfig),
