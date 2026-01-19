@@ -16,6 +16,11 @@ pub struct ValidateDocumentParams {
     /// If not provided, defaults to "document.graphql"
     #[serde(default)]
     pub file_path: Option<String>,
+
+    /// Optional project name to validate against
+    /// If not provided, uses the first/only loaded project
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 /// Result of validating a GraphQL document
@@ -101,6 +106,19 @@ pub struct FileDiagnostics {
 
     /// Diagnostics for this file
     pub diagnostics: Vec<DiagnosticInfo>,
+}
+
+/// Result of loading a project
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct LoadProjectResult {
+    /// Whether the project was loaded successfully
+    pub success: bool,
+
+    /// The project name
+    pub project: String,
+
+    /// Status message
+    pub message: String,
 }
 
 /// A diagnostic message (error, warning, or info)

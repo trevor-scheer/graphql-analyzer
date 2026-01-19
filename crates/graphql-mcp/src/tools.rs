@@ -51,6 +51,13 @@ pub struct ValidateParams {
     #[schemars(description = "Optional file path for the document (used in error messages)")]
     #[serde(default)]
     pub file_path: Option<String>,
+
+    /// Optional project name to validate against
+    #[schemars(
+        description = "Optional project name. If not provided, uses the first/only loaded project. Use list_projects to see available projects."
+    )]
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 /// Parameters for lint_document tool
@@ -64,6 +71,23 @@ pub struct LintParams {
     #[schemars(description = "Optional file path for the document")]
     #[serde(default)]
     pub file_path: Option<String>,
+
+    /// Optional project name to lint against
+    #[schemars(
+        description = "Optional project name. If not provided, uses the first/only loaded project. Use list_projects to see available projects."
+    )]
+    #[serde(default)]
+    pub project: Option<String>,
+}
+
+/// Parameters for load_project tool
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct LoadProjectParams {
+    /// The project name to load
+    #[schemars(
+        description = "The project name to load. Use list_projects to see available projects."
+    )]
+    pub project: String,
 }
 
 #[rmcp::tool_router]
@@ -80,6 +104,7 @@ impl GraphQLToolRouter {
         let result = service.validate_document(ValidateDocumentParams {
             document: params.0.document,
             file_path: params.0.file_path,
+            project: params.0.project,
         });
         let json = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
         Ok(CallToolResult::success(vec![Content::text(json)]))
@@ -94,7 +119,11 @@ impl GraphQLToolRouter {
         params: Parameters<LintParams>,
     ) -> Result<CallToolResult, McpError> {
         let mut service = self.service.lock().await;
-        let result = service.lint_document(&params.0.document, params.0.file_path.as_deref());
+        let result = service.lint_document(
+            &params.0.document,
+            params.0.file_path.as_deref(),
+            params.0.project.as_deref(),
+        );
         let json = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
@@ -111,6 +140,20 @@ impl GraphQLToolRouter {
             .map(|(name, is_loaded)| serde_json::json!({"name": name, "is_loaded": is_loaded}))
             .collect();
         let json = serde_json::to_string(&result).unwrap_or_else(|_| "[]".to_string());
+        Ok(CallToolResult::success(vec![Content::text(json)]))
+    }
+
+    #[tool(
+        name = "load_project",
+        description = "Load a specific GraphQL project by name. Use list_projects to see available projects. Returns JSON with {success, project, message}."
+    )]
+    pub async fn load_project(
+        &self,
+        params: Parameters<LoadProjectParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut service = self.service.lock().await;
+        let result = service.load_project(&params.0.project);
+        let json = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 

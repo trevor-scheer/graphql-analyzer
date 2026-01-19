@@ -45,9 +45,20 @@ pub use service::McpService;
 pub use tools::GraphQLToolRouter;
 pub use types::{
     DiagnosticInfo, DiagnosticSeverity, FileDiagnostics, FileValidationResult, LintResult,
-    LocationInfo, ProjectDiagnosticsResult, RangeInfo, ValidateDocumentParams,
+    LoadProjectResult, LocationInfo, ProjectDiagnosticsResult, RangeInfo, ValidateDocumentParams,
     ValidateDocumentResult,
 };
+
+/// Configuration for which projects to preload at startup
+#[derive(Debug, Clone)]
+pub enum McpPreloadConfig {
+    /// Load all projects from the config
+    All,
+    /// Load only the specified projects
+    Selected(Vec<String>),
+    /// Don't preload any projects (use load_project tool)
+    None,
+}
 
 use anyhow::Result;
 use rmcp::ServiceExt;
@@ -84,13 +95,13 @@ impl GraphQLMcpServer {
     /// Run the MCP server in standalone mode with stdio transport
     ///
     /// This creates a fresh AnalysisHost and loads the project from the given workspace path.
-    pub async fn run_standalone(workspace: &Path) -> Result<()> {
+    pub async fn run_standalone(workspace: &Path, preload: McpPreloadConfig) -> Result<()> {
         tracing::info!("Starting GraphQL MCP server in standalone mode");
         tracing::info!("Workspace: {}", workspace.display());
 
-        // Create service and load project (default/first project)
+        // Create service and load workspace
         let mut service = McpService::new();
-        service.load_workspace(workspace, None)?;
+        service.load_workspace(workspace, &preload)?;
 
         // Create the tool router with the service
         let router = GraphQLToolRouter::new(Arc::new(Mutex::new(service)));

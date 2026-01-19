@@ -136,6 +136,17 @@ enum Commands {
         /// Workspace directory (defaults to current directory)
         #[arg(short, long)]
         workspace: Option<PathBuf>,
+
+        /// Don't preload any projects (use `load_project` tool to load on demand)
+        #[arg(long)]
+        no_preload: bool,
+
+        /// Specific projects to preload (comma-separated)
+        ///
+        /// By default, all projects are loaded. Use this to limit which projects
+        /// are preloaded at startup. Remaining projects can be loaded via `load_project` tool.
+        #[arg(long, value_delimiter = ',')]
+        projects: Option<Vec<String>>,
     },
 }
 
@@ -196,7 +207,11 @@ async fn main() -> anyhow::Result<()> {
             threshold,
             breakdown,
         ),
-        Commands::Mcp { workspace } => commands::mcp::run(workspace).await,
+        Commands::Mcp {
+            workspace,
+            no_preload,
+            projects,
+        } => commands::mcp::run(workspace, no_preload, projects).await,
     };
 
     #[cfg(feature = "otel")]
