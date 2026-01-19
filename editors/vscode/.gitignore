@@ -1,4 +1,12 @@
 node_modules/
 out/
+out-e2e/
 *.vsix
 .vscode-test/
+test-results/
+playwright-report/
+# Playwright compiles TS on the fly, ignore any leftover JS
+playwright.config.js
+playwright.config.js.map
+e2e/*.js
+e2e/*.js.map
