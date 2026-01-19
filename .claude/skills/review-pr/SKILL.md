@@ -40,7 +40,7 @@ gh pr diff <number> --repo trevor-scheer/graphql-analyzer
 - [ ] Changes are in the correct layer (db → syntax → hir → analysis → ide → lsp)
 - [ ] Follows existing patterns in the codebase
 - [ ] No unnecessary abstractions or over-engineering
-- [ ] Respects the Golden Invariant (body edits don't invalidate structure)
+- [ ] Respects cache invariants (structure/body separation, file isolation, index stability)
 
 ### Correctness
 
