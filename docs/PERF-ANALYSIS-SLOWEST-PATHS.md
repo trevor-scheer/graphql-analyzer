@@ -27,21 +27,22 @@ This document identifies the slowest code paths in the GraphQL LSP when operatin
 
 The GraphQL LSP architecture is fundamentally sound with excellent Salsa integration for incremental computation. The main performance concerns for large codebases are:
 
-| Priority | Issue | Impact | Estimated Fix Effort |
-|----------|-------|--------|---------------------|
-| P0 | Synchronous file loading | 20-100s startup on large projects | Medium |
-| P1 | Non-incremental validation | Repeated work on each keystroke | High |
-| P1 | Transitive fragment resolution | O(n*d) on each validation | Medium |
-| P2 | Linear workspace lookup | Scales poorly with multi-project | Low |
-| P2 | Full text sync | Bandwidth on large files | Low |
-| P3 | Workspace symbol search | Sequential host iteration | Low |
-| P3 | Schema merging | Linear with schema file count | Medium |
+| Priority | Issue                          | Impact                            | Estimated Fix Effort |
+| -------- | ------------------------------ | --------------------------------- | -------------------- |
+| P0       | Synchronous file loading       | 20-100s startup on large projects | Medium               |
+| P1       | Non-incremental validation     | Repeated work on each keystroke   | High                 |
+| P1       | Transitive fragment resolution | O(n\*d) on each validation        | Medium               |
+| P2       | Linear workspace lookup        | Scales poorly with multi-project  | Low                  |
+| P2       | Full text sync                 | Bandwidth on large files          | Low                  |
+| P3       | Workspace symbol search        | Sequential host iteration         | Low                  |
+| P3       | Schema merging                 | Linear with schema file count     | Medium               |
 
 ---
 
 ## Issue 1: Synchronous File Loading at Initialization
 
 ### SME Agents Consulted
+
 - **rust-analyzer Expert**: Query-based, lazy loading patterns
 - **LSP Expert**: Initialization responsiveness requirements
 - **Rust Expert**: Async I/O patterns
@@ -66,12 +67,14 @@ async fn load_all_project_files(...) {
 ```
 
 **Problem**:
+
 - `glob::glob()` is synchronous filesystem traversal
 - `std::fs::read_to_string()` is synchronous I/O
 - Blocks the async runtime, preventing LSP from responding
 - **Scaling**: ~2ms per file → 20s for 10,000 files, 100s for 50,000 files
 
 **Evidence**:
+
 ```rust
 // Line 352-367: Warning at 1000 files
 if files_scanned == MAX_FILES_WARNING_THRESHOLD {
@@ -101,6 +104,7 @@ async fn load_all_project_files(...) {
 ```
 
 **Key Changes**:
+
 1. Replace `glob::glob()` with `ignore` crate (parallel, respects .gitignore)
 2. Replace `std::fs::read_to_string()` with `tokio::fs::read_to_string()`
 3. Use `futures::stream::iter().buffer_unordered(N)` for parallel loading
@@ -108,16 +112,17 @@ async fn load_all_project_files(...) {
 
 ### Alternatives Considered
 
-| Alternative | Pros | Cons | Decision |
-|-------------|------|------|----------|
-| **Lazy loading (proposed)** | Instant startup, load on demand | Slight delay on first file access | **Selected** |
-| **Background loading** | Startup unblocked, eventual consistency | Complex state management, stale diagnostics | Considered |
-| **Memory-mapped files** | Fast reads, OS caching | Platform differences, complexity | Rejected |
-| **Parallel sync loading (rayon)** | Simple, faster than sequential | Still blocks, doesn't scale | Rejected |
+| Alternative                       | Pros                                    | Cons                                        | Decision     |
+| --------------------------------- | --------------------------------------- | ------------------------------------------- | ------------ |
+| **Lazy loading (proposed)**       | Instant startup, load on demand         | Slight delay on first file access           | **Selected** |
+| **Background loading**            | Startup unblocked, eventual consistency | Complex state management, stale diagnostics | Considered   |
+| **Memory-mapped files**           | Fast reads, OS caching                  | Platform differences, complexity            | Rejected     |
+| **Parallel sync loading (rayon)** | Simple, faster than sequential          | Still blocks, doesn't scale                 | Rejected     |
 
 ### Implementation Notes
 
 The rust-analyzer SME recommends following rust-analyzer's VFS (Virtual File System) pattern:
+
 - Maintain an in-memory file index with paths
 - Load content on demand
 - Use file watchers for updates
@@ -128,6 +133,7 @@ The rust-analyzer SME recommends following rust-analyzer's VFS (Virtual File Sys
 ## Issue 2: Non-Incremental Apollo-Compiler Validation
 
 ### SME Agents Consulted
+
 - **rust-analyzer Expert**: Query-based caching patterns
 - **Apollo-rs Expert**: apollo-compiler validation internals
 - **GraphQL Specification Expert**: Validation rule semantics
@@ -150,6 +156,7 @@ match if errors.is_empty() {
 ```
 
 **Problem**:
+
 - `doc.validate()` is an external function, not a Salsa query
 - Re-runs all validation rules on every keystroke
 - Validation includes expensive type checking, coercion, and recursive checks
@@ -178,18 +185,19 @@ pub fn cached_document_validation(
 ```
 
 **Key Changes**:
+
 1. Create stable AST hashing for documents
 2. Track fragment dependency hashes
 3. Cache validation results keyed by (doc_hash, schema_hash, deps_hash)
 
 ### Alternatives Considered
 
-| Alternative | Pros | Cons | Decision |
-|-------------|------|------|----------|
-| **Hash-based caching (proposed)** | Works with external lib | Hashing overhead | **Selected** |
-| **Fork apollo-compiler** | Full control, Salsa integration | Maintenance burden | Rejected |
-| **Incremental validation** | Only check changed parts | Requires apollo-compiler changes | Future work |
-| **Debounce validation** | Reduces frequency | Delayed feedback | Already implemented in LSP |
+| Alternative                       | Pros                            | Cons                             | Decision                   |
+| --------------------------------- | ------------------------------- | -------------------------------- | -------------------------- |
+| **Hash-based caching (proposed)** | Works with external lib         | Hashing overhead                 | **Selected**               |
+| **Fork apollo-compiler**          | Full control, Salsa integration | Maintenance burden               | Rejected                   |
+| **Incremental validation**        | Only check changed parts        | Requires apollo-compiler changes | Future work                |
+| **Debounce validation**           | Reduces frequency               | Delayed feedback                 | Already implemented in LSP |
 
 ### Implementation Notes
 
@@ -200,6 +208,7 @@ The apollo-rs SME notes that apollo-compiler's validation is designed to be run 
 ## Issue 3: Transitive Fragment Resolution
 
 ### SME Agents Consulted
+
 - **rust-analyzer Expert**: Incremental dependency tracking
 - **GraphQL Specification Expert**: Fragment semantics
 - **Rust Expert**: Collection performance
@@ -234,8 +243,9 @@ fn collect_referenced_fragments_transitive(...) -> HashSet<String> {
 ```
 
 **Problem**:
+
 - Called on EVERY validation (not cached)
-- BFS traversal is O(n * d) where n = fragments, d = avg depth
+- BFS traversal is O(n \* d) where n = fragments, d = avg depth
 - String cloning in the hot path
 - `fragment_spreads_index` aggregates all files (could be large)
 
@@ -282,6 +292,7 @@ pub fn fragment_transitive_deps(
 ```
 
 **Key Changes**:
+
 1. Make transitive resolution a Salsa query (cached)
 2. Per-fragment transitive closure (fine-grained invalidation)
 3. Use `Arc<str>` instead of `String` (zero-copy)
@@ -289,12 +300,12 @@ pub fn fragment_transitive_deps(
 
 ### Alternatives Considered
 
-| Alternative | Pros | Cons | Decision |
-|-------------|------|------|----------|
-| **Per-fragment Salsa cache (proposed)** | Fine-grained, incremental | Some overhead | **Selected** |
-| **Global closure cache** | Simple | Invalidates on any fragment change | Rejected |
-| **Bloom filter pre-check** | Fast "no fragments" path | Complexity, false positives | Considered |
-| **Limit traversal depth** | Bounds worst case | May miss deep deps | Rejected |
+| Alternative                             | Pros                      | Cons                               | Decision     |
+| --------------------------------------- | ------------------------- | ---------------------------------- | ------------ |
+| **Per-fragment Salsa cache (proposed)** | Fine-grained, incremental | Some overhead                      | **Selected** |
+| **Global closure cache**                | Simple                    | Invalidates on any fragment change | Rejected     |
+| **Bloom filter pre-check**              | Fast "no fragments" path  | Complexity, false positives        | Considered   |
+| **Limit traversal depth**               | Bounds worst case         | May miss deep deps                 | Rejected     |
 
 ### Implementation Notes
 
@@ -305,6 +316,7 @@ The rust-analyzer SME emphasizes that making this a Salsa query is critical. The
 ## Issue 4: Linear Workspace/Project Lookup
 
 ### SME Agents Consulted
+
 - **LSP Expert**: Request handling patterns
 - **Rust Expert**: Collection performance
 
@@ -337,6 +349,7 @@ fn find_workspace_and_project(&self, document_uri: &Uri) -> Option<(String, Stri
 ```
 
 **Problem**:
+
 - O(n) iteration over all hosts on EVERY request
 - `try_lock()` may skip hosts under contention
 - Pattern matching fallback also O(n)
@@ -370,6 +383,7 @@ fn on_file_added(&self, uri: &str, workspace: &str, project: &str) {
 ```
 
 **Key Changes**:
+
 1. Add `file_to_project: DashMap<String, (String, String)>` field
 2. Populate during `load_all_project_files`
 3. Update on `did_open` when file is first seen
@@ -377,18 +391,19 @@ fn on_file_added(&self, uri: &str, workspace: &str, project: &str) {
 
 ### Alternatives Considered
 
-| Alternative | Pros | Cons | Decision |
-|-------------|------|------|----------|
-| **Reverse index (proposed)** | O(1) lookup | Memory overhead | **Selected** |
-| **Sorted hosts + binary search** | O(log n) | Complex key design | Rejected |
-| **Trie-based path lookup** | Good for path prefixes | Complexity | Rejected |
-| **Cache last lookup** | Fast repeated access | Doesn't help diverse access | Partial use |
+| Alternative                      | Pros                   | Cons                        | Decision     |
+| -------------------------------- | ---------------------- | --------------------------- | ------------ |
+| **Reverse index (proposed)**     | O(1) lookup            | Memory overhead             | **Selected** |
+| **Sorted hosts + binary search** | O(log n)               | Complex key design          | Rejected     |
+| **Trie-based path lookup**       | Good for path prefixes | Complexity                  | Rejected     |
+| **Cache last lookup**            | Fast repeated access   | Doesn't help diverse access | Partial use  |
 
 ---
 
 ## Issue 5: Full Text Document Sync
 
 ### SME Agents Consulted
+
 - **LSP Expert**: Document synchronization modes
 - **rust-analyzer Expert**: Incremental text updates
 
@@ -405,6 +420,7 @@ text_document_sync: Some(TextDocumentSyncCapability::Kind(
 ```
 
 **Problem**:
+
 - Every keystroke sends the ENTIRE file content
 - Large files (10KB+) = 10KB+ per keystroke
 - Network/IPC overhead
@@ -444,6 +460,7 @@ async fn did_change(&self, params: DidChangeTextDocumentParams) {
 ```
 
 **Key Changes**:
+
 1. Advertise `INCREMENTAL` sync capability
 2. Maintain file content in server (already done via AnalysisHost)
 3. Apply text edits incrementally
@@ -451,11 +468,11 @@ async fn did_change(&self, params: DidChangeTextDocumentParams) {
 
 ### Alternatives Considered
 
-| Alternative | Pros | Cons | Decision |
-|-------------|------|------|----------|
-| **Incremental sync (proposed)** | Less data transfer | Implementation complexity | **Selected** |
-| **Keep full sync** | Simple, already working | Bandwidth on large files | Current state |
-| **Hybrid (detect large files)** | Best of both | Edge case handling | Considered |
+| Alternative                     | Pros                    | Cons                      | Decision      |
+| ------------------------------- | ----------------------- | ------------------------- | ------------- |
+| **Incremental sync (proposed)** | Less data transfer      | Implementation complexity | **Selected**  |
+| **Keep full sync**              | Simple, already working | Bandwidth on large files  | Current state |
+| **Hybrid (detect large files)** | Best of both            | Edge case handling        | Considered    |
 
 ### Implementation Notes
 
@@ -466,6 +483,7 @@ The LSP SME notes that incremental sync is the standard for production language 
 ## Issue 6: Workspace Symbol Search
 
 ### SME Agents Consulted
+
 - **LSP Expert**: Workspace symbol performance
 - **rust-analyzer Expert**: Index-based symbol lookup
 
@@ -497,6 +515,7 @@ async fn symbol(&self, params: WorkspaceSymbolParams) -> Result<...> {
 ```
 
 **Problem**:
+
 - Sequential iteration and locking of all hosts
 - Each `workspace_symbols` call may scan all files
 - No early termination on match limit
@@ -537,6 +556,7 @@ async fn symbol(&self, params: WorkspaceSymbolParams) -> Result<...> {
 ```
 
 **Key Changes**:
+
 1. Acquire all snapshots first (minimize lock hold time)
 2. Query snapshots in parallel (they're thread-safe)
 3. Apply result limit to avoid overwhelming the UI
@@ -544,17 +564,18 @@ async fn symbol(&self, params: WorkspaceSymbolParams) -> Result<...> {
 
 ### Alternatives Considered
 
-| Alternative | Pros | Cons | Decision |
-|-------------|------|------|----------|
-| **Parallel queries (proposed)** | Faster, scales with cores | Needs snapshot pattern | **Selected** |
-| **Pre-built index** | O(1) lookup | Memory, staleness | Future enhancement |
-| **Limit per host** | Bounds per-host work | May miss relevant symbols | Rejected |
+| Alternative                     | Pros                      | Cons                      | Decision           |
+| ------------------------------- | ------------------------- | ------------------------- | ------------------ |
+| **Parallel queries (proposed)** | Faster, scales with cores | Needs snapshot pattern    | **Selected**       |
+| **Pre-built index**             | O(1) lookup               | Memory, staleness         | Future enhancement |
+| **Limit per host**              | Bounds per-host work      | May miss relevant symbols | Rejected           |
 
 ---
 
 ## Issue 7: Schema Merging on Large Schemas
 
 ### SME Agents Consulted
+
 - **Apollo-rs Expert**: Schema builder performance
 - **GraphQL Specification Expert**: Schema composition
 
@@ -584,6 +605,7 @@ pub fn merged_schema_with_diagnostics(...) -> MergedSchemaResult {
 ```
 
 **Problem**:
+
 - Re-parses all schema files on each call
 - `parse_into_schema_builder` is not cached
 - Large schemas (100+ files) = significant parsing time
@@ -625,17 +647,18 @@ pub fn merged_schema_with_diagnostics(...) -> MergedSchemaResult {
 ```
 
 **Key Changes**:
+
 1. Add `file_schema_ast` Salsa query for per-file caching
 2. Use cached ASTs in `merged_schema_with_diagnostics`
 3. Only re-parse files whose content actually changed
 
 ### Alternatives Considered
 
-| Alternative | Pros | Cons | Decision |
-|-------------|------|------|----------|
-| **Per-file AST cache (proposed)** | Incremental, Salsa-native | Needs apollo-compiler API | **Selected** |
-| **Full schema cache** | Simple | Invalidates on any change | Current state |
-| **Persistent cache** | Survives restarts | Staleness, complexity | Future enhancement |
+| Alternative                       | Pros                      | Cons                      | Decision           |
+| --------------------------------- | ------------------------- | ------------------------- | ------------------ |
+| **Per-file AST cache (proposed)** | Incremental, Salsa-native | Needs apollo-compiler API | **Selected**       |
+| **Full schema cache**             | Simple                    | Invalidates on any change | Current state      |
+| **Persistent cache**              | Survives restarts         | Staleness, complexity     | Future enhancement |
 
 ---
 
@@ -644,31 +667,37 @@ pub fn merged_schema_with_diagnostics(...) -> MergedSchemaResult {
 The codebase already implements several excellent optimizations:
 
 ### FileEntryMap Pattern
+
 **Location**: `crates/graphql-db/src/lib.rs:98-121`
 
 Per-file granular caching via `FileEntryMap` ensures editing file A doesn't invalidate queries for file B. This is a critical optimization that's already working well.
 
 ### Batched File Loading
+
 **Location**: `crates/graphql-lsp/src/server.rs:309-428`
 
 Files are collected without holding locks, then batch-added. This eliminates O(n) lock acquisitions.
 
 ### Golden Invariant
+
 **Location**: Throughout `graphql-hir`
 
 The separation of structure (type names, signatures) from bodies (selection sets) ensures body edits don't invalidate schema knowledge.
 
 ### Per-Fragment Queries
+
 **Location**: `crates/graphql-hir/src/lib.rs:311-328`
 
 `fragment_source` uses per-fragment fine-grained queries instead of loading all fragments.
 
 ### Snapshot Pattern
+
 **Location**: `crates/graphql-ide/src/lib.rs`
 
 The `Analysis` snapshot enables lock-free queries after a single lock acquisition.
 
 ### Document Version Tracking
+
 **Location**: `crates/graphql-lsp/src/server.rs:908-921`
 
 Version tracking prevents processing stale document updates.
@@ -678,17 +707,21 @@ Version tracking prevents processing stale document updates.
 ## Recommended Priority Order
 
 ### P0 - Critical (Do First)
+
 1. **Issue 1: Async File Loading** - Blocks large project adoption
 
 ### P1 - High Priority
+
 2. **Issue 3: Cache Transitive Fragment Resolution** - Repeated work on every validation
 3. **Issue 2: Cache Apollo Validation** - Repeated work on every keystroke
 
 ### P2 - Medium Priority
+
 4. **Issue 4: Reverse Index for Workspace Lookup** - Simple fix, good payoff
 5. **Issue 5: Incremental Text Sync** - Standard practice, reduces bandwidth
 
 ### P3 - Lower Priority
+
 6. **Issue 6: Parallel Workspace Symbol Search** - Only affects symbol search
 7. **Issue 7: Cache Schema ASTs** - Benefits large schemas only
 
@@ -718,13 +751,13 @@ fn bench_workspace_lookup(c: &mut Criterion) { ... }
 
 ## Appendix: SME Agent Summary
 
-| Agent | Issues Consulted | Key Insights |
-|-------|------------------|--------------|
-| **rust-analyzer Expert** | 1, 2, 3, 6 | Lazy loading, Salsa query design, snapshot pattern |
-| **LSP Expert** | 1, 4, 5, 6 | Responsiveness requirements, incremental sync |
-| **Rust Expert** | 1, 3, 4 | Async I/O, collection performance, Arc usage |
-| **Apollo-rs Expert** | 2, 7 | Validation internals, schema builder APIs |
-| **GraphQL Specification Expert** | 2, 3 | Fragment semantics, validation rules |
+| Agent                            | Issues Consulted | Key Insights                                       |
+| -------------------------------- | ---------------- | -------------------------------------------------- |
+| **rust-analyzer Expert**         | 1, 2, 3, 6       | Lazy loading, Salsa query design, snapshot pattern |
+| **LSP Expert**                   | 1, 4, 5, 6       | Responsiveness requirements, incremental sync      |
+| **Rust Expert**                  | 1, 3, 4          | Async I/O, collection performance, Arc usage       |
+| **Apollo-rs Expert**             | 2, 7             | Validation internals, schema builder APIs          |
+| **GraphQL Specification Expert** | 2, 3             | Fragment semantics, validation rules               |
 
 ---
 

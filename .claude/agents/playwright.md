@@ -22,6 +22,7 @@ You have deep knowledge of:
 ## When to Consult This Agent
 
 Consult this agent when:
+
 - Writing E2E tests for VSCode extensions
 - Debugging flaky tests
 - Setting up Playwright fixtures
@@ -68,13 +69,13 @@ const app = await electron.launch({
 
 ```typescript
 // GOOD - Use semantic locators
-page.getByText("Check Status")
-page.getByRole("button", { name: "Save" })
-page.locator("input").first()
+page.getByText("Check Status");
+page.getByRole("button", { name: "Save" });
+page.locator("input").first();
 
 // AVOID - Brittle CSS selectors
-page.locator(".monaco-quick-input-widget > div > span")
-page.locator("#some-dynamic-id")
+page.locator(".monaco-quick-input-widget > div > span");
+page.locator("#some-dynamic-id");
 
 // GOOD - Use locator.press() instead of page.keyboard.press()
 const body = page.locator("body");
@@ -84,8 +85,8 @@ await input.fill(">GraphQL");
 await input.press("Enter");
 
 // AVOID - page.keyboard.* methods
-await page.keyboard.press("Enter");  // Less reliable
-await page.keyboard.type("text");    // Use fill() instead
+await page.keyboard.press("Enter"); // Less reliable
+await page.keyboard.type("text"); // Use fill() instead
 ```
 
 ### VSCode-Specific Patterns
@@ -114,8 +115,8 @@ await expect(element).toBeVisible();
 await expect(element).toHaveText("expected");
 
 // AVOID - Manual timeouts
-await page.waitForTimeout(1000);  // Flaky!
-await new Promise(r => setTimeout(r, 500));  // Never!
+await page.waitForTimeout(1000); // Flaky!
+await new Promise((r) => setTimeout(r, 500)); // Never!
 
 // GOOD - Custom timeout when needed
 await expect(element).toBeVisible({ timeout: 10000 });
@@ -178,7 +179,7 @@ await page.screenshot({ path: "test-results/debug.png" });
     cd editors/vscode
     npm run test:e2e
   env:
-    DISPLAY: ':99'  # For Linux with Xvfb
+    DISPLAY: ":99" # For Linux with Xvfb
 
 # Install dependencies for Linux
 - name: Install dependencies

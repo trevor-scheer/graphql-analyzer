@@ -1,13 +1,24 @@
 // TypeScript file with embedded GraphQL
 // Tests extraction from template literals
 
-import { gql } from '@apollo/client';
+import { gql } from "@apollo/client";
 
 // Single template literal with query
 const GET_ISSUES = gql`
-  query GetIssuesList($owner: String!, $name: String!, $first: Int = 30, $after: String, $states: [IssueState!]) {
+  query GetIssuesList(
+    $owner: String!
+    $name: String!
+    $first: Int = 30
+    $after: String
+    $states: [IssueState!]
+  ) {
     repository(owner: $owner, name: $name) {
-      issues(first: $first, after: $after, states: $states, orderBy: { field: CREATED_AT, direction: DESC }) {
+      issues(
+        first: $first
+        after: $after
+        states: $states
+        orderBy: { field: CREATED_AT, direction: DESC }
+      ) {
         totalCount
         pageInfo {
           ...PageInfoFull

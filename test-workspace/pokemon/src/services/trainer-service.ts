@@ -1,10 +1,8 @@
-import { gql } from '@apollo/client';
+import { gql } from "@apollo/client";
 
 export const CREATE_NEW_TRAINER = gql`
   mutation CreateNewTrainer($name: String!, $region: Region!, $class: TrainerClass!) {
-    createTrainer(
-      input: { name: $name, region: $region, trainerClass: $class }
-    ) {
+    createTrainer(input: { name: $name, region: $region, trainerClass: $class }) {
       id
       name
       region

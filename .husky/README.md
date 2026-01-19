@@ -18,3 +18,4 @@ To manually update the git hook after modifying `pre-commit.sh`, rebuild the pro
 
 - **VSCode extension formatting**: Runs `prettier --check` when staging changes to `editors/vscode/`
 - **VSCode extension linting**: Runs `oxlint` when staging changes to `editors/vscode/`
+- **GraphQL formatting**: Runs `oxfmt --check` when staging changes to `.graphql` files

@@ -26,10 +26,10 @@ graphql mcp --workspace /path/to/project --no-preload
 
 ### CLI Options
 
-| Option | Description |
-|--------|-------------|
-| `--workspace` | Path to the workspace directory (defaults to current directory) |
-| `--preload` | Comma-separated list of specific projects to preload |
+| Option         | Description                                                                    |
+| -------------- | ------------------------------------------------------------------------------ |
+| `--workspace`  | Path to the workspace directory (defaults to current directory)                |
+| `--preload`    | Comma-separated list of specific projects to preload                           |
 | `--no-preload` | Don't load any projects at startup. Use `load_project` tool to load on demand. |
 
 ### Claude Desktop Configuration
@@ -57,6 +57,7 @@ Add to your Claude Desktop config file:
 Validate a GraphQL document against the loaded schema. Returns JSON with `{valid, error_count, warning_count, diagnostics[]}`.
 
 **Parameters:**
+
 - `document` (required): The GraphQL document source to validate
 - `file_path` (optional): Virtual file path for error reporting
 - `project` (optional): Project name to validate against. If not specified, uses the first loaded project.
@@ -66,6 +67,7 @@ Validate a GraphQL document against the loaded schema. Returns JSON with `{valid
 Run lint rules on a GraphQL document to check for best practices and code quality issues. Returns JSON with `{issue_count, fixable_count, diagnostics[]}`.
 
 **Parameters:**
+
 - `document` (required): The GraphQL document source to lint
 - `file_path` (optional): Virtual file path for error reporting
 - `project` (optional): Project name to lint against. If not specified, uses the first loaded project.
@@ -81,6 +83,7 @@ List all GraphQL projects in the workspace configuration. Returns JSON array of 
 Load a specific GraphQL project by name. Use this when `--no-preload` was specified or to load a project that wasn't preloaded.
 
 **Parameters:**
+
 - `project` (required): The project name to load
 
 **Returns:** JSON with `{success, project, message}`
@@ -120,12 +123,12 @@ cargo build
 
 ### Test Workspaces
 
-| Workspace | Description |
-|-----------|-------------|
-| `test-workspace` | Multi-project config (pokemon, starwars, countries) |
-| `test-workspace/pokemon` | Comprehensive schema with types, interfaces, unions |
-| `test-workspace/starwars` | Simple Star Wars API schema |
-| `test-workspace/countries` | Remote schema via introspection |
+| Workspace                  | Description                                         |
+| -------------------------- | --------------------------------------------------- |
+| `test-workspace`           | Multi-project config (pokemon, starwars, countries) |
+| `test-workspace/pokemon`   | Comprehensive schema with types, interfaces, unions |
+| `test-workspace/starwars`  | Simple Star Wars API schema                         |
+| `test-workspace/countries` | Remote schema via introspection                     |
 
 ### Debugging
 

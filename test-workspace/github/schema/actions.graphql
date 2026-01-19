@@ -27,7 +27,13 @@ type Workflow implements Node & UniformResourceLocatable {
   """
   A list of workflow runs.
   """
-  runs(first: Int, after: String, last: Int, before: String, orderBy: WorkflowRunOrder): WorkflowRunConnection!
+  runs(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: WorkflowRunOrder
+  ): WorkflowRunConnection!
 
   """
   The state of the workflow.
@@ -98,7 +104,12 @@ type WorkflowRun implements Node & UniformResourceLocatable {
   """
   The pending deployment requests.
   """
-  pendingDeploymentRequests(first: Int, after: String, last: Int, before: String): DeploymentRequestConnection!
+  pendingDeploymentRequests(
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): DeploymentRequestConnection!
 
   """
   The HTTP path for the workflow run.
@@ -387,7 +398,12 @@ type Environment implements Node {
   """
   The protection rules for the environment.
   """
-  protectionRules(first: Int, after: String, last: Int, before: String): DeploymentProtectionRuleConnection!
+  protectionRules(
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): DeploymentProtectionRuleConnection!
 }
 
 type DeploymentProtectionRule implements Node {
@@ -514,12 +530,25 @@ type Release implements Node & Reactable & UniformResourceLocatable {
   """
   A list of reactions on the release.
   """
-  reactions(first: Int, after: String, last: Int, before: String, content: ReactionContent, orderBy: ReactionOrder): ReactionConnection!
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
 
   """
   A list of assets associated with the release.
   """
-  releaseAssets(first: Int, after: String, last: Int, before: String, name: String): ReleaseAssetConnection!
+  releaseAssets(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    name: String
+  ): ReleaseAssetConnection!
 
   """
   The repository associated with the release.

@@ -1,4 +1,3 @@
-
 # Get all items
 query GetAllItems($category: ItemCategory) {
   allItems(category: $category) {

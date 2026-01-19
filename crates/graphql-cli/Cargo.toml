@@ -57,4 +57,10 @@ opentelemetry-semantic-conventions = { version = "0.27", optional = true }
 tracing-opentelemetry = { version = "0.28", optional = true }
 
 [features]
-otel = ["opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp", "opentelemetry-semantic-conventions", "tracing-opentelemetry"]
+otel = [
+  "opentelemetry",
+  "opentelemetry_sdk",
+  "opentelemetry-otlp",
+  "opentelemetry-semantic-conventions",
+  "tracing-opentelemetry",
+]

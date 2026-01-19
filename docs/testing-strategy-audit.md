@@ -23,13 +23,13 @@ This document provides a comprehensive audit of all Rust test files in the Graph
 
 ### Current State
 
-| Metric | Value |
-|--------|-------|
-| Files with `#[cfg(test)]` modules | 33 |
-| Duplicate `create_project_files()` implementations | 8+ |
-| Duplicate `TestDatabase` definitions | 6 |
-| Snapshot testing usage | None |
-| Shared test infrastructure | Minimal |
+| Metric                                             | Value   |
+| -------------------------------------------------- | ------- |
+| Files with `#[cfg(test)]` modules                  | 33      |
+| Duplicate `create_project_files()` implementations | 8+      |
+| Duplicate `TestDatabase` definitions               | 6       |
+| Snapshot testing usage                             | None    |
+| Shared test infrastructure                         | Minimal |
 
 ### Key Problems
 
@@ -56,11 +56,13 @@ This document provides a comprehensive audit of all Rust test files in the Graph
 **Location**: `crates/graphql-db/src/lib.rs:520-608`
 
 **Current State**:
+
 - 6 basic unit tests for data structures
 - Uses `RootDatabase` directly (no TestDatabase wrapper needed)
 - Simple, focused tests
 
 **Tests**:
+
 ```
 test_database_creation
 test_file_id
@@ -72,11 +74,13 @@ test_file_content_update
 ```
 
 **Assessment**: ✅ Good
+
 - Tests are simple and appropriate for the crate's scope
 - No duplication issues
 - Clear naming
 
 **Recommendations**:
+
 - Keep as-is, this is the foundation layer
 - Consider exporting a `create_project_files()` helper as public API for downstream tests
 
@@ -87,11 +91,13 @@ test_file_content_update
 **Location**: `crates/graphql-syntax/src/lib.rs:387-570`
 
 **Current State**:
+
 - 15+ tests for parsing and line index functionality
 - No TestDatabase needed (uses `parse_graphql()` directly)
 - Good coverage of edge cases
 
 **Tests**:
+
 ```
 test_line_index_new
 test_line_index_line_col
@@ -111,11 +117,13 @@ test_documents_iterator_pure_graphql
 ```
 
 **Assessment**: ✅ Good
+
 - Clean, focused tests
 - Good coverage of the public API
 - Inline fixtures are appropriate (small schemas/queries)
 
 **Recommendations**:
+
 - Add snapshot tests for parser error messages
 - Keep inline fixtures (they're small and contextual)
 
@@ -126,12 +134,14 @@ test_documents_iterator_pure_graphql
 **Location**: `crates/graphql-hir/src/lib.rs:742-1000+`
 
 **Current State**:
+
 - Custom `TestDatabase` with Salsa traits (15 lines boilerplate)
 - Duplicate `create_project_files()` implementation (25 lines)
 - Sophisticated incremental computation tests with `AtomicUsize` counters
 - Issue-linked tests documenting architectural decisions
 
 **Tests**:
+
 ```
 test_schema_types_empty
 test_file_structure_basic
@@ -140,12 +150,14 @@ test_all_fragments_granular_invalidation
 ```
 
 **Assessment**: ⚠️ Needs Improvement
+
 - **Good**: Excellent incremental computation verification
 - **Good**: Issue-linked documentation in tests
 - **Bad**: 15 lines TestDatabase boilerplate
 - **Bad**: 25 lines create_project_files() duplication
 
 **Recommendations**:
+
 - Move TestDatabase to shared crate
 - Move create_project_files() to shared crate
 - Keep the incremental computation tests with counters (domain-specific)
@@ -157,6 +169,7 @@ test_all_fragments_granular_invalidation
 **Location**: Multiple files in `crates/graphql-analysis/src/`
 
 **Files with tests**:
+
 - `lib.rs` - 1 test
 - `validation.rs` - 4+ tests
 - `document_validation.rs` - 5+ tests
@@ -166,17 +179,20 @@ test_all_fragments_granular_invalidation
 - `project_lints.rs` - lint integration tests
 
 **Current State**:
+
 - **Three different TestDatabase definitions** across files
 - `document_validation.rs` has a special TestDatabase with `project_files: Cell<Option<...>>`
 - Each file has its own `create_project_files()` implementation
 - Inconsistent patterns between files
 
 **Assessment**: ❌ Needs Major Refactoring
+
 - Most duplication in the codebase
 - Inconsistent TestDatabase variants
 - Hard to understand which helper to use
 
 **Recommendations**:
+
 - Consolidate to single TestDatabase from shared crate
 - Standardize create_project_files() usage
 - Consider builder pattern for complex validation scenarios
@@ -189,12 +205,14 @@ test_all_fragments_granular_invalidation
 **Location**: `crates/graphql-ide/src/lib.rs:3450-3700+`
 
 **Current State**:
+
 - Uses `AnalysisHost` directly (public API) - no TestDatabase needed
 - Has unique `extract_cursor()` helper for position testing
 - Builder pattern tests for `CompletionItem`, `HoverResult`, `Diagnostic`
 - Good Salsa snapshot isolation demonstrations
 
 **Tests**:
+
 ```
 test_analysis_host_creation
 test_position_creation
@@ -216,11 +234,13 @@ test_conversion_severity
 ```
 
 **Assessment**: ✅ Good (with minor improvements)
+
 - Clean API-level testing via AnalysisHost
 - Good builder pattern examples
 - `extract_cursor()` is a useful pattern to share
 
 **Recommendations**:
+
 - Export `extract_cursor()` to shared test utils (useful for other IDE tests)
 - Keep AnalysisHost usage pattern
 - Document snapshot lifetime management pattern
@@ -232,6 +252,7 @@ test_conversion_severity
 **Location**: Multiple rule files in `crates/graphql-linter/src/rules/`
 
 **Files with tests**:
+
 - `config.rs` - configuration tests
 - `diagnostics.rs` - diagnostic types tests
 - `rules/no_anonymous_operations.rs`
@@ -240,12 +261,14 @@ test_conversion_severity
 - `rules/unused_variables.rs`
 
 **Current State**:
+
 - Uses `RootDatabase` directly (good)
 - Each rule file has its own `create_test_project()` helper (slightly different signatures)
 - Large `TEST_SCHEMA` constants in each file
 - Good rule-specific test coverage
 
 **Example from require_id_field.rs**:
+
 ```rust
 fn create_test_project(
     db: &dyn GraphQLHirDatabase,
@@ -256,12 +279,14 @@ fn create_test_project(
 ```
 
 **Assessment**: ⚠️ Needs Improvement
+
 - Good: Uses RootDatabase directly
 - Good: Each rule file is self-contained
 - Bad: Duplicate `create_test_project()` in every rule file
 - Bad: Large TEST_SCHEMA constants duplicated
 
 **Recommendations**:
+
 - Share common TEST_SCHEMA fixtures across rules
 - Standardize `create_test_project()` signature
 - Consider snapshot testing for lint diagnostic messages
@@ -273,12 +298,14 @@ fn create_test_project(
 **Location**: `crates/graphql-extract/src/extractor.rs:490-700+`
 
 **Current State**:
+
 - No database needed (pure extraction logic)
 - Nested test module: `mod typescript_tests { ... }`
 - Good coverage of extraction scenarios
 - Clean, focused tests
 
 **Tests**:
+
 ```
 test_default_config
 test_extract_raw_graphql
@@ -292,11 +319,13 @@ typescript_tests::test_extract_graphql_tag_identifier
 ```
 
 **Assessment**: ✅ Good
+
 - Clean organization with nested modules
 - No external dependencies needed
 - Appropriate inline fixtures
 
 **Recommendations**:
+
 - Keep nested module organization
 - Could benefit from snapshot tests for extracted content
 
@@ -307,11 +336,13 @@ typescript_tests::test_extract_graphql_tag_identifier
 **Location**: `crates/graphql-config/src/config.rs:387-500+`
 
 **Current State**:
+
 - No database needed (pure config parsing)
 - Good coverage of config variants
 - Clean YAML deserialization tests
 
 **Tests**:
+
 ```
 test_single_project_config
 test_multi_project_config
@@ -322,6 +353,7 @@ test_extensions_field
 ```
 
 **Assessment**: ✅ Good
+
 - Clean, focused tests
 - Appropriate for config crate
 - No changes needed
@@ -333,11 +365,13 @@ test_extensions_field
 **Location**: `crates/graphql-introspect/src/`
 
 **Files with tests**:
+
 - `client.rs` - HTTP client tests
 - `query.rs` - introspection query tests
 - `sdl.rs` - SDL conversion tests
 
 **Assessment**: ⚠️ Needs Review
+
 - Likely needs mock HTTP responses
 - May benefit from fixture files for large introspection results
 
@@ -348,11 +382,13 @@ test_extensions_field
 **Location**: `crates/graphql-cli/src/commands/`
 
 **Files with tests**:
+
 - `common.rs`
 - `deprecations.rs`
 - `schema.rs`
 
 **Assessment**: ⚠️ Needs Review
+
 - CLI testing often benefits from integration tests
 - Should test command output formatting
 
@@ -363,6 +399,7 @@ test_extensions_field
 **Location**: `crates/graphql-lsp/src/workspace.rs`
 
 **Assessment**: ⚠️ Needs Review
+
 - LSP protocol testing is complex
 - May need mock client/server infrastructure
 
@@ -372,22 +409,22 @@ test_extensions_field
 
 ### 1. Duplication Analysis
 
-| Duplicated Code | Occurrences | Lines Each |
-|-----------------|-------------|------------|
-| `TestDatabase` definition | 6 | 15-25 |
-| `create_project_files()` | 8+ | 20-30 |
-| `TEST_SCHEMA` constants | 3+ | 20-40 |
+| Duplicated Code           | Occurrences | Lines Each |
+| ------------------------- | ----------- | ---------- |
+| `TestDatabase` definition | 6           | 15-25      |
+| `create_project_files()`  | 8+          | 20-30      |
+| `TEST_SCHEMA` constants   | 3+          | 20-40      |
 
 **Total duplicated lines**: ~300-400 lines
 
 ### 2. Pattern Inconsistencies
 
-| Aspect | Variations Found |
-|--------|------------------|
-| TestDatabase | 3 different implementations |
-| Project creation | 4 different function signatures |
+| Aspect             | Variations Found                      |
+| ------------------ | ------------------------------------- |
+| TestDatabase       | 3 different implementations           |
+| Project creation   | 4 different function signatures       |
 | Fixture definition | Inline strings, constants, no pattern |
-| Assertion style | Manual only, no snapshots |
+| Assertion style    | Manual only, no snapshots             |
 
 ### 3. Missing Infrastructure
 
@@ -452,6 +489,7 @@ let project = TestProjectBuilder::new()
 ### Phase 4: Add Selective Snapshot Testing
 
 Add `insta` for:
+
 - Diagnostic messages
 - Error message formatting
 - CLI output
@@ -516,6 +554,7 @@ tests/  # Workspace-level
 **Effort**: Medium
 
 Order of migration:
+
 1. `graphql-hir` - most complex TestDatabase usage
 2. `graphql-analysis` - most duplication
 3. `graphql-linter` - standardize rule tests
@@ -620,7 +659,7 @@ pub fn test_project(schema: &str, document: &str) -> (TestDatabase, ProjectFiles
 
 ### Cursor Extraction
 
-```rust
+````rust
 // crates/graphql-test-utils/src/cursor.rs
 
 use graphql_ide::Position;
@@ -634,7 +673,7 @@ use graphql_ide::Position;
 /// assert_eq!(pos, Position::new(0, 12));
 /// ```
 pub fn extract_cursor(input: &str) -> (String, Position) { ... }
-```
+````
 
 ### Shared Fixtures
 
@@ -786,14 +825,14 @@ fn test_caching_behavior() {
 
 After restructuring:
 
-| Metric | Before | After |
-|--------|--------|-------|
-| Duplicated TestDatabase lines | ~120 | 0 |
-| Duplicated create_project_files lines | ~200 | 0 |
-| Lines in shared infrastructure | 0 | ~300 |
-| Net lines changed | - | ~-20 |
-| Time to write new test | Variable | Consistent |
-| Test readability | Inconsistent | Uniform |
+| Metric                                | Before       | After      |
+| ------------------------------------- | ------------ | ---------- |
+| Duplicated TestDatabase lines         | ~120         | 0          |
+| Duplicated create_project_files lines | ~200         | 0          |
+| Lines in shared infrastructure        | 0            | ~300       |
+| Net lines changed                     | -            | ~-20       |
+| Time to write new test                | Variable     | Consistent |
+| Test readability                      | Inconsistent | Uniform    |
 
 ---
 
@@ -861,6 +900,7 @@ analysis = ["dep:graphql-analysis"]
 ```
 
 Crates use this accordingly:
+
 - **graphql-hir, graphql-analysis**: Keep their own local `TestDatabase` (can't use the shared one due to cycles)
 - **graphql-linter, graphql-ide**: Use `graphql-test-utils` without the `analysis` feature
 - **Higher-level crates**: Can use `graphql-test-utils` with `analysis` feature if they don't depend on analysis
@@ -891,14 +931,14 @@ Crates use this accordingly:
 
 ### When to Use Which Testing Pattern
 
-| Crate Layer | TestDatabase Source | ProjectFiles Helper |
-|-------------|---------------------|---------------------|
-| graphql-db | `RootDatabase` directly | `test_utils::create_project_files` |
-| graphql-syntax | None needed (standalone parsing) | N/A |
-| graphql-hir | Local `TestDatabase` | `graphql_db::test_utils::create_project_files` |
-| graphql-analysis | Local `TestDatabase` | `graphql_db::test_utils::create_project_files` |
-| graphql-linter | `graphql_test_utils::TestDatabase` | `graphql_test_utils::TestProjectBuilder` |
-| graphql-ide | `graphql_test_utils::TestDatabase` (with analysis) | `graphql_test_utils::TestProjectBuilder` |
+| Crate Layer      | TestDatabase Source                                | ProjectFiles Helper                            |
+| ---------------- | -------------------------------------------------- | ---------------------------------------------- |
+| graphql-db       | `RootDatabase` directly                            | `test_utils::create_project_files`             |
+| graphql-syntax   | None needed (standalone parsing)                   | N/A                                            |
+| graphql-hir      | Local `TestDatabase`                               | `graphql_db::test_utils::create_project_files` |
+| graphql-analysis | Local `TestDatabase`                               | `graphql_db::test_utils::create_project_files` |
+| graphql-linter   | `graphql_test_utils::TestDatabase`                 | `graphql_test_utils::TestProjectBuilder`       |
+| graphql-ide      | `graphql_test_utils::TestDatabase` (with analysis) | `graphql_test_utils::TestProjectBuilder`       |
 
 ### Key Principles
 

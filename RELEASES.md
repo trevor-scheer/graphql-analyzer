@@ -51,6 +51,7 @@ git push origin main --tags
 ### 5. Automatic Build and Release
 
 The GitHub Actions workflow will automatically:
+
 1. Build binaries for all supported platforms
 2. Generate checksums (SHA256) for verification
 3. Create shell and PowerShell installers
@@ -62,20 +63,24 @@ The GitHub Actions workflow will automatically:
 Each release includes:
 
 ### Binaries
+
 - Platform-specific compressed archives (.tar.xz for Unix, .zip for Windows)
 - Each archive contains:
   - The `graphql` binary
   - README.md
 
 ### Installers
+
 - `graphql-cli-installer.sh` - Shell installer for macOS/Linux
 - `graphql-cli-installer.ps1` - PowerShell installer for Windows
 
 ### Checksums
+
 - Individual `.sha256` files for each binary archive
 - `sha256.sum` - Combined checksums file
 
 ### Source
+
 - `source.tar.gz` - Source code archive
 
 ## Installation Methods
@@ -85,11 +90,13 @@ Users can install the CLI in several ways:
 ### 1. Shell/PowerShell Installer (Recommended)
 
 **macOS/Linux:**
+
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/trevor-scheer/graphql-lsp/releases/latest/download/graphql-cli-installer.sh | sh
 ```
 
 **Windows:**
+
 ```powershell
 irm https://github.com/trevor-scheer/graphql-lsp/releases/latest/download/graphql-cli-installer.ps1 | iex
 ```
@@ -107,6 +114,7 @@ cargo install --git https://github.com/trevor-scheer/graphql-lsp graphql-cli
 ## Binary Optimization
 
 Binaries are built with the `dist` profile which includes:
+
 - Thin LTO (Link Time Optimization)
 - Size optimization (`opt-level = "z"`)
 - Debug symbol stripping
@@ -140,6 +148,7 @@ The release workflow runs in "plan" mode on pull requests to validate the config
 ### Binary Size Too Large
 
 The dist profile is already optimized for size. If binaries are still too large:
+
 1. Check for unnecessary dependencies
 2. Consider using `upx` for additional compression
 3. Review feature flags to minimize included code
@@ -147,11 +156,13 @@ The dist profile is already optimized for size. If binaries are still too large:
 ## Configuration
 
 Release configuration is in [`dist-workspace.toml`](dist-workspace.toml):
+
 - Target platforms
 - Installer types
 - cargo-dist version
 - CI settings
 
 Build optimization is in the workspace [`Cargo.toml`](Cargo.toml):
+
 - `[profile.dist]` section
 - LTO, optimization level, stripping, etc.

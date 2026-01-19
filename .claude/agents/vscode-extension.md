@@ -23,6 +23,7 @@ You have deep knowledge of:
 ## When to Consult This Agent
 
 Consult this agent when:
+
 - Implementing VSCode extension features
 - Debugging extension activation issues
 - Understanding VSCode API best practices
@@ -47,54 +48,58 @@ editors/vscode/
 ## Key Concepts
 
 ### Activation Events
+
 ```json
 {
-  "activationEvents": [
-    "onLanguage:graphql",
-    "workspaceContains:**/.graphqlrc.yaml"
-  ]
+  "activationEvents": ["onLanguage:graphql", "workspaceContains:**/.graphqlrc.yaml"]
 }
 ```
 
 ### Language Server Client
+
 ```typescript
-import { LanguageClient, TransportKind } from 'vscode-languageclient/node';
+import { LanguageClient, TransportKind } from "vscode-languageclient/node";
 
 const serverOptions = {
-    command: 'graphql-lsp',
-    args: [],
-    transport: TransportKind.stdio
+  command: "graphql-lsp",
+  args: [],
+  transport: TransportKind.stdio,
 };
 
 const clientOptions = {
-    documentSelector: [{ scheme: 'file', language: 'graphql' }],
-    synchronize: {
-        fileEvents: workspace.createFileSystemWatcher('**/.graphqlrc.yaml')
-    }
+  documentSelector: [{ scheme: "file", language: "graphql" }],
+  synchronize: {
+    fileEvents: workspace.createFileSystemWatcher("**/.graphqlrc.yaml"),
+  },
 };
 
 const client = new LanguageClient(
-    'graphql-lsp',
-    'GraphQL Language Server',
-    serverOptions,
-    clientOptions
+  "graphql-lsp",
+  "GraphQL Language Server",
+  serverOptions,
+  clientOptions,
 );
 ```
 
 ### Contribution Points
+
 ```json
 {
   "contributes": {
-    "languages": [{
-      "id": "graphql",
-      "extensions": [".graphql", ".gql"],
-      "configuration": "./language-configuration.json"
-    }],
-    "grammars": [{
-      "language": "graphql",
-      "scopeName": "source.graphql",
-      "path": "./syntaxes/graphql.tmLanguage.json"
-    }],
+    "languages": [
+      {
+        "id": "graphql",
+        "extensions": [".graphql", ".gql"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "graphql",
+        "scopeName": "source.graphql",
+        "path": "./syntaxes/graphql.tmLanguage.json"
+      }
+    ],
     "configuration": {
       "title": "GraphQL",
       "properties": {
@@ -110,17 +115,21 @@ const client = new LanguageClient(
 ```
 
 ### Embedded Languages
+
 For GraphQL in TypeScript/JavaScript:
+
 ```json
 {
-  "grammars": [{
-    "injectTo": ["source.ts", "source.tsx", "source.js", "source.jsx"],
-    "scopeName": "inline.graphql",
-    "path": "./syntaxes/graphql-injection.json",
-    "embeddedLanguages": {
-      "meta.embedded.block.graphql": "graphql"
+  "grammars": [
+    {
+      "injectTo": ["source.ts", "source.tsx", "source.js", "source.jsx"],
+      "scopeName": "inline.graphql",
+      "path": "./syntaxes/graphql-injection.json",
+      "embeddedLanguages": {
+        "meta.embedded.block.graphql": "graphql"
+      }
     }
-  }]
+  ]
 }
 ```
 
@@ -136,15 +145,15 @@ For GraphQL in TypeScript/JavaScript:
 ## Testing Extensions
 
 ```typescript
-import * as vscode from 'vscode';
-import { activate } from '../extension';
+import * as vscode from "vscode";
+import { activate } from "../extension";
 
-suite('Extension Test Suite', () => {
-    test('Extension activates', async () => {
-        const ext = vscode.extensions.getExtension('your.extension-id');
-        await ext?.activate();
-        assert.ok(ext?.isActive);
-    });
+suite("Extension Test Suite", () => {
+  test("Extension activates", async () => {
+    const ext = vscode.extensions.getExtension("your.extension-id");
+    await ext?.activate();
+    assert.ok(ext?.isActive);
+  });
 });
 ```
 

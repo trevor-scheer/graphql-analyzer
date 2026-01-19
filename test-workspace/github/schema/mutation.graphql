@@ -85,7 +85,9 @@ type Mutation {
   """
   Create a branch protection rule.
   """
-  createBranchProtectionRule(input: CreateBranchProtectionRuleInput!): CreateBranchProtectionRulePayload
+  createBranchProtectionRule(
+    input: CreateBranchProtectionRuleInput!
+  ): CreateBranchProtectionRulePayload
 
   """
   Add a pull request review.

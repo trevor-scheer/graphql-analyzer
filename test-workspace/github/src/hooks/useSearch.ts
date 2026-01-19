@@ -1,7 +1,7 @@
 // TypeScript hooks for search functionality
 // Tests multiple queries in a hook file
 
-import { gql, useLazyQuery } from '@apollo/client';
+import { gql, useLazyQuery } from "@apollo/client";
 
 // Search queries for different types
 const SEARCH_REPOS = gql`
@@ -128,7 +128,7 @@ const AUTOCOMPLETE_QUERY = gql`
   }
 `;
 
-type SearchType = 'repos' | 'issues' | 'users';
+type SearchType = "repos" | "issues" | "users";
 
 export function useSearch(type: SearchType) {
   // Hook implementation

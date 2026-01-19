@@ -1,7 +1,7 @@
 // Service file with GraphQL operations
 // Tests extraction from service/utility files
 
-import { gql } from '@apollo/client';
+import { gql } from "@apollo/client";
 
 // Rate limit query - useful for API management
 export const RATE_LIMIT_QUERY = gql`

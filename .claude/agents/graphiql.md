@@ -23,6 +23,7 @@ You have deep knowledge of:
 ## When to Consult This Agent
 
 Consult this agent when:
+
 - Understanding how GraphiQL implements IDE features
 - Comparing this LSP implementation to graphql-language-service
 - Understanding user expectations from GraphQL IDE tooling
@@ -35,6 +36,7 @@ Consult this agent when:
 The reference GraphQL language service implementation:
 
 ### Key Packages
+
 - `graphql-language-service`: Main language service
 - `graphql-language-service-interface`: LSP interface
 - `graphql-language-service-parser`: Lightweight GraphQL parser
@@ -42,6 +44,7 @@ The reference GraphQL language service implementation:
 - `graphql-language-service-utils`: Utility functions
 
 ### Features Implemented
+
 - Diagnostics (validation errors)
 - Autocompletion for fields, types, arguments
 - Hover information
@@ -50,6 +53,7 @@ The reference GraphQL language service implementation:
 - Variable and fragment completion
 
 ### Known Limitations (Opportunities for This Project)
+
 - Single-file focus (limited cross-file analysis)
 - Performance with large schemas
 - Limited project-wide validation
@@ -58,6 +62,7 @@ The reference GraphQL language service implementation:
 ## GraphiQL Features
 
 ### Query Editor
+
 - Syntax highlighting
 - Autocompletion
 - Error underlining
@@ -65,12 +70,14 @@ The reference GraphQL language service implementation:
 - Headers editor
 
 ### Documentation Explorer
+
 - Type browsing
 - Field documentation
 - Argument information
 - Deprecation warnings
 
 ### Query History
+
 - Saved queries
 - Recent queries
 - Favorites
@@ -78,6 +85,7 @@ The reference GraphQL language service implementation:
 ## Comparison with This LSP
 
 This GraphQL LSP aims to improve upon graphql-language-service:
+
 - True project-wide analysis
 - Better cross-file fragment support
 - Incremental computation for performance

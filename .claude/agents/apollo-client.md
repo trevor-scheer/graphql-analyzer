@@ -22,6 +22,7 @@ You have deep knowledge of:
 ## When to Consult This Agent
 
 Consult this agent when:
+
 - Designing LSP features that must work with diverse project structures
 - Understanding edge cases in how GraphQL is written
 - Ensuring tooling doesn't assume a specific project organization
@@ -33,6 +34,7 @@ Consult this agent when:
 ### Fragment Definition Locations
 
 Fragments may be defined:
+
 - In dedicated `.graphql` files
 - Colocated with components in `.tsx`/`.ts` files
 - In shared fragment files (`fragments.ts`, `fragments/*.ts`)
@@ -44,21 +46,21 @@ Fragments may be defined:
 
 ```typescript
 // Standard gql tag
-import { gql } from '@apollo/client';
+import { gql } from "@apollo/client";
 const QUERY = gql`...`;
 
 // graphql-tag package
-import gql from 'graphql-tag';
+import gql from "graphql-tag";
 const QUERY = gql`...`;
 
 // Named export
-import { graphql } from 'graphql-tag';
+import { graphql } from "graphql-tag";
 
 // Magic comment (for syntax highlighting without runtime)
 const QUERY = /* GraphQL */ `...`;
 
 // Loader imports (webpack/vite)
-import QUERY from './query.graphql';
+import QUERY from "./query.graphql";
 
 // Raw strings (rare but exists)
 const QUERY = `query { ... }`;
@@ -70,7 +72,11 @@ const QUERY = `query { ... }`;
 // Direct interpolation
 const QUERY = gql`
   ${USER_FRAGMENT}
-  query { user { ...UserFields } }
+  query {
+    user {
+      ...UserFields
+    }
+  }
 `;
 
 // Multiple fragments
@@ -88,7 +94,11 @@ const QUERY = gql`
 
 // Fragment spread without interpolation (relies on global registration)
 const QUERY = gql`
-  query { user { ...UserFields } }
+  query {
+    user {
+      ...UserFields
+    }
+  }
 `;
 // Fragment registered elsewhere via fragmentMatcher or global gql calls
 ```
@@ -103,25 +113,26 @@ export const USER_FRAGMENT = gql`...`;
 export default gql`...`;
 
 // Re-exports
-export { USER_FRAGMENT } from './user';
-export * from './fragments';
+export { USER_FRAGMENT } from "./user";
+export * from "./fragments";
 
 // Barrel files
 // index.ts
-export * from './user-fragment';
-export * from './post-fragment';
+export * from "./user-fragment";
+export * from "./post-fragment";
 
 // Namespace imports
-import * as Fragments from './fragments';
+import * as Fragments from "./fragments";
 const QUERY = gql`${Fragments.USER}...`;
 
 // Dynamic imports (rare)
-const { FRAGMENT } = await import('./fragment');
+const { FRAGMENT } = await import("./fragment");
 ```
 
 ### File Organization Styles
 
 **Style 1: Colocated with components**
+
 ```
 src/
   components/
@@ -131,6 +142,7 @@ src/
 ```
 
 **Style 2: Centralized GraphQL directory**
+
 ```
 src/
   graphql/
@@ -141,6 +153,7 @@ src/
 ```
 
 **Style 3: Feature-based**
+
 ```
 src/
   features/
@@ -150,6 +163,7 @@ src/
 ```
 
 **Style 4: Mixed/evolved codebase**
+
 ```
 # Any combination of the above, often inconsistent
 ```
@@ -158,16 +172,16 @@ src/
 
 ```typescript
 // graphql-codegen typed document nodes
-import { GetUserDocument } from './generated/graphql';
+import { GetUserDocument } from "./generated/graphql";
 
 // Apollo codegen
-import { GetUserQuery, GetUserQueryVariables } from './types';
+import { GetUserQuery, GetUserQueryVariables } from "./types";
 
 // Fragment types
-import { UserFieldsFragment } from './generated/fragments';
+import { UserFieldsFragment } from "./generated/fragments";
 
 // Generated hooks
-import { useGetUserQuery } from './generated/hooks';
+import { useGetUserQuery } from "./generated/hooks";
 ```
 
 ## Implications for Language Tooling

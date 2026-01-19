@@ -5,12 +5,23 @@ type Repository implements Node & RepositoryNode & Starrable & Subscribable & Un
   """
   A list of users that can be assigned to issues in this repository.
   """
-  assignableUsers(first: Int, after: String, last: Int, before: String, query: String): UserConnection!
+  assignableUsers(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    query: String
+  ): UserConnection!
 
   """
   A list of branch protection rules for this repository.
   """
-  branchProtectionRules(first: Int, after: String, last: Int, before: String): BranchProtectionRuleConnection!
+  branchProtectionRules(
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): BranchProtectionRuleConnection!
 
   """
   Returns the code of conduct for this repository.
@@ -20,7 +31,14 @@ type Repository implements Node & RepositoryNode & Starrable & Subscribable & Un
   """
   A list of collaborators associated with the repository.
   """
-  collaborators(first: Int, after: String, last: Int, before: String, affiliation: CollaboratorAffiliation, query: String): RepositoryCollaboratorConnection
+  collaborators(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    affiliation: CollaboratorAffiliation
+    query: String
+  ): RepositoryCollaboratorConnection
 
   """
   A list of commit comments associated with the repository.
@@ -55,7 +73,14 @@ type Repository implements Node & RepositoryNode & Starrable & Subscribable & Un
   """
   Deployments associated with the repository.
   """
-  deployments(first: Int, after: String, last: Int, before: String, environments: [String!], orderBy: DeploymentOrder): DeploymentConnection!
+  deployments(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    environments: [String!]
+    orderBy: DeploymentOrder
+  ): DeploymentConnection!
 
   """
   The description of the repository.
@@ -75,12 +100,26 @@ type Repository implements Node & RepositoryNode & Starrable & Subscribable & Un
   """
   A list of discussion categories for the repository.
   """
-  discussionCategories(first: Int, after: String, last: Int, before: String, filterByAssignable: Boolean): DiscussionCategoryConnection!
+  discussionCategories(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    filterByAssignable: Boolean
+  ): DiscussionCategoryConnection!
 
   """
   A list of discussions for the repository.
   """
-  discussions(first: Int, after: String, last: Int, before: String, categoryId: ID, orderBy: DiscussionOrder, states: [DiscussionState!]): DiscussionConnection!
+  discussions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    categoryId: ID
+    orderBy: DiscussionOrder
+    states: [DiscussionState!]
+  ): DiscussionConnection!
 
   """
   The number of kilobytes this repository occupies on disk.
@@ -105,7 +144,16 @@ type Repository implements Node & RepositoryNode & Starrable & Subscribable & Un
   """
   A list of forks associated with the repository.
   """
-  forks(first: Int, after: String, last: Int, before: String, orderBy: RepositoryOrder, affiliations: [RepositoryAffiliation], isLocked: Boolean, privacy: RepositoryPrivacy): RepositoryConnection!
+  forks(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: RepositoryOrder
+    affiliations: [RepositoryAffiliation]
+    isLocked: Boolean
+    privacy: RepositoryPrivacy
+  ): RepositoryConnection!
 
   """
   Whether the repository has issues enabled.
@@ -182,7 +230,16 @@ type Repository implements Node & RepositoryNode & Starrable & Subscribable & Un
   """
   A list of issues associated with the repository.
   """
-  issues(first: Int, after: String, last: Int, before: String, states: [IssueState!], labels: [String!], orderBy: IssueOrder, filterBy: IssueFilters): IssueConnection!
+  issues(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    states: [IssueState!]
+    labels: [String!]
+    orderBy: IssueOrder
+    filterBy: IssueFilters
+  ): IssueConnection!
 
   """
   Returns a single label by name.
@@ -192,12 +249,25 @@ type Repository implements Node & RepositoryNode & Starrable & Subscribable & Un
   """
   A list of labels for the repository.
   """
-  labels(first: Int, after: String, last: Int, before: String, orderBy: LabelOrder, query: String): LabelConnection
+  labels(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: LabelOrder
+    query: String
+  ): LabelConnection
 
   """
   A list of languages for the repository.
   """
-  languages(first: Int, after: String, last: Int, before: String, orderBy: LanguageOrder): LanguageConnection
+  languages(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: LanguageOrder
+  ): LanguageConnection
 
   """
   The license for the repository.
@@ -212,7 +282,13 @@ type Repository implements Node & RepositoryNode & Starrable & Subscribable & Un
   """
   A list of users who have starred this repository.
   """
-  mentionableUsers(first: Int, after: String, last: Int, before: String, query: String): UserConnection!
+  mentionableUsers(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    query: String
+  ): UserConnection!
 
   """
   Whether to merge pull requests with a commit.
@@ -237,7 +313,15 @@ type Repository implements Node & RepositoryNode & Starrable & Subscribable & Un
   """
   A list of milestones for the repository.
   """
-  milestones(first: Int, after: String, last: Int, before: String, states: [MilestoneState!], orderBy: MilestoneOrder, query: String): MilestoneConnection
+  milestones(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    states: [MilestoneState!]
+    orderBy: MilestoneOrder
+    query: String
+  ): MilestoneConnection
 
   """
   The name of the repository.
@@ -277,7 +361,14 @@ type Repository implements Node & RepositoryNode & Starrable & Subscribable & Un
   """
   A list of projects for the repository.
   """
-  projectsV2(first: Int, after: String, last: Int, before: String, orderBy: ProjectV2Order, query: String): ProjectV2Connection!
+  projectsV2(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: ProjectV2Order
+    query: String
+  ): ProjectV2Connection!
 
   """
   Returns a single pull request from the current repository.
@@ -287,7 +378,17 @@ type Repository implements Node & RepositoryNode & Starrable & Subscribable & Un
   """
   A list of pull requests associated with the repository.
   """
-  pullRequests(first: Int, after: String, last: Int, before: String, states: [PullRequestState!], labels: [String!], headRefName: String, baseRefName: String, orderBy: IssueOrder): PullRequestConnection!
+  pullRequests(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    states: [PullRequestState!]
+    labels: [String!]
+    headRefName: String
+    baseRefName: String
+    orderBy: IssueOrder
+  ): PullRequestConnection!
 
   """
   Identifies when the repository was last pushed to.
@@ -307,7 +408,16 @@ type Repository implements Node & RepositoryNode & Starrable & Subscribable & Un
   """
   A list of refs for the repository.
   """
-  refs(first: Int, after: String, last: Int, before: String, refPrefix: String!, direction: OrderDirection, orderBy: RefOrder, query: String): RefConnection
+  refs(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    refPrefix: String!
+    direction: OrderDirection
+    orderBy: RefOrder
+    query: String
+  ): RefConnection
 
   """
   Returns a single release from the current repository.
@@ -317,7 +427,13 @@ type Repository implements Node & RepositoryNode & Starrable & Subscribable & Un
   """
   A list of releases for the repository.
   """
-  releases(first: Int, after: String, last: Int, before: String, orderBy: ReleaseOrder): ReleaseConnection!
+  releases(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: ReleaseOrder
+  ): ReleaseConnection!
 
   """
   The repository this repository was forked from.
@@ -362,7 +478,13 @@ type Repository implements Node & RepositoryNode & Starrable & Subscribable & Un
   """
   A list of users who have starred the repository.
   """
-  stargazers(first: Int, after: String, last: Int, before: String, orderBy: StarOrder): StargazerConnection!
+  stargazers(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: StarOrder
+  ): StargazerConnection!
 
   """
   Returns a list of all submodules in this repository.
@@ -472,7 +594,17 @@ type Ref implements Node {
   """
   A list of pull requests with this ref as the head.
   """
-  associatedPullRequests(first: Int, after: String, last: Int, before: String, states: [PullRequestState!], labels: [String!], headRefName: String, baseRefName: String, orderBy: IssueOrder): PullRequestConnection!
+  associatedPullRequests(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    states: [PullRequestState!]
+    labels: [String!]
+    headRefName: String
+    baseRefName: String
+    orderBy: IssueOrder
+  ): PullRequestConnection!
 
   """
   Branch protection rules for this ref.
@@ -579,7 +711,12 @@ type BranchProtectionRule implements Node {
   """
   A list of branch protection rule conflicts.
   """
-  branchProtectionRuleConflicts(first: Int, after: String, last: Int, before: String): BranchProtectionRuleConflictConnection!
+  branchProtectionRuleConflicts(
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): BranchProtectionRuleConflictConnection!
 
   """
   The actor who created this rule.
@@ -721,7 +858,16 @@ type Label implements Node {
   """
   A list of issues with this label.
   """
-  issues(first: Int, after: String, last: Int, before: String, states: [IssueState!], labels: [String!], orderBy: IssueOrder, filterBy: IssueFilters): IssueConnection!
+  issues(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    states: [IssueState!]
+    labels: [String!]
+    orderBy: IssueOrder
+    filterBy: IssueFilters
+  ): IssueConnection!
 
   """
   The label name.
@@ -731,7 +877,17 @@ type Label implements Node {
   """
   A list of pull requests with this label.
   """
-  pullRequests(first: Int, after: String, last: Int, before: String, states: [PullRequestState!], labels: [String!], headRefName: String, baseRefName: String, orderBy: IssueOrder): PullRequestConnection!
+  pullRequests(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    states: [PullRequestState!]
+    labels: [String!]
+    headRefName: String
+    baseRefName: String
+    orderBy: IssueOrder
+  ): PullRequestConnection!
 
   """
   The repository this label belongs to.
@@ -793,7 +949,16 @@ type Milestone implements Node & Closable & UniformResourceLocatable {
   """
   A list of issues with this milestone.
   """
-  issues(first: Int, after: String, last: Int, before: String, states: [IssueState!], labels: [String!], orderBy: IssueOrder, filterBy: IssueFilters): IssueConnection!
+  issues(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    states: [IssueState!]
+    labels: [String!]
+    orderBy: IssueOrder
+    filterBy: IssueFilters
+  ): IssueConnection!
 
   """
   The milestone number.
@@ -808,7 +973,17 @@ type Milestone implements Node & Closable & UniformResourceLocatable {
   """
   A list of pull requests with this milestone.
   """
-  pullRequests(first: Int, after: String, last: Int, before: String, states: [PullRequestState!], labels: [String!], headRefName: String, baseRefName: String, orderBy: IssueOrder): PullRequestConnection!
+  pullRequests(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    states: [PullRequestState!]
+    labels: [String!]
+    headRefName: String
+    baseRefName: String
+    orderBy: IssueOrder
+  ): PullRequestConnection!
 
   """
   The repository this milestone belongs to.
@@ -1042,7 +1217,13 @@ type Topic implements Node & Starrable {
   name: String!
   relatedTopics(first: Int): [Topic!]!
   stargazerCount: Int!
-  stargazers(first: Int, after: String, last: Int, before: String, orderBy: StarOrder): StargazerConnection!
+  stargazers(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: StarOrder
+  ): StargazerConnection!
   viewerHasStarred: Boolean!
 }
 
@@ -1162,7 +1343,14 @@ type CommitComment implements Node & Comment & Reactable & RepositoryNode & Unif
   path: String
   position: Int
   publishedAt: DateTime
-  reactions(first: Int, after: String, last: Int, before: String, content: ReactionContent, orderBy: ReactionOrder): ReactionConnection!
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
   repository: Repository!
   resourcePath: URI!
   updatedAt: DateTime!

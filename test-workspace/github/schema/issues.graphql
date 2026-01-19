@@ -55,7 +55,13 @@ type Issue implements Node & Assignable & Closable & Comment & Labelable & Locka
   """
   A list of comments associated with the issue.
   """
-  comments(first: Int, after: String, last: Int, before: String, orderBy: IssueCommentOrder): IssueCommentConnection!
+  comments(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: IssueCommentOrder
+  ): IssueCommentConnection!
 
   """
   Identifies the date and time when the object was created.
@@ -132,12 +138,24 @@ type Issue implements Node & Assignable & Closable & Comment & Labelable & Locka
   """
   List of project items associated with this issue.
   """
-  projectItems(first: Int, after: String, last: Int, before: String, includeArchived: Boolean = true): ProjectV2ItemConnection!
+  projectItems(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    includeArchived: Boolean = true
+  ): ProjectV2ItemConnection!
 
   """
   A list of projects in which this issue is referenced.
   """
-  projectsV2(first: Int, after: String, last: Int, before: String, query: String): ProjectV2Connection!
+  projectsV2(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    query: String
+  ): ProjectV2Connection!
 
   """
   When the comment was published.
@@ -147,7 +165,14 @@ type Issue implements Node & Assignable & Closable & Comment & Labelable & Locka
   """
   A list of reactions on the comment.
   """
-  reactions(first: Int, after: String, last: Int, before: String, content: ReactionContent, orderBy: ReactionOrder): ReactionConnection!
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
 
   """
   The repository associated with this issue.
@@ -172,7 +197,15 @@ type Issue implements Node & Assignable & Closable & Comment & Labelable & Locka
   """
   A list of events, comments, and other timeline items.
   """
-  timelineItems(first: Int, after: String, last: Int, before: String, since: DateTime, skip: Int, itemTypes: [IssueTimelineItemsItemType!]): IssueTimelineItemsConnection!
+  timelineItems(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    since: DateTime
+    skip: Int
+    itemTypes: [IssueTimelineItemsItemType!]
+  ): IssueTimelineItemsConnection!
 
   """
   The issue title.
@@ -339,7 +372,14 @@ type IssueComment implements Node & Comment & Reactable & RepositoryNode & Unifo
   """
   A list of reactions on the comment.
   """
-  reactions(first: Int, after: String, last: Int, before: String, content: ReactionContent, orderBy: ReactionOrder): ReactionConnection!
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
 
   """
   The repository associated with this comment.
@@ -528,7 +568,21 @@ type IssueTimelineItemsEdge {
   node: IssueTimelineItems
 }
 
-union IssueTimelineItems = IssueComment | CrossReferencedEvent | AddedToProjectEvent | AssignedEvent | ClosedEvent | LabeledEvent | LockedEvent | MilestonedEvent | ReferencedEvent | RenamedTitleEvent | ReopenedEvent | UnassignedEvent | UnlabeledEvent | UnlockedEvent
+union IssueTimelineItems =
+  | IssueComment
+  | CrossReferencedEvent
+  | AddedToProjectEvent
+  | AssignedEvent
+  | ClosedEvent
+  | LabeledEvent
+  | LockedEvent
+  | MilestonedEvent
+  | ReferencedEvent
+  | RenamedTitleEvent
+  | ReopenedEvent
+  | UnassignedEvent
+  | UnlabeledEvent
+  | UnlockedEvent
 
 """
 A cross referenced event.

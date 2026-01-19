@@ -20,21 +20,23 @@ cargo test --test '*'                            # Integration tests only
 
 ## Unit vs Integration Tests
 
-| Aspect | Unit Tests | Integration Tests |
-|--------|------------|-------------------|
-| **Location** | `src/*.rs` inline `#[cfg(test)]` | `crates/*/tests/*.rs` |
-| **Scope** | ONE Salsa query or helper | Multiple queries together |
-| **Database** | Local minimal TestDatabase | `graphql_test_utils::TestDatabase` |
-| **Scenarios** | Single-file, isolated | Multi-file, cross-file |
+| Aspect        | Unit Tests                       | Integration Tests                  |
+| ------------- | -------------------------------- | ---------------------------------- |
+| **Location**  | `src/*.rs` inline `#[cfg(test)]` | `crates/*/tests/*.rs`              |
+| **Scope**     | ONE Salsa query or helper        | Multiple queries together          |
+| **Database**  | Local minimal TestDatabase       | `graphql_test_utils::TestDatabase` |
+| **Scenarios** | Single-file, isolated            | Multi-file, cross-file             |
 
 ### When to Use Which
 
 **Unit test** if:
+
 - Testing ONE Salsa query or helper function
 - Single-file scenario only
 - No caching verification needed
 
 **Integration test** if:
+
 - Testing multiple queries working together
 - Multi-file or cross-file behavior
 - Verifying Salsa caching/invalidation
@@ -120,13 +122,13 @@ fn test_cache_hit() {
 
 ## Crate-Specific Guidance
 
-| Crate | Unit Tests | Integration Tests |
-|-------|------------|-------------------|
-| graphql-base-db | `RootDatabase` directly | N/A (foundation layer) |
-| graphql-syntax | None needed (pure parsing) | N/A |
-| graphql-hir | Local TestDatabase | `graphql_test_utils::TestDatabase` |
-| graphql-analysis | Local TestDatabase | `graphql_test_utils::TestDatabase` |
-| graphql-linter | `RootDatabase` | `graphql_test_utils::TestDatabase` |
+| Crate               | Unit Tests                         | Integration Tests                  |
+| ------------------- | ---------------------------------- | ---------------------------------- |
+| graphql-base-db     | `RootDatabase` directly            | N/A (foundation layer)             |
+| graphql-syntax      | None needed (pure parsing)         | N/A                                |
+| graphql-hir         | Local TestDatabase                 | `graphql_test_utils::TestDatabase` |
+| graphql-analysis    | Local TestDatabase                 | `graphql_test_utils::TestDatabase` |
+| graphql-linter      | `RootDatabase`                     | `graphql_test_utils::TestDatabase` |
 | graphql-ide, higher | `graphql_test_utils::TestDatabase` | `graphql_test_utils::TestDatabase` |
 
 ## Test Utilities
@@ -170,6 +172,7 @@ cargo bench -- --baseline main           # Compare against baseline
 ```
 
 **Expected results:**
+
 - Warm vs Cold: 100-1000x speedup
 - Golden Invariant: < 100 nanoseconds
 - Fragment Resolution: ~10x speedup with caching
