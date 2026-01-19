@@ -6,6 +6,7 @@ pub mod deprecations;
 pub mod fix;
 pub mod fragments;
 pub mod lint;
+pub mod mcp;
 pub mod schema;
 pub mod stats;
 pub mod validate;

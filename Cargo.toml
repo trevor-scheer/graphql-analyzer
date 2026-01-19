@@ -14,6 +14,7 @@ members = [
     "crates/graphql-ide",
     "crates/graphql-ide-db",
     "crates/graphql-test-utils",
+    "crates/graphql-mcp",
     "benches",
     ".husky",
     "xtask",
