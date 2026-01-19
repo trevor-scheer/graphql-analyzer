@@ -146,7 +146,7 @@ enum Commands {
         /// By default, all projects are loaded. Use this to limit which projects
         /// are preloaded at startup. Remaining projects can be loaded via `load_project` tool.
         #[arg(long, value_delimiter = ',')]
-        projects: Option<Vec<String>>,
+        preload: Option<Vec<String>>,
     },
 }
 
@@ -210,8 +210,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::Mcp {
             workspace,
             no_preload,
-            projects,
-        } => commands::mcp::run(workspace, no_preload, projects).await,
+            preload,
+        } => commands::mcp::run(workspace, no_preload, preload).await,
     };
 
     #[cfg(feature = "otel")]

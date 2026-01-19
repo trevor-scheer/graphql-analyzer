@@ -13,13 +13,13 @@ use std::path::PathBuf;
 pub async fn run(
     workspace: Option<PathBuf>,
     no_preload: bool,
-    projects: Option<Vec<String>>,
+    preload: Option<Vec<String>>,
 ) -> Result<()> {
     let workspace = workspace.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
     let preload_config = if no_preload {
         McpPreloadConfig::None
-    } else if let Some(projects) = projects {
+    } else if let Some(projects) = preload {
         McpPreloadConfig::Selected(projects)
     } else {
         McpPreloadConfig::All

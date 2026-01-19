@@ -14,11 +14,11 @@ This crate provides AI agents with GraphQL analysis capabilities including:
 ### CLI Subcommand
 
 ```bash
-# Load all projects from the workspace
+# Load all projects from the workspace (default)
 graphql mcp --workspace /path/to/project
 
 # Load only specific projects
-graphql mcp --workspace /path/to/project --projects frontend,backend
+graphql mcp --workspace /path/to/project --preload frontend,backend
 
 # Don't preload any projects (load on demand via load_project tool)
 graphql mcp --workspace /path/to/project --no-preload
@@ -29,8 +29,8 @@ graphql mcp --workspace /path/to/project --no-preload
 | Option | Description |
 |--------|-------------|
 | `--workspace` | Path to the workspace directory (defaults to current directory) |
+| `--preload` | Comma-separated list of specific projects to preload |
 | `--no-preload` | Don't load any projects at startup. Use `load_project` tool to load on demand. |
-| `--projects` | Comma-separated list of specific projects to preload |
 
 ### Claude Desktop Configuration
 
@@ -185,7 +185,7 @@ The MCP server supports GraphQL workspaces with multiple projects (as defined in
 
 - By default, all projects are loaded at startup
 - Use `--no-preload` for large workspaces to defer loading
-- Use `--projects` to selectively preload specific projects
+- Use `--preload` to selectively preload specific projects
 - The `load_project` tool allows loading additional projects on demand
 - Each project has its own `AnalysisHost` with independent schema and documents
 
