@@ -768,7 +768,7 @@ mod tests {
     impl GraphQLHirDatabase for TestDatabase {}
 
     /// Helper to create `ProjectFiles` for tests.
-    /// Uses graphql_db::test_utils but with our local TestDatabase.
+    /// Uses `graphql_db::test_utils` but with our local `TestDatabase`.
     fn create_project_files(
         db: &mut TestDatabase,
         schema_files: &[(FileId, FileContent, FileMetadata)],
@@ -1895,8 +1895,9 @@ const FRAG = gql`
         let fragments = all_fragments(&db, project_files);
 
         println!("Total fragments found: {}", fragments.len());
+        #[allow(clippy::explicit_iter_loop)]
         for (name, _) in fragments.iter() {
-            println!("  Found fragment: {}", name);
+            println!("  Found fragment: {name}");
         }
 
         assert!(

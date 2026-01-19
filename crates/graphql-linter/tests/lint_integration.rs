@@ -53,9 +53,7 @@ fn test_lint_anonymous_operation() {
 
     let diagnostics = run_standalone_rules(&db, source, &config);
 
-    let anon_warning = diagnostics
-        .iter()
-        .find(|d| d.message.contains("Anonymous"));
+    let anon_warning = diagnostics.iter().find(|d| d.message.contains("Anonymous"));
 
     assert!(
         anon_warning.is_some(),
@@ -71,9 +69,7 @@ fn test_lint_named_operation_passes() {
 
     let diagnostics = run_standalone_rules(&db, source, &config);
 
-    let anon_warning = diagnostics
-        .iter()
-        .find(|d| d.message.contains("Anonymous"));
+    let anon_warning = diagnostics.iter().find(|d| d.message.contains("Anonymous"));
 
     assert!(
         anon_warning.is_none(),
@@ -111,10 +107,10 @@ fn test_rule_registry_returns_rules() {
 #[test]
 fn test_multiple_anonymous_operations() {
     let db = RootDatabase::default();
-    let source = r#"
+    let source = r"
 query { user { name } }
 mutation { updateUser { id } }
-"#;
+";
     let config = LintConfig::recommended();
 
     let diagnostics = run_standalone_rules(&db, source, &config);
@@ -138,9 +134,7 @@ fn test_shorthand_query_syntax() {
 
     let diagnostics = run_standalone_rules(&db, source, &config);
 
-    let anon_warning = diagnostics
-        .iter()
-        .find(|d| d.message.contains("Anonymous"));
+    let anon_warning = diagnostics.iter().find(|d| d.message.contains("Anonymous"));
 
     assert!(
         anon_warning.is_some(),

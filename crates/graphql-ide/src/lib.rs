@@ -1465,10 +1465,6 @@ impl Analysis {
             // Get operation body
             let body = graphql_hir::operation_body(&self.db, content, metadata, operation.index);
 
-            // Calculate operation range
-            // Note: File-level line offset is always 0; per-document offsets come from doc.line_offset
-            let line_offset: u32 = 0;
-
             // Get operation location for the range
             let range = if let Some(ref name) = operation.name {
                 let parse = graphql_syntax::parse(&self.db, content, metadata);
@@ -1477,7 +1473,7 @@ impl Analysis {
                     if let Some(ranges) = find_operation_definition_ranges(doc.tree, name) {
                         let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
                         #[allow(clippy::cast_possible_truncation)]
-                        let doc_line_offset = doc.line_offset as u32 + line_offset;
+                        let doc_line_offset = doc.line_offset as u32;
                         found_range = Some(adjust_range_for_line_offset(
                             offset_range_to_range(
                                 &doc_line_index,
