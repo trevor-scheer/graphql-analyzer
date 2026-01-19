@@ -19,7 +19,7 @@ use crate::FileRegistry;
 pub fn completions(
     db: &dyn graphql_hir::GraphQLHirDatabase,
     registry: &FileRegistry,
-    project_files: Option<graphql_db::ProjectFiles>,
+    project_files: Option<graphql_base_db::ProjectFiles>,
     file: &FilePath,
     position: Position,
 ) -> Option<Vec<CompletionItem>> {

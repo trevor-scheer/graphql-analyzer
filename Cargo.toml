@@ -1,20 +1,23 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/graphql-config",
-    "crates/graphql-extract",
-    "crates/graphql-introspect",
-    "crates/graphql-lsp",
-    "crates/graphql-cli",
-    "crates/graphql-linter",
-    "crates/graphql-db",
-    "crates/graphql-syntax",
-    "crates/graphql-hir",
-    "crates/graphql-analysis",
-    "crates/graphql-ide",
-    "benches",
-    ".husky",
-    "xtask",
+  "crates/graphql-config",
+  "crates/graphql-extract",
+  "crates/graphql-introspect",
+  "crates/graphql-lsp",
+  "crates/graphql-cli",
+  "crates/graphql-linter",
+  "crates/graphql-base-db",
+  "crates/graphql-syntax",
+  "crates/graphql-hir",
+  "crates/graphql-analysis",
+  "crates/graphql-ide",
+  "crates/graphql-ide-db",
+  "crates/graphql-test-utils",
+  "crates/graphql-mcp",
+  "benches",
+  ".husky",
+  "xtask",
 ]
 
 [workspace.package]
@@ -76,6 +79,9 @@ salsa = "0.25"
 
 # Benchmarking
 criterion = { version = "0.5", features = ["html_reports"] }
+
+# Testing
+insta = { version = "1.40", features = ["yaml"] }
 
 # The profile that 'dist' will build with
 [profile.dist]

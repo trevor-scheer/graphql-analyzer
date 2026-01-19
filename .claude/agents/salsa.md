@@ -23,6 +23,7 @@ You have deep knowledge of:
 ## When to Consult This Agent
 
 Consult this agent when:
+
 - Designing Salsa database schema and queries
 - Debugging hangs, deadlocks, or unexpected cache invalidation
 - Understanding snapshot isolation and concurrent access patterns
@@ -45,6 +46,7 @@ struct MyDatabase {
 ```
 
 **Critical**: Cloned databases share the same underlying storage. This means:
+
 - Queries executed on one clone can see mutations from another
 - Write operations (setters) affect ALL clones
 - This is intentional for Salsa's incremental model, but requires careful handling
@@ -72,6 +74,7 @@ db.input.set_value(...); // Now safe to write
 ### Setter Behavior
 
 Salsa setters (`input.set_field(db).to(value)`) do the following:
+
 1. Acquire exclusive access to the database storage
 2. Update the input value
 3. Mark dependent queries for re-computation
@@ -82,6 +85,7 @@ If any snapshot is holding a read lock (even implicitly through cached query res
 ### Query Execution Model
 
 When a query executes:
+
 1. Salsa checks if cached result is still valid
 2. If not, it re-executes the query function
 3. During execution, it tracks all accessed inputs/queries
@@ -269,10 +273,12 @@ pub struct Analysis {
 ```
 
 **Known Issue**: The `registry` is shared between host and snapshots, creating potential deadlocks when:
+
 1. A snapshot holds a read lock on registry during query execution
 2. Host tries to acquire write lock for mutation
 
 **Recommended Fix**: Either:
+
 1. Make registry an `Arc<FileRegistry>` (immutable, replaced on change)
 2. Move registry data into Salsa inputs
 3. Ensure snapshots are always dropped before mutations

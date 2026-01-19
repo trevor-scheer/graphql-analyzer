@@ -1,7 +1,7 @@
 // TypeScript file with embedded GraphQL for PR views
 // Tests various template literal patterns
 
-import { gql, useQuery, useMutation } from '@apollo/client';
+import { gql, useQuery, useMutation } from "@apollo/client";
 
 // Using graphql-tag style
 export const PR_TIMELINE_QUERY = gql`
@@ -112,12 +112,7 @@ export const ADD_REVIEW_MUTATION = gql`
     $comments: [DraftPullRequestReviewComment!]
   ) {
     addPullRequestReview(
-      input: {
-        pullRequestId: $pullRequestId
-        body: $body
-        event: $event
-        comments: $comments
-      }
+      input: { pullRequestId: $pullRequestId, body: $body, event: $event, comments: $comments }
     ) {
       pullRequestReview {
         ...PRReviewItem

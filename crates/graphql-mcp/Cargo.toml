@@ -1,0 +1,40 @@
+[package]
+name = "graphql-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+description = "MCP (Model Context Protocol) server for GraphQL tooling"
+keywords = ["graphql", "mcp", "ai", "language-server"]
+categories = ["development-tools"]
+
+[dependencies]
+# Internal dependencies
+graphql-ide = { path = "../graphql-ide" }
+graphql-config = { path = "../graphql-config" }
+graphql-introspect = { path = "../graphql-introspect" }
+graphql-linter = { path = "../graphql-linter" }
+
+# MCP SDK - need server + macros + transport-io features
+rmcp = { version = "0.8", features = ["server", "macros", "transport-io"] }
+
+# Async
+tokio = { workspace = true }
+
+# Serialization - use schemars 1.x for rmcp 0.8.x compatibility
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = "1.0"
+
+# Utilities
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+# File system
+glob = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }

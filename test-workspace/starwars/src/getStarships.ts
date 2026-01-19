@@ -1,5 +1,5 @@
 // Example TypeScript file with embedded GraphQL
-import { gql } from 'graphql-tag';
+import { gql } from "graphql-tag";
 
 export const GET_STARSHIPS = gql`
   query AllStarships {

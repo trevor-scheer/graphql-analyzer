@@ -3,13 +3,13 @@ xtask = "run --package xtask --"
 
 [target.'cfg(all())']
 rustflags = [
-    "-Dwarnings",
-    "-Dclippy::all",
-    "-Dclippy::cargo",
-    "-Dclippy::correctness",
-    "-Dclippy::suspicious",
-    "-Dclippy::pedantic",
-    "-Aclippy::missing_errors_doc",
-    "-Aclippy::missing_panics_doc",
-    "-Aclippy::multiple_crate_versions",
+  "-Dwarnings",
+  "-Dclippy::all",
+  "-Dclippy::cargo",
+  "-Dclippy::correctness",
+  "-Dclippy::suspicious",
+  "-Dclippy::pedantic",
+  "-Aclippy::missing_errors_doc",
+  "-Aclippy::missing_panics_doc",
+  "-Aclippy::multiple_crate_versions",
 ]

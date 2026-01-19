@@ -1,7 +1,7 @@
 // TypeScript file with embedded GraphQL
 // Tests fragment-only TypeScript file
 
-import { gql } from '@apollo/client';
+import { gql } from "@apollo/client";
 
 // Multiple fragments in one template literal - edge case
 export const REPO_CARD_FRAGMENTS = gql`
@@ -15,7 +15,7 @@ export const REPO_CARD_FRAGMENTS = gql`
     isFork
     isArchived
   }
-
+  
   fragment RepoCardStats on Repository {
     stargazerCount
     forkCount
@@ -29,7 +29,7 @@ export const REPO_CARD_FRAGMENTS = gql`
       totalCount
     }
   }
-
+  
   fragment RepoCardLanguage on Repository {
     primaryLanguage {
       name

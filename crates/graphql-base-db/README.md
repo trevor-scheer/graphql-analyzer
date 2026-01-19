@@ -41,6 +41,7 @@ graphql-db      ← Salsa database (YOU ARE HERE)
 ## Current Status
 
 ### Completed ✅
+
 - [x] Basic crate structure created
 - [x] Core types defined (FileId, FileUri, FileKind)
 - [x] Salsa input structs defined (FileContent, FileMetadata)
@@ -51,6 +52,7 @@ graphql-db      ← Salsa database (YOU ARE HERE)
 - [x] All tests passing
 
 ### In Progress
+
 - [ ] Additional utility methods
 
 ## Granular Per-File Caching
@@ -66,6 +68,7 @@ The crate implements true per-file granular caching using `FileEntry` and `FileE
 ### Key Insight: Content Updates Don't Change the Map
 
 When a file's content changes:
+
 - Only `FileContent.set_text()` is called
 - The `FileEntryMap` HashMap reference stays the **same** (same `Arc`)
 - The `FileEntry` struct still points to the same `FileContent` (which has updated text)
@@ -83,11 +86,13 @@ if let Some(&existing_content) = self.id_to_content.get(&existing_id) {
 ### Why This Matters
 
 Without granular caching, editing file A would invalidate queries for ALL files:
+
 - Old approach: `FileMap` stored all files in one HashMap
 - Any content change created a new HashMap Arc
 - ALL file queries would re-run
 
 With granular caching:
+
 - Editing file A only invalidates file A's queries
 - File B's queries remain fully cached
 - Enables O(1) incremental updates instead of O(n)
@@ -103,6 +108,7 @@ With granular caching:
 5. Arc types need explicit type annotations in some contexts
 
 **Correct Pattern**:
+
 ```rust
 #[salsa::db]
 #[derive(Clone, Default)]
@@ -195,15 +201,15 @@ pub mod queries {
 
 ### API
 
-| Method | Description |
-|--------|-------------|
-| `TrackedDatabase::new()` | Create a new tracked database with event tracking |
-| `checkpoint()` | Get current log position for later comparison |
-| `count_since(query, checkpoint)` | Count executions of a query since checkpoint |
-| `executions_since(checkpoint)` | Get all query names executed since checkpoint (for debugging) |
-| `total_count(query)` | Get total execution count since creation |
-| `all_counts()` | Get all query counts as a HashMap |
-| `reset()` | Reset all tracking data |
+| Method                           | Description                                                   |
+| -------------------------------- | ------------------------------------------------------------- |
+| `TrackedDatabase::new()`         | Create a new tracked database with event tracking             |
+| `checkpoint()`                   | Get current log position for later comparison                 |
+| `count_since(query, checkpoint)` | Count executions of a query since checkpoint                  |
+| `executions_since(checkpoint)`   | Get all query names executed since checkpoint (for debugging) |
+| `total_count(query)`             | Get total execution count since creation                      |
+| `all_counts()`                   | Get all query counts as a HashMap                             |
+| `reset()`                        | Reset all tracking data                                       |
 
 ### Enabling the Feature
 

@@ -26,6 +26,7 @@ type Starship {
   crew: Int!
   passengers: Int!
   pilots: [Character!]
+  abc: Int
 }
 
 type Query {

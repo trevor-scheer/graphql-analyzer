@@ -1,0 +1,4 @@
+# Formatting commits to ignore in git blame
+
+# style: format codebase with oxfmt
+674dec4c9cd0bf1b4a0b1c385a761ff715329400

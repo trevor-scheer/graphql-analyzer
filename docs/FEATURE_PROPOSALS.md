@@ -7,6 +7,7 @@ This document outlines potential features for both the GraphQL LSP and CLI, info
 ## Table of Contents
 
 ### LSP Features
+
 1. [Autocompletion](#1-autocompletion)
 2. [Document Symbols](#2-document-symbols)
 3. [Workspace Symbols](#3-workspace-symbols)
@@ -21,6 +22,7 @@ This document outlines potential features for both the GraphQL LSP and CLI, info
 12. [Document Formatting](#12-document-formatting)
 
 ### CLI Features
+
 13. [Schema Diff / Breaking Changes Detection](#13-schema-diff--breaking-changes-detection)
 14. [Coverage Report](#14-coverage-report)
 15. [Init Command](#15-init-command)
@@ -31,6 +33,7 @@ This document outlines potential features for both the GraphQL LSP and CLI, info
 20. [Codegen Integration](#20-codegen-integration)
 
 ### Shared Features
+
 21. [Fragment Usage Analysis](#21-fragment-usage-analysis)
 22. [Field Usage Analysis](#22-field-usage-analysis)
 23. [Deprecation Reporting](#23-deprecation-reporting)
@@ -82,27 +85,28 @@ impl Analysis {
 
 **Completion Contexts**:
 
-| Context | Trigger | Suggestions |
-|---------|---------|-------------|
-| After `{` or field | Start typing | Fields on parent type |
-| After `(` or argument | Start typing | Arguments for field/directive |
-| After `...` | Fragment name | Available fragments for type |
-| After `$` | Variable name | Defined variables |
-| After `@` | Directive name | Available directives |
-| After `:` in variable | Type | Schema types |
-| In enum value position | Value | Enum values |
+| Context                | Trigger        | Suggestions                   |
+| ---------------------- | -------------- | ----------------------------- |
+| After `{` or field     | Start typing   | Fields on parent type         |
+| After `(` or argument  | Start typing   | Arguments for field/directive |
+| After `...`            | Fragment name  | Available fragments for type  |
+| After `$`              | Variable name  | Defined variables             |
+| After `@`              | Directive name | Available directives          |
+| After `:` in variable  | Type           | Schema types                  |
+| In enum value position | Value          | Enum values                   |
 
 **Alternative Approaches**:
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Eager indexing** | Instant completions | Higher memory usage |
-| **On-demand computation** | Lower memory | Potential latency on large schemas |
-| **Hybrid (index hot paths)** | Balance of speed/memory | More complex implementation |
+| Approach                     | Pros                    | Cons                               |
+| ---------------------------- | ----------------------- | ---------------------------------- |
+| **Eager indexing**           | Instant completions     | Higher memory usage                |
+| **On-demand computation**    | Lower memory            | Potential latency on large schemas |
+| **Hybrid (index hot paths)** | Balance of speed/memory | More complex implementation        |
 
 **Recommendation**: Hybrid approach - index field names and types eagerly (they're accessed frequently), compute argument details on-demand.
 
 **Performance Requirements** (per LSP agent):
+
 - Must complete in <100ms or users perceive lag
 - Support cancellation for typing-ahead scenarios
 - Use incremental completion for refining results
@@ -142,6 +146,7 @@ impl Analysis {
 ```
 
 **Symbol Hierarchy**:
+
 ```
 query GetUser
 ├── $id: ID!
@@ -156,11 +161,11 @@ fragment UserFields
 
 **Alternatives**:
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Flat list** | Simple implementation | Loses structure context |
-| **Hierarchical (selection sets)** | Full structure visibility | Can be overwhelming for large operations |
-| **Two-level (operations + top fields)** | Good balance | Loses nested structure |
+| Approach                                | Pros                      | Cons                                     |
+| --------------------------------------- | ------------------------- | ---------------------------------------- |
+| **Flat list**                           | Simple implementation     | Loses structure context                  |
+| **Hierarchical (selection sets)**       | Full structure visibility | Can be overwhelming for large operations |
+| **Two-level (operations + top fields)** | Good balance              | Loses nested structure                   |
 
 **Recommendation**: Hierarchical with collapsible nodes - matches user expectations from GraphiQL explorer.
 
@@ -184,11 +189,13 @@ impl Analysis {
 ```
 
 **Index Strategy** (per rust-analyzer patterns):
+
 - Maintain incremental symbol index via Salsa
 - Index updates when files change
 - Fuzzy match with case-insensitive prefix matching
 
 **What to Index**:
+
 - Operation names (query/mutation/subscription)
 - Fragment names
 - Schema type names (if schema files are in workspace)
@@ -196,11 +203,11 @@ impl Analysis {
 
 **Alternatives**:
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Full symbol index** | Fast search | Memory overhead |
-| **On-demand search** | Low memory | Slow on large projects |
-| **Trigram index** | Fast fuzzy search | Complex implementation |
+| Approach              | Pros              | Cons                   |
+| --------------------- | ----------------- | ---------------------- |
+| **Full symbol index** | Fast search       | Memory overhead        |
+| **On-demand search**  | Low memory        | Slow on large projects |
+| **Trigram index**     | Fast fuzzy search | Complex implementation |
 
 **Recommendation**: Full symbol index with Salsa - memory is acceptable for typical GraphQL projects, and speed is critical per LSP agent guidelines.
 
@@ -235,26 +242,27 @@ impl Analysis {
 
 **Renameable Symbols**:
 
-| Symbol | Scope | Complexity |
-|--------|-------|------------|
-| Fragment name | Project-wide | Medium - uses find_references |
-| Operation name | Project-wide | Medium |
-| Variable name | Single operation | Low - file-local |
-| Argument name | Single field invocation | Low |
-| Field alias | Single selection | Low |
+| Symbol         | Scope                   | Complexity                    |
+| -------------- | ----------------------- | ----------------------------- |
+| Fragment name  | Project-wide            | Medium - uses find_references |
+| Operation name | Project-wide            | Medium                        |
+| Variable name  | Single operation        | Low - file-local              |
+| Argument name  | Single field invocation | Low                           |
+| Field alias    | Single selection        | Low                           |
 
 **What NOT to rename**:
+
 - Schema types (would require schema modification)
 - Schema fields (same reason)
 - Built-in directives
 
 **Alternatives**:
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Exact rename only** | Safe, predictable | Limited utility |
-| **With validation** | Catches conflicts | More complex |
-| **Preview mode** | User can review | Extra round-trip |
+| Approach              | Pros              | Cons             |
+| --------------------- | ----------------- | ---------------- |
+| **Exact rename only** | Safe, predictable | Limited utility  |
+| **With validation**   | Catches conflicts | More complex     |
+| **Preview mode**      | User can review   | Extra round-trip |
 
 **Recommendation**: Implement with validation (check for name conflicts) and use `prepareRename` to provide feedback before committing.
 
@@ -288,33 +296,33 @@ pub enum CodeActionKind {
 
 **Proposed Code Actions**:
 
-| Diagnostic | Quick Fix |
-|------------|-----------|
-| Unknown field | Suggest similar field names |
-| Unknown fragment | Create fragment definition |
-| Unknown variable | Add variable definition |
-| Deprecated field | Show deprecation reason, suggest replacement |
-| Missing required argument | Add argument with placeholder |
-| Unused variable | Remove variable definition |
-| Unused fragment | Remove fragment definition |
+| Diagnostic                | Quick Fix                                    |
+| ------------------------- | -------------------------------------------- |
+| Unknown field             | Suggest similar field names                  |
+| Unknown fragment          | Create fragment definition                   |
+| Unknown variable          | Add variable definition                      |
+| Deprecated field          | Show deprecation reason, suggest replacement |
+| Missing required argument | Add argument with placeholder                |
+| Unused variable           | Remove variable definition                   |
+| Unused fragment           | Remove fragment definition                   |
 
 **Refactoring Actions**:
 
-| Action | Description |
-|--------|-------------|
-| Extract fragment | Extract selection into new fragment |
-| Inline fragment | Replace fragment spread with its content |
-| Add field alias | Add alias to disambiguate |
-| Wrap in named operation | Convert anonymous to named |
-| Add `__typename` | Add typename for union/interface discrimination |
+| Action                  | Description                                     |
+| ----------------------- | ----------------------------------------------- |
+| Extract fragment        | Extract selection into new fragment             |
+| Inline fragment         | Replace fragment spread with its content        |
+| Add field alias         | Add alias to disambiguate                       |
+| Wrap in named operation | Convert anonymous to named                      |
+| Add `__typename`        | Add typename for union/interface discrimination |
 
 **Alternatives**:
 
-| Approach | Pros | Cons |
-|----------|------|------|
+| Approach              | Pros                          | Cons                      |
+| --------------------- | ----------------------------- | ------------------------- |
 | **Eager computation** | Actions available immediately | Expensive for large files |
-| **Lazy with resolve** | Fast initial response | Extra round-trip |
-| **Context-limited** | Focused suggestions | May miss useful actions |
+| **Lazy with resolve** | Fast initial response         | Extra round-trip          |
+| **Context-limited**   | Focused suggestions           | May miss useful actions   |
 
 **Recommendation**: Use lazy computation with `codeAction/resolve` - compute expensive fixes only when user selects them (per LSP agent's advice on responsiveness).
 
@@ -352,6 +360,7 @@ impl Analysis {
 **Trigger Characters**: `(`, `,`
 
 **Display Example**:
+
 ```
 user(id: ID!, includeDeleted: Boolean = false): User
       ^^ active parameter
@@ -359,11 +368,11 @@ user(id: ID!, includeDeleted: Boolean = false): User
 
 **Alternatives**:
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Full signature** | Complete information | Can be verbose |
-| **Active param only** | Focused | Loses context |
-| **Progressive disclosure** | Best of both | More complex UI |
+| Approach                   | Pros                 | Cons            |
+| -------------------------- | -------------------- | --------------- |
+| **Full signature**         | Complete information | Can be verbose  |
+| **Active param only**      | Focused              | Loses context   |
+| **Progressive disclosure** | Best of both         | More complex UI |
 
 **Recommendation**: Full signature with active parameter highlighting - matches GraphiQL's approach.
 
@@ -411,6 +420,7 @@ bitflags! {
 ```
 
 **Benefits**:
+
 - Deprecated fields shown in strikethrough
 - Types vs fields distinguished by color
 - Variables highlighted consistently
@@ -418,11 +428,11 @@ bitflags! {
 
 **Alternatives**:
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Full semantic tokens** | Rich highlighting | Requires schema |
-| **Syntactic only** | Works without schema | Less informative |
-| **Hybrid** | Graceful degradation | Two code paths |
+| Approach                 | Pros                 | Cons             |
+| ------------------------ | -------------------- | ---------------- |
+| **Full semantic tokens** | Rich highlighting    | Requires schema  |
+| **Syntactic only**       | Works without schema | Less informative |
+| **Hybrid**               | Graceful degradation | Two code paths   |
 
 **Recommendation**: Hybrid approach - provide syntactic tokens always, enhance with semantic tokens when schema is available.
 
@@ -451,20 +461,20 @@ pub struct CodeLens {
 
 **Proposed Code Lenses**:
 
-| Location | Lens | Action |
-|----------|------|--------|
-| Fragment definition | "N references" | Go to references |
-| Operation definition | "Run" | Execute query (if configured) |
-| Operation definition | "Copy as cURL" | Copy to clipboard |
-| Type reference | "Go to schema" | Navigate to type definition |
+| Location             | Lens           | Action                        |
+| -------------------- | -------------- | ----------------------------- |
+| Fragment definition  | "N references" | Go to references              |
+| Operation definition | "Run"          | Execute query (if configured) |
+| Operation definition | "Copy as cURL" | Copy to clipboard             |
+| Type reference       | "Go to schema" | Navigate to type definition   |
 
 **Alternatives**:
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Always show** | Discoverable | Visual clutter |
-| **On hover only** | Clean UI | Less discoverable |
-| **Configurable** | User choice | Settings complexity |
+| Approach          | Pros         | Cons                |
+| ----------------- | ------------ | ------------------- |
+| **Always show**   | Discoverable | Visual clutter      |
+| **On hover only** | Clean UI     | Less discoverable   |
+| **Configurable**  | User choice  | Settings complexity |
 
 **Recommendation**: Configurable with sensible defaults (reference count on, execute off by default).
 
@@ -504,19 +514,19 @@ query GetUser($id: ID!) {
 }
 ```
 
-| Location | Hint |
-|----------|------|
-| After field selection | Return type |
-| After argument | Parameter name (for positional clarity) |
-| After variable reference | Variable type |
+| Location                 | Hint                                    |
+| ------------------------ | --------------------------------------- |
+| After field selection    | Return type                             |
+| After argument           | Parameter name (for positional clarity) |
+| After variable reference | Variable type                           |
 
 **Alternatives**:
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Show all types** | Full visibility | Visual noise |
-| **Show non-obvious only** | Cleaner | Complex heuristics |
-| **User toggle** | User control | Extra configuration |
+| Approach                  | Pros            | Cons                |
+| ------------------------- | --------------- | ------------------- |
+| **Show all types**        | Full visibility | Visual noise        |
+| **Show non-obvious only** | Cleaner         | Complex heuristics  |
+| **User toggle**           | User control    | Extra configuration |
 
 **Recommendation**: Off by default, user-enabled - GraphQL types are usually clear from context, unlike Rust where type inference benefits from hints.
 
@@ -540,6 +550,7 @@ impl Analysis {
 ```
 
 **Selection Hierarchy**:
+
 ```
 field_name        <- initial selection
 field with args   <- expand
@@ -573,6 +584,7 @@ pub enum FoldingRangeKind {
 ```
 
 **Foldable Regions**:
+
 - Selection sets `{ ... }`
 - Operation definitions
 - Fragment definitions
@@ -598,6 +610,7 @@ impl Analysis {
 ```
 
 **Formatting Options**:
+
 - Indentation (spaces vs tabs, width)
 - Max line width
 - Argument wrapping threshold
@@ -605,11 +618,11 @@ impl Analysis {
 
 **Alternatives**:
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Built-in formatter** | No dependencies | Must implement/maintain |
-| **External tool (prettier)** | Battle-tested | External dependency |
-| **Configurable style** | Flexibility | More complexity |
+| Approach                     | Pros            | Cons                    |
+| ---------------------------- | --------------- | ----------------------- |
+| **Built-in formatter**       | No dependencies | Must implement/maintain |
+| **External tool (prettier)** | Battle-tested   | External dependency     |
+| **Configurable style**       | Flexibility     | More complexity         |
 
 **Recommendation**: Built-in formatter using apollo-compiler's serialization with configurable options. External prettier integration as optional alternative.
 
@@ -638,18 +651,18 @@ graphql schema diff --format json old.graphql new.graphql
 
 **Breaking Changes to Detect**:
 
-| Change | Severity |
-|--------|----------|
-| Type removed | Breaking |
-| Field removed | Breaking |
-| Argument removed | Breaking |
-| Required argument added | Breaking |
-| Type changed (incompatible) | Breaking |
-| Nullable → Non-null | Breaking |
-| Field added | Non-breaking |
-| Type added | Non-breaking |
-| Optional argument added | Non-breaking |
-| Deprecation added | Non-breaking |
+| Change                      | Severity     |
+| --------------------------- | ------------ |
+| Type removed                | Breaking     |
+| Field removed               | Breaking     |
+| Argument removed            | Breaking     |
+| Required argument added     | Breaking     |
+| Type changed (incompatible) | Breaking     |
+| Nullable → Non-null         | Breaking     |
+| Field added                 | Non-breaking |
+| Type added                  | Non-breaking |
+| Optional argument added     | Non-breaking |
+| Deprecation added           | Non-breaking |
 
 **Implementation**:
 
@@ -667,11 +680,11 @@ pub fn diff_schemas(old: &Schema, new: &Schema) -> SchemaDiff {
 
 **Alternatives**:
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Strict breaking detection** | Safe | May flag safe changes |
-| **Usage-aware** | Smarter | Requires usage data |
-| **Customizable rules** | Flexible | Configuration overhead |
+| Approach                      | Pros     | Cons                   |
+| ----------------------------- | -------- | ---------------------- |
+| **Strict breaking detection** | Safe     | May flag safe changes  |
+| **Usage-aware**               | Smarter  | Requires usage data    |
+| **Customizable rules**        | Flexible | Configuration overhead |
 
 **Recommendation**: Start with strict detection, add usage-aware mode later (requires field usage tracking).
 
@@ -755,6 +768,7 @@ graphql init --schema https://api.example.com/graphql
 ```
 
 **Interactive Prompts**:
+
 1. Schema source (file path, URL, or glob pattern)
 2. Documents location (glob pattern)
 3. Output format (YAML or JSON)
@@ -795,6 +809,7 @@ graphql schema download https://api.example.com/graphql --format json
 ```
 
 **Features**:
+
 - HTTP headers support (authentication)
 - Output to file or stdout
 - SDL or JSON introspection format
@@ -820,6 +835,7 @@ graphql validate && graphql lint
 ```
 
 **Benefits**:
+
 - Single command for CI
 - Unified exit codes
 - Combined output
@@ -880,13 +896,13 @@ graphql fix --rule unused-fragments
 
 **Auto-fixable Issues**:
 
-| Rule | Fix |
-|------|-----|
-| Unused fragment | Remove fragment definition |
-| Unused variable | Remove variable definition |
-| Redundant type condition | Remove unnecessary type condition |
-| Trailing whitespace | Remove whitespace |
-| Missing `__typename` on union | Add `__typename` |
+| Rule                          | Fix                               |
+| ----------------------------- | --------------------------------- |
+| Unused fragment               | Remove fragment definition        |
+| Unused variable               | Remove variable definition        |
+| Redundant type condition      | Remove unnecessary type condition |
+| Trailing whitespace           | Remove whitespace                 |
+| Missing `__typename` on union | Add `__typename`                  |
 
 ---
 
@@ -924,11 +940,11 @@ extensions:
 
 **Alternatives**:
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Built-in codegen** | Unified tooling | Significant implementation effort |
-| **graphql-codegen wrapper** | Leverage existing | External dependency |
-| **Plugin system** | Extensible | Architecture complexity |
+| Approach                    | Pros              | Cons                              |
+| --------------------------- | ----------------- | --------------------------------- |
+| **Built-in codegen**        | Unified tooling   | Significant implementation effort |
+| **graphql-codegen wrapper** | Leverage existing | External dependency               |
+| **Plugin system**           | Extensible        | Architecture complexity           |
 
 **Recommendation**: Start with graphql-codegen wrapper integration, consider built-in implementation later based on user demand.
 
@@ -964,6 +980,7 @@ pub fn analyze_fragment_usage(db: &dyn Database) -> Vec<FragmentUsage> {
 **LSP Display**: Code lens showing "N references" on fragment definitions
 
 **CLI Display**:
+
 ```
 Fragment Usage Report
 =====================
@@ -1010,12 +1027,14 @@ pub fn analyze_field_usage(db: &dyn Database) -> HashMap<(TypeName, FieldName), 
 **Implementation**:
 
 **LSP Features**:
+
 - Diagnostic with warning severity
 - Strikethrough via semantic tokens
 - Hover shows deprecation reason and suggested replacement
 - Code action to replace with suggested field
 
 **CLI Features**:
+
 ```bash
 graphql deprecations
 
@@ -1058,6 +1077,7 @@ pub fn analyze_complexity(operation: &Operation, schema: &Schema) -> ComplexityA
 ```
 
 **CLI**:
+
 ```bash
 graphql complexity
 
@@ -1076,12 +1096,14 @@ graphql complexity
 Based on user impact and implementation complexity:
 
 ### High Priority (Foundation)
+
 1. **Autocompletion** - Most requested IDE feature
 2. **Document Symbols** - Essential navigation
 3. **Code Actions** - Actionable diagnostics
 4. **Schema Diff** - Critical for CI/CD
 
 ### Medium Priority (Enhancement)
+
 5. **Workspace Symbols** - Project-wide navigation
 6. **Rename Symbol** - Safe refactoring
 7. **Signature Help** - Better argument experience
@@ -1089,6 +1111,7 @@ Based on user impact and implementation complexity:
 9. **Init Command** - Onboarding improvement
 
 ### Lower Priority (Nice to Have)
+
 10. **Semantic Tokens** - Enhanced highlighting
 11. **Coverage Report** - Analytics
 12. **Codegen Integration** - Tool unification

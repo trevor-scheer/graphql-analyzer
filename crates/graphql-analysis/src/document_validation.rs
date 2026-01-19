@@ -1,7 +1,7 @@
 // Document validation queries (operations and fragments)
 
 use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase, Position};
-use graphql_db::{FileContent, FileMetadata};
+use graphql_base_db::{FileContent, FileMetadata};
 use std::sync::Arc;
 use text_size::TextRange;
 
@@ -53,7 +53,7 @@ pub fn validate_document_file(
         .expect("project files must be set for validation");
     let schema = graphql_hir::schema_types(db, project_files);
 
-    for op_structure in &structure.operations {
+    for op_structure in structure.operations.iter() {
         if let Some(name) = &op_structure.name {
             let all_ops = graphql_hir::all_operations(db, project_files);
 
@@ -82,10 +82,12 @@ pub fn validate_document_file(
             validate_variable_type(&var.type_ref, schema, op_range, &mut diagnostics);
         }
 
+        #[allow(clippy::match_same_arms)]
         let root_type_name = match op_structure.operation_type {
             graphql_hir::OperationType::Query => "Query",
             graphql_hir::OperationType::Mutation => "Mutation",
             graphql_hir::OperationType::Subscription => "Subscription",
+            _ => "Query", // fallback for future operation types
         };
 
         if !schema.contains_key(&Arc::from(root_type_name)) {
@@ -101,7 +103,7 @@ pub fn validate_document_file(
         // A future enhancement would be to integrate apollo-compiler's validator here.
     }
 
-    for frag_structure in &structure.fragments {
+    for frag_structure in structure.fragments.iter() {
         let all_fragments = graphql_hir::all_fragments(db, project_files);
 
         let count = all_fragments
@@ -206,297 +208,4 @@ fn validate_fragment_type_condition(
 /// Check if a type name is a built-in GraphQL scalar
 fn is_builtin_scalar(name: &str) -> bool {
     matches!(name, "Int" | "Float" | "String" | "Boolean" | "ID")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use graphql_db::{FileContent, FileKind, FileMetadata, FileUri};
-
-    #[salsa::db]
-    #[derive(Clone)]
-    struct TestDatabase {
-        storage: salsa::Storage<Self>,
-        project_files: std::cell::Cell<Option<graphql_db::ProjectFiles>>,
-    }
-
-    impl Default for TestDatabase {
-        fn default() -> Self {
-            Self {
-                storage: salsa::Storage::default(),
-                project_files: std::cell::Cell::new(None),
-            }
-        }
-    }
-
-    impl TestDatabase {
-        fn set_project_files(&self, project_files: Option<graphql_db::ProjectFiles>) {
-            self.project_files.set(project_files);
-        }
-    }
-
-    #[salsa::db]
-    impl salsa::Database for TestDatabase {}
-
-    #[salsa::db]
-    impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {}
-
-    #[salsa::db]
-    impl graphql_hir::GraphQLHirDatabase for TestDatabase {
-        fn project_files(&self) -> Option<graphql_db::ProjectFiles> {
-            self.project_files.get()
-        }
-    }
-
-    #[salsa::db]
-    impl crate::GraphQLAnalysisDatabase for TestDatabase {}
-
-    /// Helper to create `ProjectFiles` for tests using the new granular structure
-    fn create_project_files(
-        db: &TestDatabase,
-        schema_files: &[(graphql_db::FileId, FileContent, FileMetadata)],
-        document_files: &[(graphql_db::FileId, FileContent, FileMetadata)],
-    ) -> graphql_db::ProjectFiles {
-        let schema_ids: Vec<graphql_db::FileId> =
-            schema_files.iter().map(|(id, _, _)| *id).collect();
-        let doc_ids: Vec<graphql_db::FileId> =
-            document_files.iter().map(|(id, _, _)| *id).collect();
-
-        let mut entries = std::collections::HashMap::new();
-        for (id, content, metadata) in schema_files {
-            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
-            entries.insert(*id, entry);
-        }
-        for (id, content, metadata) in document_files {
-            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
-            entries.insert(*id, entry);
-        }
-
-        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(schema_ids));
-        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_ids));
-        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(entries));
-
-        graphql_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
-    }
-
-    #[test]
-    fn test_unknown_variable_type() {
-        let db = TestDatabase::default();
-        let file_id = graphql_db::FileId::new(0);
-
-        let doc_content = "query GetUser($input: UserInput!) { user }";
-        let content = FileContent::new(&db, Arc::from(doc_content));
-        let metadata = FileMetadata::new(
-            &db,
-            file_id,
-            FileUri::new("query.graphql"),
-            FileKind::ExecutableGraphQL,
-        );
-
-        // Set up project files
-        let project_files = create_project_files(&db, &[], &[(file_id, content, metadata)]);
-        db.set_project_files(Some(project_files));
-
-        let diagnostics = validate_document_file(&db, content, metadata);
-
-        let unknown_type_error = diagnostics
-            .iter()
-            .find(|d| d.message.contains("Unknown variable type: UserInput"));
-        assert!(
-            unknown_type_error.is_some(),
-            "Expected error about unknown variable type"
-        );
-    }
-
-    #[test]
-    fn test_variable_invalid_input_type() {
-        let db = TestDatabase::default();
-
-        // First, add schema
-        let schema_file_id = graphql_db::FileId::new(0);
-        let schema_content = "type User { id: ID! }";
-        let schema_fc = FileContent::new(&db, Arc::from(schema_content));
-        let schema_metadata = FileMetadata::new(
-            &db,
-            schema_file_id,
-            FileUri::new("schema.graphql"),
-            FileKind::Schema,
-        );
-
-        // Now test document with invalid variable type
-        let doc_file_id = graphql_db::FileId::new(1);
-        let doc_content = "query GetUser($user: User!) { user }";
-        let doc_fc = FileContent::new(&db, Arc::from(doc_content));
-        let doc_metadata = FileMetadata::new(
-            &db,
-            doc_file_id,
-            FileUri::new("query.graphql"),
-            FileKind::ExecutableGraphQL,
-        );
-
-        let project_files = create_project_files(
-            &db,
-            &[(schema_file_id, schema_fc, schema_metadata)],
-            &[(doc_file_id, doc_fc, doc_metadata)],
-        );
-        db.set_project_files(Some(project_files));
-
-        let diagnostics = validate_document_file(&db, doc_fc, doc_metadata);
-
-        let invalid_input_error = diagnostics
-            .iter()
-            .find(|d| d.message.contains("is not a valid input type"));
-        assert!(
-            invalid_input_error.is_some(),
-            "Expected error about invalid input type for variable"
-        );
-    }
-
-    #[test]
-    fn test_fragment_unknown_type_condition() {
-        let db = TestDatabase::default();
-        let file_id = graphql_db::FileId::new(0);
-
-        let doc_content = "fragment UserFields on User { id }";
-        let content = FileContent::new(&db, Arc::from(doc_content));
-        let metadata = FileMetadata::new(
-            &db,
-            file_id,
-            FileUri::new("fragment.graphql"),
-            FileKind::ExecutableGraphQL,
-        );
-
-        let project_files = create_project_files(&db, &[], &[(file_id, content, metadata)]);
-        db.set_project_files(Some(project_files));
-
-        let diagnostics = validate_document_file(&db, content, metadata);
-
-        let unknown_type_error = diagnostics
-            .iter()
-            .find(|d| d.message.contains("has unknown type condition 'User'"));
-        assert!(
-            unknown_type_error.is_some(),
-            "Expected error about unknown type condition"
-        );
-    }
-
-    #[test]
-    fn test_fragment_invalid_type_condition() {
-        let db = TestDatabase::default();
-
-        // Add schema with scalar type
-        let schema_file_id = graphql_db::FileId::new(0);
-        let schema_content = "scalar DateTime";
-        let schema_fc = FileContent::new(&db, Arc::from(schema_content));
-        let schema_metadata = FileMetadata::new(
-            &db,
-            schema_file_id,
-            FileUri::new("schema.graphql"),
-            FileKind::Schema,
-        );
-
-        // Fragment on scalar (invalid)
-        let doc_file_id = graphql_db::FileId::new(1);
-        let doc_content = "fragment TimeFields on DateTime { }";
-        let doc_fc = FileContent::new(&db, Arc::from(doc_content));
-        let doc_metadata = FileMetadata::new(
-            &db,
-            doc_file_id,
-            FileUri::new("fragment.graphql"),
-            FileKind::ExecutableGraphQL,
-        );
-
-        let project_files = create_project_files(
-            &db,
-            &[(schema_file_id, schema_fc, schema_metadata)],
-            &[(doc_file_id, doc_fc, doc_metadata)],
-        );
-        db.set_project_files(Some(project_files));
-
-        let diagnostics = validate_document_file(&db, doc_fc, doc_metadata);
-
-        let invalid_condition_error = diagnostics.iter().find(|d| {
-            d.message
-                .contains("must be an object, interface, or union type")
-        });
-        assert!(
-            invalid_condition_error.is_some(),
-            "Expected error about invalid type condition"
-        );
-    }
-
-    #[test]
-    fn test_missing_root_type() {
-        let db = TestDatabase::default();
-        let file_id = graphql_db::FileId::new(0);
-
-        let doc_content = "query { hello }";
-        let content = FileContent::new(&db, Arc::from(doc_content));
-        let metadata = FileMetadata::new(
-            &db,
-            file_id,
-            FileUri::new("query.graphql"),
-            FileKind::ExecutableGraphQL,
-        );
-
-        let project_files = create_project_files(&db, &[], &[(file_id, content, metadata)]);
-        db.set_project_files(Some(project_files));
-
-        let diagnostics = validate_document_file(&db, content, metadata);
-
-        let missing_root_error = diagnostics
-            .iter()
-            .find(|d| d.message.contains("does not define a 'Query' type"));
-        assert!(
-            missing_root_error.is_some(),
-            "Expected error about missing Query root type"
-        );
-    }
-
-    #[test]
-    fn test_valid_document() {
-        let db = TestDatabase::default();
-
-        // Add schema
-        let schema_file_id = graphql_db::FileId::new(0);
-        let schema_content = r"
-            type Query { user(id: ID!): User }
-            type User { id: ID! name: String! }
-            input UserFilter { name: String }
-        ";
-        let schema_fc = FileContent::new(&db, Arc::from(schema_content));
-        let schema_metadata = FileMetadata::new(
-            &db,
-            schema_file_id,
-            FileUri::new("schema.graphql"),
-            FileKind::Schema,
-        );
-
-        // Valid query
-        let doc_file_id = graphql_db::FileId::new(1);
-        let doc_content = r"
-            query GetUser($id: ID!, $filter: UserFilter) {
-                user(id: $id) { id name }
-            }
-            fragment UserFields on User { id name }
-        ";
-        let doc_fc = FileContent::new(&db, Arc::from(doc_content));
-        let doc_metadata = FileMetadata::new(
-            &db,
-            doc_file_id,
-            FileUri::new("query.graphql"),
-            FileKind::ExecutableGraphQL,
-        );
-
-        let project_files = create_project_files(
-            &db,
-            &[(schema_file_id, schema_fc, schema_metadata)],
-            &[(doc_file_id, doc_fc, doc_metadata)],
-        );
-        db.set_project_files(Some(project_files));
-
-        let diagnostics = validate_document_file(&db, doc_fc, doc_metadata);
-
-        assert_eq!(diagnostics.len(), 0, "Expected no validation errors");
-    }
 }

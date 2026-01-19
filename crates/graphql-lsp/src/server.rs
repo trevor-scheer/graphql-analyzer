@@ -5,6 +5,7 @@ use crate::conversions::{
 };
 use crate::workspace::WorkspaceManager;
 use graphql_config::find_config;
+use graphql_ide::AnalysisHost;
 use lsp_types::{
     ClientCapabilities, CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand,
     CodeActionParams, CodeActionResponse, CodeLens, CodeLensOptions, CodeLensParams,
@@ -25,9 +26,15 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::time::Duration;
+use tokio::sync::{Mutex, RwLock};
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::{Client, LanguageServer, UriExt};
+
+/// Default timeout for acquiring host locks during LSP requests.
+/// This prevents requests from blocking indefinitely when another request
+/// is holding the lock for too long.
+const LOCK_TIMEOUT: Duration = Duration::from_millis(500);
 
 pub struct GraphQLLanguageServer {
     client: Client,
@@ -43,6 +50,22 @@ impl GraphQLLanguageServer {
             client,
             client_capabilities: Arc::new(RwLock::new(None)),
             workspace: Arc::new(WorkspaceManager::new()),
+        }
+    }
+
+    /// Try to acquire a snapshot from an `AnalysisHost` with a timeout.
+    ///
+    /// Returns `None` if the lock cannot be acquired within the timeout.
+    /// This prevents LSP requests from blocking indefinitely when another
+    /// request holds the lock.
+    async fn try_snapshot_with_timeout(
+        host: &Arc<Mutex<AnalysisHost>>,
+    ) -> Option<graphql_ide::Analysis> {
+        if let Ok(guard) = tokio::time::timeout(LOCK_TIMEOUT, host.lock()).await {
+            Some(guard.snapshot())
+        } else {
+            tracing::debug!("Timed out waiting for analysis host lock");
+            None
         }
     }
 
@@ -968,9 +991,8 @@ impl LanguageServer for GraphQLLanguageServer {
         let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
-        let analysis = {
-            let host_guard = host.lock().await;
-            host_guard.snapshot()
+        let Some(analysis) = Self::try_snapshot_with_timeout(&host).await else {
+            return Ok(None);
         };
 
         let position = convert_lsp_position(lsp_position);
@@ -998,9 +1020,8 @@ impl LanguageServer for GraphQLLanguageServer {
         let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
-        let analysis = {
-            let host_guard = host.lock().await;
-            host_guard.snapshot()
+        let Some(analysis) = Self::try_snapshot_with_timeout(&host).await else {
+            return Ok(None);
         };
 
         let position = convert_lsp_position(lsp_position);
@@ -1030,9 +1051,8 @@ impl LanguageServer for GraphQLLanguageServer {
         let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
-        let analysis = {
-            let host_guard = host.lock().await;
-            host_guard.snapshot()
+        let Some(analysis) = Self::try_snapshot_with_timeout(&host).await else {
+            return Ok(None);
         };
 
         let position = convert_lsp_position(lsp_position);
@@ -1064,9 +1084,8 @@ impl LanguageServer for GraphQLLanguageServer {
         let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
-        let analysis = {
-            let host_guard = host.lock().await;
-            host_guard.snapshot()
+        let Some(analysis) = Self::try_snapshot_with_timeout(&host).await else {
+            return Ok(None);
         };
 
         let position = convert_lsp_position(lsp_position);
@@ -1105,9 +1124,8 @@ impl LanguageServer for GraphQLLanguageServer {
         let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
-        let analysis = {
-            let host_guard = host.lock().await;
-            host_guard.snapshot()
+        let Some(analysis) = Self::try_snapshot_with_timeout(&host).await else {
+            return Ok(None);
         };
 
         let file_path = graphql_ide::FilePath::new(uri.to_string());
@@ -1138,9 +1156,9 @@ impl LanguageServer for GraphQLLanguageServer {
 
         for entry in &self.workspace.hosts {
             let host = entry.value();
-            let analysis = {
-                let host_guard = host.lock().await;
-                host_guard.snapshot()
+            let Some(analysis) = Self::try_snapshot_with_timeout(host).await else {
+                // Skip this host if we can't acquire the lock in time
+                continue;
             };
 
             let symbols = analysis.workspace_symbols(&params.query);
@@ -1311,7 +1329,11 @@ impl LanguageServer for GraphQLLanguageServer {
         }
     }
 
-    #[allow(clippy::cast_possible_truncation, clippy::mutable_key_type)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::mutable_key_type,
+        clippy::too_many_lines
+    )]
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = params.text_document.uri;
         let range = params.range;
@@ -1331,8 +1353,14 @@ impl LanguageServer for GraphQLLanguageServer {
 
         let file_path = graphql_ide::FilePath::new(uri.to_string());
 
-        // Get lint diagnostics with fixes for this file
-        let lint_diagnostics = analysis.lint_diagnostics_with_fixes(&file_path);
+        // Get lint diagnostics with fixes for this file (per-file rules)
+        let mut lint_diagnostics = analysis.lint_diagnostics_with_fixes(&file_path);
+
+        // Also get project-level diagnostics for this file (e.g., unused_fragments)
+        let project_diagnostics = analysis.project_lint_diagnostics_with_fixes();
+        if let Some(project_diags_for_file) = project_diagnostics.get(&file_path) {
+            lint_diagnostics.extend(project_diags_for_file.iter().cloned());
+        }
 
         if lint_diagnostics.is_empty() {
             return Ok(None);

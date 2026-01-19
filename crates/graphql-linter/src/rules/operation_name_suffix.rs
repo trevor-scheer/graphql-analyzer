@@ -1,7 +1,7 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
-use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 
 /// Trait implementation for `operation_name_suffix` rule
 ///
@@ -31,6 +31,7 @@ impl StandaloneDocumentLintRule for OperationNameSuffixRuleImpl {
         content: FileContent,
         metadata: FileMetadata,
         _project_files: ProjectFiles,
+        _options: Option<&serde_json::Value>,
     ) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
 

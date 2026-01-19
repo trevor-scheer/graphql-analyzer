@@ -95,14 +95,14 @@ extensions:
   project:
     lint:
       recommended: error
-      unique_names: error      # Project-wide unique names
-      unused_fields: warn      # Detect unused schema fields
-      no_deprecated: warn   # Warn on deprecated field usage
+      unique_names: error # Project-wide unique names
+      unused_fields: warn # Detect unused schema fields
+      no_deprecated: warn # Warn on deprecated field usage
   extractConfig:
     tagIdentifiers:
       - gql
       - graphql
-    requireImport: false  # Allow gql without import
+    requireImport: false # Allow gql without import
 ```
 
 ## Testing the LSP
@@ -126,6 +126,7 @@ This runs validation and linting on all GraphQL operations.
 ### 3. VSCode Extension
 
 Open this workspace in VSCode with the GraphQL LSP extension installed to test:
+
 - Real-time diagnostics
 - Go to definition
 - Find references
@@ -144,22 +145,26 @@ Open this workspace in VSCode with the GraphQL LSP extension installed to test:
 The workspace includes comprehensive examples:
 
 ### Pokemon Operations
+
 - Search by type, region, stats
 - Evolution chain queries
 - Detailed Pokemon info with fragments
 - Batch operations
 
 ### Trainer Management
+
 - Trainer profiles with Pokemon teams
 - Badge collections
 - Trainer battles
 
 ### Battle System
+
 - Battle creation and updates
 - Turn-by-turn battle logs
 - Battle history queries
 
 ### Mutations
+
 - Create/update trainers
 - Add Pokemon to teams
 - Start/end battles
@@ -196,6 +201,7 @@ The `schema.graphql` defines a comprehensive Pokemon API:
 ## Development
 
 This workspace serves as:
+
 1. **Test suite** for GraphQL LSP features
 2. **Example project** showing best practices
 3. **Development environment** for LSP work

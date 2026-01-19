@@ -95,7 +95,13 @@ type PullRequest implements Node & Assignable & Closable & Comment & Labelable &
   """
   A list of comments associated with the pull request.
   """
-  comments(first: Int, after: String, last: Int, before: String, orderBy: IssueCommentOrder): IssueCommentConnection!
+  comments(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: IssueCommentOrder
+  ): IssueCommentConnection!
 
   """
   A list of commits in the pull request.
@@ -192,7 +198,13 @@ type PullRequest implements Node & Assignable & Closable & Comment & Labelable &
   """
   A list of latest reviews per user for this PR.
   """
-  latestOpinionatedReviews(first: Int, after: String, last: Int, before: String, writersOnly: Boolean = false): PullRequestReviewConnection
+  latestOpinionatedReviews(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    writersOnly: Boolean = false
+  ): PullRequestReviewConnection
 
   """
   A list of latest reviews for this PR.
@@ -267,12 +279,24 @@ type PullRequest implements Node & Assignable & Closable & Comment & Labelable &
   """
   List of project items associated with this pull request.
   """
-  projectItems(first: Int, after: String, last: Int, before: String, includeArchived: Boolean = true): ProjectV2ItemConnection!
+  projectItems(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    includeArchived: Boolean = true
+  ): ProjectV2ItemConnection!
 
   """
   A list of projects this PR is referenced in.
   """
-  projectsV2(first: Int, after: String, last: Int, before: String, query: String): ProjectV2Connection!
+  projectsV2(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    query: String
+  ): ProjectV2Connection!
 
   """
   When the comment was published.
@@ -282,7 +306,14 @@ type PullRequest implements Node & Assignable & Closable & Comment & Labelable &
   """
   A list of reactions on the comment.
   """
-  reactions(first: Int, after: String, last: Int, before: String, content: ReactionContent, orderBy: ReactionOrder): ReactionConnection!
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
 
   """
   The repository associated with this pull request.
@@ -317,12 +348,24 @@ type PullRequest implements Node & Assignable & Closable & Comment & Labelable &
   """
   A list of review threads for this PR.
   """
-  reviewThreads(first: Int, after: String, last: Int, before: String): PullRequestReviewThreadConnection!
+  reviewThreads(
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): PullRequestReviewThreadConnection!
 
   """
   A list of reviews for this PR.
   """
-  reviews(first: Int, after: String, last: Int, before: String, states: [PullRequestReviewState!], author: String): PullRequestReviewConnection
+  reviews(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    states: [PullRequestReviewState!]
+    author: String
+  ): PullRequestReviewConnection
 
   """
   The state of the pull request.
@@ -337,7 +380,15 @@ type PullRequest implements Node & Assignable & Closable & Comment & Labelable &
   """
   A list of events, comments, and reviews.
   """
-  timelineItems(first: Int, after: String, last: Int, before: String, since: DateTime, skip: Int, itemTypes: [PullRequestTimelineItemsItemType!]): PullRequestTimelineItemsConnection!
+  timelineItems(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    since: DateTime
+    skip: Int
+    itemTypes: [PullRequestTimelineItemsItemType!]
+  ): PullRequestTimelineItemsConnection!
 
   """
   The pull request title.
@@ -482,7 +533,12 @@ type PullRequestReview implements Node & Comment & RepositoryNode & UniformResou
   """
   A list of review comments.
   """
-  comments(first: Int, after: String, last: Int, before: String): PullRequestReviewCommentConnection!
+  comments(
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): PullRequestReviewCommentConnection!
 
   """
   The associated commit.
@@ -539,7 +595,14 @@ type PullRequestReview implements Node & Comment & RepositoryNode & UniformResou
   """
   A list of reactions on the comment.
   """
-  reactions(first: Int, after: String, last: Int, before: String, content: ReactionContent, orderBy: ReactionOrder): ReactionConnection!
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
 
   """
   The repository containing the review.
@@ -629,7 +692,14 @@ type PullRequestReviewComment implements Node & Comment & Reactable & Repository
   publishedAt: DateTime
   pullRequest: PullRequest!
   pullRequestReview: PullRequestReview
-  reactions(first: Int, after: String, last: Int, before: String, content: ReactionContent, orderBy: ReactionOrder): ReactionConnection!
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
   replyTo: PullRequestReviewComment
   repository: Repository!
   resourcePath: URI!
@@ -666,7 +736,13 @@ enum PullRequestReviewCommentState {
 A review thread on a pull request.
 """
 type PullRequestReviewThread implements Node {
-  comments(first: Int, after: String, last: Int, before: String, skip: Int): PullRequestReviewCommentConnection!
+  comments(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    skip: Int
+  ): PullRequestReviewCommentConnection!
   diffSide: DiffSide!
   id: ID!
   isCollapsed: Boolean!

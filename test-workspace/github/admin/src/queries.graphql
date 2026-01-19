@@ -26,12 +26,7 @@ fragment AdminAuditEntry on AuditLogEntry {
   }
 }
 
-query GetAuditLog(
-  $first: Int = 50
-  $after: String
-  $query: String
-  $orderBy: AuditLogOrder
-) {
+query GetAuditLog($first: Int = 50, $after: String, $query: String, $orderBy: AuditLogOrder) {
   auditLogEntries(first: $first, after: $after, query: $query, orderBy: $orderBy) {
     totalCount
     pageInfo {

@@ -141,6 +141,7 @@ Use descriptive branch names with prefixes:
 - `test/` - Test additions or improvements (e.g., `test/validation-coverage`)
 
 Example:
+
 ```bash
 git checkout -b feat/add-completion-support
 ```
@@ -158,6 +159,7 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 ```
 
 **Types:**
+
 - `feat`: New feature
 - `fix`: Bug fix
 - `refactor`: Code refactoring
@@ -187,6 +189,7 @@ Fixes #123
 ### Code Style
 
 **Rust:**
+
 - Follow standard Rust conventions
 - Use `snake_case` for functions and variables
 - Use `CamelCase` for types and traits
@@ -195,12 +198,14 @@ Fixes #123
 - Run `cargo clippy` and address warnings
 
 **TypeScript (VSCode Extension):**
+
 - Follow the existing code style
 - Use 2-space indentation
 - Run `npm run format` before committing
 - Run `npm run lint` and fix issues
 
 **General:**
+
 - Write self-documenting code
 - Add comments only for subtle, confusing, or surprising behavior
 - Avoid needless comments that just restate what the code does
@@ -313,6 +318,7 @@ For warnings you believe are false positives, use `#[allow(clippy::specific_lint
 ### Pull Request Process
 
 1. **Sync with upstream:**
+
    ```bash
    git fetch upstream
    git rebase upstream/main
@@ -324,6 +330,7 @@ For warnings you believe are false positives, use `#[allow(clippy::specific_lint
    - No Clippy warnings: `cargo clippy --workspace`
 
 3. **Push to your fork:**
+
    ```bash
    git push origin your-branch-name
    ```
@@ -336,17 +343,20 @@ For warnings you believe are false positives, use `#[allow(clippy::specific_lint
 ### Pull Request Guidelines
 
 **Title:**
+
 - Clear and descriptive
 - Follow conventional commit format
 - No excessive emoji
 
 **Description:**
+
 - Explain what changed and why
 - Reference related issues (e.g., "Fixes #123")
 - Call out new and updated tests
 - Include examples if adding user-facing features
 
 **Don't:**
+
 - Mention that tests or linting passed (this is expected)
 - Include unrelated changes
 - Add features not requested or discussed
@@ -422,18 +432,21 @@ See [.claude/CLAUDE.md](.claude/CLAUDE.md) for detailed architecture documentati
 ### Adding Features
 
 **New Lint Rule:**
+
 1. Add rule in `crates/graphql-linter/src/rules/your_rule.rs`
 2. Register in `crates/graphql-linter/src/rules/mod.rs`
 3. Add tests
 4. Update linter README
 
 **New Validation:**
+
 1. Add query in `crates/graphql-analysis/src/`
 2. Update `file_diagnostics()` or relevant query
 3. Add tests
 4. Update analysis README
 
 **New IDE Feature:**
+
 1. Add POD type in `crates/graphql-ide/src/types.rs`
 2. Implement query in `crates/graphql-ide/src/lib.rs`
 3. Integrate in LSP (`crates/graphql-lsp/src/`)
@@ -455,6 +468,7 @@ See [.claude/CLAUDE.md#common-tasks](.claude/CLAUDE.md#common-tasks) for detaile
 ### Reporting Bugs
 
 Include:
+
 - GraphQL LSP version
 - Operating system and version
 - Rust version (`rustc --version`)
@@ -466,6 +480,7 @@ Include:
 ### Feature Requests
 
 Before opening an issue:
+
 - Check if the feature already exists
 - Search existing issues for similar requests
 - Explain the use case and motivation

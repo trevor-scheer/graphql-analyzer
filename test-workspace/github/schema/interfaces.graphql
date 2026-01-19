@@ -128,10 +128,7 @@ interface Sponsorable {
   """
   Total amount received on GitHub Sponsors in cents.
   """
-  totalSponsorshipAmountAsSponsorInCents(
-    since: DateTime
-    until: DateTime
-  ): Int
+  totalSponsorshipAmountAsSponsorInCents(since: DateTime, until: DateTime): Int
 }
 
 """
@@ -141,13 +138,7 @@ interface Labelable {
   """
   A list of labels associated with the object.
   """
-  labels(
-    first: Int
-    after: String
-    last: Int
-    before: String
-    orderBy: LabelOrder
-  ): LabelConnection
+  labels(first: Int, after: String, last: Int, before: String, orderBy: LabelOrder): LabelConnection
 }
 
 """
@@ -187,12 +178,7 @@ interface Assignable {
   """
   A list of users assigned to the object.
   """
-  assignees(
-    first: Int
-    after: String
-    last: Int
-    before: String
-  ): UserConnection!
+  assignees(first: Int, after: String, last: Int, before: String): UserConnection!
 }
 
 """
@@ -470,12 +456,7 @@ interface Contributable {
   """
   A list of users who have contributed to this object.
   """
-  contributors(
-    first: Int
-    after: String
-    last: Int
-    before: String
-  ): ContributorConnection
+  contributors(first: Int, after: String, last: Int, before: String): ContributorConnection
 }
 
 """

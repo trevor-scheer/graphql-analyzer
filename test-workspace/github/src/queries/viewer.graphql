@@ -40,11 +40,7 @@ query GetViewerOrganizations($first: Int = 10, $after: String) {
   }
 }
 
-query GetViewerStarredRepositories(
-  $first: Int = 30
-  $after: String
-  $orderBy: StarOrder
-) {
+query GetViewerStarredRepositories($first: Int = 30, $after: String, $orderBy: StarOrder) {
   viewer {
     starredRepositories(first: $first, after: $after, orderBy: $orderBy) {
       totalCount

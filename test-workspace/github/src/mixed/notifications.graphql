@@ -18,7 +18,12 @@ fragment NotificationPRSummary on PullRequest {
 }
 
 # Query that uses local fragments
-query GetNotificationSubjects($owner: String!, $name: String!, $issueNumbers: [Int!]!, $prNumbers: [Int!]!) {
+query GetNotificationSubjects(
+  $owner: String!
+  $name: String!
+  $issueNumbers: [Int!]!
+  $prNumbers: [Int!]!
+) {
   repository(owner: $owner, name: $name) {
     # Get issues
     issue1: issue(number: 1) {

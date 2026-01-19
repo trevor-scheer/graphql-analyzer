@@ -1,11 +1,16 @@
+# Node
+node_modules/
+
 # Rust
 /target/
 **/*.rs.bk
 *.pdb
 
 # IDE
-.vscode/
+.vscode/*
+!.vscode/extensions.json
 !.vscode/launch.json
+!.vscode/settings.json
 !.vscode/tasks.json
 .idea/
 *.swp

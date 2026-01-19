@@ -21,7 +21,7 @@ use crate::FileRegistry;
 pub fn hover(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
     registry: &FileRegistry,
-    project_files: Option<graphql_db::ProjectFiles>,
+    project_files: Option<graphql_base_db::ProjectFiles>,
     file: &FilePath,
     position: Position,
 ) -> Option<HoverResult> {
@@ -134,6 +134,7 @@ pub fn hover(
                 graphql_hir::TypeDefKind::Enum => "Enum",
                 graphql_hir::TypeDefKind::Scalar => "Scalar",
                 graphql_hir::TypeDefKind::InputObject => "Input Object",
+                _ => "Unknown",
             };
             write!(hover_text, "**Kind:** {kind_str}\n\n").ok();
 

@@ -102,7 +102,11 @@ type EvolutionPath {
   requirement: EvolutionRequirement!
 }
 
-union EvolutionRequirement = LevelRequirement | ItemRequirement | TradeRequirement | FriendshipRequirement
+union EvolutionRequirement =
+  | LevelRequirement
+  | ItemRequirement
+  | TradeRequirement
+  | FriendshipRequirement
 
 type LevelRequirement {
   level: Int!

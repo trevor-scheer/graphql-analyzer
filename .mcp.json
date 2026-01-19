@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "graphql": {
+      "type": "stdio",
+      "command": "./target/debug/graphql",
+      "args": ["mcp"],
+      "env": {
+        "RUST_LOG": "graphql_mcp=info"
+      }
+    }
+  }
+}

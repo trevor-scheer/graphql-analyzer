@@ -128,6 +128,7 @@ let sdl = introspection_to_sdl(&response);
 #### `INTROSPECTION_QUERY: &str`
 
 The standard GraphQL introspection query string. Includes:
+
 - All schema types (scalars, objects, interfaces, unions, enums, input objects)
 - Field definitions with arguments and deprecation
 - Directive definitions with locations and arguments
@@ -204,12 +205,15 @@ The SDL generator produces clean, readable schema definitions:
 ### What Gets Filtered
 
 **Built-in scalars:**
+
 - `Int`, `Float`, `String`, `Boolean`, `ID`
 
 **Introspection types:**
+
 - Types starting with `__` (like `__Schema`, `__Type`, `__Field`)
 
 **Built-in directives:**
+
 - `@skip`, `@include`, `@deprecated`, `@specifiedBy`
 
 ### What Gets Preserved
@@ -228,6 +232,7 @@ The SDL generator produces clean, readable schema definitions:
 ### Schema Definition Block
 
 Only generated when necessary:
+
 - Query type is not named "Query"
 - Mutation type is not named "Mutation"
 - Subscription type is not named "Subscription"
@@ -321,6 +326,7 @@ async fn main() {
 ### HTTP Client
 
 Built on [reqwest](https://docs.rs/reqwest/) with:
+
 - Automatic JSON serialization/deserialization
 - Standard GraphQL POST request format (`{"query": "...", "variables": {}}`)
 - Error handling for network and HTTP failures
@@ -328,6 +334,7 @@ Built on [reqwest](https://docs.rs/reqwest/) with:
 ### Type Conversion
 
 The SDL conversion handles:
+
 - Type reference unwrapping (NonNull and List wrappers)
 - Description formatting (single-line vs multi-line)
 - String escaping (quotes, newlines, backslashes)
@@ -337,6 +344,7 @@ The SDL conversion handles:
 ### Introspection Query Depth
 
 The introspection query supports up to 7 levels of type nesting:
+
 ```graphql
 type {
   ofType {  # Level 1

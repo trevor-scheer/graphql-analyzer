@@ -132,7 +132,14 @@ type Discussion implements Node & Comment & Closable & Labelable & Lockable & Re
   """
   A list of reactions on the discussion.
   """
-  reactions(first: Int, after: String, last: Int, before: String, content: ReactionContent, orderBy: ReactionOrder): ReactionConnection!
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
 
   """
   The repository associated with the discussion.
@@ -324,7 +331,14 @@ type DiscussionComment implements Node & Comment & Reactable & UniformResourceLo
   """
   A list of reactions on the comment.
   """
-  reactions(first: Int, after: String, last: Int, before: String, content: ReactionContent, orderBy: ReactionOrder): ReactionConnection!
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
 
   """
   A list of replies to the comment.
@@ -433,7 +447,13 @@ type DiscussionPoll implements Node {
   """
   A list of poll options.
   """
-  options(first: Int, after: String, last: Int, before: String, orderBy: DiscussionPollOptionOrder): DiscussionPollOptionConnection
+  options(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: DiscussionPollOptionOrder
+  ): DiscussionPollOptionConnection
 
   """
   The poll question.

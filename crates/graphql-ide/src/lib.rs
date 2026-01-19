@@ -81,7 +81,7 @@ use symbol::{
 };
 
 // Re-export database types that IDE layer needs
-pub use graphql_db::FileKind;
+pub use graphql_base_db::FileKind;
 
 /// Information about a loaded file from document discovery
 #[derive(Debug, Clone)]
@@ -542,7 +542,7 @@ struct IdeDatabase {
     storage: salsa::Storage<Self>,
     lint_config_input: Option<LintConfigInput>,
     extract_config_input: Option<ExtractConfigInput>,
-    project_files: Arc<RwLock<Option<graphql_db::ProjectFiles>>>,
+    project_files: Arc<RwLock<Option<graphql_base_db::ProjectFiles>>>,
 }
 
 impl Default for IdeDatabase {
@@ -581,7 +581,7 @@ impl graphql_syntax::GraphQLSyntaxDatabase for IdeDatabase {
 
 #[salsa::db]
 impl graphql_hir::GraphQLHirDatabase for IdeDatabase {
-    fn project_files(&self) -> Option<graphql_db::ProjectFiles> {
+    fn project_files(&self) -> Option<graphql_base_db::ProjectFiles> {
         *self.project_files.read()
     }
 }
@@ -1071,7 +1071,7 @@ pub struct Analysis {
     registry: Arc<RwLock<FileRegistry>>,
     /// Cached `ProjectFiles` for HIR queries
     /// This is fetched from the registry when the snapshot is created
-    project_files: Option<graphql_db::ProjectFiles>,
+    project_files: Option<graphql_base_db::ProjectFiles>,
 }
 
 impl Analysis {
@@ -1499,19 +1499,23 @@ impl Analysis {
                 .as_ref()
                 .map_or_else(|| "<anonymous>".to_string(), ToString::to_string);
 
+            #[allow(clippy::match_same_arms)]
             let op_type = match operation.operation_type {
                 graphql_hir::OperationType::Query => "query",
                 graphql_hir::OperationType::Mutation => "mutation",
                 graphql_hir::OperationType::Subscription => "subscription",
+                _ => "query", // fallback for future operation types
             };
 
             let mut analysis = ComplexityAnalysis::new(op_name, op_type, file_path, range);
 
             // Get the root type for this operation
+            #[allow(clippy::match_same_arms)]
             let root_type_name = match operation.operation_type {
                 graphql_hir::OperationType::Query => "Query",
                 graphql_hir::OperationType::Mutation => "Mutation",
                 graphql_hir::OperationType::Subscription => "Subscription",
+                _ => "Query", // fallback for future operation types
             };
 
             // Analyze the operation body
@@ -1905,7 +1909,7 @@ impl Analysis {
 
         for file_id in doc_ids.iter() {
             let Some((content, metadata)) =
-                graphql_db::file_lookup(&self.db, project_files, *file_id)
+                graphql_base_db::file_lookup(&self.db, project_files, *file_id)
             else {
                 continue;
             };
@@ -1967,7 +1971,7 @@ impl Analysis {
 
         for file_id in schema_ids.iter() {
             let Some((content, metadata)) =
-                graphql_db::file_lookup(&self.db, project_files, *file_id)
+                graphql_base_db::file_lookup(&self.db, project_files, *file_id)
             else {
                 continue;
             };
@@ -2012,7 +2016,7 @@ impl Analysis {
 
             for file_id in schema_ids.iter() {
                 let Some((content, metadata)) =
-                    graphql_db::file_lookup(&self.db, project_files, *file_id)
+                    graphql_base_db::file_lookup(&self.db, project_files, *file_id)
                 else {
                     continue;
                 };
@@ -2052,7 +2056,7 @@ impl Analysis {
 
         for file_id in doc_ids.iter() {
             let Some((content, metadata)) =
-                graphql_db::file_lookup(&self.db, project_files, *file_id)
+                graphql_base_db::file_lookup(&self.db, project_files, *file_id)
             else {
                 continue;
             };
@@ -2301,6 +2305,7 @@ impl Analysis {
         for (name, type_def) in types {
             if name.to_lowercase().contains(&query_lower) {
                 if let Some(location) = self.get_type_location(type_def) {
+                    #[allow(clippy::match_same_arms)]
                     let kind = match type_def.kind {
                         graphql_hir::TypeDefKind::Object => SymbolKind::Type,
                         graphql_hir::TypeDefKind::Interface => SymbolKind::Interface,
@@ -2308,6 +2313,7 @@ impl Analysis {
                         graphql_hir::TypeDefKind::Enum => SymbolKind::Enum,
                         graphql_hir::TypeDefKind::Scalar => SymbolKind::Scalar,
                         graphql_hir::TypeDefKind::InputObject => SymbolKind::Input,
+                        _ => SymbolKind::Type, // fallback for future type kinds
                     };
 
                     symbols.push(WorkspaceSymbol::new(name.to_string(), kind, location));
@@ -2332,21 +2338,23 @@ impl Analysis {
         let doc_ids = project_files.document_file_ids(&self.db).ids(&self.db);
         for file_id in doc_ids.iter() {
             let Some((content, metadata)) =
-                graphql_db::file_lookup(&self.db, project_files, *file_id)
+                graphql_base_db::file_lookup(&self.db, project_files, *file_id)
             else {
                 continue;
             };
             let structure = graphql_hir::file_structure(&self.db, *file_id, content, metadata);
-            for operation in &structure.operations {
+            for operation in structure.operations.iter() {
                 if let Some(op_name) = &operation.name {
                     if op_name.to_lowercase().contains(&query_lower) {
                         if let Some(location) = self.get_operation_location(operation) {
+                            #[allow(clippy::match_same_arms)]
                             let kind = match operation.operation_type {
                                 graphql_hir::OperationType::Query => SymbolKind::Query,
                                 graphql_hir::OperationType::Mutation => SymbolKind::Mutation,
                                 graphql_hir::OperationType::Subscription => {
                                     SymbolKind::Subscription
                                 }
+                                _ => SymbolKind::Query, // fallback for future operation types
                             };
 
                             symbols.push(WorkspaceSymbol::new(op_name.to_string(), kind, location));
@@ -2379,6 +2387,7 @@ impl Analysis {
                 graphql_hir::TypeDefKind::Enum => stats.enums += 1,
                 graphql_hir::TypeDefKind::Scalar => stats.scalars += 1,
                 graphql_hir::TypeDefKind::InputObject => stats.input_objects += 1,
+                _ => {} // ignore future type kinds
             }
             // Count fields for types that have fields
             stats.total_fields += type_def.fields.len();
@@ -2388,7 +2397,7 @@ impl Analysis {
         let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
         for file_id in schema_ids.iter() {
             let Some((content, metadata)) =
-                graphql_db::file_lookup(&self.db, project_files, *file_id)
+                graphql_base_db::file_lookup(&self.db, project_files, *file_id)
             else {
                 continue;
             };
@@ -2572,7 +2581,7 @@ impl Analysis {
     fn compute_transitive_dependencies(
         &self,
         fragment_name: &str,
-        project_files: graphql_db::ProjectFiles,
+        project_files: graphql_base_db::ProjectFiles,
     ) -> Vec<String> {
         let spreads_index = graphql_hir::fragment_spreads_index(&self.db, project_files);
 
@@ -2640,7 +2649,7 @@ impl Analysis {
         let mut lenses = Vec::new();
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
-        for fragment in &structure.fragments {
+        for fragment in structure.fragments.iter() {
             // Find usage info for this fragment
             let usage_count = fragment_usages
                 .iter()
@@ -5870,7 +5879,7 @@ query GetUser {
         host.add_file(
             &file_path,
             doc_content.trim(),
-            graphql_db::FileKind::ExecutableGraphQL,
+            graphql_base_db::FileKind::ExecutableGraphQL,
         );
         host.rebuild_project_files();
 

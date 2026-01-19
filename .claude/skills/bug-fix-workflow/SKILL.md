@@ -17,6 +17,7 @@ test: reproduce <issue description>
 ```
 
 This commit adds a **failing test** that demonstrates the bug:
+
 - The test should fail BEFORE the fix
 - The test should pass AFTER the fix
 - The test prevents future regressions
@@ -28,6 +29,7 @@ fix: <description of what was fixed>
 ```
 
 This commit:
+
 - Fixes the actual bug
 - Updates the test if needed (e.g., expected values)
 - May include additional related fixes

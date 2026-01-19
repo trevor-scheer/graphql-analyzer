@@ -1,14 +1,16 @@
 use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase, Position, Severity};
-use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Convert `LintSeverity` to Severity
-const fn convert_severity(lint_severity: graphql_linter::LintSeverity) -> Severity {
+#[allow(clippy::match_same_arms)]
+fn convert_severity(lint_severity: graphql_linter::LintSeverity) -> Severity {
     match lint_severity {
         graphql_linter::LintSeverity::Error => Severity::Error,
         graphql_linter::LintSeverity::Warn => Severity::Warning,
         graphql_linter::LintSeverity::Off => Severity::Info,
+        _ => Severity::Info, // fallback for future severity levels
     }
 }
 
@@ -120,7 +122,8 @@ fn standalone_document_lints(
             continue;
         }
 
-        let lint_diags = rule.check(db, file_id, content, metadata, project_files);
+        let options = lint_config.get_options(rule.name());
+        let lint_diags = rule.check(db, file_id, content, metadata, project_files, options);
 
         if !lint_diags.is_empty() {
             tracing::debug!(
@@ -168,7 +171,8 @@ fn document_schema_lints(
             continue;
         }
 
-        let lint_diags = rule.check(db, file_id, content, metadata, project_files);
+        let options = lint_config.get_options(rule.name());
+        let lint_diags = rule.check(db, file_id, content, metadata, project_files, options);
 
         if !lint_diags.is_empty() {
             tracing::debug!(
@@ -252,7 +256,8 @@ fn project_lint_diagnostics_impl(
             continue;
         }
 
-        let lint_diags = rule.check(db, project_files);
+        let options = lint_config.get_options(rule.name());
+        let lint_diags = rule.check(db, project_files, options);
 
         tracing::info!(
             rule = rule.name(),
@@ -293,7 +298,7 @@ fn find_file_content_and_metadata(
     project_files: ProjectFiles,
     file_id: FileId,
 ) -> Option<(FileContent, FileMetadata)> {
-    graphql_db::file_lookup(db, project_files, file_id)
+    graphql_base_db::file_lookup(db, project_files, file_id)
 }
 
 /// Get raw lint diagnostics for a file (with fix information preserved)
@@ -326,14 +331,30 @@ pub fn lint_file_with_fixes(
         // Standalone document lints
         for rule in graphql_linter::standalone_document_rules() {
             if lint_config.is_enabled(rule.name()) {
-                all_diagnostics.extend(rule.check(db, file_id, content, metadata, project_files));
+                let options = lint_config.get_options(rule.name());
+                all_diagnostics.extend(rule.check(
+                    db,
+                    file_id,
+                    content,
+                    metadata,
+                    project_files,
+                    options,
+                ));
             }
         }
 
         // Document+schema lints
         for rule in graphql_linter::document_schema_rules() {
             if lint_config.is_enabled(rule.name()) {
-                all_diagnostics.extend(rule.check(db, file_id, content, metadata, project_files));
+                let options = lint_config.get_options(rule.name());
+                all_diagnostics.extend(rule.check(
+                    db,
+                    file_id,
+                    content,
+                    metadata,
+                    project_files,
+                    options,
+                ));
             }
         }
     }
@@ -362,7 +383,8 @@ pub fn project_lint_diagnostics_with_fixes(
         }
 
         // Run the project-wide rule
-        let lint_diags = rule.check(db, project_files);
+        let options = lint_config.get_options(rule.name());
+        let lint_diags = rule.check(db, project_files, options);
 
         // Merge into result
         for (file_id, file_lint_diags) in lint_diags {

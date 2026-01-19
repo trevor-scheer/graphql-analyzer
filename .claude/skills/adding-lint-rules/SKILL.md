@@ -12,11 +12,11 @@ Follow this process when implementing a new lint rule for the GraphQL linter.
 
 Select based on the context your rule needs:
 
-| Rule Type | Use When | Context Available |
-|-----------|----------|-------------------|
-| `StandaloneDocumentRule` | No schema needed | Document AST only |
-| `DocumentSchemaRule` | Schema validation needed | Document + Schema |
-| `ProjectRule` | Cross-file analysis needed | All project files |
+| Rule Type                | Use When                   | Context Available |
+| ------------------------ | -------------------------- | ----------------- |
+| `StandaloneDocumentRule` | No schema needed           | Document AST only |
+| `DocumentSchemaRule`     | Schema validation needed   | Document + Schema |
+| `ProjectRule`            | Cross-file analysis needed | All project files |
 
 ## Step 2: Create the Rule File
 
@@ -87,6 +87,7 @@ mod tests {
 ## Step 5: Update Documentation
 
 Add your rule to `crates/graphql-linter/README.md` with:
+
 - Rule name and description
 - Example of violation
 - Example of correct usage
@@ -126,6 +127,7 @@ Before considering the rule complete:
 ## Reference
 
 See existing rules in `crates/graphql-linter/src/rules/` for patterns:
+
 - `no_deprecated.rs` - Simple field checking
 - `require_id_field.rs` - Selection set analysis
 - `redundant_fields.rs` - Cross-reference checking

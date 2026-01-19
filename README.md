@@ -17,6 +17,7 @@ graphql-lsp/
 │   ├── graphql-linter/       # Linting engine with custom rules
 │   ├── graphql-ide/          # Editor-facing IDE features API
 │   ├── graphql-lsp/          # LSP server implementation
+│   ├── graphql-mcp/          # MCP server for AI agents
 │   └── graphql-cli/          # CLI tool for CI/CD
 └── .claude/
     └── project-plan.md       # Comprehensive project plan
@@ -113,6 +114,27 @@ Language Server Protocol implementation for GraphQL.
 - Document symbols
 - Code actions
 
+### graphql-mcp
+
+MCP (Model Context Protocol) server for AI agent integration.
+
+**Features:**
+
+- Schema-aware validation
+- Linting with diagnostics
+- Multi-project support
+- On-demand project loading
+
+**Available Tools:**
+
+- `validate_document` - Validate GraphQL against schema
+- `lint_document` - Run lint rules on a document
+- `list_projects` - List available projects
+- `load_project` - Load a project on demand
+- `get_project_diagnostics` - Get diagnostics for all files
+
+See [graphql-mcp README](crates/graphql-mcp/README.md) for setup instructions.
+
 ### graphql-cli
 
 Command-line tool for validation, linting, and CI/CD integration.
@@ -121,6 +143,7 @@ Command-line tool for validation, linting, and CI/CD integration.
 
 - `graphql validate` - Validate schema and documents (Apollo compiler validation)
 - `graphql lint` - Run custom lint rules with configurable severity
+- `graphql mcp` - Start MCP server for AI agent integration
 - `graphql check` - Check for breaking changes (coming soon)
 
 ## Installation
@@ -342,6 +365,7 @@ cargo run -p graphql-lsp
   - Find references (fragments, types, fields)
   - Hover information
 - CLI tools (validate, lint) with JSON output
+- MCP server for AI agent integration
 - VSCode extension with automatic LSP binary download
 
 🚧 **In Progress:**
@@ -399,17 +423,17 @@ Linting is configured via top-level `lint` with optional tool-specific overrides
 
 **Available rules:**
 
-| Rule | Description | Recommended |
-|------|-------------|-------------|
-| `unique_names` | Ensures operation and fragment names are unique across the project | error |
-| `no_anonymous_operations` | Requires all operations to have explicit names for better monitoring and debugging | error |
-| `no_deprecated` | Warns when using deprecated fields, arguments, or enum values | warn |
-| `redundant_fields` | Detects fields that are redundant because they are already included in a sibling fragment spread | warn |
-| `require_id_field` | Warns when the `id` field is not requested on types that have it | warn |
-| `unused_fields` | Detects schema fields that are never used in any operation or fragment | - |
-| `unused_fragments` | Detects fragment definitions that are never used in any operation | - |
-| `unused_variables` | Detects variables declared in operations that are never used | - |
-| `operation_name_suffix` | Requires operation names to have type-specific suffixes (Query, Mutation, Subscription) | - |
+| Rule                      | Description                                                                                      | Recommended |
+| ------------------------- | ------------------------------------------------------------------------------------------------ | ----------- |
+| `unique_names`            | Ensures operation and fragment names are unique across the project                               | error       |
+| `no_anonymous_operations` | Requires all operations to have explicit names for better monitoring and debugging               | error       |
+| `no_deprecated`           | Warns when using deprecated fields, arguments, or enum values                                    | warn        |
+| `redundant_fields`        | Detects fields that are redundant because they are already included in a sibling fragment spread | warn        |
+| `require_id_field`        | Warns when the `id` field is not requested on types that have it                                 | warn        |
+| `unused_fields`           | Detects schema fields that are never used in any operation or fragment                           | -           |
+| `unused_fragments`        | Detects fragment definitions that are never used in any operation                                | -           |
+| `unused_variables`        | Detects variables declared in operations that are never used                                     | -           |
+| `operation_name_suffix`   | Requires operation names to have type-specific suffixes (Query, Mutation, Subscription)          | -           |
 
 Rules marked with `-` in the Recommended column are not included in the `recommended` preset and must be explicitly enabled.
 
@@ -448,8 +472,8 @@ lint:
   recommended: error
   rules:
     # Override a recommended rule's severity
-    no_deprecated: off        # Disable entirely
-    require_id_field: error   # Upgrade from warn to error
+    no_deprecated: off # Disable entirely
+    require_id_field: error # Upgrade from warn to error
 ```
 
 **Tool-specific overrides:**
@@ -462,12 +486,12 @@ extensions:
   cli:
     lint:
       rules:
-        unused_fields: error   # Enable for CLI
+        unused_fields: error # Enable for CLI
 
   lsp:
     lint:
       rules:
-        unused_fields: off     # Disable for LSP
+        unused_fields: off # Disable for LSP
 ```
 
 **Per-project configuration:**
@@ -480,7 +504,7 @@ projects:
     lint:
       recommended: error
       rules:
-        no_deprecated: off     # Project-specific override
+        no_deprecated: off # Project-specific override
 ```
 
 ## License

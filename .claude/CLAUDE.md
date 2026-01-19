@@ -56,10 +56,6 @@ cd editors/vscode
 npm run compile                 # Build extension
 npm run format                  # Format TypeScript
 npm run lint                    # Lint TypeScript
-
-# Quick Install (builds LSP + installs extension)
-cargo xtask install             # Debug build
-cargo xtask install --release   # Release build
 ```
 
 ### Critical File Locations
@@ -103,14 +99,15 @@ This is a **GraphQL Language Server Protocol (LSP)** implementation written in R
 
 These features are fundamental to the project's value proposition and must NOT be removed or degraded:
 
-| Feature | Why It's Critical | What Enables It |
-|---------|-------------------|-----------------|
-| **Embedded GraphQL in TS/JS** | Most GraphQL users write queries in TS/JS files, not `.graphql` files | `documentSelector` includes TS/JS languages in VSCode extension |
-| **Real-time diagnostics** | Users expect immediate feedback while typing | LSP `textDocument/didChange` notifications |
-| **Project-wide fragment resolution** | Fragments are defined across many files | `all_fragments()` query indexes entire project |
-| **Schema validation** | Invalid schemas break everything downstream | `graphql-analysis` validates before use |
+| Feature                              | Why It's Critical                                                     | What Enables It                                                 |
+| ------------------------------------ | --------------------------------------------------------------------- | --------------------------------------------------------------- |
+| **Embedded GraphQL in TS/JS**        | Most GraphQL users write queries in TS/JS files, not `.graphql` files | `documentSelector` includes TS/JS languages in VSCode extension |
+| **Real-time diagnostics**            | Users expect immediate feedback while typing                          | LSP `textDocument/didChange` notifications                      |
+| **Project-wide fragment resolution** | Fragments are defined across many files                               | `all_fragments()` query indexes entire project                  |
+| **Schema validation**                | Invalid schemas break everything downstream                           | `graphql-analysis` validates before use                         |
 
 **Performance concerns are valid but must be solved without removing features.** Acceptable solutions:
+
 - Server-side filtering (only process files containing GraphQL)
 - Lazy/deferred processing
 - Debouncing rapid changes
@@ -363,10 +360,11 @@ documentSelector: [
   { scheme: "file", language: "typescript" },
   { scheme: "file", language: "typescriptreact" },
   // etc.
-]
+];
 ```
 
 The `documentSelector` controls which files receive **LSP features**:
+
 - `textDocument/didOpen` and `textDocument/didChange` notifications
 - Diagnostics, hover, goto definition, find references, completion
 - Real-time feedback as the user types
@@ -376,6 +374,7 @@ The `documentSelector` controls which files receive **LSP features**:
 #### Grammar Injection (Syntax Highlighting Only)
 
 Grammar injection (via TextMate grammars) provides **syntax highlighting only**:
+
 - Colorizes GraphQL inside template literals
 - Purely visual - no semantic understanding
 - Completely separate from LSP
@@ -383,10 +382,11 @@ Grammar injection (via TextMate grammars) provides **syntax highlighting only**:
 #### File Watcher (Disk Events Only)
 
 ```typescript
-fileEvents: workspace.createFileSystemWatcher("**/*.{graphql,gql,ts,tsx}")
+fileEvents: workspace.createFileSystemWatcher("**/*.{graphql,gql,ts,tsx}");
 ```
 
 The file watcher fires `workspace/didChangeWatchedFiles` **only on disk saves**:
+
 - Does NOT provide real-time editing feedback
 - Does NOT send document content to the server
 - Only useful for detecting file creation/deletion/rename
@@ -544,6 +544,7 @@ mod tests {
 #### When to Use Snapshots
 
 Use `cargo-insta` snapshots when:
+
 - Output is complex or multi-line (diagnostic messages, formatted output)
 - You want to catch unintended changes in output format
 - Manual assertion would be verbose and hard to read
@@ -675,13 +676,6 @@ npm run package
 
 # Install locally
 code --install-extension graphql-lsp-*.vsix
-```
-
-Or use the xtask shortcut which does all of the above in one command:
-
-```bash
-cargo xtask install          # Debug build
-cargo xtask install --release  # Release build
 ```
 
 ---
@@ -838,6 +832,7 @@ Overhead: ~1-2% CPU when enabled, zero when disabled.
 Code should be self-documenting. Avoid comments that merely restate what the code does.
 
 **DO NOT add comments that:**
+
 - Describe what the next line of code does (e.g., `// Parse the file`, `// Return the result`)
 - Repeat information obvious from variable/function names (e.g., `// Create source map` before `SourceMap::new()`)
 - Mark sections with obvious purpose (e.g., `// Phase 1: Load files`)
@@ -845,6 +840,7 @@ Code should be self-documenting. Avoid comments that merely restate what the cod
 - Describe test structure (e.g., `// Test database`, `// First line`)
 
 **DO add comments for:**
+
 - **Why** something non-obvious is done (e.g., `// Use offset 0 because apollo-compiler errors lack precise positions`)
 - Subtle behavior or edge cases (e.g., `// Handles cycles in fragment references`)
 - Safety invariants (e.g., `// SAFETY: storage is owned and outlives references`)
@@ -1031,18 +1027,18 @@ This project includes Subject Matter Expert (SME) agents in `.claude/agents/` th
 
 ### Available Agents
 
-| Agent | File | Domain |
-|-------|------|--------|
-| **GraphQL Specification** | `graphql.md` | GraphQL spec compliance, validation rules, type system |
-| **Apollo Client** | `apollo-client.md` | Apollo Client patterns, caching, fragment colocation |
-| **rust-analyzer** | `rust-analyzer.md` | Query-based architecture, Salsa, incremental computation |
-| **Salsa** | `salsa.md` | Salsa framework, database design, snapshot isolation, concurrency |
-| **Rust** | `rust.md` | Idiomatic Rust, ownership, error handling, API design |
-| **Language Server Protocol** | `lsp.md` | LSP specification, protocol messages, client compatibility |
-| **GraphiQL** | `graphiql.md` | IDE features, graphql-language-service, UX patterns |
-| **GraphQL CLI** | `graphql-cli.md` | CLI design, graphql-config, ecosystem tooling |
-| **VSCode Extension** | `vscode-extension.md` | Extension development, activation, language client |
-| **Apollo-rs** | `apollo-rs.md` | apollo-parser, apollo-compiler, error-tolerant parsing |
+| Agent                        | File                  | Domain                                                            |
+| ---------------------------- | --------------------- | ----------------------------------------------------------------- |
+| **GraphQL Specification**    | `graphql.md`          | GraphQL spec compliance, validation rules, type system            |
+| **Apollo Client**            | `apollo-client.md`    | Apollo Client patterns, caching, fragment colocation              |
+| **rust-analyzer**            | `rust-analyzer.md`    | Query-based architecture, Salsa, incremental computation          |
+| **Salsa**                    | `salsa.md`            | Salsa framework, database design, snapshot isolation, concurrency |
+| **Rust**                     | `rust.md`             | Idiomatic Rust, ownership, error handling, API design             |
+| **Language Server Protocol** | `lsp.md`              | LSP specification, protocol messages, client compatibility        |
+| **GraphiQL**                 | `graphiql.md`         | IDE features, graphql-language-service, UX patterns               |
+| **GraphQL CLI**              | `graphql-cli.md`      | CLI design, graphql-config, ecosystem tooling                     |
+| **VSCode Extension**         | `vscode-extension.md` | Extension development, activation, language client                |
+| **Apollo-rs**                | `apollo-rs.md`        | apollo-parser, apollo-compiler, error-tolerant parsing            |
 
 ### SME Consultation
 
@@ -1058,15 +1054,15 @@ Use the `/sme-consultation` skill when implementing features, fixing bugs, or ma
 
 Skills provide contextual guidance for common workflows. They activate automatically based on task description or can be invoked manually.
 
-| Skill | Slash Command | When It Activates |
-|-------|---------------|-------------------|
-| SME Consultation | `/sme-consultation` | Feature work, bug fixes, architecture changes |
-| Adding Lint Rules | `/adding-lint-rules` | Implementing lint rules, adding validation |
-| Bug Fix Workflow | `/bug-fix-workflow` | Fixing bugs, addressing issues |
-| Create PR | `/create-pr` | Opening PRs, preparing for review |
-| Add IDE Feature | `/add-ide-feature` | Implementing LSP features (hover, goto def, etc.) |
-| Debug LSP | `/debug-lsp` | Troubleshooting LSP server issues |
-| Review PR | `/review-pr` | Reviewing pull requests |
+| Skill             | Slash Command        | When It Activates                                 |
+| ----------------- | -------------------- | ------------------------------------------------- |
+| SME Consultation  | `/sme-consultation`  | Feature work, bug fixes, architecture changes     |
+| Adding Lint Rules | `/adding-lint-rules` | Implementing lint rules, adding validation        |
+| Bug Fix Workflow  | `/bug-fix-workflow`  | Fixing bugs, addressing issues                    |
+| Create PR         | `/create-pr`         | Opening PRs, preparing for review                 |
+| Add IDE Feature   | `/add-ide-feature`   | Implementing LSP features (hover, goto def, etc.) |
+| Debug LSP         | `/debug-lsp`         | Troubleshooting LSP server issues                 |
+| Review PR         | `/review-pr`         | Reviewing pull requests                           |
 
 Skills are located in `.claude/skills/` and are loaded into context when relevant.
 

@@ -15,7 +15,13 @@ type Commit implements Node & GitObject & Subscribable & UniformResourceLocatabl
   """
   The merged pull requests associated with this commit.
   """
-  associatedPullRequests(first: Int, after: String, last: Int, before: String, orderBy: PullRequestOrder): PullRequestConnection
+  associatedPullRequests(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: PullRequestOrder
+  ): PullRequestConnection
 
   """
   The author of the commit.
@@ -50,7 +56,13 @@ type Commit implements Node & GitObject & Subscribable & UniformResourceLocatabl
   """
   The check suites associated with a commit.
   """
-  checkSuites(first: Int, after: String, last: Int, before: String, filterBy: CheckSuiteFilter): CheckSuiteConnection
+  checkSuites(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    filterBy: CheckSuiteFilter
+  ): CheckSuiteConnection
 
   """
   Comments on the commit.
@@ -90,12 +102,28 @@ type Commit implements Node & GitObject & Subscribable & UniformResourceLocatabl
   """
   Deployments associated with the commit.
   """
-  deployments(first: Int, after: String, last: Int, before: String, environments: [String!], orderBy: DeploymentOrder): DeploymentConnection
+  deployments(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    environments: [String!]
+    orderBy: DeploymentOrder
+  ): DeploymentConnection
 
   """
   The linear commit history starting from this commit.
   """
-  history(first: Int, after: String, last: Int, before: String, path: String, author: CommitAuthor, since: GitTimestamp, until: GitTimestamp): CommitHistoryConnection!
+  history(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    path: String
+    author: CommitAuthor
+    since: GitTimestamp
+    until: GitTimestamp
+  ): CommitHistoryConnection!
 
   id: ID!
 
@@ -370,7 +398,12 @@ enum PullRequestOrderField {
 Commit status.
 """
 type Status implements Node {
-  combinedContexts(first: Int, after: String, last: Int, before: String): StatusCheckRollupContextConnection!
+  combinedContexts(
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): StatusCheckRollupContextConnection!
   commit: Commit
   context(name: String!): StatusContext
   contexts: [StatusContext!]!
@@ -399,7 +432,12 @@ Status check rollup.
 """
 type StatusCheckRollup implements Node {
   commit: Commit
-  contexts(first: Int, after: String, last: Int, before: String): StatusCheckRollupContextConnection!
+  contexts(
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): StatusCheckRollupContextConnection!
   id: ID!
   state: StatusState!
 }
@@ -455,14 +493,30 @@ Check suite.
 type CheckSuite implements Node {
   app: App
   branch: Ref
-  checkRuns(first: Int, after: String, last: Int, before: String, filterBy: CheckRunFilter): CheckRunConnection
+  checkRuns(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    filterBy: CheckRunFilter
+  ): CheckRunConnection
   commit: Commit!
   conclusion: CheckConclusionState
   createdAt: DateTime!
   creator: User
   databaseId: Int
   id: ID!
-  matchingPullRequests(first: Int, after: String, last: Int, before: String, states: [PullRequestState!], labels: [String!], headRefName: String, baseRefName: String, orderBy: IssueOrder): PullRequestConnection
+  matchingPullRequests(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    states: [PullRequestState!]
+    labels: [String!]
+    headRefName: String
+    baseRefName: String
+    orderBy: IssueOrder
+  ): PullRequestConnection
   push: Push
   repository: Repository!
   resourcePath: URI!
@@ -589,7 +643,13 @@ type App implements Node {
   databaseId: Int
   description: String
   id: ID!
-  ipAllowListEntries(first: Int, after: String, last: Int, before: String, orderBy: IpAllowListEntryOrder): IpAllowListEntryConnection!
+  ipAllowListEntries(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: IpAllowListEntryOrder
+  ): IpAllowListEntryConnection!
   logoBackgroundColor: String!
   logoUrl(size: Int): URI!
   name: String!

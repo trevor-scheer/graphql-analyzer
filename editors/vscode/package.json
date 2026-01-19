@@ -13,7 +13,6 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onLanguage:graphql",
     "workspaceContains:**/graphql.config.{yaml,yml,json}",
     "workspaceContains:**/.graphqlrc{.yaml,.yml,.json,}"
   ],
@@ -95,6 +94,18 @@
           "default": "",
           "description": "Path to the graphql-lsp server executable. If empty, the extension will search for it in PATH or download it automatically."
         },
+        "graphql.server.logLevel": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "debug",
+            "trace"
+          ],
+          "default": "info",
+          "description": "Log level for the LSP server (sets RUST_LOG environment variable)."
+        },
         "graphql.server.env": {
           "type": "object",
           "default": {},
@@ -120,14 +131,19 @@
     "lint": "oxlint src",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "package": "vsce package"
+    "package": "vsce package",
+    "test:e2e": "npm run compile && npx playwright test",
+    "test:e2e:headed": "npm run compile && npx playwright test --headed",
+    "test:e2e:debug": "npm run compile && npx playwright test --debug"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "@types/node": "^24.10.1",
     "@types/vscode": "^1.75.0",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.2.1",
     "oxlint": "^1.30.0",
     "prettier": "^3.7.2",

@@ -53,13 +53,13 @@ RUST_LOG=graphql_lsp=debug,graphql_analysis=info,graphql_hir=trace target/debug/
 
 ### Log Levels
 
-| Level | Use For |
-|-------|---------|
-| ERROR | Critical failures only |
-| WARN | Non-fatal issues |
-| INFO | High-level operations |
+| Level | Use For                     |
+| ----- | --------------------------- |
+| ERROR | Critical failures only      |
+| WARN  | Non-fatal issues            |
+| INFO  | High-level operations       |
 | DEBUG | Detailed operations, timing |
-| TRACE | Deep debugging |
+| TRACE | Deep debugging              |
 
 ## OpenTelemetry Tracing
 
@@ -91,6 +91,7 @@ OTEL_TRACES_ENABLED=1 target/debug/graphql-lsp
 Open http://localhost:16686 in your browser.
 
 Look for:
+
 - Long spans indicating slow operations
 - Missing spans indicating crashes
 - Repeated spans indicating unnecessary recomputation
@@ -102,6 +103,7 @@ Look for:
 **Symptoms**: Editor shows no diagnostics, features don't work
 
 **Debug steps**:
+
 1. Check VSCode Output → GraphQL for errors
 2. Verify LSP binary path in extension settings
 3. Test LSP directly (see above)
@@ -114,6 +116,7 @@ Look for:
 **Likely cause**: Salsa deadlock from concurrent access
 
 **Debug steps**:
+
 1. Enable RUST_LOG=debug
 2. Look for "acquiring lock" messages without corresponding releases
 3. Check for snapshot not being dropped before setter calls
@@ -140,6 +143,7 @@ db.set_input(...); // Safe
 **Symptoms**: Wrong errors, missing errors, stale errors
 
 **Debug steps**:
+
 1. Check file is registered in project
 2. Verify schema is loaded correctly
 3. Check fragment resolution with `all_fragments()` query
@@ -150,12 +154,14 @@ db.set_input(...); // Safe
 **Symptoms**: Laggy editor, delayed diagnostics
 
 **Debug steps**:
+
 1. Use OpenTelemetry to identify hot spots
 2. Check if warm queries are being recomputed (should be cached)
 3. Look for O(n) operations that should be O(1)
 4. Run benchmarks: `cargo bench`
 
 **Expected performance**:
+
 - Warm queries: < 1ms
 - Cold parse: < 10ms for typical files
 - Full validation: < 100ms for typical project
@@ -165,6 +171,7 @@ db.set_input(...); // Safe
 **Symptoms**: Extension not activating, wrong files targeted
 
 **Debug steps**:
+
 1. Check extension logs: View → Output → GraphQL
 2. Verify `documentSelector` includes target languages
 3. Check grammar injection for syntax highlighting

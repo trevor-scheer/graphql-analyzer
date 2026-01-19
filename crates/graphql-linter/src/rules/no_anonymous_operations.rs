@@ -1,7 +1,7 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
-use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 
 /// Lint rule that requires all GraphQL operations to have explicit names
 ///
@@ -54,6 +54,7 @@ impl StandaloneDocumentLintRule for NoAnonymousOperationsRuleImpl {
         content: FileContent,
         metadata: FileMetadata,
         _project_files: ProjectFiles,
+        _options: Option<&serde_json::Value>,
     ) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
 
@@ -148,16 +149,15 @@ fn get_operation_type(operation: &cst::OperationDefinition) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::{
-        FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles, RootDatabase,
-    };
+    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+    use graphql_ide_db::RootDatabase;
     use std::sync::Arc;
 
     fn create_test_project_files(db: &RootDatabase) -> ProjectFiles {
-        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![]));
-        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(vec![]));
+        let schema_file_ids = graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![]));
+        let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![]));
         let file_entry_map =
-            graphql_db::FileEntryMap::new(db, Arc::new(std::collections::HashMap::new()));
+            graphql_base_db::FileEntryMap::new(db, Arc::new(std::collections::HashMap::new()));
         ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
     }
 
@@ -185,7 +185,7 @@ query {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("Anonymous query operation"));
@@ -216,7 +216,7 @@ query {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("Anonymous query operation"));
@@ -247,7 +247,7 @@ mutation {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
@@ -280,7 +280,7 @@ subscription {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
@@ -313,7 +313,7 @@ query GetUser {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 0);
     }
@@ -342,7 +342,7 @@ mutation UpdateUser {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 0);
     }
@@ -371,7 +371,7 @@ subscription OnMessageAdded {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 0);
     }
@@ -411,7 +411,7 @@ query {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Should have 2 diagnostics - one for the anonymous mutation, one for the anonymous query
         assert_eq!(diagnostics.len(), 2);
@@ -452,7 +452,7 @@ query GetUser {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Fragment definitions should be ignored, query is named
         assert_eq!(diagnostics.len(), 0);
@@ -482,7 +482,7 @@ query {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Even a single anonymous operation should fail (per user's request)
         assert_eq!(diagnostics.len(), 1);
@@ -513,7 +513,7 @@ query GetUserById($id: ID!) {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 0);
     }
@@ -542,9 +542,37 @@ query($id: ID!) {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("Anonymous query operation"));
+    }
+
+    /// Snapshot test demonstrating insta for diagnostic output
+    #[test]
+    fn test_anonymous_operations_snapshot() {
+        let db = RootDatabase::default();
+        let rule = NoAnonymousOperationsRuleImpl;
+
+        let source = r#"
+query { users { id } }
+mutation { updateUser(id: "1") { id } }
+subscription { onUserUpdate { id } }
+"#;
+
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+        let project_files = create_test_project_files(&db);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
+        insta::assert_yaml_snapshot!(messages);
     }
 }

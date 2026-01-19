@@ -30,12 +30,10 @@ file_diagnostics()
 ### Validation Layers
 
 1. **Syntax Validation** (`graphql-syntax` crate)
-
    - Parse errors from apollo-parser
    - File-local, cached by Salsa
 
 2. **Schema Validation** (`schema_validation.rs`)
-
    - ✅ Duplicate type names within a file
    - ✅ Field type existence checking
    - ✅ Interface implementation validation:
@@ -51,7 +49,6 @@ file_diagnostics()
    - ✅ Argument type validation
 
 3. **Document Validation** (`document_validation.rs`)
-
    - ✅ Operation name uniqueness (project-wide)
    - ✅ Fragment name uniqueness (project-wide)
    - ✅ Fragment type condition validation:
@@ -64,7 +61,6 @@ file_diagnostics()
    - ⏳ Field selections against schema (deferred to apollo-compiler integration)
 
 4. **Lint Integration** (`lint_integration.rs`)
-
    - Integration with `graphql-linter` crate
    - Document-level lints (require_id_field, no_deprecated, etc.)
    - Schema-level lints (TODO)
@@ -172,14 +168,12 @@ Ranges use LSP-style positions (0-indexed line/column).
 ### Phase 4: Complete Validation
 
 1. **Schema Validation**
-
    - Field type existence checking
    - Interface implementation validation
    - Union member validation
    - Directive validation
 
 2. **Document Validation**
-
    - Field selection validation against schema
    - Variable type checking
    - Fragment spread validation

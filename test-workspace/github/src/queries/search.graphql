@@ -1,10 +1,6 @@
 # Search queries
 
-query SearchRepositories(
-  $query: String!
-  $first: Int = 30
-  $after: String
-) {
+query SearchRepositories($query: String!, $first: Int = 30, $after: String) {
   search(query: $query, type: REPOSITORY, first: $first, after: $after) {
     repositoryCount
     pageInfo {
@@ -30,11 +26,7 @@ query SearchRepositories(
   }
 }
 
-query SearchIssues(
-  $query: String!
-  $first: Int = 30
-  $after: String
-) {
+query SearchIssues($query: String!, $first: Int = 30, $after: String) {
   search(query: $query, type: ISSUE, first: $first, after: $after) {
     issueCount
     pageInfo {
@@ -57,11 +49,7 @@ query SearchIssues(
   }
 }
 
-query SearchUsers(
-  $query: String!
-  $first: Int = 30
-  $after: String
-) {
+query SearchUsers($query: String!, $first: Int = 30, $after: String) {
   search(query: $query, type: USER, first: $first, after: $after) {
     userCount
     pageInfo {
@@ -78,11 +66,7 @@ query SearchUsers(
   }
 }
 
-query SearchDiscussions(
-  $query: String!
-  $first: Int = 30
-  $after: String
-) {
+query SearchDiscussions($query: String!, $first: Int = 30, $after: String) {
   search(query: $query, type: DISCUSSION, first: $first, after: $after) {
     discussionCount
     pageInfo {

@@ -168,6 +168,7 @@ for diag in error_list.iter() {
 ## When to Consult This Agent
 
 Consult this agent when:
+
 - Implementing parsing or validation features
 - Debugging parse errors or validation issues
 - Understanding CST vs AST tradeoffs for a feature
@@ -178,12 +179,14 @@ Consult this agent when:
 ## CST vs AST: When to Use Each
 
 ### Use CST (apollo-parser) when:
+
 - You need exact source positions for LSP features
 - You need to preserve whitespace/comments
 - You're implementing syntax highlighting
 - You need error-tolerant parsing (CST always produced)
 
 ### Use AST (apollo-compiler) when:
+
 - You need semantic analysis
 - You're doing validation against a schema
 - You need a cleaner API for traversing structure
@@ -192,6 +195,7 @@ Consult this agent when:
 ## Error Tolerance Philosophy
 
 apollo-parser is designed for IDE use:
+
 - **Always produces a tree**: Even with syntax errors, you get a CST
 - **Errors are separate**: `tree.errors()` gives errors, tree is still usable
 - **Partial results**: Invalid nodes still have structure for navigation
@@ -222,6 +226,7 @@ When providing guidance:
 ## Common Patterns in This Codebase
 
 ### Storing Parse Results
+
 ```rust
 pub struct Parse {
     pub tree: Arc<apollo_parser::SyntaxTree>,  // CST for positions
@@ -231,6 +236,7 @@ pub struct Parse {
 ```
 
 ### Iterating CST Selections
+
 ```rust
 fn collect_fragment_spreads(selection_set: Option<apollo_parser::cst::SelectionSet>) {
     let Some(ss) = selection_set else { return };

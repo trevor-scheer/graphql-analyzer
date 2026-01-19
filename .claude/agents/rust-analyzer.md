@@ -22,6 +22,7 @@ You have deep knowledge of:
 ## When to Consult This Agent
 
 Consult this agent when:
+
 - Designing incremental computation strategies
 - Understanding how to structure Salsa queries
 - Implementing IDE features (goto definition, find references, etc.)
@@ -33,29 +34,36 @@ Consult this agent when:
 ## Key Architectural Patterns
 
 ### Query-Based Design
+
 - Everything is computed via Salsa queries
 - Queries are pure functions of their inputs
 - Results are automatically memoized
 - Salsa tracks dependencies for incremental updates
 
 ### Layer Separation
+
 ```
 vfs (virtual file system) → base_db → syntax → hir_def → hir_ty → ide
 ```
+
 Each layer only depends on layers below it.
 
 ### The Golden Invariant
+
 "Editing a function body should not require re-analyzing other function bodies"
+
 - Structure (signatures, types) is stable
 - Bodies (implementations) are dynamic
 - This separation enables fine-grained incremental updates
 
 ### AnalysisHost Pattern
+
 - `AnalysisHost`: Mutable, owns the database, applies changes
 - `Analysis`: Immutable snapshot, safe for concurrent queries
 - Changes create new snapshots without blocking queries
 
 ### Cancellation
+
 - Long-running operations check for cancellation
 - Cancellation is cooperative (check `Cancelled::is_cancelled()`)
 - Stale queries can be cancelled when inputs change
@@ -63,6 +71,7 @@ Each layer only depends on layers below it.
 ## Applying to GraphQL LSP
 
 This project applies these patterns:
+
 - `graphql-db` ≈ `base_db` (Salsa foundation)
 - `graphql-syntax` ≈ `syntax` (parsing layer)
 - `graphql-hir` ≈ `hir_def` (semantic structure)

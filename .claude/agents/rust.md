@@ -24,6 +24,7 @@ You have deep knowledge of:
 ## When to Consult This Agent
 
 Consult this agent when:
+
 - Designing Rust APIs for correctness and ergonomics
 - Understanding lifetime and borrowing issues
 - Implementing efficient data structures
@@ -36,6 +37,7 @@ Consult this agent when:
 ## Key Patterns for This Project
 
 ### Error Handling
+
 ```rust
 // Use thiserror for library errors
 #[derive(Debug, thiserror::Error)]
@@ -49,6 +51,7 @@ fn main() -> anyhow::Result<()> { ... }
 ```
 
 ### Interior Mutability for Caching
+
 ```rust
 // RefCell for single-threaded
 use std::cell::RefCell;
@@ -59,6 +62,7 @@ use parking_lot::RwLock; // faster alternative
 ```
 
 ### Builder Pattern
+
 ```rust
 pub struct ConfigBuilder {
     schema: Option<PathBuf>,
@@ -76,6 +80,7 @@ impl ConfigBuilder {
 ```
 
 ### Type-State Pattern
+
 ```rust
 pub struct Parser<S> { state: S }
 pub struct Uninitialized;

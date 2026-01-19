@@ -10,17 +10,17 @@ Before implementing features, fixing bugs, or making architecture changes, you M
 
 ## Work Type to Agent Mapping
 
-| Work Type | Required Agents |
-|-----------|-----------------|
-| **New LSP features** | `lsp.md`, `rust-analyzer.md`, `rust.md` |
-| **GraphQL validation/linting** | `graphql.md`, `apollo-rs.md` |
-| **VSCode extension changes** | `vscode-extension.md` |
-| **CLI tool changes** | `graphql-cli.md` |
-| **Salsa/incremental computation** | `salsa.md`, `rust-analyzer.md` |
-| **Salsa debugging (hangs, cache issues)** | `salsa.md` |
-| **IDE UX features** | `graphiql.md`, `lsp.md` |
-| **Apollo-specific patterns** | `apollo-client.md`, `apollo-rs.md` |
-| **Rust API design** | `rust.md` |
+| Work Type                                 | Required Agents                         |
+| ----------------------------------------- | --------------------------------------- |
+| **New LSP features**                      | `lsp.md`, `rust-analyzer.md`, `rust.md` |
+| **GraphQL validation/linting**            | `graphql.md`, `apollo-rs.md`            |
+| **VSCode extension changes**              | `vscode-extension.md`                   |
+| **CLI tool changes**                      | `graphql-cli.md`                        |
+| **Salsa/incremental computation**         | `salsa.md`, `rust-analyzer.md`          |
+| **Salsa debugging (hangs, cache issues)** | `salsa.md`                              |
+| **IDE UX features**                       | `graphiql.md`, `lsp.md`                 |
+| **Apollo-specific patterns**              | `apollo-client.md`, `apollo-rs.md`      |
+| **Rust API design**                       | `rust.md`                               |
 
 ## How to Consult
 
@@ -66,15 +66,15 @@ Note agent consultations when providing analysis:
 
 ## Available Agents
 
-| Agent | Domain |
-|-------|--------|
-| `graphql.md` | GraphQL spec compliance, validation rules, type system |
-| `apollo-client.md` | Apollo Client patterns, caching, fragment colocation |
-| `rust-analyzer.md` | Query-based architecture, Salsa, incremental computation |
-| `salsa.md` | Salsa framework, database design, snapshot isolation, concurrency |
-| `rust.md` | Idiomatic Rust, ownership, error handling, API design |
-| `lsp.md` | LSP specification, protocol messages, client compatibility |
-| `graphiql.md` | IDE features, graphql-language-service, UX patterns |
-| `graphql-cli.md` | CLI design, graphql-config, ecosystem tooling |
-| `vscode-extension.md` | Extension development, activation, language client |
-| `apollo-rs.md` | apollo-parser, apollo-compiler, error-tolerant parsing |
+| Agent                 | Domain                                                            |
+| --------------------- | ----------------------------------------------------------------- |
+| `graphql.md`          | GraphQL spec compliance, validation rules, type system            |
+| `apollo-client.md`    | Apollo Client patterns, caching, fragment colocation              |
+| `rust-analyzer.md`    | Query-based architecture, Salsa, incremental computation          |
+| `salsa.md`            | Salsa framework, database design, snapshot isolation, concurrency |
+| `rust.md`             | Idiomatic Rust, ownership, error handling, API design             |
+| `lsp.md`              | LSP specification, protocol messages, client compatibility        |
+| `graphiql.md`         | IDE features, graphql-language-service, UX patterns               |
+| `graphql-cli.md`      | CLI design, graphql-config, ecosystem tooling                     |
+| `vscode-extension.md` | Extension development, activation, language client                |
+| `apollo-rs.md`        | apollo-parser, apollo-compiler, error-tolerant parsing            |

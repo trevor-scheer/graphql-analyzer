@@ -2,9 +2,53 @@ use crate::diagnostics::{CodeFix, LintDiagnostic, LintSeverity, TextEdit};
 use crate::schema_utils::extract_root_type_names;
 use crate::traits::{DocumentSchemaLintRule, LintRule};
 use apollo_parser::cst::{self, CstNode};
-use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+/// Options for the `require_id_field` rule
+///
+/// Example configuration:
+/// ```yaml
+/// lint:
+///   rules:
+///     # Default: requires 'id' field
+///     require_id_field: warn
+///
+///     # Custom fields to require (if they exist on the type)
+///     require_id_field: [warn, { fields: ["id", "nodeId", "uuid"] }]
+///
+///     # Object style
+///     require_id_field:
+///       severity: warn
+///       options:
+///         fields: ["id"]
+/// ```
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct RequireIdFieldOptions {
+    /// Field names to require if they exist on the type.
+    /// Defaults to `["id"]`.
+    pub fields: Vec<String>,
+}
+
+impl Default for RequireIdFieldOptions {
+    fn default() -> Self {
+        Self {
+            fields: vec!["id".to_string()],
+        }
+    }
+}
+
+impl RequireIdFieldOptions {
+    /// Parse options from a JSON value, falling back to defaults on error
+    fn from_json(value: Option<&serde_json::Value>) -> Self {
+        value
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default()
+    }
+}
 
 /// Trait implementation for `require_id_field` rule
 pub struct RequireIdFieldRuleImpl;
@@ -31,7 +75,9 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
         content: FileContent,
         metadata: FileMetadata,
         project_files: ProjectFiles,
+        options: Option<&serde_json::Value>,
     ) -> Vec<LintDiagnostic> {
+        let opts = RequireIdFieldOptions::from_json(options);
         let mut diagnostics = Vec::new();
         let parse = graphql_syntax::parse(db, content, metadata);
         if parse.has_errors() {
@@ -41,16 +87,19 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
         // Get schema types from HIR
         let schema_types = graphql_hir::schema_types(db, project_files);
 
-        // Build a map of type names to whether they have an id field
-        let mut types_with_id: HashMap<String, bool> = HashMap::new();
+        // Build a map of type names to their required fields (from options) that exist
+        let mut types_with_required_fields: HashMap<String, Vec<String>> = HashMap::new();
         for (type_name, type_def) in schema_types {
-            let has_id = match type_def.kind {
-                graphql_hir::TypeDefKind::Object | graphql_hir::TypeDefKind::Interface => {
-                    type_def.fields.iter().any(|f| f.name.as_ref() == "id")
-                }
-                _ => false,
+            let required_fields: Vec<String> = match type_def.kind {
+                graphql_hir::TypeDefKind::Object | graphql_hir::TypeDefKind::Interface => opts
+                    .fields
+                    .iter()
+                    .filter(|field| type_def.fields.iter().any(|f| f.name.as_ref() == *field))
+                    .cloned()
+                    .collect(),
+                _ => Vec::new(),
             };
-            types_with_id.insert(type_name.to_string(), has_id);
+            types_with_required_fields.insert(type_name.to_string(), required_fields);
         }
 
         // Get all fragments from the project (for cross-file resolution)
@@ -67,7 +116,7 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
             db,
             project_files,
             schema_types,
-            types_with_id: &types_with_id,
+            types_with_required_fields: &types_with_required_fields,
             all_fragments,
         };
 
@@ -198,9 +247,10 @@ fn check_document(
 /// Context for checking selection sets with fragment resolution
 struct CheckContext<'a> {
     db: &'a dyn graphql_hir::GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
     schema_types: &'a HashMap<Arc<str>, graphql_hir::TypeDef>,
-    types_with_id: &'a HashMap<String, bool>,
+    /// Map of type names to their required fields (only includes fields that exist on the type)
+    types_with_required_fields: &'a HashMap<String, Vec<String>>,
     all_fragments: &'a HashMap<Arc<str>, graphql_hir::FragmentStructure>,
 }
 
@@ -220,17 +270,18 @@ fn check_selection_set(
     visited_fragments: &mut HashSet<String>,
     diagnostics: &mut Vec<LintDiagnostic>,
 ) {
-    // Check if this type has an id field
-    let has_id_field = context
-        .types_with_id
+    // Get required fields for this type (only those that exist on the type)
+    let required_fields = context
+        .types_with_required_fields
         .get(parent_type_name)
-        .copied()
-        .unwrap_or(false);
+        .cloned()
+        .unwrap_or_default();
 
-    let mut has_id_in_selection = false;
+    // Track which required fields are present in the selection
+    let mut found_fields: HashSet<String> = HashSet::new();
 
     // ALWAYS iterate through selections to recurse into nested selection sets,
-    // even if the current type doesn't have an id field. This ensures we check
+    // even if the current type has no required fields. This ensures we check
     // nested types like Query.allPokemon.nodes which returns Pokemon (has id).
     for selection in selection_set.selections() {
         match selection {
@@ -238,9 +289,9 @@ fn check_selection_set(
                 if let Some(field_name) = field.name() {
                     let field_name_str = field_name.text();
 
-                    // Check if this is the id field (only relevant if type has id)
-                    if has_id_field && field_name_str == "id" {
-                        has_id_in_selection = true;
+                    // Check if this is one of the required fields
+                    if required_fields.contains(&field_name_str.to_string()) {
+                        found_fields.insert(field_name_str.to_string());
                     }
 
                     // ALWAYS recurse into nested selection sets
@@ -266,21 +317,24 @@ fn check_selection_set(
                 }
             }
             cst::Selection::FragmentSpread(fragment_spread) => {
-                // Check if the fragment contains the id field (only relevant if type has id)
-                if has_id_field {
+                // Check if the fragment contains any required fields
+                if !required_fields.is_empty() {
                     if let Some(fragment_name) = fragment_spread.fragment_name() {
                         if let Some(name) = fragment_name.name() {
                             let name_str = name.text().to_string();
-                            // Clone visited_fragments so sibling checks don't interfere
-                            // (each fragment_contains_id call chain has its own cycle detection)
-                            let mut visited_clone = visited_fragments.clone();
-                            if fragment_contains_id(
-                                &name_str,
-                                parent_type_name,
-                                context,
-                                &mut visited_clone,
-                            ) {
-                                has_id_in_selection = true;
+                            // Check each required field in the fragment
+                            for required_field in &required_fields {
+                                // Clone visited_fragments so sibling checks don't interfere
+                                let mut visited_clone = visited_fragments.clone();
+                                if fragment_contains_field(
+                                    &name_str,
+                                    parent_type_name,
+                                    required_field,
+                                    context,
+                                    &mut visited_clone,
+                                ) {
+                                    found_fields.insert(required_field.clone());
+                                }
                             }
                         }
                     }
@@ -296,13 +350,14 @@ fn check_selection_set(
                         .and_then(|nt| nt.name())
                         .map_or_else(|| parent_type_name.to_string(), |n| n.text().to_string());
 
-                    // Check for id in inline fragment's selections (only if type has id)
+                    // Check for required fields in inline fragment's selections
                     for nested_selection in nested_selection_set.selections() {
                         match nested_selection {
                             cst::Selection::Field(nested_field) => {
                                 if let Some(field_name) = nested_field.name() {
-                                    if has_id_field && field_name.text() == "id" {
-                                        has_id_in_selection = true;
+                                    let field_name_str = field_name.text();
+                                    if required_fields.contains(&field_name_str.to_string()) {
+                                        found_fields.insert(field_name_str.to_string());
                                     }
 
                                     // ALWAYS recurse into nested object selections
@@ -334,20 +389,23 @@ fn check_selection_set(
                                 }
                             }
                             cst::Selection::FragmentSpread(fragment_spread) => {
-                                // Check if the fragment contains the id field (only relevant if type has id)
-                                if has_id_field {
+                                // Check if the fragment contains any required fields
+                                if !required_fields.is_empty() {
                                     if let Some(fragment_name) = fragment_spread.fragment_name() {
                                         if let Some(name) = fragment_name.name() {
                                             let name_str = name.text().to_string();
-                                            // Clone visited_fragments so sibling checks don't interfere
-                                            let mut visited_clone = visited_fragments.clone();
-                                            if fragment_contains_id(
-                                                &name_str,
-                                                parent_type_name,
-                                                context,
-                                                &mut visited_clone,
-                                            ) {
-                                                has_id_in_selection = true;
+                                            for required_field in &required_fields {
+                                                // Clone visited_fragments so sibling checks don't interfere
+                                                let mut visited_clone = visited_fragments.clone();
+                                                if fragment_contains_field(
+                                                    &name_str,
+                                                    parent_type_name,
+                                                    required_field,
+                                                    context,
+                                                    &mut visited_clone,
+                                                ) {
+                                                    found_fields.insert(required_field.clone());
+                                                }
                                             }
                                         }
                                     }
@@ -364,40 +422,47 @@ fn check_selection_set(
         }
     }
 
-    // Only emit diagnostic if type has id field and it's not in the selection
-    if has_id_field && !has_id_in_selection {
-        // Calculate insertion position and indentation for the fix
-        let selection_set_start: usize = selection_set.syntax().text_range().start().into();
-        let selection_set_source = selection_set.syntax().to_string();
+    // Emit diagnostics for each missing required field
+    for required_field in &required_fields {
+        if !found_fields.contains(required_field) {
+            // Calculate insertion position and indentation for the fix
+            let selection_set_start: usize = selection_set.syntax().text_range().start().into();
+            let selection_set_source = selection_set.syntax().to_string();
 
-        let (insert_pos, indent) = selection_set.selections().next().map_or_else(
-            || {
-                // Empty selection set - insert after the opening brace with default indent
-                (selection_set_start + 1, "  ".to_string())
-            },
-            |first| {
-                let pos: usize = first.syntax().text_range().start().into();
-                // Calculate position relative to selection set start
-                let relative_pos = pos - selection_set_start;
-                let indent = extract_indentation(&selection_set_source, relative_pos);
-                (pos, indent)
-            },
-        );
+            let (insert_pos, indent) = selection_set.selections().next().map_or_else(
+                || {
+                    // Empty selection set - insert after the opening brace with default indent
+                    (selection_set_start + 1, "  ".to_string())
+                },
+                |first| {
+                    let pos: usize = first.syntax().text_range().start().into();
+                    // Calculate position relative to selection set start
+                    let relative_pos = pos - selection_set_start;
+                    let indent = extract_indentation(&selection_set_source, relative_pos);
+                    (pos, indent)
+                },
+            );
 
-        let fix = CodeFix::new(
-            format!("Add 'id' field to {parent_type_name}"),
-            vec![TextEdit::insert(insert_pos, format!("id\n{indent}"))],
-        );
+            let fix = CodeFix::new(
+                format!("Add '{required_field}' field to {parent_type_name}"),
+                vec![TextEdit::insert(
+                    insert_pos,
+                    format!("{required_field}\n{indent}"),
+                )],
+            );
 
-        diagnostics.push(
-            LintDiagnostic::warning(
-                parent_location.start,
-                parent_location.end,
-                format!("Selection set on type '{parent_type_name}' should include the 'id' field"),
-                "require_id_field",
-            )
-            .with_fix(fix),
-        );
+            diagnostics.push(
+                LintDiagnostic::warning(
+                    parent_location.start,
+                    parent_location.end,
+                    format!(
+                        "Selection set on type '{parent_type_name}' should include the '{required_field}' field"
+                    ),
+                    "require_id_field",
+                )
+                .with_fix(fix),
+            );
+        }
     }
 }
 
@@ -445,10 +510,11 @@ fn extract_indentation(source: &str, pos: usize) -> String {
     }
 }
 
-/// Check if a fragment (or its nested fragments) contains the `id` field
-fn fragment_contains_id(
+/// Check if a fragment (or its nested fragments) contains the specified field
+fn fragment_contains_field(
     fragment_name: &str,
     parent_type_name: &str,
+    target_field: &str,
     context: &CheckContext,
     visited_fragments: &mut HashSet<String>,
 ) -> bool {
@@ -468,7 +534,7 @@ fn fragment_contains_id(
 
     // Get the file content and metadata via file_lookup (granular per-file caching)
     let Some((file_content, file_metadata)) =
-        graphql_db::file_lookup(context.db, context.project_files, file_id)
+        graphql_base_db::file_lookup(context.db, context.project_files, file_id)
     else {
         return false;
     };
@@ -495,11 +561,12 @@ fn fragment_contains_id(
                     continue;
                 }
 
-                // Found the fragment, check its selection set for id
+                // Found the fragment, check its selection set for the target field
                 if let Some(selection_set) = frag.selection_set() {
-                    return check_fragment_selection_for_id(
+                    return check_fragment_selection_for_field(
                         &selection_set,
                         parent_type_name,
+                        target_field,
                         context,
                         visited_fragments,
                     );
@@ -511,14 +578,15 @@ fn fragment_contains_id(
     false
 }
 
-/// Check if a selection set within a fragment contains the `id` field
-/// This only checks for `id` at the top level of the selection set.
+/// Check if a selection set within a fragment contains the specified field
+/// This only checks for the field at the top level of the selection set.
 /// We do NOT recurse into nested field selections because:
 /// - `abilities { ...AbilityInfo }` selects `id` on Ability, not on the current type
-/// - We only care if `id` is selected directly on the current type
-fn check_fragment_selection_for_id(
+/// - We only care if the field is selected directly on the current type
+fn check_fragment_selection_for_field(
     selection_set: &cst::SelectionSet,
     parent_type_name: &str,
+    target_field: &str,
     context: &CheckContext,
     visited_fragments: &mut HashSet<String>,
 ) -> bool {
@@ -526,8 +594,8 @@ fn check_fragment_selection_for_id(
         match selection {
             cst::Selection::Field(field) => {
                 if let Some(field_name) = field.name() {
-                    // Check if this is the id field at the top level
-                    if field_name.text() == "id" {
+                    // Check if this is the target field at the top level
+                    if field_name.text() == target_field {
                         return true;
                     }
                     // NOTE: We intentionally do NOT recurse into nested field selections.
@@ -542,9 +610,10 @@ fn check_fragment_selection_for_id(
                 if let Some(fragment_name) = fragment_spread.fragment_name() {
                     if let Some(name) = fragment_name.name() {
                         let name_str = name.text().to_string();
-                        if fragment_contains_id(
+                        if fragment_contains_field(
                             &name_str,
                             parent_type_name,
+                            target_field,
                             context,
                             visited_fragments,
                         ) {
@@ -562,9 +631,10 @@ fn check_fragment_selection_for_id(
                         .and_then(|nt| nt.name())
                         .map_or_else(|| parent_type_name.to_string(), |n| n.text().to_string());
 
-                    if check_fragment_selection_for_id(
+                    if check_fragment_selection_for_field(
                         &nested_selection_set,
                         &inline_type,
+                        target_field,
                         context,
                         visited_fragments,
                     ) {
@@ -581,8 +651,9 @@ fn check_fragment_selection_for_id(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
     use graphql_hir::GraphQLHirDatabase;
+    use graphql_ide_db::RootDatabase;
 
     /// Helper to create test project files with schema and document
     fn create_test_project(
@@ -611,14 +682,16 @@ mod tests {
             document_kind,
         );
 
-        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
-        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(vec![doc_file_id]));
+        let schema_file_ids =
+            graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
+        let document_file_ids =
+            graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![doc_file_id]));
         let mut file_entries = std::collections::HashMap::new();
-        let schema_entry = graphql_db::FileEntry::new(db, schema_content, schema_metadata);
-        let doc_entry = graphql_db::FileEntry::new(db, doc_content, doc_metadata);
+        let schema_entry = graphql_base_db::FileEntry::new(db, schema_content, schema_metadata);
+        let doc_entry = graphql_base_db::FileEntry::new(db, doc_content, doc_metadata);
         file_entries.insert(schema_file_id, schema_entry);
         file_entries.insert(doc_file_id, doc_entry);
-        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(file_entries));
+        let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(file_entries));
         let project_files =
             ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map);
 
@@ -660,7 +733,7 @@ type Stats {
 
     #[test]
     fn test_missing_id_on_type_with_id() {
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -675,7 +748,7 @@ query GetUser {
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
@@ -685,7 +758,7 @@ query GetUser {
 
     #[test]
     fn test_id_present_no_warning() {
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -701,7 +774,7 @@ query GetUser {
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 0);
     }
@@ -711,7 +784,7 @@ query GetUser {
         // This tests the fix for nested selection set recursion:
         // Query.user doesn't have id (Query type has no id field),
         // but we need to recurse into User's selection set to check for id there
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -729,7 +802,7 @@ query GetUserPosts {
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Should warn about Post missing id
         assert_eq!(diagnostics.len(), 1);
@@ -741,7 +814,7 @@ query GetUserPosts {
     #[test]
     fn test_deeply_nested_selection_requires_id() {
         // Test that we recurse multiple levels deep
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -764,7 +837,7 @@ query GetUserPostComments {
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Should warn about Comment and nested User missing id
         assert_eq!(diagnostics.len(), 2);
@@ -776,7 +849,7 @@ query GetUserPostComments {
     #[test]
     fn test_type_without_id_field_no_warning() {
         // Stats type doesn't have an id field, so no warning should be emitted
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let schema = r"
@@ -802,7 +875,7 @@ query GetStats {
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 0);
     }
@@ -810,7 +883,7 @@ query GetStats {
     #[test]
     fn test_typescript_file_with_gql_tag() {
         // This tests that TypeScript files with gql`` template literals are processed
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -829,7 +902,7 @@ const GET_USER = gql`
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, TEST_SCHEMA, source, FileKind::TypeScript);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Should warn about User missing id in the TypeScript file
         // Note: May produce duplicates due to issue #194
@@ -842,7 +915,7 @@ const GET_USER = gql`
     #[test]
     fn test_typescript_file_multiple_queries() {
         // Test multiple gql blocks in a single TypeScript file
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -872,7 +945,7 @@ const GET_POSTS = gql`
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, TEST_SCHEMA, source, FileKind::TypeScript);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Should warn about User and Post missing id in the second query
         assert_eq!(diagnostics.len(), 2);
@@ -885,7 +958,7 @@ const GET_POSTS = gql`
     fn test_typescript_nested_selection_recursion() {
         // Test that nested selections work in TypeScript files
         // This combines the TypeScript block processing and nested recursion fixes
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r"
@@ -909,7 +982,7 @@ const QUERY = gql`
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, TEST_SCHEMA, source, FileKind::TypeScript);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Should warn about nested author (User type) missing id
         // Note: May produce duplicates due to issue #194
@@ -921,7 +994,7 @@ const QUERY = gql`
 
     #[test]
     fn test_fragment_with_id_no_warning() {
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -941,7 +1014,7 @@ query GetUser {
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // No warning because fragment includes id
         assert_eq!(diagnostics.len(), 0);
@@ -949,7 +1022,7 @@ query GetUser {
 
     #[test]
     fn test_fragment_without_id_warning() {
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -968,7 +1041,7 @@ query GetUser {
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Should warn - both the fragment definition and the operation usage
         // The fragment itself is checked, and the operation using it is checked
@@ -993,7 +1066,7 @@ query GetUser {
         );
 
         let mut file_entries = std::collections::HashMap::new();
-        let schema_entry = graphql_db::FileEntry::new(db, schema_content, schema_metadata);
+        let schema_entry = graphql_base_db::FileEntry::new(db, schema_content, schema_metadata);
         file_entries.insert(schema_file_id, schema_entry);
 
         let mut doc_file_ids = Vec::new();
@@ -1005,7 +1078,7 @@ query GetUser {
             let content = FileContent::new(db, Arc::from(*source));
             let metadata = FileMetadata::new(db, file_id, FileUri::new(*uri), *kind);
 
-            let entry = graphql_db::FileEntry::new(db, content, metadata);
+            let entry = graphql_base_db::FileEntry::new(db, content, metadata);
             file_entries.insert(file_id, entry);
             doc_file_ids.push(file_id);
 
@@ -1014,9 +1087,10 @@ query GetUser {
             }
         }
 
-        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
-        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_file_ids));
-        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(file_entries));
+        let schema_file_ids =
+            graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
+        let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(doc_file_ids));
+        let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(file_entries));
         let project_files =
             ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map);
 
@@ -1027,7 +1101,7 @@ query GetUser {
     #[test]
     fn test_cross_file_fragment_with_id_no_warning() {
         // Test case for issue #195: Fragment defined in separate file should be checked for id
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let fragment_source = r"
@@ -1063,7 +1137,7 @@ query GetUser {
         // Check the query file (second file, so we need to get it from project_files)
         let query_file_id = FileId::new(2);
         let (query_content, query_metadata) =
-            graphql_db::file_lookup(&db, project_files, query_file_id)
+            graphql_base_db::file_lookup(&db, project_files, query_file_id)
                 .expect("Query file should exist");
 
         let diagnostics = rule.check(
@@ -1072,6 +1146,7 @@ query GetUser {
             query_content,
             query_metadata,
             project_files,
+            None,
         );
 
         // No warning because fragment includes id
@@ -1085,7 +1160,7 @@ query GetUser {
     #[test]
     fn test_cross_file_fragment_without_id_warning() {
         // Test case for issue #195: Fragment defined in separate file should be checked for id
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let fragment_source = r"
@@ -1121,7 +1196,7 @@ query GetUser {
         // Check the query file (second file, so we need to get it from project_files)
         let query_file_id = FileId::new(2);
         let (query_content, query_metadata) =
-            graphql_db::file_lookup(&db, project_files, query_file_id)
+            graphql_base_db::file_lookup(&db, project_files, query_file_id)
                 .expect("Query file should exist");
 
         let diagnostics = rule.check(
@@ -1130,6 +1205,7 @@ query GetUser {
             query_content,
             query_metadata,
             project_files,
+            None,
         );
 
         // Should warn because fragment does not include id
@@ -1143,7 +1219,7 @@ query GetUser {
     #[test]
     fn test_typescript_cross_file_fragment_with_id() {
         // Test case for issue #195: TypeScript file using fragment from another file
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let fragment_source = r"
@@ -1178,10 +1254,18 @@ export const GET_USER = gql`
 
         // Check the TypeScript file (second file)
         let ts_file_id = FileId::new(2);
-        let (ts_content, ts_metadata) = graphql_db::file_lookup(&db, project_files, ts_file_id)
-            .expect("TypeScript file should exist");
+        let (ts_content, ts_metadata) =
+            graphql_base_db::file_lookup(&db, project_files, ts_file_id)
+                .expect("TypeScript file should exist");
 
-        let diagnostics = rule.check(&db, ts_file_id, ts_content, ts_metadata, project_files);
+        let diagnostics = rule.check(
+            &db,
+            ts_file_id,
+            ts_content,
+            ts_metadata,
+            project_files,
+            None,
+        );
 
         // No warning because fragment includes id
         assert_eq!(
@@ -1194,7 +1278,7 @@ export const GET_USER = gql`
     #[test]
     fn test_inline_fragment_with_fragment_spread_containing_id() {
         // Test that fragment spreads inside inline fragments are checked for id
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -1218,7 +1302,7 @@ query GetPost {
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // No warning because fragment includes id and is used inside inline fragment
         assert_eq!(
@@ -1232,7 +1316,7 @@ query GetPost {
     fn test_fragment_spread_inside_field_in_fragment_definition() {
         // Issue #376: Fragment spread inside a field in a fragment definition should
         // recognize that id is included via the spread
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let schema = r"
@@ -1267,7 +1351,7 @@ fragment BattleDetailed on Battle {
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Should NOT warn on trainer1 because TrainerBasic includes id
         // Should only warn on BattleDetailed since Battle.id is not selected
@@ -1286,7 +1370,7 @@ fragment BattleDetailed on Battle {
     fn test_cross_file_fragment_spread_inside_field_in_fragment_definition() {
         // Issue #376: Cross-file variant - fragment spread inside a field in a fragment
         // definition should recognize that id is included via the spread
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let schema = r"
@@ -1340,7 +1424,7 @@ fragment BattleDetailed on Battle {
         // Check the battle fragments file (second file)
         let battle_file_id = FileId::new(2);
         let (battle_content, battle_metadata) =
-            graphql_db::file_lookup(&db, project_files, battle_file_id)
+            graphql_base_db::file_lookup(&db, project_files, battle_file_id)
                 .expect("Battle fragments file should exist");
 
         let diagnostics = rule.check(
@@ -1349,6 +1433,7 @@ fragment BattleDetailed on Battle {
             battle_content,
             battle_metadata,
             project_files,
+            None,
         );
 
         // Should NOT warn on trainer1 because TrainerBasic includes id
@@ -1368,7 +1453,7 @@ fragment BattleDetailed on Battle {
     fn test_fragment_reused_in_sibling_spread_and_field() {
         // Issue #376: When a fragment is used both in a sibling spread (BattleBasic) and
         // directly in a field (trainer1), the visited_fragments set gets polluted
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let schema = r"
@@ -1412,7 +1497,7 @@ fragment BattleDetailed on Battle {
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Should NOT warn on trainer1 in BattleDetailed because TrainerBasic includes id
         // The bug was that visited_fragments accumulates "TrainerBasic" when checking
@@ -1432,7 +1517,7 @@ fragment BattleDetailed on Battle {
     #[test]
     fn test_issue_376_exact_scenario() {
         // Issue #376: EXACT scenario from the issue - BattleBasic is referenced but not defined
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let schema = r"
@@ -1470,7 +1555,7 @@ fragment BattleDetailed on Battle {
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Should NOT warn on trainer1 because TrainerBasic includes id
         // Even though BattleBasic is undefined, the trainer1 field's TrainerBasic spread
@@ -1489,7 +1574,7 @@ fragment BattleDetailed on Battle {
     #[test]
     fn test_fragment_defined_after_usage() {
         // Test case: Fragment is defined AFTER it's used (reverse order)
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let schema = r"
@@ -1525,7 +1610,7 @@ fragment TrainerBasic on Trainer {
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Should NOT warn on trainer1 because TrainerBasic includes id
         let trainer_warnings: Vec<_> = diagnostics
@@ -1542,7 +1627,7 @@ fragment TrainerBasic on Trainer {
     #[test]
     fn test_typescript_fragments_across_gql_blocks() {
         // Issue #376: Fragments used across different gql`` blocks in TypeScript
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let schema = r"
@@ -1584,7 +1669,7 @@ export const BATTLE_FRAGMENT = gql`
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, schema, ts_source, FileKind::TypeScript);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Should NOT warn on trainer1 because TrainerBasic includes id
         let trainer_warnings: Vec<_> = diagnostics
@@ -1602,7 +1687,7 @@ export const BATTLE_FRAGMENT = gql`
     fn test_same_fragment_used_in_multiple_fields() {
         // Issue #376: When the same fragment is used in multiple sibling fields,
         // the visited_fragments set prevents re-checking
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let schema = r"
@@ -1641,7 +1726,7 @@ fragment BattleDetailed on Battle {
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // Should NOT warn on trainer1 OR trainer2 because TrainerBasic includes id
         // Bug: visited_fragments might prevent second check of TrainerBasic
@@ -1653,6 +1738,197 @@ fragment BattleDetailed on Battle {
             trainer_warnings.len(),
             0,
             "Issue #376: Should not warn on any Trainer field when fragment spread contains id: {trainer_warnings:?}"
+        );
+    }
+
+    // =========================================================================
+    // Tests for configurable lint options
+    // =========================================================================
+
+    #[test]
+    fn test_custom_field_name_via_options() {
+        // Test that custom field names can be specified via options
+        let db = graphql_ide_db::RootDatabase::default();
+        let rule = RequireIdFieldRuleImpl;
+
+        let schema = r"
+type Query {
+    user(id: ID!): User
+}
+
+type User {
+    uuid: ID!
+    name: String!
+}
+";
+
+        let source = r#"
+query GetUser {
+    user(id: "1") {
+        name
+    }
+}
+"#;
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+
+        // With default options (fields: ["id"]), no warning because User doesn't have "id"
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+        assert_eq!(
+            diagnostics.len(),
+            0,
+            "No warning with default options when type doesn't have 'id' field"
+        );
+
+        // With custom options (fields: ["uuid"]), should warn because User has "uuid" but it's not selected
+        let options = serde_json::json!({ "fields": ["uuid"] });
+        let diagnostics = rule.check(
+            &db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+            Some(&options),
+        );
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Should warn when custom field 'uuid' is not selected"
+        );
+        assert!(diagnostics[0].message.contains("'uuid'"));
+    }
+
+    #[test]
+    fn test_multiple_required_fields() {
+        // Test that multiple required fields can be specified
+        let db = graphql_ide_db::RootDatabase::default();
+        let rule = RequireIdFieldRuleImpl;
+
+        let schema = r"
+type Query {
+    user(id: ID!): User
+}
+
+type User {
+    id: ID!
+    uuid: String!
+    name: String!
+}
+";
+
+        let source = r#"
+query GetUser {
+    user(id: "1") {
+        id
+        name
+    }
+}
+"#;
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+
+        // With options requiring both "id" and "uuid", should warn about missing "uuid"
+        let options = serde_json::json!({ "fields": ["id", "uuid"] });
+        let diagnostics = rule.check(
+            &db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+            Some(&options),
+        );
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Should warn when 'uuid' is missing even though 'id' is present"
+        );
+        assert!(diagnostics[0].message.contains("'uuid'"));
+    }
+
+    #[test]
+    fn test_required_field_selected_via_fragment() {
+        // Test that custom required fields work with fragments
+        let db = graphql_ide_db::RootDatabase::default();
+        let rule = RequireIdFieldRuleImpl;
+
+        let schema = r"
+type Query {
+    user(id: ID!): User
+}
+
+type User {
+    nodeId: ID!
+    name: String!
+}
+";
+
+        let source = r#"
+fragment UserFields on User {
+    nodeId
+    name
+}
+
+query GetUser {
+    user(id: "1") {
+        ...UserFields
+    }
+}
+"#;
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+
+        // With options requiring "nodeId", no warning because fragment contains it
+        let options = serde_json::json!({ "fields": ["nodeId"] });
+        let diagnostics = rule.check(
+            &db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+            Some(&options),
+        );
+        assert_eq!(
+            diagnostics.len(),
+            0,
+            "No warning when custom field is selected via fragment"
+        );
+    }
+
+    #[test]
+    fn test_empty_fields_list_disables_rule() {
+        // Test that an empty fields list effectively disables the rule
+        let db = graphql_ide_db::RootDatabase::default();
+        let rule = RequireIdFieldRuleImpl;
+
+        let source = r#"
+query GetUser {
+    user(id: "1") {
+        name
+        email
+    }
+}
+"#;
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
+
+        // With empty fields list, no warnings
+        let options = serde_json::json!({ "fields": [] });
+        let diagnostics = rule.check(
+            &db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+            Some(&options),
+        );
+        assert_eq!(
+            diagnostics.len(),
+            0,
+            "No warnings when fields list is empty"
         );
     }
 }

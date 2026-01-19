@@ -24,6 +24,7 @@ graphql-extract = { path = "../graphql-extract" }
 graphql-ide = { path = "../graphql-ide" }
 graphql-introspect = { path = "../graphql-introspect" }
 graphql-linter = { path = "../graphql-linter" }
+graphql-mcp = { path = "../graphql-mcp" }
 
 # GraphQL
 apollo-parser = { workspace = true }
@@ -56,4 +57,10 @@ opentelemetry-semantic-conventions = { version = "0.27", optional = true }
 tracing-opentelemetry = { version = "0.28", optional = true }
 
 [features]
-otel = ["opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp", "opentelemetry-semantic-conventions", "tracing-opentelemetry"]
+otel = [
+  "opentelemetry",
+  "opentelemetry_sdk",
+  "opentelemetry-otlp",
+  "opentelemetry-semantic-conventions",
+  "tracing-opentelemetry",
+]

@@ -8,10 +8,10 @@ permissions:
 on:
   pull_request:
     paths:
-      - '.github/workflows/vscode-release.yml'
+      - ".github/workflows/vscode-release.yml"
   push:
     tags:
-      - 'vscode-v*'
+      - "vscode-v*"
 
 jobs:
   # Check if we should run (only on actual tags, not PRs)
@@ -45,8 +45,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
+          node-version: "24"
+          cache: "npm"
           cache-dependency-path: editors/vscode/package-lock.json
 
       - name: Install dependencies

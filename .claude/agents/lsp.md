@@ -23,6 +23,7 @@ You have deep knowledge of:
 ## When to Consult This Agent
 
 Consult this agent when:
+
 - Implementing new LSP features
 - Understanding protocol message formats
 - Debugging client-server communication issues
@@ -34,18 +35,21 @@ Consult this agent when:
 ## Key Protocol Concepts
 
 ### Initialization
+
 1. Client sends `initialize` request with capabilities
 2. Server responds with its capabilities
 3. Client sends `initialized` notification
 4. Server is now ready for requests
 
 ### Document Synchronization
+
 - `textDocument/didOpen`: Document opened
 - `textDocument/didChange`: Document edited
 - `textDocument/didSave`: Document saved
 - `textDocument/didClose`: Document closed
 
 ### Common Features
+
 - **Diagnostics**: `textDocument/publishDiagnostics` (server → client)
 - **Goto Definition**: `textDocument/definition`
 - **Find References**: `textDocument/references`
@@ -58,29 +62,31 @@ Consult this agent when:
 - **Formatting**: `textDocument/formatting`
 
 ### Position and Range
+
 ```typescript
 interface Position {
-    line: number;      // 0-indexed
-    character: number; // UTF-16 code units
+  line: number; // 0-indexed
+  character: number; // UTF-16 code units
 }
 
 interface Range {
-    start: Position;
-    end: Position;
+  start: Position;
+  end: Position;
 }
 ```
 
 **Important**: Character offsets are in UTF-16 code units, not bytes or Unicode codepoints.
 
 ### Diagnostics
+
 ```typescript
 interface Diagnostic {
-    range: Range;
-    severity?: DiagnosticSeverity;
-    code?: string | number;
-    source?: string;
-    message: string;
-    relatedInformation?: DiagnosticRelatedInformation[];
+  range: Range;
+  severity?: DiagnosticSeverity;
+  code?: string | number;
+  source?: string;
+  message: string;
+  relatedInformation?: DiagnosticRelatedInformation[];
 }
 ```
 

@@ -88,14 +88,8 @@ mutation SubmitPullRequestReview(
   }
 }
 
-mutation RequestReviews(
-  $pullRequestId: ID!
-  $userIds: [ID!]
-  $teamIds: [ID!]
-) {
-  requestReviews(
-    input: { pullRequestId: $pullRequestId, userIds: $userIds, teamIds: $teamIds }
-  ) {
+mutation RequestReviews($pullRequestId: ID!, $userIds: [ID!], $teamIds: [ID!]) {
+  requestReviews(input: { pullRequestId: $pullRequestId, userIds: $userIds, teamIds: $teamIds }) {
     clientMutationId
     pullRequest {
       id

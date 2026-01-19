@@ -24,7 +24,7 @@
 //! - `line_offset`: Line number in original file (0 for pure GraphQL)
 //! - `source`: The GraphQL source text
 
-use graphql_db::{FileContent, FileKind, FileMetadata};
+use graphql_base_db::{FileContent, FileKind, FileMetadata};
 use std::sync::Arc;
 
 /// A parse error with position information
@@ -380,9 +380,6 @@ pub trait GraphQLSyntaxDatabase: salsa::Database {
         None
     }
 }
-
-#[salsa::db]
-impl GraphQLSyntaxDatabase for graphql_db::RootDatabase {}
 
 #[cfg(test)]
 mod tests {

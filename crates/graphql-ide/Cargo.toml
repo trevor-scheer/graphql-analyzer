@@ -31,7 +31,7 @@ anyhow = { workspace = true }
 parking_lot = { workspace = true }
 
 # Internal crates (query-based layers)
-graphql-db = { path = "../graphql-db" }
+graphql-base-db = { path = "../graphql-base-db" }
 graphql-syntax = { path = "../graphql-syntax" }
 graphql-hir = { path = "../graphql-hir" }
 graphql-analysis = { path = "../graphql-analysis" }
@@ -40,3 +40,4 @@ graphql-extract = { path = "../graphql-extract" }
 
 [dev-dependencies]
 tempfile = "3.0"
+graphql-ide-db = { path = "../graphql-ide-db" }
