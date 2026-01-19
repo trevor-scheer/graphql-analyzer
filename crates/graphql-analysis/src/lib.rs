@@ -13,10 +13,12 @@ mod schema_validation;
 pub mod validation;
 
 pub use diagnostics::*;
+pub use document_validation::validate_document_file;
 pub use merged_schema::{
     merged_schema_diagnostics, merged_schema_with_diagnostics, MergedSchemaResult,
 };
 pub use project_lints::{analyze_field_usage, FieldCoverageReport, FieldUsage, TypeCoverage};
+pub use schema_validation::validate_schema_file;
 pub use validation::validate_file;
 
 #[salsa::db]
@@ -185,56 +187,4 @@ fn file_diagnostics_impl(
     );
 
     Arc::new(diagnostics)
-}
-
-#[cfg(test)]
-#[allow(clippy::needless_raw_string_hashes)]
-mod tests {
-    use super::*;
-    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
-
-    // TestDatabase for graphql-analysis tests.
-    // Note: We can't use graphql_test_utils::TestDatabase here because it would
-    // create a cyclic dependency (graphql-test-utils depends on graphql-analysis).
-    #[salsa::db]
-    #[derive(Clone, Default)]
-    struct TestDatabase {
-        storage: salsa::Storage<Self>,
-    }
-
-    #[salsa::db]
-    impl salsa::Database for TestDatabase {}
-
-    #[salsa::db]
-    impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {}
-
-    #[salsa::db]
-    impl graphql_hir::GraphQLHirDatabase for TestDatabase {}
-
-    #[salsa::db]
-    impl GraphQLAnalysisDatabase for TestDatabase {}
-
-    #[test]
-    fn test_file_diagnostics_empty() {
-        let db = TestDatabase::default();
-        let file_id = FileId::new(0);
-
-        // Create a valid schema file
-        let content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
-        let metadata = FileMetadata::new(
-            &db,
-            file_id,
-            FileUri::new("file:///test.graphql"),
-            FileKind::Schema,
-        );
-
-        // Get diagnostics (no project_files, so only syntax errors would be reported)
-        let diagnostics = file_diagnostics(&db, content, metadata, None);
-
-        // Valid schema should have no syntax errors
-        assert!(
-            diagnostics.is_empty(),
-            "Valid schema should have no diagnostics, got: {diagnostics:?}"
-        );
-    }
 }
