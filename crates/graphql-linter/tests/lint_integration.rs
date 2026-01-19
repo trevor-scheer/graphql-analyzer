@@ -3,18 +3,18 @@
 //! These tests verify end-to-end linting functionality across
 //! the graphql-linter, graphql-hir, and graphql-syntax crates.
 
-use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
 use graphql_ide_db::RootDatabase;
 use graphql_linter::{standalone_document_rules, LintConfig};
 use std::sync::Arc;
 
 /// Create empty project files for standalone document linting
-fn create_empty_project_files(db: &RootDatabase) -> graphql_db::ProjectFiles {
-    let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![]));
-    let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(vec![]));
+fn create_empty_project_files(db: &RootDatabase) -> graphql_base_db::ProjectFiles {
+    let schema_file_ids = graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![]));
+    let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![]));
     let file_entry_map =
-        graphql_db::FileEntryMap::new(db, Arc::new(std::collections::HashMap::new()));
-    graphql_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        graphql_base_db::FileEntryMap::new(db, Arc::new(std::collections::HashMap::new()));
+    graphql_base_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
 }
 
 /// Run all standalone document rules on a source

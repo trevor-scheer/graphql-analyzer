@@ -1,7 +1,7 @@
 // Document validation queries (operations and fragments)
 
 use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase, Position};
-use graphql_db::{FileContent, FileMetadata};
+use graphql_base_db::{FileContent, FileMetadata};
 use std::sync::Arc;
 use text_size::TextRange;
 
@@ -213,8 +213,8 @@ fn is_builtin_scalar(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::test_utils::create_project_files;
-    use graphql_db::{FileContent, FileKind, FileMetadata, FileUri};
+    use graphql_base_db::test_utils::create_project_files;
+    use graphql_base_db::{FileContent, FileKind, FileMetadata, FileUri};
 
     // TestDatabase for document_validation tests.
     // Note: We can't use graphql_test_utils::TestDatabase here because it would
@@ -224,7 +224,7 @@ mod tests {
     #[derive(Clone)]
     struct TestDatabase {
         storage: salsa::Storage<Self>,
-        project_files: std::cell::Cell<Option<graphql_db::ProjectFiles>>,
+        project_files: std::cell::Cell<Option<graphql_base_db::ProjectFiles>>,
     }
 
     impl Default for TestDatabase {
@@ -237,7 +237,7 @@ mod tests {
     }
 
     impl TestDatabase {
-        fn set_project_files(&self, project_files: Option<graphql_db::ProjectFiles>) {
+        fn set_project_files(&self, project_files: Option<graphql_base_db::ProjectFiles>) {
             self.project_files.set(project_files);
         }
     }
@@ -250,7 +250,7 @@ mod tests {
 
     #[salsa::db]
     impl graphql_hir::GraphQLHirDatabase for TestDatabase {
-        fn project_files(&self) -> Option<graphql_db::ProjectFiles> {
+        fn project_files(&self) -> Option<graphql_base_db::ProjectFiles> {
             self.project_files.get()
         }
     }
@@ -261,7 +261,7 @@ mod tests {
     #[test]
     fn test_unknown_variable_type() {
         let mut db = TestDatabase::default();
-        let file_id = graphql_db::FileId::new(0);
+        let file_id = graphql_base_db::FileId::new(0);
 
         let doc_content = "query GetUser($input: UserInput!) { user }";
         let content = FileContent::new(&db, Arc::from(doc_content));
@@ -292,7 +292,7 @@ mod tests {
         let mut db = TestDatabase::default();
 
         // First, add schema
-        let schema_file_id = graphql_db::FileId::new(0);
+        let schema_file_id = graphql_base_db::FileId::new(0);
         let schema_content = "type User { id: ID! }";
         let schema_fc = FileContent::new(&db, Arc::from(schema_content));
         let schema_metadata = FileMetadata::new(
@@ -303,7 +303,7 @@ mod tests {
         );
 
         // Now test document with invalid variable type
-        let doc_file_id = graphql_db::FileId::new(1);
+        let doc_file_id = graphql_base_db::FileId::new(1);
         let doc_content = "query GetUser($user: User!) { user }";
         let doc_fc = FileContent::new(&db, Arc::from(doc_content));
         let doc_metadata = FileMetadata::new(
@@ -334,7 +334,7 @@ mod tests {
     #[test]
     fn test_fragment_unknown_type_condition() {
         let mut db = TestDatabase::default();
-        let file_id = graphql_db::FileId::new(0);
+        let file_id = graphql_base_db::FileId::new(0);
 
         let doc_content = "fragment UserFields on User { id }";
         let content = FileContent::new(&db, Arc::from(doc_content));
@@ -364,7 +364,7 @@ mod tests {
         let mut db = TestDatabase::default();
 
         // Add schema with scalar type
-        let schema_file_id = graphql_db::FileId::new(0);
+        let schema_file_id = graphql_base_db::FileId::new(0);
         let schema_content = "scalar DateTime";
         let schema_fc = FileContent::new(&db, Arc::from(schema_content));
         let schema_metadata = FileMetadata::new(
@@ -375,7 +375,7 @@ mod tests {
         );
 
         // Fragment on scalar (invalid)
-        let doc_file_id = graphql_db::FileId::new(1);
+        let doc_file_id = graphql_base_db::FileId::new(1);
         let doc_content = "fragment TimeFields on DateTime { }";
         let doc_fc = FileContent::new(&db, Arc::from(doc_content));
         let doc_metadata = FileMetadata::new(
@@ -407,7 +407,7 @@ mod tests {
     #[test]
     fn test_missing_root_type() {
         let mut db = TestDatabase::default();
-        let file_id = graphql_db::FileId::new(0);
+        let file_id = graphql_base_db::FileId::new(0);
 
         let doc_content = "query { hello }";
         let content = FileContent::new(&db, Arc::from(doc_content));
@@ -437,7 +437,7 @@ mod tests {
         let mut db = TestDatabase::default();
 
         // Add schema
-        let schema_file_id = graphql_db::FileId::new(0);
+        let schema_file_id = graphql_base_db::FileId::new(0);
         let schema_content = r"
             type Query { user(id: ID!): User }
             type User { id: ID! name: String! }
@@ -452,7 +452,7 @@ mod tests {
         );
 
         // Valid query
-        let doc_file_id = graphql_db::FileId::new(1);
+        let doc_file_id = graphql_base_db::FileId::new(1);
         let doc_content = r"
             query GetUser($id: ID!, $filter: UserFilter) {
                 user(id: $id) { id name }

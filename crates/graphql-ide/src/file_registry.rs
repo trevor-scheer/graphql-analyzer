@@ -15,7 +15,7 @@
 //! This is a significant improvement over the old `FileMap` approach where
 //! any file change would invalidate queries for ALL files.
 
-use graphql_db::{
+use graphql_base_db::{
     DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileKind, FileMetadata, FileUri,
     ProjectFiles, SchemaFileIds,
 };

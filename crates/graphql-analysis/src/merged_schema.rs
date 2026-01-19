@@ -58,7 +58,7 @@ pub struct MergedSchemaResult {
 #[salsa::tracked]
 pub fn merged_schema_with_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> MergedSchemaResult {
     tracing::info!("merged_schema: Starting schema merge with diagnostics");
     let schema_ids = project_files.schema_file_ids(db).ids(db);
@@ -77,7 +77,8 @@ pub fn merged_schema_with_diagnostics(
 
     for file_id in schema_ids.iter() {
         // Use per-file lookup for granular caching
-        let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) else {
+        let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        else {
             continue;
         };
         let text = content.text(db);
@@ -148,7 +149,7 @@ pub fn merged_schema_with_diagnostics(
 #[salsa::tracked]
 pub fn merged_schema_from_files(
     db: &dyn GraphQLAnalysisDatabase,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> Option<Arc<apollo_compiler::Schema>> {
     merged_schema_with_diagnostics(db, project_files).schema
 }
@@ -165,7 +166,7 @@ pub fn merged_schema_from_files(
 #[salsa::tracked]
 pub fn merged_schema_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> Arc<Vec<crate::Diagnostic>> {
     merged_schema_with_diagnostics(db, project_files).diagnostics
 }
@@ -177,7 +178,7 @@ pub fn merged_schema_diagnostics(
 #[salsa::tracked]
 pub fn merged_schema(
     db: &dyn GraphQLAnalysisDatabase,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> Option<Arc<apollo_compiler::Schema>> {
     merged_schema_from_files(db, project_files)
 }
@@ -186,7 +187,7 @@ pub fn merged_schema(
 #[allow(clippy::needless_raw_string_hashes)]
 mod tests {
     use super::*;
-    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
 
     #[salsa::db]
     #[derive(Clone, Default)]
@@ -220,7 +221,7 @@ mod tests {
         );
         let schema_files = [(file_id, content, metadata)];
         let project_files =
-            graphql_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
         let schema = merged_schema(&db, project_files);
         assert!(
             schema.is_some(),
@@ -261,7 +262,7 @@ mod tests {
             (file2_id, content2, metadata2),
         ];
         let project_files =
-            graphql_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -307,7 +308,7 @@ mod tests {
             (file2_id, content2, metadata2),
         ];
         let project_files =
-            graphql_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -342,7 +343,7 @@ mod tests {
     fn test_merged_schema_no_files() {
         let mut db = TestDatabase::default();
 
-        let project_files = graphql_db::test_utils::create_project_files(&mut db, &[], &[]);
+        let project_files = graphql_base_db::test_utils::create_project_files(&mut db, &[], &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(schema.is_none(), "Expected None when no schema files exist");
@@ -363,7 +364,7 @@ mod tests {
 
         let schema_files = [(file_id, content, metadata)];
         let project_files =
-            graphql_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -391,7 +392,7 @@ mod tests {
 
         let schema_files = [(file_id, content, metadata)];
         let project_files =
-            graphql_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let schema = merged_schema(&db, project_files);
         assert!(
@@ -425,7 +426,7 @@ mod tests {
 
         let schema_files = [(file_id, content, metadata)];
         let project_files =
-            graphql_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let result = merged_schema_with_diagnostics(&db, project_files);
 
@@ -474,7 +475,7 @@ mod tests {
 
         let schema_files = [(file_id, content, metadata)];
         let project_files =
-            graphql_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let result = merged_schema_with_diagnostics(&db, project_files);
 
@@ -515,7 +516,7 @@ mod tests {
 
         let schema_files = [(file_id, content, metadata)];
         let project_files =
-            graphql_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let result = merged_schema_with_diagnostics(&db, project_files);
 
@@ -565,7 +566,7 @@ mod tests {
 
         let schema_files = [(file_id, content, metadata)];
         let project_files =
-            graphql_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
+            graphql_base_db::test_utils::create_project_files(&mut db, &schema_files, &[]);
 
         let result = merged_schema_with_diagnostics(&db, project_files);
 

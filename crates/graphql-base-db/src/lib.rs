@@ -190,7 +190,7 @@ pub fn file_lookup(
 /// ## Usage
 ///
 /// ```ignore
-/// use graphql_db::tracking::{TrackedDatabase, queries};
+/// use graphql_base_db::tracking::{TrackedDatabase, queries};
 ///
 /// let mut db = TrackedDatabase::new();
 /// // ... setup files ...

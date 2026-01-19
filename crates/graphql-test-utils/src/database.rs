@@ -10,7 +10,7 @@
 //! - `TestDatabaseWithProject` - A database variant that stores `ProjectFiles` in a Cell,
 //!   allowing tests to set project context after database construction.
 
-use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
 use std::sync::Arc;
 
 // Re-export RootDatabase from graphql-ide-db for convenience

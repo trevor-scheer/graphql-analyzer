@@ -1,6 +1,6 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, ProjectLintRule};
-use graphql_db::{FileId, ProjectFiles};
+use graphql_base_db::{FileId, ProjectFiles};
 use graphql_hir::{FragmentNameInfo, OperationNameInfo};
 use std::collections::HashMap;
 
@@ -36,7 +36,8 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
 
         for file_id in doc_ids.iter() {
             // Use per-file lookup for granular caching
-            let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
+            let Some((content, metadata)) =
+                graphql_base_db::file_lookup(db, project_files, *file_id)
             else {
                 continue;
             };
@@ -96,7 +97,8 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
 
         for file_id in doc_ids.iter() {
             // Use per-file lookup for granular caching
-            let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
+            let Some((content, metadata)) =
+                graphql_base_db::file_lookup(db, project_files, *file_id)
             else {
                 continue;
             };

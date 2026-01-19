@@ -7,7 +7,7 @@ members = [
     "crates/graphql-lsp",
     "crates/graphql-cli",
     "crates/graphql-linter",
-    "crates/graphql-db",
+    "crates/graphql-base-db",
     "crates/graphql-syntax",
     "crates/graphql-hir",
     "crates/graphql-analysis",

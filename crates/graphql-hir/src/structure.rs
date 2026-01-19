@@ -1,6 +1,6 @@
 use apollo_compiler::ast;
 use apollo_compiler::Node;
-use graphql_db::FileId;
+use graphql_base_db::FileId;
 use std::sync::Arc;
 pub use text_size::{TextRange, TextSize};
 
@@ -203,8 +203,8 @@ impl BlockContext {
 pub fn file_structure(
     db: &dyn crate::GraphQLHirDatabase,
     file_id: FileId,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
 ) -> Arc<FileStructureData> {
     let parse = graphql_syntax::parse(db, content, metadata);
 

@@ -3,7 +3,7 @@
 //! This module provides helper functions for extracting schema metadata
 //! like root operation type names from GraphQL schema definitions.
 
-use graphql_db::ProjectFiles;
+use graphql_base_db::ProjectFiles;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -49,7 +49,8 @@ pub fn extract_root_type_names(
     let schema_ids = project_files.schema_file_ids(db).ids(db);
 
     for file_id in schema_ids.iter() {
-        let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) else {
+        let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        else {
             continue;
         };
 

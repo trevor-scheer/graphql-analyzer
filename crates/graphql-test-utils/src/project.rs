@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
 
 use crate::TestDatabase;
 
@@ -136,7 +136,7 @@ impl TestProjectBuilder {
         }
 
         let project_files =
-            graphql_db::test_utils::create_project_files(&mut db, &schema_tuples, &doc_tuples);
+            graphql_base_db::test_utils::create_project_files(&mut db, &schema_tuples, &doc_tuples);
 
         (db, project_files)
     }
@@ -214,7 +214,7 @@ impl TestProjectBuilder {
         }
 
         let project_files =
-            graphql_db::test_utils::create_project_files(&mut db, &schema_tuples, &doc_tuples);
+            graphql_base_db::test_utils::create_project_files(&mut db, &schema_tuples, &doc_tuples);
 
         TestProject {
             db,

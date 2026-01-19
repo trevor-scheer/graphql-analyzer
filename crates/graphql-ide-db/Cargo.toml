@@ -12,11 +12,11 @@ categories = ["development-tools"]
 
 [features]
 default = []
-test-utils = ["graphql-db/test-utils"]
+test-utils = ["graphql-base-db/test-utils"]
 
 [dependencies]
 # Core database dependencies - graphql-analysis brings in the full chain
-graphql-db = { path = "../graphql-db" }
+graphql-base-db = { path = "../graphql-base-db" }
 graphql-syntax = { path = "../graphql-syntax" }
 graphql-hir = { path = "../graphql-hir" }
 graphql-analysis = { path = "../graphql-analysis" }

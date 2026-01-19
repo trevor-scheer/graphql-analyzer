@@ -57,8 +57,8 @@ pub struct FragmentBody {
 #[salsa::tracked]
 pub fn operation_body(
     db: &dyn crate::GraphQLHirDatabase,
-    file_content: graphql_db::FileContent,
-    file_metadata: graphql_db::FileMetadata,
+    file_content: graphql_base_db::FileContent,
+    file_metadata: graphql_base_db::FileMetadata,
     operation_index: usize,
 ) -> Arc<OperationBody> {
     let parse = graphql_syntax::parse(db, file_content, file_metadata);
@@ -90,8 +90,8 @@ pub fn operation_body(
 #[allow(clippy::needless_pass_by_value)] // Arc<str> needed for Salsa tracking
 pub fn fragment_body(
     db: &dyn crate::GraphQLHirDatabase,
-    file_content: graphql_db::FileContent,
-    file_metadata: graphql_db::FileMetadata,
+    file_content: graphql_base_db::FileContent,
+    file_metadata: graphql_base_db::FileMetadata,
     fragment_name: Arc<str>,
 ) -> Arc<FragmentBody> {
     let parse = graphql_syntax::parse(db, file_content, file_metadata);
@@ -119,10 +119,10 @@ pub fn fragment_body(
 #[salsa::tracked]
 pub fn operation_transitive_fragments(
     db: &dyn crate::GraphQLHirDatabase,
-    file_content: graphql_db::FileContent,
-    file_metadata: graphql_db::FileMetadata,
+    file_content: graphql_base_db::FileContent,
+    file_metadata: graphql_base_db::FileMetadata,
     operation_index: usize,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> Arc<HashSet<Arc<str>>> {
     let body = operation_body(db, file_content, file_metadata, operation_index);
 
@@ -343,7 +343,7 @@ fn extract_selection(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
     use std::collections::HashMap;
 
     #[salsa::db]
@@ -366,25 +366,25 @@ mod tests {
         db: &TestDatabase,
         schema_files: &[(FileId, FileContent, FileMetadata)],
         document_files: &[(FileId, FileContent, FileMetadata)],
-    ) -> graphql_db::ProjectFiles {
+    ) -> graphql_base_db::ProjectFiles {
         let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
         let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
 
         let mut entries = HashMap::new();
         for (id, content, metadata) in schema_files {
-            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
+            let entry = graphql_base_db::FileEntry::new(db, *content, *metadata);
             entries.insert(*id, entry);
         }
         for (id, content, metadata) in document_files {
-            let entry = graphql_db::FileEntry::new(db, *content, *metadata);
+            let entry = graphql_base_db::FileEntry::new(db, *content, *metadata);
             entries.insert(*id, entry);
         }
 
-        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(schema_ids));
-        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_ids));
-        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(entries));
+        let schema_file_ids = graphql_base_db::SchemaFileIds::new(db, Arc::new(schema_ids));
+        let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(doc_ids));
+        let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(entries));
 
-        graphql_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        graphql_base_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
     }
 
     #[test]

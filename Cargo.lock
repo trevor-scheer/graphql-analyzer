@@ -968,7 +968,7 @@ version = "0.1.1"
 dependencies = [
  "apollo-compiler",
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "graphql-db",
+ "graphql-base-db",
  "graphql-hir",
  "graphql-linter",
  "graphql-syntax",
@@ -976,6 +976,13 @@ dependencies = [
  "text-size",
  "thiserror 2.0.17",
  "tracing",
+]
+
+[[package]]
+name = "graphql-base-db"
+version = "0.1.1"
+dependencies = [
+ "salsa",
 ]
 
 [[package]]
@@ -1020,13 +1027,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "graphql-db"
-version = "0.1.1"
-dependencies = [
- "salsa",
-]
-
-[[package]]
 name = "graphql-extract"
 version = "0.1.1"
 dependencies = [
@@ -1045,7 +1045,7 @@ version = "0.1.1"
 dependencies = [
  "apollo-compiler",
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "graphql-db",
+ "graphql-base-db",
  "graphql-syntax",
  "salsa",
  "text-size",
@@ -1059,8 +1059,8 @@ dependencies = [
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "glob",
  "graphql-analysis",
+ "graphql-base-db",
  "graphql-config",
- "graphql-db",
  "graphql-extract",
  "graphql-hir",
  "graphql-ide-db",
@@ -1077,7 +1077,7 @@ name = "graphql-ide-db"
 version = "0.1.1"
 dependencies = [
  "graphql-analysis",
- "graphql-db",
+ "graphql-base-db",
  "graphql-extract",
  "graphql-hir",
  "graphql-syntax",
@@ -1102,7 +1102,7 @@ version = "0.1.1"
 dependencies = [
  "apollo-compiler",
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "graphql-db",
+ "graphql-base-db",
  "graphql-hir",
  "graphql-ide-db",
  "graphql-syntax",
@@ -1149,7 +1149,7 @@ version = "0.1.1"
 dependencies = [
  "criterion",
  "graphql-analysis",
- "graphql-db",
+ "graphql-base-db",
  "graphql-hir",
  "graphql-ide",
  "graphql-ide-db",
@@ -1163,7 +1163,7 @@ version = "0.1.1"
 dependencies = [
  "apollo-compiler",
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "graphql-db",
+ "graphql-base-db",
  "graphql-extract",
  "salsa",
  "tracing",
@@ -1174,7 +1174,7 @@ name = "graphql-test-utils"
 version = "0.1.1"
 dependencies = [
  "graphql-analysis",
- "graphql-db",
+ "graphql-base-db",
  "graphql-hir",
  "graphql-ide-db",
  "graphql-syntax",

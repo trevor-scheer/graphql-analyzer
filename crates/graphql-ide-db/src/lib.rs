@@ -31,7 +31,7 @@
 //! ```
 
 // Re-export commonly used types from the foundation crate
-pub use graphql_db::{
+pub use graphql_base_db::{
     DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileKind, FileMetadata, FileUri,
     ProjectFiles, SchemaFileIds,
 };

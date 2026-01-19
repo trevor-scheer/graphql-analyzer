@@ -2,7 +2,7 @@
 
 use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase, Position, Severity};
 use apollo_compiler::parser::Parser;
-use graphql_db::{FileContent, FileMetadata};
+use graphql_base_db::{FileContent, FileMetadata};
 use std::sync::Arc;
 
 /// Validate a schema file using apollo-compiler
@@ -79,7 +79,7 @@ pub fn validate_schema_file(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::{FileContent, FileKind, FileMetadata, FileUri};
+    use graphql_base_db::{FileContent, FileKind, FileMetadata, FileUri};
 
     #[salsa::db]
     #[derive(Clone, Default)]
@@ -103,7 +103,7 @@ mod tests {
     #[ignore = "Single-file validation doesn't catch unknown types - this requires merged schema validation"]
     fn test_unknown_field_type() {
         let db = TestDatabase::default();
-        let file_id = graphql_db::FileId::new(0);
+        let file_id = graphql_base_db::FileId::new(0);
 
         let schema_content = "type User { profile: Profile }";
         let content = FileContent::new(&db, Arc::from(schema_content));
@@ -131,7 +131,7 @@ mod tests {
     #[ignore = "Interface implementation validation requires merged schema - apollo-compiler SchemaBuilder is lenient"]
     fn test_interface_implementation_missing_field() {
         let db = TestDatabase::default();
-        let file_id = graphql_db::FileId::new(0);
+        let file_id = graphql_base_db::FileId::new(0);
 
         let schema_content = r"
             interface Node { id: ID! name: String! }
@@ -158,7 +158,7 @@ mod tests {
     #[ignore = "Interface implementation validation requires merged schema - apollo-compiler SchemaBuilder is lenient"]
     fn test_interface_implementation_wrong_type() {
         let db = TestDatabase::default();
-        let file_id = graphql_db::FileId::new(0);
+        let file_id = graphql_base_db::FileId::new(0);
 
         let schema_content = r"
             interface Node { id: ID! }
@@ -187,7 +187,7 @@ mod tests {
     #[ignore = "Union validation requires merged schema - apollo-compiler SchemaBuilder is lenient"]
     fn test_union_non_object_member() {
         let db = TestDatabase::default();
-        let file_id = graphql_db::FileId::new(0);
+        let file_id = graphql_base_db::FileId::new(0);
 
         let schema_content = r"
             interface Node { id: ID! }
@@ -216,7 +216,7 @@ mod tests {
     #[ignore = "Union validation requires merged schema - apollo-compiler SchemaBuilder is lenient"]
     fn test_union_unknown_member() {
         let db = TestDatabase::default();
-        let file_id = graphql_db::FileId::new(0);
+        let file_id = graphql_base_db::FileId::new(0);
 
         let schema_content = "union SearchResult = User | Post";
         let content = FileContent::new(&db, Arc::from(schema_content));
@@ -242,7 +242,7 @@ mod tests {
     #[ignore = "Input type validation requires merged schema - apollo-compiler SchemaBuilder is lenient"]
     fn test_input_object_invalid_field_type() {
         let db = TestDatabase::default();
-        let file_id = graphql_db::FileId::new(0);
+        let file_id = graphql_base_db::FileId::new(0);
 
         let schema_content = r"
             type User { id: ID! }
@@ -270,7 +270,7 @@ mod tests {
     #[test]
     fn test_valid_schema() {
         let db = TestDatabase::default();
-        let file_id = graphql_db::FileId::new(0);
+        let file_id = graphql_base_db::FileId::new(0);
 
         let schema_content = r"
             interface Node { id: ID! }
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn test_duplicate_type_name() {
         let db = TestDatabase::default();
-        let file_id = graphql_db::FileId::new(0);
+        let file_id = graphql_base_db::FileId::new(0);
 
         let schema_content = r"
             type User { id: ID! }
@@ -327,7 +327,7 @@ mod tests {
     #[test]
     fn test_invalid_syntax() {
         let db = TestDatabase::default();
-        let file_id = graphql_db::FileId::new(0);
+        let file_id = graphql_base_db::FileId::new(0);
 
         let schema_content = "type User { invalid syntax here";
         let content = FileContent::new(&db, Arc::from(schema_content));
@@ -346,7 +346,7 @@ mod tests {
     #[test]
     fn test_diagnostic_positions() {
         let db = TestDatabase::default();
-        let file_id = graphql_db::FileId::new(0);
+        let file_id = graphql_base_db::FileId::new(0);
 
         // Use a schema with duplicate types to ensure we get an error with position info
         let schema_content = r"

@@ -2,7 +2,7 @@
 // This crate provides semantic queries on top of syntax.
 // It implements the "golden invariant": editing a document's body never invalidates global schema knowledge.
 
-use graphql_db::FileId;
+use graphql_base_db::FileId;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -82,7 +82,7 @@ pub trait GraphQLHirDatabase: graphql_syntax::GraphQLSyntaxDatabase {
     /// Get the project files input
     /// Returns None if no project files have been set yet
     /// This should be overridden by implementations that track project files
-    fn project_files(&self) -> Option<graphql_db::ProjectFiles> {
+    fn project_files(&self) -> Option<graphql_base_db::ProjectFiles> {
         None
     }
 }
@@ -98,8 +98,8 @@ pub trait GraphQLHirDatabase: graphql_syntax::GraphQLSyntaxDatabase {
 pub fn file_type_defs(
     db: &dyn GraphQLHirDatabase,
     file_id: FileId,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
 ) -> Arc<Vec<TypeDef>> {
     let structure = file_structure(db, file_id, content, metadata);
     Arc::clone(&structure.type_defs)
@@ -111,8 +111,8 @@ pub fn file_type_defs(
 pub fn file_fragments(
     db: &dyn GraphQLHirDatabase,
     file_id: FileId,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
 ) -> Arc<Vec<FragmentStructure>> {
     let structure = file_structure(db, file_id, content, metadata);
     Arc::clone(&structure.fragments)
@@ -124,8 +124,8 @@ pub fn file_fragments(
 pub fn file_operations(
     db: &dyn GraphQLHirDatabase,
     file_id: FileId,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
 ) -> Arc<Vec<OperationStructure>> {
     let structure = file_structure(db, file_id, content, metadata);
     Arc::clone(&structure.operations)
@@ -147,14 +147,15 @@ pub fn file_operations(
 #[salsa::tracked(returns(ref))]
 pub fn schema_types(
     db: &dyn GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> HashMap<Arc<str>, TypeDef> {
     let schema_ids = project_files.schema_file_ids(db).ids(db);
     let mut types = HashMap::new();
 
     for file_id in schema_ids.iter() {
         // Use per-file lookup for granular caching
-        if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
+        if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        {
             let file_types = file_type_defs(db, *file_id, content, metadata);
             for type_def in file_types.iter() {
                 types.insert(type_def.name.clone(), type_def.clone());
@@ -176,14 +177,15 @@ pub fn schema_types(
 #[salsa::tracked(returns(ref))]
 pub fn all_fragments(
     db: &dyn GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> HashMap<Arc<str>, FragmentStructure> {
     let doc_ids = project_files.document_file_ids(db).ids(db);
     let mut fragments = HashMap::new();
 
     for file_id in doc_ids.iter() {
         // Use per-file lookup for granular caching
-        if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
+        if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        {
             // Per-file query - cached independently
             let file_frags = file_fragments(db, *file_id, content, metadata);
             for fragment in file_frags.iter() {
@@ -200,14 +202,15 @@ pub fn all_fragments(
 #[salsa::tracked]
 pub fn fragment_file_index(
     db: &dyn GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
-) -> Arc<HashMap<Arc<str>, (graphql_db::FileContent, graphql_db::FileMetadata)>> {
+    project_files: graphql_base_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, (graphql_base_db::FileContent, graphql_base_db::FileMetadata)>> {
     let doc_ids = project_files.document_file_ids(db).ids(db);
     let mut index = HashMap::new();
 
     for file_id in doc_ids.iter() {
         // Use per-file lookup for granular caching
-        if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
+        if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        {
             // Per-file query for fragments
             let file_frags = file_fragments(db, *file_id, content, metadata);
             for fragment in file_frags.iter() {
@@ -225,9 +228,9 @@ pub fn fragment_file_index(
 #[salsa::tracked]
 pub fn file_fragment_sources(
     db: &dyn GraphQLHirDatabase,
-    _file_id: graphql_db::FileId,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
+    _file_id: graphql_base_db::FileId,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
 ) -> Arc<HashMap<Arc<str>, Arc<str>>> {
     let parse = graphql_syntax::parse(db, content, metadata);
     let mut sources = HashMap::new();
@@ -252,9 +255,9 @@ pub fn file_fragment_sources(
 #[salsa::tracked]
 pub fn file_fragment_asts(
     db: &dyn GraphQLHirDatabase,
-    _file_id: graphql_db::FileId,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
+    _file_id: graphql_base_db::FileId,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
 ) -> Arc<HashMap<Arc<str>, Arc<apollo_compiler::ast::Document>>> {
     let parse = graphql_syntax::parse(db, content, metadata);
     let mut asts = HashMap::new();
@@ -279,13 +282,14 @@ pub fn file_fragment_asts(
 #[salsa::tracked]
 pub fn fragment_file_location_index(
     db: &dyn GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
-) -> Arc<HashMap<Arc<str>, graphql_db::FileId>> {
+    project_files: graphql_base_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, graphql_base_db::FileId>> {
     let doc_ids = project_files.document_file_ids(db).ids(db);
     let mut index = HashMap::new();
 
     for file_id in doc_ids.iter() {
-        if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
+        if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        {
             let file_frags = file_fragments(db, *file_id, content, metadata);
             for fragment in file_frags.iter() {
                 index.insert(fragment.name.clone(), *file_id);
@@ -306,7 +310,7 @@ pub fn fragment_file_location_index(
 #[allow(clippy::needless_pass_by_value)] // Salsa tracked functions require owned arguments
 pub fn fragment_source(
     db: &dyn GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
     fragment_name: Arc<str>,
 ) -> Option<Arc<str>> {
     // First, find which file contains this fragment
@@ -314,7 +318,7 @@ pub fn fragment_source(
     let file_id = location_index.get(&fragment_name)?;
 
     // Get the file's content and metadata
-    let (content, metadata) = graphql_db::file_lookup(db, project_files, *file_id)?;
+    let (content, metadata) = graphql_base_db::file_lookup(db, project_files, *file_id)?;
 
     // Query just this file's fragment sources (fine-grained dependency)
     let file_sources = file_fragment_sources(db, *file_id, content, metadata);
@@ -334,7 +338,7 @@ pub fn fragment_source(
 #[allow(clippy::needless_pass_by_value)] // Salsa tracked functions require owned arguments
 pub fn fragment_ast(
     db: &dyn GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
     fragment_name: Arc<str>,
 ) -> Option<Arc<apollo_compiler::ast::Document>> {
     // First, find which file contains this fragment
@@ -342,7 +346,7 @@ pub fn fragment_ast(
     let file_id = location_index.get(&fragment_name)?;
 
     // Get the file's content and metadata
-    let (content, metadata) = graphql_db::file_lookup(db, project_files, *file_id)?;
+    let (content, metadata) = graphql_base_db::file_lookup(db, project_files, *file_id)?;
 
     // Query just this file's fragment ASTs (fine-grained dependency)
     let file_asts = file_fragment_asts(db, *file_id, content, metadata);
@@ -361,13 +365,14 @@ pub fn fragment_ast(
 #[salsa::tracked]
 pub fn fragment_source_index(
     db: &dyn GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> Arc<HashMap<Arc<str>, Arc<str>>> {
     let doc_ids = project_files.document_file_ids(db).ids(db);
     let mut index = HashMap::new();
 
     for file_id in doc_ids.iter() {
-        if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
+        if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        {
             // Use per-file query for granular caching
             let file_sources = file_fragment_sources(db, *file_id, content, metadata);
             index.extend(file_sources.iter().map(|(k, v)| (k.clone(), v.clone())));
@@ -383,9 +388,9 @@ pub fn fragment_source_index(
 #[salsa::tracked]
 pub fn file_fragment_spreads(
     db: &dyn GraphQLHirDatabase,
-    file_id: graphql_db::FileId,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
+    file_id: graphql_base_db::FileId,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
 ) -> Arc<HashMap<Arc<str>, std::collections::HashSet<Arc<str>>>> {
     let file_frags = file_fragments(db, file_id, content, metadata);
     let mut spreads = HashMap::new();
@@ -405,14 +410,15 @@ pub fn file_fragment_spreads(
 #[salsa::tracked]
 pub fn fragment_spreads_index(
     db: &dyn GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> Arc<HashMap<Arc<str>, std::collections::HashSet<Arc<str>>>> {
     let doc_ids = project_files.document_file_ids(db).ids(db);
     let mut index = HashMap::new();
 
     for file_id in doc_ids.iter() {
         // Use per-file lookup for granular caching
-        if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
+        if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        {
             // Per-file query - only rebuilds when THIS file changes
             let file_spreads = file_fragment_spreads(db, *file_id, content, metadata);
             index.extend(file_spreads.iter().map(|(k, v)| (k.clone(), v.clone())));
@@ -427,14 +433,15 @@ pub fn fragment_spreads_index(
 #[salsa::tracked]
 pub fn all_operations(
     db: &dyn GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> Arc<Vec<OperationStructure>> {
     let doc_ids = project_files.document_file_ids(db).ids(db);
     let mut operations = Vec::new();
 
     for file_id in doc_ids.iter() {
         // Use per-file lookup for granular caching
-        if let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) {
+        if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        {
             // Per-file query for operations
             let file_ops = file_operations(db, *file_id, content, metadata);
             operations.extend(file_ops.iter().cloned());
@@ -458,8 +465,8 @@ pub fn all_operations(
 pub fn file_used_fragment_names(
     db: &dyn GraphQLHirDatabase,
     _file_id: FileId,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
 ) -> Arc<std::collections::HashSet<Arc<str>>> {
     let parse = graphql_syntax::parse(db, content, metadata);
     let mut used = std::collections::HashSet::new();
@@ -509,8 +516,8 @@ pub fn file_used_fragment_names(
 pub fn file_defined_fragment_names(
     db: &dyn GraphQLHirDatabase,
     file_id: FileId,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
 ) -> Arc<Vec<Arc<str>>> {
     let structure = file_structure(db, file_id, content, metadata);
     Arc::new(structure.fragments.iter().map(|f| f.name.clone()).collect())
@@ -536,8 +543,8 @@ pub struct FragmentNameInfo {
 pub fn file_fragment_info(
     db: &dyn GraphQLHirDatabase,
     file_id: FileId,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
 ) -> Arc<Vec<FragmentNameInfo>> {
     let structure = file_structure(db, file_id, content, metadata);
     Arc::new(
@@ -576,8 +583,8 @@ pub struct OperationNameInfo {
 pub fn file_operation_names(
     db: &dyn GraphQLHirDatabase,
     file_id: FileId,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
 ) -> Arc<Vec<OperationNameInfo>> {
     let structure = file_structure(db, file_id, content, metadata);
     Arc::new(
@@ -618,9 +625,9 @@ pub struct SchemaCoordinate {
 pub fn file_schema_coordinates(
     db: &dyn GraphQLHirDatabase,
     _file_id: FileId,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
-    project_files: graphql_db::ProjectFiles,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> Arc<std::collections::HashSet<SchemaCoordinate>> {
     let parse = graphql_syntax::parse(db, content, metadata);
     let schema_types = schema_types(db, project_files);
@@ -736,7 +743,7 @@ pub fn file_schema_coordinates(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::{FileContent, FileKind, FileMetadata, FileUri};
+    use graphql_base_db::{FileContent, FileKind, FileMetadata, FileUri};
     use salsa::Setter;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -762,13 +769,13 @@ mod tests {
     impl GraphQLHirDatabase for TestDatabase {}
 
     /// Helper to create `ProjectFiles` for tests.
-    /// Uses `graphql_db::test_utils` but with our local `TestDatabase`.
+    /// Uses `graphql_base_db::test_utils` but with our local `TestDatabase`.
     fn create_project_files(
         db: &mut TestDatabase,
         schema_files: &[(FileId, FileContent, FileMetadata)],
         document_files: &[(FileId, FileContent, FileMetadata)],
-    ) -> graphql_db::ProjectFiles {
-        graphql_db::test_utils::create_project_files(db, schema_files, document_files)
+    ) -> graphql_base_db::ProjectFiles {
+        graphql_base_db::test_utils::create_project_files(db, schema_files, document_files)
     }
 
     #[test]
@@ -814,8 +821,8 @@ mod tests {
     fn counted_file_structure(
         db: &dyn GraphQLHirDatabase,
         file_id: FileId,
-        content: graphql_db::FileContent,
-        metadata: graphql_db::FileMetadata,
+        content: graphql_base_db::FileContent,
+        metadata: graphql_base_db::FileMetadata,
     ) -> Arc<FileStructureData> {
         FILE_STRUCTURE_CALL_COUNT.fetch_add(1, Ordering::SeqCst);
         file_structure(db, file_id, content, metadata)
@@ -1104,7 +1111,7 @@ mod tests {
     )]
     mod caching_tests {
         use super::*;
-        use graphql_db::tracking::queries;
+        use graphql_base_db::tracking::queries;
         use salsa::{Event, EventKind, Setter, Storage};
         use std::sync::Mutex;
 
@@ -1226,27 +1233,40 @@ mod tests {
         /// Helper to create `ProjectFiles` for TrackedHirDatabase
         fn create_tracked_project_files(
             db: &TrackedHirDatabase,
-            schema_files: &[(FileId, graphql_db::FileContent, graphql_db::FileMetadata)],
-            document_files: &[(FileId, graphql_db::FileContent, graphql_db::FileMetadata)],
-        ) -> graphql_db::ProjectFiles {
+            schema_files: &[(
+                FileId,
+                graphql_base_db::FileContent,
+                graphql_base_db::FileMetadata,
+            )],
+            document_files: &[(
+                FileId,
+                graphql_base_db::FileContent,
+                graphql_base_db::FileMetadata,
+            )],
+        ) -> graphql_base_db::ProjectFiles {
             let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
             let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
 
             let mut entries = HashMap::new();
             for (id, content, metadata) in schema_files {
-                let entry = graphql_db::FileEntry::new(db, *content, *metadata);
+                let entry = graphql_base_db::FileEntry::new(db, *content, *metadata);
                 entries.insert(*id, entry);
             }
             for (id, content, metadata) in document_files {
-                let entry = graphql_db::FileEntry::new(db, *content, *metadata);
+                let entry = graphql_base_db::FileEntry::new(db, *content, *metadata);
                 entries.insert(*id, entry);
             }
 
-            let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(schema_ids));
-            let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_ids));
-            let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(entries));
+            let schema_file_ids = graphql_base_db::SchemaFileIds::new(db, Arc::new(schema_ids));
+            let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(doc_ids));
+            let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(entries));
 
-            graphql_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+            graphql_base_db::ProjectFiles::new(
+                db,
+                schema_file_ids,
+                document_file_ids,
+                file_entry_map,
+            )
         }
 
         /// Test that repeated queries are served from cache (no re-execution)
@@ -1256,12 +1276,12 @@ mod tests {
 
             let file_id = FileId::new(0);
             let content =
-                graphql_db::FileContent::new(&db, Arc::from("type Query { hello: String }"));
-            let metadata = graphql_db::FileMetadata::new(
+                graphql_base_db::FileContent::new(&db, Arc::from("type Query { hello: String }"));
+            let metadata = graphql_base_db::FileMetadata::new(
                 &db,
                 file_id,
-                graphql_db::FileUri::new("test.graphql"),
-                graphql_db::FileKind::Schema,
+                graphql_base_db::FileUri::new("test.graphql"),
+                graphql_base_db::FileKind::Schema,
             );
 
             let schema_files = [(file_id, content, metadata)];
@@ -1299,22 +1319,22 @@ mod tests {
             // Create two schema files
             let file_a_id = FileId::new(0);
             let file_a_content =
-                graphql_db::FileContent::new(&db, Arc::from("type TypeA { id: ID! }"));
-            let file_a_metadata = graphql_db::FileMetadata::new(
+                graphql_base_db::FileContent::new(&db, Arc::from("type TypeA { id: ID! }"));
+            let file_a_metadata = graphql_base_db::FileMetadata::new(
                 &db,
                 file_a_id,
-                graphql_db::FileUri::new("a.graphql"),
-                graphql_db::FileKind::Schema,
+                graphql_base_db::FileUri::new("a.graphql"),
+                graphql_base_db::FileKind::Schema,
             );
 
             let file_b_id = FileId::new(1);
             let file_b_content =
-                graphql_db::FileContent::new(&db, Arc::from("type TypeB { id: ID! }"));
-            let file_b_metadata = graphql_db::FileMetadata::new(
+                graphql_base_db::FileContent::new(&db, Arc::from("type TypeB { id: ID! }"));
+            let file_b_metadata = graphql_base_db::FileMetadata::new(
                 &db,
                 file_b_id,
-                graphql_db::FileUri::new("b.graphql"),
-                graphql_db::FileKind::Schema,
+                graphql_base_db::FileUri::new("b.graphql"),
+                graphql_base_db::FileKind::Schema,
             );
 
             let schema_files = [
@@ -1372,21 +1392,21 @@ mod tests {
             // Create one schema file and one document file
             let schema_id = FileId::new(0);
             let schema_content =
-                graphql_db::FileContent::new(&db, Arc::from("type Query { hello: String }"));
-            let schema_metadata = graphql_db::FileMetadata::new(
+                graphql_base_db::FileContent::new(&db, Arc::from("type Query { hello: String }"));
+            let schema_metadata = graphql_base_db::FileMetadata::new(
                 &db,
                 schema_id,
-                graphql_db::FileUri::new("schema.graphql"),
-                graphql_db::FileKind::Schema,
+                graphql_base_db::FileUri::new("schema.graphql"),
+                graphql_base_db::FileKind::Schema,
             );
 
             let doc_id = FileId::new(1);
-            let doc_content = graphql_db::FileContent::new(&db, Arc::from("query { hello }"));
-            let doc_metadata = graphql_db::FileMetadata::new(
+            let doc_content = graphql_base_db::FileContent::new(&db, Arc::from("query { hello }"));
+            let doc_metadata = graphql_base_db::FileMetadata::new(
                 &db,
                 doc_id,
-                graphql_db::FileUri::new("query.graphql"),
-                graphql_db::FileKind::ExecutableGraphQL,
+                graphql_base_db::FileUri::new("query.graphql"),
+                graphql_base_db::FileKind::ExecutableGraphQL,
             );
 
             let project_files = create_tracked_project_files(
@@ -1433,13 +1453,14 @@ mod tests {
                 let file_id = FileId::new(i as u32);
                 let type_name = format!("Type{i}");
                 let content_str = format!("type {type_name} {{ id: ID! }}");
-                let content = graphql_db::FileContent::new(&db, Arc::from(content_str.as_str()));
+                let content =
+                    graphql_base_db::FileContent::new(&db, Arc::from(content_str.as_str()));
                 let uri = format!("file{i}.graphql");
-                let metadata = graphql_db::FileMetadata::new(
+                let metadata = graphql_base_db::FileMetadata::new(
                     &db,
                     file_id,
-                    graphql_db::FileUri::new(uri),
-                    graphql_db::FileKind::Schema,
+                    graphql_base_db::FileUri::new(uri),
+                    graphql_base_db::FileKind::Schema,
                 );
 
                 file_contents.push(content);
@@ -1497,39 +1518,39 @@ mod tests {
 
             // Create a schema file
             let schema_id = FileId::new(0);
-            let schema_content = graphql_db::FileContent::new(
+            let schema_content = graphql_base_db::FileContent::new(
                 &db,
                 Arc::from("type Query { user: User } type User { id: ID! name: String }"),
             );
-            let schema_metadata = graphql_db::FileMetadata::new(
+            let schema_metadata = graphql_base_db::FileMetadata::new(
                 &db,
                 schema_id,
-                graphql_db::FileUri::new("schema.graphql"),
-                graphql_db::FileKind::Schema,
+                graphql_base_db::FileUri::new("schema.graphql"),
+                graphql_base_db::FileKind::Schema,
             );
 
             // Create a document with a fragment
             let frag_id = FileId::new(1);
-            let frag_content = graphql_db::FileContent::new(
+            let frag_content = graphql_base_db::FileContent::new(
                 &db,
                 Arc::from("fragment UserFields on User { id name }"),
             );
-            let frag_metadata = graphql_db::FileMetadata::new(
+            let frag_metadata = graphql_base_db::FileMetadata::new(
                 &db,
                 frag_id,
-                graphql_db::FileUri::new("fragments.graphql"),
-                graphql_db::FileKind::ExecutableGraphQL,
+                graphql_base_db::FileUri::new("fragments.graphql"),
+                graphql_base_db::FileKind::ExecutableGraphQL,
             );
 
             // Create another document that will be edited (no fragments)
             let query_id = FileId::new(2);
             let query_content =
-                graphql_db::FileContent::new(&db, Arc::from("query GetUser { user { id } }"));
-            let query_metadata = graphql_db::FileMetadata::new(
+                graphql_base_db::FileContent::new(&db, Arc::from("query GetUser { user { id } }"));
+            let query_metadata = graphql_base_db::FileMetadata::new(
                 &db,
                 query_id,
-                graphql_db::FileUri::new("query.graphql"),
-                graphql_db::FileKind::ExecutableGraphQL,
+                graphql_base_db::FileUri::new("query.graphql"),
+                graphql_base_db::FileKind::ExecutableGraphQL,
             );
 
             let project_files = create_tracked_project_files(
@@ -1586,40 +1607,42 @@ mod tests {
 
             // Create schema
             let schema_id = FileId::new(0);
-            let schema_content = graphql_db::FileContent::new(
+            let schema_content = graphql_base_db::FileContent::new(
                 &db,
                 Arc::from(
                     "type Query { users: [User!]! } type User { id: ID! name: String! email: String }",
                 ),
             );
-            let schema_metadata = graphql_db::FileMetadata::new(
+            let schema_metadata = graphql_base_db::FileMetadata::new(
                 &db,
                 schema_id,
-                graphql_db::FileUri::new("schema.graphql"),
-                graphql_db::FileKind::Schema,
+                graphql_base_db::FileUri::new("schema.graphql"),
+                graphql_base_db::FileKind::Schema,
             );
 
             // Create multiple operation files
             let op1_id = FileId::new(1);
-            let op1_content =
-                graphql_db::FileContent::new(&db, Arc::from("query GetUsers { users { id } }"));
-            let op1_metadata = graphql_db::FileMetadata::new(
+            let op1_content = graphql_base_db::FileContent::new(
+                &db,
+                Arc::from("query GetUsers { users { id } }"),
+            );
+            let op1_metadata = graphql_base_db::FileMetadata::new(
                 &db,
                 op1_id,
-                graphql_db::FileUri::new("op1.graphql"),
-                graphql_db::FileKind::ExecutableGraphQL,
+                graphql_base_db::FileUri::new("op1.graphql"),
+                graphql_base_db::FileKind::ExecutableGraphQL,
             );
 
             let op2_id = FileId::new(2);
-            let op2_content = graphql_db::FileContent::new(
+            let op2_content = graphql_base_db::FileContent::new(
                 &db,
                 Arc::from("query GetUserNames { users { name } }"),
             );
-            let op2_metadata = graphql_db::FileMetadata::new(
+            let op2_metadata = graphql_base_db::FileMetadata::new(
                 &db,
                 op2_id,
-                graphql_db::FileUri::new("op2.graphql"),
-                graphql_db::FileKind::ExecutableGraphQL,
+                graphql_base_db::FileUri::new("op2.graphql"),
+                graphql_base_db::FileKind::ExecutableGraphQL,
             );
 
             let project_files = create_tracked_project_files(
@@ -1690,13 +1713,14 @@ mod tests {
                 let fragment_name = format!("Fragment{i}");
                 let content_str =
                     format!("fragment {fragment_name} on User {{ id }} query Q{i} {{ user {{ ...{fragment_name} }} }}");
-                let content = graphql_db::FileContent::new(&db, Arc::from(content_str.as_str()));
+                let content =
+                    graphql_base_db::FileContent::new(&db, Arc::from(content_str.as_str()));
                 let uri = format!("file{i}.graphql");
-                let metadata = graphql_db::FileMetadata::new(
+                let metadata = graphql_base_db::FileMetadata::new(
                     &db,
                     file_id,
-                    graphql_db::FileUri::new(uri),
-                    graphql_db::FileKind::ExecutableGraphQL,
+                    graphql_base_db::FileUri::new(uri),
+                    graphql_base_db::FileKind::ExecutableGraphQL,
                 );
 
                 file_contents.push(content);
@@ -1767,12 +1791,12 @@ mod tests {
 
             let file_id = FileId::new(0);
             let content =
-                graphql_db::FileContent::new(&db, Arc::from("type Query { hello: String }"));
-            let metadata = graphql_db::FileMetadata::new(
+                graphql_base_db::FileContent::new(&db, Arc::from("type Query { hello: String }"));
+            let metadata = graphql_base_db::FileMetadata::new(
                 &db,
                 file_id,
-                graphql_db::FileUri::new("test.graphql"),
-                graphql_db::FileKind::Schema,
+                graphql_base_db::FileUri::new("test.graphql"),
+                graphql_base_db::FileKind::Schema,
             );
 
             let schema_files = [(file_id, content, metadata)];

@@ -2,7 +2,7 @@ use crate::diagnostics::{CodeFix, LintDiagnostic, LintSeverity, TextEdit};
 use crate::schema_utils::extract_root_type_names;
 use crate::traits::{DocumentSchemaLintRule, LintRule};
 use apollo_parser::cst::{self, CstNode};
-use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -198,7 +198,7 @@ fn check_document(
 /// Context for checking selection sets with fragment resolution
 struct CheckContext<'a> {
     db: &'a dyn graphql_hir::GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
     schema_types: &'a HashMap<Arc<str>, graphql_hir::TypeDef>,
     types_with_id: &'a HashMap<String, bool>,
     all_fragments: &'a HashMap<Arc<str>, graphql_hir::FragmentStructure>,
@@ -468,7 +468,7 @@ fn fragment_contains_id(
 
     // Get the file content and metadata via file_lookup (granular per-file caching)
     let Some((file_content, file_metadata)) =
-        graphql_db::file_lookup(context.db, context.project_files, file_id)
+        graphql_base_db::file_lookup(context.db, context.project_files, file_id)
     else {
         return false;
     };
@@ -581,7 +581,7 @@ fn check_fragment_selection_for_id(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
     use graphql_hir::GraphQLHirDatabase;
     use graphql_ide_db::RootDatabase;
 
@@ -612,14 +612,16 @@ mod tests {
             document_kind,
         );
 
-        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
-        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(vec![doc_file_id]));
+        let schema_file_ids =
+            graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
+        let document_file_ids =
+            graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![doc_file_id]));
         let mut file_entries = std::collections::HashMap::new();
-        let schema_entry = graphql_db::FileEntry::new(db, schema_content, schema_metadata);
-        let doc_entry = graphql_db::FileEntry::new(db, doc_content, doc_metadata);
+        let schema_entry = graphql_base_db::FileEntry::new(db, schema_content, schema_metadata);
+        let doc_entry = graphql_base_db::FileEntry::new(db, doc_content, doc_metadata);
         file_entries.insert(schema_file_id, schema_entry);
         file_entries.insert(doc_file_id, doc_entry);
-        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(file_entries));
+        let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(file_entries));
         let project_files =
             ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map);
 
@@ -994,7 +996,7 @@ query GetUser {
         );
 
         let mut file_entries = std::collections::HashMap::new();
-        let schema_entry = graphql_db::FileEntry::new(db, schema_content, schema_metadata);
+        let schema_entry = graphql_base_db::FileEntry::new(db, schema_content, schema_metadata);
         file_entries.insert(schema_file_id, schema_entry);
 
         let mut doc_file_ids = Vec::new();
@@ -1006,7 +1008,7 @@ query GetUser {
             let content = FileContent::new(db, Arc::from(*source));
             let metadata = FileMetadata::new(db, file_id, FileUri::new(*uri), *kind);
 
-            let entry = graphql_db::FileEntry::new(db, content, metadata);
+            let entry = graphql_base_db::FileEntry::new(db, content, metadata);
             file_entries.insert(file_id, entry);
             doc_file_ids.push(file_id);
 
@@ -1015,9 +1017,10 @@ query GetUser {
             }
         }
 
-        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
-        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_file_ids));
-        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(file_entries));
+        let schema_file_ids =
+            graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
+        let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(doc_file_ids));
+        let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(file_entries));
         let project_files =
             ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map);
 
@@ -1064,7 +1067,7 @@ query GetUser {
         // Check the query file (second file, so we need to get it from project_files)
         let query_file_id = FileId::new(2);
         let (query_content, query_metadata) =
-            graphql_db::file_lookup(&db, project_files, query_file_id)
+            graphql_base_db::file_lookup(&db, project_files, query_file_id)
                 .expect("Query file should exist");
 
         let diagnostics = rule.check(
@@ -1122,7 +1125,7 @@ query GetUser {
         // Check the query file (second file, so we need to get it from project_files)
         let query_file_id = FileId::new(2);
         let (query_content, query_metadata) =
-            graphql_db::file_lookup(&db, project_files, query_file_id)
+            graphql_base_db::file_lookup(&db, project_files, query_file_id)
                 .expect("Query file should exist");
 
         let diagnostics = rule.check(
@@ -1179,8 +1182,9 @@ export const GET_USER = gql`
 
         // Check the TypeScript file (second file)
         let ts_file_id = FileId::new(2);
-        let (ts_content, ts_metadata) = graphql_db::file_lookup(&db, project_files, ts_file_id)
-            .expect("TypeScript file should exist");
+        let (ts_content, ts_metadata) =
+            graphql_base_db::file_lookup(&db, project_files, ts_file_id)
+                .expect("TypeScript file should exist");
 
         let diagnostics = rule.check(&db, ts_file_id, ts_content, ts_metadata, project_files);
 
@@ -1341,7 +1345,7 @@ fragment BattleDetailed on Battle {
         // Check the battle fragments file (second file)
         let battle_file_id = FileId::new(2);
         let (battle_content, battle_metadata) =
-            graphql_db::file_lookup(&db, project_files, battle_file_id)
+            graphql_base_db::file_lookup(&db, project_files, battle_file_id)
                 .expect("Battle fragments file should exist");
 
         let diagnostics = rule.check(

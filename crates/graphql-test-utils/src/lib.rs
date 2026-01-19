@@ -51,11 +51,11 @@ pub use database::{
 pub use project::{test_documents_only, test_project, test_schema_only, TestProjectBuilder};
 
 // Re-export graphql-db test utilities
-pub use graphql_db::test_utils::create_project_files;
-pub use graphql_db::tracking;
+pub use graphql_base_db::test_utils::create_project_files;
+pub use graphql_base_db::tracking;
 
 // Re-export common types needed for test setup
-pub use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+pub use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
 
 // Re-export insta for snapshot testing
 pub use insta;

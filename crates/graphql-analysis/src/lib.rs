@@ -34,9 +34,9 @@ pub trait GraphQLAnalysisDatabase: graphql_hir::GraphQLHirDatabase {
 #[allow(clippy::cast_possible_truncation)] // Line and column numbers won't exceed u32::MAX
 pub fn file_validation_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
-    project_files: Option<graphql_db::ProjectFiles>,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
+    project_files: Option<graphql_base_db::ProjectFiles>,
 ) -> Arc<Vec<Diagnostic>> {
     // Without project files, we can only report syntax errors
     project_files.map_or_else(
@@ -50,8 +50,8 @@ pub fn file_validation_diagnostics(
 #[allow(clippy::cast_possible_truncation)]
 fn syntax_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
 ) -> Arc<Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
 
@@ -87,9 +87,9 @@ fn syntax_diagnostics(
 #[allow(clippy::cast_possible_truncation)]
 fn file_validation_diagnostics_impl(
     db: &dyn GraphQLAnalysisDatabase,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
-    project_files: graphql_db::ProjectFiles,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> Arc<Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
 
@@ -152,9 +152,9 @@ fn file_validation_diagnostics_impl(
 /// Memoization happens at the tracked `file_diagnostics_impl` function.
 pub fn file_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
-    project_files: Option<graphql_db::ProjectFiles>,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
+    project_files: Option<graphql_base_db::ProjectFiles>,
 ) -> Arc<Vec<Diagnostic>> {
     project_files.map_or_else(
         || syntax_diagnostics(db, content, metadata),
@@ -166,9 +166,9 @@ pub fn file_diagnostics(
 #[salsa::tracked]
 fn file_diagnostics_impl(
     db: &dyn GraphQLAnalysisDatabase,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
-    project_files: graphql_db::ProjectFiles,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> Arc<Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
 
@@ -191,7 +191,7 @@ fn file_diagnostics_impl(
 #[allow(clippy::needless_raw_string_hashes)]
 mod tests {
     use super::*;
-    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
 
     // TestDatabase for graphql-analysis tests.
     // Note: We can't use graphql_test_utils::TestDatabase here because it would

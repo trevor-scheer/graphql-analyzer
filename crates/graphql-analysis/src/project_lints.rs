@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 type SchemaFieldsMap<'a> =
-    HashMap<(Arc<str>, Arc<str>), (graphql_db::FileId, &'a graphql_hir::FieldSignature)>;
+    HashMap<(Arc<str>, Arc<str>), (graphql_base_db::FileId, &'a graphql_hir::FieldSignature)>;
 
 /// Information about how a schema field is used across all operations
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,13 +91,13 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
     let mut used_fields: HashSet<(Arc<str>, Arc<str>)> = HashSet::new();
     let doc_ids = project_files.document_file_ids(db).ids(db);
     let document_files: Vec<(
-        graphql_db::FileId,
-        graphql_db::FileContent,
-        graphql_db::FileMetadata,
+        graphql_base_db::FileId,
+        graphql_base_db::FileContent,
+        graphql_base_db::FileMetadata,
     )> = doc_ids
         .iter()
         .filter_map(|file_id| {
-            graphql_db::file_lookup(db, project_files, *file_id)
+            graphql_base_db::file_lookup(db, project_files, *file_id)
                 .map(|(content, metadata)| (*file_id, content, metadata))
         })
         .collect();
@@ -170,7 +170,8 @@ pub fn find_unused_fragments(
 
     let doc_ids = project_files.document_file_ids(db).ids(db);
     for file_id in doc_ids.iter() {
-        let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) else {
+        let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        else {
             continue;
         };
 
@@ -225,13 +226,13 @@ pub fn analyze_field_usage(db: &dyn GraphQLAnalysisDatabase) -> Arc<FieldCoverag
     // Build document files lookup
     let doc_ids = project_files.document_file_ids(db).ids(db);
     let document_files: Vec<(
-        graphql_db::FileId,
-        graphql_db::FileContent,
-        graphql_db::FileMetadata,
+        graphql_base_db::FileId,
+        graphql_base_db::FileContent,
+        graphql_base_db::FileMetadata,
     )> = doc_ids
         .iter()
         .filter_map(|file_id| {
-            graphql_db::file_lookup(db, project_files, *file_id)
+            graphql_base_db::file_lookup(db, project_files, *file_id)
                 .map(|(content, metadata)| (*file_id, content, metadata))
         })
         .collect();
@@ -351,9 +352,9 @@ fn collect_field_usages_from_selections(
     all_fragments: &HashMap<Arc<str>, graphql_hir::FragmentStructure>,
     db: &dyn GraphQLAnalysisDatabase,
     document_files: &[(
-        graphql_db::FileId,
-        graphql_db::FileContent,
-        graphql_db::FileMetadata,
+        graphql_base_db::FileId,
+        graphql_base_db::FileContent,
+        graphql_base_db::FileMetadata,
     )],
     used_fields: &mut HashSet<(Arc<str>, Arc<str>)>,
     visited_fragments: &mut HashSet<Arc<str>>,
@@ -476,9 +477,9 @@ fn collect_used_fields_from_selections(
     all_fragments: &HashMap<Arc<str>, graphql_hir::FragmentStructure>,
     db: &dyn GraphQLAnalysisDatabase,
     document_files: &[(
-        graphql_db::FileId,
-        graphql_db::FileContent,
-        graphql_db::FileMetadata,
+        graphql_base_db::FileId,
+        graphql_base_db::FileContent,
+        graphql_base_db::FileMetadata,
     )],
     used_fields: &mut HashSet<(Arc<str>, Arc<str>)>,
     visited_fragments: &mut HashSet<Arc<str>>,
@@ -579,7 +580,7 @@ fn unwrap_type_name(type_name: &str) -> Arc<str> {
 #[allow(clippy::needless_raw_string_hashes)]
 mod tests {
     use super::*;
-    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
 
     // Test database
     #[salsa::db]
@@ -662,7 +663,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_db::test_utils::create_project_files(
+        let project_files = graphql_base_db::test_utils::create_project_files(
             &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
@@ -733,7 +734,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_db::test_utils::create_project_files(
+        let project_files = graphql_base_db::test_utils::create_project_files(
             &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
@@ -807,7 +808,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_db::test_utils::create_project_files(
+        let project_files = graphql_base_db::test_utils::create_project_files(
             &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
@@ -883,7 +884,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_db::test_utils::create_project_files(
+        let project_files = graphql_base_db::test_utils::create_project_files(
             &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
@@ -960,7 +961,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_db::test_utils::create_project_files(
+        let project_files = graphql_base_db::test_utils::create_project_files(
             &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
@@ -1044,7 +1045,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_db::test_utils::create_project_files(
+        let project_files = graphql_base_db::test_utils::create_project_files(
             &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
@@ -1124,7 +1125,7 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_db::test_utils::create_project_files(
+        let project_files = graphql_base_db::test_utils::create_project_files(
             &mut db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],

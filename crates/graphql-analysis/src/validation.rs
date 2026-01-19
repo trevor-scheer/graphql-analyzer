@@ -1,5 +1,5 @@
 use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase, Position, Severity};
-use graphql_db::{FileContent, FileMetadata};
+use graphql_base_db::{FileContent, FileMetadata};
 use std::sync::Arc;
 
 /// Validate a document file using apollo-compiler
@@ -18,7 +18,7 @@ pub fn validate_file(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
     metadata: FileMetadata,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> Arc<Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
 
@@ -140,7 +140,7 @@ pub fn validate_file(
 /// Uses the `fragment_spreads_index` for O(1) lookup instead of scanning all files
 fn collect_referenced_fragments_transitive(
     tree: &apollo_parser::SyntaxTree,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
     db: &dyn GraphQLAnalysisDatabase,
 ) -> std::collections::HashSet<String> {
     use std::collections::{HashSet, VecDeque};
@@ -256,8 +256,8 @@ fn collect_fragment_spreads_from_selection_set(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::test_utils::create_project_files;
-    use graphql_db::{FileId, FileKind, FileUri};
+    use graphql_base_db::test_utils::create_project_files;
+    use graphql_base_db::{FileId, FileKind, FileUri};
 
     // TestDatabase for graphql-analysis tests.
     // Note: We can't use graphql_test_utils::TestDatabase here because it would
