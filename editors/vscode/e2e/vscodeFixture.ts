@@ -28,7 +28,7 @@ async function getVSCodeExecutable(): Promise<string> {
   }
 
   console.log("Downloading VS Code...");
-  vscodeExecutablePath = await downloadAndUnzipVSCode("insiders");
+  vscodeExecutablePath = await downloadAndUnzipVSCode("stable");
   console.log(`VS Code downloaded to: ${vscodeExecutablePath}`);
   return vscodeExecutablePath;
 }
@@ -37,7 +37,7 @@ function getElectronPath(vscodeExePath: string): string {
   // The downloadAndUnzipVSCode returns the path to the Code executable
   // We need to find the Electron binary based on platform
   if (process.platform === "darwin") {
-    // macOS: /path/to/Visual Studio Code - Insiders.app/Contents/MacOS/Electron
+    // macOS: /path/to/Visual Studio Code.app/Contents/MacOS/Electron
     const appPath = path.dirname(path.dirname(vscodeExePath));
     return path.join(appPath, "MacOS", "Electron");
   } else if (process.platform === "win32") {
@@ -85,6 +85,25 @@ export const test = base.extend<VSCodeFixtures>({
       `schema: schema.graphql\ndocuments: "**/*.graphql"\n`
     );
 
+    // Create settings.json to disable AI features and other prompts
+    const userSettingsDir = path.join(userDataDir, "User");
+    fs.mkdirSync(userSettingsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(userSettingsDir, "settings.json"),
+      JSON.stringify(
+        {
+          "github.copilot.enable": { "*": false },
+          "github.copilot.chat.welcomeMessage": "never",
+          "chat.commandCenter.enabled": false,
+          "workbench.welcomePage.walkthroughs.openOnInstall": false,
+          "workbench.startupEditor": "none",
+          "security.workspace.trust.enabled": false,
+        },
+        null,
+        2
+      )
+    );
+
     // Create a simple schema file
     fs.writeFileSync(
       path.join(workspaceDir, "schema.graphql"),
@@ -127,8 +146,36 @@ export const test = base.extend<VSCodeFixtures>({
     const page = await app.firstWindow();
     await page.waitForLoadState("domcontentloaded");
 
-    // Give VS Code a moment to initialize
-    await page.waitForTimeout(2000);
+    // Wait for VSCode UI to be fully loaded (activity bar visible)
+    const activityBar = page.locator(".activitybar");
+    await activityBar.waitFor({ state: "visible", timeout: 30000 });
+
+    // Open a GraphQL file to trigger extension activation via onLanguage:graphql
+    const body = page.locator("body");
+    const mod = process.platform === "darwin" ? "Meta" : "Control";
+    await body.press(`${mod}+P`);
+
+    const quickOpen = page.locator(".quick-input-widget");
+    await quickOpen.waitFor({ state: "visible" });
+
+    const input = quickOpen.locator("input");
+    await input.fill("query.graphql");
+    await input.press("Enter");
+
+    // Wait for editor to open
+    const editor = page.locator(".monaco-editor").first();
+    await editor.waitFor({ state: "visible", timeout: 10000 });
+
+    // Ensure quick-input is fully closed
+    await input.press("Escape");
+
+    // Click on editor to restore focus
+    await editor.click();
+
+    // Give the extension time to fully activate after file opens
+    // This is needed because LSP client initialization is async
+    // The extension needs to: activate, find LSP binary, start LSP process, initialize
+    await page.waitForTimeout(5000);
 
     await use({ app, page });
 

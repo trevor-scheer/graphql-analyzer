@@ -1,97 +1,113 @@
 import { test, expect } from "./vscodeFixture";
 
+// Use Meta (Command) on macOS, Control on other platforms
+const mod = process.platform === "darwin" ? "Meta" : "Control";
+
 test.describe("GraphQL LSP Extension", () => {
   test("activates when opening a GraphQL file", async ({ vscode }) => {
     const { page } = vscode;
+    const body = page.locator("body");
 
-    // Open the command palette
-    await page.keyboard.press("Control+Shift+P");
-    await page.waitForTimeout(500);
+    // Open quick open and switch to command mode with ">"
+    await body.press(`${mod}+P`);
+    const commandPalette = page.locator(".quick-input-widget");
+    await expect(commandPalette).toBeVisible();
 
-    // Type to search for our extension's command
-    await page.keyboard.type("GraphQL: Check Status");
-    await page.waitForTimeout(500);
+    // Type ">" to switch to command mode, then search for our command
+    const input = commandPalette.locator("input");
+    await input.fill(">GraphQL: Check Status");
 
-    // Take a screenshot to see the current state
+    // Wait for the command to appear in results (longer timeout for extension activation)
+    const checkStatusResult = page.getByText("Check Status");
+    await expect(checkStatusResult).toBeVisible({ timeout: 10000 });
+
     await page.screenshot({ path: "test-results/command-palette.png" });
 
     // Press Enter to execute the command
-    await page.keyboard.press("Enter");
-    await page.waitForTimeout(1000);
+    await input.press("Enter");
 
-    // Take another screenshot after command execution
+    // Wait for command palette to close
+    await expect(commandPalette).not.toBeVisible();
+
     await page.screenshot({ path: "test-results/after-command.png" });
   });
 
   test("opens GraphQL file from explorer", async ({ vscode }) => {
     const { page } = vscode;
+    const body = page.locator("body");
 
-    // Focus the explorer - try keyboard shortcut
-    await page.keyboard.press("Control+Shift+E");
-    await page.waitForTimeout(1000);
+    // Focus the explorer
+    await body.press(`${mod}+Shift+E`);
+
+    // Wait for the explorer to show our file
+    const queryFile = page.getByText("query.graphql").first();
+    await expect(queryFile).toBeVisible();
 
     await page.screenshot({ path: "test-results/explorer-open.png" });
 
-    // Try to find and click on query.graphql in the explorer
-    const queryFile = page.locator('text="query.graphql"').first();
-    if (await queryFile.isVisible()) {
-      await queryFile.dblclick();
-      await page.waitForTimeout(1000);
-      await page.screenshot({ path: "test-results/query-file-opened.png" });
-    }
+    // Double-click to open the file
+    await queryFile.dblclick();
+
+    // Wait for editor to show the file content
+    const editorContent = page.locator(".view-lines").first();
+    await expect(editorContent).toBeVisible();
+
+    await page.screenshot({ path: "test-results/query-file-opened.png" });
   });
 
   test("shows GraphQL syntax highlighting", async ({ vscode }) => {
     const { page } = vscode;
+    const body = page.locator("body");
 
-    // Use quick open to open the file
-    await page.keyboard.press("Control+P");
-    await page.waitForTimeout(500);
+    // Open quick open dialog
+    await body.press(`${mod}+P`);
+    const quickOpen = page.locator(".quick-input-widget");
+    await expect(quickOpen).toBeVisible();
 
-    await page.keyboard.type("query.graphql");
-    await page.waitForTimeout(500);
+    // Type filename and wait for it to appear in results
+    const input = quickOpen.locator("input");
+    await input.fill("query.graphql");
+    const fileResult = page.getByText("query.graphql").first();
+    await expect(fileResult).toBeVisible();
 
-    await page.keyboard.press("Enter");
-    await page.waitForTimeout(1000);
+    // Open the file
+    await input.press("Enter");
 
-    // Take a screenshot of the opened file
+    // Wait for editor to be ready with content
+    const editorContent = page.locator(".view-lines").first();
+    await expect(editorContent).toBeVisible();
+
     await page.screenshot({ path: "test-results/graphql-file.png" });
 
-    // Verify we can see the editor content
-    const editor = page.locator(".monaco-editor");
+    // Verify we can see the editor
+    const editor = page.locator(".monaco-editor").first();
     await expect(editor).toBeVisible();
   });
 
   test("extension commands are available", async ({ vscode }) => {
     const { page } = vscode;
+    const body = page.locator("body");
 
-    // Open command palette
-    await page.keyboard.press("Control+Shift+P");
-    await page.waitForTimeout(500);
+    // Open quick open and switch to command mode with ">"
+    await body.press(`${mod}+P`);
+    const commandPalette = page.locator(".quick-input-widget");
+    await expect(commandPalette).toBeVisible();
 
-    // Search for GraphQL commands
-    await page.keyboard.type("GraphQL");
-    await page.waitForTimeout(500);
+    // Type ">" to switch to command mode, then search for GraphQL commands
+    const input = commandPalette.locator("input");
+    await input.fill(">GraphQL");
 
-    await page.screenshot({
-      path: "test-results/graphql-commands.png",
-    });
+    // Wait for our commands to appear (longer timeout for extension activation)
+    const restartCommand = page.getByText("Restart GraphQL Language Server");
+    const checkStatusCommand = page.getByText("Check Status");
 
-    // We should see our commands in the palette
-    // Look for text containing our commands
-    const restartCommand = page.locator(
-      'text="GraphQL: Restart GraphQL Language Server"'
-    );
-    const checkStatusCommand = page.locator('text="GraphQL: Check Status"');
+    await expect(restartCommand).toBeVisible({ timeout: 10000 });
+    await expect(checkStatusCommand).toBeVisible({ timeout: 10000 });
 
-    // At least one of our commands should be visible
-    const hasCommands =
-      (await restartCommand.isVisible()) ||
-      (await checkStatusCommand.isVisible());
+    await page.screenshot({ path: "test-results/graphql-commands.png" });
 
     // Close the command palette
-    await page.keyboard.press("Escape");
-
-    expect(hasCommands).toBe(true);
+    await input.press("Escape");
+    await expect(commandPalette).not.toBeVisible();
   });
 });

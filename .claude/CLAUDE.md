@@ -1032,6 +1032,7 @@ This project includes Subject Matter Expert (SME) agents in `.claude/agents/` th
 | **GraphQL CLI** | `graphql-cli.md` | CLI design, graphql-config, ecosystem tooling |
 | **VSCode Extension** | `vscode-extension.md` | Extension development, activation, language client |
 | **Apollo-rs** | `apollo-rs.md` | apollo-parser, apollo-compiler, error-tolerant parsing |
+| **Playwright** | `playwright.md` | E2E testing, Electron/VSCode testing, test fixtures |
 
 ### SME Consultation
 
