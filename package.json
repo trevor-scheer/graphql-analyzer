@@ -1,0 +1,13 @@
+{
+  "name": "graphql-lsp-dev",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Development tools for graphql-lsp",
+  "scripts": {
+    "fmt": "oxfmt --write .",
+    "fmt:check": "oxfmt --check ."
+  },
+  "devDependencies": {
+    "oxfmt": "^0.24.0"
+  }
+}

@@ -13,6 +13,12 @@ on:
       - 'editors/vscode/package.json'
       - 'editors/vscode/package-lock.json'
       - 'editors/vscode/tsconfig.json'
+      - 'test-workspace/**/*.ts'
+      - 'test-workspace/**/*.tsx'
+      - 'test-workspace/**/*.js'
+      - '**/*.graphql'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
@@ -26,6 +32,12 @@ on:
       - 'editors/vscode/package.json'
       - 'editors/vscode/package-lock.json'
       - 'editors/vscode/tsconfig.json'
+      - 'test-workspace/**/*.ts'
+      - 'test-workspace/**/*.tsx'
+      - 'test-workspace/**/*.js'
+      - '**/*.graphql'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/ci.yml'
 
 concurrency:
@@ -158,11 +170,29 @@ jobs:
         working-directory: editors/vscode
         run: npm run compile
 
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check formatting
+        run: npm run fmt:check
+
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
     if: always()
-    needs: [test, lint, build, check, vscode-extension]
+    needs: [test, lint, build, check, vscode-extension, format]
     steps:
       - name: Check all jobs
         run: |
