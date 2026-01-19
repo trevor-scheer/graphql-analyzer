@@ -26,9 +26,69 @@
       }
     },
     {
+      "label": "build-cli",
+      "type": "cargo",
+      "command": "build",
+      "args": ["--package", "graphql-cli"],
+      "problemMatcher": ["$rustc"]
+    },
+    {
       "label": "build-all",
       "dependsOn": ["build-lsp", "compile-extension"],
       "problemMatcher": []
+    },
+    {
+      "label": "mcp: run (test-workspace)",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/mcp-dev.sh",
+      "args": [],
+      "dependsOn": ["build-cli"],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "isBackground": true
+    },
+    {
+      "label": "mcp: run (pokemon)",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/mcp-dev.sh",
+      "args": ["test-workspace/pokemon"],
+      "dependsOn": ["build-cli"],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "isBackground": true
+    },
+    {
+      "label": "mcp: run with debug logging",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/mcp-dev.sh",
+      "args": [],
+      "dependsOn": ["build-cli"],
+      "options": {
+        "env": {
+          "RUST_LOG": "graphql_mcp=debug"
+        }
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "isBackground": true
+    },
+    {
+      "label": "mcp: generate config",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/setup-mcp-config.sh",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always"
+      }
     }
   ]
 }

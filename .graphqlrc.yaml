@@ -21,6 +21,7 @@ projects:
       extends: recommended
       rules:
         no_deprecated: warn
+        require_id_field: [warn, { fields: ["id", "databaseId"] }]
 
   github-admin:
     schema:
@@ -31,6 +32,10 @@ projects:
       extends: recommended
       rules:
         no_deprecated: error
+        require_id_field:
+          severity: error
+          options:
+            fields: ["id"]
 
   countries:
     schema:

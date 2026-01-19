@@ -51,6 +51,7 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
         content: FileContent,
         metadata: FileMetadata,
         project_files: ProjectFiles,
+        _options: Option<&serde_json::Value>,
     ) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
 

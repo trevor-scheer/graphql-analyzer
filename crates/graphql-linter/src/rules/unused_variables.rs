@@ -42,6 +42,7 @@ impl StandaloneDocumentLintRule for UnusedVariablesRuleImpl {
         content: FileContent,
         metadata: FileMetadata,
         _project_files: ProjectFiles,
+        _options: Option<&serde_json::Value>,
     ) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
 
@@ -321,7 +322,7 @@ query GetUser($id: ID!, $unused: String) {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
@@ -361,7 +362,7 @@ query GetUser($id: ID!, $name: String) {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 0);
     }
@@ -389,7 +390,7 @@ query GetUser($id: ID!, $skip: Boolean!) {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 0);
     }
@@ -420,7 +421,7 @@ query GetUser($id: ID!, $postId: ID!) {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 0);
     }
@@ -448,7 +449,7 @@ query GetUsers($ids: [ID!]!, $id1: ID!, $id2: ID!) {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         // $ids is unused
         assert_eq!(diagnostics.len(), 1);
@@ -478,7 +479,7 @@ query CreateUser($name: String!, $email: String!) {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 0);
     }
@@ -506,7 +507,7 @@ query GetUser($id: ID!, $unused1: String, $unused2: Int, $limit: Int) {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 2);
         let messages: Vec<_> = diagnostics.iter().map(|d| &d.message).collect();
@@ -541,7 +542,7 @@ query GetUser {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 0);
     }
@@ -570,7 +571,7 @@ mutation UpdateUser($id: ID!, $name: String!, $unused: Boolean) {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("$unused"));
@@ -602,7 +603,7 @@ query GetUser($id: ID!, $include: Boolean!) {
         );
         let project_files = create_test_project_files(&db);
 
-        let diagnostics = rule.check(&db, file_id, content, metadata, project_files);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 0);
     }
