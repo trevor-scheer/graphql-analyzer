@@ -575,3 +575,365 @@ fn collect_used_fields_from_selections(
 fn unwrap_type_name(type_name: &str) -> Arc<str> {
     Arc::from(type_name.trim_matches(|c| c == '[' || c == ']' || c == '!'))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use graphql_base_db::{
+        DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileKind, FileMetadata,
+        FileUri, ProjectFiles, SchemaFileIds,
+    };
+
+    #[salsa::db]
+    #[derive(Clone)]
+    struct TestDatabase {
+        storage: salsa::Storage<Self>,
+        project_files: std::cell::Cell<Option<ProjectFiles>>,
+    }
+
+    impl Default for TestDatabase {
+        fn default() -> Self {
+            Self {
+                storage: salsa::Storage::default(),
+                project_files: std::cell::Cell::new(None),
+            }
+        }
+    }
+
+    impl TestDatabase {
+        fn set_project_files(&self, project_files: Option<ProjectFiles>) {
+            self.project_files.set(project_files);
+        }
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDatabase {}
+
+    #[salsa::db]
+    impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {}
+
+    #[salsa::db]
+    impl graphql_hir::GraphQLHirDatabase for TestDatabase {
+        fn project_files(&self) -> Option<ProjectFiles> {
+            self.project_files.get()
+        }
+    }
+
+    #[salsa::db]
+    impl crate::GraphQLAnalysisDatabase for TestDatabase {}
+
+    fn create_project_files(
+        db: &TestDatabase,
+        schema_files: &[(FileId, FileContent, FileMetadata)],
+        document_files: &[(FileId, FileContent, FileMetadata)],
+    ) -> ProjectFiles {
+        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
+        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
+
+        let mut entries = std::collections::HashMap::new();
+        for (id, content, metadata) in schema_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+        for (id, content, metadata) in document_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+
+        let schema_file_ids = SchemaFileIds::new(db, Arc::new(schema_ids));
+        let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
+        let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
+
+        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+    }
+
+    #[test]
+    fn test_unused_fields_basic() {
+        let db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                type Query {
+                    user: User
+                }
+
+                type User {
+                    id: ID!
+                    name: String!
+                    email: String!
+                }
+                ",
+            ),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let doc_id = FileId::new(1);
+        let doc_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                query GetUser {
+                    user {
+                        id
+                        name
+                    }
+                }
+                ",
+            ),
+        );
+        let doc_metadata = FileMetadata::new(
+            &db,
+            doc_id,
+            FileUri::new("query.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let project_files = create_project_files(
+            &db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
+        );
+
+        db.set_project_files(Some(project_files));
+
+        let unused = find_unused_fields(&db);
+
+        assert_eq!(unused.len(), 1);
+        assert!(unused[0].1.message.contains("User.email"));
+    }
+
+    #[test]
+    fn test_unused_fields_with_fragments() {
+        let db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                type Query {
+                    user: User
+                }
+
+                type User {
+                    id: ID!
+                    name: String!
+                    email: String!
+                    age: Int
+                }
+                ",
+            ),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let doc_id = FileId::new(1);
+        let doc_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                query GetUser {
+                    user {
+                        ...UserFields
+                    }
+                }
+
+                fragment UserFields on User {
+                    id
+                    name
+                    email
+                }
+                ",
+            ),
+        );
+        let doc_metadata = FileMetadata::new(
+            &db,
+            doc_id,
+            FileUri::new("query.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let project_files = create_project_files(
+            &db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
+        );
+
+        db.set_project_files(Some(project_files));
+
+        let unused = find_unused_fields(&db);
+
+        assert_eq!(unused.len(), 1);
+        assert!(unused[0].1.message.contains("User.age"));
+    }
+
+    #[test]
+    fn test_unused_fields_nested_types() {
+        let db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                type Query {
+                    user: User
+                }
+
+                type User {
+                    id: ID!
+                    name: String!
+                    posts: [Post!]!
+                }
+
+                type Post {
+                    id: ID!
+                    title: String!
+                    content: String!
+                }
+                ",
+            ),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let doc_id = FileId::new(1);
+        let doc_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                query GetUser {
+                    user {
+                        id
+                        posts {
+                            id
+                            title
+                        }
+                    }
+                }
+                ",
+            ),
+        );
+        let doc_metadata = FileMetadata::new(
+            &db,
+            doc_id,
+            FileUri::new("query.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let project_files = create_project_files(
+            &db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
+        );
+
+        db.set_project_files(Some(project_files));
+
+        let unused = find_unused_fields(&db);
+
+        assert_eq!(unused.len(), 2);
+        let messages: Vec<Arc<str>> = unused.iter().map(|(_, d)| d.message.clone()).collect();
+        assert!(messages.iter().any(|m| m.contains("User.name")));
+        assert!(messages.iter().any(|m| m.contains("Post.content")));
+    }
+
+    #[test]
+    fn test_unused_fields_transitive_fragments() {
+        let db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                type Query {
+                    user: User
+                }
+
+                type User {
+                    id: ID!
+                    name: String!
+                    email: String!
+                    phone: String
+                }
+                ",
+            ),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let doc_id = FileId::new(1);
+        let doc_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                query GetUser {
+                    user {
+                        ...UserBasic
+                    }
+                }
+
+                fragment UserBasic on User {
+                    id
+                    ...UserContact
+                }
+
+                fragment UserContact on User {
+                    email
+                }
+                ",
+            ),
+        );
+        let doc_metadata = FileMetadata::new(
+            &db,
+            doc_id,
+            FileUri::new("query.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let project_files = create_project_files(
+            &db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
+        );
+
+        db.set_project_files(Some(project_files));
+
+        let unused = find_unused_fields(&db);
+
+        assert_eq!(unused.len(), 2);
+        let messages: Vec<Arc<str>> = unused.iter().map(|(_, d)| d.message.clone()).collect();
+        assert!(messages.iter().any(|m| m.contains("User.name")));
+        assert!(messages.iter().any(|m| m.contains("User.phone")));
+    }
+
+    #[test]
+    fn test_unwrap_type_name() {
+        assert_eq!(unwrap_type_name("String"), Arc::from("String"));
+        assert_eq!(unwrap_type_name("String!"), Arc::from("String"));
+        assert_eq!(unwrap_type_name("[String]"), Arc::from("String"));
+        assert_eq!(unwrap_type_name("[String!]"), Arc::from("String"));
+        assert_eq!(unwrap_type_name("[String!]!"), Arc::from("String"));
+        assert_eq!(unwrap_type_name("[[String]]"), Arc::from("String"));
+    }
+}

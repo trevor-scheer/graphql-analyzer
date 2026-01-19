@@ -3,9 +3,9 @@
 //! These tests verify validation, schema merging, and document validation.
 
 use graphql_analysis::{
-    file_diagnostics,
+    analyze_field_usage, file_diagnostics,
     merged_schema::{merged_schema, merged_schema_with_diagnostics},
-    validate_document_file, validate_file, validate_schema_file,
+    validate_document_file, validate_file, validate_schema_file, FieldCoverageReport, TypeCoverage,
 };
 use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
 use graphql_test_utils::{create_project_files, TestDatabase, TestDatabaseWithProject};
@@ -758,4 +758,257 @@ fn test_valid_interface_implementation() {
         "Expected no diagnostics. Got: {:?}",
         result.diagnostics
     );
+}
+
+// ============================================================================
+// project_lints tests (from project_lints.rs) - public API only
+// ============================================================================
+
+#[test]
+fn test_analyze_field_usage_basic() {
+    let mut db = TestDatabaseWithProject::default();
+
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from(
+            r#"
+            type Query {
+                user: User
+            }
+
+            type User {
+                id: ID!
+                name: String!
+                email: String!
+            }
+            "#,
+        ),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("schema.graphql"),
+        FileKind::Schema,
+    );
+
+    let doc_id = FileId::new(1);
+    let doc_content = FileContent::new(
+        &db,
+        Arc::from(
+            r#"
+            query GetUser {
+                user {
+                    id
+                    name
+                }
+            }
+            "#,
+        ),
+    );
+    let doc_metadata = FileMetadata::new(
+        &db,
+        doc_id,
+        FileUri::new("query.graphql"),
+        FileKind::ExecutableGraphQL,
+    );
+
+    let project_files = create_project_files(
+        &mut db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[(doc_id, doc_content, doc_metadata)],
+    );
+
+    db.set_project_files(Some(project_files));
+
+    let coverage = analyze_field_usage(&db);
+
+    assert_eq!(coverage.total_fields, 4); // Query.user, User.id, User.name, User.email
+    assert_eq!(coverage.used_fields, 3); // Query.user, User.id, User.name
+
+    let user_id = coverage
+        .field_usages
+        .get(&(Arc::from("User"), Arc::from("id")));
+    assert!(user_id.is_some());
+    assert_eq!(user_id.unwrap().usage_count, 1);
+    assert!(user_id.unwrap().operations.contains(&Arc::from("GetUser")));
+
+    let user_email = coverage
+        .field_usages
+        .get(&(Arc::from("User"), Arc::from("email")));
+    assert!(user_email.is_some());
+    assert_eq!(user_email.unwrap().usage_count, 0);
+}
+
+#[test]
+fn test_analyze_field_usage_multiple_operations() {
+    let mut db = TestDatabaseWithProject::default();
+
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from(
+            r#"
+            type Query {
+                user: User
+            }
+
+            type User {
+                id: ID!
+                name: String!
+            }
+            "#,
+        ),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("schema.graphql"),
+        FileKind::Schema,
+    );
+
+    let doc_id = FileId::new(1);
+    let doc_content = FileContent::new(
+        &db,
+        Arc::from(
+            r#"
+            query GetUser {
+                user {
+                    id
+                    name
+                }
+            }
+
+            query GetUserName {
+                user {
+                    name
+                }
+            }
+            "#,
+        ),
+    );
+    let doc_metadata = FileMetadata::new(
+        &db,
+        doc_id,
+        FileUri::new("query.graphql"),
+        FileKind::ExecutableGraphQL,
+    );
+
+    let project_files = create_project_files(
+        &mut db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[(doc_id, doc_content, doc_metadata)],
+    );
+
+    db.set_project_files(Some(project_files));
+
+    let coverage = analyze_field_usage(&db);
+
+    let user_name = coverage
+        .field_usages
+        .get(&(Arc::from("User"), Arc::from("name")));
+    assert!(user_name.is_some());
+    assert_eq!(user_name.unwrap().usage_count, 2);
+    assert_eq!(user_name.unwrap().operations.len(), 2);
+
+    let user_id = coverage
+        .field_usages
+        .get(&(Arc::from("User"), Arc::from("id")));
+    assert!(user_id.is_some());
+    assert_eq!(user_id.unwrap().usage_count, 1);
+}
+
+#[test]
+fn test_analyze_field_usage_with_fragments() {
+    let mut db = TestDatabaseWithProject::default();
+
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from(
+            r#"
+            type Query {
+                user: User
+            }
+
+            type User {
+                id: ID!
+                name: String!
+                email: String!
+            }
+            "#,
+        ),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("schema.graphql"),
+        FileKind::Schema,
+    );
+
+    let doc_id = FileId::new(1);
+    let doc_content = FileContent::new(
+        &db,
+        Arc::from(
+            r#"
+            query GetUser {
+                user {
+                    ...UserFields
+                }
+            }
+
+            fragment UserFields on User {
+                id
+                email
+            }
+            "#,
+        ),
+    );
+    let doc_metadata = FileMetadata::new(
+        &db,
+        doc_id,
+        FileUri::new("query.graphql"),
+        FileKind::ExecutableGraphQL,
+    );
+
+    let project_files = create_project_files(
+        &mut db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[(doc_id, doc_content, doc_metadata)],
+    );
+
+    db.set_project_files(Some(project_files));
+
+    let coverage = analyze_field_usage(&db);
+
+    let user_email = coverage
+        .field_usages
+        .get(&(Arc::from("User"), Arc::from("email")));
+    assert!(user_email.is_some());
+    assert_eq!(user_email.unwrap().usage_count, 1);
+
+    let user_name = coverage
+        .field_usages
+        .get(&(Arc::from("User"), Arc::from("name")));
+    assert!(user_name.is_some());
+    assert_eq!(user_name.unwrap().usage_count, 0);
+}
+
+#[test]
+fn test_field_coverage_report_percentage() {
+    let mut report = FieldCoverageReport::default();
+    report.total_fields = 10;
+    report.used_fields = 7;
+
+    assert!((report.coverage_percentage() - 70.0).abs() < 0.01);
+}
+
+#[test]
+fn test_type_coverage_percentage() {
+    let coverage = TypeCoverage {
+        total_fields: 5,
+        used_fields: 4,
+    };
+
+    assert!((coverage.coverage_percentage() - 80.0).abs() < 0.01);
 }

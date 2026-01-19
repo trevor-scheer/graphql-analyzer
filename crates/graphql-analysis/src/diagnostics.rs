@@ -123,3 +123,60 @@ impl Position {
         Self { line, character }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_diagnostic_error() {
+        let diag = Diagnostic::error("Test error", DiagnosticRange::default());
+        assert_eq!(diag.severity, Severity::Error);
+        assert_eq!(diag.message.as_ref(), "Test error");
+        assert_eq!(diag.source.as_ref(), "graphql-analysis");
+        assert!(diag.code.is_none());
+    }
+
+    #[test]
+    fn test_diagnostic_warning() {
+        let diag = Diagnostic::warning("Test warning", DiagnosticRange::default());
+        assert_eq!(diag.severity, Severity::Warning);
+    }
+
+    #[test]
+    fn test_diagnostic_with_code() {
+        let diag = Diagnostic::with_source_and_code(
+            Severity::Warning,
+            "Test warning",
+            DiagnosticRange::default(),
+            "test-linter",
+            "TEST001",
+        );
+        assert_eq!(diag.source.as_ref(), "test-linter");
+        assert_eq!(diag.code.as_ref().unwrap().as_ref(), "TEST001");
+    }
+
+    #[test]
+    fn test_position() {
+        let pos = Position::new(10, 20);
+        assert_eq!(pos.line, 10);
+        assert_eq!(pos.character, 20);
+    }
+
+    #[test]
+    fn test_range() {
+        let start = Position::new(0, 0);
+        let end = Position::new(0, 10);
+        let range = DiagnosticRange::new(start, end);
+        assert_eq!(range.start, start);
+        assert_eq!(range.end, end);
+    }
+
+    #[test]
+    fn test_range_at_position() {
+        let pos = Position::new(5, 10);
+        let range = DiagnosticRange::at(pos);
+        assert_eq!(range.start, pos);
+        assert_eq!(range.end, pos);
+    }
+}
