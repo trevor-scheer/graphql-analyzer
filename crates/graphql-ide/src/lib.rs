@@ -1465,9 +1465,6 @@ impl Analysis {
             // Get operation body
             let body = graphql_hir::operation_body(&self.db, content, metadata, operation.index);
 
-            // Calculate operation range
-            let line_offset = metadata.line_offset(&self.db);
-
             // Get operation location for the range
             let range = if let Some(ref name) = operation.name {
                 let parse = graphql_syntax::parse(&self.db, content, metadata);
@@ -1476,7 +1473,7 @@ impl Analysis {
                     if let Some(ranges) = find_operation_definition_ranges(doc.tree, name) {
                         let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
                         #[allow(clippy::cast_possible_truncation)]
-                        let doc_line_offset = doc.line_offset as u32 + line_offset;
+                        let doc_line_offset = doc.line_offset as u32;
                         found_range = Some(adjust_range_for_line_offset(
                             offset_range_to_range(
                                 &doc_line_index,
@@ -2833,14 +2830,14 @@ impl Analysis {
         drop(registry);
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
-        let line_offset = metadata.line_offset(&self.db);
 
         for doc in parse.documents() {
             if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name) {
                 let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                #[allow(clippy::cast_possible_truncation)]
                 let range = adjust_range_for_line_offset(
                     offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
-                    line_offset,
+                    doc.line_offset as u32,
                 );
                 return Some((file_path, range));
             }
@@ -3759,7 +3756,6 @@ fragment AttackActionInfo on AttackAction {
             &schema_path,
             "type Pokemon {\n  name: String!\n  level: Int!\n}",
             FileKind::Schema,
-            0,
         );
 
         // Add a document that uses this field
@@ -3768,7 +3764,6 @@ fragment AttackActionInfo on AttackAction {
             &doc_path,
             "query GetPokemon { pokemon { name } }",
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -3800,7 +3795,6 @@ fragment AttackActionInfo on AttackAction {
             &schema_path,
             "type Pokemon {\n  name: String!\n  level: Int!\n}",
             FileKind::Schema,
-            0,
         );
 
         host.rebuild_project_files();
@@ -4118,7 +4112,7 @@ fragment AttackActionInfo on AttackAction {
         let schema_file = FilePath::new("file:///schema.graphql");
         let (schema_text, cursor_pos) =
             extract_cursor("type User {\n  na*me: String!\n  age: Int!\n}");
-        host.add_file(&schema_file, &schema_text, FileKind::Schema, 0);
+        host.add_file(&schema_file, &schema_text, FileKind::Schema);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -6484,7 +6478,6 @@ type Comment {
             &FilePath::new("file:///schema.graphql"),
             schema,
             FileKind::Schema,
-            0,
         );
 
         // Add operation
@@ -6504,7 +6497,6 @@ query GetUser {
             &FilePath::new("file:///query.graphql"),
             query,
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -6540,7 +6532,6 @@ type Post {
             &FilePath::new("file:///schema.graphql"),
             schema,
             FileKind::Schema,
-            0,
         );
 
         // Add operation with list field
@@ -6556,7 +6547,6 @@ query GetPosts {
             &FilePath::new("file:///query.graphql"),
             query,
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
@@ -6604,7 +6594,6 @@ type PageInfo {
             &FilePath::new("file:///schema.graphql"),
             schema,
             FileKind::Schema,
-            0,
         );
 
         // Add operation with connection pattern
@@ -6624,7 +6613,6 @@ query GetUsers {
             &FilePath::new("file:///query.graphql"),
             query,
             FileKind::ExecutableGraphQL,
-            0,
         );
 
         host.rebuild_project_files();
