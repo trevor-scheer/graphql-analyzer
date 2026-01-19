@@ -3,13 +3,17 @@
 //! This module defines the tools exposed to AI agents via MCP.
 
 use crate::service::McpService;
-use crate::types::{LintResult, ValidateDocumentParams, ValidateDocumentResult};
-use rmcp::handler::server::tool::ToolRouter;
+use crate::types::ValidateDocumentParams;
+use rmcp::handler::server::tool::{ToolCallContext, ToolRouter};
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, Content, Implementation, ServerInfo};
+use rmcp::model::{
+    CallToolRequestParam, CallToolResult, Content, Implementation, ListToolsResult,
+    PaginatedRequestParam, ServerCapabilities, ServerInfo,
+};
 use rmcp::schemars::JsonSchema;
+use rmcp::service::RequestContext;
 use rmcp::tool;
-use rmcp::{ErrorData as McpError, ServerHandler};
+use rmcp::{ErrorData as McpError, RoleServer, ServerHandler};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -64,52 +68,61 @@ pub struct LintParams {
 
 #[rmcp::tool_router]
 impl GraphQLToolRouter {
-    /// Validate a GraphQL document against the schema
-    ///
-    /// This tool validates GraphQL syntax and checks that the document is valid
-    /// according to the GraphQL specification. It returns any errors found,
-    /// including syntax errors, unknown types/fields, and validation errors.
     #[tool(
         name = "validate_document",
-        description = "Validate a GraphQL document (query, mutation, subscription, or fragment) against the loaded schema. Returns syntax errors, unknown field errors, type errors, and other validation issues."
+        description = "Validate a GraphQL document against the loaded schema. Returns JSON with {valid, error_count, warning_count, diagnostics[]}."
     )]
     pub async fn validate_document(
         &self,
         params: Parameters<ValidateParams>,
     ) -> Result<CallToolResult, McpError> {
         let mut service = self.service.lock().await;
-
         let result = service.validate_document(ValidateDocumentParams {
             document: params.0.document,
             file_path: params.0.file_path,
         });
-
-        // Format as human-readable text for the AI
-        let text = format_validation_result(&result);
-
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+        let json = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
+        Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    /// Lint a GraphQL document for best practices
-    ///
-    /// This tool runs lint rules on the document and returns any violations.
-    /// Lint rules check for best practices like naming conventions, deprecated
-    /// field usage, and code quality issues.
     #[tool(
         name = "lint_document",
-        description = "Run lint rules on a GraphQL document to check for best practices and code quality issues. Returns warnings about naming conventions, deprecated fields, unused variables, and other potential problems."
+        description = "Run lint rules on a GraphQL document. Returns JSON with {issue_count, fixable_count, diagnostics[]}."
     )]
     pub async fn lint_document(
         &self,
         params: Parameters<LintParams>,
     ) -> Result<CallToolResult, McpError> {
         let mut service = self.service.lock().await;
-
         let result = service.lint_document(&params.0.document, params.0.file_path.as_deref());
+        let json = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
+        Ok(CallToolResult::success(vec![Content::text(json)]))
+    }
 
-        let text = format_lint_result(&result);
+    #[tool(
+        name = "list_projects",
+        description = "List GraphQL projects in workspace. Returns JSON array of {name, is_loaded}."
+    )]
+    pub async fn list_projects(&self) -> Result<CallToolResult, McpError> {
+        let service = self.service.lock().await;
+        let projects = service.list_projects();
+        let result: Vec<_> = projects
+            .into_iter()
+            .map(|(name, is_loaded)| serde_json::json!({"name": name, "is_loaded": is_loaded}))
+            .collect();
+        let json = serde_json::to_string(&result).unwrap_or_else(|_| "[]".to_string());
+        Ok(CallToolResult::success(vec![Content::text(json)]))
+    }
 
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+    #[tool(
+        name = "get_project_diagnostics",
+        description = "Get all diagnostics for the loaded project. Returns JSON with {project, total_count, file_count, files[{file, diagnostics[]}]}. Only files with issues included."
+    )]
+    pub async fn get_project_diagnostics(&self) -> Result<CallToolResult, McpError> {
+        let service = self.service.lock().await;
+        let result = service.project_diagnostics();
+        let json = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
+        Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 }
 
@@ -121,6 +134,7 @@ impl ServerHandler for GraphQLToolRouter {
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 ..Default::default()
             },
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
             instructions: Some(
                 "GraphQL MCP server providing schema-aware validation, linting, and code intelligence. \
                  Use validate_document to check if GraphQL operations are valid. \
@@ -130,96 +144,24 @@ impl ServerHandler for GraphQLToolRouter {
             ..Default::default()
         }
     }
-}
 
-/// Format validation result as human-readable text
-fn format_validation_result(result: &ValidateDocumentResult) -> String {
-    let mut output = String::new();
-
-    if result.valid {
-        output.push_str("✓ Document is valid\n");
-    } else {
-        output.push_str(&format!("✗ Document has {} error(s)", result.error_count));
-        if result.warning_count > 0 {
-            output.push_str(&format!(" and {} warning(s)", result.warning_count));
-        }
-        output.push('\n');
+    fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParam>,
+        _context: RequestContext<RoleServer>,
+    ) -> impl std::future::Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
+        std::future::ready(Ok(ListToolsResult {
+            tools: self.tool_router.list_all(),
+            next_cursor: None,
+        }))
     }
 
-    if !result.diagnostics.is_empty() {
-        output.push_str("\nDiagnostics:\n");
-        for diag in &result.diagnostics {
-            let severity_icon = match diag.severity {
-                crate::types::DiagnosticSeverity::Error => "❌",
-                crate::types::DiagnosticSeverity::Warning => "⚠️",
-                crate::types::DiagnosticSeverity::Info => "ℹ️",
-                crate::types::DiagnosticSeverity::Hint => "💡",
-            };
-
-            if let Some(ref range) = diag.range {
-                output.push_str(&format!(
-                    "  {} Line {}:{} - {}\n",
-                    severity_icon,
-                    range.start.line + 1,
-                    range.start.character + 1,
-                    diag.message
-                ));
-            } else {
-                output.push_str(&format!("  {} {}\n", severity_icon, diag.message));
-            }
-        }
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParam,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let tool_call_context = ToolCallContext::new(self, request, context);
+        self.tool_router.call(tool_call_context).await
     }
-
-    output
-}
-
-/// Format lint result as human-readable text
-fn format_lint_result(result: &LintResult) -> String {
-    let mut output = String::new();
-
-    if result.issue_count == 0 {
-        output.push_str("✓ No lint issues found\n");
-    } else {
-        output.push_str(&format!("Found {} lint issue(s)", result.issue_count));
-        if result.fixable_count > 0 {
-            output.push_str(&format!(" ({} auto-fixable)", result.fixable_count));
-        }
-        output.push('\n');
-    }
-
-    if !result.diagnostics.is_empty() {
-        output.push_str("\nIssues:\n");
-        for diag in &result.diagnostics {
-            let severity_icon = match diag.severity {
-                crate::types::DiagnosticSeverity::Error => "❌",
-                crate::types::DiagnosticSeverity::Warning => "⚠️",
-                _ => "ℹ️",
-            };
-
-            if let Some(ref range) = diag.range {
-                output.push_str(&format!(
-                    "  {} Line {}:{} - {} [{}]\n",
-                    severity_icon,
-                    range.start.line + 1,
-                    range.start.character + 1,
-                    diag.message,
-                    diag.rule.as_deref().unwrap_or("unknown")
-                ));
-            } else {
-                output.push_str(&format!(
-                    "  {} {} [{}]\n",
-                    severity_icon,
-                    diag.message,
-                    diag.rule.as_deref().unwrap_or("unknown")
-                ));
-            }
-
-            // Show fix suggestion if available
-            if let Some(ref fix) = diag.fix {
-                output.push_str(&format!("    💡 Fix: {}\n", fix.description));
-            }
-        }
-    }
-
-    output
 }

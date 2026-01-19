@@ -76,6 +76,33 @@ pub struct FileValidationResult {
     pub diagnostics: Vec<DiagnosticInfo>,
 }
 
+/// Result from getting all project diagnostics
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ProjectDiagnosticsResult {
+    /// The project name (if known)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+
+    /// Total number of diagnostics across all files
+    pub total_count: usize,
+
+    /// Number of files with diagnostics
+    pub file_count: usize,
+
+    /// Diagnostics grouped by file (only files with diagnostics are included)
+    pub files: Vec<FileDiagnostics>,
+}
+
+/// Diagnostics for a single file
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct FileDiagnostics {
+    /// File path
+    pub file: String,
+
+    /// Diagnostics for this file
+    pub diagnostics: Vec<DiagnosticInfo>,
+}
+
 /// A diagnostic message (error, warning, or info)
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DiagnosticInfo {

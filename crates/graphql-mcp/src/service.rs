@@ -3,7 +3,10 @@
 //! `McpService` wraps `graphql-ide` and provides the business logic for all MCP tools.
 //! It can work with either an owned `AnalysisHost` or a shared `Analysis` snapshot.
 
-use crate::types::{DiagnosticInfo, LintResult, ValidateDocumentParams, ValidateDocumentResult};
+use crate::types::{
+    DiagnosticInfo, FileDiagnostics, LintResult, ProjectDiagnosticsResult, ValidateDocumentParams,
+    ValidateDocumentResult,
+};
 use anyhow::{Context, Result};
 use graphql_ide::{Analysis, AnalysisHost, FileKind, FilePath};
 use std::path::Path;
@@ -19,6 +22,15 @@ pub struct McpService {
 
     /// A shared analysis snapshot (shared mode)
     shared_analysis: Option<Analysis>,
+
+    /// The loaded config (for listing projects)
+    config: Option<graphql_config::GraphQLConfig>,
+
+    /// Base directory for the loaded config
+    config_base_dir: Option<std::path::PathBuf>,
+
+    /// Currently loaded project name
+    loaded_project: Option<String>,
 }
 
 impl McpService {
@@ -27,6 +39,9 @@ impl McpService {
         Self {
             host: Some(AnalysisHost::new()),
             shared_analysis: None,
+            config: None,
+            config_base_dir: None,
+            loaded_project: None,
         }
     }
 
@@ -38,6 +53,9 @@ impl McpService {
         Self {
             host: None,
             shared_analysis: Some(analysis),
+            config: None,
+            config_base_dir: None,
+            loaded_project: None,
         }
     }
 
@@ -56,7 +74,10 @@ impl McpService {
     ///
     /// This looks for `.graphqlrc.yaml` and loads schema/document files.
     /// Only works in owned mode.
-    pub fn load_workspace(&mut self, workspace: &Path) -> Result<()> {
+    ///
+    /// If `project_name` is provided, loads that specific project.
+    /// Otherwise, loads the first/default project.
+    pub fn load_workspace(&mut self, workspace: &Path, project_name: Option<&str>) -> Result<()> {
         let host = self
             .host
             .as_mut()
@@ -74,12 +95,25 @@ impl McpService {
             .parent()
             .context("Failed to get config directory")?;
 
-        // Get the default project (or first project)
-        let project_config = config
-            .projects()
-            .next()
-            .map(|(_, cfg)| cfg.clone())
-            .context("No project found in config")?;
+        // Get the specified project or default to first project
+        let (project_name, project_config) = if let Some(name) = project_name {
+            let cfg = config
+                .get_project(name)
+                .context(format!("Project '{name}' not found in config"))?
+                .clone();
+            (name.to_string(), cfg)
+        } else {
+            let (name, cfg) = config
+                .projects()
+                .next()
+                .context("No project found in config")?;
+            (name.to_string(), cfg.clone())
+        };
+
+        // Store config for later use (listing projects, etc.)
+        self.config = Some(config);
+        self.config_base_dir = Some(base_dir.to_path_buf());
+        self.loaded_project = Some(project_name.clone());
 
         // Load schemas
         host.load_schemas_from_config(&project_config, base_dir)?;
@@ -111,8 +145,60 @@ impl McpService {
 
         host.rebuild_project_files();
 
-        tracing::info!("Loaded workspace from {}", workspace.display());
+        tracing::info!(
+            "Loaded project '{}' from {}",
+            project_name,
+            workspace.display()
+        );
         Ok(())
+    }
+
+    /// List available projects in the loaded config
+    ///
+    /// Returns project names and whether each is currently loaded.
+    pub fn list_projects(&self) -> Vec<(String, bool)> {
+        let Some(ref config) = self.config else {
+            return Vec::new();
+        };
+
+        config
+            .projects()
+            .map(|(name, _)| {
+                let is_loaded = self
+                    .loaded_project
+                    .as_ref()
+                    .is_some_and(|loaded| loaded == name);
+                (name.to_string(), is_loaded)
+            })
+            .collect()
+    }
+
+    /// Get all diagnostics for the loaded project
+    ///
+    /// Returns diagnostics grouped by file. Files with no diagnostics are excluded.
+    pub fn project_diagnostics(&self) -> ProjectDiagnosticsResult {
+        let analysis = self.analysis();
+        let all_diagnostics = analysis.all_diagnostics();
+
+        // Convert to our result type, filtering out empty files
+        let files: Vec<FileDiagnostics> = all_diagnostics
+            .into_iter()
+            .filter(|(_, diagnostics)| !diagnostics.is_empty())
+            .map(|(file_path, diagnostics)| FileDiagnostics {
+                file: file_path.as_str().to_string(),
+                diagnostics: diagnostics.into_iter().map(DiagnosticInfo::from).collect(),
+            })
+            .collect();
+
+        let total_count: usize = files.iter().map(|f| f.diagnostics.len()).sum();
+        let file_count = files.len();
+
+        ProjectDiagnosticsResult {
+            project: self.loaded_project.clone(),
+            total_count,
+            file_count,
+            files,
+        }
     }
 
     /// Validate a GraphQL document

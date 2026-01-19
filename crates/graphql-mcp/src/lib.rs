@@ -44,8 +44,9 @@ mod types;
 pub use service::McpService;
 pub use tools::GraphQLToolRouter;
 pub use types::{
-    DiagnosticInfo, DiagnosticSeverity, FileValidationResult, LintResult, LocationInfo, RangeInfo,
-    ValidateDocumentParams, ValidateDocumentResult,
+    DiagnosticInfo, DiagnosticSeverity, FileDiagnostics, FileValidationResult, LintResult,
+    LocationInfo, ProjectDiagnosticsResult, RangeInfo, ValidateDocumentParams,
+    ValidateDocumentResult,
 };
 
 use anyhow::Result;
@@ -87,9 +88,9 @@ impl GraphQLMcpServer {
         tracing::info!("Starting GraphQL MCP server in standalone mode");
         tracing::info!("Workspace: {}", workspace.display());
 
-        // Create service and load project
+        // Create service and load project (default/first project)
         let mut service = McpService::new();
-        service.load_workspace(workspace)?;
+        service.load_workspace(workspace, None)?;
 
         // Create the tool router with the service
         let router = GraphQLToolRouter::new(Arc::new(Mutex::new(service)));
