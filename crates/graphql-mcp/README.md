@@ -14,8 +14,23 @@ This crate provides AI agents with GraphQL analysis capabilities including:
 ### CLI Subcommand
 
 ```bash
+# Load all projects from the workspace
 graphql mcp --workspace /path/to/project
+
+# Load only specific projects
+graphql mcp --workspace /path/to/project --projects frontend,backend
+
+# Don't preload any projects (load on demand via load_project tool)
+graphql mcp --workspace /path/to/project --no-preload
 ```
+
+### CLI Options
+
+| Option | Description |
+|--------|-------------|
+| `--workspace` | Path to the workspace directory (defaults to current directory) |
+| `--no-preload` | Don't load any projects at startup. Use `load_project` tool to load on demand. |
+| `--projects` | Comma-separated list of specific projects to preload |
 
 ### Claude Desktop Configuration
 
@@ -39,19 +54,42 @@ Add to your Claude Desktop config file:
 
 ### validate_document
 
-Validate a GraphQL document against the loaded schema. Returns syntax errors, unknown field errors, type errors, and other validation issues.
+Validate a GraphQL document against the loaded schema. Returns JSON with `{valid, error_count, warning_count, diagnostics[]}`.
 
 **Parameters:**
 - `document` (required): The GraphQL document source to validate
 - `file_path` (optional): Virtual file path for error reporting
+- `project` (optional): Project name to validate against. If not specified, uses the first loaded project.
 
 ### lint_document
 
-Run lint rules on a GraphQL document to check for best practices and code quality issues. Returns warnings about naming conventions, deprecated fields, unused variables, and other potential problems.
+Run lint rules on a GraphQL document to check for best practices and code quality issues. Returns JSON with `{issue_count, fixable_count, diagnostics[]}`.
 
 **Parameters:**
 - `document` (required): The GraphQL document source to lint
 - `file_path` (optional): Virtual file path for error reporting
+- `project` (optional): Project name to lint against. If not specified, uses the first loaded project.
+
+### list_projects
+
+List all GraphQL projects in the workspace configuration. Returns JSON array of `{name, is_loaded}`.
+
+**Parameters:** None
+
+### load_project
+
+Load a specific GraphQL project by name. Use this when `--no-preload` was specified or to load a project that wasn't preloaded.
+
+**Parameters:**
+- `project` (required): The project name to load
+
+**Returns:** JSON with `{success, project, message}`
+
+### get_project_diagnostics
+
+Get all diagnostics for all loaded projects. Returns JSON with `{project, total_count, file_count, files[{file, diagnostics[]}]}`.
+
+**Parameters:** None
 
 ## Development
 
@@ -111,7 +149,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"validate_d
 
 ## Architecture
 
-The MCP server wraps `graphql-ide`'s Analysis API:
+The MCP server wraps `graphql-ide`'s Analysis API with multi-project support:
 
 ```
 ┌─────────────────────────────────────┐
@@ -122,12 +160,16 @@ The MCP server wraps `graphql-ide`'s Analysis API:
 │  GraphQLToolRouter (MCP Handler)    │
 │  - validate_document                │
 │  - lint_document                    │
+│  - list_projects                    │
+│  - load_project                     │
+│  - get_project_diagnostics          │
 └─────────────────┬───────────────────┘
                   │
 ┌─────────────────▼───────────────────┐
 │  McpService                         │
-│  - Wraps AnalysisHost               │
+│  - One AnalysisHost per project     │
 │  - Loads workspace config           │
+│  - Supports selective preloading    │
 └─────────────────┬───────────────────┘
                   │
 ┌─────────────────▼───────────────────┐
@@ -136,6 +178,16 @@ The MCP server wraps `graphql-ide`'s Analysis API:
 │  - Schema + document validation     │
 └─────────────────────────────────────┘
 ```
+
+### Multi-Project Support
+
+The MCP server supports GraphQL workspaces with multiple projects (as defined in `.graphqlrc.yaml`):
+
+- By default, all projects are loaded at startup
+- Use `--no-preload` for large workspaces to defer loading
+- Use `--projects` to selectively preload specific projects
+- The `load_project` tool allows loading additional projects on demand
+- Each project has its own `AnalysisHost` with independent schema and documents
 
 ## Future Enhancements
 
