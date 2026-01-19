@@ -1,9 +1,4 @@
-import {
-  test as base,
-  _electron as electron,
-  ElectronApplication,
-  Page,
-} from "@playwright/test";
+import { test as base, _electron as electron, ElectronApplication, Page } from "@playwright/test";
 import {
   downloadAndUnzipVSCode,
   resolveCliArgsFromVSCodeExecutablePath,
@@ -56,28 +51,20 @@ export const test = base.extend<VSCodeFixtures>({
     // Ensure the extension is compiled
     const outDir = path.join(extensionDevelopmentPath, "out");
     if (!fs.existsSync(path.join(outDir, "extension.js"))) {
-      throw new Error(
-        "Extension not compiled. Run `npm run compile` first in editors/vscode"
-      );
+      throw new Error("Extension not compiled. Run `npm run compile` first in editors/vscode");
     }
 
     const vscodeExePath = await getVSCodeExecutable();
     const electronPath = getElectronPath(vscodeExePath);
 
     // Create a temporary user data directory for isolation
-    const userDataDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "vscode-test-user-data-")
-    );
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "vscode-test-user-data-"));
 
     // Create a temporary extensions directory
-    const extensionsDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "vscode-test-extensions-")
-    );
+    const extensionsDir = fs.mkdtempSync(path.join(os.tmpdir(), "vscode-test-extensions-"));
 
     // Create test workspace with GraphQL files
-    const workspaceDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "vscode-test-workspace-")
-    );
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "vscode-test-workspace-"));
 
     // Create a .graphqlrc.yaml so the extension activates
     fs.writeFileSync(
@@ -111,14 +98,7 @@ export const test = base.extend<VSCodeFixtures>({
     );
 
     // Create a simple query file
-    fs.writeFileSync(
-      path.join(workspaceDir, "query.graphql"),
-      `query Hello {\n  hello\n}\n`
-    );
-
-    console.log(`Launching VS Code from: ${electronPath}`);
-    console.log(`Extension path: ${extensionDevelopmentPath}`);
-    console.log(`Workspace: ${workspaceDir}`);
+    fs.writeFileSync(path.join(workspaceDir, "query.graphql"), `query Hello {\n  hello\n}\n`);
 
     const app = await electron.launch({
       executablePath: electronPath,
