@@ -121,7 +121,8 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
 
             if !is_used {
                 let message = format!(
-                    "Field '{}.{}' is defined in the schema but never used in any operation or fragment",
+                    "Field '{}.{}' is defined in the schema but never used in any operation or fragment. \
+                    This field may be safe to remove if no external clients are using it.",
                     field_info.type_name, field_info.field_name
                 );
 
