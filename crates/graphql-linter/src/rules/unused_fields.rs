@@ -1,7 +1,7 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::schema_utils::extract_root_type_names;
 use crate::traits::{LintRule, ProjectLintRule};
-use graphql_db::{FileId, ProjectFiles};
+use graphql_base_db::{FileId, ProjectFiles};
 use graphql_hir::TextRange;
 use std::collections::{HashMap, HashSet};
 
@@ -68,7 +68,8 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
 
         for file_id in doc_ids.iter() {
             // Use per-file lookup for granular caching
-            let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
+            let Some((content, metadata)) =
+                graphql_base_db::file_lookup(db, project_files, *file_id)
             else {
                 continue;
             };

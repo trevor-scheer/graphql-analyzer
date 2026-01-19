@@ -968,14 +968,22 @@ version = "0.1.1"
 dependencies = [
  "apollo-compiler",
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "graphql-db",
+ "graphql-base-db",
  "graphql-hir",
  "graphql-linter",
  "graphql-syntax",
+ "graphql-test-utils",
  "salsa",
  "text-size",
  "thiserror 2.0.17",
  "tracing",
+]
+
+[[package]]
+name = "graphql-base-db"
+version = "0.1.1"
+dependencies = [
+ "salsa",
 ]
 
 [[package]]
@@ -1020,13 +1028,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "graphql-db"
-version = "0.1.1"
-dependencies = [
- "salsa",
-]
-
-[[package]]
 name = "graphql-extract"
 version = "0.1.1"
 dependencies = [
@@ -1045,8 +1046,9 @@ version = "0.1.1"
 dependencies = [
  "apollo-compiler",
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "graphql-db",
+ "graphql-base-db",
  "graphql-syntax",
+ "graphql-test-utils",
  "salsa",
  "text-size",
 ]
@@ -1059,16 +1061,29 @@ dependencies = [
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "glob",
  "graphql-analysis",
+ "graphql-base-db",
  "graphql-config",
- "graphql-db",
  "graphql-extract",
  "graphql-hir",
+ "graphql-ide-db",
  "graphql-linter",
  "graphql-syntax",
  "parking_lot",
  "salsa",
  "tempfile",
  "tracing",
+]
+
+[[package]]
+name = "graphql-ide-db"
+version = "0.1.1"
+dependencies = [
+ "graphql-analysis",
+ "graphql-base-db",
+ "graphql-extract",
+ "graphql-hir",
+ "graphql-syntax",
+ "salsa",
 ]
 
 [[package]]
@@ -1089,9 +1104,11 @@ version = "0.1.1"
 dependencies = [
  "apollo-compiler",
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "graphql-db",
+ "graphql-base-db",
  "graphql-hir",
+ "graphql-ide-db",
  "graphql-syntax",
+ "insta",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -1134,9 +1151,10 @@ version = "0.1.1"
 dependencies = [
  "criterion",
  "graphql-analysis",
- "graphql-db",
+ "graphql-base-db",
  "graphql-hir",
  "graphql-ide",
+ "graphql-ide-db",
  "graphql-syntax",
  "salsa",
 ]
@@ -1147,10 +1165,23 @@ version = "0.1.1"
 dependencies = [
  "apollo-compiler",
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "graphql-db",
+ "graphql-base-db",
  "graphql-extract",
  "salsa",
  "tracing",
+]
+
+[[package]]
+name = "graphql-test-utils"
+version = "0.1.1"
+dependencies = [
+ "graphql-analysis",
+ "graphql-base-db",
+ "graphql-hir",
+ "graphql-ide-db",
+ "graphql-syntax",
+ "insta",
+ "salsa",
 ]
 
 [[package]]
@@ -1536,6 +1567,19 @@ dependencies = [
  "portable-atomic",
  "unicode-width",
  "web-time",
+]
+
+[[package]]
+name = "insta"
+version = "1.46.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "248b42847813a1550dafd15296fd9748c651d0c32194559dbc05d804d54b21e8"
+dependencies = [
+ "console",
+ "once_cell",
+ "serde",
+ "similar",
+ "tempfile",
 ]
 
 [[package]]
@@ -2873,6 +2917,12 @@ checksum = "7664a098b8e616bdfcc2dc0e9ac44eb231eedf41db4e9fe95d8d32ec728dedad"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "similar"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 
 [[package]]
 name = "siphasher"

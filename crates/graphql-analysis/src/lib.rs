@@ -13,10 +13,12 @@ mod schema_validation;
 pub mod validation;
 
 pub use diagnostics::*;
+pub use document_validation::validate_document_file;
 pub use merged_schema::{
     merged_schema_diagnostics, merged_schema_with_diagnostics, MergedSchemaResult,
 };
 pub use project_lints::{analyze_field_usage, FieldCoverageReport, FieldUsage, TypeCoverage};
+pub use schema_validation::validate_schema_file;
 pub use validation::validate_file;
 
 #[salsa::db]
@@ -26,9 +28,6 @@ pub trait GraphQLAnalysisDatabase: graphql_hir::GraphQLHirDatabase {
     }
 }
 
-#[salsa::db]
-impl GraphQLAnalysisDatabase for graphql_db::RootDatabase {}
-
 /// Get validation diagnostics for a file, including syntax errors and
 /// validation errors.
 ///
@@ -37,9 +36,9 @@ impl GraphQLAnalysisDatabase for graphql_db::RootDatabase {}
 #[allow(clippy::cast_possible_truncation)] // Line and column numbers won't exceed u32::MAX
 pub fn file_validation_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
-    project_files: Option<graphql_db::ProjectFiles>,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
+    project_files: Option<graphql_base_db::ProjectFiles>,
 ) -> Arc<Vec<Diagnostic>> {
     // Without project files, we can only report syntax errors
     project_files.map_or_else(
@@ -53,8 +52,8 @@ pub fn file_validation_diagnostics(
 #[allow(clippy::cast_possible_truncation)]
 fn syntax_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
 ) -> Arc<Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
 
@@ -90,9 +89,9 @@ fn syntax_diagnostics(
 #[allow(clippy::cast_possible_truncation)]
 fn file_validation_diagnostics_impl(
     db: &dyn GraphQLAnalysisDatabase,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
-    project_files: graphql_db::ProjectFiles,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> Arc<Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
 
@@ -155,9 +154,9 @@ fn file_validation_diagnostics_impl(
 /// Memoization happens at the tracked `file_diagnostics_impl` function.
 pub fn file_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
-    project_files: Option<graphql_db::ProjectFiles>,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
+    project_files: Option<graphql_base_db::ProjectFiles>,
 ) -> Arc<Vec<Diagnostic>> {
     project_files.map_or_else(
         || syntax_diagnostics(db, content, metadata),
@@ -169,9 +168,9 @@ pub fn file_diagnostics(
 #[salsa::tracked]
 fn file_diagnostics_impl(
     db: &dyn GraphQLAnalysisDatabase,
-    content: graphql_db::FileContent,
-    metadata: graphql_db::FileMetadata,
-    project_files: graphql_db::ProjectFiles,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> Arc<Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
 
@@ -188,55 +187,4 @@ fn file_diagnostics_impl(
     );
 
     Arc::new(diagnostics)
-}
-
-#[cfg(test)]
-#[allow(clippy::needless_raw_string_hashes)]
-mod tests {
-    use super::*;
-    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
-
-    // Test database wrapper
-    #[salsa::db]
-    #[derive(Clone, Default)]
-    struct TestDatabase {
-        storage: salsa::Storage<Self>,
-    }
-
-    // Implement the database traits for testing
-    #[salsa::db]
-    impl salsa::Database for TestDatabase {}
-
-    #[salsa::db]
-    impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {}
-
-    #[salsa::db]
-    impl graphql_hir::GraphQLHirDatabase for TestDatabase {}
-
-    #[salsa::db]
-    impl GraphQLAnalysisDatabase for TestDatabase {}
-
-    #[test]
-    fn test_file_diagnostics_empty() {
-        let db = TestDatabase::default();
-        let file_id = FileId::new(0);
-
-        // Create a valid schema file
-        let content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
-        let metadata = FileMetadata::new(
-            &db,
-            file_id,
-            FileUri::new("file:///test.graphql"),
-            FileKind::Schema,
-        );
-
-        // Get diagnostics (no project_files, so only syntax errors would be reported)
-        let diagnostics = file_diagnostics(&db, content, metadata, None);
-
-        // Valid schema should have no syntax errors
-        assert!(
-            diagnostics.is_empty(),
-            "Valid schema should have no diagnostics, got: {diagnostics:?}"
-        );
-    }
 }

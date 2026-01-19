@@ -1,7 +1,7 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity, OffsetRange};
 use crate::traits::{DocumentSchemaLintRule, LintRule};
 use apollo_parser::cst::{self, CstNode};
-use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use std::collections::HashMap;
 use std::sync::Arc;
 

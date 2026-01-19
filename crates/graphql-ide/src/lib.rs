@@ -78,7 +78,7 @@ use symbol::{
 };
 
 // Re-export database types that IDE layer needs
-pub use graphql_db::FileKind;
+pub use graphql_base_db::FileKind;
 
 /// Information about a loaded file from document discovery
 #[derive(Debug, Clone)]
@@ -539,7 +539,7 @@ struct IdeDatabase {
     storage: salsa::Storage<Self>,
     lint_config_input: Option<LintConfigInput>,
     extract_config_input: Option<ExtractConfigInput>,
-    project_files: Arc<RwLock<Option<graphql_db::ProjectFiles>>>,
+    project_files: Arc<RwLock<Option<graphql_base_db::ProjectFiles>>>,
 }
 
 impl Default for IdeDatabase {
@@ -578,7 +578,7 @@ impl graphql_syntax::GraphQLSyntaxDatabase for IdeDatabase {
 
 #[salsa::db]
 impl graphql_hir::GraphQLHirDatabase for IdeDatabase {
-    fn project_files(&self) -> Option<graphql_db::ProjectFiles> {
+    fn project_files(&self) -> Option<graphql_base_db::ProjectFiles> {
         *self.project_files.read()
     }
 }
@@ -1068,7 +1068,7 @@ pub struct Analysis {
     registry: Arc<RwLock<FileRegistry>>,
     /// Cached `ProjectFiles` for HIR queries
     /// This is fetched from the registry when the snapshot is created
-    project_files: Option<graphql_db::ProjectFiles>,
+    project_files: Option<graphql_base_db::ProjectFiles>,
 }
 
 impl Analysis {
@@ -1465,10 +1465,6 @@ impl Analysis {
             // Get operation body
             let body = graphql_hir::operation_body(&self.db, content, metadata, operation.index);
 
-            // Calculate operation range
-            // Note: File-level line offset is always 0; per-document offsets come from doc.line_offset
-            let line_offset: u32 = 0;
-
             // Get operation location for the range
             let range = if let Some(ref name) = operation.name {
                 let parse = graphql_syntax::parse(&self.db, content, metadata);
@@ -1477,7 +1473,7 @@ impl Analysis {
                     if let Some(ranges) = find_operation_definition_ranges(doc.tree, name) {
                         let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
                         #[allow(clippy::cast_possible_truncation)]
-                        let doc_line_offset = doc.line_offset as u32 + line_offset;
+                        let doc_line_offset = doc.line_offset as u32;
                         found_range = Some(adjust_range_for_line_offset(
                             offset_range_to_range(
                                 &doc_line_index,
@@ -2192,7 +2188,7 @@ impl Analysis {
 
         for file_id in doc_ids.iter() {
             let Some((content, metadata)) =
-                graphql_db::file_lookup(&self.db, project_files, *file_id)
+                graphql_base_db::file_lookup(&self.db, project_files, *file_id)
             else {
                 continue;
             };
@@ -2254,7 +2250,7 @@ impl Analysis {
 
         for file_id in schema_ids.iter() {
             let Some((content, metadata)) =
-                graphql_db::file_lookup(&self.db, project_files, *file_id)
+                graphql_base_db::file_lookup(&self.db, project_files, *file_id)
             else {
                 continue;
             };
@@ -2299,7 +2295,7 @@ impl Analysis {
 
             for file_id in schema_ids.iter() {
                 let Some((content, metadata)) =
-                    graphql_db::file_lookup(&self.db, project_files, *file_id)
+                    graphql_base_db::file_lookup(&self.db, project_files, *file_id)
                 else {
                     continue;
                 };
@@ -2339,7 +2335,7 @@ impl Analysis {
 
         for file_id in doc_ids.iter() {
             let Some((content, metadata)) =
-                graphql_db::file_lookup(&self.db, project_files, *file_id)
+                graphql_base_db::file_lookup(&self.db, project_files, *file_id)
             else {
                 continue;
             };
@@ -2621,7 +2617,7 @@ impl Analysis {
         let doc_ids = project_files.document_file_ids(&self.db).ids(&self.db);
         for file_id in doc_ids.iter() {
             let Some((content, metadata)) =
-                graphql_db::file_lookup(&self.db, project_files, *file_id)
+                graphql_base_db::file_lookup(&self.db, project_files, *file_id)
             else {
                 continue;
             };
@@ -2680,7 +2676,7 @@ impl Analysis {
         let schema_ids = project_files.schema_file_ids(&self.db).ids(&self.db);
         for file_id in schema_ids.iter() {
             let Some((content, metadata)) =
-                graphql_db::file_lookup(&self.db, project_files, *file_id)
+                graphql_base_db::file_lookup(&self.db, project_files, *file_id)
             else {
                 continue;
             };
@@ -2864,7 +2860,7 @@ impl Analysis {
     fn compute_transitive_dependencies(
         &self,
         fragment_name: &str,
-        project_files: graphql_db::ProjectFiles,
+        project_files: graphql_base_db::ProjectFiles,
     ) -> Vec<String> {
         let spreads_index = graphql_hir::fragment_spreads_index(&self.db, project_files);
 
@@ -6162,7 +6158,7 @@ query GetUser {
         host.add_file(
             &file_path,
             doc_content.trim(),
-            graphql_db::FileKind::ExecutableGraphQL,
+            graphql_base_db::FileKind::ExecutableGraphQL,
         );
         host.rebuild_project_files();
 

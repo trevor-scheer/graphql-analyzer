@@ -1,5 +1,5 @@
 use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase, Position, Severity};
-use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -295,7 +295,7 @@ fn find_file_content_and_metadata(
     project_files: ProjectFiles,
     file_id: FileId,
 ) -> Option<(FileContent, FileMetadata)> {
-    graphql_db::file_lookup(db, project_files, file_id)
+    graphql_base_db::file_lookup(db, project_files, file_id)
 }
 
 /// Get raw lint diagnostics for a file (with fix information preserved)

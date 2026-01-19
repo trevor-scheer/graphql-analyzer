@@ -2,7 +2,7 @@ use crate::diagnostics::{CodeFix, LintDiagnostic, LintSeverity, TextEdit};
 use crate::schema_utils::extract_root_type_names;
 use crate::traits::{DocumentSchemaLintRule, LintRule};
 use apollo_parser::cst::{self, CstNode};
-use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -198,7 +198,7 @@ fn check_document(
 /// Context for checking selection sets with fragment resolution
 struct CheckContext<'a> {
     db: &'a dyn graphql_hir::GraphQLHirDatabase,
-    project_files: graphql_db::ProjectFiles,
+    project_files: graphql_base_db::ProjectFiles,
     schema_types: &'a HashMap<Arc<str>, graphql_hir::TypeDef>,
     types_with_id: &'a HashMap<String, bool>,
     all_fragments: &'a HashMap<Arc<str>, graphql_hir::FragmentStructure>,
@@ -468,7 +468,7 @@ fn fragment_contains_id(
 
     // Get the file content and metadata via file_lookup (granular per-file caching)
     let Some((file_content, file_metadata)) =
-        graphql_db::file_lookup(context.db, context.project_files, file_id)
+        graphql_base_db::file_lookup(context.db, context.project_files, file_id)
     else {
         return false;
     };
@@ -581,8 +581,9 @@ fn check_fragment_selection_for_id(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
     use graphql_hir::GraphQLHirDatabase;
+    use graphql_ide_db::RootDatabase;
 
     /// Helper to create test project files with schema and document
     fn create_test_project(
@@ -611,14 +612,16 @@ mod tests {
             document_kind,
         );
 
-        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
-        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(vec![doc_file_id]));
+        let schema_file_ids =
+            graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
+        let document_file_ids =
+            graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![doc_file_id]));
         let mut file_entries = std::collections::HashMap::new();
-        let schema_entry = graphql_db::FileEntry::new(db, schema_content, schema_metadata);
-        let doc_entry = graphql_db::FileEntry::new(db, doc_content, doc_metadata);
+        let schema_entry = graphql_base_db::FileEntry::new(db, schema_content, schema_metadata);
+        let doc_entry = graphql_base_db::FileEntry::new(db, doc_content, doc_metadata);
         file_entries.insert(schema_file_id, schema_entry);
         file_entries.insert(doc_file_id, doc_entry);
-        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(file_entries));
+        let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(file_entries));
         let project_files =
             ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map);
 
@@ -660,7 +663,7 @@ type Stats {
 
     #[test]
     fn test_missing_id_on_type_with_id() {
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -685,7 +688,7 @@ query GetUser {
 
     #[test]
     fn test_id_present_no_warning() {
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -711,7 +714,7 @@ query GetUser {
         // This tests the fix for nested selection set recursion:
         // Query.user doesn't have id (Query type has no id field),
         // but we need to recurse into User's selection set to check for id there
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -741,7 +744,7 @@ query GetUserPosts {
     #[test]
     fn test_deeply_nested_selection_requires_id() {
         // Test that we recurse multiple levels deep
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -776,7 +779,7 @@ query GetUserPostComments {
     #[test]
     fn test_type_without_id_field_no_warning() {
         // Stats type doesn't have an id field, so no warning should be emitted
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let schema = r"
@@ -810,7 +813,7 @@ query GetStats {
     #[test]
     fn test_typescript_file_with_gql_tag() {
         // This tests that TypeScript files with gql`` template literals are processed
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -842,7 +845,7 @@ const GET_USER = gql`
     #[test]
     fn test_typescript_file_multiple_queries() {
         // Test multiple gql blocks in a single TypeScript file
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -885,7 +888,7 @@ const GET_POSTS = gql`
     fn test_typescript_nested_selection_recursion() {
         // Test that nested selections work in TypeScript files
         // This combines the TypeScript block processing and nested recursion fixes
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r"
@@ -921,7 +924,7 @@ const QUERY = gql`
 
     #[test]
     fn test_fragment_with_id_no_warning() {
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -949,7 +952,7 @@ query GetUser {
 
     #[test]
     fn test_fragment_without_id_warning() {
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -993,7 +996,7 @@ query GetUser {
         );
 
         let mut file_entries = std::collections::HashMap::new();
-        let schema_entry = graphql_db::FileEntry::new(db, schema_content, schema_metadata);
+        let schema_entry = graphql_base_db::FileEntry::new(db, schema_content, schema_metadata);
         file_entries.insert(schema_file_id, schema_entry);
 
         let mut doc_file_ids = Vec::new();
@@ -1005,7 +1008,7 @@ query GetUser {
             let content = FileContent::new(db, Arc::from(*source));
             let metadata = FileMetadata::new(db, file_id, FileUri::new(*uri), *kind);
 
-            let entry = graphql_db::FileEntry::new(db, content, metadata);
+            let entry = graphql_base_db::FileEntry::new(db, content, metadata);
             file_entries.insert(file_id, entry);
             doc_file_ids.push(file_id);
 
@@ -1014,9 +1017,10 @@ query GetUser {
             }
         }
 
-        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
-        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(doc_file_ids));
-        let file_entry_map = graphql_db::FileEntryMap::new(db, Arc::new(file_entries));
+        let schema_file_ids =
+            graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
+        let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(doc_file_ids));
+        let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(file_entries));
         let project_files =
             ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map);
 
@@ -1027,7 +1031,7 @@ query GetUser {
     #[test]
     fn test_cross_file_fragment_with_id_no_warning() {
         // Test case for issue #195: Fragment defined in separate file should be checked for id
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let fragment_source = r"
@@ -1063,7 +1067,7 @@ query GetUser {
         // Check the query file (second file, so we need to get it from project_files)
         let query_file_id = FileId::new(2);
         let (query_content, query_metadata) =
-            graphql_db::file_lookup(&db, project_files, query_file_id)
+            graphql_base_db::file_lookup(&db, project_files, query_file_id)
                 .expect("Query file should exist");
 
         let diagnostics = rule.check(
@@ -1085,7 +1089,7 @@ query GetUser {
     #[test]
     fn test_cross_file_fragment_without_id_warning() {
         // Test case for issue #195: Fragment defined in separate file should be checked for id
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let fragment_source = r"
@@ -1121,7 +1125,7 @@ query GetUser {
         // Check the query file (second file, so we need to get it from project_files)
         let query_file_id = FileId::new(2);
         let (query_content, query_metadata) =
-            graphql_db::file_lookup(&db, project_files, query_file_id)
+            graphql_base_db::file_lookup(&db, project_files, query_file_id)
                 .expect("Query file should exist");
 
         let diagnostics = rule.check(
@@ -1143,7 +1147,7 @@ query GetUser {
     #[test]
     fn test_typescript_cross_file_fragment_with_id() {
         // Test case for issue #195: TypeScript file using fragment from another file
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let fragment_source = r"
@@ -1178,8 +1182,9 @@ export const GET_USER = gql`
 
         // Check the TypeScript file (second file)
         let ts_file_id = FileId::new(2);
-        let (ts_content, ts_metadata) = graphql_db::file_lookup(&db, project_files, ts_file_id)
-            .expect("TypeScript file should exist");
+        let (ts_content, ts_metadata) =
+            graphql_base_db::file_lookup(&db, project_files, ts_file_id)
+                .expect("TypeScript file should exist");
 
         let diagnostics = rule.check(&db, ts_file_id, ts_content, ts_metadata, project_files);
 
@@ -1194,7 +1199,7 @@ export const GET_USER = gql`
     #[test]
     fn test_inline_fragment_with_fragment_spread_containing_id() {
         // Test that fragment spreads inside inline fragments are checked for id
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let source = r#"
@@ -1232,7 +1237,7 @@ query GetPost {
     fn test_fragment_spread_inside_field_in_fragment_definition() {
         // Issue #376: Fragment spread inside a field in a fragment definition should
         // recognize that id is included via the spread
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let schema = r"
@@ -1286,7 +1291,7 @@ fragment BattleDetailed on Battle {
     fn test_cross_file_fragment_spread_inside_field_in_fragment_definition() {
         // Issue #376: Cross-file variant - fragment spread inside a field in a fragment
         // definition should recognize that id is included via the spread
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let schema = r"
@@ -1340,7 +1345,7 @@ fragment BattleDetailed on Battle {
         // Check the battle fragments file (second file)
         let battle_file_id = FileId::new(2);
         let (battle_content, battle_metadata) =
-            graphql_db::file_lookup(&db, project_files, battle_file_id)
+            graphql_base_db::file_lookup(&db, project_files, battle_file_id)
                 .expect("Battle fragments file should exist");
 
         let diagnostics = rule.check(
@@ -1368,7 +1373,7 @@ fragment BattleDetailed on Battle {
     fn test_fragment_reused_in_sibling_spread_and_field() {
         // Issue #376: When a fragment is used both in a sibling spread (BattleBasic) and
         // directly in a field (trainer1), the visited_fragments set gets polluted
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let schema = r"
@@ -1432,7 +1437,7 @@ fragment BattleDetailed on Battle {
     #[test]
     fn test_issue_376_exact_scenario() {
         // Issue #376: EXACT scenario from the issue - BattleBasic is referenced but not defined
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let schema = r"
@@ -1489,7 +1494,7 @@ fragment BattleDetailed on Battle {
     #[test]
     fn test_fragment_defined_after_usage() {
         // Test case: Fragment is defined AFTER it's used (reverse order)
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let schema = r"
@@ -1542,7 +1547,7 @@ fragment TrainerBasic on Trainer {
     #[test]
     fn test_typescript_fragments_across_gql_blocks() {
         // Issue #376: Fragments used across different gql`` blocks in TypeScript
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let schema = r"
@@ -1602,7 +1607,7 @@ export const BATTLE_FRAGMENT = gql`
     fn test_same_fragment_used_in_multiple_fields() {
         // Issue #376: When the same fragment is used in multiple sibling fields,
         // the visited_fragments set prevents re-checking
-        let db = graphql_db::RootDatabase::default();
+        let db = RootDatabase::default();
         let rule = RequireIdFieldRuleImpl;
 
         let schema = r"

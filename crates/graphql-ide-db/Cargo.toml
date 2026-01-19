@@ -1,0 +1,24 @@
+[package]
+name = "graphql-ide-db"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+description = "Salsa database for GraphQL IDE features"
+keywords = ["graphql", "salsa", "incremental", "ide"]
+categories = ["development-tools"]
+
+[dependencies]
+# Core database dependencies - graphql-analysis brings in the full chain
+graphql-base-db = { path = "../graphql-base-db" }
+graphql-syntax = { path = "../graphql-syntax" }
+graphql-hir = { path = "../graphql-hir" }
+graphql-analysis = { path = "../graphql-analysis" }
+
+# For ExtractConfig in GraphQLSyntaxDatabase
+graphql-extract = { path = "../graphql-extract" }
+
+# Salsa for incremental computation
+salsa = { workspace = true }

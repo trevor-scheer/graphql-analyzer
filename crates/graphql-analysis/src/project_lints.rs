@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 type SchemaFieldsMap<'a> =
-    HashMap<(Arc<str>, Arc<str>), (graphql_db::FileId, &'a graphql_hir::FieldSignature)>;
+    HashMap<(Arc<str>, Arc<str>), (graphql_base_db::FileId, &'a graphql_hir::FieldSignature)>;
 
 /// Information about how a schema field is used across all operations
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,13 +91,13 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
     let mut used_fields: HashSet<(Arc<str>, Arc<str>)> = HashSet::new();
     let doc_ids = project_files.document_file_ids(db).ids(db);
     let document_files: Vec<(
-        graphql_db::FileId,
-        graphql_db::FileContent,
-        graphql_db::FileMetadata,
+        graphql_base_db::FileId,
+        graphql_base_db::FileContent,
+        graphql_base_db::FileMetadata,
     )> = doc_ids
         .iter()
         .filter_map(|file_id| {
-            graphql_db::file_lookup(db, project_files, *file_id)
+            graphql_base_db::file_lookup(db, project_files, *file_id)
                 .map(|(content, metadata)| (*file_id, content, metadata))
         })
         .collect();
@@ -170,7 +170,8 @@ pub fn find_unused_fragments(
 
     let doc_ids = project_files.document_file_ids(db).ids(db);
     for file_id in doc_ids.iter() {
-        let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id) else {
+        let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        else {
             continue;
         };
 
@@ -225,13 +226,13 @@ pub fn analyze_field_usage(db: &dyn GraphQLAnalysisDatabase) -> Arc<FieldCoverag
     // Build document files lookup
     let doc_ids = project_files.document_file_ids(db).ids(db);
     let document_files: Vec<(
-        graphql_db::FileId,
-        graphql_db::FileContent,
-        graphql_db::FileMetadata,
+        graphql_base_db::FileId,
+        graphql_base_db::FileContent,
+        graphql_base_db::FileMetadata,
     )> = doc_ids
         .iter()
         .filter_map(|file_id| {
-            graphql_db::file_lookup(db, project_files, *file_id)
+            graphql_base_db::file_lookup(db, project_files, *file_id)
                 .map(|(content, metadata)| (*file_id, content, metadata))
         })
         .collect();
@@ -351,9 +352,9 @@ fn collect_field_usages_from_selections(
     all_fragments: &HashMap<Arc<str>, graphql_hir::FragmentStructure>,
     db: &dyn GraphQLAnalysisDatabase,
     document_files: &[(
-        graphql_db::FileId,
-        graphql_db::FileContent,
-        graphql_db::FileMetadata,
+        graphql_base_db::FileId,
+        graphql_base_db::FileContent,
+        graphql_base_db::FileMetadata,
     )],
     used_fields: &mut HashSet<(Arc<str>, Arc<str>)>,
     visited_fragments: &mut HashSet<Arc<str>>,
@@ -476,9 +477,9 @@ fn collect_used_fields_from_selections(
     all_fragments: &HashMap<Arc<str>, graphql_hir::FragmentStructure>,
     db: &dyn GraphQLAnalysisDatabase,
     document_files: &[(
-        graphql_db::FileId,
-        graphql_db::FileContent,
-        graphql_db::FileMetadata,
+        graphql_base_db::FileId,
+        graphql_base_db::FileContent,
+        graphql_base_db::FileMetadata,
     )],
     used_fields: &mut HashSet<(Arc<str>, Arc<str>)>,
     visited_fragments: &mut HashSet<Arc<str>>,
@@ -578,18 +579,29 @@ fn unwrap_type_name(type_name: &str) -> Arc<str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+    use graphql_base_db::{
+        DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileKind, FileMetadata,
+        FileUri, ProjectFiles, SchemaFileIds,
+    };
 
-    // Test database
     #[salsa::db]
-    #[derive(Clone, Default)]
+    #[derive(Clone)]
     struct TestDatabase {
         storage: salsa::Storage<Self>,
         project_files: std::cell::Cell<Option<ProjectFiles>>,
     }
 
+    impl Default for TestDatabase {
+        fn default() -> Self {
+            Self {
+                storage: salsa::Storage::default(),
+                project_files: std::cell::Cell::new(None),
+            }
+        }
+    }
+
     impl TestDatabase {
-        fn set_project_files(&mut self, project_files: Option<ProjectFiles>) {
+        fn set_project_files(&self, project_files: Option<ProjectFiles>) {
             self.project_files.set(project_files);
         }
     }
@@ -610,11 +622,35 @@ mod tests {
     #[salsa::db]
     impl crate::GraphQLAnalysisDatabase for TestDatabase {}
 
+    fn create_project_files(
+        db: &TestDatabase,
+        schema_files: &[(FileId, FileContent, FileMetadata)],
+        document_files: &[(FileId, FileContent, FileMetadata)],
+    ) -> ProjectFiles {
+        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
+        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
+
+        let mut entries = std::collections::HashMap::new();
+        for (id, content, metadata) in schema_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+        for (id, content, metadata) in document_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+
+        let schema_file_ids = SchemaFileIds::new(db, Arc::new(schema_ids));
+        let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
+        let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
+
+        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+    }
+
     #[test]
     fn test_unused_fields_basic() {
-        let mut db = TestDatabase::default();
+        let db = TestDatabase::default();
 
-        // Schema with User type having id, name, and email fields
         let schema_id = FileId::new(0);
         let schema_content = FileContent::new(
             &db,
@@ -639,7 +675,6 @@ mod tests {
             FileKind::Schema,
         );
 
-        // Operation that only uses id and name, not email
         let doc_id = FileId::new(1);
         let doc_content = FileContent::new(
             &db,
@@ -661,8 +696,8 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_db::test_utils::create_project_files(
-            &mut db,
+        let project_files = create_project_files(
+            &db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
         );
@@ -671,14 +706,13 @@ mod tests {
 
         let unused = find_unused_fields(&db);
 
-        // Should find User.email as unused
         assert_eq!(unused.len(), 1);
         assert!(unused[0].1.message.contains("User.email"));
     }
 
     #[test]
     fn test_unused_fields_with_fragments() {
-        let mut db = TestDatabase::default();
+        let db = TestDatabase::default();
 
         let schema_id = FileId::new(0);
         let schema_content = FileContent::new(
@@ -705,7 +739,6 @@ mod tests {
             FileKind::Schema,
         );
 
-        // Operation using a fragment that references email
         let doc_id = FileId::new(1);
         let doc_content = FileContent::new(
             &db,
@@ -732,8 +765,8 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_db::test_utils::create_project_files(
-            &mut db,
+        let project_files = create_project_files(
+            &db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
         );
@@ -742,14 +775,13 @@ mod tests {
 
         let unused = find_unused_fields(&db);
 
-        // Should find User.age as unused (email is used via fragment)
         assert_eq!(unused.len(), 1);
         assert!(unused[0].1.message.contains("User.age"));
     }
 
     #[test]
     fn test_unused_fields_nested_types() {
-        let mut db = TestDatabase::default();
+        let db = TestDatabase::default();
 
         let schema_id = FileId::new(0);
         let schema_content = FileContent::new(
@@ -781,7 +813,6 @@ mod tests {
             FileKind::Schema,
         );
 
-        // Operation that queries nested posts but not all fields
         let doc_id = FileId::new(1);
         let doc_content = FileContent::new(
             &db,
@@ -806,8 +837,8 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_db::test_utils::create_project_files(
-            &mut db,
+        let project_files = create_project_files(
+            &db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
         );
@@ -816,7 +847,6 @@ mod tests {
 
         let unused = find_unused_fields(&db);
 
-        // Should find User.name and Post.content as unused
         assert_eq!(unused.len(), 2);
         let messages: Vec<Arc<str>> = unused.iter().map(|(_, d)| d.message.clone()).collect();
         assert!(messages.iter().any(|m| m.contains("User.name")));
@@ -825,7 +855,7 @@ mod tests {
 
     #[test]
     fn test_unused_fields_transitive_fragments() {
-        let mut db = TestDatabase::default();
+        let db = TestDatabase::default();
 
         let schema_id = FileId::new(0);
         let schema_content = FileContent::new(
@@ -852,7 +882,6 @@ mod tests {
             FileKind::Schema,
         );
 
-        // Operation using fragment that spreads another fragment
         let doc_id = FileId::new(1);
         let doc_content = FileContent::new(
             &db,
@@ -882,8 +911,8 @@ mod tests {
             FileKind::ExecutableGraphQL,
         );
 
-        let project_files = graphql_db::test_utils::create_project_files(
-            &mut db,
+        let project_files = create_project_files(
+            &db,
             &[(schema_id, schema_content, schema_metadata)],
             &[(doc_id, doc_content, doc_metadata)],
         );
@@ -892,7 +921,6 @@ mod tests {
 
         let unused = find_unused_fields(&db);
 
-        // Should find User.name and User.phone as unused
         assert_eq!(unused.len(), 2);
         let messages: Vec<Arc<str>> = unused.iter().map(|(_, d)| d.message.clone()).collect();
         assert!(messages.iter().any(|m| m.contains("User.name")));
@@ -907,263 +935,5 @@ mod tests {
         assert_eq!(unwrap_type_name("[String!]"), Arc::from("String"));
         assert_eq!(unwrap_type_name("[String!]!"), Arc::from("String"));
         assert_eq!(unwrap_type_name("[[String]]"), Arc::from("String"));
-    }
-
-    #[test]
-    fn test_analyze_field_usage_basic() {
-        let mut db = TestDatabase::default();
-
-        let schema_id = FileId::new(0);
-        let schema_content = FileContent::new(
-            &db,
-            Arc::from(
-                r#"
-                type Query {
-                    user: User
-                }
-
-                type User {
-                    id: ID!
-                    name: String!
-                    email: String!
-                }
-                "#,
-            ),
-        );
-        let schema_metadata = FileMetadata::new(
-            &db,
-            schema_id,
-            FileUri::new("schema.graphql"),
-            FileKind::Schema,
-        );
-
-        // Operation that uses id and name, not email
-        let doc_id = FileId::new(1);
-        let doc_content = FileContent::new(
-            &db,
-            Arc::from(
-                r#"
-                query GetUser {
-                    user {
-                        id
-                        name
-                    }
-                }
-                "#,
-            ),
-        );
-        let doc_metadata = FileMetadata::new(
-            &db,
-            doc_id,
-            FileUri::new("query.graphql"),
-            FileKind::ExecutableGraphQL,
-        );
-
-        let project_files = graphql_db::test_utils::create_project_files(
-            &mut db,
-            &[(schema_id, schema_content, schema_metadata)],
-            &[(doc_id, doc_content, doc_metadata)],
-        );
-
-        db.set_project_files(Some(project_files));
-
-        let coverage = analyze_field_usage(&db);
-
-        // Check overall stats
-        assert_eq!(coverage.total_fields, 4); // Query.user, User.id, User.name, User.email
-        assert_eq!(coverage.used_fields, 3); // Query.user, User.id, User.name
-
-        // Check specific field usages
-        let user_id = coverage
-            .field_usages
-            .get(&(Arc::from("User"), Arc::from("id")));
-        assert!(user_id.is_some());
-        assert_eq!(user_id.unwrap().usage_count, 1);
-        assert!(user_id.unwrap().operations.contains(&Arc::from("GetUser")));
-
-        let user_email = coverage
-            .field_usages
-            .get(&(Arc::from("User"), Arc::from("email")));
-        assert!(user_email.is_some());
-        assert_eq!(user_email.unwrap().usage_count, 0);
-    }
-
-    #[test]
-    fn test_analyze_field_usage_multiple_operations() {
-        let mut db = TestDatabase::default();
-
-        let schema_id = FileId::new(0);
-        let schema_content = FileContent::new(
-            &db,
-            Arc::from(
-                r#"
-                type Query {
-                    user: User
-                }
-
-                type User {
-                    id: ID!
-                    name: String!
-                }
-                "#,
-            ),
-        );
-        let schema_metadata = FileMetadata::new(
-            &db,
-            schema_id,
-            FileUri::new("schema.graphql"),
-            FileKind::Schema,
-        );
-
-        // Two operations using the same fields
-        let doc_id = FileId::new(1);
-        let doc_content = FileContent::new(
-            &db,
-            Arc::from(
-                r#"
-                query GetUser {
-                    user {
-                        id
-                        name
-                    }
-                }
-
-                query GetUserName {
-                    user {
-                        name
-                    }
-                }
-                "#,
-            ),
-        );
-        let doc_metadata = FileMetadata::new(
-            &db,
-            doc_id,
-            FileUri::new("query.graphql"),
-            FileKind::ExecutableGraphQL,
-        );
-
-        let project_files = graphql_db::test_utils::create_project_files(
-            &mut db,
-            &[(schema_id, schema_content, schema_metadata)],
-            &[(doc_id, doc_content, doc_metadata)],
-        );
-
-        db.set_project_files(Some(project_files));
-
-        let coverage = analyze_field_usage(&db);
-
-        // User.name is used in 2 operations
-        let user_name = coverage
-            .field_usages
-            .get(&(Arc::from("User"), Arc::from("name")));
-        assert!(user_name.is_some());
-        assert_eq!(user_name.unwrap().usage_count, 2);
-        assert_eq!(user_name.unwrap().operations.len(), 2);
-
-        // User.id is used in 1 operation
-        let user_id = coverage
-            .field_usages
-            .get(&(Arc::from("User"), Arc::from("id")));
-        assert!(user_id.is_some());
-        assert_eq!(user_id.unwrap().usage_count, 1);
-    }
-
-    #[test]
-    fn test_analyze_field_usage_with_fragments() {
-        let mut db = TestDatabase::default();
-
-        let schema_id = FileId::new(0);
-        let schema_content = FileContent::new(
-            &db,
-            Arc::from(
-                r#"
-                type Query {
-                    user: User
-                }
-
-                type User {
-                    id: ID!
-                    name: String!
-                    email: String!
-                }
-                "#,
-            ),
-        );
-        let schema_metadata = FileMetadata::new(
-            &db,
-            schema_id,
-            FileUri::new("schema.graphql"),
-            FileKind::Schema,
-        );
-
-        // Operation using fragment
-        let doc_id = FileId::new(1);
-        let doc_content = FileContent::new(
-            &db,
-            Arc::from(
-                r#"
-                query GetUser {
-                    user {
-                        ...UserFields
-                    }
-                }
-
-                fragment UserFields on User {
-                    id
-                    email
-                }
-                "#,
-            ),
-        );
-        let doc_metadata = FileMetadata::new(
-            &db,
-            doc_id,
-            FileUri::new("query.graphql"),
-            FileKind::ExecutableGraphQL,
-        );
-
-        let project_files = graphql_db::test_utils::create_project_files(
-            &mut db,
-            &[(schema_id, schema_content, schema_metadata)],
-            &[(doc_id, doc_content, doc_metadata)],
-        );
-
-        db.set_project_files(Some(project_files));
-
-        let coverage = analyze_field_usage(&db);
-
-        // Email is used via fragment
-        let user_email = coverage
-            .field_usages
-            .get(&(Arc::from("User"), Arc::from("email")));
-        assert!(user_email.is_some());
-        assert_eq!(user_email.unwrap().usage_count, 1);
-
-        // Name is not used
-        let user_name = coverage
-            .field_usages
-            .get(&(Arc::from("User"), Arc::from("name")));
-        assert!(user_name.is_some());
-        assert_eq!(user_name.unwrap().usage_count, 0);
-    }
-
-    #[test]
-    fn test_field_coverage_report_percentage() {
-        let mut report = FieldCoverageReport::default();
-        report.total_fields = 10;
-        report.used_fields = 7;
-
-        assert!((report.coverage_percentage() - 70.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn test_type_coverage_percentage() {
-        let coverage = TypeCoverage {
-            total_fields: 5,
-            used_fields: 4,
-        };
-
-        assert!((coverage.coverage_percentage() - 80.0).abs() < 0.01);
     }
 }

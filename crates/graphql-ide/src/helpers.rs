@@ -148,7 +148,7 @@ pub fn find_block_for_position(
 pub fn find_fragment_definition_in_parse(
     parse: &graphql_syntax::Parse,
     fragment_name: &str,
-    content: graphql_db::FileContent,
+    content: graphql_base_db::FileContent,
     db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
 ) -> Option<Range> {
     for doc in parse.documents() {
@@ -169,7 +169,7 @@ pub fn find_fragment_definition_in_parse(
 pub fn find_type_definition_in_parse(
     parse: &graphql_syntax::Parse,
     type_name: &str,
-    content: graphql_db::FileContent,
+    content: graphql_base_db::FileContent,
     db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
 ) -> Option<Range> {
     for doc in parse.documents() {
@@ -188,7 +188,7 @@ pub fn find_type_definition_in_parse(
 pub fn find_fragment_spreads_in_parse(
     parse: &graphql_syntax::Parse,
     fragment_name: &str,
-    content: graphql_db::FileContent,
+    content: graphql_base_db::FileContent,
     db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
 ) -> Vec<Range> {
     let mut results = Vec::new();
@@ -212,7 +212,7 @@ pub fn find_fragment_spreads_in_parse(
 pub fn find_type_references_in_parse(
     parse: &graphql_syntax::Parse,
     type_name: &str,
-    content: graphql_db::FileContent,
+    content: graphql_base_db::FileContent,
     db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
 ) -> Vec<Range> {
     let mut results = Vec::new();
@@ -238,7 +238,7 @@ pub fn find_field_usages_in_parse(
     type_name: &str,
     field_name: &str,
     schema_types: &std::collections::HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
-    content: graphql_db::FileContent,
+    content: graphql_base_db::FileContent,
     db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
 ) -> Vec<Range> {
     let mut results = Vec::new();

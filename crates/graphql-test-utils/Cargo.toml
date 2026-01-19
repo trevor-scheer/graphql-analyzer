@@ -1,0 +1,23 @@
+[package]
+name = "graphql-test-utils"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+description = "Shared test utilities for GraphQL LSP crates"
+keywords = ["graphql", "testing", "utilities"]
+categories = ["development-tools::testing"]
+
+[features]
+default = []
+
+[dependencies]
+graphql-base-db = { path = "../graphql-base-db" }
+graphql-syntax = { path = "../graphql-syntax" }
+graphql-hir = { path = "../graphql-hir" }
+graphql-analysis = { path = "../graphql-analysis" }
+graphql-ide-db = { path = "../graphql-ide-db" }
+salsa = { workspace = true }
+insta = { workspace = true }

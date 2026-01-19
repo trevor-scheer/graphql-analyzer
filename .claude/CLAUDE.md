@@ -66,7 +66,8 @@ cargo xtask install --release   # Release build
 
 - **Project structure**: `.graphqlrc.yaml`
 - **Crate sources**: `crates/*/src/`
-- **Integration tests**: `tests/`
+- **Crate integration tests**: `crates/*/tests/`
+- **Workspace integration tests**: `tests/`
 - **Benchmarks**: `benches/`
 - **VSCode extension**: `editors/vscode/`
 - **Design docs**: `.claude/notes/active/lsp-rearchitecture/`
@@ -497,9 +498,172 @@ cargo test --test '*'
 
 ### Test Organization
 
-- **Unit tests**: Located alongside source files (`mod tests { ... }`)
-- **Integration tests**: In `tests/` directory
-- **Snapshot tests**: Using `cargo-insta` (if applicable)
+The project uses a hybrid testing strategy with clear separation between unit and integration tests.
+
+#### Unit Tests vs Integration Tests
+
+| Aspect | Unit Tests | Integration Tests |
+|--------|------------|-------------------|
+| **Location** | `src/*.rs` inline `#[cfg(test)]` modules | `crates/*/tests/*.rs` |
+| **Scope** | ONE Salsa query or helper function | Multiple queries working together |
+| **Database** | Local minimal `TestDatabase` (~15 lines) | Shared `TestDatabase` from `graphql-test-utils` |
+| **Access** | Can access private items via `use super::*` | Public API only |
+| **Scenarios** | Single-file, isolated behavior | Multi-file, cross-file behavior |
+| **Caching** | No caching/invalidation verification | Caching and invalidation verification |
+
+#### Unit Test Definition
+
+A **unit test** tests a single Salsa query or helper function in isolation:
+
+- Lives in `#[cfg(test)] mod tests { ... }` within the source file
+- Uses a local, minimal `TestDatabase` that implements only required traits
+- Can access private items through `use super::*`
+- Focuses on single-file scenarios
+- Does NOT verify Salsa caching behavior
+
+```rust
+// Example: Unit test in crates/graphql-hir/src/lib.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Minimal local database - only implements what this crate needs
+    #[derive(Default)]
+    #[salsa::db]
+    struct TestDatabase {
+        storage: salsa::Storage<Self>,
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDatabase {}
+
+    #[salsa::db]
+    impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {}
+
+    #[salsa::db]
+    impl GraphQLHirDatabase for TestDatabase {}
+
+    #[test]
+    fn test_file_structure_extracts_operations() {
+        let db = TestDatabase::default();
+        let content = FileContent::new(&db, Arc::from("query Foo { user }"));
+        let metadata = FileMetadata::new(&db, FileId::new(0), FileUri::new("test.graphql"), FileKind::ExecutableGraphQL);
+
+        let structure = file_structure(&db, content, metadata);
+
+        assert_eq!(structure.operations.len(), 1);
+        assert_eq!(structure.operations[0].name, Some(Arc::from("Foo")));
+    }
+}
+```
+
+#### Integration Test Definition
+
+An **integration test** tests multiple queries working together across the public API:
+
+- Lives in `crates/<crate-name>/tests/*.rs`
+- Uses shared `TestDatabase` from `graphql-test-utils` or `TrackedDatabase` for caching tests
+- Tests public API only (treats crate as external dependency)
+- Tests multi-file scenarios and cross-file behavior
+- Verifies Salsa caching/invalidation when relevant
+
+```rust
+// Example: Integration test in crates/graphql-hir/tests/hir_tests.rs
+use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+use graphql_hir::{file_structure, all_fragments};
+use graphql_test_utils::{create_project_files, TestDatabase};
+
+#[test]
+fn test_all_fragments_aggregates_across_files() {
+    let mut db = TestDatabase::default();
+
+    // Set up multiple files
+    let file1_content = FileContent::new(&db, Arc::from("fragment A on User { id }"));
+    let file2_content = FileContent::new(&db, Arc::from("fragment B on User { name }"));
+    // ... create metadata and project_files
+
+    let fragments = all_fragments(&db, project_files);
+
+    assert!(fragments.contains_key(&Arc::from("A")));
+    assert!(fragments.contains_key(&Arc::from("B")));
+}
+```
+
+#### Caching Verification Tests
+
+Use `TrackedDatabase` from `graphql-test-utils` to verify Salsa caching behavior:
+
+```rust
+use graphql_test_utils::tracking::{TrackedDatabase, queries};
+
+#[test]
+fn test_unchanged_file_uses_cache() {
+    let mut db = TrackedDatabase::new();
+    // ... set up files
+
+    // First call - cold
+    let checkpoint = db.checkpoint();
+    let _ = file_structure(&db, content, metadata);
+    assert!(db.count_since(queries::FILE_STRUCTURE, checkpoint) >= 1);
+
+    // Second call - should be cached
+    let checkpoint2 = db.checkpoint();
+    let _ = file_structure(&db, content, metadata);
+    assert_eq!(db.count_since(queries::FILE_STRUCTURE, checkpoint2), 0);
+}
+```
+
+### Shared Test Infrastructure
+
+The project provides shared test utilities to reduce boilerplate and ensure consistency:
+
+#### graphql_base_db::test_utils
+
+Basic helpers available to all crates (enable with `features = ["test-utils"]`):
+
+```rust
+use graphql_base_db::test_utils::create_project_files;
+
+let project_files = create_project_files(
+    &mut db,
+    &[(schema_id, schema_content, schema_metadata)],  // schema files
+    &[(doc_id, doc_content, doc_metadata)],           // document files
+);
+```
+
+#### graphql-test-utils crate
+
+Higher-level utilities for integration tests that need a complete database setup:
+
+```rust
+use graphql_test_utils::{test_project, TestProjectBuilder, TestDatabase};
+
+// Simple single-file test
+let (db, project) = test_project(
+    "type Query { user: User } type User { id: ID! }",
+    "query { user { id } }",
+);
+
+// Multi-file test with builder
+let (db, project) = TestProjectBuilder::new()
+    .with_schema("schema.graphql", BASIC_SCHEMA)
+    .with_document("fragments.graphql", "fragment UserFields on User { id }")
+    .with_document("query.graphql", "query { user { ...UserFields } }")
+    .build();
+```
+
+#### Choosing the Right Pattern
+
+| Crate | Unit Tests | Integration Tests |
+|-------|------------|-------------------|
+| graphql-base-db | `RootDatabase` directly | N/A (foundation layer) |
+| graphql-syntax | None needed (pure parsing) | N/A |
+| graphql-hir | Local `TestDatabase` | `graphql_test_utils::TestDatabase` in `tests/` |
+| graphql-analysis | Local `TestDatabase` | `graphql_test_utils::TestDatabase` in `tests/` |
+| graphql-linter | `RootDatabase` or `graphql_ide_db::RootDatabase` | `graphql_test_utils::TestDatabase` in `tests/` |
+| graphql-ide, higher | `graphql_test_utils::TestDatabase` | `graphql_test_utils::TestDatabase` in `tests/` |
+
+**Why graphql-hir and graphql-analysis use local TestDatabase for unit tests**: These crates define Salsa traits (e.g., `GraphQLHirDatabase`). If they used `graphql_test_utils::TestDatabase` (which implements these traits), Rust's orphan rules would see "multiple versions" of the trait due to the dev-dependency graph. The local TestDatabase avoids this by keeping trait implementation within the same crate.
 
 ### Writing Tests
 
@@ -513,31 +677,53 @@ Tests should prioritize **human readability**. A test that's easy to understand 
 - **Name tests descriptively** - the name should explain what's being tested and expected behavior
 - **Keep tests focused** - one logical assertion per test when possible
 
-#### Example Structure
+#### Example: Validation Test
 
 ```rust
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // Helper function reduces boilerplate and clarifies intent
-    fn validate(schema: &str, document: &str) -> Vec<Diagnostic> {
-        let db = TestDatabase::new();
-        db.set_schema(schema);
-        db.set_document(document);
-        db.diagnostics()
-    }
+    use graphql_db::test_utils::create_project_files;
 
     #[test]
-    fn fragment_spread_on_wrong_type_reports_error() {
-        let diagnostics = validate(
-            "type Query { user: User } type User { name: String }",
-            "query { user { ...AdminFields } } fragment AdminFields on Admin { role }",
+    fn test_invalid_field_reports_error() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(&db, Arc::from("type Query { user: User } type User { id: ID! }"));
+        let schema_metadata = FileMetadata::new(&db, schema_id, FileUri::new("schema.graphql"), FileKind::Schema);
+
+        let doc_id = FileId::new(1);
+        let doc_content = FileContent::new(&db, Arc::from("query { user { invalidField } }"));
+        let doc_metadata = FileMetadata::new(&db, doc_id, FileUri::new("query.graphql"), FileKind::ExecutableGraphQL);
+
+        let project_files = create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
         );
 
-        assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Admin"));
+        let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
+
+        assert!(!diagnostics.is_empty());
+        assert!(diagnostics[0].message.contains("invalidField"));
     }
+}
+```
+
+#### Example: IDE Feature Test with Cursor
+
+```rust
+use graphql_test_utils::{extract_cursor, test_project};
+
+#[test]
+fn test_goto_definition_finds_field() {
+    let (source, pos) = extract_cursor("query { user { *name } }");
+    let (db, project) = test_project(BASIC_SCHEMA, &source);
+
+    let result = goto_definition(&db, "query.graphql", pos);
+
+    assert!(result.is_some());
 }
 ```
 
@@ -1068,8 +1254,15 @@ Skills provide contextual guidance for common workflows. They activate automatic
 | Add IDE Feature | `/add-ide-feature` | Implementing LSP features (hover, goto def, etc.) |
 | Debug LSP | `/debug-lsp` | Troubleshooting LSP server issues |
 | Review PR | `/review-pr` | Reviewing pull requests |
+| Audit Tests | `/audit-tests` | **Proactive**: After writing new tests (self-review) |
 
 Skills are located in `.claude/skills/` and are loaded into context when relevant.
+
+### Proactive Skills
+
+Some skills should be used **proactively** without waiting for user request:
+
+- **Audit Tests** (`/audit-tests`): Run after writing any new tests to self-review. Checks test placement (unit vs integration), TestDatabase patterns, and scope correctness.
 
 ---
 

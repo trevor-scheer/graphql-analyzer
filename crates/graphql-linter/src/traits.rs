@@ -3,7 +3,7 @@
 /// This module defines the trait hierarchy for lint rules that work with the
 /// new Salsa-based architecture (graphql-db → graphql-syntax → graphql-hir → graphql-analysis).
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
-use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use std::collections::HashMap;
 
 /// Base trait for all lint rules

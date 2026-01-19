@@ -1,7 +1,7 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
-use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 
 /// Trait implementation for `operation_name_suffix` rule
 ///

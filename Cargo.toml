@@ -7,11 +7,13 @@ members = [
     "crates/graphql-lsp",
     "crates/graphql-cli",
     "crates/graphql-linter",
-    "crates/graphql-db",
+    "crates/graphql-base-db",
     "crates/graphql-syntax",
     "crates/graphql-hir",
     "crates/graphql-analysis",
     "crates/graphql-ide",
+    "crates/graphql-ide-db",
+    "crates/graphql-test-utils",
     "benches",
     ".husky",
     "xtask",
@@ -76,6 +78,9 @@ salsa = "0.25"
 
 # Benchmarking
 criterion = { version = "0.5", features = ["html_reports"] }
+
+# Testing
+insta = { version = "1.40", features = ["yaml"] }
 
 # The profile that 'dist' will build with
 [profile.dist]

@@ -1,7 +1,7 @@
 use crate::diagnostics::{CodeFix, LintDiagnostic, LintSeverity, TextEdit};
 use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
-use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use std::collections::{HashMap, HashSet};
 
 /// Lint rule that detects fields that are redundant because they are already
@@ -88,7 +88,7 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
 
             // Use per-file lookup for granular caching
             if let Some((file_content, file_metadata)) =
-                graphql_db::file_lookup(db, project_files, fragment_file_id)
+                graphql_base_db::file_lookup(db, project_files, fragment_file_id)
             {
                 // Parse the file (cached by Salsa)
                 let fragment_parse = graphql_syntax::parse(db, file_content, file_metadata);

@@ -1,5 +1,5 @@
 [package]
-name = "graphql-db"
+name = "graphql-base-db"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,9 +8,6 @@ authors.workspace = true
 description = "Salsa database foundation for GraphQL LSP"
 keywords = ["graphql", "salsa", "incremental"]
 categories = ["development-tools"]
-
-[features]
-test-utils = []
 
 [dependencies]
 salsa = { workspace = true }

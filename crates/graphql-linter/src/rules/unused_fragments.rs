@@ -1,6 +1,6 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, ProjectLintRule};
-use graphql_db::{FileId, ProjectFiles};
+use graphql_base_db::{FileId, ProjectFiles};
 use std::collections::{HashMap, HashSet};
 
 /// Trait implementation for `unused_fragments` rule
@@ -35,7 +35,8 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
 
         for file_id in doc_ids.iter() {
             // Use per-file lookup for granular caching
-            let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
+            let Some((content, metadata)) =
+                graphql_base_db::file_lookup(db, project_files, *file_id)
             else {
                 continue;
             };
@@ -53,7 +54,8 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
         let mut used_fragments: HashSet<String> = HashSet::new();
 
         for file_id in doc_ids.iter() {
-            let Some((content, metadata)) = graphql_db::file_lookup(db, project_files, *file_id)
+            let Some((content, metadata)) =
+                graphql_base_db::file_lookup(db, project_files, *file_id)
             else {
                 continue;
             };

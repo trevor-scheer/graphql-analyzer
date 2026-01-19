@@ -1,7 +1,7 @@
 use crate::diagnostics::{CodeFix, LintDiagnostic, LintSeverity, TextEdit};
 use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
-use graphql_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use std::collections::HashSet;
 
 /// Lint rule that detects variables declared in operations that are never used
@@ -286,16 +286,15 @@ fn collect_variables_from_value(value: &cst::Value, variables: &mut HashSet<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_db::{
-        FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles, RootDatabase,
-    };
+    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+    use graphql_ide_db::RootDatabase;
     use std::sync::Arc;
 
     fn create_test_project_files(db: &RootDatabase) -> ProjectFiles {
-        let schema_file_ids = graphql_db::SchemaFileIds::new(db, Arc::new(vec![]));
-        let document_file_ids = graphql_db::DocumentFileIds::new(db, Arc::new(vec![]));
+        let schema_file_ids = graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![]));
+        let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![]));
         let file_entry_map =
-            graphql_db::FileEntryMap::new(db, Arc::new(std::collections::HashMap::new()));
+            graphql_base_db::FileEntryMap::new(db, Arc::new(std::collections::HashMap::new()));
         ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
     }
 
