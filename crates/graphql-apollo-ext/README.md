@@ -2,8 +2,8 @@
 
 Extensions for `apollo-parser`: visitor pattern, name extraction, and collection utilities.
 
-**Note**: This crate is specifically tied to `apollo-parser`'s CST types. For parser-agnostic
-utilities, see `graphql-utils`.
+**Note**: This crate is specifically tied to `apollo-parser`'s CST types. If we switch parsers
+in the future, this crate can be replaced without affecting parser-agnostic code.
 
 ## Features
 
