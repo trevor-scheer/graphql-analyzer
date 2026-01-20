@@ -812,14 +812,30 @@ Overhead: ~1-2% CPU when enabled, zero when disabled.
 
 ## Instructions for Claude
 
+### Pre-Task Skill Check (REQUIRED)
+
+**Before starting any implementation, check if a skill applies:**
+
+| If the task involves...        | Use this skill FIRST        |
+| ------------------------------ | --------------------------- |
+| Fixing a bug or issue          | `/bug-fix-workflow`         |
+| Adding a lint rule             | `/adding-lint-rules`        |
+| Adding an IDE/LSP feature      | `/add-ide-feature`          |
+| Creating a pull request        | `/create-pr`                |
+| Reviewing a pull request       | `/review-pr`                |
+| Feature/bug/architecture work  | `/sme-consultation`         |
+
+**This is not optional.** Skills enforce important workflows (e.g., bug fixes require a failing test first). Skipping them leads to incomplete work that must be redone.
+
 ### General Approach
 
-1. **Read before acting**: Always check relevant README.md files and this document before starting work
-2. **Understand the architecture**: Know which layer you're working in (db → syntax → hir → analysis → ide → lsp)
-3. **Consult expert agents (REQUIRED)**: Use the `/sme-consultation` skill which guides consultation of SME agents in `.claude/agents/`
-4. **Follow the patterns**: Study existing code in the same layer before adding new features
-5. **Test incrementally**: Write tests as you go, don't batch at the end
-6. **Keep it simple**: Don't over-engineer or add unnecessary abstractions
+1. **Check for applicable skills**: See the table above - invoke the skill BEFORE starting work
+2. **Read before acting**: Always check relevant README.md files and this document before starting work
+3. **Understand the architecture**: Know which layer you're working in (db → syntax → hir → analysis → ide → lsp)
+4. **Consult expert agents (REQUIRED)**: Use the `/sme-consultation` skill which guides consultation of SME agents in `.claude/agents/`
+5. **Follow the patterns**: Study existing code in the same layer before adding new features
+6. **Test incrementally**: Write tests as you go, don't batch at the end
+7. **Keep it simple**: Don't over-engineer or add unnecessary abstractions
 
 ### Code Style
 

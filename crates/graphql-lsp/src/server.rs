@@ -1508,7 +1508,7 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         };
 
-        let line_index = graphql_syntax::LineIndex::new(&content);
+        let file_line_index = graphql_syntax::LineIndex::new(&content);
 
         for diag in lint_diagnostics {
             // Skip diagnostics without fixes
@@ -1516,9 +1516,27 @@ impl LanguageServer for GraphQLLanguageServer {
                 continue;
             };
 
+            // For embedded GraphQL (TypeScript/JavaScript), offsets are relative to the
+            // GraphQL block, not the full file. Use block context when available.
+            let (line_offset, diag_line_index): (
+                usize,
+                std::borrow::Cow<'_, graphql_syntax::LineIndex>,
+            ) = if let (Some(block_line_offset), Some(ref block_source)) =
+                (diag.block_line_offset, &diag.block_source)
+            {
+                (
+                    block_line_offset,
+                    std::borrow::Cow::Owned(graphql_syntax::LineIndex::new(block_source)),
+                )
+            } else {
+                (0, std::borrow::Cow::Borrowed(&file_line_index))
+            };
+
             // Convert diagnostic offset to line/column
-            let (diag_start_line, _) = line_index.line_col(diag.offset_range.start);
-            let (diag_end_line, _) = line_index.line_col(diag.offset_range.end);
+            let (diag_start_line, _) = diag_line_index.line_col(diag.offset_range.start);
+            let (diag_end_line, _) = diag_line_index.line_col(diag.offset_range.end);
+            let diag_start_line = diag_start_line + line_offset;
+            let diag_end_line = diag_end_line + line_offset;
 
             // Check if diagnostic overlaps with requested range
             if diag_end_line < start_line || diag_start_line > end_line {
@@ -1530,17 +1548,17 @@ impl LanguageServer for GraphQLLanguageServer {
                 .edits
                 .iter()
                 .map(|edit| {
-                    let (start_line, start_col) = line_index.line_col(edit.offset_range.start);
-                    let (end_line, end_col) = line_index.line_col(edit.offset_range.end);
+                    let (start_line, start_col) = diag_line_index.line_col(edit.offset_range.start);
+                    let (end_line, end_col) = diag_line_index.line_col(edit.offset_range.end);
 
                     TextEdit {
                         range: lsp_types::Range {
                             start: lsp_types::Position {
-                                line: start_line as u32,
+                                line: (start_line + line_offset) as u32,
                                 character: start_col as u32,
                             },
                             end: lsp_types::Position {
-                                line: end_line as u32,
+                                line: (end_line + line_offset) as u32,
                                 character: end_col as u32,
                             },
                         },

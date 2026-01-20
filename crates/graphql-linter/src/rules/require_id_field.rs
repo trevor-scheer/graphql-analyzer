@@ -1933,4 +1933,91 @@ query GetUser {
             "No warnings when fields list is empty"
         );
     }
+
+    #[test]
+    fn test_typescript_fix_positions_account_for_block_offset() {
+        // Regression test for issue #446: Code fixes must have correct positions
+        // for embedded GraphQL in TypeScript files.
+        //
+        // The fix edit positions are relative to the GraphQL block, not the full file.
+        // When applying fixes, the LSP handler must add block_byte_offset to get
+        // file-relative positions.
+        let db = RootDatabase::default();
+        let rule = RequireIdFieldRuleImpl;
+
+        // TypeScript file with GraphQL starting at a known offset
+        let source = r#"import { gql } from '@apollo/client';
+
+const GET_USER = gql`
+    query GetUser {
+        user(id: "1") {
+            name
+        }
+    }
+`;
+"#;
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, TEST_SCHEMA, source, FileKind::TypeScript);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        // Should have a diagnostic for User missing id
+        assert!(!diagnostics.is_empty(), "Expected at least one diagnostic");
+
+        let diag = &diagnostics[0];
+
+        // Verify block context is set for embedded GraphQL
+        assert!(
+            diag.block_line_offset.is_some(),
+            "block_line_offset should be set for embedded GraphQL"
+        );
+        assert!(
+            diag.block_byte_offset.is_some(),
+            "block_byte_offset should be set for embedded GraphQL"
+        );
+        assert!(
+            diag.block_source.is_some(),
+            "block_source should be set for embedded GraphQL"
+        );
+
+        // Verify the diagnostic has a fix
+        assert!(diag.fix.is_some(), "Diagnostic should have a fix");
+
+        let fix = diag.fix.as_ref().unwrap();
+        assert!(!fix.edits.is_empty(), "Fix should have edits");
+
+        // The fix edit positions should be relative to the block (small values)
+        // not the full file. When block_byte_offset is added, they become file-relative.
+        let edit = &fix.edits[0];
+        let block_offset = diag.block_byte_offset.unwrap();
+
+        // The edit position within the block should be reasonable (less than block size)
+        let block_source = diag.block_source.as_ref().unwrap();
+        assert!(
+            edit.offset_range.start < block_source.len(),
+            "Edit start {} should be within block (size {})",
+            edit.offset_range.start,
+            block_source.len()
+        );
+
+        // File-relative position should point into the gql`` template
+        let file_relative_pos = edit.offset_range.start + block_offset;
+        assert!(
+            file_relative_pos < source.len(),
+            "File-relative position {} should be within file (size {})",
+            file_relative_pos,
+            source.len()
+        );
+
+        // The file-relative position should be after "gql`" (around byte 58+)
+        // This ensures the block_byte_offset correctly points to the GraphQL content
+        let gql_tag_pos = source.find("gql`").expect("Should find gql tag");
+        assert!(
+            file_relative_pos > gql_tag_pos,
+            "File-relative position {} should be after gql tag at {}",
+            file_relative_pos,
+            gql_tag_pos
+        );
+    }
 }
