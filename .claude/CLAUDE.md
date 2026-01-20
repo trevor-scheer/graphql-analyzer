@@ -305,68 +305,61 @@ The Salsa-based architecture relies on several cache invariants to ensure effici
 
 > Editing body content never invalidates structure queries.
 
-**Structure** (stable): Type names, field signatures, operation names, fragment names
-**Bodies** (dynamic): Selection sets, field selections, directives
+**Structure** is the "identity" of a definition - what it IS:
+
+| Definition | Structure (stable) | Body (dynamic) |
+|------------|-------------------|----------------|
+| Schema type | Type name, field names, field types, arguments | Directives on fields |
+| Operation | Operation name, operation type (query/mutation) | Selection set, variables used |
+| Fragment | Fragment name, type condition | Selection set |
+
+**Structure queries** return indexes of definitions by name: `schema_types()`, `all_fragments()`, `all_operations()`.
 
 ```graphql
 # Editing this operation's selection set...
 query GetUser {
-  user { id name email }  # <-- change this
+  user { id name email }  # <-- change this body
 }
 
 # ...does NOT re-compute schema_types() or all_fragments()
+# The operation's NAME hasn't changed, only its BODY
 ```
 
 #### 2. File Isolation
 
-> Editing file A never invalidates unrelated queries for file B.
+> Editing file A never invalidates unrelated queries for file B. Cost is O(1), not O(N).
 
 ```
 files:
-  schema.graphql    # schema types
+  schema.graphql      # schema types
   operations.graphql  # operations
   fragments.graphql   # fragments
 
 # Editing operations.graphql does NOT re-parse schema.graphql or fragments.graphql
+# In a project with 100 files, editing 1 file only re-processes that 1 file
 ```
 
-#### 3. Query Type Isolation
+**What DOES cause cross-file invalidation:**
+- Validation results for an operation depend on fragments it references (even in other files)
+- If `UserFields` fragment changes, operations using `...UserFields` need revalidation
+- Schema changes can invalidate validation results for all documents
 
-> Schema changes don't invalidate unrelated document queries; document changes don't invalidate unrelated schema queries.
+#### 3. Index Stability
 
-```
-# Adding a new type to schema.graphql...
-type Admin { role: String }
-
-# ...does NOT invalidate operation_body() for existing operations
-# (though validation results may change)
-```
-
-#### 4. Index Stability
-
-> Global indexes remain cached when edits don't change index keys (names/signatures).
+> Global indexes remain cached when edits don't change index keys (names).
 
 ```graphql
-# Editing a fragment's body...
+# Editing a fragment's BODY...
 fragment UserFields on User {
   id name avatar  # <-- add 'avatar'
 }
 
 # ...does NOT invalidate all_fragments() index
-# (the fragment name "UserFields" hasn't changed)
+# The fragment NAME "UserFields" hasn't changed, only its body
+# But: operations using this fragment WILL need revalidation
 ```
 
-#### 5. O(1) Incremental Updates
-
-> Editing 1 of N files costs O(1), not O(N).
-
-```
-# Project with 100 files
-# Editing 1 file should only re-process that 1 file
-# Not all 100 files
-```
-
-#### 6. Lazy Body Evaluation
+#### 4. Lazy Evaluation
 
 > Body queries only execute when their results are actually needed.
 
@@ -631,45 +624,13 @@ fn lint_report_format() {
 
 ### Performance Benchmarks
 
-The project includes comprehensive benchmarks to validate the Salsa-based incremental computation architecture. See [benches/README.md](../benches/README.md) for complete documentation.
-
-#### Running Benchmarks
+The project includes benchmarks to validate cache invariants. See [benches/README.md](../benches/README.md) for details on what's measured and expected results.
 
 ```bash
-# Run all benchmarks
-cargo bench
-
-# Run specific benchmark
-cargo bench parse_cold
-
-# Save baseline for comparison
-cargo bench -- --save-baseline main
-
-# Compare against baseline
-cargo bench -- --baseline main
+cargo bench                          # Run all benchmarks
+cargo bench -- --save-baseline main  # Save baseline for comparison
+cargo bench -- --baseline main       # Compare against baseline
 ```
-
-#### What the Benchmarks Validate
-
-1. **Basic Memoization**: Warm queries should be 100-1000x faster than cold queries
-2. **Structure/Body Separation**: Editing operation bodies doesn't invalidate schema cache (< 100ns)
-3. **Index Stability**: Fragment index remains cached across body edits
-4. **O(1) Updates**: Editing 1 of N files is O(1), not O(N)
-5. **AnalysisHost Performance**: High-level IDE API performance
-
-#### Interpreting Results
-
-Criterion generates HTML reports in `target/criterion/`. Open `target/criterion/report/index.html` to view:
-
-- Performance distributions
-- Regression detection
-- Comparison with previous runs
-
-**Expected results if cache invariants hold:**
-
-- Warm vs Cold: 100-1000x speedup
-- Structure/Body Separation: < 100 nanoseconds for schema query after body edit
-- Fragment Resolution: ~10x speedup with caching
 
 ---
 

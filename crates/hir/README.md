@@ -8,8 +8,14 @@ This crate provides semantic queries on top of syntax, implementing the cache in
 
 The HIR layer separates **structure** from **bodies**:
 
-- **Structure** (stable): Type names, field signatures, operation names, fragment names
-- **Bodies** (dynamic): Selection sets, field selections, directives
+| Definition | Structure (stable) | Body (dynamic) |
+|------------|-------------------|----------------|
+| Schema type | Type name, field names, field types, arguments | Directives on fields |
+| Operation | Operation name, operation type (query/mutation) | Selection set, variables used |
+| Fragment | Fragment name, type condition | Selection set |
+
+**Structure queries** (`schema_types()`, `all_fragments()`, `all_operations()`) return indexes by name.
+**Body queries** (`operation_body()`, `fragment_body()`) return the content of those definitions.
 
 This separation enables fine-grained incremental recomputation via Salsa.
 
