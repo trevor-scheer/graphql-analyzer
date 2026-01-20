@@ -301,11 +301,33 @@ Add support for feature X
 # Create a changeset
 knope document-change
 
-# Preview release (dry run)
-knope release --dry-run
+# Build a release (dry run first)
+cargo xtask release --dry-run --skip-prepare
+cargo xtask release --skip-prepare --tag
 
-# Execute release
-knope release
+# Or use knope directly for version management
+knope prepare-release   # Update versions and changelog
+knope release           # Create GitHub release
+```
+
+### Manual Release Workflow
+
+Use `cargo xtask release` for manual releases (no GitHub Actions required):
+
+```bash
+# 1. Preview what will happen
+cargo xtask release --dry-run --skip-prepare
+
+# 2. Build the release (syncs versions, builds binaries, packages extension)
+cargo xtask release --skip-prepare
+
+# 3. Review artifacts in dist/
+ls -la dist/
+
+# 4. Commit and tag
+git add -A && git commit -m "chore: release v0.1.0"
+git tag -a v0.1.0 -m "Release v0.1.0"
+git push && git push --tags
 ```
 
 ### Workspace Versioning

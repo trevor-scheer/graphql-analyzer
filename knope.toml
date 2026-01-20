@@ -3,7 +3,7 @@
 
 # Single package for the entire workspace - all crates share the same version
 [package]
-versioned_files = ["Cargo.toml"]
+versioned_files = ["Cargo.toml", "editors/vscode/package.json"]
 changelog = "CHANGELOG.md"
 
 # Conventional commit scopes that map to this package

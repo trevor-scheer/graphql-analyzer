@@ -26,6 +26,7 @@ node_modules/
 *.dll
 *.so
 *.dylib
+/dist/
 
 # Test artifacts
 *.profraw
