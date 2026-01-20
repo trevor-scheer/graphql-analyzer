@@ -429,19 +429,8 @@ documents: "**/*.graphql"
                     total_files_loaded
                 );
 
-                tracing::info!(
-                    "Rebuilding ProjectFiles index for {} files...",
-                    total_files_loaded
-                );
-                let rebuild_start = std::time::Instant::now();
-                {
-                    let mut host_guard = host.lock().await;
-                    host_guard.rebuild_project_files();
-                }
-                tracing::info!(
-                    "ProjectFiles rebuild took {:.2}s",
-                    rebuild_start.elapsed().as_secs_f64()
-                );
+                // Note: load_documents_from_config uses add_files_batch internally,
+                // which rebuilds the ProjectFiles index automatically
 
                 // Publish initial diagnostics for all loaded files
                 tracing::info!(

@@ -658,6 +658,42 @@ impl AnalysisHost {
         registry.rebuild_project_files(&mut self.db);
     }
 
+    /// Add multiple files in batch, then rebuild the project index once
+    ///
+    /// This is the recommended way to load multiple files at once. It:
+    /// 1. Adds all files to the registry without rebuilding
+    /// 2. Rebuilds the project index once at the end
+    ///
+    /// This is O(n) instead of O(n²) compared to calling `add_file` + `rebuild_project_files`
+    /// for each file individually.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use graphql_ide::{AnalysisHost, FilePath, FileKind};
+    ///
+    /// let mut host = AnalysisHost::new();
+    /// let files = vec![
+    ///     (FilePath::new("file:///schema.graphql"), "type Query { hello: String }", FileKind::Schema),
+    ///     (FilePath::new("file:///query.graphql"), "query { hello }", FileKind::ExecutableGraphQL),
+    /// ];
+    /// host.add_files_batch(&files);
+    /// ```
+    pub fn add_files_batch(&mut self, files: &[(FilePath, &str, FileKind)]) {
+        let mut registry = self.registry.write();
+        let mut any_new = false;
+
+        for (path, content, kind) in files {
+            let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, *kind);
+            any_new = any_new || is_new;
+        }
+
+        // Only rebuild if at least one file was new
+        if any_new {
+            registry.rebuild_project_files(&mut self.db);
+        }
+    }
+
     /// Update a file and optionally create a snapshot in a single lock acquisition
     ///
     /// This is optimized for the common case of editing an existing file. It:
@@ -1026,10 +1062,13 @@ impl AnalysisHost {
             }
         }
 
-        // Batch add all files
-        for (file_path, content, file_kind) in files_to_add {
-            self.add_file(&file_path, &content, file_kind);
-        }
+        // Batch add all files using add_files_batch for O(n) performance
+        // Convert owned strings to borrowed for the batch API
+        let batch_refs: Vec<(FilePath, &str, FileKind)> = files_to_add
+            .iter()
+            .map(|(path, content, kind)| (path.clone(), content.as_str(), *kind))
+            .collect();
+        self.add_files_batch(&batch_refs);
 
         loaded_files
     }
@@ -5242,5 +5281,134 @@ query GetUsers {
         // Should detect connection pattern in breakdown
         let has_connection_field = analysis.breakdown.iter().any(|f| f.is_connection);
         assert!(has_connection_field);
+    }
+
+    #[test]
+    fn test_add_files_batch() {
+        let mut host = AnalysisHost::new();
+
+        // Add multiple files in batch
+        let files = vec![
+            (
+                FilePath::new("file:///schema.graphql"),
+                "type Query { user: User } type User { id: ID! name: String! }",
+                FileKind::Schema,
+            ),
+            (
+                FilePath::new("file:///query1.graphql"),
+                "query GetUser { user { id name } }",
+                FileKind::ExecutableGraphQL,
+            ),
+            (
+                FilePath::new("file:///query2.graphql"),
+                "query GetUserName { user { name } }",
+                FileKind::ExecutableGraphQL,
+            ),
+        ];
+
+        host.add_files_batch(&files);
+
+        // Verify all files are accessible
+        let snapshot = host.snapshot();
+
+        // Check diagnostics work for all files
+        let path1 = FilePath::new("file:///query1.graphql");
+        let path2 = FilePath::new("file:///query2.graphql");
+
+        // Both files should be accessible (diagnostics call should not panic)
+        let _diag1 = snapshot.diagnostics(&path1);
+        let _diag2 = snapshot.diagnostics(&path2);
+        // If we got here without panic, files are properly loaded
+    }
+
+    #[test]
+    fn test_add_files_batch_empty() {
+        let mut host = AnalysisHost::new();
+
+        // Add empty batch should not panic
+        let files: Vec<(FilePath, &str, FileKind)> = vec![];
+        host.add_files_batch(&files);
+
+        // Should still be able to get snapshot
+        let _snapshot = host.snapshot();
+    }
+
+    #[test]
+    fn test_add_files_batch_update_existing() {
+        let mut host = AnalysisHost::new();
+
+        // First batch
+        let files1 = vec![(
+            FilePath::new("file:///schema.graphql"),
+            "type Query { hello: String }",
+            FileKind::Schema,
+        )];
+        host.add_files_batch(&files1);
+
+        // Second batch with same file (update) and new file
+        let files2 = vec![
+            (
+                FilePath::new("file:///schema.graphql"),
+                "type Query { hello: String world: String }",
+                FileKind::Schema,
+            ),
+            (
+                FilePath::new("file:///query.graphql"),
+                "query { hello }",
+                FileKind::ExecutableGraphQL,
+            ),
+        ];
+        host.add_files_batch(&files2);
+
+        // Verify updated content
+        let snapshot = host.snapshot();
+        let schema_path = FilePath::new("file:///schema.graphql");
+
+        // Hover on "world" field should work (proves update happened)
+        let hover = snapshot.hover(&schema_path, Position::new(0, 30)); // Position in "world"
+        assert!(hover.is_some());
+    }
+
+    #[test]
+    fn test_batch_loading_is_efficient() {
+        let mut host = AnalysisHost::new();
+
+        // Create many files
+        let schema = (
+            FilePath::new("file:///schema.graphql"),
+            "type Query { user: User } type User { id: ID! name: String! }",
+            FileKind::Schema,
+        );
+
+        let mut files = vec![schema];
+        for i in 0..100 {
+            files.push((
+                FilePath::new(format!("file:///query{i}.graphql")),
+                "query GetUser { user { id name } }",
+                FileKind::ExecutableGraphQL,
+            ));
+        }
+
+        // Convert to borrowed form for add_files_batch
+        let files_borrowed: Vec<(FilePath, &str, FileKind)> =
+            files.iter().map(|(p, c, k)| (p.clone(), *c, *k)).collect();
+
+        // This should complete quickly (O(n) not O(n²))
+        let start = std::time::Instant::now();
+        host.add_files_batch(&files_borrowed);
+        let elapsed = start.elapsed();
+
+        // Should complete in reasonable time (< 5 seconds even for 100 files)
+        assert!(
+            elapsed.as_secs() < 5,
+            "Batch loading took too long: {:?}",
+            elapsed
+        );
+
+        // Verify files are loaded
+        let snapshot = host.snapshot();
+        let last_file = FilePath::new("file:///query99.graphql");
+        // If we can get diagnostics without panic, file is loaded
+        let _diag = snapshot.diagnostics(&last_file);
     }
 }

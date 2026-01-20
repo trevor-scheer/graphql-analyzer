@@ -141,6 +141,7 @@ impl McpService {
             // Load documents if configured
             if let Some(ref documents_config) = project_config.documents {
                 let patterns: Vec<_> = documents_config.patterns().into_iter().collect();
+                let mut files_to_add: Vec<(FilePath, String, FileKind)> = Vec::new();
 
                 for pattern in patterns {
                     let full_pattern = base_dir.join(pattern).display().to_string();
@@ -156,15 +157,23 @@ impl McpService {
                                         Some("js" | "jsx") => FileKind::JavaScript,
                                         _ => FileKind::ExecutableGraphQL,
                                     };
-                                    host.add_file(&file_path, &content, kind);
+                                    files_to_add.push((file_path, content, kind));
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            host.rebuild_project_files();
+                // Batch add all files for O(n) performance
+                let batch_refs: Vec<(FilePath, &str, FileKind)> = files_to_add
+                    .iter()
+                    .map(|(path, content, kind)| (path.clone(), content.as_str(), *kind))
+                    .collect();
+                host.add_files_batch(&batch_refs);
+            } else {
+                // No documents to load, but still need to rebuild for schemas
+                host.rebuild_project_files();
+            }
             tracing::info!(
                 "Loaded project '{}' from {}",
                 project_name,
@@ -310,6 +319,7 @@ impl McpService {
         // Load documents if configured
         if let Some(ref documents_config) = project_config.documents {
             let patterns: Vec<_> = documents_config.patterns().into_iter().collect();
+            let mut files_to_add: Vec<(FilePath, String, FileKind)> = Vec::new();
 
             for pattern in patterns {
                 let full_pattern = base_dir.join(pattern).display().to_string();
@@ -324,15 +334,23 @@ impl McpService {
                                     Some("js" | "jsx") => FileKind::JavaScript,
                                     _ => FileKind::ExecutableGraphQL,
                                 };
-                                host.add_file(&file_path, &content, kind);
+                                files_to_add.push((file_path, content, kind));
                             }
                         }
                     }
                 }
             }
-        }
 
-        host.rebuild_project_files();
+            // Batch add all files for O(n) performance
+            let batch_refs: Vec<(FilePath, &str, FileKind)> = files_to_add
+                .iter()
+                .map(|(path, content, kind)| (path.clone(), content.as_str(), *kind))
+                .collect();
+            host.add_files_batch(&batch_refs);
+        } else {
+            // No documents to load, but still need to rebuild for schemas
+            host.rebuild_project_files();
+        }
 
         tracing::info!("Loaded project '{}'", project_name);
 
