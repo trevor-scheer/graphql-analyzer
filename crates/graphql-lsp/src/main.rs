@@ -83,7 +83,12 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(GraphQLLanguageServer::new);
+    let (service, socket) = LspService::build(GraphQLLanguageServer::new)
+        .custom_method(
+            "graphql/virtualFileContent",
+            GraphQLLanguageServer::virtual_file_content,
+        )
+        .finish();
 
     Server::new(stdin, stdout, socket).serve(service).await;
 

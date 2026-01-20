@@ -31,6 +31,16 @@ use tokio::sync::{Mutex, RwLock};
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::{Client, LanguageServer, UriExt};
 
+/// Parameters for the `graphql/virtualFileContent` custom request.
+///
+/// This request fetches the content of virtual files (like introspected remote schemas)
+/// that don't exist on disk but are registered in the LSP's file registry.
+#[derive(Debug, serde::Deserialize)]
+pub struct VirtualFileContentParams {
+    /// The URI of the virtual file to fetch (e.g., `schema://api.example.com/graphql/schema.graphql`)
+    pub uri: String,
+}
+
 /// Default timeout for acquiring host locks during LSP requests.
 /// This prevents requests from blocking indefinitely when another request
 /// is holding the lock for too long.
@@ -67,6 +77,42 @@ impl GraphQLLanguageServer {
             tracing::debug!("Timed out waiting for analysis host lock");
             None
         }
+    }
+
+    /// Custom request handler for fetching virtual file content.
+    ///
+    /// This is used by the editor extension to display virtual files (like introspected
+    /// remote schemas) when the user navigates to them via goto definition.
+    ///
+    /// # Parameters
+    /// - `uri`: The URI of the virtual file (e.g., `schema://api.example.com/graphql/schema.graphql`)
+    ///
+    /// # Returns
+    /// The file content as a string, or null if the file is not found.
+    #[tracing::instrument(skip(self))]
+    pub async fn virtual_file_content(
+        &self,
+        params: VirtualFileContentParams,
+    ) -> Result<Option<String>> {
+        tracing::debug!("Virtual file content requested: {}", params.uri);
+
+        let file_path = graphql_ide::FilePath::new(&params.uri);
+
+        // Search all hosts for the file content
+        for entry in &self.workspace.hosts {
+            let host = entry.value();
+            let Some(analysis) = Self::try_snapshot_with_timeout(host).await else {
+                continue;
+            };
+
+            if let Some(content) = analysis.file_content(&file_path) {
+                tracing::debug!("Found virtual file content ({} bytes)", content.len());
+                return Ok(Some(content));
+            }
+        }
+
+        tracing::debug!("Virtual file not found: {}", params.uri);
+        Ok(None)
     }
 
     #[allow(clippy::too_many_lines)]
@@ -183,6 +229,83 @@ documents: "**/*.graphql"
         }
     }
 
+    /// Fetch remote schemas via introspection and add them as virtual files.
+    ///
+    /// This method fetches GraphQL schemas from remote endpoints using introspection
+    /// queries, converts them to SDL, and registers them as virtual schema files.
+    /// This enables full IDE features (diagnostics, completions, etc.) for operations
+    /// that reference remote schemas.
+    #[tracing::instrument(skip(self, host, pending_introspections))]
+    async fn fetch_remote_schemas(
+        &self,
+        host: &Arc<Mutex<AnalysisHost>>,
+        pending_introspections: &[graphql_ide::PendingIntrospection],
+        project_name: &str,
+    ) {
+        tracing::info!(
+            "Fetching {} remote schema(s) for project '{}'",
+            pending_introspections.len(),
+            project_name
+        );
+
+        for pending in pending_introspections {
+            let url = &pending.url;
+            tracing::info!("Introspecting remote schema: {}", url);
+
+            // Build the introspection client with config options
+            let mut client = graphql_introspect::IntrospectionClient::new();
+
+            if let Some(headers) = &pending.headers {
+                for (name, value) in headers {
+                    client = client.with_header(name, value);
+                }
+            }
+
+            if let Some(timeout) = pending.timeout {
+                client = client.with_timeout(Duration::from_secs(timeout));
+            }
+
+            if let Some(retries) = pending.retry {
+                client = client.with_retries(retries);
+            }
+
+            // Execute the introspection query
+            match client.execute(url).await {
+                Ok(response) => {
+                    // Convert introspection response to SDL
+                    let sdl = graphql_introspect::introspection_to_sdl(&response);
+                    tracing::info!(
+                        "Successfully introspected schema from {} ({} bytes SDL)",
+                        url,
+                        sdl.len()
+                    );
+
+                    // Add the introspected schema as a virtual file
+                    let mut host_guard = host.lock().await;
+                    let virtual_uri = host_guard.add_introspected_schema(url, &sdl);
+
+                    tracing::info!("Registered remote schema as virtual file: {}", virtual_uri);
+
+                    self.client
+                        .log_message(
+                            MessageType::INFO,
+                            format!("Loaded remote schema from {url}"),
+                        )
+                        .await;
+                }
+                Err(e) => {
+                    tracing::error!("Failed to introspect schema from {}: {}", url, e);
+                    self.client
+                        .show_message(
+                            MessageType::ERROR,
+                            format!("Failed to load remote schema from {url}: {e}"),
+                        )
+                        .await;
+                }
+            }
+        }
+    }
+
     /// Load all GraphQL files from the config into `AnalysisHost`
     #[allow(clippy::too_many_lines)]
     async fn load_all_project_files(
@@ -236,12 +359,29 @@ documents: "**/*.graphql"
                 host_guard.set_lint_config(lint_config);
             }
 
-            {
+            // Load local schemas and collect pending remote introspections
+            let pending_introspections = {
                 let mut host_guard = host.lock().await;
-                if let Err(e) = host_guard.load_schemas_from_config(project_config, workspace_path)
-                {
-                    tracing::error!("Failed to load schemas: {}", e);
+                match host_guard.load_schemas_from_config(project_config, workspace_path) {
+                    Ok(result) => {
+                        tracing::info!(
+                            "Loaded {} local schema file(s), {} remote schema(s) pending",
+                            result.loaded_count,
+                            result.pending_introspections.len()
+                        );
+                        result.pending_introspections
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to load schemas: {}", e);
+                        vec![]
+                    }
                 }
+            };
+
+            // Fetch remote schemas via introspection (async)
+            if !pending_introspections.is_empty() {
+                self.fetch_remote_schemas(&host, &pending_introspections, project_name)
+                    .await;
             }
 
             // Use load_documents_from_config from graphql-ide to handle file discovery

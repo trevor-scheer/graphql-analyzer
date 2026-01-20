@@ -63,8 +63,8 @@ mod symbols;
 pub use types::{
     CodeFix, CodeLens, CodeLensCommand, CodeLensInfo, CompletionItem, CompletionKind, Diagnostic,
     DiagnosticSeverity, DocumentSymbol, FilePath, FragmentReference, FragmentUsage, HoverResult,
-    InsertTextFormat, Location, Position, Range, SchemaStats, SymbolKind, TextEdit,
-    WorkspaceSymbol,
+    InsertTextFormat, Location, PendingIntrospection, Position, Range, SchemaLoadResult,
+    SchemaStats, SymbolKind, TextEdit, WorkspaceSymbol,
 };
 
 // Re-export helpers for internal use
@@ -721,15 +721,16 @@ impl AnalysisHost {
     /// - Always includes Apollo Client built-in directives
     /// - Loads schema files from local paths (single file, multiple files, glob patterns)
     /// - Supports TypeScript/JavaScript files with embedded GraphQL schemas
-    /// - Logs warnings for URL schemas (introspection not yet supported)
+    /// - Collects remote introspection configs for async fetching by the caller
     ///
-    /// Returns the number of schema files loaded.
+    /// Returns a [`SchemaLoadResult`] containing the count of loaded files and any
+    /// pending introspection configurations that require async fetching.
     #[allow(clippy::too_many_lines)]
     pub fn load_schemas_from_config(
         &mut self,
         config: &graphql_config::ProjectConfig,
         base_dir: &std::path::Path,
-    ) -> anyhow::Result<usize> {
+    ) -> anyhow::Result<SchemaLoadResult> {
         // Always include Apollo Client built-in directives first
         const APOLLO_CLIENT_BUILTINS: &str = include_str!("apollo_client_builtins.graphql");
         self.add_file(
@@ -738,25 +739,32 @@ impl AnalysisHost {
             FileKind::Schema,
         );
         let mut count = 1;
+        let mut pending_introspections = Vec::new();
 
         let patterns: Vec<String> = match &config.schema {
             graphql_config::SchemaConfig::Path(s) => vec![s.clone()],
             graphql_config::SchemaConfig::Paths(arr) => arr.clone(),
             graphql_config::SchemaConfig::Introspection(introspection) => {
-                // Introspection schemas need to be loaded via the introspection client
-                // This method only handles local files
-                tracing::warn!(
-                    "Introspection schema config not yet supported in IDE: {}",
+                // Collect introspection config for async fetching by the caller
+                tracing::info!(
+                    "Found remote schema introspection config: {}",
                     introspection.url
                 );
+                pending_introspections.push(PendingIntrospection::from_config(introspection));
                 vec![]
             }
         };
 
         for pattern in patterns {
-            // Skip URLs - these would need introspection support
+            // Collect URL patterns as pending introspections for async fetching
             if pattern.starts_with("http://") || pattern.starts_with("https://") {
-                tracing::warn!("URL schemas not yet supported: {}", pattern);
+                tracing::info!("Found remote schema URL: {}", pattern);
+                pending_introspections.push(PendingIntrospection {
+                    url: pattern,
+                    headers: None,
+                    timeout: None,
+                    retry: None,
+                });
                 continue;
             }
 
@@ -849,8 +857,41 @@ impl AnalysisHost {
             }
         }
 
-        tracing::info!("Loaded {} schema file(s)", count);
-        Ok(count)
+        tracing::info!(
+            "Loaded {} schema file(s), {} pending introspection(s)",
+            count,
+            pending_introspections.len()
+        );
+        Ok(SchemaLoadResult {
+            loaded_count: count,
+            pending_introspections,
+        })
+    }
+
+    /// Add an introspected schema as a virtual file.
+    ///
+    /// This method registers a schema fetched via introspection using a virtual URI
+    /// in the format `schema://<host>/<path>/schema.graphql`. The `.graphql`
+    /// extension ensures editors recognize the file for syntax highlighting and
+    /// language features.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The original GraphQL endpoint URL (used to generate the virtual URI)
+    /// * `sdl` - The schema SDL obtained from introspection
+    ///
+    /// # Returns
+    ///
+    /// The virtual file URI used to register the schema.
+    pub fn add_introspected_schema(&mut self, url: &str, sdl: &str) -> String {
+        let virtual_uri = format!(
+            "schema://{}/schema.graphql",
+            url.trim_start_matches("https://")
+                .trim_start_matches("http://")
+        );
+        tracing::info!("Adding introspected schema from {} as {}", url, virtual_uri);
+        self.add_file(&FilePath::new(virtual_uri.clone()), sdl, FileKind::Schema);
+        virtual_uri
     }
 
     /// Set the lint configuration for the project
@@ -4139,14 +4180,18 @@ export const typeDefs = gql`
                 allow_global_identifiers: false,
                 ..Default::default()
             });
-            let count = host
+            let result = host
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
             // Should load: 1 Apollo client builtins + 1 extracted schema from TS
             assert_eq!(
-                count, 2,
+                result.loaded_count, 2,
                 "Should load 2 schema files (builtins + extracted)"
+            );
+            assert!(
+                result.pending_introspections.is_empty(),
+                "No pending introspections expected"
             );
 
             host.rebuild_project_files();
@@ -4194,12 +4239,15 @@ export const postType = gql`
             };
 
             let mut host = AnalysisHost::new();
-            let count = host
+            let result = host
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
             // Should load: 1 Apollo client builtins + 2 extracted blocks
-            assert_eq!(count, 3, "Should load 3 schema files (builtins + 2 blocks)");
+            assert_eq!(
+                result.loaded_count, 3,
+                "Should load 3 schema files (builtins + 2 blocks)"
+            );
 
             host.rebuild_project_files();
             let snapshot = host.snapshot();
@@ -4255,12 +4303,12 @@ export const typeDefs = gql`
             };
 
             let mut host = AnalysisHost::new();
-            let count = host
+            let result = host
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
             // Should load: 1 Apollo client builtins + 1 GraphQL file + 1 TS extraction
-            assert_eq!(count, 3, "Should load 3 schema files");
+            assert_eq!(result.loaded_count, 3, "Should load 3 schema files");
 
             host.rebuild_project_files();
             let snapshot = host.snapshot();
@@ -4301,12 +4349,15 @@ export function greet(name: string) {
             };
 
             let mut host = AnalysisHost::new();
-            let count = host
+            let result = host
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
             // Should only load Apollo client builtins (no GraphQL found in TS file)
-            assert_eq!(count, 1, "Should only load builtins when no GraphQL found");
+            assert_eq!(
+                result.loaded_count, 1,
+                "Should only load builtins when no GraphQL found"
+            );
         }
 
         #[test]
@@ -4343,13 +4394,13 @@ export const typeDefs = gql`
             };
 
             let mut host = AnalysisHost::new();
-            let count = host
+            let result = host
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
             // Should load: 1 Apollo client builtins + 1 extracted schema from JS
             assert_eq!(
-                count, 2,
+                result.loaded_count, 2,
                 "Should load 2 schema files (builtins + extracted)"
             );
 
@@ -4359,6 +4410,134 @@ export const typeDefs = gql`
             // Verify the Product type is available
             let symbols = snapshot.workspace_symbols("Product");
             assert!(!symbols.is_empty(), "Product type should be found");
+        }
+
+        #[test]
+        fn test_load_introspection_schema_config() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            // Config with introspection endpoint
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Introspection(
+                    graphql_config::IntrospectionSchemaConfig {
+                        url: "https://api.example.com/graphql".to_string(),
+                        headers: Some(
+                            [("Authorization".to_string(), "Bearer token".to_string())]
+                                .into_iter()
+                                .collect(),
+                        ),
+                        timeout: Some(60),
+                        retry: Some(3),
+                    },
+                ),
+                documents: None,
+                include: None,
+                exclude: None,
+                lint: None,
+                extensions: None,
+            };
+
+            let mut host = AnalysisHost::new();
+            let result = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            // Should only load Apollo client builtins (introspection needs async fetch)
+            assert_eq!(
+                result.loaded_count, 1,
+                "Should load builtins, introspection is async"
+            );
+
+            // Should have one pending introspection
+            assert_eq!(
+                result.pending_introspections.len(),
+                1,
+                "Should have one pending introspection"
+            );
+
+            let pending = &result.pending_introspections[0];
+            assert_eq!(pending.url, "https://api.example.com/graphql");
+            assert!(pending.headers.is_some());
+            assert_eq!(pending.timeout, Some(60));
+            assert_eq!(pending.retry, Some(3));
+
+            // Verify virtual_uri generation
+            assert_eq!(
+                pending.virtual_uri(),
+                "schema://api.example.com/graphql/schema.graphql"
+            );
+        }
+
+        #[test]
+        fn test_load_url_schema_pattern() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            // Config with URL pattern (simpler than full introspection config)
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Path(
+                    "https://api.example.com/graphql".to_string(),
+                ),
+                documents: None,
+                include: None,
+                exclude: None,
+                lint: None,
+                extensions: None,
+            };
+
+            let mut host = AnalysisHost::new();
+            let result = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            // Should only load Apollo client builtins
+            assert_eq!(
+                result.loaded_count, 1,
+                "Should load builtins, URL schema is async"
+            );
+
+            // Should have one pending introspection (from URL pattern)
+            assert_eq!(
+                result.pending_introspections.len(),
+                1,
+                "Should have one pending introspection from URL"
+            );
+
+            let pending = &result.pending_introspections[0];
+            assert_eq!(pending.url, "https://api.example.com/graphql");
+            assert!(pending.headers.is_none()); // URL patterns don't have headers
+        }
+
+        #[test]
+        fn test_add_introspected_schema() {
+            let mut host = AnalysisHost::new();
+
+            // Simulate adding an introspected schema
+            let url = "https://api.example.com/graphql";
+            let sdl = r#"
+                type Query {
+                    user(id: ID!): User
+                }
+
+                type User {
+                    id: ID!
+                    name: String!
+                }
+            "#;
+
+            let virtual_uri = host.add_introspected_schema(url, sdl);
+
+            // Verify the virtual URI format
+            assert_eq!(
+                virtual_uri,
+                "schema://api.example.com/graphql/schema.graphql"
+            );
+
+            host.rebuild_project_files();
+            let snapshot = host.snapshot();
+
+            // Verify the types are available
+            let user_symbols = snapshot.workspace_symbols("User");
+            assert!(!user_symbols.is_empty(), "User type should be found");
         }
     }
 

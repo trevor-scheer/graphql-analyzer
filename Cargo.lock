@@ -1192,6 +1192,7 @@ dependencies = [
  "graphql-config",
  "graphql-extract",
  "graphql-ide",
+ "graphql-introspect",
  "graphql-linter",
  "graphql-syntax",
  "lsp-types",
