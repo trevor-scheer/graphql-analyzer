@@ -86,12 +86,20 @@ impl WorkspaceManager {
     /// Uses a reverse index for O(1) lookup of previously seen files.
     /// Falls back to config pattern matching for files opened after init
     /// that haven't been indexed yet.
+    ///
+    /// For virtual files (like `schema://` URIs), searches all hosts
+    /// to find one that contains the file.
     pub fn find_workspace_and_project(&self, document_uri: &Uri) -> Option<(String, String)> {
         let uri_string = document_uri.to_string();
 
         // First, check the reverse index
         if let Some(entry) = self.file_to_project.get(&uri_string) {
             return Some(entry.value().clone());
+        }
+
+        // For virtual files (non-file:// scheme), search all hosts
+        if !uri_string.starts_with("file://") {
+            return self.find_host_for_virtual_file(&uri_string);
         }
 
         // Fall back to searching configs for pattern matching
@@ -109,6 +117,29 @@ impl WorkspaceManager {
                     }
                 }
                 return None;
+            }
+        }
+
+        None
+    }
+
+    /// Find which host contains a virtual file by searching all hosts.
+    ///
+    /// This is used for non-file:// URIs like `schema://` virtual files
+    /// that represent remote schemas fetched via introspection.
+    fn find_host_for_virtual_file(&self, uri_string: &str) -> Option<(String, String)> {
+        let file_path = graphql_ide::FilePath::new(uri_string);
+
+        for entry in &self.hosts {
+            let (workspace_uri, project_name) = entry.key();
+            let host = entry.value();
+
+            // Try to get a snapshot without blocking for too long
+            if let Ok(guard) = host.try_lock() {
+                let snapshot = guard.snapshot();
+                if snapshot.file_content(&file_path).is_some() {
+                    return Some((workspace_uri.clone(), project_name.clone()));
+                }
             }
         }
 

@@ -872,8 +872,9 @@ impl AnalysisHost {
     /// Add an introspected schema as a virtual file.
     ///
     /// This method registers a schema fetched via introspection using a virtual URI
-    /// in the format `introspection://<host>/<path>`. This allows the LSP to provide
-    /// diagnostics on operations that reference remote schemas.
+    /// in the format `schema://<host>/<path>/schema.graphql`. The `.graphql`
+    /// extension ensures editors recognize the file for syntax highlighting and
+    /// language features.
     ///
     /// # Arguments
     ///
@@ -885,7 +886,7 @@ impl AnalysisHost {
     /// The virtual file URI used to register the schema.
     pub fn add_introspected_schema(&mut self, url: &str, sdl: &str) -> String {
         let virtual_uri = format!(
-            "introspection://{}",
+            "schema://{}/schema.graphql",
             url.trim_start_matches("https://")
                 .trim_start_matches("http://")
         );
@@ -6036,7 +6037,7 @@ export const typeDefs = gql`
             // Verify virtual_uri generation
             assert_eq!(
                 pending.virtual_uri(),
-                "introspection://api.example.com/graphql"
+                "schema://api.example.com/graphql/schema.graphql"
             );
         }
 
@@ -6099,7 +6100,10 @@ export const typeDefs = gql`
             let virtual_uri = host.add_introspected_schema(url, sdl);
 
             // Verify the virtual URI format
-            assert_eq!(virtual_uri, "introspection://api.example.com/graphql");
+            assert_eq!(
+                virtual_uri,
+                "schema://api.example.com/graphql/schema.graphql"
+            );
 
             host.rebuild_project_files();
             let snapshot = host.snapshot();

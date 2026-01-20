@@ -11,6 +11,10 @@ import {
   StatusBarAlignment,
   TextEditor,
   TextEditorDecorationType,
+  TextDocumentContentProvider,
+  EventEmitter,
+  Event,
+  CancellationToken,
   Uri,
   Position,
   Range,
@@ -50,6 +54,55 @@ import { findServerBinary } from "./binaryManager";
 // =============================================================================
 
 console.log(">>> GraphQL LSP extension imports complete <<<");
+
+// =============================================================================
+// Virtual File Support for Remote Schemas
+// =============================================================================
+//
+// When goto definition navigates to a type in a remote schema (fetched via
+// introspection), the LSP returns a URI like `schema://api.example.com/graphql/schema.graphql`.
+// VSCode doesn't know how to open these URIs by default.
+//
+// We register a TextDocumentContentProvider for the "schema" scheme that:
+// 1. Intercepts VSCode's attempts to open schema:// URIs
+// 2. Fetches the schema content from the LSP server via a custom request
+// 3. Returns the SDL content to display as a read-only document
+//
+// This allows users to navigate into remote schemas just like local files.
+// =============================================================================
+
+/**
+ * Content provider for virtual files with the "schema" scheme.
+ * Fetches schema content from the LSP server for display in VSCode.
+ */
+class SchemaContentProvider implements TextDocumentContentProvider {
+  private _onDidChange = new EventEmitter<Uri>();
+
+  get onDidChange(): Event<Uri> {
+    return this._onDidChange.event;
+  }
+
+  async provideTextDocumentContent(uri: Uri, _token: CancellationToken): Promise<string> {
+    if (!client) {
+      return "// GraphQL LSP is not running";
+    }
+
+    try {
+      // Request the virtual file content from the LSP server
+      const content = await client.sendRequest<string | null>("graphql/virtualFileContent", {
+        uri: uri.toString(),
+      });
+
+      if (content) {
+        return content;
+      }
+
+      return `// Schema not found: ${uri.toString()}`;
+    } catch (error) {
+      return `// Error loading schema: ${error}`;
+    }
+  }
+}
 
 // Decoration type for deprecated GraphQL fields (strikethrough)
 const deprecatedDecorationType: TextEditorDecorationType = window.createTextEditorDecorationType({
@@ -212,6 +265,8 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
       { scheme: "file", language: "typescriptreact" },
       { scheme: "file", language: "javascript" },
       { scheme: "file", language: "javascriptreact" },
+      // Virtual files for remote schemas (introspected)
+      { scheme: "schema", language: "graphql" },
     ],
     synchronize: {
       fileEvents: workspace.createFileSystemWatcher("**/*.{graphql,gql,ts,tsx,js,jsx}"),
@@ -262,6 +317,13 @@ export async function activate(context: ExtensionContext) {
 
   try {
     await startLanguageServer(context);
+
+    // Register content provider for virtual files (remote schemas)
+    const schemaProvider = new SchemaContentProvider();
+    context.subscriptions.push(
+      workspace.registerTextDocumentContentProvider("schema", schemaProvider)
+    );
+    outputChannel.appendLine("Registered schema:// content provider for remote schemas");
 
     // Setup decoration listeners for deprecated fields in TS/JS files
     setupDecorationListeners(context);

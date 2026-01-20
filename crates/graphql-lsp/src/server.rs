@@ -31,6 +31,16 @@ use tokio::sync::{Mutex, RwLock};
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::{Client, LanguageServer, UriExt};
 
+/// Parameters for the `graphql/virtualFileContent` custom request.
+///
+/// This request fetches the content of virtual files (like introspected remote schemas)
+/// that don't exist on disk but are registered in the LSP's file registry.
+#[derive(Debug, serde::Deserialize)]
+pub struct VirtualFileContentParams {
+    /// The URI of the virtual file to fetch (e.g., `schema://api.example.com/graphql/schema.graphql`)
+    pub uri: String,
+}
+
 /// Default timeout for acquiring host locks during LSP requests.
 /// This prevents requests from blocking indefinitely when another request
 /// is holding the lock for too long.
@@ -67,6 +77,42 @@ impl GraphQLLanguageServer {
             tracing::debug!("Timed out waiting for analysis host lock");
             None
         }
+    }
+
+    /// Custom request handler for fetching virtual file content.
+    ///
+    /// This is used by the editor extension to display virtual files (like introspected
+    /// remote schemas) when the user navigates to them via goto definition.
+    ///
+    /// # Parameters
+    /// - `uri`: The URI of the virtual file (e.g., `schema://api.example.com/graphql/schema.graphql`)
+    ///
+    /// # Returns
+    /// The file content as a string, or null if the file is not found.
+    #[tracing::instrument(skip(self))]
+    pub async fn virtual_file_content(
+        &self,
+        params: VirtualFileContentParams,
+    ) -> Result<Option<String>> {
+        tracing::debug!("Virtual file content requested: {}", params.uri);
+
+        let file_path = graphql_ide::FilePath::new(&params.uri);
+
+        // Search all hosts for the file content
+        for entry in &self.workspace.hosts {
+            let host = entry.value();
+            let Some(analysis) = Self::try_snapshot_with_timeout(host).await else {
+                continue;
+            };
+
+            if let Some(content) = analysis.file_content(&file_path) {
+                tracing::debug!("Found virtual file content ({} bytes)", content.len());
+                return Ok(Some(content));
+            }
+        }
+
+        tracing::debug!("Virtual file not found: {}", params.uri);
+        Ok(None)
     }
 
     #[allow(clippy::too_many_lines)]

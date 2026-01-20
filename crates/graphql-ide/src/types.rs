@@ -603,12 +603,12 @@ impl PendingIntrospection {
     }
 
     /// Generate a virtual file URI for this introspection endpoint.
-    /// Uses the format `introspection://<host>/<path>` to uniquely identify
-    /// remote schemas.
+    /// Uses the format `schema://<host>/<path>/schema.graphql` to uniquely identify
+    /// remote schemas. The `.graphql` extension ensures proper syntax highlighting.
     #[must_use]
     pub fn virtual_uri(&self) -> String {
         format!(
-            "introspection://{}",
+            "schema://{}/schema.graphql",
             self.url
                 .trim_start_matches("https://")
                 .trim_start_matches("http://")
