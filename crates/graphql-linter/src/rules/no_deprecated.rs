@@ -53,12 +53,14 @@ impl DocumentSchemaLintRule for NoDeprecatedRuleImpl {
             let mut doc_diagnostics = Vec::new();
             check_document_for_deprecated(&doc_cst, schema_types, &mut doc_diagnostics);
 
-            // Add block context for embedded GraphQL (line_offset > 0)
-            if doc.line_offset > 0 {
+            // Add block context for embedded GraphQL (byte_offset > 0)
+            if doc.byte_offset > 0 {
                 for diag in doc_diagnostics {
-                    diagnostics.push(
-                        diag.with_block_context(doc.line_offset, std::sync::Arc::from(doc.source)),
-                    );
+                    diagnostics.push(diag.with_block_context(
+                        doc.line_offset,
+                        doc.byte_offset,
+                        std::sync::Arc::from(doc.source),
+                    ));
                 }
             } else {
                 diagnostics.extend(doc_diagnostics);

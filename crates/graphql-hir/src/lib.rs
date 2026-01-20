@@ -531,6 +531,8 @@ pub struct FragmentNameInfo {
     pub name_range: TextRange,
     /// For embedded GraphQL: line offset of the block (0-indexed)
     pub block_line_offset: Option<usize>,
+    /// For embedded GraphQL: byte offset of the block in the original file
+    pub block_byte_offset: Option<usize>,
     /// For embedded GraphQL: source text of the block
     pub block_source: Option<Arc<str>>,
 }
@@ -554,6 +556,7 @@ pub fn file_fragment_info(
                 name: frag.name.clone(),
                 name_range: frag.name_range,
                 block_line_offset: frag.block_line_offset,
+                block_byte_offset: frag.block_byte_offset,
                 block_source: frag.block_source.clone(),
             })
             .collect(),
@@ -571,6 +574,8 @@ pub struct OperationNameInfo {
     pub name_range: Option<TextRange>,
     /// For embedded GraphQL: line offset of the block (0-indexed)
     pub block_line_offset: Option<usize>,
+    /// For embedded GraphQL: byte offset of the block in the original file
+    pub block_byte_offset: Option<usize>,
     /// For embedded GraphQL: source text of the block
     pub block_source: Option<Arc<str>>,
 }
@@ -596,6 +601,7 @@ pub fn file_operation_names(
                     index: op.index,
                     name_range: op.name_range,
                     block_line_offset: op.block_line_offset,
+                    block_byte_offset: op.block_byte_offset,
                     block_source: op.block_source.clone(),
                 })
             })

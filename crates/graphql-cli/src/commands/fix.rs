@@ -99,33 +99,54 @@ pub fn apply_fixes(fixes: &[FileFix], format: OutputFormat) -> Result<()> {
     Ok(())
 }
 
+/// A text edit with file-relative positions (adjusted for block offset if applicable)
+struct FileRelativeEdit {
+    /// File-relative start position
+    start: usize,
+    /// File-relative end position
+    end: usize,
+    /// The replacement text
+    new_text: String,
+}
+
 /// Apply all fixes to a single file
 fn apply_file_fixes(file_fix: &FileFix, format: OutputFormat) -> Result<()> {
     // Read the file content
     let content = std::fs::read_to_string(&file_fix.path)
         .map_err(|e| anyhow::anyhow!("Failed to read {}: {}", file_fix.path.display(), e))?;
 
-    // Collect all edits from all diagnostics
-    let mut all_edits: Vec<_> = file_fix
-        .diagnostics
-        .iter()
-        .filter_map(|d| d.fix.as_ref())
-        .flat_map(|f| f.edits.iter())
-        .collect();
+    // Collect all edits from all diagnostics, adjusting for block offsets
+    // For embedded GraphQL (TypeScript/JavaScript), edit offsets are relative to the
+    // GraphQL block, not the file. We need to add the block_byte_offset to get
+    // file-relative positions.
+    let mut all_edits: Vec<FileRelativeEdit> = Vec::new();
+
+    for diag in &file_fix.diagnostics {
+        let Some(fix) = &diag.fix else { continue };
+        let block_offset = diag.block_byte_offset.unwrap_or(0);
+
+        for edit in &fix.edits {
+            all_edits.push(FileRelativeEdit {
+                start: edit.offset_range.start + block_offset,
+                end: edit.offset_range.end + block_offset,
+                new_text: edit.new_text.clone(),
+            });
+        }
+    }
 
     // Sort edits by start position in reverse order so we can apply them from end to start
     // This ensures earlier edits don't shift the positions of later edits
-    all_edits.sort_by(|a, b| b.offset_range.start.cmp(&a.offset_range.start));
+    all_edits.sort_by(|a, b| b.start.cmp(&a.start));
 
     // Apply edits
     let mut result = content.clone();
     for edit in &all_edits {
         // Validate range is within bounds
-        if edit.offset_range.end > result.len() {
+        if edit.end > result.len() {
             tracing::warn!(
                 file = %file_fix.path.display(),
-                start = edit.offset_range.start,
-                end = edit.offset_range.end,
+                start = edit.start,
+                end = edit.end,
                 len = result.len(),
                 "Edit range out of bounds, skipping"
             );
@@ -135,9 +156,9 @@ fn apply_file_fixes(file_fix: &FileFix, format: OutputFormat) -> Result<()> {
         // Apply the edit
         result = format!(
             "{}{}{}",
-            &result[..edit.offset_range.start],
+            &result[..edit.start],
             edit.new_text,
-            &result[edit.offset_range.end..]
+            &result[edit.end..]
         );
     }
 

@@ -79,10 +79,12 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
                     );
 
                     // For embedded GraphQL, add block context for proper position calculation
-                    if let (Some(line_offset), Some(source)) =
-                        (op_info.block_line_offset, &op_info.block_source)
-                    {
-                        diag = diag.with_block_context(line_offset, source.clone());
+                    if let (Some(line_offset), Some(byte_offset), Some(source)) = (
+                        op_info.block_line_offset,
+                        op_info.block_byte_offset,
+                        &op_info.block_source,
+                    ) {
+                        diag = diag.with_block_context(line_offset, byte_offset, source.clone());
                     }
 
                     diagnostics_by_file.entry(*file_id).or_default().push(diag);
@@ -134,10 +136,12 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
                     );
 
                     // For embedded GraphQL, add block context for proper position calculation
-                    if let (Some(line_offset), Some(source)) =
-                        (frag_info.block_line_offset, &frag_info.block_source)
-                    {
-                        diag = diag.with_block_context(line_offset, source.clone());
+                    if let (Some(line_offset), Some(byte_offset), Some(source)) = (
+                        frag_info.block_line_offset,
+                        frag_info.block_byte_offset,
+                        &frag_info.block_source,
+                    ) {
+                        diag = diag.with_block_context(line_offset, byte_offset, source.clone());
                     }
 
                     diagnostics_by_file.entry(*file_id).or_default().push(diag);

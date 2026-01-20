@@ -92,6 +92,8 @@ pub struct OperationStructure {
     pub operation_range: TextRange,
     /// For embedded GraphQL: line offset of the block (0-indexed)
     pub block_line_offset: Option<usize>,
+    /// For embedded GraphQL: byte offset of the block in the original file
+    pub block_byte_offset: Option<usize>,
     /// For embedded GraphQL: source text of the block
     pub block_source: Option<Arc<str>>,
 }
@@ -126,6 +128,8 @@ pub struct FragmentStructure {
     pub fragment_range: TextRange,
     /// For embedded GraphQL: line offset of the block (0-indexed)
     pub block_line_offset: Option<usize>,
+    /// For embedded GraphQL: byte offset of the block in the original file
+    pub block_byte_offset: Option<usize>,
     /// For embedded GraphQL: source text of the block
     pub block_source: Option<Arc<str>>,
 }
@@ -175,6 +179,8 @@ fn name_range(name: &apollo_compiler::Name) -> TextRange {
 struct BlockContext {
     /// Line offset in the original file (0-indexed)
     line_offset: usize,
+    /// Byte offset in the original file
+    byte_offset: usize,
     /// Source text of the block
     source: Option<Arc<str>>,
 }
@@ -184,14 +190,16 @@ impl BlockContext {
     const fn pure_graphql() -> Self {
         Self {
             line_offset: 0,
+            byte_offset: 0,
             source: None,
         }
     }
 
     /// Create a new block context for embedded GraphQL
-    fn embedded(line_offset: usize, source: Arc<str>) -> Self {
+    fn embedded(line_offset: usize, byte_offset: usize, source: Arc<str>) -> Self {
         Self {
             line_offset,
+            byte_offset,
             source: Some(source),
         }
     }
@@ -213,10 +221,10 @@ pub fn file_structure(
     let mut fragments = Vec::new();
 
     for (block_idx, doc) in parse.documents().enumerate() {
-        // For embedded GraphQL (line_offset > 0), include block context
-        // For pure GraphQL (line_offset == 0), no block context needed
-        let block_ctx = if doc.line_offset > 0 {
-            BlockContext::embedded(doc.line_offset, Arc::from(doc.source))
+        // For embedded GraphQL (byte_offset > 0), include block context
+        // For pure GraphQL (byte_offset == 0), no block context needed
+        let block_ctx = if doc.byte_offset > 0 {
+            BlockContext::embedded(doc.line_offset, doc.byte_offset, Arc::from(doc.source))
         } else {
             BlockContext::pure_graphql()
         };
@@ -312,10 +320,14 @@ fn extract_operation_structure(
     let op_name_range = op.name.as_ref().map(name_range);
 
     // For embedded GraphQL, include block context; for pure GraphQL, these are None
-    let (block_line_offset, block_source) = if block_ctx.source.is_some() {
-        (Some(block_ctx.line_offset), block_ctx.source.clone())
+    let (block_line_offset, block_byte_offset, block_source) = if block_ctx.source.is_some() {
+        (
+            Some(block_ctx.line_offset),
+            Some(block_ctx.byte_offset),
+            block_ctx.source.clone(),
+        )
     } else {
-        (None, None)
+        (None, None, None)
     };
 
     OperationStructure {
@@ -327,6 +339,7 @@ fn extract_operation_structure(
         name_range: op_name_range,
         operation_range: node_range(op),
         block_line_offset,
+        block_byte_offset,
         block_source,
     }
 }
@@ -340,10 +353,14 @@ fn extract_fragment_structure(
     let type_condition = Arc::from(frag.type_condition.as_str());
 
     // For embedded GraphQL, include block context; for pure GraphQL, these are None
-    let (block_line_offset, block_source) = if block_ctx.source.is_some() {
-        (Some(block_ctx.line_offset), block_ctx.source.clone())
+    let (block_line_offset, block_byte_offset, block_source) = if block_ctx.source.is_some() {
+        (
+            Some(block_ctx.line_offset),
+            Some(block_ctx.byte_offset),
+            block_ctx.source.clone(),
+        )
     } else {
-        (None, None)
+        (None, None, None)
     };
 
     FragmentStructure {
@@ -354,6 +371,7 @@ fn extract_fragment_structure(
         type_condition_range: name_range(&frag.type_condition),
         fragment_range: node_range(frag),
         block_line_offset,
+        block_byte_offset,
         block_source,
     }
 }

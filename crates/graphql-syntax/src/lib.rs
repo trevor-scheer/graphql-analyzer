@@ -80,6 +80,8 @@ pub struct DocumentRef<'a> {
     pub line_offset: usize,
     /// Column offset in the original file (0 for pure GraphQL files)
     pub column_offset: usize,
+    /// Byte offset in the original file (0 for pure GraphQL files)
+    pub byte_offset: usize,
     /// The GraphQL source text
     pub source: &'a str,
 }
@@ -102,6 +104,7 @@ impl Parse {
             ast: &block.ast,
             line_offset: block.line,
             column_offset: block.column,
+            byte_offset: block.offset,
             source: &block.source,
         })
     }

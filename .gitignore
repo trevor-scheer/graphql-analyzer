@@ -3,6 +3,9 @@
 **/*.rs.bk
 *.pdb
 
+# Node.js
+/node_modules/
+
 # IDE
 .vscode/
 !.vscode/launch.json

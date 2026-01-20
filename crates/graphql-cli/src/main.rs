@@ -149,7 +149,14 @@ async fn main() -> anyhow::Result<()> {
             watch,
             fix,
             fix_dry_run,
-        } => commands::lint::run(cli.config, cli.project.as_deref(), format, watch, fix, fix_dry_run),
+        } => commands::lint::run(
+            cli.config,
+            cli.project.as_deref(),
+            format,
+            watch,
+            fix,
+            fix_dry_run,
+        ),
         Commands::Check { format, watch } => {
             commands::check::run(cli.config, cli.project.as_deref(), format, watch)
         }

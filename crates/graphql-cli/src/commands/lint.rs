@@ -249,7 +249,9 @@ pub fn run(
         } else if fixes_applied > 0 && fix_dry_run {
             println!(
                 "{}",
-                format!("ℹ Would fix {fixes_applied} issue(s)").cyan().bold()
+                format!("ℹ Would fix {fixes_applied} issue(s)")
+                    .cyan()
+                    .bold()
             );
         }
 
