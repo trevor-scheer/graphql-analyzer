@@ -1,0 +1,28 @@
+# Knope configuration for graphql-lsp workspace
+# https://knope.tech
+
+# Single package for the entire workspace - all crates share the same version
+[package]
+versioned_files = ["Cargo.toml"]
+changelog = "CHANGELOG.md"
+
+# Conventional commit scopes that map to this package
+# Changes with these scopes affect this package's version
+[package.scopes]
+"*" = "graphql-lsp"
+
+[workflows]
+
+# Prepare a release PR
+[workflows.prepare-release]
+[[workflows.prepare-release.steps]]
+type = "PrepareRelease"
+
+[[workflows.prepare-release.steps]]
+type = "Command"
+command = "cargo check --workspace"
+
+# Execute the release
+[workflows.release]
+[[workflows.release.steps]]
+type = "Release"
