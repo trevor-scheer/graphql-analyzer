@@ -8,8 +8,14 @@ This crate provides semantic queries on top of syntax, implementing the cache in
 
 The HIR layer separates **structure** from **bodies**:
 
-- **Structure** (stable): Type names, field signatures, operation names, fragment names
-- **Bodies** (dynamic): Selection sets, field selections, directives
+| Definition | Structure (stable) | Body (dynamic) |
+|------------|-------------------|----------------|
+| Schema type | Type name, field names, field types, arguments | Directives on fields |
+| Operation | Operation name, operation type (query/mutation) | Selection set, variables used |
+| Fragment | Fragment name, type condition | Selection set |
+
+**Structure queries** (`schema_types()`, `all_fragments()`, `all_operations()`) return indexes by name.
+**Body queries** (`operation_body()`, `fragment_body()`) return the content of those definitions.
 
 This separation enables fine-grained incremental recomputation via Salsa.
 
@@ -33,39 +39,24 @@ This separation enables fine-grained incremental recomputation via Salsa.
    - `fragment_body()` query - Extracts fragment bodies
    - Selection extraction (fields, fragment spreads, inline fragments)
 
-4. **Global Queries**:
+4. **Aggregate Queries**:
    - `schema_types()` - Collects all types from schema files
    - `all_fragments()` - Collects all fragments from document files
    - `all_operations()` - Collects all operations from document files
-   - `operation_fragment_deps()` - Direct fragment dependencies (simplified)
 
-### ⚠️ Known Limitations (Phase 2)
+5. **Index Queries** (for O(1) lookups):
+   - `project_fragment_name_index()` - O(1) fragment name lookup for uniqueness validation
+   - `project_operation_name_index()` - O(1) operation name lookup for uniqueness validation
+   - `fragment_file_index()` - Fragment name to file content/metadata mapping
+   - `fragment_spreads_index()` - Fragment name to spreads mapping
 
-1. **Apollo-Parser API Mismatch**: Current implementation uses `apollo_parser::ast` but version 0.8 uses `cst` (Concrete Syntax Tree). Needs refactoring to use CST API.
+6. **Per-Fragment Queries** (fine-grained dependencies):
+   - `fragment_source()` - Source text for a single fragment by name
+   - `fragment_ast()` - Parsed AST document for a single fragment by name
 
-2. **Salsa Tracked Struct Syntax**: Some tracked structs need lifetime parameter adjustments to compile with Salsa 0.25.
+### 📋 Potential Future Improvements
 
-3. **FileRegistry Missing**: The `GraphQLHirDatabase` trait has stub methods for `schema_files()` and `document_files()` that return empty vectors. A proper FileRegistry needs to be implemented to map FileIds to FileContent/FileMetadata.
-
-4. **Transitive Fragment Resolution**: The `operation_fragment_deps()` query currently only returns direct dependencies. Full transitive resolution requires FileRegistry to look up fragment files.
-
-### 📋 TODO (Future Phases)
-
-1. **Fix Apollo-Parser Integration**:
-   - Update all `apollo_parser::ast` imports to `apollo_parser::cst`
-   - Update all AST node traversal to use CST API
-   - Test with actual GraphQL documents
-
-2. **Implement FileRegistry**:
-   - Add Salsa-tracked registry mapping FileId → (FileContent, FileMetadata)
-   - Update database trait methods to return actual file data
-   - Add methods for registering/unregistering files
-
-3. **Complete Fragment Resolution**:
-   - Implement full transitive fragment dependency resolution
-   - Handle circular fragment references gracefully
-
-4. **Add Type Queries**:
+1. **Type Queries** - Additional semantic queries could be added:
    - `type_fields()` - Get all fields of a type (with extensions merged)
    - `field_data()` - Get detailed field information
    - `type_by_name()` - Look up types by name
@@ -74,18 +65,21 @@ This separation enables fine-grained incremental recomputation via Salsa.
 
 The crate includes comprehensive tests that verify Salsa's incremental computation is working correctly. These tests use `TrackedHirDatabase` (a local database type with query tracking) to make deterministic assertions about caching behavior.
 
-### Invariants Tested
+### Tests Included
 
-| Cache Invariant | Tests |
-|-----------------|-------|
-| **Structure/Body Separation** | `test_structure_body_separation`, `test_golden_invariant_schema_stable_across_operation_edits` |
-| **File Isolation** | `test_granular_caching_editing_one_file`, `test_unrelated_file_edit_doesnt_invalidate_schema`, `test_editing_one_of_many_files_is_o1_not_on` |
-| **Index Stability** | `test_fragment_index_not_invalidated_by_unrelated_edit` |
-| **Basic Memoization** | `test_cache_hit_on_repeated_query` |
+| Test                                                         | What It Verifies                                             |
+| ------------------------------------------------------------ | ------------------------------------------------------------ |
+| `test_cache_hit_on_repeated_query`                           | Repeated queries don't re-execute (served from cache)        |
+| `test_granular_caching_editing_one_file`                     | Editing file A doesn't invalidate queries for file B         |
+| `test_unrelated_file_edit_doesnt_invalidate_schema`          | Document changes don't affect schema queries                 |
+| `test_editing_one_of_many_files_is_o1_not_on`                | O(1) recomputation when editing 1 of N files                 |
+| `test_golden_invariant_schema_stable_across_operation_edits` | **Critical**: Schema queries never re-run on operation edits |
+| `test_per_file_contribution_queries_incremental`             | Per-file queries (names, fragments) are O(1) on single edit  |
+| `test_executions_since_for_debugging`                        | Debugging helper works correctly                             |
 
-### Structure/Body Separation Test
+### Golden Invariant Test
 
-The most critical test verifies that editing operation bodies doesn't invalidate schema knowledge:
+The most important test verifies the architectural invariant:
 
 ```rust
 // Edit BOTH operation files (simulating active development)
@@ -95,7 +89,7 @@ op2_content.set_text(&mut db).to(Arc::from("query GetUserNames { users { name em
 // Re-query schema - should be COMPLETELY cached
 let types_after = schema_types(&db, project_files);
 
-// Structure/Body Separation: schema_types should NOT re-execute
+// GOLDEN INVARIANT: schema_types should NOT re-execute
 assert_eq!(db.count_since(queries::SCHEMA_TYPES, checkpoint), 0);
 ```
 

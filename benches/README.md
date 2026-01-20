@@ -65,8 +65,8 @@ If the cache invariants hold, you should see:
 
 - **Basic Memoization**: 100-1000x speedup for warm vs cold queries
 - **Structure/Body Separation**: < 100 nanoseconds for schema query after body edit
+- **File Isolation**: Editing 1 of N files should cost O(1), not O(N)
 - **Index Stability**: Fragment index queries instant after body edits
-- **O(1) Updates**: Editing 1 of N files should not scale with N
 
 If you don't see these improvements, a cache invariant is being violated somewhere in the incremental computation setup.
 
