@@ -2,7 +2,7 @@
   "name": "graphql-lsp",
   "displayName": "GraphQL LSP",
   "description": "GraphQL Language Server with validation, completion, and go-to-definition",
-  "version": "0.1.1",
+  "version": "0.1.0-alpha.0",
   "repository": "https://github.com/trevor-scheer/graphql-lsp",
   "license": "SEE LICENSE IN LICENSE.md",
   "publisher": "trevor-scheer",
