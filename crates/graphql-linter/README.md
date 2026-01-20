@@ -266,8 +266,6 @@ See individual rule documentation for available options.
 ### redundant_fields
 
 **Type**: StandaloneDocumentRule
-**Default**: `off` (opt-in)
-**Performance**: Fast
 
 Detects fields in a selection set that are redundant because they are already included in a sibling fragment spread. This helps keep queries clean and maintainable by avoiding duplication.
 
@@ -303,9 +301,6 @@ The rule handles:
 ### require_id_field
 
 **Type**: DocumentSchemaRule
-**Default**: `off` (opt-in)
-**Preset**: Not in `recommended` (opinionated rule)
-**Performance**: Fast
 
 Warns when selection sets on types that have an `id` field don't include it. This is useful for ensuring cache normalization works correctly with tools like Apollo Client.
 
@@ -372,8 +367,6 @@ query GetUser {
 ### no_deprecated
 
 **Type**: DocumentSchemaRule
-**Default**: `warn`
-**Performance**: Fast
 
 Warns when using fields marked as deprecated in the schema.
 
@@ -396,8 +389,6 @@ query {
 ### unique_names
 
 **Type**: ProjectRule
-**Default**: `error`
-**Performance**: Fast (project-wide but efficient)
 
 Ensures operation and fragment names are unique across the project.
 
@@ -420,8 +411,6 @@ query GetUser {
 ### unused_fields
 
 **Type**: ProjectRule
-**Default**: `off` (opt-in)
-**Performance**: Expensive on large schemas
 
 Detects schema fields that are never queried in any operation or fragment.
 
