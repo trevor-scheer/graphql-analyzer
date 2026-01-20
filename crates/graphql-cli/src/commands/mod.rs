@@ -6,6 +6,7 @@ pub mod deprecations;
 pub(crate) mod fix;
 pub mod fragments;
 pub mod lint;
+pub mod lsp;
 pub mod mcp;
 pub mod schema;
 pub mod stats;

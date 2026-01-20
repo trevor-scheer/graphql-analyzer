@@ -1064,6 +1064,7 @@ dependencies = [
  "graphql-ide",
  "graphql-introspect",
  "graphql-linter",
+ "graphql-lsp",
  "graphql-mcp",
  "indicatif",
  "opentelemetry 0.27.1",

@@ -24,6 +24,7 @@ graphql-extract = { path = "../graphql-extract" }
 graphql-ide = { path = "../graphql-ide" }
 graphql-introspect = { path = "../graphql-introspect" }
 graphql-linter = { path = "../graphql-linter" }
+graphql-lsp = { path = "../graphql-lsp" }
 graphql-mcp = { path = "../graphql-mcp" }
 
 # GraphQL

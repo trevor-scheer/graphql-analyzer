@@ -141,6 +141,13 @@ enum Commands {
         #[arg(long, value_delimiter = ',')]
         preload: Option<Vec<String>>,
     },
+
+    /// Start the Language Server Protocol (LSP) server
+    ///
+    /// This command starts the GraphQL language server, which provides IDE features
+    /// like diagnostics, hover, goto definition, find references, and completions.
+    /// The server communicates via stdio using JSON-RPC.
+    Lsp,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -210,6 +217,7 @@ async fn main() -> anyhow::Result<()> {
             no_preload,
             preload,
         } => commands::mcp::run(workspace, no_preload, preload).await,
+        Commands::Lsp => commands::lsp::run().await,
     };
 
     #[cfg(feature = "otel")]

@@ -9,9 +9,6 @@ description = "GraphQL Language Server Protocol implementation"
 keywords = ["graphql", "lsp", "language-server"]
 categories = ["development-tools", "parser-implementations"]
 
-[package.metadata.dist]
-dist = true
-
 [[bin]]
 name = "graphql-lsp"
 path = "src/main.rs"
