@@ -91,19 +91,34 @@ impl CliAnalysisHost {
             let document_files =
                 Self::load_document_files(documents_config, base_dir, project_config)?;
 
-            for (path, content) in document_files {
-                let kind = match path.extension().and_then(|e| e.to_str()) {
-                    Some("ts" | "tsx") => FileKind::TypeScript,
-                    Some("js" | "jsx") => FileKind::JavaScript,
-                    _ => FileKind::ExecutableGraphQL, // .graphql, .gql, or unknown
-                };
+            // Build batch of files with their kinds
+            let files_to_add: Vec<(FilePath, String, FileKind)> = document_files
+                .into_iter()
+                .map(|(path, content)| {
+                    let kind = match path.extension().and_then(|e| e.to_str()) {
+                        Some("ts" | "tsx") => FileKind::TypeScript,
+                        Some("js" | "jsx") => FileKind::JavaScript,
+                        _ => FileKind::ExecutableGraphQL,
+                    };
+                    loaded_files.push(path.clone());
+                    (
+                        FilePath::new(path.to_string_lossy().to_string()),
+                        content,
+                        kind,
+                    )
+                })
+                .collect();
 
-                host.add_file(&FilePath::new(path.to_string_lossy()), &content, kind);
-                loaded_files.push(path);
-            }
+            // Batch add all files for O(n) performance (instead of O(n²) with per-file add)
+            let batch_refs: Vec<(FilePath, &str, FileKind)> = files_to_add
+                .iter()
+                .map(|(path, content, kind)| (path.clone(), content.as_str(), *kind))
+                .collect();
+            host.add_files_batch(&batch_refs);
+        } else {
+            // No documents to load, but still need to rebuild for schemas
+            host.rebuild_project_files();
         }
-
-        host.rebuild_project_files();
 
         Ok(Self { host, loaded_files })
     }

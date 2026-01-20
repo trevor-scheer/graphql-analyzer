@@ -216,8 +216,7 @@ pub fn project_fragment_name_index(
     let mut name_counts: HashMap<Arc<str>, usize> = HashMap::new();
 
     for file_id in doc_ids.iter() {
-        if let Some((content, metadata)) =
-            graphql_base_db::file_lookup(db, project_files, *file_id)
+        if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
         {
             let frag_names = file_defined_fragment_names(db, *file_id, content, metadata);
             for name in frag_names.iter() {

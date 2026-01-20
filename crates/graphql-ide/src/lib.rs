@@ -1062,10 +1062,13 @@ impl AnalysisHost {
             }
         }
 
-        // Batch add all files
-        for (file_path, content, file_kind) in files_to_add {
-            self.add_file(&file_path, &content, file_kind);
-        }
+        // Batch add all files using add_files_batch for O(n) performance
+        // Convert owned strings to borrowed for the batch API
+        let batch_refs: Vec<(FilePath, &str, FileKind)> = files_to_add
+            .iter()
+            .map(|(path, content, kind)| (path.clone(), content.as_str(), *kind))
+            .collect();
+        self.add_files_batch(&batch_refs);
 
         loaded_files
     }
