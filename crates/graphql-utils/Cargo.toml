@@ -1,0 +1,13 @@
+[package]
+name = "graphql-utils"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+description = "Utility functions for GraphQL CST traversal and manipulation"
+keywords = ["graphql", "cst", "visitor", "utilities"]
+categories = ["development-tools", "parser-implementations"]
+
+[dependencies]
+apollo-parser.workspace = true
