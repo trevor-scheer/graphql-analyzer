@@ -192,12 +192,12 @@ query {
 
    Open the `editors/vscode` directory in VS Code and press `F5` to launch the Extension Development Host.
 
-4. **Set custom LSP path (optional):**
+4. **Set custom binary path (optional):**
 
-   The extension automatically uses `target/debug/graphql-lsp` when running from the repository. To override:
+   The extension automatically uses `target/debug/graphql` when running from the repository. To override:
 
    ```bash
-   export GRAPHQL_LSP_PATH=/custom/path/to/graphql-lsp
+   export GRAPHQL_PATH=/custom/path/to/graphql
    ```
 
    Or set `graphql.server.path` in VS Code settings.

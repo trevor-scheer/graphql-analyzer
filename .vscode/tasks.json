@@ -15,10 +15,10 @@
       "problemMatcher": ["$tsc"]
     },
     {
-      "label": "build-lsp",
+      "label": "build-cli",
       "type": "cargo",
       "command": "build",
-      "args": ["--package", "graphql-lsp"],
+      "args": ["--package", "graphql-cli"],
       "problemMatcher": ["$rustc"],
       "group": {
         "kind": "build",
@@ -26,15 +26,8 @@
       }
     },
     {
-      "label": "build-cli",
-      "type": "cargo",
-      "command": "build",
-      "args": ["--package", "graphql-cli"],
-      "problemMatcher": ["$rustc"]
-    },
-    {
       "label": "build-all",
-      "dependsOn": ["build-lsp", "compile-extension"],
+      "dependsOn": ["build-cli", "compile-extension"],
       "problemMatcher": []
     },
     {
