@@ -215,8 +215,12 @@ impl FileRegistry {
         }
 
         // Create or update the SchemaFileIds input
+        // Only update if the IDs have actually changed to avoid invalidating queries
         let schema_file_ids = if let Some(existing) = self.schema_file_ids {
-            existing.set_ids(db).to(Arc::new(schema_ids));
+            let existing_ids = existing.ids(db);
+            if existing_ids.as_slice() != schema_ids.as_slice() {
+                existing.set_ids(db).to(Arc::new(schema_ids));
+            }
             existing
         } else {
             SchemaFileIds::new(db, Arc::new(schema_ids))
@@ -224,8 +228,12 @@ impl FileRegistry {
         self.schema_file_ids = Some(schema_file_ids);
 
         // Create or update the DocumentFileIds input
+        // Only update if the IDs have actually changed to avoid invalidating queries
         let document_file_ids = if let Some(existing) = self.document_file_ids {
-            existing.set_ids(db).to(Arc::new(document_ids));
+            let existing_ids = existing.ids(db);
+            if existing_ids.as_slice() != document_ids.as_slice() {
+                existing.set_ids(db).to(Arc::new(document_ids));
+            }
             existing
         } else {
             DocumentFileIds::new(db, Arc::new(document_ids))
@@ -233,8 +241,17 @@ impl FileRegistry {
         self.document_file_ids = Some(document_file_ids);
 
         // Create or update the FileEntryMap input
+        // Only update if the set of files has changed (entries point to same FileEntry objects)
         let file_entry_map = if let Some(existing) = self.file_entry_map {
-            existing.set_entries(db).to(Arc::new(file_entries));
+            let existing_entries = existing.entries(db);
+            // Compare file IDs only - the FileEntry values are the same objects
+            let keys_match = existing_entries.len() == file_entries.len()
+                && existing_entries
+                    .keys()
+                    .all(|k| file_entries.contains_key(k));
+            if !keys_match {
+                existing.set_entries(db).to(Arc::new(file_entries));
+            }
             existing
         } else {
             FileEntryMap::new(db, Arc::new(file_entries))
@@ -242,16 +259,26 @@ impl FileRegistry {
         self.file_entry_map = Some(file_entry_map);
 
         // Create or update the ProjectFiles input
-        let project_files = if let Some(existing) = self.project_files {
-            existing.set_schema_file_ids(db).to(schema_file_ids);
-            existing.set_document_file_ids(db).to(document_file_ids);
-            existing.set_file_entry_map(db).to(file_entry_map);
-            existing
+        // Only update child references if they actually changed
+        if let Some(existing) = self.project_files {
+            if existing.schema_file_ids(db) != schema_file_ids {
+                existing.set_schema_file_ids(db).to(schema_file_ids);
+            }
+            if existing.document_file_ids(db) != document_file_ids {
+                existing.set_document_file_ids(db).to(document_file_ids);
+            }
+            if existing.file_entry_map(db) != file_entry_map {
+                existing.set_file_entry_map(db).to(file_entry_map);
+            }
+            self.project_files = Some(existing);
         } else {
-            ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
-        };
-
-        self.project_files = Some(project_files);
+            self.project_files = Some(ProjectFiles::new(
+                db,
+                schema_file_ids,
+                document_file_ids,
+                file_entry_map,
+            ));
+        }
     }
 
     /// Get the `FileEntry` for a file ID
