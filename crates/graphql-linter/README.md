@@ -226,34 +226,19 @@ extensions:
 - `warn` - Show as warning
 - `error` - Show as error
 
-### The `recommended` Preset Philosophy
+### The `recommended` Preset
 
-The `recommended` preset includes only rules that are **objectively beneficial** without being opinionated. These are "hygiene" rules that most projects would agree improve code quality:
+The `recommended` preset includes rules that are objectively beneficial without being opinionated about architecture choices:
 
-| Rule | Why it's included |
-|------|-------------------|
-| `no_anonymous_operations` | Named operations improve debugging and tooling |
-| `no_deprecated` | Alerts users to deprecated API usage |
-| `redundant_fields` | Removes unnecessary duplication |
-| `unused_fragments` | Dead code removal |
-| `unused_fields` | Identifies unused schema surface area |
+| Rule | Severity | Description |
+|------|----------|-------------|
+| `no_anonymous_operations` | error | Named operations improve debugging and tooling |
+| `no_deprecated` | warn | Alerts to deprecated API usage |
+| `redundant_fields` | warn | Removes unnecessary duplication |
+| `unused_fragments` | warn | Dead code removal |
+| `unused_fields` | warn | Identifies unused schema surface area |
 
-**Rules excluded from `recommended`:**
-
-| Rule | Why it's excluded |
-|------|-------------------|
-| `unique_names` | Only required when using persisted queries or similar features that need globally unique operation/fragment names. Many projects don't need this constraint. |
-| `require_id_field` | Opinionated rule tied to specific caching strategies (e.g., Apollo Client's normalized cache). Projects using different caching approaches or no client-side caching may not need this. |
-
-If you want opinionated rules, enable them explicitly:
-
-```yaml
-lint:
-  extends: recommended
-  rules:
-    unique_names: error
-    require_id_field: warn
-```
+Other rules like `unique_names` and `require_id_field` are available but not included by default since they're tied to specific tooling choices (persisted queries, normalized caching, etc.).
 
 ### Rule Options
 

@@ -329,26 +329,10 @@ impl LintConfig {
         )
     }
 
-    /// Get recommended severity for a rule
+    /// Get recommended severity for a rule.
     ///
-    /// The `recommended` preset only includes rules that are objectively beneficial
-    /// without being opinionated. These are "hygiene" rules that most projects would
-    /// agree improve code quality:
-    ///
-    /// - **`no_anonymous_operations`**: Named operations improve debugging and tooling
-    /// - **`no_deprecated`**: Alerts users to deprecated API usage
-    /// - **`redundant_fields`**: Removes unnecessary duplication
-    /// - **`unused_fragments`**: Dead code removal
-    /// - **`unused_fields`**: Identifies unused schema surface area
-    ///
-    /// Rules that are excluded from `recommended`:
-    ///
-    /// - **`unique_names`**: Only required when using persisted queries or similar
-    ///   features that need globally unique operation/fragment names. Many projects
-    ///   don't need this constraint.
-    /// - **`require_id_field`**: Opinionated rule tied to specific caching strategies
-    ///   (e.g., Apollo Client's normalized cache). Projects using different caching
-    ///   approaches or no client-side caching may not need this.
+    /// The `recommended` preset includes rules that are objectively beneficial
+    /// without being opinionated about architecture choices.
     fn recommended_severity(rule_name: &str) -> Option<LintSeverity> {
         match rule_name {
             "no_anonymous_operations" => Some(LintSeverity::Error),
