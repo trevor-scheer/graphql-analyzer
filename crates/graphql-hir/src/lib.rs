@@ -451,6 +451,37 @@ pub fn all_operations(
     Arc::new(operations)
 }
 
+/// Index mapping operation names to the number of operations with that name.
+///
+/// This query provides O(1) lookup for operation name uniqueness validation,
+/// replacing the O(n*m) pattern of calling `all_operations()` for every operation.
+///
+/// Uses granular per-file caching:
+/// - Depends on `DocumentFileIds` (only changes when files are added/removed)
+/// - Calls `file_operation_names` per-file (each cached independently)
+///
+/// When a single file changes, only that file's contribution is recomputed.
+#[salsa::tracked]
+pub fn project_operation_name_index(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, usize>> {
+    let doc_ids = project_files.document_file_ids(db).ids(db);
+    let mut name_counts: HashMap<Arc<str>, usize> = HashMap::new();
+
+    for file_id in doc_ids.iter() {
+        if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        {
+            let op_names = file_operation_names(db, *file_id, content, metadata);
+            for op_info in op_names.iter() {
+                *name_counts.entry(op_info.name.clone()).or_insert(0) += 1;
+            }
+        }
+    }
+
+    Arc::new(name_counts)
+}
+
 // ============================================================================
 // Per-file contribution queries for project-wide lint rules
 // These enable incremental computation: editing one file only recomputes that

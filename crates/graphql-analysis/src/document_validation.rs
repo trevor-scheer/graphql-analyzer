@@ -53,15 +53,13 @@ pub fn validate_document_file(
         .expect("project files must be set for validation");
     let schema = graphql_hir::schema_types(db, project_files);
 
+    // Use the operation name index for O(1) lookup instead of iterating all operations
+    let op_name_index = graphql_hir::project_operation_name_index(db, project_files);
+
     for op_structure in structure.operations.iter() {
         if let Some(name) = &op_structure.name {
-            let all_ops = graphql_hir::all_operations(db, project_files);
-
-            // Count how many operations have this name
-            let count = all_ops
-                .iter()
-                .filter(|op| op.name.as_ref() == Some(name))
-                .count();
+            // O(1) lookup instead of O(n) iteration
+            let count = op_name_index.get(name).copied().unwrap_or(0);
 
             if count > 1 {
                 // Use the name range if available, otherwise fall back to operation range
