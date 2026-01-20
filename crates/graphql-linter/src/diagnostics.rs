@@ -80,6 +80,9 @@ pub struct LintDiagnostic {
     /// For TS/JS files: line offset where the GraphQL block starts (0-based)
     /// This is used to adjust the final line position when converting to Diagnostic
     pub block_line_offset: Option<usize>,
+    /// For TS/JS files: byte offset where the GraphQL block starts in the original file
+    /// This is used to adjust fix edit positions when applying fixes
+    pub block_byte_offset: Option<usize>,
     /// For TS/JS files: the GraphQL block source (for building `LineIndex`)
     /// When set, `offset_range` is relative to this source, not the full file
     pub block_source: Option<std::sync::Arc<str>>,
@@ -102,6 +105,7 @@ impl LintDiagnostic {
             message,
             rule,
             block_line_offset: None,
+            block_byte_offset: None,
             block_source: None,
             fix: None,
         }
@@ -121,6 +125,7 @@ impl LintDiagnostic {
             message: message.into(),
             rule: rule.into(),
             block_line_offset: None,
+            block_byte_offset: None,
             block_source: None,
             fix: None,
         }
@@ -140,6 +145,7 @@ impl LintDiagnostic {
             message: message.into(),
             rule: rule.into(),
             block_line_offset: None,
+            block_byte_offset: None,
             block_source: None,
             fix: None,
         }
@@ -159,6 +165,7 @@ impl LintDiagnostic {
             message: message.into(),
             rule: rule.into(),
             block_line_offset: None,
+            block_byte_offset: None,
             block_source: None,
             fix: None,
         }
@@ -167,8 +174,14 @@ impl LintDiagnostic {
     /// Set the block context for TS/JS files
     /// This allows proper position calculation when the diagnostic is from an extracted block
     #[must_use]
-    pub fn with_block_context(mut self, line_offset: usize, source: std::sync::Arc<str>) -> Self {
+    pub fn with_block_context(
+        mut self,
+        line_offset: usize,
+        byte_offset: usize,
+        source: std::sync::Arc<str>,
+    ) -> Self {
         self.block_line_offset = Some(line_offset);
+        self.block_byte_offset = Some(byte_offset);
         self.block_source = Some(source);
         self
     }

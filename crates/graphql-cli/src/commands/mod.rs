@@ -3,7 +3,7 @@ pub mod common;
 pub mod complexity;
 pub mod coverage;
 pub mod deprecations;
-pub mod fix;
+pub(crate) mod fix;
 pub mod fragments;
 pub mod lint;
 pub mod mcp;

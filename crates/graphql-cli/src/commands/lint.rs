@@ -1,5 +1,6 @@
 use crate::analysis::CliAnalysisHost;
 use crate::commands::common::CommandContext;
+use crate::commands::fix::{apply_fixes, collect_fixable_diagnostics, display_dry_run};
 use crate::OutputFormat;
 use anyhow::Result;
 use colored::Colorize;
@@ -13,6 +14,8 @@ pub fn run(
     project_name: Option<&str>,
     format: OutputFormat,
     _watch: bool,
+    fix: bool,
+    fix_dry_run: bool,
 ) -> Result<()> {
     // Define diagnostic output structure for collecting warnings and errors
     struct DiagnosticOutput {
@@ -62,6 +65,38 @@ pub fn run(
         println!("{}", "✓ Schema loaded successfully".green());
         println!("{}", "✓ Documents loaded successfully".green());
     }
+
+    // Handle fix modes
+    let mut fixes_applied = 0;
+    let host = if fix || fix_dry_run {
+        let spinner = if matches!(format, OutputFormat::Human) {
+            Some(crate::progress::spinner("Collecting fixable issues..."))
+        } else {
+            None
+        };
+
+        let fixes = collect_fixable_diagnostics(&host, None);
+        fixes_applied = fixes.iter().map(|f| f.diagnostics.len()).sum();
+
+        if let Some(pb) = spinner {
+            pb.finish_and_clear();
+        }
+
+        if fixes_applied > 0 {
+            if fix_dry_run {
+                display_dry_run(&fixes, format);
+                host
+            } else {
+                apply_fixes(&fixes, format)?;
+                // Reload host to pick up fixed files
+                CliAnalysisHost::from_project_config(&project_config, &ctx.base_dir)?
+            }
+        } else {
+            host
+        }
+    } else {
+        host
+    };
 
     // Run lints
     let spinner = if matches!(format, OutputFormat::Human) {
@@ -204,6 +239,22 @@ pub fn run(
     let total_duration = start_time.elapsed();
     if matches!(format, OutputFormat::Human) {
         println!();
+
+        // Report fixes if any were applied/detected
+        if fixes_applied > 0 && fix {
+            println!(
+                "{}",
+                format!("✓ Fixed {fixes_applied} issue(s)").green().bold()
+            );
+        } else if fixes_applied > 0 && fix_dry_run {
+            println!(
+                "{}",
+                format!("ℹ Would fix {fixes_applied} issue(s)")
+                    .cyan()
+                    .bold()
+            );
+        }
+
         if total_errors == 0 && total_warnings == 0 {
             println!("{}", "✓ No linting issues found!".green().bold());
         } else if total_errors == 0 {
