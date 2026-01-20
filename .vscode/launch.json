@@ -13,7 +13,7 @@
       "outFiles": ["${workspaceFolder}/editors/vscode/out/**/*.js"],
       "preLaunchTask": "compile-extension",
       "env": {
-        "GRAPHQL_LSP_PATH": "${workspaceFolder}/target/debug/graphql-lsp"
+        "GRAPHQL_PATH": "${workspaceFolder}/target/debug/graphql"
       }
     }
   ]

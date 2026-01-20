@@ -54,7 +54,7 @@ function getPlatformInfo(): PlatformInfo {
       throw new Error(`Unsupported architecture: ${arch}`);
   }
 
-  const binaryName = platform === "win32" ? "graphql-lsp.exe" : "graphql-lsp";
+  const binaryName = platform === "win32" ? "graphql.exe" : "graphql";
 
   return {
     platform: `${archStr}-${platformStr}`,
@@ -128,6 +128,24 @@ async function extractZip(archivePath: string, extractDir: string): Promise<void
   await execAsync(cmd);
 }
 
+/**
+ * Ask user for permission to download the binary.
+ * Returns true if user approves, false otherwise.
+ */
+async function askUserForDownloadPermission(): Promise<boolean> {
+  const download = "Download";
+  const cancel = "Cancel";
+
+  const result = await window.showInformationMessage(
+    "GraphQL CLI not found. Would you like to download it from GitHub releases?",
+    { modal: true, detail: "You can also install manually with: cargo install graphql-cli" },
+    download,
+    cancel
+  );
+
+  return result === download;
+}
+
 async function downloadAndInstallBinary(
   context: ExtensionContext,
   platformInfo: PlatformInfo,
@@ -177,7 +195,7 @@ async function downloadAndInstallBinary(
 
               const isWindows = process.platform === "win32";
               const extension = isWindows ? "zip" : "tar.xz";
-              const archiveName = `graphql-lsp-${platformInfo.platform}.${extension}`;
+              const archiveName = `graphql-cli-${platformInfo.platform}.${extension}`;
               const downloadUrl = `https://github.com/trevor-scheer/graphql-lsp/releases/download/${version}/${archiveName}`;
 
               outputChannel.appendLine(`Downloading from: ${downloadUrl}`);
@@ -187,7 +205,7 @@ async function downloadAndInstallBinary(
               await window.withProgress(
                 {
                   location: ProgressLocation.Notification,
-                  title: "Downloading GraphQL LSP server...",
+                  title: "Downloading GraphQL CLI...",
                   cancellable: false,
                 },
                 async () => {
@@ -205,16 +223,16 @@ async function downloadAndInstallBinary(
 
               const extractedBinaryPath = path.join(
                 storageDir,
-                `graphql-lsp-${platformInfo.platform}`,
+                `graphql-cli-${platformInfo.platform}`,
                 platformInfo.binaryName
               );
 
               if (fs.existsSync(extractedBinaryPath)) {
                 fs.renameSync(extractedBinaryPath, binaryPath);
-                const extractedDir = path.join(storageDir, `graphql-lsp-${platformInfo.platform}`);
+                const extractedDir = path.join(storageDir, `graphql-cli-${platformInfo.platform}`);
                 fs.rmSync(extractedDir, { recursive: true, force: true });
               } else {
-                throw new Error(`Binary not found after extraction`);
+                throw new Error(`Binary not found after extraction at ${extractedBinaryPath}`);
               }
 
               if (!isWindows) {
@@ -235,25 +253,37 @@ async function downloadAndInstallBinary(
   });
 }
 
+/**
+ * Find the GraphQL CLI binary. The extension will use `graphql lsp` as the server command.
+ *
+ * Search order:
+ * 1. Custom path from settings (graphql.server.path)
+ * 2. GRAPHQL_PATH environment variable
+ * 3. Development build (target/debug/graphql)
+ * 4. System PATH
+ * 5. Extension storage (previously downloaded)
+ * 6. Download from GitHub releases (with user permission)
+ */
 export async function findServerBinary(
   context: ExtensionContext,
   outputChannel: OutputChannel,
   customPath?: string
 ): Promise<string> {
+  const platformInfo = getPlatformInfo();
+
+  // 1. Check custom path from settings
   if (customPath && customPath.trim() !== "") {
     const expandedCustomPath = expandTilde(customPath.trim());
     outputChannel.appendLine(`Checking custom path: ${expandedCustomPath}`);
     if (fs.existsSync(expandedCustomPath)) {
       const stats = fs.statSync(expandedCustomPath);
       if (stats.isDirectory()) {
-        const platformInfo = getPlatformInfo();
         const binaryInDir = path.join(expandedCustomPath, platformInfo.binaryName);
         if (fs.existsSync(binaryInDir)) {
           outputChannel.appendLine(`Found binary in custom directory: ${binaryInDir}`);
           return binaryInDir;
-        } else {
-          outputChannel.appendLine(`Custom path is a directory but binary not found: ${binaryInDir}`);
         }
+        outputChannel.appendLine(`Custom path is a directory but binary not found: ${binaryInDir}`);
       } else {
         outputChannel.appendLine(`Found binary at custom path: ${expandedCustomPath}`);
         return expandedCustomPath;
@@ -263,45 +293,47 @@ export async function findServerBinary(
     }
   }
 
-  const envPathRaw = process.env.GRAPHQL_LSP_PATH;
+  // 2. Check environment variable
+  const envPathRaw = process.env.GRAPHQL_PATH;
   if (envPathRaw && envPathRaw.trim() !== "") {
     const envPath = expandTilde(envPathRaw.trim());
-    outputChannel.appendLine(`Checking GRAPHQL_LSP_PATH: ${envPath}`);
+    outputChannel.appendLine(`Checking GRAPHQL_PATH: ${envPath}`);
     if (fs.existsSync(envPath)) {
       const stats = fs.statSync(envPath);
       if (stats.isDirectory()) {
-        const platformInfo = getPlatformInfo();
         const binaryInDir = path.join(envPath, platformInfo.binaryName);
         if (fs.existsSync(binaryInDir)) {
-          outputChannel.appendLine(`Found binary in GRAPHQL_LSP_PATH directory: ${binaryInDir}`);
+          outputChannel.appendLine(`Found binary in GRAPHQL_PATH directory: ${binaryInDir}`);
           return binaryInDir;
-        } else {
-          outputChannel.appendLine(`GRAPHQL_LSP_PATH is a directory but binary not found: ${binaryInDir}`);
         }
+        outputChannel.appendLine(
+          `GRAPHQL_PATH is a directory but binary not found: ${binaryInDir}`
+        );
       } else {
-        outputChannel.appendLine(`Found binary at GRAPHQL_LSP_PATH: ${envPath}`);
+        outputChannel.appendLine(`Found binary at GRAPHQL_PATH: ${envPath}`);
         return envPath;
       }
     } else {
-      outputChannel.appendLine(`GRAPHQL_LSP_PATH does not exist: ${envPath}`);
+      outputChannel.appendLine(`GRAPHQL_PATH does not exist: ${envPath}`);
     }
   }
 
-  const platformInfo = getPlatformInfo();
-
-  const devPath = path.join(context.extensionPath, "../../target/debug/graphql-lsp");
+  // 3. Check development path (for local development)
+  const devPath = path.join(context.extensionPath, "../../target/debug/graphql");
   if (fs.existsSync(devPath)) {
     outputChannel.appendLine(`Found binary at dev path: ${devPath}`);
     return devPath;
   }
 
-  outputChannel.appendLine("Searching for graphql-lsp in PATH...");
-  const pathBinary = await findInPath("graphql-lsp");
+  // 4. Search PATH
+  outputChannel.appendLine("Searching for graphql in PATH...");
+  const pathBinary = await findInPath("graphql");
   if (pathBinary) {
     outputChannel.appendLine(`Found binary in PATH: ${pathBinary}`);
     return pathBinary;
   }
 
+  // 5. Check extension storage for previously downloaded binary
   const storageDir = context.globalStorageUri.fsPath;
   const storedBinaryPath = path.join(storageDir, "bin", platformInfo.binaryName);
   if (fs.existsSync(storedBinaryPath)) {
@@ -309,14 +341,23 @@ export async function findServerBinary(
     return storedBinaryPath;
   }
 
-  outputChannel.appendLine("Binary not found, downloading from GitHub releases...");
+  // 6. Ask user for permission to download
+  outputChannel.appendLine("Binary not found. Asking user for download permission...");
+
+  const userApproved = await askUserForDownloadPermission();
+  if (!userApproved) {
+    throw new Error("GraphQL CLI not found. Install it manually with: cargo install graphql-cli");
+  }
+
+  // 7. Download from GitHub releases
+  outputChannel.appendLine("User approved download. Downloading from GitHub releases...");
 
   try {
     const downloadedPath = await downloadAndInstallBinary(context, platformInfo, outputChannel);
     return downloadedPath;
   } catch (error) {
     throw new Error(
-      `Failed to find or download graphql-lsp binary. You can install it manually with: cargo install graphql-lsp\n\nError: ${error}`
+      `Failed to download graphql binary. You can install it manually with: cargo install graphql-cli\n\nError: ${error}`
     );
   }
 }
