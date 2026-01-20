@@ -335,7 +335,6 @@ impl LintConfig {
     /// without being opinionated. These are "hygiene" rules that most projects would
     /// agree improve code quality:
     ///
-    /// - **`unique_names`**: Duplicate names cause runtime errors
     /// - **`no_anonymous_operations`**: Named operations improve debugging and tooling
     /// - **`no_deprecated`**: Alerts users to deprecated API usage
     /// - **`redundant_fields`**: Removes unnecessary duplication
@@ -344,12 +343,15 @@ impl LintConfig {
     ///
     /// Rules that are excluded from `recommended`:
     ///
+    /// - **`unique_names`**: Only required when using persisted queries or similar
+    ///   features that need globally unique operation/fragment names. Many projects
+    ///   don't need this constraint.
     /// - **`require_id_field`**: Opinionated rule tied to specific caching strategies
     ///   (e.g., Apollo Client's normalized cache). Projects using different caching
     ///   approaches or no client-side caching may not need this.
     fn recommended_severity(rule_name: &str) -> Option<LintSeverity> {
         match rule_name {
-            "unique_names" | "no_anonymous_operations" => Some(LintSeverity::Error),
+            "no_anonymous_operations" => Some(LintSeverity::Error),
             "no_deprecated" | "redundant_fields" | "unused_fragments" | "unused_fields" => {
                 Some(LintSeverity::Warn)
             }
@@ -425,7 +427,8 @@ mod tests {
             config,
             LintConfig::Preset(ExtendsConfig::Single(ref s)) if s == "recommended"
         ));
-        assert!(config.is_enabled("unique_names"));
+        // unique_names is not in recommended (it's opinionated - only needed for PQs)
+        assert!(!config.is_enabled("unique_names"));
         assert!(config.is_enabled("no_deprecated"));
         assert!(config.is_enabled("unused_fields"));
     }
@@ -438,7 +441,8 @@ mod tests {
             config,
             LintConfig::Preset(ExtendsConfig::Multiple(_))
         ));
-        assert!(config.is_enabled("unique_names"));
+        // unique_names is not in recommended (it's opinionated - only needed for PQs)
+        assert!(!config.is_enabled("unique_names"));
         assert!(config.is_enabled("no_deprecated"));
     }
 
@@ -469,9 +473,9 @@ rules:
   no_deprecated: off
 ";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
-        assert!(config.is_enabled("unique_names"));
+        // unique_names and require_id_field are not in recommended (opinionated rules)
+        assert!(!config.is_enabled("unique_names"));
         assert!(!config.is_enabled("no_deprecated"));
-        // require_id_field is not in recommended (it's opinionated)
         assert!(!config.is_enabled("require_id_field"));
     }
 
@@ -483,7 +487,8 @@ rules:
   unused_fields: warn
 ";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
-        assert!(config.is_enabled("unique_names"));
+        // unique_names is not in recommended (opinionated)
+        assert!(!config.is_enabled("unique_names"));
         assert!(config.is_enabled("unused_fields"));
     }
 
@@ -520,7 +525,8 @@ rules:
         let override_config: LintConfig = serde_yaml::from_str(override_yaml).unwrap();
         let merged = base.merge(&override_config);
 
-        assert!(merged.is_enabled("unique_names"));
+        // unique_names is not in recommended (opinionated)
+        assert!(!merged.is_enabled("unique_names"));
         assert!(merged.is_enabled("unused_fields"));
     }
 
@@ -538,7 +544,8 @@ rules:
         let override_config: LintConfig = serde_yaml::from_str(override_yaml).unwrap();
         let merged = base.merge(&override_config);
 
-        assert!(merged.is_enabled("unique_names"));
+        // unique_names is not in recommended (opinionated)
+        assert!(!merged.is_enabled("unique_names"));
         assert!(!merged.is_enabled("no_deprecated"));
     }
 
@@ -576,10 +583,8 @@ rules:
     #[test]
     fn test_recommended_constructor() {
         let config = LintConfig::recommended();
-        assert_eq!(
-            config.get_severity("unique_names"),
-            Some(LintSeverity::Error)
-        );
+        // unique_names is not in recommended (opinionated - only needed for PQs)
+        assert_eq!(config.get_severity("unique_names"), None);
         assert_eq!(
             config.get_severity("no_deprecated"),
             Some(LintSeverity::Warn)

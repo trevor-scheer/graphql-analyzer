@@ -6,6 +6,7 @@ projects:
     lint:
       extends: recommended
       rules:
+        unique_names: error
         require_id_field: warn
 
   starwars:
@@ -14,6 +15,7 @@ projects:
     lint:
       extends: recommended
       rules:
+        unique_names: error
         require_id_field: warn
 
   # Test project using remote schema introspection
@@ -26,4 +28,5 @@ projects:
     lint:
       extends: recommended
       rules:
+        unique_names: error
         require_id_field: warn

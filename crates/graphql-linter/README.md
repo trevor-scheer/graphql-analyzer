@@ -232,7 +232,6 @@ The `recommended` preset includes only rules that are **objectively beneficial**
 
 | Rule | Why it's included |
 |------|-------------------|
-| `unique_names` | Duplicate names cause runtime errors |
 | `no_anonymous_operations` | Named operations improve debugging and tooling |
 | `no_deprecated` | Alerts users to deprecated API usage |
 | `redundant_fields` | Removes unnecessary duplication |
@@ -243,6 +242,7 @@ The `recommended` preset includes only rules that are **objectively beneficial**
 
 | Rule | Why it's excluded |
 |------|-------------------|
+| `unique_names` | Only required when using persisted queries or similar features that need globally unique operation/fragment names. Many projects don't need this constraint. |
 | `require_id_field` | Opinionated rule tied to specific caching strategies (e.g., Apollo Client's normalized cache). Projects using different caching approaches or no client-side caching may not need this. |
 
 If you want opinionated rules, enable them explicitly:
@@ -251,6 +251,7 @@ If you want opinionated rules, enable them explicitly:
 lint:
   extends: recommended
   rules:
+    unique_names: error
     require_id_field: warn
 ```
 
