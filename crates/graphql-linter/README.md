@@ -226,6 +226,34 @@ extensions:
 - `warn` - Show as warning
 - `error` - Show as error
 
+### The `recommended` Preset Philosophy
+
+The `recommended` preset includes only rules that are **objectively beneficial** without being opinionated. These are "hygiene" rules that most projects would agree improve code quality:
+
+| Rule | Why it's included |
+|------|-------------------|
+| `unique_names` | Duplicate names cause runtime errors |
+| `no_anonymous_operations` | Named operations improve debugging and tooling |
+| `no_deprecated` | Alerts users to deprecated API usage |
+| `redundant_fields` | Removes unnecessary duplication |
+| `unused_fragments` | Dead code removal |
+| `unused_fields` | Identifies unused schema surface area |
+
+**Rules excluded from `recommended`:**
+
+| Rule | Why it's excluded |
+|------|-------------------|
+| `require_id_field` | Opinionated rule tied to specific caching strategies (e.g., Apollo Client's normalized cache). Projects using different caching approaches or no client-side caching may not need this. |
+
+If you want opinionated rules, enable them explicitly:
+
+```yaml
+lint:
+  extends: recommended
+  rules:
+    require_id_field: warn
+```
+
 ### Rule Options
 
 Some rules support additional configuration options. Options can be specified using either ESLint-style array syntax or object syntax:
@@ -289,10 +317,13 @@ The rule handles:
 ### require_id_field
 
 **Type**: DocumentSchemaRule
-**Default**: `warn`
+**Default**: `off` (opt-in)
+**Preset**: Not in `recommended` (opinionated rule)
 **Performance**: Fast
 
 Warns when selection sets on types that have an `id` field don't include it. This is useful for ensuring cache normalization works correctly with tools like Apollo Client.
+
+**Note**: This rule is not included in the `recommended` preset because it's tied to specific caching strategies. Enable it explicitly if your project uses a normalized cache.
 
 **Options:**
 

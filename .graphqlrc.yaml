@@ -4,12 +4,18 @@ projects:
   pokemon:
     schema: test-workspace/pokemon/schema.graphql
     documents: "test-workspace/pokemon/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
-    lint: recommended
+    lint:
+      extends: recommended
+      rules:
+        require_id_field: warn
 
   starwars:
     schema: test-workspace/starwars/schema.graphql
     documents: "test-workspace/starwars/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
-    lint: recommended
+    lint:
+      extends: recommended
+      rules:
+        require_id_field: warn
 
   github:
     schema: "test-workspace/github/schema/*.graphql"
@@ -41,4 +47,7 @@ projects:
     schema:
       url: https://countries.trevorblades.com/graphql
     documents: "test-workspace/countries/src/**/*.{graphql,ts}"
-    lint: recommended
+    lint:
+      extends: recommended
+      rules:
+        require_id_field: warn

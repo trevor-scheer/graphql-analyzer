@@ -330,11 +330,29 @@ impl LintConfig {
     }
 
     /// Get recommended severity for a rule
+    ///
+    /// The `recommended` preset only includes rules that are objectively beneficial
+    /// without being opinionated. These are "hygiene" rules that most projects would
+    /// agree improve code quality:
+    ///
+    /// - **`unique_names`**: Duplicate names cause runtime errors
+    /// - **`no_anonymous_operations`**: Named operations improve debugging and tooling
+    /// - **`no_deprecated`**: Alerts users to deprecated API usage
+    /// - **`redundant_fields`**: Removes unnecessary duplication
+    /// - **`unused_fragments`**: Dead code removal
+    /// - **`unused_fields`**: Identifies unused schema surface area
+    ///
+    /// Rules that are excluded from `recommended`:
+    ///
+    /// - **`require_id_field`**: Opinionated rule tied to specific caching strategies
+    ///   (e.g., Apollo Client's normalized cache). Projects using different caching
+    ///   approaches or no client-side caching may not need this.
     fn recommended_severity(rule_name: &str) -> Option<LintSeverity> {
         match rule_name {
             "unique_names" | "no_anonymous_operations" => Some(LintSeverity::Error),
-            "no_deprecated" | "redundant_fields" | "require_id_field" | "unused_fragments"
-            | "unused_fields" => Some(LintSeverity::Warn),
+            "no_deprecated" | "redundant_fields" | "unused_fragments" | "unused_fields" => {
+                Some(LintSeverity::Warn)
+            }
             _ => None,
         }
     }
@@ -453,7 +471,8 @@ rules:
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         assert!(config.is_enabled("unique_names"));
         assert!(!config.is_enabled("no_deprecated"));
-        assert!(config.is_enabled("require_id_field"));
+        // require_id_field is not in recommended (it's opinionated)
+        assert!(!config.is_enabled("require_id_field"));
     }
 
     #[test]
