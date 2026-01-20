@@ -14,6 +14,7 @@ categories = ["development-tools"]
 graphql-base-db = { path = "../graphql-base-db" }
 graphql-syntax = { path = "../graphql-syntax" }
 graphql-hir = { path = "../graphql-hir" }
+graphql-apollo-ext = { path = "../graphql-apollo-ext" }
 
 # GraphQL parsing
 apollo-parser = { workspace = true }

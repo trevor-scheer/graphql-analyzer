@@ -1,6 +1,7 @@
 use crate::diagnostics::{CodeFix, LintDiagnostic, LintSeverity, TextEdit};
 use crate::traits::{LintRule, StandaloneDocumentLintRule};
-use apollo_parser::cst::{self, CstNode};
+use apollo_parser::cst;
+use graphql_apollo_ext::{walk_operation, CstVisitor, DocumentExt, NameExt, RangeExt};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use std::collections::HashSet;
 
@@ -53,13 +54,10 @@ impl StandaloneDocumentLintRule for UnusedVariablesRuleImpl {
 
         // Unified: check all documents (works for both pure GraphQL and TS/JS)
         for doc in parse.documents() {
-            let doc_cst = doc.tree.document();
             let mut doc_diagnostics = Vec::new();
 
-            for definition in doc_cst.definitions() {
-                if let cst::Definition::OperationDefinition(operation) = definition {
-                    check_operation_for_unused_variables(&operation, &mut doc_diagnostics);
-                }
+            for operation in doc.tree.operations() {
+                check_operation_for_unused_variables(&operation, &mut doc_diagnostics);
             }
 
             // Add block context for embedded GraphQL (byte_offset > 0)
@@ -92,12 +90,42 @@ struct DeclaredVariable {
     def_start: usize,
     /// Byte offset of the end of the variable definition
     def_end: usize,
-    /// Index of this variable in the variable definitions list (for future use)
-    #[allow(dead_code)]
-    index: usize,
-    /// Total number of variables in the list (for future use)
-    #[allow(dead_code)]
-    total: usize,
+}
+
+/// Visitor that collects all variable references (excluding definitions)
+struct VariableCollector {
+    /// Track when we're inside a variable definition (to skip those)
+    in_variable_definition: bool,
+    variables: HashSet<String>,
+}
+
+impl VariableCollector {
+    fn new() -> Self {
+        Self {
+            in_variable_definition: false,
+            variables: HashSet::new(),
+        }
+    }
+}
+
+impl CstVisitor for VariableCollector {
+    fn enter_variable_definition(&mut self, _var_def: &cst::VariableDefinition) {
+        self.in_variable_definition = true;
+    }
+
+    fn exit_variable_definition(&mut self, _var_def: &cst::VariableDefinition) {
+        self.in_variable_definition = false;
+    }
+
+    fn visit_variable(&mut self, var: &cst::Variable) {
+        // Skip variables in variable definitions (those are declarations, not usages)
+        if self.in_variable_definition {
+            return;
+        }
+        if let Some(name) = var.name_text() {
+            self.variables.insert(name);
+        }
+    }
 }
 
 /// Check a single operation for unused variables
@@ -109,30 +137,20 @@ fn check_operation_for_unused_variables(
     let mut declared_variables: Vec<DeclaredVariable> = Vec::new();
 
     if let Some(variable_definitions) = operation.variable_definitions() {
-        let var_defs: Vec<_> = variable_definitions.variable_definitions().collect();
-        let total = var_defs.len();
-
-        for (index, variable_def) in var_defs.iter().enumerate() {
+        for variable_def in variable_definitions.variable_definitions() {
             if let Some(variable) = variable_def.variable() {
-                if let Some(name) = variable.name() {
-                    let var_name = name.text().to_string();
-                    let name_syntax = name.syntax();
-                    let name_start: usize = name_syntax.text_range().start().into();
-                    let name_end: usize = name_syntax.text_range().end().into();
-
-                    // Get the full variable definition range
-                    let def_syntax = variable_def.syntax();
-                    let def_start: usize = def_syntax.text_range().start().into();
-                    let def_end: usize = def_syntax.text_range().end().into();
+                if let Some(name) = variable.name_text() {
+                    let name_range = variable
+                        .name_range()
+                        .unwrap_or_else(|| variable.byte_range());
+                    let def_range = variable_def.byte_range();
 
                     declared_variables.push(DeclaredVariable {
-                        name: var_name,
-                        name_start,
-                        name_end,
-                        def_start,
-                        def_end,
-                        index,
-                        total,
+                        name,
+                        name_start: name_range.start,
+                        name_end: name_range.end,
+                        def_start: def_range.start,
+                        def_end: def_range.end,
                     });
                 }
             }
@@ -144,29 +162,14 @@ fn check_operation_for_unused_variables(
         return;
     }
 
-    // Step 2: Collect all used variables
-    let mut used_variables = HashSet::new();
-
-    // Check directives on the operation itself
-    if let Some(directives) = operation.directives() {
-        collect_variables_from_directives(&directives, &mut used_variables);
-    }
-
-    // Check the selection set
-    if let Some(selection_set) = operation.selection_set() {
-        collect_variables_from_selection_set(&selection_set, &mut used_variables);
-    }
+    // Step 2: Collect all used variables using the visitor
+    let mut collector = VariableCollector::new();
+    walk_operation(&mut collector, operation);
 
     // Step 3: Report unused variables with fixes
     for var in declared_variables {
-        if !used_variables.contains(&var.name) {
+        if !collector.variables.contains(&var.name) {
             let message = format!("Variable '${}' is declared but never used", var.name);
-
-            // Compute the fix range
-            // For a variable list like ($a: A, $b: B, $c: C):
-            // - If removing first variable and there are more: delete from start to after the comma
-            // - If removing middle/last variable: delete from before the comma to end
-            // - If removing only variable: need to remove entire variable definitions ()
             let fix = compute_variable_removal_fix(&var);
 
             diagnostics.push(
@@ -180,110 +183,7 @@ fn check_operation_for_unused_variables(
 /// Compute the fix for removing an unused variable
 fn compute_variable_removal_fix(var: &DeclaredVariable) -> CodeFix {
     let label = format!("Remove unused variable '${}'", var.name);
-
-    // For now, we use a simple approach: delete just the variable definition
-    // The CLI fix command will handle multiple variables and cleanup
-    //
-    // More sophisticated approach would be:
-    // - Track commas between variables
-    // - Delete leading comma for non-first variables
-    // - Delete trailing comma for first variables when there are more
-    //
-    // But this is complex with the CST API, so we'll use a simpler approach
-    // that works well for single unused variables
-
     CodeFix::new(label, vec![TextEdit::delete(var.def_start, var.def_end)])
-}
-
-/// Recursively collect variable references from a selection set
-fn collect_variables_from_selection_set(
-    selection_set: &cst::SelectionSet,
-    variables: &mut HashSet<String>,
-) {
-    for selection in selection_set.selections() {
-        match selection {
-            cst::Selection::Field(field) => {
-                // Check field arguments
-                if let Some(arguments) = field.arguments() {
-                    collect_variables_from_arguments(&arguments, variables);
-                }
-
-                // Check directives on the field
-                if let Some(directives) = field.directives() {
-                    collect_variables_from_directives(&directives, variables);
-                }
-
-                // Recursively check nested selection sets
-                if let Some(nested_selection_set) = field.selection_set() {
-                    collect_variables_from_selection_set(&nested_selection_set, variables);
-                }
-            }
-            cst::Selection::FragmentSpread(spread) => {
-                // Check directives on the fragment spread
-                if let Some(directives) = spread.directives() {
-                    collect_variables_from_directives(&directives, variables);
-                }
-            }
-            cst::Selection::InlineFragment(inline) => {
-                // Check directives on the inline fragment
-                if let Some(directives) = inline.directives() {
-                    collect_variables_from_directives(&directives, variables);
-                }
-
-                // Recursively check nested selection sets
-                if let Some(nested_selection_set) = inline.selection_set() {
-                    collect_variables_from_selection_set(&nested_selection_set, variables);
-                }
-            }
-        }
-    }
-}
-
-/// Collect variable references from arguments
-fn collect_variables_from_arguments(arguments: &cst::Arguments, variables: &mut HashSet<String>) {
-    for argument in arguments.arguments() {
-        if let Some(value) = argument.value() {
-            collect_variables_from_value(&value, variables);
-        }
-    }
-}
-
-/// Collect variable references from directives
-fn collect_variables_from_directives(
-    directives: &cst::Directives,
-    variables: &mut HashSet<String>,
-) {
-    for directive in directives.directives() {
-        if let Some(arguments) = directive.arguments() {
-            collect_variables_from_arguments(&arguments, variables);
-        }
-    }
-}
-
-/// Recursively collect variable references from a value
-fn collect_variables_from_value(value: &cst::Value, variables: &mut HashSet<String>) {
-    match value {
-        cst::Value::Variable(var) => {
-            if let Some(name) = var.name() {
-                variables.insert(name.text().to_string());
-            }
-        }
-        cst::Value::ListValue(list) => {
-            for item in list.values() {
-                collect_variables_from_value(&item, variables);
-            }
-        }
-        cst::Value::ObjectValue(obj) => {
-            for field in obj.object_fields() {
-                if let Some(field_value) = field.value() {
-                    collect_variables_from_value(&field_value, variables);
-                }
-            }
-        }
-        _ => {
-            // Other value types (String, Int, Float, BooleanValue, EnumValue, NullValue) don't contain variables
-        }
-    }
 }
 
 #[cfg(test)]
