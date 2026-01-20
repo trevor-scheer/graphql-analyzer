@@ -226,6 +226,20 @@ extensions:
 - `warn` - Show as warning
 - `error` - Show as error
 
+### The `recommended` Preset
+
+The `recommended` preset includes rules that are objectively beneficial without being opinionated about architecture choices:
+
+| Rule | Severity | Description |
+|------|----------|-------------|
+| `no_anonymous_operations` | error | Named operations improve debugging and tooling |
+| `no_deprecated` | warn | Alerts to deprecated API usage |
+| `redundant_fields` | warn | Removes unnecessary duplication |
+| `unused_fragments` | warn | Dead code removal |
+| `unused_fields` | warn | Identifies unused schema surface area |
+
+Other rules like `unique_names` and `require_id_field` are available but not included by default since they're tied to specific tooling choices (persisted queries, normalized caching, etc.).
+
 ### Rule Options
 
 Some rules support additional configuration options. Options can be specified using either ESLint-style array syntax or object syntax:
@@ -289,10 +303,13 @@ The rule handles:
 ### require_id_field
 
 **Type**: DocumentSchemaRule
-**Default**: `warn`
+**Default**: `off` (opt-in)
+**Preset**: Not in `recommended` (opinionated rule)
 **Performance**: Fast
 
 Warns when selection sets on types that have an `id` field don't include it. This is useful for ensuring cache normalization works correctly with tools like Apollo Client.
+
+**Note**: This rule is not included in the `recommended` preset because it's tied to specific caching strategies. Enable it explicitly if your project uses a normalized cache.
 
 **Options:**
 
