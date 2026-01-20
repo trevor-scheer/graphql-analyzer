@@ -88,6 +88,99 @@ pub struct LoadedFile {
     pub kind: FileKind,
 }
 
+/// File data that has been read from disk but not yet registered.
+/// Used to separate file I/O from lock acquisition.
+pub struct DiscoveredFile {
+    /// The file path (as a URI string)
+    pub path: FilePath,
+    /// The file content
+    pub content: String,
+    /// The determined file kind
+    pub kind: FileKind,
+}
+
+/// Discover and read document files from config without requiring any locks.
+///
+/// This function performs all file I/O upfront so that lock acquisition
+/// for registration can be brief. Returns the file data ready for registration.
+#[allow(clippy::too_many_lines)]
+pub fn discover_document_files(
+    config: &graphql_config::ProjectConfig,
+    workspace_path: &std::path::Path,
+) -> Vec<DiscoveredFile> {
+    let Some(documents_config) = &config.documents else {
+        return Vec::new();
+    };
+
+    let patterns: Vec<String> = documents_config
+        .patterns()
+        .into_iter()
+        .map(std::string::ToString::to_string)
+        .collect();
+
+    let mut discovered: Vec<DiscoveredFile> = Vec::new();
+
+    for pattern in patterns {
+        // Skip negation patterns
+        if pattern.trim().starts_with('!') {
+            continue;
+        }
+
+        let expanded_patterns = expand_braces(&pattern);
+
+        for expanded_pattern in expanded_patterns {
+            let full_pattern = workspace_path.join(&expanded_pattern);
+
+            match glob::glob(&full_pattern.display().to_string()) {
+                Ok(paths) => {
+                    for entry in paths {
+                        match entry {
+                            Ok(path) if path.is_file() => {
+                                // Skip node_modules
+                                if path.components().any(|c| c.as_os_str() == "node_modules") {
+                                    continue;
+                                }
+
+                                // Read file content
+                                match std::fs::read_to_string(&path) {
+                                    Ok(content) => {
+                                        let path_str = path.display().to_string();
+                                        let file_kind =
+                                            determine_document_file_kind(&path_str, &content);
+                                        let file_path = path_to_file_path(&path);
+
+                                        discovered.push(DiscoveredFile {
+                                            path: file_path,
+                                            content,
+                                            kind: file_kind,
+                                        });
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "Failed to read file {}: {}",
+                                            path.display(),
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                            Ok(_) => {}
+                            Err(e) => {
+                                tracing::warn!("Glob entry error: {}", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Invalid glob pattern '{}': {}", expanded_pattern, e);
+                }
+            }
+        }
+    }
+
+    discovered
+}
+
 /// Expand brace patterns like `{ts,tsx}` into multiple patterns
 ///
 /// This is needed because the glob crate doesn't support brace expansion.
@@ -646,6 +739,28 @@ impl AnalysisHost {
         let mut registry = self.registry.write();
         let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, kind);
         is_new
+    }
+
+    /// Batch-add pre-discovered files to the host.
+    ///
+    /// This is more efficient than calling `add_file` in a loop because
+    /// file I/O has already been done. The lock is only held briefly
+    /// for registration, not during disk reads.
+    ///
+    /// Returns the list of `LoadedFile` structs for building indexes.
+    pub fn add_discovered_files(&mut self, files: &[DiscoveredFile]) -> Vec<LoadedFile> {
+        let mut registry = self.registry.write();
+        let mut loaded = Vec::with_capacity(files.len());
+
+        for file in files {
+            registry.add_file(&mut self.db, &file.path, &file.content, file.kind);
+            loaded.push(LoadedFile {
+                path: file.path.clone(),
+                kind: file.kind,
+            });
+        }
+
+        loaded
     }
 
     /// Rebuild the `ProjectFiles` index after adding/removing files

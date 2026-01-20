@@ -18,8 +18,94 @@ use graphql_ide::AnalysisHost;
 use lsp_types::Uri;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 use tower_lsp_server::UriExt;
+
+/// Default timeout for acquiring host locks during LSP requests.
+const LOCK_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// A wrapper around `AnalysisHost` that enforces safe access patterns.
+///
+/// This type prevents handlers from accidentally holding the lock without a timeout
+/// by only exposing safe access methods:
+/// - `try_snapshot()`: Read access with timeout (for request handlers)
+/// - `with_write()`: Write access for background tasks (no timeout, but caller is responsible)
+///
+/// Request handlers should ONLY use `try_snapshot()`. If they need write access,
+/// they're doing something wrong - writes should happen in `did_open`/`did_change`
+/// handlers or background tasks.
+#[derive(Clone)]
+pub struct ProjectHost {
+    inner: Arc<Mutex<AnalysisHost>>,
+}
+
+impl ProjectHost {
+    /// Create a new `ProjectHost` wrapping a fresh `AnalysisHost`
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(AnalysisHost::new())),
+        }
+    }
+
+    /// Check if two `ProjectHost` instances point to the same underlying host
+    #[cfg(test)]
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
+    /// Try to get a snapshot with a timeout.
+    ///
+    /// This is the ONLY way request handlers should access the analysis.
+    /// Returns `None` if the lock can't be acquired within the timeout,
+    /// allowing the handler to return early instead of blocking.
+    pub async fn try_snapshot(&self) -> Option<graphql_ide::Analysis> {
+        if let Ok(guard) = tokio::time::timeout(LOCK_TIMEOUT, self.inner.lock()).await {
+            Some(guard.snapshot())
+        } else {
+            tracing::debug!("Timed out waiting for analysis host lock");
+            None
+        }
+    }
+
+    /// Execute a write operation on the host.
+    ///
+    /// This acquires the lock WITHOUT a timeout. Only use this for:
+    /// - Background initialization tasks
+    /// - `did_open`/`did_change` handlers (which need to update content)
+    ///
+    /// The closure should complete quickly - don't do file I/O while holding the lock!
+    pub async fn with_write<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut AnalysisHost) -> R,
+    {
+        let mut guard = self.inner.lock().await;
+        f(&mut guard)
+    }
+
+    /// Execute a write operation and get a snapshot in one lock acquisition.
+    ///
+    /// This is optimized for `did_open`/`did_change` which need to:
+    /// 1. Update file content
+    /// 2. Get a snapshot for validation
+    ///
+    /// Doing both in one lock acquisition avoids double-locking.
+    pub async fn write_and_snapshot<F, R>(&self, f: F) -> (R, graphql_ide::Analysis)
+    where
+        F: FnOnce(&mut AnalysisHost) -> R,
+    {
+        let mut guard = self.inner.lock().await;
+        let result = f(&mut guard);
+        let snapshot = guard.snapshot();
+        (result, snapshot)
+    }
+}
+
+impl Default for ProjectHost {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Manages workspace state for the GraphQL Language Server.
 ///
@@ -42,8 +128,9 @@ pub struct WorkspaceManager {
     /// Loaded GraphQL configs indexed by workspace URI string
     pub configs: DashMap<String, graphql_config::GraphQLConfig>,
 
-    /// `AnalysisHost` per (workspace URI, project name) tuple
-    pub hosts: DashMap<(String, String), Arc<Mutex<AnalysisHost>>>,
+    /// `ProjectHost` per (workspace URI, project name) tuple
+    /// Uses `ProjectHost` wrapper to enforce safe access patterns
+    pub hosts: DashMap<(String, String), ProjectHost>,
 
     /// Document versions indexed by document URI string
     /// Used to detect out-of-order updates and avoid race conditions
@@ -69,27 +156,63 @@ impl WorkspaceManager {
         }
     }
 
-    /// Get or create an `AnalysisHost` for a workspace/project
-    pub fn get_or_create_host(
-        &self,
-        workspace_uri: &str,
-        project_name: &str,
-    ) -> Arc<Mutex<AnalysisHost>> {
+    /// Get or create a `ProjectHost` for a workspace/project
+    pub fn get_or_create_host(&self, workspace_uri: &str, project_name: &str) -> ProjectHost {
         self.hosts
             .entry((workspace_uri.to_string(), project_name.to_string()))
-            .or_insert_with(|| Arc::new(Mutex::new(AnalysisHost::new())))
+            .or_default()
             .clone()
     }
 
-    /// Find the workspace and project for a given document URI
+    /// Find the workspace and project for a given document URI (sync version)
     ///
     /// Uses a reverse index for O(1) lookup of previously seen files.
-    /// Falls back to config pattern matching for files opened after init
-    /// that haven't been indexed yet.
+    /// Falls back to config pattern matching for files opened after init.
     ///
-    /// For virtual files (like `schema://` URIs), searches all hosts
-    /// to find one that contains the file.
+    /// Note: For virtual files (non-file:// scheme), use `find_workspace_and_project_async`.
     pub fn find_workspace_and_project(&self, document_uri: &Uri) -> Option<(String, String)> {
+        let uri_string = document_uri.to_string();
+
+        // First, check the reverse index
+        if let Some(entry) = self.file_to_project.get(&uri_string) {
+            return Some(entry.value().clone());
+        }
+
+        // For virtual files, caller should use async version
+        if !uri_string.starts_with("file://") {
+            return None;
+        }
+
+        // Fall back to searching configs for pattern matching
+        let doc_path = document_uri.to_file_path()?;
+        for workspace_entry in &self.workspace_roots {
+            let workspace_uri = workspace_entry.key();
+            let workspace_path = workspace_entry.value();
+
+            if doc_path.as_ref().starts_with(workspace_path.as_path()) {
+                if let Some(config) = self.configs.get(workspace_uri.as_str()) {
+                    if let Some(project_name) =
+                        config.find_project_for_document(&doc_path, workspace_path)
+                    {
+                        return Some((workspace_uri.clone(), project_name.to_string()));
+                    }
+                }
+                return None;
+            }
+        }
+
+        None
+    }
+
+    /// Find the workspace and project for a given document URI (async version)
+    ///
+    /// This version also handles virtual files (like `schema://` URIs) by
+    /// searching all hosts asynchronously.
+    #[allow(dead_code)]
+    pub async fn find_workspace_and_project_async(
+        &self,
+        document_uri: &Uri,
+    ) -> Option<(String, String)> {
         let uri_string = document_uri.to_string();
 
         // First, check the reverse index
@@ -99,7 +222,7 @@ impl WorkspaceManager {
 
         // For virtual files (non-file:// scheme), search all hosts
         if !uri_string.starts_with("file://") {
-            return self.find_host_for_virtual_file(&uri_string);
+            return self.find_host_for_virtual_file(&uri_string).await;
         }
 
         // Fall back to searching configs for pattern matching
@@ -127,16 +250,18 @@ impl WorkspaceManager {
     ///
     /// This is used for non-file:// URIs like `schema://` virtual files
     /// that represent remote schemas fetched via introspection.
-    fn find_host_for_virtual_file(&self, uri_string: &str) -> Option<(String, String)> {
+    ///
+    /// Note: This is async because it uses the timeout-based snapshot access.
+    #[allow(dead_code)]
+    pub async fn find_host_for_virtual_file(&self, uri_string: &str) -> Option<(String, String)> {
         let file_path = graphql_ide::FilePath::new(uri_string);
 
         for entry in &self.hosts {
             let (workspace_uri, project_name) = entry.key();
             let host = entry.value();
 
-            // Try to get a snapshot without blocking for too long
-            if let Ok(guard) = host.try_lock() {
-                let snapshot = guard.snapshot();
+            // Try to get a snapshot with timeout
+            if let Some(snapshot) = host.try_snapshot().await {
                 if snapshot.file_content(&file_path).is_some() {
                     return Some((workspace_uri.clone(), project_name.clone()));
                 }
@@ -245,11 +370,11 @@ mod tests {
         let host2 = manager.get_or_create_host("workspace1", "project1");
 
         // Should return the same host
-        assert!(Arc::ptr_eq(&host1, &host2));
+        assert!(host1.ptr_eq(&host2));
 
         // Different project should get different host
         let host3 = manager.get_or_create_host("workspace1", "project2");
-        assert!(!Arc::ptr_eq(&host1, &host3));
+        assert!(!host1.ptr_eq(&host3));
     }
 
     #[test]
