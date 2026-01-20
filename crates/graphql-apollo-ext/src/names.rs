@@ -6,7 +6,7 @@
 //! # Example
 //!
 //! ```
-//! use graphql_utils::NameExt;
+//! use graphql_apollo_ext::NameExt;
 //! use apollo_parser::Parser;
 //!
 //! let source = "fragment UserFields on User { name }";

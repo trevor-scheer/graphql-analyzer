@@ -6,7 +6,7 @@
 //! # Example
 //!
 //! ```
-//! use graphql_utils::{collect_fragment_spreads, collect_variables};
+//! use graphql_apollo_ext::{collect_fragment_spreads, collect_variables};
 //! use apollo_parser::Parser;
 //!
 //! let source = "query($id: ID!) { ...UserFields user(id: $id) { name } }";

@@ -1,6 +1,6 @@
 use crate::diagnostics::{CodeFix, LintDiagnostic, LintSeverity, TextEdit};
 use crate::traits::{LintRule, ProjectLintRule};
-use apollo_parser::cst::{self, CstNode};
+use graphql_apollo_ext::{DocumentExt, NameExt, RangeExt};
 use graphql_base_db::{FileId, ProjectFiles};
 use std::collections::{HashMap, HashSet};
 
@@ -65,7 +65,7 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
 
             // Iterate over all GraphQL documents (unified API for .graphql and TS/JS)
             for doc in parse.documents() {
-                collect_fragment_definitions(&doc.tree.document(), *file_id, &mut all_fragments);
+                collect_fragment_definitions(doc.tree, *file_id, &mut all_fragments);
             }
         }
 
@@ -118,35 +118,26 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
 
 /// Collect fragment definitions from a CST document with their positions
 fn collect_fragment_definitions(
-    doc: &cst::Document,
+    tree: &apollo_parser::SyntaxTree,
     file_id: FileId,
     fragments: &mut Vec<FragmentInfo>,
 ) {
-    for definition in doc.definitions() {
-        if let cst::Definition::FragmentDefinition(frag) = definition {
-            let Some(fragment_name) = frag.fragment_name() else {
-                continue;
-            };
-            let Some(name) = fragment_name.name() else {
-                continue;
-            };
+    for frag in tree.fragments() {
+        let Some(name) = frag.name_text() else {
+            continue;
+        };
+        let Some(name_range) = frag.name_range() else {
+            continue;
+        };
+        let def_range = frag.byte_range();
 
-            let name_syntax = name.syntax();
-            let name_start: usize = name_syntax.text_range().start().into();
-            let name_end: usize = name_syntax.text_range().end().into();
-
-            let def_syntax = frag.syntax();
-            let def_start: usize = def_syntax.text_range().start().into();
-            let def_end: usize = def_syntax.text_range().end().into();
-
-            fragments.push(FragmentInfo {
-                name: name.text().to_string(),
-                file_id,
-                name_start,
-                name_end,
-                def_start,
-                def_end,
-            });
-        }
+        fragments.push(FragmentInfo {
+            name,
+            file_id,
+            name_start: name_range.start,
+            name_end: name_range.end,
+            def_start: def_range.start,
+            def_end: def_range.end,
+        });
     }
 }

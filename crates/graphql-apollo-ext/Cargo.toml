@@ -1,12 +1,12 @@
 [package]
-name = "graphql-utils"
+name = "graphql-apollo-ext"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
-description = "Utility functions for GraphQL CST traversal and manipulation"
-keywords = ["graphql", "cst", "visitor", "utilities"]
+description = "Apollo-parser extensions: visitor pattern, name extraction, and collection utilities"
+keywords = ["graphql", "apollo-parser", "visitor", "cst"]
 categories = ["development-tools", "parser-implementations"]
 
 [dependencies]

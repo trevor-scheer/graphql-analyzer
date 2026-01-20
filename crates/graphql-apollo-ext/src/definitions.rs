@@ -6,7 +6,7 @@
 //! # Example
 //!
 //! ```
-//! use graphql_utils::DocumentExt;
+//! use graphql_apollo_ext::DocumentExt;
 //! use apollo_parser::Parser;
 //!
 //! let source = r#"

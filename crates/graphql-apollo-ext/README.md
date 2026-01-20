@@ -1,6 +1,9 @@
-# graphql-utils
+# graphql-apollo-ext
 
-Utility functions for GraphQL CST traversal and manipulation.
+Extensions for `apollo-parser`: visitor pattern, name extraction, and collection utilities.
+
+**Note**: This crate is specifically tied to `apollo-parser`'s CST types. For parser-agnostic
+utilities, see `graphql-utils`.
 
 ## Features
 
@@ -12,7 +15,7 @@ Utility functions for GraphQL CST traversal and manipulation.
 ## Usage
 
 ```rust
-use graphql_utils::{CstVisitor, walk_document, collect_fragment_spreads};
+use graphql_apollo_ext::{CstVisitor, walk_document, collect_fragment_spreads};
 use apollo_parser::Parser;
 
 // Using the visitor pattern

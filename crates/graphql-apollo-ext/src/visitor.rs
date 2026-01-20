@@ -7,7 +7,7 @@
 //! # Example
 //!
 //! ```
-//! use graphql_utils::{CstVisitor, walk_document};
+//! use graphql_apollo_ext::{CstVisitor, walk_document};
 //! use apollo_parser::cst;
 //!
 //! struct FieldCounter(usize);
@@ -139,8 +139,14 @@ pub trait CstVisitor {
     /// Called for each directive (@directive)
     fn visit_directive(&mut self, dir: &cst::Directive) {}
 
+    /// Called when entering a variable definition
+    fn enter_variable_definition(&mut self, var_def: &cst::VariableDefinition) {}
+
     /// Called for variable definitions in operations
     fn visit_variable_definition(&mut self, var_def: &cst::VariableDefinition) {}
+
+    /// Called when exiting a variable definition
+    fn exit_variable_definition(&mut self, var_def: &cst::VariableDefinition) {}
 
     /// Called for any value node (can override for specific value handling)
     fn visit_value(&mut self, value: &cst::Value) {}
@@ -316,6 +322,7 @@ pub fn walk_directives<V: CstVisitor>(visitor: &mut V, directives: &cst::Directi
 
 /// Walk a variable definition.
 pub fn walk_variable_definition<V: CstVisitor>(visitor: &mut V, var_def: &cst::VariableDefinition) {
+    visitor.enter_variable_definition(var_def);
     visitor.visit_variable_definition(var_def);
 
     if let Some(var) = var_def.variable() {
@@ -335,6 +342,8 @@ pub fn walk_variable_definition<V: CstVisitor>(visitor: &mut V, var_def: &cst::V
     if let Some(directives) = var_def.directives() {
         walk_directives(visitor, &directives);
     }
+
+    visitor.exit_variable_definition(var_def);
 }
 
 /// Walk a value (recursively handles lists and objects).

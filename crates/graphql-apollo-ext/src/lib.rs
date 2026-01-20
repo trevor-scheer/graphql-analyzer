@@ -1,4 +1,7 @@
-//! GraphQL utility functions for CST traversal and manipulation.
+//! Extensions for `apollo-parser`: visitor pattern, name extraction, and collection utilities.
+//!
+//! **Note**: This crate is specifically tied to `apollo-parser`'s CST types. For parser-agnostic
+//! utilities, see `graphql-utils`.
 //!
 //! This crate provides:
 //! - **Visitor pattern** for traversing GraphQL CST nodes
@@ -9,7 +12,7 @@
 //! # Example
 //!
 //! ```
-//! use graphql_utils::{CstVisitor, walk_document};
+//! use graphql_apollo_ext::{CstVisitor, walk_document};
 //! use apollo_parser::cst;
 //!
 //! struct FragmentCollector {
@@ -31,12 +34,12 @@
 //! assert_eq!(collector.fragments, vec!["UserFields"]);
 //! ```
 
-mod visitor;
-mod names;
-mod definitions;
 mod collectors;
+mod definitions;
+mod names;
+mod visitor;
 
-pub use visitor::*;
-pub use names::*;
-pub use definitions::*;
 pub use collectors::*;
+pub use definitions::*;
+pub use names::*;
+pub use visitor::*;
