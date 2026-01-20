@@ -101,13 +101,15 @@ pub fn validate_document_file(
         // A future enhancement would be to integrate apollo-compiler's validator here.
     }
 
-    for frag_structure in structure.fragments.iter() {
-        let all_fragments = graphql_hir::all_fragments(db, project_files);
+    // Use the fragment name index for O(1) lookup instead of iterating all fragments
+    let frag_name_index = graphql_hir::project_fragment_name_index(db, project_files);
 
-        let count = all_fragments
-            .iter()
-            .filter(|(_, frag)| frag.name == frag_structure.name)
-            .count();
+    for frag_structure in structure.fragments.iter() {
+        // O(1) lookup instead of O(n) iteration
+        let count = frag_name_index
+            .get(&frag_structure.name)
+            .copied()
+            .unwrap_or(0);
 
         if count > 1 {
             let range = text_range_to_diagnostic_range(db, content, frag_structure.name_range);
