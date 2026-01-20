@@ -1,6 +1,6 @@
 use crate::analysis::CliAnalysisHost;
 use crate::commands::common::CommandContext;
-use crate::commands::fix::{apply_fixes, collect_fixable_diagnostics};
+use crate::commands::fix::{apply_fixes, collect_fixable_diagnostics, display_dry_run};
 use crate::OutputFormat;
 use anyhow::Result;
 use colored::Colorize;
@@ -15,6 +15,7 @@ pub fn run(
     format: OutputFormat,
     _watch: bool,
     fix: bool,
+    fix_dry_run: bool,
 ) -> Result<()> {
     // Define diagnostic output structure for collecting warnings and errors
     struct DiagnosticOutput {
@@ -65,9 +66,9 @@ pub fn run(
         println!("{}", "✓ Documents loaded successfully".green());
     }
 
-    // Apply fixes if requested
+    // Handle fix modes
     let mut fixes_applied = 0;
-    let host = if fix {
+    let host = if fix || fix_dry_run {
         let spinner = if matches!(format, OutputFormat::Human) {
             Some(crate::progress::spinner("Collecting fixable issues..."))
         } else {
@@ -82,10 +83,14 @@ pub fn run(
         }
 
         if fixes_applied > 0 {
-            apply_fixes(&fixes, format)?;
-
-            // Reload host to pick up fixed files
-            CliAnalysisHost::from_project_config(&project_config, &ctx.base_dir)?
+            if fix_dry_run {
+                display_dry_run(&fixes, format);
+                host
+            } else {
+                apply_fixes(&fixes, format)?;
+                // Reload host to pick up fixed files
+                CliAnalysisHost::from_project_config(&project_config, &ctx.base_dir)?
+            }
         } else {
             host
         }
@@ -235,11 +240,16 @@ pub fn run(
     if matches!(format, OutputFormat::Human) {
         println!();
 
-        // Report fixes if any were applied
-        if fixes_applied > 0 {
+        // Report fixes if any were applied/detected
+        if fixes_applied > 0 && fix {
             println!(
                 "{}",
                 format!("✓ Fixed {fixes_applied} issue(s)").green().bold()
+            );
+        } else if fixes_applied > 0 && fix_dry_run {
+            println!(
+                "{}",
+                format!("ℹ Would fix {fixes_applied} issue(s)").cyan().bold()
             );
         }
 

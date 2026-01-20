@@ -1,5 +1,4 @@
 use crate::analysis::CliAnalysisHost;
-use crate::commands::common::CommandContext;
 use crate::OutputFormat;
 use anyhow::Result;
 use colored::Colorize;
@@ -12,104 +11,6 @@ pub struct FileFix {
     pub path: PathBuf,
     /// All diagnostics with fixes for this file
     pub diagnostics: Vec<LintDiagnostic>,
-}
-
-#[allow(clippy::needless_pass_by_value)] // rule_filter comes from clap and can't be borrowed
-pub fn run(
-    config_path: Option<PathBuf>,
-    project_name: Option<&str>,
-    dry_run: bool,
-    rule_filter: Option<Vec<String>>,
-    format: OutputFormat,
-) -> Result<()> {
-    // Start timing
-    let start_time = std::time::Instant::now();
-
-    // Load config and validate project requirement
-    let ctx = CommandContext::load(config_path, project_name, "fix")?;
-
-    // Get project config
-    let selected_name = CommandContext::get_project_name(project_name);
-    let project_config = ctx
-        .config
-        .projects()
-        .find(|(name, _)| *name == selected_name)
-        .map(|(_, cfg)| cfg.clone())
-        .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
-
-    // Load and select project
-    let spinner = if matches!(format, OutputFormat::Human) {
-        Some(crate::progress::spinner("Loading schema and documents..."))
-    } else {
-        None
-    };
-
-    let host = CliAnalysisHost::from_project_config(&project_config, &ctx.base_dir)?;
-
-    if let Some(pb) = spinner {
-        pb.finish_and_clear();
-    }
-
-    // Report project loaded successfully
-    if matches!(format, OutputFormat::Human) {
-        println!("{}", "✓ Schema loaded successfully".green());
-        println!("{}", "✓ Documents loaded successfully".green());
-    }
-
-    // Collect diagnostics with fixes
-    let spinner = if matches!(format, OutputFormat::Human) {
-        Some(crate::progress::spinner("Analyzing lint issues..."))
-    } else {
-        None
-    };
-
-    let fixes = collect_fixable_diagnostics(&host, rule_filter.as_deref());
-
-    if let Some(pb) = spinner {
-        pb.finish_and_clear();
-    }
-
-    // Count fixable issues
-    let total_fixes: usize = fixes.iter().map(|f| f.diagnostics.len()).sum();
-
-    if total_fixes == 0 {
-        if matches!(format, OutputFormat::Human) {
-            println!("{}", "✓ No fixable lint issues found!".green().bold());
-        }
-        return Ok(());
-    }
-
-    // Apply or preview fixes
-    if dry_run {
-        display_dry_run(&fixes, format);
-    } else {
-        apply_fixes(&fixes, format)?;
-    }
-
-    // Summary
-    let total_duration = start_time.elapsed();
-    if matches!(format, OutputFormat::Human) {
-        println!();
-        let action = if dry_run { "would fix" } else { "fixed" };
-        println!(
-            "{}",
-            format!(
-                "✓ {} {} issue(s) in {} file(s)",
-                action,
-                total_fixes,
-                fixes.len()
-            )
-            .green()
-            .bold()
-        );
-        println!(
-            "  {} total: {:.2}s",
-            "⏱".dimmed(),
-            total_duration.as_secs_f64()
-        );
-    }
-
-    Ok(())
 }
 
 /// Collect all diagnostics with fixes from the analysis host
@@ -152,7 +53,7 @@ pub fn collect_fixable_diagnostics(
 }
 
 /// Display what would be fixed in dry-run mode
-fn display_dry_run(fixes: &[FileFix], format: OutputFormat) {
+pub fn display_dry_run(fixes: &[FileFix], format: OutputFormat) {
     match format {
         OutputFormat::Human => {
             println!();

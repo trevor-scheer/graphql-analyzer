@@ -46,23 +46,12 @@ enum Commands {
         watch: bool,
 
         /// Automatically fix lint issues that have safe fixes
-        #[arg(long)]
+        #[arg(long, conflicts_with = "fix_dry_run")]
         fix: bool,
-    },
 
-    /// Automatically fix lint issues that have safe fixes
-    Fix {
-        /// Dry run mode - show what would be fixed without modifying files
-        #[arg(long)]
-        dry_run: bool,
-
-        /// Only fix specific rule(s), comma-separated
-        #[arg(long, value_delimiter = ',')]
-        rule: Option<Vec<String>>,
-
-        /// Output format
-        #[arg(short, long, value_enum, default_value = "human")]
-        format: OutputFormat,
+        /// Show what would be fixed without modifying files
+        #[arg(long, conflicts_with = "fix")]
+        fix_dry_run: bool,
     },
 
     /// Run all checks (validate + lint) in a single pass
@@ -155,14 +144,12 @@ async fn main() -> anyhow::Result<()> {
         Commands::Validate { format, watch } => {
             commands::validate::run(cli.config, cli.project.as_deref(), format, watch)
         }
-        Commands::Lint { format, watch, fix } => {
-            commands::lint::run(cli.config, cli.project.as_deref(), format, watch, fix)
-        }
-        Commands::Fix {
-            dry_run,
-            rule,
+        Commands::Lint {
             format,
-        } => commands::fix::run(cli.config, cli.project.as_deref(), dry_run, rule, format),
+            watch,
+            fix,
+            fix_dry_run,
+        } => commands::lint::run(cli.config, cli.project.as_deref(), format, watch, fix, fix_dry_run),
         Commands::Check { format, watch } => {
             commands::check::run(cli.config, cli.project.as_deref(), format, watch)
         }
