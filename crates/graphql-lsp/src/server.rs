@@ -3,9 +3,8 @@ use crate::conversions::{
     convert_ide_diagnostic, convert_ide_document_symbol, convert_ide_hover, convert_ide_location,
     convert_ide_workspace_symbol, convert_lsp_position,
 };
-use crate::workspace::WorkspaceManager;
+use crate::workspace::{ProjectHost, WorkspaceManager};
 use graphql_config::find_config;
-use graphql_ide::AnalysisHost;
 use lsp_types::{
     ClientCapabilities, CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand,
     CodeActionParams, CodeActionResponse, CodeLens, CodeLensOptions, CodeLensParams,
@@ -27,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::{Client, LanguageServer, UriExt};
 
@@ -41,11 +40,6 @@ pub struct VirtualFileContentParams {
     pub uri: String,
 }
 
-/// Default timeout for acquiring host locks during LSP requests.
-/// This prevents requests from blocking indefinitely when another request
-/// is holding the lock for too long.
-const LOCK_TIMEOUT: Duration = Duration::from_millis(500);
-
 pub struct GraphQLLanguageServer {
     client: Client,
     /// Client capabilities received during initialization
@@ -54,28 +48,329 @@ pub struct GraphQLLanguageServer {
     workspace: Arc<WorkspaceManager>,
 }
 
+/// Background task that loads workspace configs and publishes initial diagnostics.
+/// Runs asynchronously so the LSP can respond to requests during loading.
+async fn load_workspaces_background(
+    client: Client,
+    workspace: Arc<WorkspaceManager>,
+    folders: Vec<(String, PathBuf)>,
+) {
+    tracing::info!(
+        "Loading configs for {} workspace(s) in background",
+        folders.len()
+    );
+
+    for (uri, path) in folders {
+        tracing::info!(
+            "Loading config for workspace: {} at {}",
+            uri,
+            path.display()
+        );
+        load_workspace_config_background(&client, &workspace, &uri, &path).await;
+    }
+
+    tracing::info!(
+        "Background loading complete: {} workspace roots, {} configs",
+        workspace.workspace_roots.len(),
+        workspace.configs.len()
+    );
+
+    // Register file watchers for config files after loading
+    let config_paths: Vec<PathBuf> = workspace
+        .config_paths
+        .iter()
+        .map(|entry| entry.value().clone())
+        .collect();
+
+    if config_paths.is_empty() {
+        tracing::debug!("No config paths found to watch");
+        return;
+    }
+
+    tracing::info!(
+        count = config_paths.len(),
+        "Registering config file watchers"
+    );
+
+    let watchers: Vec<FileSystemWatcher> = config_paths
+        .iter()
+        .filter_map(|path| {
+            let filename = path.file_name()?.to_str()?;
+            Some(FileSystemWatcher {
+                glob_pattern: lsp_types::GlobPattern::String(format!("**/{filename}")),
+                kind: Some(lsp_types::WatchKind::all()),
+            })
+        })
+        .collect();
+
+    let registration = lsp_types::Registration {
+        id: "graphql-config-watcher".to_string(),
+        method: "workspace/didChangeWatchedFiles".to_string(),
+        register_options: Some(
+            serde_json::to_value(lsp_types::DidChangeWatchedFilesRegistrationOptions { watchers })
+                .unwrap(),
+        ),
+    };
+
+    if let Err(e) = client.register_capability(vec![registration]).await {
+        tracing::error!("Failed to register config file watchers: {:?}", e);
+    }
+}
+
+/// Load a single workspace config in the background
+#[allow(clippy::too_many_lines)]
+async fn load_workspace_config_background(
+    client: &Client,
+    workspace: &Arc<WorkspaceManager>,
+    workspace_uri: &str,
+    workspace_path: &Path,
+) {
+    workspace
+        .workspace_roots
+        .insert(workspace_uri.to_string(), workspace_path.to_path_buf());
+
+    match find_config(workspace_path) {
+        Ok(Some(config_path)) => {
+            workspace
+                .config_paths
+                .insert(workspace_uri.to_string(), config_path.clone());
+
+            match graphql_config::load_config(&config_path) {
+                Ok(config) => {
+                    client
+                        .log_message(MessageType::INFO, "GraphQL config found, loading files...")
+                        .await;
+
+                    workspace
+                        .configs
+                        .insert(workspace_uri.to_string(), config.clone());
+
+                    load_all_project_files_background(
+                        client,
+                        workspace,
+                        workspace_uri,
+                        workspace_path,
+                        &config,
+                    )
+                    .await;
+                }
+                Err(e) => {
+                    tracing::error!("Error loading config: {}", e);
+                    client
+                        .log_message(
+                            MessageType::ERROR,
+                            format!("Failed to load GraphQL config: {e}"),
+                        )
+                        .await;
+                }
+            }
+        }
+        Ok(None) => {
+            // In background mode, just log - don't show interactive dialog
+            tracing::info!("No GraphQL config found in workspace");
+            client
+                .log_message(
+                    MessageType::INFO,
+                    "No GraphQL config found. Create a .graphqlrc.yaml for full IDE features.",
+                )
+                .await;
+        }
+        Err(e) => {
+            tracing::error!("Error searching for config: {}", e);
+        }
+    }
+}
+
+/// Load all project files in the background
+#[allow(clippy::too_many_lines)]
+async fn load_all_project_files_background(
+    client: &Client,
+    workspace: &Arc<WorkspaceManager>,
+    workspace_uri: &str,
+    workspace_path: &Path,
+    config: &graphql_config::GraphQLConfig,
+) {
+    const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
+    let start = std::time::Instant::now();
+    let projects: Vec<_> = config.projects().collect();
+    tracing::info!(
+        "Loading files for {} project(s) in background",
+        projects.len()
+    );
+
+    for (project_name, project_config) in projects {
+        tracing::info!("Loading project: {}", project_name);
+
+        let extract_config = project_config
+            .extensions
+            .as_ref()
+            .and_then(|extensions| extensions.get("extractConfig"))
+            .and_then(|extract_config_value| {
+                serde_json::from_value::<graphql_extract::ExtractConfig>(
+                    extract_config_value.clone(),
+                )
+                .ok()
+            })
+            .unwrap_or_default();
+
+        let lint_config = project_config.lint.as_ref().map_or_else(
+            graphql_linter::LintConfig::default,
+            |lint_value| {
+                serde_json::from_value::<graphql_linter::LintConfig>(lint_value.clone())
+                    .unwrap_or_default()
+            },
+        );
+
+        let host = workspace.get_or_create_host(workspace_uri, project_name);
+
+        host.with_write(|h| {
+            h.set_extract_config(extract_config.clone());
+            h.set_lint_config(lint_config);
+        })
+        .await;
+
+        // Load schemas
+        let pending_introspections = host
+            .with_write(
+                |h| match h.load_schemas_from_config(project_config, workspace_path) {
+                    Ok(result) => {
+                        tracing::info!(
+                            "Loaded {} local schema file(s), {} remote pending",
+                            result.loaded_count,
+                            result.pending_introspections.len()
+                        );
+                        result.pending_introspections
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to load schemas: {}", e);
+                        vec![]
+                    }
+                },
+            )
+            .await;
+
+        // Fetch remote schemas (if any)
+        for pending in &pending_introspections {
+            let mut introspect_client = graphql_introspect::IntrospectionClient::new();
+            if let Some(headers) = &pending.headers {
+                for (name, value) in headers {
+                    introspect_client = introspect_client.with_header(name, value);
+                }
+            }
+            if let Some(timeout) = pending.timeout {
+                introspect_client = introspect_client.with_timeout(Duration::from_secs(timeout));
+            }
+
+            match introspect_client.execute(&pending.url).await {
+                Ok(response) => {
+                    let sdl = graphql_introspect::introspection_to_sdl(&response);
+                    host.with_write(|h| h.add_introspected_schema(&pending.url, &sdl))
+                        .await;
+                    client
+                        .log_message(
+                            MessageType::INFO,
+                            format!("Loaded remote schema from {}", pending.url),
+                        )
+                        .await;
+                }
+                Err(e) => {
+                    tracing::error!("Failed to introspect {}: {}", pending.url, e);
+                }
+            }
+        }
+
+        // Phase 1: Discover and read files (no lock needed - just file I/O)
+        let discovered_files = graphql_ide::discover_document_files(project_config, workspace_path);
+
+        if discovered_files.is_empty() {
+            continue;
+        }
+
+        let total_files = discovered_files.len();
+        tracing::info!(
+            "Discovered {} document files for project '{}'",
+            total_files,
+            project_name
+        );
+
+        if total_files >= MAX_FILES_WARNING_THRESHOLD {
+            client
+                .show_message(
+                    MessageType::WARNING,
+                    format!("GraphQL LSP: Loading {total_files} files, this may take a while."),
+                )
+                .await;
+        }
+
+        // Phase 2: Register files (brief lock acquisition)
+        let loaded_files = host
+            .with_write(|h| h.add_discovered_files(&discovered_files))
+            .await;
+
+        // Register files in workspace index (no lock needed)
+        for loaded_file in &loaded_files {
+            workspace.file_to_project.insert(
+                loaded_file.path.as_str().to_string(),
+                (workspace_uri.to_string(), project_name.to_string()),
+            );
+        }
+
+        // Rebuild project files index (brief lock)
+        host.with_write(graphql_ide::AnalysisHost::rebuild_project_files)
+            .await;
+
+        // Compute and publish diagnostics
+        // Use try_snapshot since this is a background task - if we can't get the lock, just skip diagnostics
+        let Some(snapshot) = host.try_snapshot().await else {
+            tracing::warn!("Could not get snapshot for diagnostics in background load");
+            continue;
+        };
+        let loaded_file_paths: Vec<graphql_ide::FilePath> =
+            loaded_files.iter().map(|f| f.path.clone()).collect();
+
+        let all_diagnostics_map = snapshot.all_diagnostics_for_files(&loaded_file_paths);
+
+        tracing::info!(
+            "Publishing diagnostics for {} files with issues",
+            all_diagnostics_map.len()
+        );
+
+        for (file_path, diagnostics) in &all_diagnostics_map {
+            let Ok(file_uri) = Uri::from_str(file_path.as_str()) else {
+                continue;
+            };
+            let lsp_diagnostics: Vec<Diagnostic> = diagnostics
+                .iter()
+                .cloned()
+                .map(convert_ide_diagnostic)
+                .collect();
+            client
+                .publish_diagnostics(file_uri, lsp_diagnostics, None)
+                .await;
+        }
+
+        // Publish empty diagnostics for files without issues
+        for loaded_file in &loaded_files {
+            if !all_diagnostics_map.contains_key(&loaded_file.path) {
+                if let Ok(file_uri) = Uri::from_str(loaded_file.path.as_str()) {
+                    client.publish_diagnostics(file_uri, vec![], None).await;
+                }
+            }
+        }
+    }
+
+    tracing::info!(
+        "Background loading finished in {:.2}s",
+        start.elapsed().as_secs_f64()
+    );
+}
+
 impl GraphQLLanguageServer {
     pub fn new(client: Client) -> Self {
         Self {
             client,
             client_capabilities: Arc::new(RwLock::new(None)),
             workspace: Arc::new(WorkspaceManager::new()),
-        }
-    }
-
-    /// Try to acquire a snapshot from an `AnalysisHost` with a timeout.
-    ///
-    /// Returns `None` if the lock cannot be acquired within the timeout.
-    /// This prevents LSP requests from blocking indefinitely when another
-    /// request holds the lock.
-    async fn try_snapshot_with_timeout(
-        host: &Arc<Mutex<AnalysisHost>>,
-    ) -> Option<graphql_ide::Analysis> {
-        if let Ok(guard) = tokio::time::timeout(LOCK_TIMEOUT, host.lock()).await {
-            Some(guard.snapshot())
-        } else {
-            tracing::debug!("Timed out waiting for analysis host lock");
-            None
         }
     }
 
@@ -101,7 +396,7 @@ impl GraphQLLanguageServer {
         // Search all hosts for the file content
         for entry in &self.workspace.hosts {
             let host = entry.value();
-            let Some(analysis) = Self::try_snapshot_with_timeout(host).await else {
+            let Some(analysis) = host.try_snapshot().await else {
                 continue;
             };
 
@@ -238,7 +533,7 @@ documents: "**/*.graphql"
     #[tracing::instrument(skip(self, host, pending_introspections))]
     async fn fetch_remote_schemas(
         &self,
-        host: &Arc<Mutex<AnalysisHost>>,
+        host: &ProjectHost,
         pending_introspections: &[graphql_ide::PendingIntrospection],
         project_name: &str,
     ) {
@@ -281,8 +576,9 @@ documents: "**/*.graphql"
                     );
 
                     // Add the introspected schema as a virtual file
-                    let mut host_guard = host.lock().await;
-                    let virtual_uri = host_guard.add_introspected_schema(url, &sdl);
+                    let virtual_uri = host
+                        .with_write(|h| h.add_introspected_schema(url, &sdl))
+                        .await;
 
                     tracing::info!("Registered remote schema as virtual file: {}", virtual_uri);
 
@@ -353,30 +649,31 @@ documents: "**/*.graphql"
                 .workspace
                 .get_or_create_host(workspace_uri, project_name);
 
-            {
-                let mut host_guard = host.lock().await;
-                host_guard.set_extract_config(extract_config.clone());
-                host_guard.set_lint_config(lint_config);
-            }
+            host.with_write(|h| {
+                h.set_extract_config(extract_config.clone());
+                h.set_lint_config(lint_config);
+            })
+            .await;
 
             // Load local schemas and collect pending remote introspections
-            let pending_introspections = {
-                let mut host_guard = host.lock().await;
-                match host_guard.load_schemas_from_config(project_config, workspace_path) {
-                    Ok(result) => {
-                        tracing::info!(
-                            "Loaded {} local schema file(s), {} remote schema(s) pending",
-                            result.loaded_count,
-                            result.pending_introspections.len()
-                        );
-                        result.pending_introspections
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to load schemas: {}", e);
-                        vec![]
-                    }
-                }
-            };
+            let pending_introspections = host
+                .with_write(
+                    |h| match h.load_schemas_from_config(project_config, workspace_path) {
+                        Ok(result) => {
+                            tracing::info!(
+                                "Loaded {} local schema file(s), {} remote schema(s) pending",
+                                result.loaded_count,
+                                result.pending_introspections.len()
+                            );
+                            result.pending_introspections
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to load schemas: {}", e);
+                            vec![]
+                        }
+                    },
+                )
+                .await;
 
             // Fetch remote schemas via introspection (async)
             if !pending_introspections.is_empty() {
@@ -385,10 +682,9 @@ documents: "**/*.graphql"
             }
 
             // Use load_documents_from_config from graphql-ide to handle file discovery
-            let loaded_files = {
-                let mut host_guard = host.lock().await;
-                host_guard.load_documents_from_config(project_config, workspace_path)
-            };
+            let loaded_files = host
+                .with_write(|h| h.load_documents_from_config(project_config, workspace_path))
+                .await;
 
             if !loaded_files.is_empty() {
                 let total_files_loaded = loaded_files.len();
@@ -439,7 +735,10 @@ documents: "**/*.graphql"
                 );
                 let diag_start = std::time::Instant::now();
 
-                let snapshot = host.lock().await.snapshot();
+                let Some(snapshot) = host.try_snapshot().await else {
+                    tracing::warn!("Could not get snapshot for initial diagnostics");
+                    continue;
+                };
 
                 // Get file paths from loaded files
                 let loaded_file_paths: Vec<graphql_ide::FilePath> =
@@ -589,7 +888,7 @@ documents: "**/*.graphql"
             return;
         };
 
-        let Some(host_mutex) = self
+        let Some(host) = self
             .workspace
             .hosts
             .get(&(workspace_uri.clone(), project_name.clone()))
@@ -598,7 +897,10 @@ documents: "**/*.graphql"
             return;
         };
 
-        let snapshot = host_mutex.lock().await.snapshot();
+        let Some(snapshot) = host.try_snapshot().await else {
+            tracing::debug!("Could not acquire snapshot for validation");
+            return;
+        };
         let file_path = graphql_ide::FilePath::new(uri.as_str());
         let diagnostics = snapshot.diagnostics(&file_path);
 
@@ -802,7 +1104,8 @@ impl LanguageServer for GraphQLLanguageServer {
             )
             .await;
 
-        // Load GraphQL config from workspace folders we stored during initialize
+        // Spawn background task for heavy initialization work
+        // This allows the LSP to respond to requests while loading
         let folders: Vec<(String, PathBuf)> = self
             .workspace
             .init_workspace_folders
@@ -810,85 +1113,18 @@ impl LanguageServer for GraphQLLanguageServer {
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect();
 
-        tracing::info!("Loading configs for {} workspace(s)", folders.len());
-        for (uri, path) in folders {
-            tracing::info!(
-                "Loading config for workspace: {} at {}",
-                uri,
-                path.display()
-            );
-            self.load_workspace_config(&uri, &path).await;
-        }
-
-        tracing::info!(
-            "After loading: {} workspace roots, {} configs",
-            self.workspace.workspace_roots.len(),
-            self.workspace.configs.len()
-        );
-
-        // Register file watchers for config files after loading
-        let config_paths: Vec<PathBuf> = self
-            .workspace
-            .config_paths
-            .iter()
-            .map(|entry| entry.value().clone())
-            .collect();
-
-        if config_paths.is_empty() {
-            tracing::debug!("No config paths found to watch");
+        if folders.is_empty() {
+            tracing::debug!("No workspace folders to load");
             return;
         }
 
-        tracing::info!(
-            count = config_paths.len(),
-            "Registering config file watchers"
-        );
+        // Clone what we need for the background task
+        let client = self.client.clone();
+        let workspace = Arc::clone(&self.workspace);
 
-        // Create file system watchers for all config files
-        // Note: We use relative glob patterns from workspace root, not absolute file:// URIs
-        // VSCode file watchers work better with relative patterns
-        let watchers: Vec<FileSystemWatcher> = config_paths
-            .iter()
-            .filter_map(|path| {
-                // Get the filename for the glob pattern
-                let filename = path.file_name()?.to_str()?;
-
-                tracing::debug!(
-                    "Watching config file: {} (pattern: **/{filename})",
-                    path.display()
-                );
-
-                // Use a glob pattern that matches this config file anywhere in the workspace
-                // This works better than absolute URIs for workspace file watchers
-                Some(FileSystemWatcher {
-                    glob_pattern: lsp_types::GlobPattern::String(format!("**/{filename}")),
-                    kind: Some(lsp_types::WatchKind::all()),
-                })
-            })
-            .collect();
-
-        // Register the watchers with the client
-        let registration = lsp_types::Registration {
-            id: "graphql-config-watcher".to_string(),
-            method: "workspace/didChangeWatchedFiles".to_string(),
-            register_options: Some(
-                serde_json::to_value(lsp_types::DidChangeWatchedFilesRegistrationOptions {
-                    watchers,
-                })
-                .unwrap(),
-            ),
-        };
-
-        let result = self.client.register_capability(vec![registration]).await;
-
-        match result {
-            Ok(()) => {
-                tracing::info!("Successfully registered config file watchers");
-            }
-            Err(e) => {
-                tracing::error!("Failed to register config file watchers: {:?}", e);
-            }
-        }
+        tokio::spawn(async move {
+            load_workspaces_background(client, workspace, folders).await;
+        });
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -929,16 +1165,13 @@ impl LanguageServer for GraphQLLanguageServer {
         let final_content = content;
         let final_kind = file_kind;
 
-        // === PHASE 3: Update file and get snapshot in one lock (optimized path) ===
+        // Update file and get snapshot in one lock (optimized path using write_and_snapshot)
         let file_path = graphql_ide::FilePath::new(uri.to_string());
-        let snapshot = {
-            let mut host_guard = host.lock().await;
-            let (_is_new, snapshot) =
-                host_guard.update_file_and_snapshot(&file_path, &final_content, final_kind);
-            snapshot
-        };
+        let (_is_new, snapshot) = host
+            .write_and_snapshot(|h| h.add_file(&file_path, &final_content, final_kind))
+            .await;
 
-        // === PHASE 4: Validate using pre-acquired snapshot (no lock needed) ===
+        // Validate using pre-acquired snapshot (no lock needed)
         self.validate_file_with_snapshot(&uri, snapshot).await;
     }
 
@@ -979,16 +1212,13 @@ impl LanguageServer for GraphQLLanguageServer {
             let final_content = change.text.clone();
             let final_kind = file_kind;
 
-            // === PHASE 3: Update file and get snapshot in one lock (optimized path) ===
+            // Update file and get snapshot in one lock (optimized path using write_and_snapshot)
             let file_path = graphql_ide::FilePath::new(uri.to_string());
-            let snapshot = {
-                let mut host_guard = host.lock().await;
-                let (_is_new, snapshot) =
-                    host_guard.update_file_and_snapshot(&file_path, &final_content, final_kind);
-                snapshot
-            };
+            let (_is_new, snapshot) = host
+                .write_and_snapshot(|h| h.add_file(&file_path, &final_content, final_kind))
+                .await;
 
-            // === PHASE 4: Validate using pre-acquired snapshot (no lock needed) ===
+            // Validate using pre-acquired snapshot (no lock needed)
             self.validate_file_with_snapshot(&uri, snapshot).await;
         }
     }
@@ -1007,7 +1237,7 @@ impl LanguageServer for GraphQLLanguageServer {
         };
 
         // Get the analysis host for this workspace/project
-        let Some(host_mutex) = self
+        let Some(host) = self
             .workspace
             .hosts
             .get(&(workspace_uri.clone(), project_name.clone()))
@@ -1017,7 +1247,10 @@ impl LanguageServer for GraphQLLanguageServer {
         };
 
         // Run project-wide lints on save (these are expensive, so we don't run them on every change)
-        let snapshot = host_mutex.lock().await.snapshot();
+        let Some(snapshot) = host.try_snapshot().await else {
+            tracing::debug!("Could not acquire snapshot for project-wide lints");
+            return;
+        };
         let project_diagnostics = snapshot.project_lint_diagnostics();
 
         tracing::debug!(
@@ -1120,7 +1353,7 @@ impl LanguageServer for GraphQLLanguageServer {
         let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
-        let Some(analysis) = Self::try_snapshot_with_timeout(&host).await else {
+        let Some(analysis) = host.try_snapshot().await else {
             return Ok(None);
         };
 
@@ -1149,7 +1382,7 @@ impl LanguageServer for GraphQLLanguageServer {
         let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
-        let Some(analysis) = Self::try_snapshot_with_timeout(&host).await else {
+        let Some(analysis) = host.try_snapshot().await else {
             return Ok(None);
         };
 
@@ -1180,7 +1413,7 @@ impl LanguageServer for GraphQLLanguageServer {
         let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
-        let Some(analysis) = Self::try_snapshot_with_timeout(&host).await else {
+        let Some(analysis) = host.try_snapshot().await else {
             return Ok(None);
         };
 
@@ -1213,7 +1446,7 @@ impl LanguageServer for GraphQLLanguageServer {
         let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
-        let Some(analysis) = Self::try_snapshot_with_timeout(&host).await else {
+        let Some(analysis) = host.try_snapshot().await else {
             return Ok(None);
         };
 
@@ -1253,7 +1486,7 @@ impl LanguageServer for GraphQLLanguageServer {
         let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
-        let Some(analysis) = Self::try_snapshot_with_timeout(&host).await else {
+        let Some(analysis) = host.try_snapshot().await else {
             return Ok(None);
         };
 
@@ -1285,7 +1518,7 @@ impl LanguageServer for GraphQLLanguageServer {
 
         for entry in &self.workspace.hosts {
             let host = entry.value();
-            let Some(analysis) = Self::try_snapshot_with_timeout(host).await else {
+            let Some(analysis) = host.try_snapshot().await else {
                 // Skip this host if we can't acquire the lock in time
                 continue;
             };
@@ -1319,13 +1552,12 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         };
 
-        // Get AnalysisHost and create snapshot
+        // Get AnalysisHost and create snapshot with timeout to avoid blocking during init
         let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
-        let analysis = {
-            let host_guard = host.lock().await;
-            host_guard.snapshot()
+        let Some(analysis) = host.try_snapshot().await else {
+            return Ok(None);
         };
 
         let file_path = graphql_ide::FilePath::new(uri.to_string());
@@ -1475,9 +1707,8 @@ impl LanguageServer for GraphQLLanguageServer {
         let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
-        let analysis = {
-            let host_guard = host.lock().await;
-            host_guard.snapshot()
+        let Some(analysis) = host.try_snapshot().await else {
+            return Ok(None);
         };
 
         let file_path = graphql_ide::FilePath::new(uri.to_string());
@@ -1629,9 +1860,8 @@ impl LanguageServer for GraphQLLanguageServer {
         let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
-        let analysis = {
-            let host_guard = host.lock().await;
-            host_guard.snapshot()
+        let Some(analysis) = host.try_snapshot().await else {
+            return Ok(None);
         };
 
         let file_path = graphql_ide::FilePath::new(uri.to_string());
