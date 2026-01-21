@@ -3,6 +3,7 @@ use crate::traits::{LintRule, ProjectLintRule};
 use graphql_apollo_ext::{DocumentExt, NameExt, RangeExt};
 use graphql_base_db::{FileId, ProjectFiles};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// Trait implementation for `unused_fragments` rule
 pub struct UnusedFragmentsRuleImpl;
@@ -27,14 +28,20 @@ struct FragmentInfo {
     name: String,
     /// File where the fragment is defined
     file_id: FileId,
-    /// Byte offset of the fragment name (for diagnostic range)
+    /// Byte offset of the fragment name (for diagnostic range), relative to block
     name_start: usize,
-    /// Byte offset of the end of the fragment name
+    /// Byte offset of the end of the fragment name, relative to block
     name_end: usize,
-    /// Byte offset of the entire fragment definition
+    /// Byte offset of the entire fragment definition, relative to block
     def_start: usize,
-    /// Byte offset of the end of the fragment definition
+    /// Byte offset of the end of the fragment definition, relative to block
     def_end: usize,
+    /// For embedded GraphQL: line offset of the block (0-indexed)
+    block_line_offset: Option<usize>,
+    /// For embedded GraphQL: byte offset of the block in the original file
+    block_byte_offset: Option<usize>,
+    /// For embedded GraphQL: source text of the block
+    block_source: Option<Arc<str>>,
 }
 
 impl ProjectLintRule for UnusedFragmentsRuleImpl {
@@ -65,7 +72,13 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
 
             // Iterate over all GraphQL documents (unified API for .graphql and TS/JS)
             for doc in parse.documents() {
-                collect_fragment_definitions(doc.tree, *file_id, &mut all_fragments);
+                // For embedded GraphQL (byte_offset > 0), pass block context for correct positioning
+                let block_context = if doc.byte_offset > 0 {
+                    Some((doc.line_offset, doc.byte_offset, Arc::from(doc.source)))
+                } else {
+                    None
+                };
+                collect_fragment_definitions(doc.tree, *file_id, block_context, &mut all_fragments);
             }
         }
 
@@ -97,13 +110,22 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
                     vec![TextEdit::delete(frag_info.def_start, frag_info.def_end)],
                 );
 
-                let diag = LintDiagnostic::warning(
+                let mut diag = LintDiagnostic::warning(
                     frag_info.name_start,
                     frag_info.name_end,
                     message,
                     "unused_fragments",
                 )
                 .with_fix(fix);
+
+                // For embedded GraphQL, add block context for proper position calculation
+                if let (Some(line_offset), Some(byte_offset), Some(source)) = (
+                    frag_info.block_line_offset,
+                    frag_info.block_byte_offset,
+                    &frag_info.block_source,
+                ) {
+                    diag = diag.with_block_context(line_offset, byte_offset, source.clone());
+                }
 
                 diagnostics_by_file
                     .entry(frag_info.file_id)
@@ -120,8 +142,14 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
 fn collect_fragment_definitions(
     tree: &apollo_parser::SyntaxTree,
     file_id: FileId,
+    block_context: Option<(usize, usize, Arc<str>)>,
     fragments: &mut Vec<FragmentInfo>,
 ) {
+    let (block_line_offset, block_byte_offset, block_source) = match block_context {
+        Some((line, byte, source)) => (Some(line), Some(byte), Some(source)),
+        None => (None, None, None),
+    };
+
     for frag in tree.fragments() {
         let Some(name) = frag.name_text() else {
             continue;
@@ -138,6 +166,9 @@ fn collect_fragment_definitions(
             name_end: name_range.end,
             def_start: def_range.start,
             def_end: def_range.end,
+            block_line_offset,
+            block_byte_offset,
+            block_source: block_source.clone(),
         });
     }
 }
@@ -233,7 +264,11 @@ const UNUSED = gql`
         let diagnostics_by_file = rule.check(&db, project_files, None);
 
         // Should have exactly one diagnostic for the unused fragment
-        assert_eq!(diagnostics_by_file.len(), 1, "Expected diagnostics for one file");
+        assert_eq!(
+            diagnostics_by_file.len(),
+            1,
+            "Expected diagnostics for one file"
+        );
         let diagnostics = diagnostics_by_file.values().next().unwrap();
         assert_eq!(diagnostics.len(), 1, "Expected one diagnostic");
 
