@@ -1,7 +1,7 @@
 use crate::conversions::{
     convert_ide_code_lens, convert_ide_code_lens_info, convert_ide_completion_item,
-    convert_ide_diagnostic, convert_ide_document_symbol, convert_ide_hover, convert_ide_location,
-    convert_ide_workspace_symbol, convert_lsp_position,
+    convert_ide_diagnostic, convert_ide_document_symbol, convert_ide_folding_range,
+    convert_ide_hover, convert_ide_location, convert_ide_workspace_symbol, convert_lsp_position,
 };
 use crate::workspace::{ProjectHost, WorkspaceManager};
 use graphql_config::find_config;
@@ -12,14 +12,15 @@ use lsp_types::{
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
     DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, FileChangeType,
-    FileSystemWatcher, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
-    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
-    MessageActionItem, MessageType, OneOf, ReferenceParams, SemanticToken, SemanticTokenModifier,
-    SemanticTokenType, SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend,
-    SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
-    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, SymbolInformation,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri, WorkDoneProgressOptions,
-    WorkspaceEdit, WorkspaceSymbol, WorkspaceSymbolParams,
+    FileSystemWatcher, FoldingRange, FoldingRangeParams, FoldingRangeProviderCapability,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability,
+    InitializeParams, InitializeResult, InitializedParams, Location, MessageActionItem,
+    MessageType, OneOf, ReferenceParams, SemanticToken, SemanticTokenModifier, SemanticTokenType,
+    SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
+    SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
+    ServerCapabilities, ServerInfo, SymbolInformation, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextEdit, Uri, WorkDoneProgressOptions, WorkspaceEdit, WorkspaceSymbol,
+    WorkspaceSymbolParams,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -988,6 +989,11 @@ impl LanguageServer for GraphQLLanguageServer {
             .and_then(|td| td.code_lens.as_ref())
             .is_some();
 
+        // Check if client supports folding ranges
+        let supports_folding_range = text_document_caps
+            .and_then(|td| td.folding_range.as_ref())
+            .is_some();
+
         tracing::info!(
             supports_hover,
             supports_completion,
@@ -997,6 +1003,7 @@ impl LanguageServer for GraphQLLanguageServer {
             supports_workspace_symbols,
             supports_semantic_tokens,
             supports_code_lens,
+            supports_folding_range,
             "Client capabilities detected"
         );
 
@@ -1068,6 +1075,8 @@ impl LanguageServer for GraphQLLanguageServer {
                 code_lens_provider: supports_code_lens.then_some(CodeLensOptions {
                     resolve_provider: Some(true),
                 }),
+                folding_range_provider: supports_folding_range
+                    .then_some(FoldingRangeProviderCapability::Simple(true)),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["graphql.checkStatus".to_string()],
                     work_done_progress_options: WorkDoneProgressOptions::default(),
@@ -1915,5 +1924,41 @@ impl LanguageServer for GraphQLLanguageServer {
     async fn code_lens_resolve(&self, code_lens: CodeLens) -> Result<CodeLens> {
         // Code lens is already resolved with command, just return it
         Ok(code_lens)
+    }
+
+    #[tracing::instrument(skip(self, params), fields(uri = ?params.text_document.uri))]
+    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
+        let uri = params.text_document.uri;
+        tracing::debug!("Folding range requested: {:?}", uri);
+
+        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
+        else {
+            tracing::debug!("No project found for document: {:?}", uri);
+            return Ok(None);
+        };
+
+        let host = self
+            .workspace
+            .get_or_create_host(&workspace_uri, &project_name);
+        let Some(analysis) = host.try_snapshot().await else {
+            return Ok(None);
+        };
+
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
+        let ranges = analysis.folding_ranges(&file_path);
+
+        if ranges.is_empty() {
+            tracing::debug!("No folding ranges found for {:?}", uri);
+            return Ok(None);
+        }
+
+        let lsp_ranges: Vec<FoldingRange> = ranges.iter().map(convert_ide_folding_range).collect();
+
+        tracing::debug!(
+            "Returning {} folding ranges for {:?}",
+            lsp_ranges.len(),
+            uri
+        );
+        Ok(Some(lsp_ranges))
     }
 }
