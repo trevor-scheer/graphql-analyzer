@@ -202,18 +202,37 @@ Checks if a project configuration uses a remote URL for its schema.
 
 ## Supported Configuration Files
 
-The library searches for these files in order:
+The library searches for these files in order of preference:
 
-1. `.graphqlrc` (YAML or JSON)
-2. `.graphqlrc.yml`
-3. `.graphqlrc.yaml`
-4. `.graphqlrc.json`
+1. `.graphqlrc.yml`
+2. `.graphqlrc.yaml`
+3. `.graphqlrc.json`
+4. `.graphqlrc` (YAML or JSON, auto-detected)
+5. `graphql.config.yml`
+6. `graphql.config.yaml`
+7. `graphql.config.json`
 
-Future support planned for:
+### Note on JavaScript/TypeScript Configs
 
-- `graphql.config.js`
-- `graphql.config.ts`
-- `graphql` section in `package.json`
+This library only supports YAML and JSON configuration formats. JavaScript and TypeScript config files (`graphql.config.js`, `graphql.config.ts`) are **not supported**.
+
+If you're migrating from a JS/TS config, convert your configuration to YAML or JSON. Most configurations can be directly translated since the schema is the same:
+
+```javascript
+// graphql.config.js (NOT SUPPORTED)
+module.exports = {
+  schema: 'schema.graphql',
+  documents: 'src/**/*.graphql',
+};
+```
+
+```yaml
+# .graphqlrc.yml (equivalent)
+schema: schema.graphql
+documents: src/**/*.graphql
+```
+
+For dynamic configuration needs (rare), consider using environment variables or generating the YAML/JSON config as a build step
 
 ## Examples
 
