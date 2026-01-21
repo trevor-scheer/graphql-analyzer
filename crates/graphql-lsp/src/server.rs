@@ -932,6 +932,75 @@ documents: "**/*.graphql"
             .publish_diagnostics(uri.clone(), lsp_diagnostics, None)
             .await;
     }
+
+    /// Schedule a debounced validation for a file.
+    ///
+    /// This cancels any pending validation for the URI and schedules a new one
+    /// after a short delay. This prevents wasted computation when the user is
+    /// typing quickly - only the final state matters.
+    fn schedule_debounced_validation(&self, uri: &Uri) {
+        let uri_string = uri.to_string();
+
+        // Cancel any existing pending validation
+        if self.workspace.cancel_pending_validation(&uri_string) {
+            tracing::debug!("Cancelled pending validation for {}", uri_string);
+        }
+
+        // Clone what we need for the spawned task
+        let client = self.client.clone();
+        let workspace = Arc::clone(&self.workspace);
+        let delay = crate::workspace::WorkspaceManager::validation_debounce_delay();
+        let uri_for_task = uri_string.clone();
+
+        let handle = tokio::spawn(async move {
+            // Wait for the debounce delay
+            tokio::time::sleep(delay).await;
+
+            // Remove ourselves from pending validations (we're about to run)
+            workspace.pending_validations.remove(&uri_for_task);
+
+            // Parse URI back from string
+            let Ok(uri) = Uri::from_str(&uri_for_task) else {
+                tracing::debug!("Invalid URI for debounced validation: {}", uri_for_task);
+                return;
+            };
+
+            // Find workspace and project for this file
+            let Some((workspace_uri, project_name)) = workspace.find_workspace_and_project(&uri)
+            else {
+                tracing::debug!("No workspace/project found for debounced validation");
+                return;
+            };
+
+            // Get the analysis host
+            let Some(host) = workspace
+                .hosts
+                .get(&(workspace_uri.clone(), project_name.clone()))
+            else {
+                tracing::debug!("No analysis host found for debounced validation");
+                return;
+            };
+
+            // Get snapshot and validate
+            let Some(snapshot) = host.try_snapshot().await else {
+                tracing::debug!("Could not acquire snapshot for debounced validation");
+                return;
+            };
+
+            let file_path = graphql_ide::FilePath::new(&uri_for_task);
+            let diagnostics = snapshot.diagnostics(&file_path);
+
+            let lsp_diagnostics: Vec<Diagnostic> = diagnostics
+                .into_iter()
+                .map(convert_ide_diagnostic)
+                .collect();
+
+            client.publish_diagnostics(uri, lsp_diagnostics, None).await;
+        });
+
+        // Store the handle so we can cancel it if needed
+        self.workspace.set_pending_validation(uri_string, handle);
+    }
 }
 
 impl LanguageServer for GraphQLLanguageServer {
@@ -1191,7 +1260,9 @@ impl LanguageServer for GraphQLLanguageServer {
                 return;
             }
         }
-        self.workspace.document_versions.insert(uri_string, version);
+        self.workspace
+            .document_versions
+            .insert(uri_string.clone(), version);
 
         for change in params.content_changes {
             let Some((workspace_uri, project_name)) =
@@ -1212,15 +1283,15 @@ impl LanguageServer for GraphQLLanguageServer {
             let final_content = change.text.clone();
             let final_kind = file_kind;
 
-            // Update file and get snapshot in one lock (optimized path using write_and_snapshot)
+            // Update file content immediately (so Salsa has the latest state)
             let file_path = graphql_ide::FilePath::new(uri.to_string());
-            let (_is_new, snapshot) = host
-                .write_and_snapshot(|h| h.add_file(&file_path, &final_content, final_kind))
+            host.with_write(|h| h.add_file(&file_path, &final_content, final_kind))
                 .await;
-
-            // Validate using pre-acquired snapshot (no lock needed)
-            self.validate_file_with_snapshot(&uri, snapshot).await;
         }
+
+        // Schedule debounced validation (cancels any pending validation for this URI)
+        // This prevents wasted computation when the user is typing quickly
+        self.schedule_debounced_validation(&uri);
     }
 
     #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]

@@ -20,10 +20,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 use tower_lsp_server::UriExt;
 
 /// Default timeout for acquiring host locks during LSP requests.
 const LOCK_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// Debounce delay for validation after document changes.
+/// This prevents wasted computation when the user is typing quickly.
+const VALIDATION_DEBOUNCE_MS: u64 = 150;
 
 /// A wrapper around `AnalysisHost` that enforces safe access patterns.
 ///
@@ -139,6 +144,11 @@ pub struct WorkspaceManager {
     /// Reverse index: file URI → (`workspace_uri`, `project_name`)
     /// Provides O(1) lookup instead of O(n) iteration over all hosts
     pub file_to_project: DashMap<String, (String, String)>,
+
+    /// Pending validation tasks indexed by document URI string.
+    /// Used for debouncing: when a new change comes in, we abort the pending
+    /// validation and schedule a new one after a delay.
+    pub pending_validations: DashMap<String, JoinHandle<()>>,
 }
 
 impl WorkspaceManager {
@@ -153,6 +163,7 @@ impl WorkspaceManager {
             hosts: DashMap::new(),
             document_versions: DashMap::new(),
             file_to_project: DashMap::new(),
+            pending_validations: DashMap::new(),
         }
     }
 
@@ -343,6 +354,33 @@ impl WorkspaceManager {
     #[allow(dead_code)]
     pub fn has_workspaces(&self) -> bool {
         !self.workspace_roots.is_empty()
+    }
+
+    /// Cancel any pending validation for a document.
+    ///
+    /// Returns `true` if a pending validation was cancelled.
+    pub fn cancel_pending_validation(&self, uri: &str) -> bool {
+        if let Some((_, handle)) = self.pending_validations.remove(uri) {
+            handle.abort();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Store a pending validation task handle.
+    ///
+    /// This cancels any existing pending validation for the URI.
+    pub fn set_pending_validation(&self, uri: String, handle: JoinHandle<()>) {
+        // Cancel any existing pending validation first
+        self.cancel_pending_validation(&uri);
+        self.pending_validations.insert(uri, handle);
+    }
+
+    /// Get the debounce delay for validation.
+    #[must_use]
+    pub const fn validation_debounce_delay() -> Duration {
+        Duration::from_millis(VALIDATION_DEBOUNCE_MS)
     }
 }
 
