@@ -272,7 +272,7 @@ fn get_dist_targets(root: &Path) -> Result<Vec<String>> {
 
 fn build_cargo_dist(root: &Path, output_dir: &Path, targets: &[String]) -> Result<Vec<PathBuf>> {
     // Check if cargo-dist is installed
-    let check = Command::new("cargo").args(["dist", "--version"]).output();
+    let check = Command::new("cargo-dist").arg("--version").output();
 
     if check.is_err() || !check.unwrap().status.success() {
         println!("cargo-dist not found. Installing...");
@@ -286,11 +286,7 @@ fn build_cargo_dist(root: &Path, output_dir: &Path, targets: &[String]) -> Resul
     }
 
     // Build with cargo-dist
-    let mut args = vec![
-        "dist".to_string(),
-        "build".to_string(),
-        "--output-format=json".to_string(),
-    ];
+    let mut args = vec!["build".to_string(), "--output-format=json".to_string()];
 
     if targets.is_empty() {
         println!("Building for host target...");
@@ -306,12 +302,12 @@ fn build_cargo_dist(root: &Path, output_dir: &Path, targets: &[String]) -> Resul
         }
     }
 
-    println!("Running: cargo {}", args.join(" "));
-    let output = Command::new("cargo")
+    println!("Running: cargo-dist {}", args.join(" "));
+    let output = Command::new("cargo-dist")
         .args(&args)
         .current_dir(root)
         .output()
-        .context("Failed to run cargo dist build")?;
+        .context("Failed to run cargo-dist build")?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
