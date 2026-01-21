@@ -270,20 +270,37 @@ fn get_dist_targets(root: &Path) -> Result<Vec<String>> {
     Ok(target_strings)
 }
 
-fn build_cargo_dist(root: &Path, output_dir: &Path, targets: &[String]) -> Result<Vec<PathBuf>> {
-    // Check if cargo-dist is installed
-    let check = Command::new("cargo-dist").arg("--version").output();
-
-    if check.is_err() || !check.unwrap().status.success() {
-        println!("cargo-dist not found. Installing...");
-        let status = Command::new("cargo")
-            .args(["install", "cargo-dist"])
-            .status()
-            .context("Failed to install cargo-dist")?;
-        if !status.success() {
-            bail!("Failed to install cargo-dist");
+fn find_cargo_dist() -> Result<PathBuf> {
+    // Try finding cargo-dist in PATH first
+    if let Ok(output) = Command::new("which").arg("cargo-dist").output() {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return Ok(PathBuf::from(path));
+            }
         }
     }
+
+    // Try in CARGO_HOME/bin
+    let cargo_home = std::env::var("CARGO_HOME").map_or_else(
+        |_| {
+            dirs::home_dir()
+                .expect("Could not find home directory")
+                .join(".cargo")
+        },
+        PathBuf::from,
+    );
+    let cargo_dist_path = cargo_home.join("bin/cargo-dist");
+    if cargo_dist_path.exists() {
+        return Ok(cargo_dist_path);
+    }
+
+    bail!("cargo-dist not found. Install it with: cargo install cargo-dist")
+}
+
+fn build_cargo_dist(root: &Path, output_dir: &Path, targets: &[String]) -> Result<Vec<PathBuf>> {
+    let cargo_dist = find_cargo_dist()?;
+    println!("Using cargo-dist at: {}", cargo_dist.display());
 
     // Build with cargo-dist
     let mut args = vec!["build".to_string(), "--output-format=json".to_string()];
@@ -303,7 +320,7 @@ fn build_cargo_dist(root: &Path, output_dir: &Path, targets: &[String]) -> Resul
     }
 
     println!("Running: cargo-dist {}", args.join(" "));
-    let output = Command::new("cargo-dist")
+    let output = Command::new(&cargo_dist)
         .args(&args)
         .current_dir(root)
         .output()
