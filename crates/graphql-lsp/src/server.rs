@@ -7,19 +7,18 @@ use crate::workspace::{ProjectHost, WorkspaceManager};
 use graphql_config::find_config;
 use lsp_types::{
     ClientCapabilities, CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand,
-    CodeActionParams, CodeActionResponse, CodeLens, CodeLensOptions, CodeLensParams,
-    CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
-    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
-    DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, FileChangeType,
-    FileSystemWatcher, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
-    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
-    MessageActionItem, MessageType, OneOf, ReferenceParams, SemanticToken, SemanticTokenModifier,
-    SemanticTokenType, SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend,
-    SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
-    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, SymbolInformation,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri, WorkDoneProgressOptions,
-    WorkspaceEdit, WorkspaceSymbol, WorkspaceSymbolParams,
+    CodeActionParams, CodeActionResponse, CodeLens, CodeLensParams, CompletionOptions,
+    CompletionParams, CompletionResponse, Diagnostic, DidChangeTextDocumentParams,
+    DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandOptions,
+    ExecuteCommandParams, FileChangeType, FileSystemWatcher, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability, InitializeParams,
+    InitializeResult, InitializedParams, Location, MessageActionItem, MessageType, OneOf,
+    ReferenceParams, SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
+    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
+    SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri,
+    WorkDoneProgressOptions, WorkspaceEdit, WorkspaceSymbol, WorkspaceSymbolParams,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -1056,9 +1055,9 @@ impl LanguageServer for GraphQLLanguageServer {
                         work_done_progress_options: WorkDoneProgressOptions::default(),
                     })
                 }),
-                code_lens_provider: supports_code_lens.then_some(CodeLensOptions {
-                    resolve_provider: Some(true),
-                }),
+                // TODO: Code lenses disabled - O(N×M) complexity causes performance issues
+                // on large codebases. Need to make fragment_usages() incremental.
+                code_lens_provider: None,
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["graphql.checkStatus".to_string()],
                     work_done_progress_options: WorkDoneProgressOptions::default(),
