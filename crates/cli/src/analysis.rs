@@ -377,15 +377,9 @@ impl CliAnalysisHost {
         (depths, usages)
     }
 
-    /// Update a file (for watch mode - future enhancement)
-    #[allow(dead_code)]
-    pub fn update_file(&mut self, path: &Path, content: &str) {
+    /// Update a file in the analysis host (used by watch mode)
+    pub fn update_file(&mut self, path: &Path, content: &str, kind: FileKind) {
         let file_path = FilePath::new(path.to_string_lossy().to_string());
-
-        // Determine file kind based on whether it's in our loaded files
-        // For simplicity, default to ExecutableGraphQL kind
-        let kind = FileKind::ExecutableGraphQL;
-
         self.host.add_file(&file_path, content, kind);
 
         // Update document files list if this is a new file

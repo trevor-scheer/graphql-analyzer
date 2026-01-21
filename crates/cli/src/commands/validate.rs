@@ -1,5 +1,6 @@
 use crate::analysis::CliAnalysisHost;
 use crate::commands::common::CommandContext;
+use crate::watch::{FileWatcher, WatchConfig, WatchMode};
 use crate::OutputFormat;
 use anyhow::Result;
 use colored::Colorize;
@@ -24,8 +25,7 @@ pub fn run(
     }
 
     if watch {
-        println!("{}", "Watch mode not yet implemented".yellow());
-        return Ok(());
+        return run_watch_mode(config_path, project_name, format);
     }
 
     // Start timing
@@ -186,4 +186,36 @@ pub fn run(
     }
 
     Ok(())
+}
+
+/// Run validate in watch mode
+fn run_watch_mode(
+    config_path: Option<PathBuf>,
+    project_name: Option<&str>,
+    format: OutputFormat,
+) -> Result<()> {
+    // Load config
+    let ctx = CommandContext::load(config_path, project_name, "validate")?;
+
+    // Get project config
+    let selected_name = CommandContext::get_project_name(project_name);
+    let project_config = ctx
+        .config
+        .projects()
+        .find(|(name, _)| *name == selected_name)
+        .map(|(_, cfg)| cfg.clone())
+        .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
+
+    // Create watch config
+    let watch_config = WatchConfig {
+        mode: WatchMode::Validate,
+        format,
+        project_config,
+        base_dir: ctx.base_dir,
+    };
+
+    // Create and run watcher
+    let mut watcher = FileWatcher::new(watch_config)?;
+    watcher.start()?;
+    watcher.run()
 }

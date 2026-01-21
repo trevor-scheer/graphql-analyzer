@@ -42,6 +42,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 glob = { workspace = true }
 
+# File watching
+notify = { workspace = true }
+
 # Terminal UI
 colored = "2.0"
 indicatif = "0.17"
