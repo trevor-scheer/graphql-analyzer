@@ -2,7 +2,7 @@ use crate::analysis::CliAnalysisHost;
 use crate::commands::common::CommandContext;
 use crate::commands::fix::{apply_fixes, collect_fixable_diagnostics, display_dry_run};
 use crate::watch::{FileWatcher, WatchConfig, WatchMode};
-use crate::OutputFormat;
+use crate::{OutputFormat, OutputOptions};
 use anyhow::Result;
 use colored::Colorize;
 use graphql_ide::DiagnosticSeverity;
@@ -34,6 +34,7 @@ pub fn run(
     watch: bool,
     fix: bool,
     fix_dry_run: bool,
+    output_opts: OutputOptions,
 ) -> Result<()> {
     if watch {
         if fix || fix_dry_run {
@@ -61,7 +62,7 @@ pub fn run(
         .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
 
     // Load and select project
-    let spinner = if matches!(format, OutputFormat::Human) {
+    let spinner = if matches!(format, OutputFormat::Human) && output_opts.show_progress {
         Some(crate::progress::spinner("Loading schema and documents..."))
     } else {
         None
@@ -77,7 +78,7 @@ pub fn run(
     let load_duration = load_start.elapsed();
 
     // Report project loaded successfully
-    if matches!(format, OutputFormat::Human) {
+    if matches!(format, OutputFormat::Human) && output_opts.show_info {
         println!("{}", "✓ Schema loaded successfully".green());
         println!("{}", "✓ Documents loaded successfully".green());
     }
@@ -85,7 +86,7 @@ pub fn run(
     // Handle fix modes
     let mut fixes_applied = 0;
     let host = if fix || fix_dry_run {
-        let spinner = if matches!(format, OutputFormat::Human) {
+        let spinner = if matches!(format, OutputFormat::Human) && output_opts.show_progress {
             Some(crate::progress::spinner("Collecting fixable issues..."))
         } else {
             None
@@ -115,7 +116,7 @@ pub fn run(
     };
 
     // Run lints
-    let spinner = if matches!(format, OutputFormat::Human) {
+    let spinner = if matches!(format, OutputFormat::Human) && output_opts.show_progress {
         Some(crate::progress::spinner("Running lint rules..."))
     } else {
         None
@@ -295,7 +296,7 @@ pub fn run(
 
     // Summary
     let total_duration = start_time.elapsed();
-    if matches!(format, OutputFormat::Human) {
+    if matches!(format, OutputFormat::Human) && output_opts.show_info {
         println!();
 
         // Report fixes if any were applied/detected

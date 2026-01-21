@@ -85,6 +85,31 @@ graphql validate --format json
 graphql validate --format github
 ```
 
+## Global Options
+
+These options are available for all commands:
+
+- `--config <PATH>` - Path to config file (auto-discovered by default)
+- `--project <NAME>` - Project name for multi-project configs
+- `--quiet`, `-q` - Suppress all output except errors (implies `--no-progress`)
+- `--no-progress` - Suppress progress indicators (spinners) only
+
+**Output verbosity:**
+
+| Flag            | Spinner | Results | Errors |
+| --------------- | ------- | ------- | ------ |
+| (none)          | Yes     | Yes     | Yes    |
+| `--no-progress` | No      | Yes     | Yes    |
+| `--quiet`       | No      | No      | Yes    |
+
+```bash
+# Suppress spinner for CI logs
+graphql validate --no-progress
+
+# Only show errors (for scripting)
+graphql validate --quiet
+```
+
 ## Commands
 
 ### validate
@@ -99,8 +124,6 @@ graphql validate [OPTIONS]
 
 - `--format <FORMAT>` - Output format: `human` (default), `json`, `github`
 - `--watch` - Watch for file changes and re-validate
-- `--config <PATH>` - Path to config file (auto-discovered by default)
-- `--project <NAME>` - Project name for multi-project configs
 
 **Exit codes:**
 
@@ -135,8 +158,6 @@ graphql lint [OPTIONS]
 
 - `--format <FORMAT>` - Output format: `human` (default), `json`, `github`
 - `--watch` - Watch for file changes and re-lint
-- `--config <PATH>` - Path to config file (auto-discovered by default)
-- `--project <NAME>` - Project name for multi-project configs
 
 **Exit codes:**
 

@@ -10,6 +10,7 @@ use std::path::PathBuf;
 #[command(name = "graphql")]
 #[command(about = "GraphQL CLI for validation and linting", long_about = None)]
 #[command(version)]
+#[allow(clippy::struct_excessive_bools)]
 struct Cli {
     /// Path to GraphQL config file
     #[arg(short, long, value_name = "FILE", global = true)]
@@ -27,8 +28,25 @@ struct Cli {
     #[arg(long, global = true, conflicts_with = "color")]
     no_color: bool,
 
+    /// Suppress all output except errors
+    #[arg(short, long, global = true)]
+    quiet: bool,
+
+    /// Suppress progress indicators (spinners)
+    #[arg(long, global = true)]
+    no_progress: bool,
+
     #[command(subcommand)]
     command: Commands,
+}
+
+/// Output verbosity options
+#[derive(Debug, Clone, Copy)]
+pub struct OutputOptions {
+    /// Whether to show progress indicators (spinners)
+    pub show_progress: bool,
+    /// Whether to show informational output (success messages, summaries)
+    pub show_info: bool,
 }
 
 #[derive(Subcommand)]
@@ -190,10 +208,19 @@ async fn main() -> anyhow::Result<()> {
 
     configure_colors(cli.color, cli.no_color);
 
+    let output_opts = OutputOptions {
+        show_progress: !cli.quiet && !cli.no_progress,
+        show_info: !cli.quiet,
+    };
+
     let result = match cli.command {
-        Commands::Validate { format, watch } => {
-            commands::validate::run(cli.config, cli.project.as_deref(), format, watch)
-        }
+        Commands::Validate { format, watch } => commands::validate::run(
+            cli.config,
+            cli.project.as_deref(),
+            format,
+            watch,
+            output_opts,
+        ),
         Commands::Lint {
             format,
             watch,
@@ -206,10 +233,15 @@ async fn main() -> anyhow::Result<()> {
             watch,
             fix,
             fix_dry_run,
+            output_opts,
         ),
-        Commands::Check { format, watch } => {
-            commands::check::run(cli.config, cli.project.as_deref(), format, watch)
-        }
+        Commands::Check { format, watch } => commands::check::run(
+            cli.config,
+            cli.project.as_deref(),
+            format,
+            watch,
+            output_opts,
+        ),
         Commands::Deprecations { format } => {
             commands::deprecations::run(cli.config, cli.project.as_deref(), format)
         }
