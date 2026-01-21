@@ -18,6 +18,7 @@ import {
   Uri,
   Position,
   Range,
+  env,
 } from "vscode";
 import {
   LanguageClient,
@@ -394,7 +395,122 @@ export async function activate(context: ExtensionContext) {
       }
     );
 
-    context.subscriptions.push(reloadCommand, checkStatusCommand, showReferencesCommand);
+    // Command for "Copy as cURL" code lens
+    // Generates a cURL command from the operation and copies to clipboard
+    const copyAsCurlCommand = commands.registerCommand(
+      "graphql-lsp.copyAsCurl",
+      async (
+        _uriString: string,
+        operationSource: string,
+        operationName: string,
+        operationType: string,
+        endpoint: string
+      ) => {
+        // Get endpoint from config or prompt user
+        let targetEndpoint = endpoint;
+        if (!targetEndpoint) {
+          const config = workspace.getConfiguration("graphql");
+          targetEndpoint = config.get<string>("endpoint") || "";
+        }
+
+        if (!targetEndpoint) {
+          targetEndpoint =
+            (await window.showInputBox({
+              prompt: "Enter the GraphQL endpoint URL",
+              placeHolder: "https://api.example.com/graphql",
+            })) || "";
+        }
+
+        if (!targetEndpoint) {
+          window.showWarningMessage("No endpoint provided");
+          return;
+        }
+
+        // Build the GraphQL request body
+        const body = JSON.stringify({
+          query: operationSource,
+          operationName: operationName || undefined,
+        });
+
+        // Generate cURL command
+        const curlCommand = `curl -X POST '${targetEndpoint}' \\
+  -H 'Content-Type: application/json' \\
+  -d '${body.replace(/'/g, "'\\''")}'`;
+
+        // Copy to clipboard
+        await env.clipboard.writeText(curlCommand);
+
+        const displayName = operationName || `anonymous ${operationType}`;
+        window.showInformationMessage(`Copied cURL command for "${displayName}" to clipboard`);
+        outputChannel.appendLine(`Copied cURL command: ${curlCommand}`);
+      }
+    );
+
+    // Command for "Run" code lens
+    // Executes the operation against the configured endpoint
+    const runOperationCommand = commands.registerCommand(
+      "graphql-lsp.runOperation",
+      async (
+        _uriString: string,
+        operationSource: string,
+        operationName: string,
+        operationType: string,
+        endpoint: string
+      ) => {
+        if (!endpoint) {
+          window.showWarningMessage(
+            "No endpoint configured. Add a schema URL via introspection in your .graphqlrc.yaml"
+          );
+          return;
+        }
+
+        const displayName = operationName || `anonymous ${operationType}`;
+        outputChannel.appendLine(`Running ${operationType}: ${displayName}`);
+        outputChannel.show(true);
+
+        try {
+          // Build the GraphQL request body
+          const body = JSON.stringify({
+            query: operationSource,
+            operationName: operationName || undefined,
+          });
+
+          // Execute the request
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body,
+          });
+
+          const result = (await response.json()) as { data?: unknown; errors?: unknown[] };
+
+          // Display result in output channel
+          outputChannel.appendLine("Response:");
+          outputChannel.appendLine(JSON.stringify(result, null, 2));
+          outputChannel.appendLine("");
+
+          if (result.errors && result.errors.length > 0) {
+            window.showWarningMessage(`${displayName} completed with errors. See Output for details.`);
+          } else {
+            window.showInformationMessage(`${displayName} executed successfully`);
+          }
+        } catch (error) {
+          const errorMessage = `Failed to execute ${displayName}: ${error}`;
+          outputChannel.appendLine(errorMessage);
+          window.showErrorMessage(errorMessage);
+        }
+      }
+    );
+
+    context.subscriptions.push(
+      reloadCommand,
+      checkStatusCommand,
+      showReferencesCommand,
+      copyAsCurlCommand,
+      runOperationCommand
+    );
   } catch (error) {
     const errorMessage = `Failed to start GraphQL LSP: ${error}`;
     outputChannel.appendLine(errorMessage);

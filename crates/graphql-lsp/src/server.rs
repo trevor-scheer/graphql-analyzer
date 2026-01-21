@@ -1,7 +1,7 @@
 use crate::conversions::{
     convert_ide_code_lens, convert_ide_code_lens_info, convert_ide_completion_item,
     convert_ide_diagnostic, convert_ide_document_symbol, convert_ide_hover, convert_ide_location,
-    convert_ide_workspace_symbol, convert_lsp_position,
+    convert_ide_operation_code_lens, convert_ide_workspace_symbol, convert_lsp_position,
 };
 use crate::workspace::{ProjectHost, WorkspaceManager};
 use graphql_config::find_config;
@@ -1864,6 +1864,11 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         };
 
+        // Get endpoint URL if configured (for "Run" lens)
+        let endpoint_url = self
+            .workspace
+            .get_endpoint_url(&workspace_uri, &project_name);
+
         let file_path = graphql_ide::FilePath::new(uri.to_string());
         let mut lsp_code_lenses: Vec<CodeLens> = Vec::new();
 
@@ -1898,6 +1903,15 @@ impl LanguageServer for GraphQLLanguageServer {
 
             lsp_code_lenses.push(convert_ide_code_lens(lens, &uri, &references));
         }
+
+        // Code lenses for operations (Run, Copy as cURL)
+        let include_run = endpoint_url.is_some();
+        let operation_lenses = analysis.operation_code_lenses(&file_path, include_run);
+        lsp_code_lenses.extend(
+            operation_lenses
+                .iter()
+                .map(|lens| convert_ide_operation_code_lens(lens, &uri, endpoint_url.as_deref())),
+        );
 
         if lsp_code_lenses.is_empty() {
             tracing::debug!("No code lenses found for {:?}", uri);

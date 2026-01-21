@@ -63,8 +63,9 @@ mod symbols;
 pub use types::{
     CodeFix, CodeLens, CodeLensCommand, CodeLensInfo, CompletionItem, CompletionKind, Diagnostic,
     DiagnosticSeverity, DocumentSymbol, FilePath, FragmentReference, FragmentUsage, HoverResult,
-    InsertTextFormat, Location, PendingIntrospection, Position, Range, SchemaLoadResult,
-    SchemaStats, SymbolKind, TextEdit, WorkspaceSymbol,
+    InsertTextFormat, Location, OperationCodeLens, OperationCodeLensKind, OperationType,
+    PendingIntrospection, Position, Range, SchemaLoadResult, SchemaStats, SymbolKind, TextEdit,
+    WorkspaceSymbol,
 };
 
 // Re-export helpers for internal use
@@ -1937,6 +1938,20 @@ impl Analysis {
             file,
             &fragment_usages,
         )
+    }
+
+    /// Get operation code lenses for a file
+    ///
+    /// Returns code lenses for operation definitions with "Run" and "Copy as cURL" actions.
+    /// The `include_run` parameter controls whether "Run" lenses are included (requires
+    /// an endpoint to be configured).
+    pub fn operation_code_lenses(
+        &self,
+        file: &FilePath,
+        include_run: bool,
+    ) -> Vec<OperationCodeLens> {
+        let registry = self.registry.read();
+        code_lenses::operation_code_lenses(&self.db, &registry, file, include_run)
     }
 }
 

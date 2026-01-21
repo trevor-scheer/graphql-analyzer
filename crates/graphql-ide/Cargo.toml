@@ -41,3 +41,4 @@ graphql-extract = { path = "../graphql-extract" }
 [dev-dependencies]
 tempfile = "3.0"
 graphql-ide-db = { path = "../graphql-ide-db" }
+graphql-test-utils = { path = "../graphql-test-utils" }

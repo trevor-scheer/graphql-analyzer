@@ -559,6 +559,88 @@ impl CodeLensCommand {
     }
 }
 
+/// The type of operation (query, mutation, subscription)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperationType {
+    Query,
+    Mutation,
+    Subscription,
+}
+
+impl std::fmt::Display for OperationType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Query => write!(f, "query"),
+            Self::Mutation => write!(f, "mutation"),
+            Self::Subscription => write!(f, "subscription"),
+        }
+    }
+}
+
+/// Code lens for an operation definition
+///
+/// These appear above operations and provide actions like "Run" or "Copy as cURL".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperationCodeLens {
+    /// Range where the code lens should be displayed (at the operation keyword)
+    pub range: Range,
+    /// Name of the operation (None for anonymous operations)
+    pub operation_name: Option<String>,
+    /// Type of operation (query, mutation, subscription)
+    pub operation_type: OperationType,
+    /// The operation source text
+    pub operation_source: String,
+    /// The kind of lens (determines what action to show)
+    pub kind: OperationCodeLensKind,
+}
+
+/// The kind of operation code lens
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperationCodeLensKind {
+    /// "Run" lens - execute the operation against configured endpoint
+    Run,
+    /// "Copy as cURL" lens - copy the operation as a cURL command
+    CopyAsCurl,
+}
+
+impl OperationCodeLens {
+    /// Create a new operation code lens
+    #[must_use]
+    pub fn new(
+        range: Range,
+        operation_name: Option<String>,
+        operation_type: OperationType,
+        operation_source: String,
+        kind: OperationCodeLensKind,
+    ) -> Self {
+        Self {
+            range,
+            operation_name,
+            operation_type,
+            operation_source,
+            kind,
+        }
+    }
+
+    /// Get the display title for this code lens
+    #[must_use]
+    pub fn title(&self) -> String {
+        match self.kind {
+            OperationCodeLensKind::Run => "▶ Run".to_string(),
+            OperationCodeLensKind::CopyAsCurl => "Copy as cURL".to_string(),
+        }
+    }
+
+    /// Get the command identifier for this code lens
+    #[must_use]
+    pub fn command(&self) -> &'static str {
+        match self.kind {
+            OperationCodeLensKind::Run => "graphql-lsp.runOperation",
+            OperationCodeLensKind::CopyAsCurl => "graphql-lsp.copyAsCurl",
+        }
+    }
+}
+
 /// Result of loading schemas from configuration.
 ///
 /// This type captures both the successfully loaded local schemas and any

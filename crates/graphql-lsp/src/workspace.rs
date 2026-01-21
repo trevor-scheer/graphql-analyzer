@@ -344,6 +344,23 @@ impl WorkspaceManager {
     pub fn has_workspaces(&self) -> bool {
         !self.workspace_roots.is_empty()
     }
+
+    /// Get the GraphQL endpoint URL for a project (if configured).
+    ///
+    /// This returns the URL if the schema is configured via introspection.
+    /// Used for "Run" code lens to execute operations against the endpoint.
+    pub fn get_endpoint_url(&self, workspace_uri: &str, project_name: &str) -> Option<String> {
+        let config = self.configs.get(workspace_uri)?;
+        let project_config = config.get_project(project_name)?;
+
+        // Check if schema is configured via introspection URL
+        match &project_config.schema {
+            graphql_config::SchemaConfig::Introspection(introspection) => {
+                Some(introspection.url.clone())
+            }
+            _ => None,
+        }
+    }
 }
 
 impl Default for WorkspaceManager {

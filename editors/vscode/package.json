@@ -28,6 +28,16 @@
         "command": "graphql-lsp.checkStatus",
         "title": "Check Status",
         "category": "GraphQL"
+      },
+      {
+        "command": "graphql-lsp.runOperation",
+        "title": "Run GraphQL Operation",
+        "category": "GraphQL"
+      },
+      {
+        "command": "graphql-lsp.copyAsCurl",
+        "title": "Copy GraphQL Operation as cURL",
+        "category": "GraphQL"
       }
     ],
     "languages": [
@@ -113,6 +123,11 @@
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "graphql.endpoint": {
+          "type": "string",
+          "default": "",
+          "description": "Default GraphQL endpoint URL for executing operations. Used by 'Copy as cURL' when no endpoint is configured via introspection."
         }
       }
     },

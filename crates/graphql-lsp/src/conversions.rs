@@ -246,3 +246,30 @@ pub fn convert_ide_code_lens(
         data: None,
     }
 }
+
+/// Convert graphql-ide `OperationCodeLens` to LSP `CodeLens`
+///
+/// Creates a code lens for operation definitions with "Run" or "Copy as cURL" actions.
+pub fn convert_ide_operation_code_lens(
+    lens: &graphql_ide::OperationCodeLens,
+    uri: &Uri,
+    endpoint: Option<&str>,
+) -> CodeLens {
+    let command = Some(Command {
+        title: lens.title(),
+        command: lens.command().to_string(),
+        arguments: Some(vec![
+            serde_json::to_value(uri.to_string()).unwrap(),
+            serde_json::to_value(&lens.operation_source).unwrap(),
+            serde_json::to_value(lens.operation_name.as_deref().unwrap_or("")).unwrap(),
+            serde_json::to_value(lens.operation_type.to_string()).unwrap(),
+            serde_json::to_value(endpoint.unwrap_or("")).unwrap(),
+        ]),
+    });
+
+    CodeLens {
+        range: convert_ide_range(lens.range),
+        command,
+        data: None,
+    }
+}
