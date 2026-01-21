@@ -18,6 +18,14 @@ struct Cli {
     #[arg(short, long, global = true)]
     project: Option<String>,
 
+    /// Force colored output even when not a TTY
+    #[arg(long, global = true, conflicts_with = "no_color")]
+    color: bool,
+
+    /// Disable colored output
+    #[arg(long, global = true, conflicts_with = "color")]
+    no_color: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -168,6 +176,8 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
+    configure_colors(cli.color, cli.no_color);
+
     let result = match cli.command {
         Commands::Validate { format, watch } => {
             commands::validate::run(cli.config, cli.project.as_deref(), format, watch)
@@ -242,6 +252,41 @@ fn init_tracing() {
         )
         .with_writer(std::io::stderr)
         .init();
+}
+
+/// Configure colored output based on flags and environment variables.
+///
+/// Priority order (highest to lowest):
+/// 1. `--color` flag (force colors on)
+/// 2. `--no-color` flag (force colors off)
+/// 3. `NO_COLOR` environment variable (if set to any value, disable colors)
+/// 4. `CLICOLOR_FORCE` environment variable (if set to non-zero, force colors)
+/// 5. `CLICOLOR` environment variable (if set to "0", disable colors)
+/// 6. Default: colors enabled if stdout is a TTY (handled by `colored` crate)
+///
+/// See: <https://no-color.org/> and <https://bixense.com/clicolors/>
+fn configure_colors(force_color: bool, no_color: bool) {
+    use colored::control;
+
+    if force_color {
+        control::set_override(true);
+    } else if no_color {
+        control::set_override(false);
+    } else if std::env::var_os("NO_COLOR").is_some() {
+        // NO_COLOR: if present (regardless of value), disable colors
+        control::set_override(false);
+    } else if let Ok(val) = std::env::var("CLICOLOR_FORCE") {
+        // CLICOLOR_FORCE: if set to non-zero value, force colors
+        if val != "0" {
+            control::set_override(true);
+        }
+    } else if let Ok(val) = std::env::var("CLICOLOR") {
+        // CLICOLOR: if set to "0", disable colors
+        if val == "0" {
+            control::set_override(false);
+        }
+    }
+    // Default: let the colored crate decide based on TTY detection
 }
 
 /// Initialize OpenTelemetry tracing with OTLP exporter
