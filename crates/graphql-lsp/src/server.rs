@@ -318,35 +318,9 @@ async fn load_all_project_files_background(
         host.with_write(graphql_ide::AnalysisHost::rebuild_project_files)
             .await;
 
-        // Compute and publish diagnostics
-        // Use try_snapshot since this is a background task - if we can't get the lock, just skip diagnostics
-        let Some(snapshot) = host.try_snapshot().await else {
-            tracing::warn!("Could not get snapshot for diagnostics in background load");
-            continue;
-        };
-        let loaded_file_paths: Vec<graphql_ide::FilePath> =
-            loaded_files.iter().map(|f| f.path.clone()).collect();
-
-        let all_diagnostics_map = snapshot.all_diagnostics_for_files(&loaded_file_paths);
-
-        tracing::info!(
-            "Publishing diagnostics for {} files with issues",
-            all_diagnostics_map.len()
-        );
-
-        for (file_path, diagnostics) in &all_diagnostics_map {
-            let Ok(file_uri) = Uri::from_str(file_path.as_str()) else {
-                continue;
-            };
-            let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-                .iter()
-                .cloned()
-                .map(convert_ide_diagnostic)
-                .collect();
-            client
-                .publish_diagnostics(file_uri, lsp_diagnostics, None)
-                .await;
-        }
+        // NOTE: We intentionally skip computing/publishing diagnostics during background loading.
+        // Computing diagnostics for 10k+ files causes performance issues and potential OOM.
+        // Users get diagnostics when they open files via didOpen/didChange handlers.
     }
 
     tracing::info!(
@@ -718,62 +692,9 @@ documents: "**/*.graphql"
                 // Note: load_documents_from_config uses add_files_batch internally,
                 // which rebuilds the ProjectFiles index automatically
 
-                // Publish initial diagnostics for all loaded files
-                tracing::info!(
-                    "Publishing initial diagnostics for {} files...",
-                    total_files_loaded
-                );
-                let diag_start = std::time::Instant::now();
-
-                let Some(snapshot) = host.try_snapshot().await else {
-                    tracing::warn!("Could not get snapshot for initial diagnostics");
-                    continue;
-                };
-
-                // Get file paths from loaded files
-                let loaded_file_paths: Vec<graphql_ide::FilePath> =
-                    loaded_files.iter().map(|f| f.path.clone()).collect();
-
-                // Use the new all_diagnostics_for_files helper to merge per-file and project-wide diagnostics
-                let all_diagnostics_map = snapshot.all_diagnostics_for_files(&loaded_file_paths);
-
-                tracing::info!(
-                    "Publishing diagnostics for {} files with issues",
-                    all_diagnostics_map.len()
-                );
-
-                for (file_path, diagnostics) in &all_diagnostics_map {
-                    let Ok(file_uri) = Uri::from_str(file_path.as_str()) else {
-                        continue;
-                    };
-
-                    let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-                        .iter()
-                        .cloned()
-                        .map(convert_ide_diagnostic)
-                        .collect();
-
-                    self.client
-                        .publish_diagnostics(file_uri, lsp_diagnostics, None)
-                        .await;
-                }
-
-                // Also publish empty diagnostics for files with no issues
-                // (this clears stale diagnostics from previous sessions)
-                for loaded_file in &loaded_files {
-                    if !all_diagnostics_map.contains_key(&loaded_file.path) {
-                        if let Ok(file_uri) = Uri::from_str(loaded_file.path.as_str()) {
-                            self.client
-                                .publish_diagnostics(file_uri, vec![], None)
-                                .await;
-                        }
-                    }
-                }
-
-                tracing::info!(
-                    "Initial diagnostics published in {:.2}s",
-                    diag_start.elapsed().as_secs_f64()
-                );
+                // NOTE: We intentionally skip computing/publishing diagnostics during loading.
+                // Computing diagnostics for 10k+ files causes performance issues and potential OOM.
+                // Users get diagnostics when they open files via didOpen/didChange handlers.
             }
         }
 
