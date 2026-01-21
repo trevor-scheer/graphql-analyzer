@@ -279,3 +279,18 @@ pub fn convert_ide_inlay_hint(hint: &graphql_ide::InlayHint) -> InlayHint {
         data: None,
     }
 }
+
+/// Convert graphql-ide `SelectionRange` to LSP `SelectionRange`
+///
+/// Selection ranges form a linked list from innermost to outermost,
+/// used by the "Expand Selection" (Shift+Alt+Right) feature.
+pub fn convert_ide_selection_range(
+    selection_range: graphql_ide::SelectionRange,
+) -> lsp_types::SelectionRange {
+    lsp_types::SelectionRange {
+        range: convert_ide_range(selection_range.range),
+        parent: selection_range
+            .parent
+            .map(|parent| Box::new(convert_ide_selection_range(*parent))),
+    }
+}

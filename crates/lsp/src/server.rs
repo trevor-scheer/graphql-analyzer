@@ -1,8 +1,8 @@
 use crate::conversions::{
     convert_ide_code_lens, convert_ide_code_lens_info, convert_ide_completion_item,
     convert_ide_diagnostic, convert_ide_document_symbol, convert_ide_folding_range,
-    convert_ide_hover, convert_ide_inlay_hint, convert_ide_location, convert_ide_workspace_symbol,
-    convert_lsp_position,
+    convert_ide_hover, convert_ide_inlay_hint, convert_ide_location, convert_ide_selection_range,
+    convert_ide_workspace_symbol, convert_lsp_position,
 };
 use crate::workspace::{ProjectHost, WorkspaceManager};
 use graphql_config::find_config;
@@ -17,7 +17,8 @@ use lsp_types::{
     GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability,
     InitializeParams, InitializeResult, InitializedParams, InlayHint as LspInlayHint,
     InlayHintOptions, InlayHintParams, InlayHintServerCapabilities, Location, MessageActionItem,
-    MessageType, OneOf, ReferenceParams, SemanticToken, SemanticTokenModifier, SemanticTokenType,
+    MessageType, OneOf, ReferenceParams, SelectionRange, SelectionRangeParams,
+    SelectionRangeProviderCapability, SemanticToken, SemanticTokenModifier, SemanticTokenType,
     SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
     SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
     ServerCapabilities, ServerInfo, ShowDocumentParams, SymbolInformation,
@@ -1259,6 +1260,11 @@ impl LanguageServer for GraphQLLanguageServer {
             .and_then(|td| td.inlay_hint.as_ref())
             .is_some();
 
+        // Check if client supports selection range
+        let supports_selection_range = text_document_caps
+            .and_then(|td| td.selection_range.as_ref())
+            .is_some();
+
         tracing::debug!(
             supports_hover,
             supports_completion,
@@ -1270,6 +1276,7 @@ impl LanguageServer for GraphQLLanguageServer {
             supports_code_lens,
             supports_folding_range,
             supports_inlay_hints,
+            supports_selection_range,
             "Client capabilities detected"
         );
 
@@ -1349,6 +1356,8 @@ impl LanguageServer for GraphQLLanguageServer {
                         work_done_progress_options: WorkDoneProgressOptions::default(),
                     }),
                 )),
+                selection_range_provider: supports_selection_range
+                    .then_some(SelectionRangeProviderCapability::Simple(true)),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["graphql-analyzer.checkStatus".to_string()],
                     work_done_progress_options: WorkDoneProgressOptions::default(),
@@ -1919,6 +1928,57 @@ impl LanguageServer for GraphQLLanguageServer {
             result_id: None,
             data: encoded_tokens,
         })))
+    }
+
+    async fn selection_range(
+        &self,
+        params: SelectionRangeParams,
+    ) -> Result<Option<Vec<SelectionRange>>> {
+        let uri = params.text_document.uri;
+        tracing::debug!("Selection range requested: {:?}", uri);
+
+        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
+        else {
+            tracing::warn!("No project found for document: {:?}", uri);
+            return Ok(None);
+        };
+
+        let host = self
+            .workspace
+            .get_or_create_host(&workspace_uri, &project_name);
+        let Some(analysis) = host.try_snapshot().await else {
+            return Ok(None);
+        };
+
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
+
+        // Convert LSP positions to IDE positions
+        let positions: Vec<graphql_ide::Position> = params
+            .positions
+            .iter()
+            .map(|p| convert_lsp_position(*p))
+            .collect();
+
+        // Get selection ranges from Analysis
+        let selection_ranges = analysis.selection_ranges(&file_path, &positions);
+
+        // Convert to LSP selection ranges
+        let lsp_ranges: Vec<SelectionRange> = selection_ranges
+            .into_iter()
+            .filter_map(|sr| sr.map(convert_ide_selection_range))
+            .collect();
+
+        if lsp_ranges.is_empty() {
+            tracing::debug!("No selection ranges found for {:?}", uri);
+            return Ok(None);
+        }
+
+        tracing::debug!(
+            "Returning {} selection ranges for {:?}",
+            lsp_ranges.len(),
+            uri
+        );
+        Ok(Some(lsp_ranges))
     }
 
     #[allow(
