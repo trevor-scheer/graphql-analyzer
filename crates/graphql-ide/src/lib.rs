@@ -55,6 +55,7 @@ mod code_lenses;
 mod completion;
 mod goto_definition;
 mod hover;
+mod inlay_hints;
 mod references;
 mod semantic_tokens;
 mod symbols;
@@ -63,8 +64,8 @@ mod symbols;
 pub use types::{
     CodeFix, CodeLens, CodeLensCommand, CodeLensInfo, CompletionItem, CompletionKind, Diagnostic,
     DiagnosticSeverity, DocumentSymbol, FilePath, FragmentReference, FragmentUsage, HoverResult,
-    InsertTextFormat, Location, PendingIntrospection, Position, Range, SchemaLoadResult,
-    SchemaStats, SymbolKind, TextEdit, WorkspaceSymbol,
+    InlayHint, InlayHintKind, InsertTextFormat, Location, PendingIntrospection, Position, Range,
+    SchemaLoadResult, SchemaStats, SymbolKind, TextEdit, WorkspaceSymbol,
 };
 
 // Re-export helpers for internal use
@@ -1937,6 +1938,19 @@ impl Analysis {
             file,
             &fragment_usages,
         )
+    }
+
+    /// Get inlay hints for a file
+    ///
+    /// Returns inlay hints showing:
+    /// - Return types after field selections
+    /// - Variable types after variable references
+    ///
+    /// The optional `range` parameter limits hints to the specified range,
+    /// which is useful for large files to only compute visible hints.
+    pub fn inlay_hints(&self, file: &FilePath, range: Option<Range>) -> Vec<InlayHint> {
+        let registry = self.registry.read();
+        inlay_hints::inlay_hints(&self.db, &registry, self.project_files, file, range)
     }
 }
 
@@ -5525,5 +5539,221 @@ query GetUsers {
         let last_file = FilePath::new("file:///query99.graphql");
         // If we can get diagnostics without panic, file is loaded
         let _diag = snapshot.diagnostics(&last_file);
+    }
+
+    // ===========================================
+    // Inlay Hints Tests
+    // ===========================================
+
+    #[test]
+    fn test_inlay_hints_for_scalar_fields() {
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { user: User }\ntype User { name: String! level: Int! }",
+            FileKind::Schema,
+        );
+
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "query GetUser {\n  user {\n    name\n    level\n  }\n}",
+            FileKind::ExecutableGraphQL,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let hints = snapshot.inlay_hints(&doc_path, None);
+
+        // Should have hints for scalar fields: name and level
+        assert!(
+            hints.len() >= 2,
+            "Expected at least 2 inlay hints for scalar fields, got {}",
+            hints.len()
+        );
+
+        // Check that hints contain type information
+        let hint_labels: Vec<&str> = hints.iter().map(|h| h.label.as_str()).collect();
+        assert!(
+            hint_labels.iter().any(|l| l.contains("String")),
+            "Expected hint containing String type"
+        );
+        assert!(
+            hint_labels.iter().any(|l| l.contains("Int")),
+            "Expected hint containing Int type"
+        );
+    }
+
+    #[test]
+    fn test_inlay_hints_on_nonexistent_file() {
+        let host = AnalysisHost::new();
+        let snapshot = host.snapshot();
+
+        let path = FilePath::new("file:///nonexistent.graphql");
+        let hints = snapshot.inlay_hints(&path, None);
+
+        assert!(hints.is_empty(), "Expected no hints for nonexistent file");
+    }
+
+    #[test]
+    fn test_inlay_hints_with_range_filter() {
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { user: User }\ntype User { name: String! level: Int! }",
+            FileKind::Schema,
+        );
+
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "query GetUser {\n  user {\n    name\n    level\n  }\n}",
+            FileKind::ExecutableGraphQL,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Request hints only for line 2 (where "name" is)
+        let range = Some(Range::new(Position::new(2, 0), Position::new(2, 100)));
+        let hints = snapshot.inlay_hints(&doc_path, range);
+
+        // Should only get the hint for the field on line 2
+        assert!(
+            hints.len() == 1,
+            "Expected 1 hint for filtered range, got {}",
+            hints.len()
+        );
+        assert!(
+            hints[0].label.contains("String"),
+            "Expected String type hint for name field"
+        );
+    }
+
+    #[test]
+    fn test_inlay_hints_no_project() {
+        let mut host = AnalysisHost::new();
+
+        // Add a file but don't rebuild project (so there's no schema context)
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "query GetUser { user { name } }",
+            FileKind::ExecutableGraphQL,
+        );
+        // Don't call rebuild_project_files()
+
+        let snapshot = host.snapshot();
+        let hints = snapshot.inlay_hints(&doc_path, None);
+
+        // Without schema context, no type hints can be generated
+        assert!(
+            hints.is_empty(),
+            "Expected no hints without project context"
+        );
+    }
+
+    #[test]
+    fn test_inlay_hints_nested_fields() {
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            r#"type Query { user: User }
+type User {
+  name: String!
+  posts: [Post!]!
+}
+type Post {
+  title: String!
+  content: String
+}"#,
+            FileKind::Schema,
+        );
+
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            r#"query GetUserWithPosts {
+  user {
+    name
+    posts {
+      title
+      content
+    }
+  }
+}"#,
+            FileKind::ExecutableGraphQL,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let hints = snapshot.inlay_hints(&doc_path, None);
+
+        // Should have hints for scalar fields: name, title, content
+        assert!(
+            hints.len() >= 3,
+            "Expected at least 3 inlay hints for nested scalar fields, got {}",
+            hints.len()
+        );
+
+        let hint_labels: Vec<&str> = hints.iter().map(|h| h.label.as_str()).collect();
+
+        // Check for String type hints
+        let string_hints = hint_labels.iter().filter(|l| l.contains("String")).count();
+        assert!(
+            string_hints >= 2,
+            "Expected at least 2 String type hints, got {}",
+            string_hints
+        );
+    }
+
+    #[test]
+    fn test_inlay_hints_fragment_definition() {
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { user: User }\ntype User { name: String! age: Int! }",
+            FileKind::Schema,
+        );
+
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "fragment UserFields on User {\n  name\n  age\n}",
+            FileKind::ExecutableGraphQL,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let hints = snapshot.inlay_hints(&doc_path, None);
+
+        // Should have hints for fields in fragment
+        assert!(
+            hints.len() >= 2,
+            "Expected at least 2 inlay hints for fragment fields, got {}",
+            hints.len()
+        );
+
+        let hint_labels: Vec<&str> = hints.iter().map(|h| h.label.as_str()).collect();
+        assert!(
+            hint_labels.iter().any(|l| l.contains("String")),
+            "Expected String type hint"
+        );
+        assert!(
+            hint_labels.iter().any(|l| l.contains("Int")),
+            "Expected Int type hint"
+        );
     }
 }
