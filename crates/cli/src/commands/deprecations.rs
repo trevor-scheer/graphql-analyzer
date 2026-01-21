@@ -174,7 +174,7 @@ pub fn run(
                 total_duration.as_secs_f64()
             );
         }
-        OutputFormat::Json => {
+        OutputFormat::Json | OutputFormat::Github => {
             let json_output: Vec<_> = elements
                 .iter()
                 .map(|e| {

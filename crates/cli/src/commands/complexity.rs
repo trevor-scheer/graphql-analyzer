@@ -165,7 +165,7 @@ pub fn run(
                 }
             }
         }
-        OutputFormat::Json => {
+        OutputFormat::Json | OutputFormat::Github => {
             for result in &results {
                 let output = ComplexityOutput {
                     operation_name: result.operation_name.clone(),

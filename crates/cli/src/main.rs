@@ -165,6 +165,8 @@ enum OutputFormat {
     Human,
     /// JSON output for tooling
     Json,
+    /// GitHub Actions workflow commands for PR annotations
+    Github,
 }
 
 #[tokio::main]

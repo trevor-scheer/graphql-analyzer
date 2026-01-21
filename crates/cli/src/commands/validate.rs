@@ -191,6 +191,19 @@ pub fn run(
 
             println!("{}", serde_json::to_string_pretty(&output).unwrap());
         }
+        OutputFormat::Github => {
+            // Print GitHub Actions workflow commands
+            for error in &all_errors {
+                if error.line > 0 {
+                    println!(
+                        "::error file={},line={},col={}::{}",
+                        error.file_path, error.line, error.column, error.message
+                    );
+                } else {
+                    println!("::error ::{}", error.message);
+                }
+            }
+        }
     }
 
     // Summary

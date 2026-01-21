@@ -265,6 +265,32 @@ pub fn run(
 
             println!("{}", serde_json::to_string_pretty(&output).unwrap());
         }
+        OutputFormat::Github => {
+            // Print GitHub Actions workflow commands
+            for warning in &all_warnings {
+                let rule_suffix = warning
+                    .rule
+                    .as_ref()
+                    .map(|r| format!(" [{r}]"))
+                    .unwrap_or_default();
+                println!(
+                    "::warning file={},line={},col={}::{}{}",
+                    warning.file_path, warning.line, warning.column, warning.message, rule_suffix
+                );
+            }
+
+            for error in &all_errors {
+                let rule_suffix = error
+                    .rule
+                    .as_ref()
+                    .map(|r| format!(" [{r}]"))
+                    .unwrap_or_default();
+                println!(
+                    "::error file={},line={},col={}::{}{}",
+                    error.file_path, error.line, error.column, error.message, rule_suffix
+                );
+            }
+        }
     }
 
     // Summary
