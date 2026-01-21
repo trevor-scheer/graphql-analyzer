@@ -1,12 +1,11 @@
 use crate::analysis::CliAnalysisHost;
 use crate::commands::common::CommandContext;
 use crate::watch::{FileWatcher, WatchConfig, WatchMode};
-use crate::{OutputFormat, OutputOptions};
+use crate::{ExitCode, OutputFormat, OutputOptions};
 use anyhow::Result;
 use colored::Colorize;
 use graphql_ide::DiagnosticSeverity;
 use std::path::PathBuf;
-use std::process;
 
 #[allow(clippy::too_many_lines)]
 #[tracing::instrument(skip(config_path, project_name, format, output_opts), fields(project = ?project_name))]
@@ -60,7 +59,7 @@ pub fn run(
             } else {
                 eprintln!("{}", serde_json::json!({ "error": e.to_string() }));
             }
-            process::exit(1);
+            ExitCode::SchemaError.exit();
         })
         .unwrap();
 
@@ -228,7 +227,7 @@ pub fn run(
     }
 
     if total_errors > 0 {
-        process::exit(1);
+        ExitCode::ValidationError.exit();
     }
 
     Ok(())

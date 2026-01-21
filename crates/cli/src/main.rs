@@ -1,7 +1,10 @@
 mod analysis;
 mod commands;
+mod exit_code;
 mod progress;
 mod watch;
+
+pub use exit_code::ExitCode;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;

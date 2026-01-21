@@ -2,12 +2,11 @@ use crate::analysis::CliAnalysisHost;
 use crate::commands::common::CommandContext;
 use crate::commands::fix::{apply_fixes, collect_fixable_diagnostics, display_dry_run};
 use crate::watch::{FileWatcher, WatchConfig, WatchMode};
-use crate::{OutputFormat, OutputOptions};
+use crate::{ExitCode, OutputFormat, OutputOptions};
 use anyhow::Result;
 use colored::Colorize;
 use graphql_ide::DiagnosticSeverity;
 use std::path::PathBuf;
-use std::process;
 
 /// Diagnostic output structure for collecting warnings and errors
 struct DiagnosticOutput {
@@ -341,7 +340,7 @@ pub fn run(
     }
 
     if total_errors > 0 {
-        process::exit(1);
+        ExitCode::ValidationError.exit();
     }
 
     Ok(())

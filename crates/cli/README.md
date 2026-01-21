@@ -125,10 +125,7 @@ graphql validate [OPTIONS]
 - `--format <FORMAT>` - Output format: `human` (default), `json`, `github`
 - `--watch` - Watch for file changes and re-validate
 
-**Exit codes:**
-
-- `0` - No validation errors
-- `1` - Validation errors found
+**Exit codes:** See [Exit Codes](#exit-codes) for the full list.
 
 **Examples:**
 
@@ -159,10 +156,7 @@ graphql lint [OPTIONS]
 - `--format <FORMAT>` - Output format: `human` (default), `json`, `github`
 - `--watch` - Watch for file changes and re-lint
 
-**Exit codes:**
-
-- `0` - No lint errors
-- `1` - Lint errors found (warnings don't cause non-zero exit)
+**Exit codes:** See [Exit Codes](#exit-codes) for the full list. Warnings don't cause non-zero exit.
 
 **Examples:**
 
@@ -273,6 +267,32 @@ GitHub Actions annotation format:
 ```
 
 Errors and warnings appear as annotations in GitHub pull requests.
+
+## Exit Codes
+
+The CLI uses distinct exit codes to distinguish between different error types:
+
+| Exit Code | Meaning                                                              |
+| --------- | -------------------------------------------------------------------- |
+| 0         | Success - no errors                                                  |
+| 1         | Validation or lint errors found                                      |
+| 2         | Configuration error (missing/invalid config, missing --project flag) |
+| 3         | Schema load error (introspection failed, file not found)             |
+| 4         | I/O error (file read/write failure)                                  |
+| 5         | Parse error (invalid GraphQL syntax)                                 |
+
+This allows scripts to distinguish between "your code has errors" (exit 1) vs "the tool is misconfigured" (exit 2):
+
+```bash
+graphql validate
+case $? in
+  0) echo "All good!" ;;
+  1) echo "Fix your GraphQL errors" ;;
+  2) echo "Check your .graphqlrc configuration" ;;
+  3) echo "Schema could not be loaded" ;;
+  *) echo "Unexpected error" ;;
+esac
+```
 
 ## Configuration
 
