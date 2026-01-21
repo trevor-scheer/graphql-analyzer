@@ -271,17 +271,19 @@ fn get_dist_targets(root: &Path) -> Result<Vec<String>> {
 }
 
 fn find_cargo_dist() -> Result<PathBuf> {
-    // Try finding cargo-dist in PATH first
-    if let Ok(output) = Command::new("which").arg("cargo-dist").output() {
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return Ok(PathBuf::from(path));
+    // Try finding in PATH first (could be cargo-dist or dist)
+    for name in ["cargo-dist", "dist"] {
+        if let Ok(output) = Command::new("which").arg(name).output() {
+            if output.status.success() {
+                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !path.is_empty() {
+                    return Ok(PathBuf::from(path));
+                }
             }
         }
     }
 
-    // Try in CARGO_HOME/bin
+    // Try in CARGO_HOME/bin (could be cargo-dist or dist)
     let cargo_home = std::env::var("CARGO_HOME").map_or_else(
         |_| {
             dirs::home_dir()
@@ -290,9 +292,12 @@ fn find_cargo_dist() -> Result<PathBuf> {
         },
         PathBuf::from,
     );
-    let cargo_dist_path = cargo_home.join("bin/cargo-dist");
-    if cargo_dist_path.exists() {
-        return Ok(cargo_dist_path);
+
+    for name in ["cargo-dist", "dist"] {
+        let path = cargo_home.join("bin").join(name);
+        if path.exists() {
+            return Ok(path);
+        }
     }
 
     bail!("cargo-dist not found. Install it with: cargo install cargo-dist")
