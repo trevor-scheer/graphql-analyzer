@@ -127,11 +127,17 @@ fn file_validation_diagnostics_impl(
     );
 
     if file_kind.is_schema() {
-        tracing::info!("Running schema validation");
-        let schema_diagnostics = schema_validation::validate_schema_file(db, content, metadata);
+        // Use merged_schema_diagnostics instead of validate_schema_file.
+        // The merged schema is already parsed/validated during document validation,
+        // so this avoids redundant work for large schema files.
+        // Note: This shows ALL schema errors, not just errors from this specific file.
+        // For single-file schemas (common case), this is correct.
+        // For multi-file schemas, errors from other files may appear, which is acceptable.
+        tracing::info!("Getting schema diagnostics from merged schema cache");
+        let schema_diagnostics = merged_schema::merged_schema_diagnostics(db, project_files);
         tracing::info!(
             schema_diagnostic_count = schema_diagnostics.len(),
-            "Schema validation completed"
+            "Schema diagnostics retrieved"
         );
         diagnostics.extend(schema_diagnostics.iter().cloned());
     } else if file_kind.is_document() {
