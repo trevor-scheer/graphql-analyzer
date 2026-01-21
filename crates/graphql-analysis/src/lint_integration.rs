@@ -59,20 +59,18 @@ fn lint_file_impl(
     let parse = graphql_syntax::parse(db, content, metadata);
 
     let uri = metadata.uri(db);
-    tracing::debug!(uri = %uri, parse_errors = parse.errors().len(), "lint_file called");
+    // NOTE: Downgraded from debug to trace - fires O(files) times per change
+    tracing::trace!(uri = %uri, parse_errors = parse.errors().len(), "lint_file called");
 
     if parse.has_errors() {
-        tracing::debug!(uri = %uri, "Skipping linting due to parse errors");
+        tracing::trace!(uri = %uri, "Skipping linting due to parse errors");
         return Arc::new(diagnostics);
     }
 
     let file_id = metadata.file_id(db);
     let file_kind = metadata.kind(db);
 
-    tracing::debug!(uri = %uri, ?file_kind, "Checking file kind");
-
     if file_kind.is_document() {
-        tracing::debug!(uri = %uri, "Running standalone document lints");
         diagnostics.extend(standalone_document_lints(
             db,
             file_id,
@@ -81,7 +79,6 @@ fn lint_file_impl(
             project_files,
         ));
 
-        tracing::debug!(uri = %uri, "Running document+schema lints");
         diagnostics.extend(document_schema_lints(
             db,
             file_id,
@@ -90,11 +87,10 @@ fn lint_file_impl(
             project_files,
         ));
     } else if file_kind.is_schema() {
-        tracing::debug!(uri = %uri, "Running schema lints");
         diagnostics.extend(schema_lints(db, file_id, content, project_files));
     }
 
-    tracing::debug!(diagnostics = diagnostics.len(), "Linting complete");
+    tracing::trace!(diagnostics = diagnostics.len(), "Linting complete");
 
     Arc::new(diagnostics)
 }
@@ -110,14 +106,9 @@ fn standalone_document_lints(
     let lint_config = db.lint_config();
     let mut diagnostics = Vec::new();
 
+    // NOTE: Per-rule logging downgraded to trace - fires O(files × rules) times
     for rule in graphql_linter::standalone_document_rules() {
         let enabled = lint_config.is_enabled(rule.name());
-        tracing::debug!(
-            rule = rule.name(),
-            enabled = enabled,
-            "Checking standalone document rule"
-        );
-
         if !enabled {
             continue;
         }
@@ -126,7 +117,7 @@ fn standalone_document_lints(
         let lint_diags = rule.check(db, file_id, content, metadata, project_files, options);
 
         if !lint_diags.is_empty() {
-            tracing::debug!(
+            tracing::trace!(
                 rule = rule.name(),
                 count = lint_diags.len(),
                 "Found lint issues"
@@ -159,14 +150,9 @@ fn document_schema_lints(
     let lint_config = db.lint_config();
     let mut diagnostics = Vec::new();
 
+    // NOTE: Per-rule logging downgraded to trace - fires O(files × rules) times
     for rule in graphql_linter::document_schema_rules() {
         let enabled = lint_config.is_enabled(rule.name());
-        tracing::debug!(
-            rule = rule.name(),
-            enabled = enabled,
-            "Checking document+schema rule"
-        );
-
         if !enabled {
             continue;
         }
@@ -175,7 +161,7 @@ fn document_schema_lints(
         let lint_diags = rule.check(db, file_id, content, metadata, project_files, options);
 
         if !lint_diags.is_empty() {
-            tracing::debug!(
+            tracing::trace!(
                 rule = rule.name(),
                 count = lint_diags.len(),
                 "Found lint issues"
@@ -206,16 +192,10 @@ fn schema_lints(
     _project_files: ProjectFiles,
 ) -> Vec<Diagnostic> {
     let _lint_config = db.lint_config();
-    let diagnostics = Vec::new();
 
     // Placeholder for future schema design rules (naming conventions, descriptions, etc.)
 
-    tracing::debug!(
-        enabled_rules = 0,
-        "Schema linting complete (no schema rules available yet)"
-    );
-
-    diagnostics
+    Vec::new()
 }
 
 /// Run project-wide lint rules

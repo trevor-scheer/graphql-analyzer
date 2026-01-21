@@ -84,7 +84,7 @@ pub fn extract_from_file(path: &Path, config: &ExtractConfig) -> Result<Vec<Extr
 }
 
 /// Extract GraphQL from source code string
-#[tracing::instrument(skip(source, config), fields(language = ?language, source_len = source.len()))]
+#[tracing::instrument(skip(source, config), fields(language = ?language, source_len = source.len()), level = "debug")]
 pub fn extract_from_source(
     source: &str,
     language: Language,

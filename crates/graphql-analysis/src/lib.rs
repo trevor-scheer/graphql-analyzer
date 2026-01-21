@@ -120,24 +120,23 @@ fn file_validation_diagnostics_impl(
     }
 
     let file_kind = metadata.kind(db);
-    tracing::info!(
+    // NOTE: Downgraded from info! - this fires on every file change
+    tracing::debug!(
         uri = ?metadata.uri(db),
         ?file_kind,
         "Determining validation path for file"
     );
 
     if file_kind.is_schema() {
-        tracing::info!("Running schema validation");
         let schema_diagnostics = schema_validation::validate_schema_file(db, content, metadata);
-        tracing::info!(
+        tracing::debug!(
             schema_diagnostic_count = schema_diagnostics.len(),
             "Schema validation completed"
         );
         diagnostics.extend(schema_diagnostics.iter().cloned());
     } else if file_kind.is_document() {
-        tracing::info!("Running document validation");
         let doc_diagnostics = validation::validate_file(db, content, metadata, project_files);
-        tracing::info!(
+        tracing::debug!(
             document_diagnostic_count = doc_diagnostics.len(),
             "Document validation completed"
         );
