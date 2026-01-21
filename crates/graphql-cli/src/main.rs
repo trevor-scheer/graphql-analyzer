@@ -1,6 +1,7 @@
 mod analysis;
 mod commands;
 mod progress;
+mod schema_cache;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -17,6 +18,10 @@ struct Cli {
     /// Project name (for multi-project configs)
     #[arg(short, long, global = true)]
     project: Option<String>,
+
+    /// Force re-fetch of remote schemas (bypass cache)
+    #[arg(long, global = true)]
+    refresh_schema: bool,
 
     #[command(subcommand)]
     command: Commands,

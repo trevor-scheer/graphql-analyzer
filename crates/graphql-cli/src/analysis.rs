@@ -4,6 +4,7 @@
 //! It handles batch loading from `GraphQLConfig` and provides conveniences for
 //! collecting diagnostics across all project files.
 
+use crate::schema_cache::SchemaCache;
 use anyhow::{Context, Result};
 use graphql_config::ProjectConfig;
 use graphql_ide::{AnalysisHost, Diagnostic, FileKind, FilePath};
@@ -26,7 +27,20 @@ impl CliAnalysisHost {
     /// Create from a project configuration
     ///
     /// Loads all schema and document files from the project config.
+    /// If `refresh_schema` is true, remote schemas will be re-fetched even if cached.
     pub fn from_project_config(project_config: &ProjectConfig, base_dir: &Path) -> Result<Self> {
+        Self::from_project_config_with_options(project_config, base_dir, false)
+    }
+
+    /// Create from a project configuration with cache options
+    ///
+    /// Loads all schema and document files from the project config.
+    /// If `refresh_schema` is true, remote schemas will be re-fetched even if cached.
+    pub fn from_project_config_with_options(
+        project_config: &ProjectConfig,
+        base_dir: &Path,
+        refresh_schema: bool,
+    ) -> Result<Self> {
         let mut host = AnalysisHost::new();
         let mut loaded_files = Vec::new();
 
@@ -85,7 +99,12 @@ impl CliAnalysisHost {
             }
         }
 
-        let _schema_count = host.load_schemas_from_config(project_config, base_dir)?;
+        let schema_result = host.load_schemas_from_config(project_config, base_dir)?;
+
+        // Handle pending introspections (remote schemas)
+        if !schema_result.pending_introspections.is_empty() {
+            Self::fetch_remote_schemas(&mut host, &schema_result.pending_introspections, refresh_schema)?;
+        }
 
         if let Some(ref documents_config) = project_config.documents {
             let document_files =
@@ -167,6 +186,81 @@ impl CliAnalysisHost {
         }
 
         Ok(files)
+    }
+
+    /// Fetch remote schemas with caching support
+    ///
+    /// This method fetches remote schemas via introspection, using a cache to
+    /// avoid redundant network requests. Cached schemas have a 1-hour TTL.
+    fn fetch_remote_schemas(
+        host: &mut AnalysisHost,
+        pending: &[graphql_ide::PendingIntrospection],
+        refresh: bool,
+    ) -> Result<()> {
+        // Initialize the cache (this is a no-op if it already exists)
+        let cache = SchemaCache::new()
+            .context("Failed to initialize schema cache")?;
+
+        // We need to run async code from sync context
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .context("Failed to create async runtime")?;
+
+        for introspection in pending {
+            let url = &introspection.url;
+
+            // Check cache first (unless refresh is requested)
+            if !refresh {
+                if let Some((sdl, metadata)) = cache.get(url) {
+                    tracing::info!(
+                        url,
+                        age_secs = metadata.age().as_secs(),
+                        "Using cached schema"
+                    );
+                    host.add_introspected_schema(url, &sdl);
+                    continue;
+                }
+            }
+
+            // Fetch from remote
+            tracing::info!(url, "Fetching remote schema");
+
+            let sdl = runtime.block_on(async {
+                let mut client = graphql_introspect::IntrospectionClient::new();
+
+                // Apply headers if configured
+                if let Some(ref headers) = introspection.headers {
+                    for (name, value) in headers {
+                        client = client.with_header(name, value);
+                    }
+                }
+
+                // Apply timeout if configured
+                if let Some(timeout_secs) = introspection.timeout {
+                    client = client.with_timeout(std::time::Duration::from_secs(timeout_secs));
+                }
+
+                // Apply retries if configured
+                if let Some(retries) = introspection.retry {
+                    client = client.with_retries(retries);
+                }
+
+                let response = client.execute(url).await?;
+                let sdl = graphql_introspect::introspection_to_sdl(&response);
+                Ok::<_, anyhow::Error>(sdl)
+            })?;
+
+            // Cache the result
+            if let Err(e) = cache.set(url, &sdl) {
+                tracing::warn!(url, error = %e, "Failed to cache schema");
+            }
+
+            // Add to host
+            host.add_introspected_schema(url, &sdl);
+        }
+
+        Ok(())
     }
 
     /// Expand brace patterns like "src/**/*.{ts,tsx}" into separate patterns

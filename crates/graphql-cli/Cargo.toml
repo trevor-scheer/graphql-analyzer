@@ -41,6 +41,7 @@ anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 glob = { workspace = true }
+dirs = "5.0"
 
 # Terminal UI
 colored = "2.0"
@@ -56,6 +57,9 @@ opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"], optional = true
 opentelemetry-otlp = { version = "0.27", features = ["default"], optional = true }
 opentelemetry-semantic-conventions = { version = "0.27", optional = true }
 tracing-opentelemetry = { version = "0.28", optional = true }
+
+[dev-dependencies]
+tempfile = "3.15"
 
 [features]
 otel = [
