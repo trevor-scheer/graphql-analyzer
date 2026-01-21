@@ -176,6 +176,7 @@ use apollo_parser::cst::{self, CstNode};
 
 /// A GraphQL symbol identified at a specific position
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)] // Variants may be added for future completion contexts
 pub enum Symbol {
     /// A type name reference (in type positions, implements clauses, etc.)
     TypeName { name: String },
@@ -189,6 +190,66 @@ pub enum Symbol {
     VariableReference { name: String },
     /// An argument name in a field or directive
     ArgumentName { name: String },
+    /// A directive reference (@directiveName)
+    DirectiveName { name: String },
+    /// An enum value
+    EnumValue { name: String },
+}
+
+/// Context for completion at a specific position
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)] // Some variants are for future use or testing
+pub enum CompletionContext {
+    /// Completing field names in a selection set
+    Field { parent_type: Option<String> },
+    /// Completing fragment spreads after `...`
+    FragmentSpread,
+    /// Completing arguments for a field or directive
+    Argument {
+        field_name: Option<String>,
+        directive_name: Option<String>,
+        parent_type: Option<String>,
+    },
+    /// Completing variable names after `$`
+    Variable,
+    /// Completing directive names after `@`
+    Directive {
+        /// Location where directive is being used
+        location: DirectiveLocation,
+    },
+    /// Completing type names (in variable definitions, type conditions, etc.)
+    TypeName {
+        /// Whether only input types are valid (for variable definitions)
+        input_only: bool,
+    },
+    /// Completing enum values in a value position
+    EnumValue { enum_type: String },
+    /// Completing inline fragment type conditions after `... on`
+    InlineFragmentType { parent_type: Option<String> },
+}
+
+/// Locations where directives can appear
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Some variants are for future use or location-specific directive filtering
+pub enum DirectiveLocation {
+    /// On a query operation
+    Query,
+    /// On a mutation operation
+    Mutation,
+    /// On a subscription operation
+    Subscription,
+    /// On a field selection
+    Field,
+    /// On a fragment definition
+    FragmentDefinition,
+    /// On a fragment spread
+    FragmentSpread,
+    /// On an inline fragment
+    InlineFragment,
+    /// On a variable definition
+    VariableDefinition,
+    /// Unknown location
+    Unknown,
 }
 
 /// Find the symbol at a specific byte offset in the document
@@ -1514,6 +1575,278 @@ pub fn extract_all_definitions(
     }
 
     results
+}
+
+/// Find the completion context at a specific byte offset.
+/// This analyzes the source text and position to determine what kind of completions are appropriate.
+pub fn find_completion_context(
+    source: &str,
+    tree: &apollo_parser::SyntaxTree,
+    byte_offset: usize,
+) -> Option<CompletionContext> {
+    // Get the characters before the cursor for context
+    let prefix = if byte_offset > 0 && byte_offset <= source.len() {
+        &source[..byte_offset]
+    } else {
+        ""
+    };
+
+    // Check for $ prefix (variable completion)
+    if let Some(last_non_ws) = prefix.trim_end().chars().last() {
+        if last_non_ws == '$' {
+            return Some(CompletionContext::Variable);
+        }
+    }
+
+    // Check if we just typed $ as the last character
+    if prefix.ends_with('$') {
+        return Some(CompletionContext::Variable);
+    }
+
+    // Check for @ prefix (directive completion)
+    if prefix.ends_with('@') {
+        let location = find_directive_location(tree, byte_offset);
+        return Some(CompletionContext::Directive { location });
+    }
+
+    // Check for : in variable definition (type completion)
+    if is_in_variable_type_position(source, tree, byte_offset) {
+        return Some(CompletionContext::TypeName { input_only: true });
+    }
+
+    // Check for argument position (after ( or in arguments)
+    if let Some(ctx) = find_argument_context(tree, byte_offset) {
+        return Some(ctx);
+    }
+
+    // Check if we're in an enum value position
+    if let Some(enum_type) = find_enum_value_context(tree, byte_offset) {
+        return Some(CompletionContext::EnumValue { enum_type });
+    }
+
+    // Default: check for field/fragment context based on symbol
+    let symbol = find_symbol_at_offset(tree, byte_offset);
+    match symbol {
+        Some(Symbol::FragmentSpread { .. }) => Some(CompletionContext::FragmentSpread),
+        Some(Symbol::DirectiveName { .. }) => {
+            let location = find_directive_location(tree, byte_offset);
+            Some(CompletionContext::Directive { location })
+        }
+        Some(Symbol::FieldName { .. }) | None => {
+            if is_in_selection_set(tree, byte_offset) {
+                Some(CompletionContext::Field { parent_type: None })
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Find the directive location for a given position
+fn find_directive_location(
+    tree: &apollo_parser::SyntaxTree,
+    byte_offset: usize,
+) -> DirectiveLocation {
+    let doc = tree.document();
+
+    for definition in doc.definitions() {
+        match definition {
+            cst::Definition::OperationDefinition(op) => {
+                let def_range = op.syntax().text_range();
+                let def_start: usize = def_range.start().into();
+                let def_end: usize = def_range.end().into();
+                if byte_offset >= def_start && byte_offset <= def_end {
+                    // Check if we're on a variable definition
+                    if let Some(var_defs) = op.variable_definitions() {
+                        let var_range = var_defs.syntax().text_range();
+                        let var_start: usize = var_range.start().into();
+                        let var_end: usize = var_range.end().into();
+                        if byte_offset >= var_start && byte_offset <= var_end {
+                            return DirectiveLocation::VariableDefinition;
+                        }
+                    }
+
+                    // Check if we're in a selection set (field directive)
+                    if let Some(selection_set) = op.selection_set() {
+                        let sel_range = selection_set.syntax().text_range();
+                        let sel_start: usize = sel_range.start().into();
+                        let sel_end: usize = sel_range.end().into();
+                        if byte_offset >= sel_start && byte_offset <= sel_end {
+                            return DirectiveLocation::Field;
+                        }
+                    }
+
+                    // Otherwise it's on the operation itself
+                    return match op.operation_type() {
+                        Some(op_type) if op_type.mutation_token().is_some() => {
+                            DirectiveLocation::Mutation
+                        }
+                        Some(op_type) if op_type.subscription_token().is_some() => {
+                            DirectiveLocation::Subscription
+                        }
+                        _ => DirectiveLocation::Query,
+                    };
+                }
+            }
+            cst::Definition::FragmentDefinition(frag) => {
+                let def_range = frag.syntax().text_range();
+                let def_start: usize = def_range.start().into();
+                let def_end: usize = def_range.end().into();
+                if byte_offset >= def_start && byte_offset <= def_end {
+                    // Check if we're in a selection set (field directive)
+                    if let Some(selection_set) = frag.selection_set() {
+                        let sel_range = selection_set.syntax().text_range();
+                        let sel_start: usize = sel_range.start().into();
+                        let sel_end: usize = sel_range.end().into();
+                        if byte_offset >= sel_start && byte_offset <= sel_end {
+                            return DirectiveLocation::Field;
+                        }
+                    }
+                    return DirectiveLocation::FragmentDefinition;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    DirectiveLocation::Unknown
+}
+
+/// Check if the cursor is in a variable type position (after : in variable definition)
+fn is_in_variable_type_position(
+    source: &str,
+    tree: &apollo_parser::SyntaxTree,
+    byte_offset: usize,
+) -> bool {
+    let doc = tree.document();
+
+    for definition in doc.definitions() {
+        if let cst::Definition::OperationDefinition(op) = definition {
+            if let Some(var_defs) = op.variable_definitions() {
+                let var_range = var_defs.syntax().text_range();
+                let var_start: usize = var_range.start().into();
+                let var_end: usize = var_range.end().into();
+
+                if byte_offset >= var_start && byte_offset <= var_end {
+                    // We're inside variable definitions
+                    // Check if there's a : before the cursor (in this variable context)
+                    let prefix = &source[var_start..byte_offset.min(source.len())];
+                    // Find the last variable start ($) and check if there's a : after it
+                    if let Some(last_dollar) = prefix.rfind('$') {
+                        let after_dollar = &prefix[last_dollar..];
+                        if after_dollar.contains(':') {
+                            // There's a : after the $, so we're in type position
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}
+
+/// Find argument context if cursor is in an argument position
+fn find_argument_context(
+    tree: &apollo_parser::SyntaxTree,
+    byte_offset: usize,
+) -> Option<CompletionContext> {
+    let doc = tree.document();
+
+    for definition in doc.definitions() {
+        match definition {
+            cst::Definition::OperationDefinition(op) => {
+                if let Some(selection_set) = op.selection_set() {
+                    if let Some(ctx) = find_argument_in_selection_set(&selection_set, byte_offset) {
+                        return Some(ctx);
+                    }
+                }
+            }
+            cst::Definition::FragmentDefinition(frag) => {
+                if let Some(selection_set) = frag.selection_set() {
+                    if let Some(ctx) = find_argument_in_selection_set(&selection_set, byte_offset) {
+                        return Some(ctx);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+fn find_argument_in_selection_set(
+    selection_set: &cst::SelectionSet,
+    byte_offset: usize,
+) -> Option<CompletionContext> {
+    for selection in selection_set.selections() {
+        if let cst::Selection::Field(field) = selection {
+            // Check if we're in this field's arguments
+            if let Some(arguments) = field.arguments() {
+                let arg_range = arguments.syntax().text_range();
+                let arg_start: usize = arg_range.start().into();
+                let arg_end: usize = arg_range.end().into();
+
+                if byte_offset >= arg_start && byte_offset <= arg_end {
+                    let field_name = field.name().map(|n| n.text().to_string());
+                    return Some(CompletionContext::Argument {
+                        field_name,
+                        directive_name: None,
+                        parent_type: None,
+                    });
+                }
+            }
+
+            // Check directives on the field
+            if let Some(directives) = field.directives() {
+                for directive in directives.directives() {
+                    if let Some(arguments) = directive.arguments() {
+                        let arg_range = arguments.syntax().text_range();
+                        let arg_start: usize = arg_range.start().into();
+                        let arg_end: usize = arg_range.end().into();
+
+                        if byte_offset >= arg_start && byte_offset <= arg_end {
+                            let directive_name = directive.name().map(|n| n.text().to_string());
+                            return Some(CompletionContext::Argument {
+                                field_name: None,
+                                directive_name,
+                                parent_type: None,
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Recurse into nested selection sets
+            if let Some(nested) = field.selection_set() {
+                if let Some(ctx) = find_argument_in_selection_set(&nested, byte_offset) {
+                    return Some(ctx);
+                }
+            }
+        } else if let cst::Selection::InlineFragment(inline_frag) = selection {
+            if let Some(nested) = inline_frag.selection_set() {
+                if let Some(ctx) = find_argument_in_selection_set(&nested, byte_offset) {
+                    return Some(ctx);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Find enum value context if cursor is in an argument value position expecting an enum
+fn find_enum_value_context(
+    _tree: &apollo_parser::SyntaxTree,
+    _byte_offset: usize,
+) -> Option<String> {
+    // This requires knowing the argument type from the schema
+    // The actual enum type resolution will happen in completion.rs
+    // where we have access to the schema types
+    None
 }
 
 #[cfg(test)]
