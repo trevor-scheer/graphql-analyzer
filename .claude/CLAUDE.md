@@ -303,11 +303,9 @@ knope document-change
 
 # Build a release (dry run first)
 cargo xtask release --dry-run --skip-prepare
-cargo xtask release --skip-prepare --tag
 
-# Or use knope directly for version management
-knope prepare-release   # Update versions and changelog
-knope release           # Create GitHub release
+# Build and publish to GitHub
+cargo xtask release --skip-prepare --publish
 ```
 
 ### Manual Release Workflow
@@ -324,10 +322,22 @@ cargo xtask release --skip-prepare
 # 3. Review artifacts in dist/
 ls -la dist/
 
-# 4. Commit and tag
+# 4. Commit changes (if any)
 git add -A && git commit -m "chore: release v0.1.0"
-git tag -a v0.1.0 -m "Release v0.1.0"
-git push && git push --tags
+
+# 5. Publish to GitHub (creates tag + release with artifacts)
+cargo xtask release --skip-prepare --publish
+```
+
+### Release Command Options
+
+```bash
+cargo xtask release [OPTIONS]
+
+  --skip-prepare  Skip knope prepare-release (use current versions)
+  --tag           Create git tag after building
+  --publish       Create GitHub release with artifacts (implies --tag)
+  --dry-run       Show what would happen without doing it
 ```
 
 ### Workspace Versioning
@@ -1203,6 +1213,7 @@ Skills provide contextual guidance for common workflows. They activate automatic
 | Create PR         | `/create-pr`         | Opening PRs, preparing for review                 |
 | Add IDE Feature   | `/add-ide-feature`   | Implementing LSP features (hover, goto def, etc.) |
 | Debug LSP         | `/debug-lsp`         | Troubleshooting LSP server issues                 |
+| Release           | `/release`           | Building and publishing releases                  |
 | Review PR         | `/review-pr`         | Reviewing pull requests                           |
 
 Skills are located in `.claude/skills/` and are loaded into context when relevant.
