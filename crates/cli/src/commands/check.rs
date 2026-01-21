@@ -203,6 +203,25 @@ pub fn run(
         .filter(|i| matches!(i.source, DiagnosticSource::Lint) && i.severity == "error")
         .count();
 
+    // Group issues by file for JSON output
+    let mut files_with_issues: std::collections::HashMap<
+        String,
+        (Vec<&DiagnosticOutput>, Vec<&DiagnosticOutput>),
+    > = std::collections::HashMap::new();
+
+    for issue in &all_issues {
+        let (errors, warnings) = files_with_issues
+            .entry(issue.file_path.clone())
+            .or_insert_with(|| (Vec::new(), Vec::new()));
+        if issue.severity == "error" {
+            errors.push(issue);
+        } else {
+            warnings.push(issue);
+        }
+    }
+
+    let total_files = files_with_issues.len();
+
     // Display results
     match format {
         OutputFormat::Human => {
@@ -234,34 +253,54 @@ pub fn run(
             }
         }
         OutputFormat::Json => {
-            for issue in &all_issues {
-                let location = if issue.line > 0 {
-                    Some(serde_json::json!({
-                        "start": {
-                            "line": issue.line,
-                            "column": issue.column
-                        },
-                        "end": {
-                            "line": issue.end_line,
-                            "column": issue.end_column
-                        }
-                    }))
-                } else {
-                    None
-                };
+            // Build aggregated JSON output
+            let issue_to_json = |issue: &&DiagnosticOutput| {
+                let mut obj = serde_json::json!({
+                    "message": issue.message,
+                    "severity": issue.severity,
+                    "source": issue.source.to_string(),
+                    "rule": issue.rule
+                });
+                if issue.line > 0 {
+                    obj["location"] = serde_json::json!({
+                        "start": { "line": issue.line, "column": issue.column },
+                        "end": { "line": issue.end_line, "column": issue.end_column }
+                    });
+                }
+                obj
+            };
 
-                println!(
-                    "{}",
+            let mut files: Vec<serde_json::Value> = files_with_issues
+                .iter()
+                .map(|(file, (errors, warnings))| {
                     serde_json::json!({
-                        "file": issue.file_path,
-                        "severity": issue.severity,
-                        "source": issue.source.to_string(),
-                        "rule": issue.rule,
-                        "message": issue.message,
-                        "location": location
+                        "file": file,
+                        "errors": errors.iter().map(issue_to_json).collect::<Vec<_>>(),
+                        "warnings": warnings.iter().map(issue_to_json).collect::<Vec<_>>()
                     })
-                );
-            }
+                })
+                .collect();
+
+            // Sort files for consistent output
+            files.sort_by(|a, b| {
+                a.get("file")
+                    .and_then(|v| v.as_str())
+                    .cmp(&b.get("file").and_then(|v| v.as_str()))
+            });
+
+            let output = serde_json::json!({
+                "success": total_errors == 0,
+                "files": files,
+                "stats": {
+                    "total_files": total_files,
+                    "total_errors": total_errors,
+                    "total_warnings": total_warnings,
+                    "validation_errors": validation_errors,
+                    "lint_errors": lint_errors
+                }
+            });
+
+            println!("{}", serde_json::to_string_pretty(&output).unwrap());
         }
     }
 

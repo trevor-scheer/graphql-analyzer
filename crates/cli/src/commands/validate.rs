@@ -97,27 +97,35 @@ pub fn run(
         "Validation completed"
     );
 
-    // Convert diagnostics to CLI output format
-    let mut all_errors = Vec::new();
+    // Convert diagnostics to CLI output format, grouped by file
+    let mut files_with_errors: std::collections::HashMap<String, Vec<DiagnosticOutput>> =
+        std::collections::HashMap::new();
+
     for (file_path, diagnostics) in all_diagnostics {
+        let file_path_str = file_path.to_string_lossy().to_string();
         for diag in diagnostics {
             // Only process errors
             if diag.severity == DiagnosticSeverity::Error {
                 let diag_output = DiagnosticOutput {
-                    file_path: file_path.to_string_lossy().into(),
+                    file_path: file_path_str.clone(),
                     // graphql-ide uses 0-based, CLI output uses 1-based
                     line: (diag.range.start.line + 1) as usize,
                     column: (diag.range.start.character + 1) as usize,
                     message: diag.message,
                 };
 
-                all_errors.push(diag_output);
+                files_with_errors
+                    .entry(file_path_str.clone())
+                    .or_default()
+                    .push(diag_output);
             }
         }
     }
 
-    // Display errors
+    // Flatten for counting and human output
+    let all_errors: Vec<_> = files_with_errors.values().flatten().collect();
     let total_errors = all_errors.len();
+    let total_files = files_with_errors.len();
 
     match format {
         OutputFormat::Human => {
@@ -139,27 +147,51 @@ pub fn run(
             }
         }
         OutputFormat::Json => {
-            // Print all errors as JSON
-            for error in &all_errors {
-                let location = if error.line > 0 {
-                    Some(serde_json::json!({
-                        "line": error.line,
-                        "column": error.column
-                    }))
-                } else {
-                    None
-                };
+            // Build aggregated JSON output
+            let mut files: Vec<serde_json::Value> = files_with_errors
+                .iter()
+                .map(|(file, errors)| {
+                    let errors_json: Vec<serde_json::Value> = errors
+                        .iter()
+                        .map(|e| {
+                            let mut error_obj = serde_json::json!({
+                                "message": e.message,
+                                "severity": "error"
+                            });
+                            if e.line > 0 {
+                                error_obj["location"] = serde_json::json!({
+                                    "line": e.line,
+                                    "column": e.column
+                                });
+                            }
+                            error_obj
+                        })
+                        .collect();
 
-                println!(
-                    "{}",
                     serde_json::json!({
-                        "file": error.file_path,
-                        "severity": "error",
-                        "message": error.message,
-                        "location": location
+                        "file": file,
+                        "errors": errors_json
                     })
-                );
-            }
+                })
+                .collect();
+
+            // Sort files for consistent output
+            files.sort_by(|a, b| {
+                a.get("file")
+                    .and_then(|v| v.as_str())
+                    .cmp(&b.get("file").and_then(|v| v.as_str()))
+            });
+
+            let output = serde_json::json!({
+                "success": total_errors == 0,
+                "files": files,
+                "stats": {
+                    "total_files": total_files,
+                    "total_errors": total_errors
+                }
+            });
+
+            println!("{}", serde_json::to_string_pretty(&output).unwrap());
         }
     }
 
