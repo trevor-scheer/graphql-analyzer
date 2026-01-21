@@ -348,15 +348,6 @@ async fn load_all_project_files_background(
                 .publish_diagnostics(file_uri, lsp_diagnostics, None)
                 .await;
         }
-
-        // Publish empty diagnostics for files without issues
-        for loaded_file in &loaded_files {
-            if !all_diagnostics_map.contains_key(&loaded_file.path) {
-                if let Ok(file_uri) = Uri::from_str(loaded_file.path.as_str()) {
-                    client.publish_diagnostics(file_uri, vec![], None).await;
-                }
-            }
-        }
     }
 
     tracing::info!(
