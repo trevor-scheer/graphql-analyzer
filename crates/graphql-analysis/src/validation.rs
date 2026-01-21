@@ -145,9 +145,16 @@ fn collect_referenced_fragments_transitive(
 ) -> std::collections::HashSet<String> {
     use std::collections::{HashSet, VecDeque};
 
+    let mut all_referenced = collect_referenced_fragments_from_tree(tree);
+
+    // Early exit: if no fragments are referenced, skip the expensive index lookup
+    if all_referenced.is_empty() {
+        return all_referenced;
+    }
+
+    // Only fetch the index if we actually have fragments to resolve
     let spreads_index = graphql_hir::fragment_spreads_index(db, project_files);
 
-    let mut all_referenced = collect_referenced_fragments_from_tree(tree);
     let mut to_process: VecDeque<String> = all_referenced.iter().cloned().collect();
     let mut processed = HashSet::new();
 

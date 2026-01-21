@@ -1938,6 +1938,26 @@ impl Analysis {
             &fragment_usages,
         )
     }
+
+    /// Pre-warm expensive Salsa caches during background loading
+    ///
+    /// This builds the `fragment_spreads_index` and `merged_schema` so they're
+    /// already cached when users open their first file. Without this,
+    /// the first file open would block while these indexes are built.
+    pub fn warm_caches(&self) {
+        let Some(project_files) = self.project_files else {
+            return;
+        };
+
+        // Warm the fragment spreads index (iterates all document files)
+        let _ = graphql_hir::fragment_spreads_index(&self.db, project_files);
+
+        // Warm the merged schema (needed for validation)
+        let _ = graphql_analysis::merged_schema::merged_schema(&self.db, project_files);
+
+        // Warm the all_fragments index (needed for find references)
+        let _ = graphql_hir::all_fragments(&self.db, project_files);
+    }
 }
 
 // Helper functions are now in feature modules

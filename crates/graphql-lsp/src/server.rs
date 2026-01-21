@@ -318,6 +318,18 @@ async fn load_all_project_files_background(
         host.with_write(graphql_ide::AnalysisHost::rebuild_project_files)
             .await;
 
+        // Pre-warm expensive caches in background so first file open is fast
+        // This builds fragment_spreads_index, merged_schema, and all_fragments
+        tracing::info!("Pre-warming caches for project '{}'...", project_name);
+        let warm_start = std::time::Instant::now();
+        if let Some(snapshot) = host.try_snapshot().await {
+            snapshot.warm_caches();
+            tracing::info!(
+                "Cache warming completed in {:.2}s",
+                warm_start.elapsed().as_secs_f64()
+            );
+        }
+
         // NOTE: We intentionally skip computing/publishing diagnostics during background loading.
         // Computing diagnostics for 10k+ files causes performance issues and potential OOM.
         // Users get diagnostics when they open files via didOpen/didChange handlers.
