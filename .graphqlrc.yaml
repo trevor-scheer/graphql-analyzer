@@ -50,6 +50,8 @@ projects:
   countries:
     schema:
       url: https://countries.trevorblades.com/graphql
+      timeout: 30
+      retry: 2
     documents: "test-workspace/countries/src/**/*.{graphql,ts}"
     lint:
       extends: recommended
