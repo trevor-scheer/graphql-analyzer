@@ -1,14 +1,24 @@
 use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase, Position, Severity};
+use apollo_compiler::diagnostic::ToCliReport;
 use apollo_compiler::parser::Parser;
 use apollo_compiler::validation::DiagnosticList;
 use std::sync::Arc;
 
-/// Convert apollo-compiler diagnostics to our diagnostic format
+/// Convert apollo-compiler diagnostics to our diagnostic format, preserving file URI info
 #[allow(clippy::cast_possible_truncation)]
 fn collect_apollo_diagnostics(errors: &DiagnosticList) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for apollo_diag in errors.iter() {
+        // Extract file URI from the diagnostic location
+        let file_uri: Option<Arc<str>> = apollo_diag.error.location().and_then(|location| {
+            let file_id = location.file_id();
+            apollo_diag
+                .sources
+                .get(&file_id)
+                .map(|source_file| Arc::from(source_file.path().to_string_lossy().to_string()))
+        });
+
         let range = if let Some(loc_range) = apollo_diag.line_column_range() {
             DiagnosticRange {
                 start: Position {
@@ -32,6 +42,7 @@ fn collect_apollo_diagnostics(errors: &DiagnosticList) -> Vec<Diagnostic> {
             range,
             source: "apollo-compiler".into(),
             code: None,
+            file_uri,
         });
     }
 
@@ -181,4 +192,31 @@ pub fn merged_schema(
     project_files: graphql_base_db::ProjectFiles,
 ) -> Option<Arc<apollo_compiler::Schema>> {
     merged_schema_from_files(db, project_files)
+}
+
+/// Get merged schema diagnostics filtered to a specific file.
+///
+/// This returns only the validation errors that originate from the specified file,
+/// rather than all merged schema errors. Use this when reporting diagnostics for
+/// individual schema files in the LSP.
+///
+/// This function filters the cached diagnostics from `merged_schema_with_diagnostics`
+/// rather than rebuilding the schema.
+pub fn merged_schema_diagnostics_for_file(
+    db: &dyn GraphQLAnalysisDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+    file_uri: &str,
+) -> Vec<crate::Diagnostic> {
+    // Use cached diagnostics and filter by file URI
+    let all_diagnostics = merged_schema_diagnostics(db, project_files);
+
+    all_diagnostics
+        .iter()
+        .filter(|diag| {
+            diag.file_uri
+                .as_ref()
+                .is_some_and(|uri| uri.as_ref() == file_uri)
+        })
+        .cloned()
+        .collect()
 }

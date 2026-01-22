@@ -467,6 +467,7 @@ fn convert_lint_diagnostics(
                 },
                 source: "graphql-linter".into(),
                 code: Some(rule_name.to_string().into()),
+                file_uri: None,
             }
         })
         .collect()

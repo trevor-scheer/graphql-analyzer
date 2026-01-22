@@ -10,6 +10,22 @@ use graphql_ide::{AnalysisHost, Diagnostic, FileKind, FilePath};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// Convert a filesystem path to a file:// URI
+fn path_to_file_uri(path: &Path) -> String {
+    let path_str = path.to_string_lossy();
+
+    if path_str.starts_with("file://") || path_str.contains("://") {
+        return path_str.to_string();
+    }
+
+    if path_str.starts_with('/') {
+        return format!("file://{path_str}");
+    }
+
+    // Windows paths need special handling
+    format!("file:///{path_str}")
+}
+
 /// CLI adapter for `AnalysisHost`
 ///
 /// Wraps `graphql-ide::AnalysisHost` and provides CLI-specific conveniences:
@@ -202,24 +218,25 @@ impl CliAnalysisHost {
     /// Use this for the `validate` command to avoid duplicating lint checks.
     /// Only includes files that have diagnostics.
     ///
-    /// Schema errors are collected once (not per file) and attributed to the first schema file.
+    /// Schema errors are filtered to only show errors that originate from each file.
     /// Document errors are collected per file.
     pub fn all_validation_diagnostics(&self) -> HashMap<PathBuf, Vec<Diagnostic>> {
         let snapshot = self.host.snapshot();
         let mut results = HashMap::new();
 
-        // Get schema-wide diagnostics once
-        let schema_diagnostics = snapshot.schema_diagnostics();
-        if !schema_diagnostics.is_empty() {
-            // Attribute schema errors to a synthetic "schema" path or first schema file
-            if let Some(first_schema) = self.schema_files.first() {
-                results.insert(first_schema.clone(), schema_diagnostics);
+        // Get validation diagnostics per schema file (filtered to errors from that file)
+        for path in &self.schema_files {
+            let file_path = FilePath::new(path_to_file_uri(path));
+            let diagnostics = snapshot.validation_diagnostics(&file_path);
+
+            if !diagnostics.is_empty() {
+                results.insert(path.clone(), diagnostics);
             }
         }
 
         // Get document validation diagnostics per file
         for path in &self.document_files {
-            let file_path = FilePath::new(path.to_string_lossy());
+            let file_path = FilePath::new(path_to_file_uri(path));
             let diagnostics = snapshot.validation_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {

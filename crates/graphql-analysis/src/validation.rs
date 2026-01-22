@@ -125,6 +125,7 @@ pub fn validate_file(
                         range,
                         source: "apollo-compiler".into(),
                         code: None,
+                        file_uri: None,
                     });
                 }
             }
