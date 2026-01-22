@@ -355,6 +355,39 @@ fn test_invalid_syntax() {
     assert!(!diagnostics.is_empty(), "Expected parse/validation errors");
 }
 
+#[test]
+fn test_duplicate_field_in_extension() {
+    let mut db = TestDatabase::default();
+    let file_id = FileId::new(0);
+
+    let schema_content = r"
+        type Query { user: User }
+        type User { id: ID!, email: String! }
+        extend type User { email: String! }
+    ";
+    let content = FileContent::new(&db, Arc::from(schema_content));
+    let metadata = FileMetadata::new(
+        &db,
+        file_id,
+        FileUri::new("schema.graphql"),
+        FileKind::Schema,
+    );
+
+    let project_files = create_project_files(&mut db, &[(file_id, content, metadata)], &[]);
+    let diagnostics = file_validation_diagnostics(&db, content, metadata, Some(project_files));
+
+    assert!(
+        !diagnostics.is_empty(),
+        "Expected error for duplicate field in extension"
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.message.contains("email") || d.message.contains("duplicate")),
+        "Expected error about duplicate field. Got: {diagnostics:?}"
+    );
+}
+
 // ============================================================================
 // document_validation tests (from document_validation.rs)
 // ============================================================================

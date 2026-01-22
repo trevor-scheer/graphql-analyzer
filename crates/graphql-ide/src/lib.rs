@@ -890,6 +890,7 @@ impl AnalysisHost {
             FileKind::Schema,
         );
         let mut count = 1;
+        let mut loaded_paths = Vec::new();
         let mut pending_introspections = Vec::new();
 
         let patterns: Vec<String> = match &config.schema {
@@ -964,6 +965,8 @@ impl AnalysisHost {
                                                             "No GraphQL blocks found in {}",
                                                             entry.display()
                                                         );
+                                                    } else {
+                                                        loaded_paths.push(entry.clone());
                                                     }
                                                 }
                                                 Err(e) => {
@@ -984,6 +987,7 @@ impl AnalysisHost {
                                         &content,
                                         FileKind::Schema,
                                     );
+                                    loaded_paths.push(entry.clone());
                                     count += 1;
                                 }
                                 Err(e) => {
@@ -1009,12 +1013,14 @@ impl AnalysisHost {
         }
 
         tracing::info!(
-            "Loaded {} schema file(s), {} pending introspection(s)",
+            "Loaded {} schema file(s) ({} paths tracked), {} pending introspection(s)",
             count,
+            loaded_paths.len(),
             pending_introspections.len()
         );
         Ok(SchemaLoadResult {
             loaded_count: count,
+            loaded_paths,
             pending_introspections,
         })
     }
@@ -1363,6 +1369,22 @@ impl Analysis {
         );
 
         lint_diagnostics.iter().map(convert_diagnostic).collect()
+    }
+
+    /// Get schema-wide validation diagnostics
+    ///
+    /// Returns diagnostics from merging and validating all schema files.
+    /// These are project-wide errors (not per-file) and should only be
+    /// collected once, not for each schema file.
+    pub fn schema_diagnostics(&self) -> Vec<Diagnostic> {
+        let Some(project_files) = self.project_files else {
+            return Vec::new();
+        };
+
+        let schema_diagnostics =
+            graphql_analysis::merged_schema::merged_schema_diagnostics(&self.db, project_files);
+
+        schema_diagnostics.iter().map(convert_diagnostic).collect()
     }
 
     /// Get semantic tokens for a file

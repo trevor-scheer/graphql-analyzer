@@ -18,8 +18,10 @@ use std::path::{Path, PathBuf};
 /// - Handle absolute file paths for CLI output
 pub struct CliAnalysisHost {
     host: AnalysisHost,
-    /// Track all loaded files for diagnostics collection
-    loaded_files: Vec<PathBuf>,
+    /// Track schema files for diagnostics collection
+    schema_files: Vec<PathBuf>,
+    /// Track document files for diagnostics collection
+    document_files: Vec<PathBuf>,
 }
 
 impl CliAnalysisHost {
@@ -28,7 +30,8 @@ impl CliAnalysisHost {
     /// Loads all schema and document files from the project config.
     pub fn from_project_config(project_config: &ProjectConfig, base_dir: &Path) -> Result<Self> {
         let mut host = AnalysisHost::new();
-        let mut loaded_files = Vec::new();
+        let mut schema_files = Vec::new();
+        let mut document_files = Vec::new();
 
         if let Some(ref lint_value) = project_config.lint {
             tracing::debug!("Raw lint configuration: {lint_value:?}");
@@ -85,14 +88,15 @@ impl CliAnalysisHost {
             }
         }
 
-        let _schema_count = host.load_schemas_from_config(project_config, base_dir)?;
+        let schema_result = host.load_schemas_from_config(project_config, base_dir)?;
+        schema_files.extend(schema_result.loaded_paths);
 
         if let Some(ref documents_config) = project_config.documents {
-            let document_files =
+            let loaded_docs =
                 Self::load_document_files(documents_config, base_dir, project_config)?;
 
             // Build batch of files with their kinds
-            let files_to_add: Vec<(FilePath, String, FileKind)> = document_files
+            let files_to_add: Vec<(FilePath, String, FileKind)> = loaded_docs
                 .into_iter()
                 .map(|(path, content)| {
                     let kind = match path.extension().and_then(|e| e.to_str()) {
@@ -100,7 +104,7 @@ impl CliAnalysisHost {
                         Some("js" | "jsx") => FileKind::JavaScript,
                         _ => FileKind::ExecutableGraphQL,
                     };
-                    loaded_files.push(path.clone());
+                    document_files.push(path.clone());
                     (
                         FilePath::new(path.to_string_lossy().to_string()),
                         content,
@@ -120,7 +124,11 @@ impl CliAnalysisHost {
             host.rebuild_project_files();
         }
 
-        Ok(Self { host, loaded_files })
+        Ok(Self {
+            host,
+            schema_files,
+            document_files,
+        })
     }
 
     /// Load document files from config
@@ -193,11 +201,24 @@ impl CliAnalysisHost {
     /// Returns only GraphQL spec validation errors, not custom lint rule violations.
     /// Use this for the `validate` command to avoid duplicating lint checks.
     /// Only includes files that have diagnostics.
+    ///
+    /// Schema errors are collected once (not per file) and attributed to the first schema file.
+    /// Document errors are collected per file.
     pub fn all_validation_diagnostics(&self) -> HashMap<PathBuf, Vec<Diagnostic>> {
         let snapshot = self.host.snapshot();
         let mut results = HashMap::new();
 
-        for path in &self.loaded_files {
+        // Get schema-wide diagnostics once
+        let schema_diagnostics = snapshot.schema_diagnostics();
+        if !schema_diagnostics.is_empty() {
+            // Attribute schema errors to a synthetic "schema" path or first schema file
+            if let Some(first_schema) = self.schema_files.first() {
+                results.insert(first_schema.clone(), schema_diagnostics);
+            }
+        }
+
+        // Get document validation diagnostics per file
+        for path in &self.document_files {
             let file_path = FilePath::new(path.to_string_lossy());
             let diagnostics = snapshot.validation_diagnostics(&file_path);
 
@@ -215,18 +236,20 @@ impl CliAnalysisHost {
     /// Includes both file-level and project-wide lint diagnostics.
     /// Only includes files that have diagnostics.
     pub fn all_lint_diagnostics(&self) -> HashMap<PathBuf, Vec<Diagnostic>> {
+        let total_files = self.schema_files.len() + self.document_files.len();
         tracing::info!(
-            file_count = self.loaded_files.len(),
+            file_count = total_files,
             "Starting lint diagnostics collection"
         );
 
         let snapshot = self.host.snapshot();
         let mut results = HashMap::new();
 
-        for (idx, path) in self.loaded_files.iter().enumerate() {
+        // Lint document files (schema files don't have lint rules)
+        for (idx, path) in self.document_files.iter().enumerate() {
             tracing::debug!(
                 file = %path.display(),
-                progress = format!("{}/{}", idx + 1, self.loaded_files.len()),
+                progress = format!("{}/{}", idx + 1, self.document_files.len()),
                 "Checking file for lint issues"
             );
             let file_path = FilePath::new(path.to_string_lossy());
@@ -274,7 +297,7 @@ impl CliAnalysisHost {
 
     /// Get file count
     pub fn file_count(&self) -> usize {
-        self.loaded_files.len()
+        self.schema_files.len() + self.document_files.len()
     }
 
     /// Get schema statistics using HIR data
@@ -353,9 +376,10 @@ impl CliAnalysisHost {
 
         self.host.add_file(&file_path, content, kind);
 
-        // Update loaded files list if this is a new file
-        if !self.loaded_files.contains(&path.to_path_buf()) {
-            self.loaded_files.push(path.to_path_buf());
+        // Update document files list if this is a new file
+        let path_buf = path.to_path_buf();
+        if !self.document_files.contains(&path_buf) && !self.schema_files.contains(&path_buf) {
+            self.document_files.push(path_buf);
         }
     }
 
@@ -370,7 +394,7 @@ impl CliAnalysisHost {
         let mut results = HashMap::new();
 
         // Get file-level lint diagnostics with fixes
-        for path in &self.loaded_files {
+        for path in &self.document_files {
             let file_path = FilePath::new(path.to_string_lossy().to_string());
             let diagnostics = snapshot.lint_diagnostics_with_fixes(&file_path);
 
