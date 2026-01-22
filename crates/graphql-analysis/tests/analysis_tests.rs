@@ -3,9 +3,9 @@
 //! These tests verify validation, schema merging, and document validation.
 
 use graphql_analysis::{
-    analyze_field_usage, file_diagnostics,
+    analyze_field_usage, file_diagnostics, file_validation_diagnostics,
     merged_schema::{merged_schema, merged_schema_with_diagnostics},
-    validate_document_file, validate_file, validate_schema_file, FieldCoverageReport, TypeCoverage,
+    validate_document_file, validate_file, FieldCoverageReport, TypeCoverage,
 };
 use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
 use graphql_test_utils::{create_project_files, TestDatabase, TestDatabaseWithProject};
@@ -272,15 +272,16 @@ fn test_cross_file_fragment_resolution() {
 }
 
 // ============================================================================
-// schema_validation tests (from schema_validation.rs)
+// schema_validation tests
 // ============================================================================
 
 #[test]
 fn test_valid_schema() {
-    let db = TestDatabase::default();
+    let mut db = TestDatabase::default();
     let file_id = FileId::new(0);
 
     let schema_content = r"
+        type Query { search: [SearchResult!]! }
         interface Node { id: ID! }
         type User implements Node { id: ID! name: String! }
         type Post { id: ID! author: User! }
@@ -295,7 +296,8 @@ fn test_valid_schema() {
         FileKind::Schema,
     );
 
-    let diagnostics = validate_schema_file(&db, content, metadata);
+    let project_files = create_project_files(&mut db, &[(file_id, content, metadata)], &[]);
+    let diagnostics = file_validation_diagnostics(&db, content, metadata, Some(project_files));
 
     assert_eq!(
         diagnostics.len(),
@@ -306,7 +308,7 @@ fn test_valid_schema() {
 
 #[test]
 fn test_duplicate_type_name() {
-    let db = TestDatabase::default();
+    let mut db = TestDatabase::default();
     let file_id = FileId::new(0);
 
     let schema_content = r"
@@ -321,7 +323,8 @@ fn test_duplicate_type_name() {
         FileKind::Schema,
     );
 
-    let diagnostics = validate_schema_file(&db, content, metadata);
+    let project_files = create_project_files(&mut db, &[(file_id, content, metadata)], &[]);
+    let diagnostics = file_validation_diagnostics(&db, content, metadata, Some(project_files));
 
     assert!(!diagnostics.is_empty(), "Expected validation errors");
     assert!(
@@ -346,7 +349,8 @@ fn test_invalid_syntax() {
         FileKind::Schema,
     );
 
-    let diagnostics = validate_schema_file(&db, content, metadata);
+    // Syntax errors are reported without project context
+    let diagnostics = file_validation_diagnostics(&db, content, metadata, None);
 
     assert!(!diagnostics.is_empty(), "Expected parse/validation errors");
 }
