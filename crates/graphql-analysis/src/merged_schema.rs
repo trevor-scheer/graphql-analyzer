@@ -23,7 +23,6 @@ fn collect_apollo_diagnostics(errors: &DiagnosticList) -> HashMap<Arc<str>, Vec<
     let mut diagnostics_by_file: HashMap<Arc<str>, Vec<Diagnostic>> = HashMap::new();
 
     for apollo_diag in errors.iter() {
-        // Extract file URI from the diagnostic location
         let Some(file_uri) = apollo_diag.error.location().and_then(|location| {
             let file_id = location.file_id();
             apollo_diag
@@ -31,7 +30,6 @@ fn collect_apollo_diagnostics(errors: &DiagnosticList) -> HashMap<Arc<str>, Vec<
                 .get(&file_id)
                 .map(|source_file| Arc::from(source_file.path().to_string_lossy().to_string()))
         }) else {
-            // Skip diagnostics without file location info
             continue;
         };
 
@@ -101,7 +99,6 @@ pub fn merged_schema_with_diagnostics(
     let mut parser = Parser::new();
 
     for file_id in schema_ids.iter() {
-        // Use per-file lookup for granular caching
         let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
         else {
             continue;
@@ -110,8 +107,6 @@ pub fn merged_schema_with_diagnostics(
         let uri = metadata.uri(db);
 
         tracing::debug!(uri = ?uri, "Adding schema file to merge");
-
-        // Parse and add to builder
         parser.parse_into_schema_builder(text.as_ref(), uri.as_str(), &mut builder);
     }
 
@@ -143,7 +138,6 @@ pub fn merged_schema_with_diagnostics(
                         "Schema validation errors found (schema still usable for document validation)"
                     );
                     let diagnostics_by_file = collect_apollo_diagnostics(&with_errors.errors);
-                    // Return the schema even with validation errors so document validation can proceed
                     MergedSchemaResult {
                         schema: Some(Arc::new(with_errors.partial)),
                         diagnostics_by_file: Arc::new(diagnostics_by_file),

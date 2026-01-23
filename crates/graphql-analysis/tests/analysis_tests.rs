@@ -349,7 +349,6 @@ fn test_invalid_syntax() {
         FileKind::Schema,
     );
 
-    // Syntax errors are reported without project context
     let diagnostics = file_validation_diagnostics(&db, content, metadata, None);
 
     assert!(!diagnostics.is_empty(), "Expected parse/validation errors");
@@ -851,8 +850,6 @@ fn test_schema_diagnostics_attributed_to_correct_file() {
         "Expected diagnostics for missing interface field"
     );
 
-    // Diagnostics should ONLY be for user.graphql (missing `name` field),
-    // NOT for types.graphql (which defines the interface correctly)
     assert!(
         !result.diagnostics_by_file.contains_key("types.graphql"),
         "types.graphql should have no diagnostics. Got: {:?}",
@@ -918,9 +915,6 @@ fn test_schema_build_error_attributed_to_correct_file() {
         "Expected diagnostics for duplicate type"
     );
 
-    // Both files define Query, so both may have diagnostics.
-    // The key invariant is that diagnostics only appear for files
-    // that contribute to the error, not for unrelated files.
     let all_files_with_errors: Vec<_> = result.diagnostics_by_file.keys().collect();
     assert!(
         all_files_with_errors

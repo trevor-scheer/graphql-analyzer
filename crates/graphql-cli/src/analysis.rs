@@ -22,7 +22,6 @@ fn path_to_file_uri(path: &Path) -> String {
         return format!("file://{path_str}");
     }
 
-    // Windows paths need special handling
     format!("file:///{path_str}")
 }
 
@@ -111,7 +110,6 @@ impl CliAnalysisHost {
             let loaded_docs =
                 Self::load_document_files(documents_config, base_dir, project_config)?;
 
-            // Build batch of files with their kinds
             let files_to_add: Vec<(FilePath, String, FileKind)> = loaded_docs
                 .into_iter()
                 .map(|(path, content)| {
@@ -153,8 +151,6 @@ impl CliAnalysisHost {
         base_dir: &Path,
         _project_config: &ProjectConfig,
     ) -> Result<Vec<(PathBuf, String)>> {
-        // Use glob to match all document files
-        // This ensures we load ALL matched files, even if they have parse errors
         let patterns: Vec<_> = documents_config.patterns().into_iter().collect();
         let mut file_paths = std::collections::HashSet::new();
 
@@ -174,7 +170,7 @@ impl CliAnalysisHost {
                             }
                             file_paths.insert(path);
                         }
-                        Ok(_) => {} // Skip directories
+                        Ok(_) => {}
                         Err(e) => {
                             return Err(anyhow::anyhow!("Glob error: {e}"));
                         }
@@ -224,7 +220,6 @@ impl CliAnalysisHost {
         let snapshot = self.host.snapshot();
         let mut results = HashMap::new();
 
-        // Get validation diagnostics per schema file (filtered to errors from that file)
         for path in &self.schema_files {
             let file_path = FilePath::new(path_to_file_uri(path));
             let diagnostics = snapshot.validation_diagnostics(&file_path);
@@ -234,7 +229,6 @@ impl CliAnalysisHost {
             }
         }
 
-        // Get document validation diagnostics per file
         for path in &self.document_files {
             let file_path = FilePath::new(path_to_file_uri(path));
             let diagnostics = snapshot.validation_diagnostics(&file_path);
