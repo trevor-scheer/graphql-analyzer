@@ -1165,10 +1165,11 @@ impl LanguageServer for GraphQLLanguageServer {
         let final_content = content;
         let final_kind = file_kind;
 
-        // Update file and get snapshot in one lock (optimized path using write_and_snapshot)
+        // Update file and get snapshot in one lock
+        // Uses add_file_and_snapshot which properly rebuilds project files if needed
         let file_path = graphql_ide::FilePath::new(uri.to_string());
         let (_is_new, snapshot) = host
-            .write_and_snapshot(|h| h.add_file(&file_path, &final_content, final_kind))
+            .add_file_and_snapshot(&file_path, &final_content, final_kind)
             .await;
 
         // Validate using pre-acquired snapshot (no lock needed)
@@ -1212,10 +1213,11 @@ impl LanguageServer for GraphQLLanguageServer {
             let final_content = change.text.clone();
             let final_kind = file_kind;
 
-            // Update file and get snapshot in one lock (optimized path using write_and_snapshot)
+            // Update file and get snapshot in one lock
+            // Uses add_file_and_snapshot which properly rebuilds project files if needed
             let file_path = graphql_ide::FilePath::new(uri.to_string());
             let (_is_new, snapshot) = host
-                .write_and_snapshot(|h| h.add_file(&file_path, &final_content, final_kind))
+                .add_file_and_snapshot(&file_path, &final_content, final_kind)
                 .await;
 
             // Validate using pre-acquired snapshot (no lock needed)
