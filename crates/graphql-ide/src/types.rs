@@ -567,6 +567,8 @@ impl CodeLensCommand {
 pub struct SchemaLoadResult {
     /// Number of schema files successfully loaded (includes Apollo client builtins)
     pub loaded_count: usize,
+    /// Paths of loaded schema files (for diagnostics collection)
+    pub loaded_paths: Vec<std::path::PathBuf>,
     /// Pending introspection configurations that need async fetching.
     /// These require network access and should be handled asynchronously
     /// by the calling layer (e.g., LSP server).
