@@ -4,8 +4,8 @@
 
 use graphql_analysis::{
     analyze_field_usage, file_diagnostics, file_validation_diagnostics,
-    merged_schema::{merged_schema, merged_schema_with_diagnostics},
-    validate_document_file, validate_file, FieldCoverageReport, TypeCoverage,
+    merged_schema::merged_schema_with_diagnostics, validate_document_file, validate_file,
+    FieldCoverageReport, TypeCoverage,
 };
 use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
 use graphql_test_utils::{create_project_files, TestDatabase, TestDatabaseWithProject};
@@ -539,7 +539,7 @@ fn test_merged_schema_single_file() {
     );
     let schema_files = [(file_id, content, metadata)];
     let project_files = create_project_files(&mut db, &schema_files, &[]);
-    let schema = merged_schema(&db, project_files);
+    let schema = merged_schema_with_diagnostics(&db, project_files).schema;
     assert!(
         schema.is_some(),
         "Expected schema to be merged successfully"
@@ -580,7 +580,7 @@ fn test_merged_schema_multiple_files() {
     ];
     let project_files = create_project_files(&mut db, &schema_files, &[]);
 
-    let schema = merged_schema(&db, project_files);
+    let schema = merged_schema_with_diagnostics(&db, project_files).schema;
     assert!(
         schema.is_some(),
         "Expected schema to be merged successfully"
@@ -625,7 +625,7 @@ fn test_merged_schema_with_extensions() {
     ];
     let project_files = create_project_files(&mut db, &schema_files, &[]);
 
-    let schema = merged_schema(&db, project_files);
+    let schema = merged_schema_with_diagnostics(&db, project_files).schema;
     assert!(
         schema.is_some(),
         "Expected schema to be merged successfully"
@@ -660,7 +660,7 @@ fn test_merged_schema_no_files() {
 
     let project_files = create_project_files(&mut db, &[], &[]);
 
-    let schema = merged_schema(&db, project_files);
+    let schema = merged_schema_with_diagnostics(&db, project_files).schema;
     assert!(schema.is_none(), "Expected None when no schema files exist");
 }
 
@@ -680,7 +680,7 @@ fn test_merged_schema_invalid_syntax() {
     let schema_files = [(file_id, content, metadata)];
     let project_files = create_project_files(&mut db, &schema_files, &[]);
 
-    let schema = merged_schema(&db, project_files);
+    let schema = merged_schema_with_diagnostics(&db, project_files).schema;
     assert!(
         schema.is_none(),
         "Expected None when schema has parse errors"
@@ -706,7 +706,7 @@ fn test_merged_schema_validation_error() {
     let schema_files = [(file_id, content, metadata)];
     let project_files = create_project_files(&mut db, &schema_files, &[]);
 
-    let schema = merged_schema(&db, project_files);
+    let schema = merged_schema_with_diagnostics(&db, project_files).schema;
     assert!(
         schema.is_none(),
         "Expected None when schema has validation errors"
@@ -745,17 +745,17 @@ fn test_interface_implementation_missing_field() {
         "Expected schema to be present (with errors) for document validation"
     );
     assert!(
-        !result.diagnostics.is_empty(),
+        !result.diagnostics_by_file.is_empty(),
         "Expected diagnostics for missing interface field"
     );
+    let all_diagnostics: Vec<_> = result.diagnostics_by_file.values().flatten().collect();
     assert!(
-        result
-            .diagnostics
+        all_diagnostics
             .iter()
             .any(|d| d.message.to_lowercase().contains("name")
                 || d.message.to_lowercase().contains("interface")),
         "Expected error about missing 'name' field. Got: {:?}",
-        result.diagnostics
+        all_diagnostics
     );
 }
 
@@ -791,9 +791,9 @@ fn test_valid_interface_implementation() {
         "Expected valid schema for correct interface implementation"
     );
     assert!(
-        result.diagnostics.is_empty(),
+        result.diagnostics_by_file.is_empty(),
         "Expected no diagnostics. Got: {:?}",
-        result.diagnostics
+        result.diagnostics_by_file
     );
 }
 

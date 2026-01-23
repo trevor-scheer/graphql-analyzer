@@ -15,9 +15,6 @@ pub struct Diagnostic {
     pub source: Arc<str>,
     /// Optional diagnostic code
     pub code: Option<Arc<str>>,
-    /// Optional file URI where the diagnostic originates.
-    /// Used for schema diagnostics where errors may span multiple files.
-    pub file_uri: Option<Arc<str>>,
 }
 
 impl Diagnostic {
@@ -30,7 +27,6 @@ impl Diagnostic {
             range,
             source: "graphql-analysis".into(),
             code: None,
-            file_uri: None,
         }
     }
 
@@ -43,7 +39,6 @@ impl Diagnostic {
             range,
             source: "graphql-analysis".into(),
             code: None,
-            file_uri: None,
         }
     }
 
@@ -56,7 +51,6 @@ impl Diagnostic {
             range,
             source: "graphql-analysis".into(),
             code: None,
-            file_uri: None,
         }
     }
 
@@ -75,7 +69,6 @@ impl Diagnostic {
             range,
             source: source.into(),
             code: Some(code.into()),
-            file_uri: None,
         }
     }
 }

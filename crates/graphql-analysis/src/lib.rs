@@ -14,7 +14,7 @@ pub mod validation;
 pub use diagnostics::*;
 pub use document_validation::validate_document_file;
 pub use merged_schema::{
-    merged_schema_diagnostics, merged_schema_diagnostics_for_file, merged_schema_with_diagnostics,
+    merged_schema_diagnostics_for_file, merged_schema_with_diagnostics, DiagnosticsByFile,
     MergedSchemaResult,
 };
 pub use project_lints::{analyze_field_usage, FieldCoverageReport, FieldUsage, TypeCoverage};
@@ -77,7 +77,6 @@ fn syntax_diagnostics(
             },
             source: "graphql-parser".into(),
             code: None,
-            file_uri: None,
         });
     }
 
@@ -116,7 +115,6 @@ fn file_validation_diagnostics_impl(
             },
             source: "graphql-parser".into(),
             code: None,
-            file_uri: None,
         });
     }
 
