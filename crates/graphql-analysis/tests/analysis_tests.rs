@@ -797,6 +797,140 @@ fn test_valid_interface_implementation() {
     );
 }
 
+#[test]
+fn test_schema_diagnostics_attributed_to_correct_file() {
+    let mut db = TestDatabase::default();
+
+    let file_id1 = FileId::new(0);
+    let content1 = FileContent::new(
+        &db,
+        Arc::from(
+            r"
+            type Query { user: User }
+            interface Node { id: ID! name: String! }
+        ",
+        ),
+    );
+    let metadata1 = FileMetadata::new(
+        &db,
+        file_id1,
+        FileUri::new("types.graphql"),
+        FileKind::Schema,
+    );
+
+    let file_id2 = FileId::new(1);
+    let content2 = FileContent::new(
+        &db,
+        Arc::from(
+            r"
+            type User implements Node { id: ID! }
+        ",
+        ),
+    );
+    let metadata2 = FileMetadata::new(
+        &db,
+        file_id2,
+        FileUri::new("user.graphql"),
+        FileKind::Schema,
+    );
+
+    let schema_files = [
+        (file_id1, content1, metadata1),
+        (file_id2, content2, metadata2),
+    ];
+    let project_files = create_project_files(&mut db, &schema_files, &[]);
+
+    let result = merged_schema_with_diagnostics(&db, project_files);
+
+    assert!(
+        result.schema.is_some(),
+        "Expected schema to be present for document validation"
+    );
+    assert!(
+        !result.diagnostics_by_file.is_empty(),
+        "Expected diagnostics for missing interface field"
+    );
+
+    // Diagnostics should ONLY be for user.graphql (missing `name` field),
+    // NOT for types.graphql (which defines the interface correctly)
+    assert!(
+        !result.diagnostics_by_file.contains_key("types.graphql"),
+        "types.graphql should have no diagnostics. Got: {:?}",
+        result.diagnostics_by_file
+    );
+    assert!(
+        result.diagnostics_by_file.contains_key("user.graphql"),
+        "user.graphql should have the missing field error. Got: {:?}",
+        result.diagnostics_by_file
+    );
+
+    let diags_for_types = file_diagnostics(&db, content1, metadata1, Some(project_files));
+    let diags_for_user = file_diagnostics(&db, content2, metadata2, Some(project_files));
+
+    assert!(
+        diags_for_types.is_empty(),
+        "file_diagnostics for types.graphql should be empty. Got: {:?}",
+        diags_for_types
+    );
+    assert!(
+        !diags_for_user.is_empty(),
+        "file_diagnostics for user.graphql should have errors. Got: {:?}",
+        diags_for_user
+    );
+}
+
+#[test]
+fn test_schema_build_error_attributed_to_correct_file() {
+    let mut db = TestDatabase::default();
+
+    let file_id1 = FileId::new(0);
+    let content1 = FileContent::new(&db, Arc::from("type Query { hello: String }"));
+    let metadata1 = FileMetadata::new(
+        &db,
+        file_id1,
+        FileUri::new("query.graphql"),
+        FileKind::Schema,
+    );
+
+    let file_id2 = FileId::new(1);
+    let content2 = FileContent::new(&db, Arc::from("type Query { world: String }"));
+    let metadata2 = FileMetadata::new(
+        &db,
+        file_id2,
+        FileUri::new("duplicate.graphql"),
+        FileKind::Schema,
+    );
+
+    let schema_files = [
+        (file_id1, content1, metadata1),
+        (file_id2, content2, metadata2),
+    ];
+    let project_files = create_project_files(&mut db, &schema_files, &[]);
+
+    let result = merged_schema_with_diagnostics(&db, project_files);
+
+    assert!(
+        result.schema.is_none(),
+        "Expected schema build to fail with duplicate type"
+    );
+    assert!(
+        !result.diagnostics_by_file.is_empty(),
+        "Expected diagnostics for duplicate type"
+    );
+
+    // Both files define Query, so both may have diagnostics.
+    // The key invariant is that diagnostics only appear for files
+    // that contribute to the error, not for unrelated files.
+    let all_files_with_errors: Vec<_> = result.diagnostics_by_file.keys().collect();
+    assert!(
+        all_files_with_errors
+            .iter()
+            .all(|f| f.contains("query.graphql") || f.contains("duplicate.graphql")),
+        "Diagnostics should only be for files involved in the error. Got: {:?}",
+        all_files_with_errors
+    );
+}
+
 // ============================================================================
 // project_lints tests (from project_lints.rs) - public API only
 // ============================================================================
