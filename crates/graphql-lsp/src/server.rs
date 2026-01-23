@@ -655,10 +655,13 @@ documents: "**/*.graphql"
             })
             .await;
 
-            // Load local schemas and collect pending remote introspections
-            let pending_introspections = host
-                .with_write(
-                    |h| match h.load_schemas_from_config(project_config, workspace_path) {
+            // Load local schemas AND documents in a single lock acquisition to prevent
+            // race conditions where did_save could run between schema and document loading,
+            // resulting in project-wide lints running with incomplete document_file_ids.
+            let (pending_introspections, loaded_files) = host
+                .with_write(|h| {
+                    // Load schemas first
+                    let pending = match h.load_schemas_from_config(project_config, workspace_path) {
                         Ok(result) => {
                             tracing::info!(
                                 "Loaded {} local schema file(s), {} remote schema(s) pending",
@@ -671,20 +674,22 @@ documents: "**/*.graphql"
                             tracing::error!("Failed to load schemas: {}", e);
                             vec![]
                         }
-                    },
-                )
+                    };
+
+                    // Load documents in the same lock acquisition
+                    let docs = h.load_documents_from_config(project_config, workspace_path);
+
+                    (pending, docs)
+                })
                 .await;
 
-            // Fetch remote schemas via introspection (async)
+            // Fetch remote schemas via introspection (async, outside lock)
+            // This happens after both local schemas and documents are loaded,
+            // so project-wide lints will at least see all local files.
             if !pending_introspections.is_empty() {
                 self.fetch_remote_schemas(&host, &pending_introspections, project_name)
                     .await;
             }
-
-            // Use load_documents_from_config from graphql-ide to handle file discovery
-            let loaded_files = host
-                .with_write(|h| h.load_documents_from_config(project_config, workspace_path))
-                .await;
 
             if !loaded_files.is_empty() {
                 let total_files_loaded = loaded_files.len();

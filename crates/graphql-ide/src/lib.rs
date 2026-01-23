@@ -5532,4 +5532,300 @@ query GetUsers {
         // If we can get diagnostics without panic, file is loaded
         let _diag = snapshot.diagnostics(&last_file);
     }
+
+    #[test]
+    fn test_unused_fields_lint_with_typescript_file() {
+        // Test that fields used in TypeScript embedded GraphQL are correctly tracked
+        // and NOT flagged as unused by the unused_fields lint
+        let mut host = AnalysisHost::new();
+        host.set_lint_config(graphql_linter::LintConfig::recommended());
+
+        // Add a schema with fields
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            r#"
+                type Query { rateLimit: RateLimit }
+                type RateLimit {
+                    cost: Int!
+                    limit: Int!
+                    nodeCount: Int!
+                }
+            "#,
+            FileKind::Schema,
+        );
+
+        // Add a TypeScript file with embedded GraphQL that uses the fields
+        let ts_file = FilePath::new("file:///api.ts");
+        host.add_file(
+            &ts_file,
+            r#"
+import { gql } from "@apollo/client";
+
+export const RATE_LIMIT_QUERY = gql`
+  query GetRateLimit {
+    rateLimit {
+      cost
+      limit
+      nodeCount
+    }
+  }
+`;
+            "#,
+            FileKind::TypeScript,
+        );
+
+        host.rebuild_project_files();
+
+        // Get project-wide diagnostics
+        let snapshot = host.snapshot();
+        let project_diagnostics = snapshot.project_lint_diagnostics();
+
+        // Check for unused_fields warnings
+        let unused_fields_errors: Vec<_> = project_diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.code.as_deref() == Some("unused_fields"))
+            .collect();
+
+        // nodeCount should NOT be flagged as unused since it's used in the TS file
+        let nodecount_errors: Vec<_> = unused_fields_errors
+            .iter()
+            .filter(|d| d.message.contains("nodeCount"))
+            .collect();
+
+        assert!(
+            nodecount_errors.is_empty(),
+            "nodeCount is used in TypeScript file and should NOT be flagged as unused. Got: {:?}",
+            nodecount_errors
+                .iter()
+                .map(|d| &d.message)
+                .collect::<Vec<_>>()
+        );
+
+        // All fields (cost, limit, nodeCount) are used, so there should be no unused_fields warnings
+        // for RateLimit type fields
+        let ratelimit_errors: Vec<_> = unused_fields_errors
+            .iter()
+            .filter(|d| d.message.contains("RateLimit"))
+            .collect();
+
+        assert!(
+            ratelimit_errors.is_empty(),
+            "All RateLimit fields are used in TypeScript file. Got: {:?}",
+            ratelimit_errors
+                .iter()
+                .map(|d| &d.message)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_unused_fields_lint_with_config_loaded_typescript() {
+        use std::io::Write;
+
+        // Simulate the real LSP scenario: files loaded from config, then lint runs on save
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        // Create schema file
+        let schema_content = r#"
+type Query { rateLimit: RateLimit }
+type RateLimit {
+    cost: Int!
+    limit: Int!
+    nodeCount: Int!
+}
+"#;
+        let schema_path = temp_dir.path().join("schema.graphql");
+        let mut file = std::fs::File::create(&schema_path).unwrap();
+        file.write_all(schema_content.as_bytes()).unwrap();
+
+        // Create TypeScript file with embedded GraphQL
+        let ts_content = r#"
+import { gql } from "@apollo/client";
+
+export const RATE_LIMIT_QUERY = gql`
+  query GetRateLimit {
+    rateLimit {
+      cost
+      limit
+      nodeCount
+    }
+  }
+`;
+"#;
+        let ts_path = temp_dir.path().join("api.ts");
+        let mut ts_file = std::fs::File::create(&ts_path).unwrap();
+        ts_file.write_all(ts_content.as_bytes()).unwrap();
+
+        // Create config that includes both schema and TS documents
+        let config = graphql_config::ProjectConfig {
+            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(graphql_config::DocumentsConfig::Pattern("*.ts".to_string())),
+            include: None,
+            exclude: None,
+            lint: None,
+            extensions: None,
+        };
+
+        // Create host and load files from config (simulating LSP initialization)
+        let mut host = AnalysisHost::new();
+        host.set_lint_config(graphql_linter::LintConfig::recommended());
+
+        // Load schema
+        let _ = host.load_schemas_from_config(&config, temp_dir.path());
+        // Load documents (including TS files)
+        host.load_documents_from_config(&config, temp_dir.path());
+
+        // Rebuild project files to update indices (this happens in LSP initialization)
+        host.rebuild_project_files();
+
+        // Get snapshot and run lints (simulating did_save)
+        let snapshot = host.snapshot();
+        let project_diagnostics = snapshot.project_lint_diagnostics();
+
+        // Check for unused_fields warnings
+        let unused_fields_errors: Vec<_> = project_diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.code.as_deref() == Some("unused_fields"))
+            .collect();
+
+        // nodeCount should NOT be flagged as unused
+        let nodecount_errors: Vec<_> = unused_fields_errors
+            .iter()
+            .filter(|d| d.message.contains("nodeCount"))
+            .collect();
+
+        assert!(
+            nodecount_errors.is_empty(),
+            "nodeCount used in config-loaded TypeScript file should NOT be flagged as unused. Got: {:?}",
+            nodecount_errors.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_unused_fields_lint_simulating_save_after_open() {
+        use std::io::Write;
+
+        // This test simulates the exact user scenario:
+        // 1. Config is loaded (schema + documents)
+        // 2. Schema file is opened (via goto_definition or directly)
+        // 3. Schema file is saved (triggers project-wide lint)
+        //
+        // The lint should correctly see all document files including TS files.
+
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        // Create schema file
+        let schema_content = r#"
+type Query { rateLimit: RateLimit }
+type RateLimit {
+    cost: Int!
+    limit: Int!
+    nodeCount: Int!
+}
+"#;
+        let schema_path = temp_dir.path().join("schema.graphql");
+        let mut file = std::fs::File::create(&schema_path).unwrap();
+        file.write_all(schema_content.as_bytes()).unwrap();
+
+        // Create TypeScript file with embedded GraphQL
+        let ts_content = r#"
+import { gql } from "@apollo/client";
+
+export const RATE_LIMIT_QUERY = gql`
+  query GetRateLimit {
+    rateLimit {
+      cost
+      limit
+      nodeCount
+    }
+  }
+`;
+"#;
+        let ts_path = temp_dir.path().join("api.ts");
+        let mut ts_file = std::fs::File::create(&ts_path).unwrap();
+        ts_file.write_all(ts_content.as_bytes()).unwrap();
+
+        // Create config
+        let config = graphql_config::ProjectConfig {
+            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(graphql_config::DocumentsConfig::Pattern("*.ts".to_string())),
+            include: None,
+            exclude: None,
+            lint: None,
+            extensions: None,
+        };
+
+        // Create host and load files from config (simulating LSP initialization)
+        let mut host = AnalysisHost::new();
+        host.set_lint_config(graphql_linter::LintConfig::recommended());
+
+        // Load schema
+        let _ = host.load_schemas_from_config(&config, temp_dir.path());
+        // Load documents (including TS files)
+        let loaded_docs = host.load_documents_from_config(&config, temp_dir.path());
+
+        // Verify the TS file was loaded
+        assert!(
+            loaded_docs
+                .iter()
+                .any(|f| f.path.as_str().ends_with("api.ts")),
+            "api.ts should be loaded by load_documents_from_config. Loaded: {:?}",
+            loaded_docs
+                .iter()
+                .map(|f| f.path.as_str())
+                .collect::<Vec<_>>()
+        );
+
+        // Rebuild is called by add_files_batch internally, but let's also call it explicitly
+        // to ensure we're in a consistent state
+        host.rebuild_project_files();
+
+        // Now simulate did_open for the schema file (as if user navigated to it)
+        let schema_file_path = FilePath::new(format!("file://{}", schema_path.display()));
+        let (is_new, snapshot) =
+            host.update_file_and_snapshot(&schema_file_path, schema_content, FileKind::Schema);
+
+        // Schema should NOT be new (already loaded from config)
+        assert!(
+            !is_new,
+            "Schema file should already exist (loaded from config)"
+        );
+
+        // Now run project-wide lints (simulating did_save)
+        let project_diagnostics = snapshot.project_lint_diagnostics();
+
+        // Debug: print all diagnostics
+        for (path, diags) in &project_diagnostics {
+            for d in diags {
+                eprintln!(
+                    "Diagnostic in {}: {} ({})",
+                    path.as_str(),
+                    d.message,
+                    d.code.as_deref().unwrap_or("")
+                );
+            }
+        }
+
+        // Check for unused_fields warnings
+        let unused_fields_errors: Vec<_> = project_diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.code.as_deref() == Some("unused_fields"))
+            .collect();
+
+        // nodeCount should NOT be flagged as unused
+        let nodecount_errors: Vec<_> = unused_fields_errors
+            .iter()
+            .filter(|d| d.message.contains("nodeCount"))
+            .collect();
+
+        assert!(
+            nodecount_errors.is_empty(),
+            "nodeCount used in TypeScript file should NOT be flagged as unused after save. Got: {:?}",
+            nodecount_errors.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
 }
