@@ -53,6 +53,7 @@ mod types;
 // Feature modules
 mod code_lenses;
 mod completion;
+mod folding_ranges;
 mod goto_definition;
 mod hover;
 mod references;
@@ -62,9 +63,10 @@ mod symbols;
 // Re-export types from the types module
 pub use types::{
     CodeFix, CodeLens, CodeLensCommand, CodeLensInfo, CompletionItem, CompletionKind, Diagnostic,
-    DiagnosticSeverity, DocumentSymbol, FilePath, FragmentReference, FragmentUsage, HoverResult,
-    InsertTextFormat, Location, PendingIntrospection, Position, Range, SchemaLoadResult,
-    SchemaStats, SymbolKind, TextEdit, WorkspaceSymbol,
+    DiagnosticSeverity, DocumentSymbol, FilePath, FoldingRange, FoldingRangeKind,
+    FragmentReference, FragmentUsage, HoverResult, InsertTextFormat, Location,
+    PendingIntrospection, Position, Range, SchemaLoadResult, SchemaStats, SymbolKind, TextEdit,
+    WorkspaceSymbol,
 };
 
 // Re-export helpers for internal use
@@ -1378,6 +1380,18 @@ impl Analysis {
     pub fn semantic_tokens(&self, file: &FilePath) -> Vec<SemanticToken> {
         let registry = self.registry.read();
         semantic_tokens::semantic_tokens(&self.db, &registry, self.project_files, file)
+    }
+
+    /// Get folding ranges for a file
+    ///
+    /// Returns foldable regions for:
+    /// - Operation definitions (query, mutation, subscription)
+    /// - Fragment definitions
+    /// - Selection sets
+    /// - Block comments
+    pub fn folding_ranges(&self, file: &FilePath) -> Vec<FoldingRange> {
+        let registry = self.registry.read();
+        folding_ranges::folding_ranges(&self.db, &registry, file)
     }
 
     /// Get project-wide lint diagnostics (e.g., unused fields, unique names)
