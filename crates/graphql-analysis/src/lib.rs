@@ -9,16 +9,15 @@ mod document_validation;
 pub mod lint_integration;
 pub mod merged_schema;
 mod project_lints;
-mod schema_validation;
 pub mod validation;
 
 pub use diagnostics::*;
 pub use document_validation::validate_document_file;
 pub use merged_schema::{
-    merged_schema_diagnostics, merged_schema_with_diagnostics, MergedSchemaResult,
+    merged_schema_diagnostics_for_file, merged_schema_with_diagnostics, DiagnosticsByFile,
+    MergedSchemaResult,
 };
 pub use project_lints::{analyze_field_usage, FieldCoverageReport, FieldUsage, TypeCoverage};
-pub use schema_validation::validate_schema_file;
 pub use validation::validate_file;
 
 #[salsa::db]
@@ -127,13 +126,13 @@ fn file_validation_diagnostics_impl(
     );
 
     if file_kind.is_schema() {
-        tracing::info!("Running schema validation");
-        let schema_diagnostics = schema_validation::validate_schema_file(db, content, metadata);
-        tracing::info!(
-            schema_diagnostic_count = schema_diagnostics.len(),
-            "Schema validation completed"
-        );
-        diagnostics.extend(schema_diagnostics.iter().cloned());
+        // Schema files only need syntax validation (handled above) plus merged schema diagnostics.
+        // Individual schema files don't need to be spec-valid on their own - only the
+        // merged schema needs spec validation. Filter to only show errors from this file.
+        let file_uri = metadata.uri(db);
+        let schema_diagnostics =
+            merged_schema::merged_schema_diagnostics_for_file(db, project_files, file_uri.as_str());
+        diagnostics.extend(schema_diagnostics);
     } else if file_kind.is_document() {
         tracing::info!("Running document validation");
         let doc_diagnostics = validation::validate_file(db, content, metadata, project_files);

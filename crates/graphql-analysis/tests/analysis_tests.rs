@@ -3,9 +3,9 @@
 //! These tests verify validation, schema merging, and document validation.
 
 use graphql_analysis::{
-    analyze_field_usage, file_diagnostics,
-    merged_schema::{merged_schema, merged_schema_with_diagnostics},
-    validate_document_file, validate_file, validate_schema_file, FieldCoverageReport, TypeCoverage,
+    analyze_field_usage, file_diagnostics, file_validation_diagnostics,
+    merged_schema::merged_schema_with_diagnostics, validate_document_file, validate_file,
+    FieldCoverageReport, TypeCoverage,
 };
 use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
 use graphql_test_utils::{create_project_files, TestDatabase, TestDatabaseWithProject};
@@ -272,15 +272,16 @@ fn test_cross_file_fragment_resolution() {
 }
 
 // ============================================================================
-// schema_validation tests (from schema_validation.rs)
+// schema_validation tests
 // ============================================================================
 
 #[test]
 fn test_valid_schema() {
-    let db = TestDatabase::default();
+    let mut db = TestDatabase::default();
     let file_id = FileId::new(0);
 
     let schema_content = r"
+        type Query { search: [SearchResult!]! }
         interface Node { id: ID! }
         type User implements Node { id: ID! name: String! }
         type Post { id: ID! author: User! }
@@ -295,7 +296,8 @@ fn test_valid_schema() {
         FileKind::Schema,
     );
 
-    let diagnostics = validate_schema_file(&db, content, metadata);
+    let project_files = create_project_files(&mut db, &[(file_id, content, metadata)], &[]);
+    let diagnostics = file_validation_diagnostics(&db, content, metadata, Some(project_files));
 
     assert_eq!(
         diagnostics.len(),
@@ -306,7 +308,7 @@ fn test_valid_schema() {
 
 #[test]
 fn test_duplicate_type_name() {
-    let db = TestDatabase::default();
+    let mut db = TestDatabase::default();
     let file_id = FileId::new(0);
 
     let schema_content = r"
@@ -321,7 +323,8 @@ fn test_duplicate_type_name() {
         FileKind::Schema,
     );
 
-    let diagnostics = validate_schema_file(&db, content, metadata);
+    let project_files = create_project_files(&mut db, &[(file_id, content, metadata)], &[]);
+    let diagnostics = file_validation_diagnostics(&db, content, metadata, Some(project_files));
 
     assert!(!diagnostics.is_empty(), "Expected validation errors");
     assert!(
@@ -346,9 +349,42 @@ fn test_invalid_syntax() {
         FileKind::Schema,
     );
 
-    let diagnostics = validate_schema_file(&db, content, metadata);
+    let diagnostics = file_validation_diagnostics(&db, content, metadata, None);
 
     assert!(!diagnostics.is_empty(), "Expected parse/validation errors");
+}
+
+#[test]
+fn test_duplicate_field_in_extension() {
+    let mut db = TestDatabase::default();
+    let file_id = FileId::new(0);
+
+    let schema_content = r"
+        type Query { user: User }
+        type User { id: ID!, email: String! }
+        extend type User { email: String! }
+    ";
+    let content = FileContent::new(&db, Arc::from(schema_content));
+    let metadata = FileMetadata::new(
+        &db,
+        file_id,
+        FileUri::new("schema.graphql"),
+        FileKind::Schema,
+    );
+
+    let project_files = create_project_files(&mut db, &[(file_id, content, metadata)], &[]);
+    let diagnostics = file_validation_diagnostics(&db, content, metadata, Some(project_files));
+
+    assert!(
+        !diagnostics.is_empty(),
+        "Expected error for duplicate field in extension"
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.message.contains("email") || d.message.contains("duplicate")),
+        "Expected error about duplicate field. Got: {diagnostics:?}"
+    );
 }
 
 // ============================================================================
@@ -502,7 +538,7 @@ fn test_merged_schema_single_file() {
     );
     let schema_files = [(file_id, content, metadata)];
     let project_files = create_project_files(&mut db, &schema_files, &[]);
-    let schema = merged_schema(&db, project_files);
+    let schema = merged_schema_with_diagnostics(&db, project_files).schema;
     assert!(
         schema.is_some(),
         "Expected schema to be merged successfully"
@@ -543,7 +579,7 @@ fn test_merged_schema_multiple_files() {
     ];
     let project_files = create_project_files(&mut db, &schema_files, &[]);
 
-    let schema = merged_schema(&db, project_files);
+    let schema = merged_schema_with_diagnostics(&db, project_files).schema;
     assert!(
         schema.is_some(),
         "Expected schema to be merged successfully"
@@ -588,7 +624,7 @@ fn test_merged_schema_with_extensions() {
     ];
     let project_files = create_project_files(&mut db, &schema_files, &[]);
 
-    let schema = merged_schema(&db, project_files);
+    let schema = merged_schema_with_diagnostics(&db, project_files).schema;
     assert!(
         schema.is_some(),
         "Expected schema to be merged successfully"
@@ -623,7 +659,7 @@ fn test_merged_schema_no_files() {
 
     let project_files = create_project_files(&mut db, &[], &[]);
 
-    let schema = merged_schema(&db, project_files);
+    let schema = merged_schema_with_diagnostics(&db, project_files).schema;
     assert!(schema.is_none(), "Expected None when no schema files exist");
 }
 
@@ -643,7 +679,7 @@ fn test_merged_schema_invalid_syntax() {
     let schema_files = [(file_id, content, metadata)];
     let project_files = create_project_files(&mut db, &schema_files, &[]);
 
-    let schema = merged_schema(&db, project_files);
+    let schema = merged_schema_with_diagnostics(&db, project_files).schema;
     assert!(
         schema.is_none(),
         "Expected None when schema has parse errors"
@@ -669,7 +705,7 @@ fn test_merged_schema_validation_error() {
     let schema_files = [(file_id, content, metadata)];
     let project_files = create_project_files(&mut db, &schema_files, &[]);
 
-    let schema = merged_schema(&db, project_files);
+    let schema = merged_schema_with_diagnostics(&db, project_files).schema;
     assert!(
         schema.is_none(),
         "Expected None when schema has validation errors"
@@ -708,17 +744,17 @@ fn test_interface_implementation_missing_field() {
         "Expected schema to be present (with errors) for document validation"
     );
     assert!(
-        !result.diagnostics.is_empty(),
+        !result.diagnostics_by_file.is_empty(),
         "Expected diagnostics for missing interface field"
     );
+    let all_diagnostics: Vec<_> = result.diagnostics_by_file.values().flatten().collect();
     assert!(
-        result
-            .diagnostics
+        all_diagnostics
             .iter()
             .any(|d| d.message.to_lowercase().contains("name")
                 || d.message.to_lowercase().contains("interface")),
         "Expected error about missing 'name' field. Got: {:?}",
-        result.diagnostics
+        all_diagnostics
     );
 }
 
@@ -754,9 +790,138 @@ fn test_valid_interface_implementation() {
         "Expected valid schema for correct interface implementation"
     );
     assert!(
-        result.diagnostics.is_empty(),
+        result.diagnostics_by_file.is_empty(),
         "Expected no diagnostics. Got: {:?}",
-        result.diagnostics
+        result.diagnostics_by_file
+    );
+}
+
+#[test]
+fn test_schema_diagnostics_attributed_to_correct_file() {
+    let mut db = TestDatabase::default();
+
+    let file_id1 = FileId::new(0);
+    let content1 = FileContent::new(
+        &db,
+        Arc::from(
+            r"
+            type Query { user: User }
+            interface Node { id: ID! name: String! }
+        ",
+        ),
+    );
+    let metadata1 = FileMetadata::new(
+        &db,
+        file_id1,
+        FileUri::new("types.graphql"),
+        FileKind::Schema,
+    );
+
+    let file_id2 = FileId::new(1);
+    let content2 = FileContent::new(
+        &db,
+        Arc::from(
+            r"
+            type User implements Node { id: ID! }
+        ",
+        ),
+    );
+    let metadata2 = FileMetadata::new(
+        &db,
+        file_id2,
+        FileUri::new("user.graphql"),
+        FileKind::Schema,
+    );
+
+    let schema_files = [
+        (file_id1, content1, metadata1),
+        (file_id2, content2, metadata2),
+    ];
+    let project_files = create_project_files(&mut db, &schema_files, &[]);
+
+    let result = merged_schema_with_diagnostics(&db, project_files);
+
+    assert!(
+        result.schema.is_some(),
+        "Expected schema to be present for document validation"
+    );
+    assert!(
+        !result.diagnostics_by_file.is_empty(),
+        "Expected diagnostics for missing interface field"
+    );
+
+    assert!(
+        !result.diagnostics_by_file.contains_key("types.graphql"),
+        "types.graphql should have no diagnostics. Got: {:?}",
+        result.diagnostics_by_file
+    );
+    assert!(
+        result.diagnostics_by_file.contains_key("user.graphql"),
+        "user.graphql should have the missing field error. Got: {:?}",
+        result.diagnostics_by_file
+    );
+
+    let diags_for_types = file_diagnostics(&db, content1, metadata1, Some(project_files));
+    let diags_for_user = file_diagnostics(&db, content2, metadata2, Some(project_files));
+
+    assert!(
+        diags_for_types.is_empty(),
+        "file_diagnostics for types.graphql should be empty. Got: {:?}",
+        diags_for_types
+    );
+    assert!(
+        !diags_for_user.is_empty(),
+        "file_diagnostics for user.graphql should have errors. Got: {:?}",
+        diags_for_user
+    );
+}
+
+#[test]
+fn test_schema_build_error_attributed_to_correct_file() {
+    let mut db = TestDatabase::default();
+
+    let file_id1 = FileId::new(0);
+    let content1 = FileContent::new(&db, Arc::from("type Query { hello: String }"));
+    let metadata1 = FileMetadata::new(
+        &db,
+        file_id1,
+        FileUri::new("query.graphql"),
+        FileKind::Schema,
+    );
+
+    let file_id2 = FileId::new(1);
+    let content2 = FileContent::new(&db, Arc::from("type Query { world: String }"));
+    let metadata2 = FileMetadata::new(
+        &db,
+        file_id2,
+        FileUri::new("duplicate.graphql"),
+        FileKind::Schema,
+    );
+
+    let schema_files = [
+        (file_id1, content1, metadata1),
+        (file_id2, content2, metadata2),
+    ];
+    let project_files = create_project_files(&mut db, &schema_files, &[]);
+
+    let result = merged_schema_with_diagnostics(&db, project_files);
+
+    assert!(
+        result.schema.is_none(),
+        "Expected schema build to fail with duplicate type"
+    );
+    assert!(
+        !result.diagnostics_by_file.is_empty(),
+        "Expected diagnostics for duplicate type"
+    );
+
+    let all_files_with_errors: Vec<_> = result.diagnostics_by_file.keys().collect();
+    assert!(
+        all_files_with_errors
+            .iter()
+            .all(|f| f.contains("query.graphql") || f.contains("duplicate.graphql")),
+        "Diagnostics should only be for files involved in the error. Got: {:?}",
+        all_files_with_errors
     );
 }
 

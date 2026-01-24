@@ -85,11 +85,12 @@ impl ProjectHost {
 
     /// Execute a write operation and get a snapshot in one lock acquisition.
     ///
-    /// This is optimized for `did_open`/`did_change` which need to:
-    /// 1. Update file content
-    /// 2. Get a snapshot for validation
+    /// This is a generic helper for cases where you need to perform a write
+    /// operation and immediately get a snapshot. For file additions, prefer
+    /// `add_file_and_snapshot` which properly handles project file rebuilding.
     ///
     /// Doing both in one lock acquisition avoids double-locking.
+    #[allow(dead_code)]
     pub async fn write_and_snapshot<F, R>(&self, f: F) -> (R, graphql_ide::Analysis)
     where
         F: FnOnce(&mut AnalysisHost) -> R,
@@ -98,6 +99,23 @@ impl ProjectHost {
         let result = f(&mut guard);
         let snapshot = guard.snapshot();
         (result, snapshot)
+    }
+
+    /// Add or update a file and get a snapshot in one lock acquisition.
+    ///
+    /// This properly handles both new and existing files:
+    /// - For new files: rebuilds project file index before creating snapshot
+    /// - For existing files: just updates content
+    ///
+    /// Returns `(is_new_file, Analysis)` tuple.
+    pub async fn add_file_and_snapshot(
+        &self,
+        path: &graphql_ide::FilePath,
+        content: &str,
+        kind: graphql_ide::FileKind,
+    ) -> (bool, graphql_ide::Analysis) {
+        let mut guard = self.inner.lock().await;
+        guard.update_file_and_snapshot(path, content, kind)
     }
 }
 
