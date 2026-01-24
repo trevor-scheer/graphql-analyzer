@@ -1302,20 +1302,13 @@ impl LanguageServer for GraphQLLanguageServer {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        // NOTE: We intentionally do NOT remove the file from AnalysisHost when it's closed.
+        // NOTE: We intentionally do NOT remove the file from AnalysisHost or clear diagnostics.
         // The file is still part of the project on disk, and other files may reference
-        // fragments/types defined in it. Only files that are deleted from disk should be
-        // removed from the analysis.
-
-        // Remove version tracking for closed document
+        // fragments/types defined in it. Diagnostics should remain visible.
+        // Only files deleted from disk should be removed (handled by did_change_watched_files).
         self.workspace
             .document_versions
             .remove(&params.text_document.uri.to_string());
-
-        // Clear diagnostics for the closed file
-        self.client
-            .publish_diagnostics(params.text_document.uri, vec![], None)
-            .await;
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
