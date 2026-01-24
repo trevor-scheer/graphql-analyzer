@@ -22,7 +22,9 @@ pub fn validate_file(
 ) -> Arc<Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
 
-    let Some(schema) = crate::merged_schema::merged_schema(db, project_files) else {
+    let Some(schema) =
+        crate::merged_schema::merged_schema_with_diagnostics(db, project_files).schema
+    else {
         // Without a schema, we can't validate documents
         // Return empty diagnostics (syntax errors are handled elsewhere)
         return Arc::new(diagnostics);
