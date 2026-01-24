@@ -1445,6 +1445,26 @@ impl Analysis {
         results
     }
 
+    /// Get all diagnostics for a single file, merging per-file and project-wide diagnostics
+    ///
+    /// This returns the complete set of diagnostics for a file:
+    /// - Per-file diagnostics (parse errors, validation errors, per-file lint rules)
+    /// - Project-wide diagnostics (`unused_fields`, etc.) that apply to this file
+    ///
+    /// Use this when publishing diagnostics to avoid overwriting project-wide diagnostics
+    /// with only per-file diagnostics.
+    pub fn all_diagnostics_for_file(&self, file: &FilePath) -> Vec<Diagnostic> {
+        let mut results = self.diagnostics(file);
+
+        // Add project-wide diagnostics for this file
+        let project_diagnostics = self.project_lint_diagnostics();
+        if let Some(project_diags) = project_diagnostics.get(file) {
+            results.extend(project_diags.iter().cloned());
+        }
+
+        results
+    }
+
     /// Get all diagnostics for a specific set of files, merging per-file and project-wide diagnostics
     ///
     /// This is useful when you want diagnostics for specific files (e.g., loaded document files)

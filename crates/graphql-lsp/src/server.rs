@@ -1173,12 +1173,24 @@ impl LanguageServer for GraphQLLanguageServer {
         // Update file and get snapshot in one lock
         // Uses add_file_and_snapshot which properly rebuilds project files if needed
         let file_path = graphql_ide::FilePath::new(uri.to_string());
-        let (_is_new, snapshot) = host
+        let (is_new, snapshot) = host
             .add_file_and_snapshot(&file_path, &final_content, final_kind)
             .await;
 
-        // Validate using pre-acquired snapshot (no lock needed)
-        self.validate_file_with_snapshot(&uri, snapshot).await;
+        // Only publish diagnostics if this is a new file (not already loaded during init).
+        // Files loaded during init already have diagnostics published (including project-wide).
+        // Re-publishing here would overwrite project-wide diagnostics with only per-file ones.
+        if is_new {
+            // Use all_diagnostics_for_file to include project-wide diagnostics
+            let diagnostics = snapshot.all_diagnostics_for_file(&file_path);
+            let lsp_diagnostics: Vec<Diagnostic> = diagnostics
+                .into_iter()
+                .map(convert_ide_diagnostic)
+                .collect();
+            self.client
+                .publish_diagnostics(uri, lsp_diagnostics, None)
+                .await;
+        }
     }
 
     #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
