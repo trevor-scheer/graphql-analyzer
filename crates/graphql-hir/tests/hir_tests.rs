@@ -267,6 +267,181 @@ const FRAG = gql`
 // Caching verification tests using TrackedDatabase
 // ============================================================================
 
+/// Tests for file_schema_coordinates query which tracks field usage across files
+mod schema_coordinates_tests {
+    use graphql_hir::file_schema_coordinates;
+
+    #[test]
+    fn test_file_schema_coordinates_includes_fragment_spread_fields() {
+        // This test verifies that fields used through fragment spreads are correctly
+        // tracked by file_schema_coordinates. The bug was that fragment spreads
+        // were being skipped, causing false "unused field" lint warnings.
+        //
+        // Scenario: An operation uses a fragment spread, and the fragment selects
+        // fields from a type. Those fields should be tracked as "used" even though
+        // they're not directly in the operation's selection set.
+        let project = graphql_test_utils::TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                r#"
+                    type Query { rateLimit: RateLimit }
+                    type RateLimit {
+                        cost: Int!
+                        limit: Int!
+                        remaining: Int!
+                        nodeCount: Int!
+                    }
+                "#,
+            )
+            // Fragment defines fields to select
+            .with_document(
+                "fragment.graphql",
+                r#"
+                    fragment RateLimitFields on RateLimit {
+                        cost
+                        limit
+                        remaining
+                        nodeCount
+                    }
+                "#,
+            )
+            // Operation uses the fragment spread
+            .with_document(
+                "operation.graphql",
+                r#"
+                    query GetRateLimit {
+                        rateLimit {
+                            ...RateLimitFields
+                        }
+                    }
+                "#,
+            )
+            .build_detailed();
+
+        // Collect coordinates from the operation file
+        let op_file = &project.documents[1]; // operation.graphql
+        let coords = file_schema_coordinates(
+            &project.db,
+            op_file.id,
+            op_file.content,
+            op_file.metadata,
+            project.project_files,
+        );
+
+        // The operation file directly uses Query.rateLimit
+        assert!(
+            coords
+                .iter()
+                .any(|c| c.type_name.as_ref() == "Query" && c.field_name.as_ref() == "rateLimit"),
+            "Should track Query.rateLimit. Got: {:?}",
+            coords
+        );
+
+        // The operation file uses RateLimit.nodeCount via fragment spread.
+        // This is the key assertion that should FAIL before the fix.
+        // The fragment spread `...RateLimitFields` references fields that
+        // should be tracked as used by the operation.
+        assert!(
+            coords.iter().any(
+                |c| c.type_name.as_ref() == "RateLimit" && c.field_name.as_ref() == "nodeCount"
+            ),
+            "Should track RateLimit.nodeCount used via fragment spread. Got: {:?}",
+            coords
+        );
+    }
+
+    #[test]
+    fn test_file_schema_coordinates_includes_nested_fragment_spread_fields() {
+        // Test transitive fragment dependencies: A -> B -> C
+        // Fields in C should be tracked when A uses B which uses C.
+        let project = graphql_test_utils::TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                r#"
+                    type Query { user: User }
+                    type User {
+                        id: ID!
+                        name: String!
+                        profile: Profile
+                    }
+                    type Profile {
+                        bio: String
+                        avatar: String
+                    }
+                "#,
+            )
+            .with_document(
+                "profile-fragment.graphql",
+                r#"
+                    fragment ProfileFields on Profile {
+                        bio
+                        avatar
+                    }
+                "#,
+            )
+            .with_document(
+                "user-fragment.graphql",
+                r#"
+                    fragment UserWithProfile on User {
+                        id
+                        name
+                        profile {
+                            ...ProfileFields
+                        }
+                    }
+                "#,
+            )
+            .with_document(
+                "query.graphql",
+                r#"
+                    query GetUser {
+                        user {
+                            ...UserWithProfile
+                        }
+                    }
+                "#,
+            )
+            .build_detailed();
+
+        // The query file uses fragments transitively
+        let query_file = &project.documents[2]; // query.graphql
+        let coords = file_schema_coordinates(
+            &project.db,
+            query_file.id,
+            query_file.content,
+            query_file.metadata,
+            project.project_files,
+        );
+
+        // Query.user should be tracked (directly in operation)
+        assert!(
+            coords
+                .iter()
+                .any(|c| c.type_name.as_ref() == "Query" && c.field_name.as_ref() == "user"),
+            "Should track Query.user"
+        );
+
+        // These should be tracked via transitive fragment spreads
+        // First level: UserWithProfile fragment
+        assert!(
+            coords
+                .iter()
+                .any(|c| c.type_name.as_ref() == "User" && c.field_name.as_ref() == "id"),
+            "Should track User.id via fragment spread. Got: {:?}",
+            coords
+        );
+
+        // Second level (nested): ProfileFields fragment within UserWithProfile
+        assert!(
+            coords
+                .iter()
+                .any(|c| c.type_name.as_ref() == "Profile" && c.field_name.as_ref() == "bio"),
+            "Should track Profile.bio via nested fragment spread. Got: {:?}",
+            coords
+        );
+    }
+}
+
 mod caching_tests {
     use super::*;
     use graphql_test_utils::tracking::{queries, TrackedDatabase};

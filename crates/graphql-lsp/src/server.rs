@@ -1,7 +1,8 @@
 use crate::conversions::{
     convert_ide_code_lens, convert_ide_code_lens_info, convert_ide_completion_item,
-    convert_ide_diagnostic, convert_ide_document_symbol, convert_ide_hover, convert_ide_location,
-    convert_ide_operation_code_lens, convert_ide_workspace_symbol, convert_lsp_position,
+    convert_ide_diagnostic, convert_ide_document_symbol, convert_ide_folding_range,
+    convert_ide_hover, convert_ide_location, convert_ide_operation_code_lens,
+    convert_ide_workspace_symbol, convert_lsp_position,
 };
 use crate::workspace::{ProjectHost, WorkspaceManager};
 use graphql_config::find_config;
@@ -12,14 +13,15 @@ use lsp_types::{
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
     DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, FileChangeType,
-    FileSystemWatcher, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
-    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
-    MessageActionItem, MessageType, OneOf, ReferenceParams, SemanticToken, SemanticTokenModifier,
-    SemanticTokenType, SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend,
-    SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
-    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, SymbolInformation,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri, WorkDoneProgressOptions,
-    WorkspaceEdit, WorkspaceSymbol, WorkspaceSymbolParams,
+    FileSystemWatcher, FoldingRange, FoldingRangeParams, FoldingRangeProviderCapability,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability,
+    InitializeParams, InitializeResult, InitializedParams, Location, MessageActionItem,
+    MessageType, OneOf, ReferenceParams, SemanticToken, SemanticTokenModifier, SemanticTokenType,
+    SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
+    SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
+    ServerCapabilities, ServerInfo, SymbolInformation, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextEdit, Uri, WorkDoneProgressOptions, WorkspaceEdit, WorkspaceSymbol,
+    WorkspaceSymbolParams,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -655,10 +657,13 @@ documents: "**/*.graphql"
             })
             .await;
 
-            // Load local schemas and collect pending remote introspections
-            let pending_introspections = host
-                .with_write(
-                    |h| match h.load_schemas_from_config(project_config, workspace_path) {
+            // Load local schemas AND documents in a single lock acquisition to prevent
+            // race conditions where did_save could run between schema and document loading,
+            // resulting in project-wide lints running with incomplete document_file_ids.
+            let (pending_introspections, loaded_files) = host
+                .with_write(|h| {
+                    // Load schemas first
+                    let pending = match h.load_schemas_from_config(project_config, workspace_path) {
                         Ok(result) => {
                             tracing::info!(
                                 "Loaded {} local schema file(s), {} remote schema(s) pending",
@@ -671,20 +676,22 @@ documents: "**/*.graphql"
                             tracing::error!("Failed to load schemas: {}", e);
                             vec![]
                         }
-                    },
-                )
+                    };
+
+                    // Load documents in the same lock acquisition
+                    let docs = h.load_documents_from_config(project_config, workspace_path);
+
+                    (pending, docs)
+                })
                 .await;
 
-            // Fetch remote schemas via introspection (async)
+            // Fetch remote schemas via introspection (async, outside lock)
+            // This happens after both local schemas and documents are loaded,
+            // so project-wide lints will at least see all local files.
             if !pending_introspections.is_empty() {
                 self.fetch_remote_schemas(&host, &pending_introspections, project_name)
                     .await;
             }
-
-            // Use load_documents_from_config from graphql-ide to handle file discovery
-            let loaded_files = host
-                .with_write(|h| h.load_documents_from_config(project_config, workspace_path))
-                .await;
 
             if !loaded_files.is_empty() {
                 let total_files_loaded = loaded_files.len();
@@ -988,6 +995,11 @@ impl LanguageServer for GraphQLLanguageServer {
             .and_then(|td| td.code_lens.as_ref())
             .is_some();
 
+        // Check if client supports folding ranges
+        let supports_folding_range = text_document_caps
+            .and_then(|td| td.folding_range.as_ref())
+            .is_some();
+
         tracing::info!(
             supports_hover,
             supports_completion,
@@ -997,6 +1009,7 @@ impl LanguageServer for GraphQLLanguageServer {
             supports_workspace_symbols,
             supports_semantic_tokens,
             supports_code_lens,
+            supports_folding_range,
             "Client capabilities detected"
         );
 
@@ -1068,6 +1081,8 @@ impl LanguageServer for GraphQLLanguageServer {
                 code_lens_provider: supports_code_lens.then_some(CodeLensOptions {
                     resolve_provider: Some(true),
                 }),
+                folding_range_provider: supports_folding_range
+                    .then_some(FoldingRangeProviderCapability::Simple(true)),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["graphql.checkStatus".to_string()],
                     work_done_progress_options: WorkDoneProgressOptions::default(),
@@ -1165,14 +1180,27 @@ impl LanguageServer for GraphQLLanguageServer {
         let final_content = content;
         let final_kind = file_kind;
 
-        // Update file and get snapshot in one lock (optimized path using write_and_snapshot)
+        // Update file and get snapshot in one lock
+        // Uses add_file_and_snapshot which properly rebuilds project files if needed
         let file_path = graphql_ide::FilePath::new(uri.to_string());
-        let (_is_new, snapshot) = host
-            .write_and_snapshot(|h| h.add_file(&file_path, &final_content, final_kind))
+        let (is_new, snapshot) = host
+            .add_file_and_snapshot(&file_path, &final_content, final_kind)
             .await;
 
-        // Validate using pre-acquired snapshot (no lock needed)
-        self.validate_file_with_snapshot(&uri, snapshot).await;
+        // Only publish diagnostics if this is a new file (not already loaded during init).
+        // Files loaded during init already have diagnostics published (including project-wide).
+        // Re-publishing here would overwrite project-wide diagnostics with only per-file ones.
+        if is_new {
+            // Use all_diagnostics_for_file to include project-wide diagnostics
+            let diagnostics = snapshot.all_diagnostics_for_file(&file_path);
+            let lsp_diagnostics: Vec<Diagnostic> = diagnostics
+                .into_iter()
+                .map(convert_ide_diagnostic)
+                .collect();
+            self.client
+                .publish_diagnostics(uri, lsp_diagnostics, None)
+                .await;
+        }
     }
 
     #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
@@ -1212,10 +1240,11 @@ impl LanguageServer for GraphQLLanguageServer {
             let final_content = change.text.clone();
             let final_kind = file_kind;
 
-            // Update file and get snapshot in one lock (optimized path using write_and_snapshot)
+            // Update file and get snapshot in one lock
+            // Uses add_file_and_snapshot which properly rebuilds project files if needed
             let file_path = graphql_ide::FilePath::new(uri.to_string());
             let (_is_new, snapshot) = host
-                .write_and_snapshot(|h| h.add_file(&file_path, &final_content, final_kind))
+                .add_file_and_snapshot(&file_path, &final_content, final_kind)
                 .await;
 
             // Validate using pre-acquired snapshot (no lock needed)
@@ -1283,20 +1312,13 @@ impl LanguageServer for GraphQLLanguageServer {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        // NOTE: We intentionally do NOT remove the file from AnalysisHost when it's closed.
+        // NOTE: We intentionally do NOT remove the file from AnalysisHost or clear diagnostics.
         // The file is still part of the project on disk, and other files may reference
-        // fragments/types defined in it. Only files that are deleted from disk should be
-        // removed from the analysis.
-
-        // Remove version tracking for closed document
+        // fragments/types defined in it. Diagnostics should remain visible.
+        // Only files deleted from disk should be removed (handled by did_change_watched_files).
         self.workspace
             .document_versions
             .remove(&params.text_document.uri.to_string());
-
-        // Clear diagnostics for the closed file
-        self.client
-            .publish_diagnostics(params.text_document.uri, vec![], None)
-            .await;
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
@@ -1929,5 +1951,41 @@ impl LanguageServer for GraphQLLanguageServer {
     async fn code_lens_resolve(&self, code_lens: CodeLens) -> Result<CodeLens> {
         // Code lens is already resolved with command, just return it
         Ok(code_lens)
+    }
+
+    #[tracing::instrument(skip(self, params), fields(uri = ?params.text_document.uri))]
+    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
+        let uri = params.text_document.uri;
+        tracing::debug!("Folding range requested: {:?}", uri);
+
+        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
+        else {
+            tracing::debug!("No project found for document: {:?}", uri);
+            return Ok(None);
+        };
+
+        let host = self
+            .workspace
+            .get_or_create_host(&workspace_uri, &project_name);
+        let Some(analysis) = host.try_snapshot().await else {
+            return Ok(None);
+        };
+
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
+        let ranges = analysis.folding_ranges(&file_path);
+
+        if ranges.is_empty() {
+            tracing::debug!("No folding ranges found for {:?}", uri);
+            return Ok(None);
+        }
+
+        let lsp_ranges: Vec<FoldingRange> = ranges.iter().map(convert_ide_folding_range).collect();
+
+        tracing::debug!(
+            "Returning {} folding ranges for {:?}",
+            lsp_ranges.len(),
+            uri
+        );
+        Ok(Some(lsp_ranges))
     }
 }

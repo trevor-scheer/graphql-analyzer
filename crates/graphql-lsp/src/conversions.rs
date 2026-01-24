@@ -7,7 +7,8 @@
 //! These conversions are stateless and can be used from any LSP handler.
 
 use lsp_types::{
-    CodeLens, Command, Diagnostic, DiagnosticSeverity, Location, Position, Range, Uri,
+    CodeLens, Command, Diagnostic, DiagnosticSeverity, FoldingRange, FoldingRangeKind, Location,
+    Position, Range, Uri,
 };
 
 /// Convert LSP Position to graphql-ide Position
@@ -271,5 +272,20 @@ pub fn convert_ide_operation_code_lens(
         range: convert_ide_range(lens.range),
         command,
         data: None,
+    }
+}
+
+/// Convert graphql-ide `FoldingRange` to LSP `FoldingRange`
+pub fn convert_ide_folding_range(range: &graphql_ide::FoldingRange) -> FoldingRange {
+    FoldingRange {
+        start_line: range.start_line,
+        start_character: None,
+        end_line: range.end_line,
+        end_character: None,
+        kind: Some(match range.kind {
+            graphql_ide::FoldingRangeKind::Region => FoldingRangeKind::Region,
+            graphql_ide::FoldingRangeKind::Comment => FoldingRangeKind::Comment,
+        }),
+        collapsed_text: None,
     }
 }

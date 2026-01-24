@@ -459,6 +459,38 @@ impl SchemaStats {
     }
 }
 
+/// Kind of folding range
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FoldingRangeKind {
+    /// Folding range for a region (selection sets, definitions)
+    Region,
+    /// Folding range for a comment
+    Comment,
+}
+
+/// A folding range in a document
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoldingRange {
+    /// The zero-based line number from where the folded range starts
+    pub start_line: u32,
+    /// The zero-based line number where the folded range ends
+    pub end_line: u32,
+    /// Describes the kind of the folding range
+    pub kind: FoldingRangeKind,
+}
+
+impl FoldingRange {
+    /// Create a new folding range
+    #[must_use]
+    pub const fn new(start_line: u32, end_line: u32, kind: FoldingRangeKind) -> Self {
+        Self {
+            start_line,
+            end_line,
+            kind,
+        }
+    }
+}
+
 /// A reference to a fragment spread
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FragmentReference {
@@ -649,6 +681,8 @@ impl OperationCodeLens {
 pub struct SchemaLoadResult {
     /// Number of schema files successfully loaded (includes Apollo client builtins)
     pub loaded_count: usize,
+    /// Paths of loaded schema files (for diagnostics collection)
+    pub loaded_paths: Vec<std::path::PathBuf>,
     /// Pending introspection configurations that need async fetching.
     /// These require network access and should be handled asynchronously
     /// by the calling layer (e.g., LSP server).

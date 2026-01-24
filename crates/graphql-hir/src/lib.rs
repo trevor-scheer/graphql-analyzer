@@ -688,6 +688,10 @@ pub struct SchemaCoordinate {
 ///
 /// Note: This query requires schema types to resolve field return types.
 /// If schema is not available, it uses heuristics based on selection patterns.
+///
+/// Fragment spreads are resolved transitively: if a file uses `...FragmentA`,
+/// and `FragmentA` is defined elsewhere and uses fields, those fields are
+/// included in this file's coordinates.
 #[salsa::tracked]
 #[allow(clippy::items_after_statements, clippy::too_many_lines)]
 pub fn file_schema_coordinates(
@@ -699,7 +703,7 @@ pub fn file_schema_coordinates(
 ) -> Arc<std::collections::HashSet<SchemaCoordinate>> {
     let parse = graphql_syntax::parse(db, content, metadata);
     let schema_types = schema_types(db, project_files);
-    let mut coordinates = std::collections::HashSet::new();
+    let fragments = all_fragments(db, project_files);
 
     // Get root type names
     let query_type = schema_types
@@ -712,63 +716,107 @@ pub fn file_schema_coordinates(
         .contains_key("Subscription")
         .then(|| Arc::from("Subscription"));
 
-    // Helper to collect schema coordinates recursively
-    fn collect_coordinates(
-        selections: &[apollo_compiler::ast::Selection],
-        parent_type: &Arc<str>,
-        schema_types: &HashMap<Arc<str>, TypeDef>,
-        coordinates: &mut std::collections::HashSet<SchemaCoordinate>,
-    ) {
-        for selection in selections {
-            match selection {
-                apollo_compiler::ast::Selection::Field(field) => {
-                    let field_name: Arc<str> = Arc::from(field.name.as_str());
+    // Context for collecting coordinates - allows passing db and project_files to helper
+    struct CollectContext<'a> {
+        db: &'a dyn GraphQLHirDatabase,
+        project_files: graphql_base_db::ProjectFiles,
+        schema_types: &'a HashMap<Arc<str>, TypeDef>,
+        fragments: &'a HashMap<Arc<str>, FragmentStructure>,
+        visited_fragments: std::collections::HashSet<Arc<str>>,
+        coordinates: std::collections::HashSet<SchemaCoordinate>,
+    }
 
-                    // Record this schema coordinate
-                    coordinates.insert(SchemaCoordinate {
-                        type_name: parent_type.clone(),
-                        field_name: field_name.clone(),
-                    });
+    impl CollectContext<'_> {
+        fn collect_from_selections(
+            &mut self,
+            selections: &[apollo_compiler::ast::Selection],
+            parent_type: &Arc<str>,
+        ) {
+            for selection in selections {
+                match selection {
+                    apollo_compiler::ast::Selection::Field(field) => {
+                        let field_name: Arc<str> = Arc::from(field.name.as_str());
 
-                    // Recursively process nested selections
-                    if !field.selection_set.is_empty() {
-                        // Find the field's return type from schema
-                        if let Some(type_def) = schema_types.get(parent_type) {
-                            if let Some(field_sig) = type_def
-                                .fields
-                                .iter()
-                                .find(|f| f.name.as_ref() == field_name.as_ref())
-                            {
-                                let nested_type: Arc<str> =
-                                    Arc::from(field_sig.type_ref.name.as_ref());
-                                collect_coordinates(
-                                    &field.selection_set,
-                                    &nested_type,
-                                    schema_types,
-                                    coordinates,
-                                );
+                        // Record this schema coordinate
+                        self.coordinates.insert(SchemaCoordinate {
+                            type_name: parent_type.clone(),
+                            field_name: field_name.clone(),
+                        });
+
+                        // Recursively process nested selections
+                        if !field.selection_set.is_empty() {
+                            // Find the field's return type from schema
+                            if let Some(type_def) = self.schema_types.get(parent_type) {
+                                if let Some(field_sig) = type_def
+                                    .fields
+                                    .iter()
+                                    .find(|f| f.name.as_ref() == field_name.as_ref())
+                                {
+                                    let nested_type: Arc<str> =
+                                        Arc::from(field_sig.type_ref.name.as_ref());
+                                    self.collect_from_selections(
+                                        &field.selection_set,
+                                        &nested_type,
+                                    );
+                                }
                             }
                         }
                     }
-                }
-                apollo_compiler::ast::Selection::FragmentSpread(_) => {
-                    // Fragment spreads are handled separately
-                }
-                apollo_compiler::ast::Selection::InlineFragment(inline) => {
-                    let inline_type = inline
-                        .type_condition
-                        .as_ref()
-                        .map_or_else(|| parent_type.clone(), |tc| Arc::from(tc.as_str()));
-                    collect_coordinates(
-                        &inline.selection_set,
-                        &inline_type,
-                        schema_types,
-                        coordinates,
-                    );
+                    apollo_compiler::ast::Selection::FragmentSpread(spread) => {
+                        let frag_name: Arc<str> = Arc::from(spread.fragment_name.as_str());
+
+                        // Prevent infinite recursion from circular fragment references
+                        if self.visited_fragments.contains(&frag_name) {
+                            continue;
+                        }
+
+                        // Look up the fragment structure for type condition
+                        if let Some(frag_structure) = self.fragments.get(&frag_name) {
+                            self.visited_fragments.insert(frag_name.clone());
+
+                            // Use fragment_ast to get the parsed AST (handles both embedded and pure GraphQL)
+                            if let Some(ast) =
+                                fragment_ast(self.db, self.project_files, frag_name.clone())
+                            {
+                                // Find the fragment definition in the AST
+                                for def in &ast.definitions {
+                                    if let apollo_compiler::ast::Definition::FragmentDefinition(
+                                        frag,
+                                    ) = def
+                                    {
+                                        if frag.name.as_str() == frag_name.as_ref() {
+                                            self.collect_from_selections(
+                                                &frag.selection_set,
+                                                &frag_structure.type_condition,
+                                            );
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    apollo_compiler::ast::Selection::InlineFragment(inline) => {
+                        let inline_type = inline
+                            .type_condition
+                            .as_ref()
+                            .map_or_else(|| parent_type.clone(), |tc| Arc::from(tc.as_str()));
+                        self.collect_from_selections(&inline.selection_set, &inline_type);
+                    }
                 }
             }
         }
     }
+
+    #[allow(clippy::needless_borrow)]
+    let mut ctx = CollectContext {
+        db,
+        project_files,
+        schema_types: &schema_types,
+        fragments: &fragments,
+        visited_fragments: std::collections::HashSet::new(),
+        coordinates: std::collections::HashSet::new(),
+    };
 
     // Unified: process all documents (works for both pure GraphQL and TS/JS)
     for doc in parse.documents() {
@@ -783,27 +831,17 @@ pub fn file_schema_coordinates(
                         }
                     };
                     if let Some(root) = root_type {
-                        collect_coordinates(
-                            &op.selection_set,
-                            root,
-                            schema_types,
-                            &mut coordinates,
-                        );
+                        ctx.collect_from_selections(&op.selection_set, root);
                     }
                 }
                 apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
                     let frag_type = Arc::from(frag.type_condition.as_str());
-                    collect_coordinates(
-                        &frag.selection_set,
-                        &frag_type,
-                        schema_types,
-                        &mut coordinates,
-                    );
+                    ctx.collect_from_selections(&frag.selection_set, &frag_type);
                 }
                 _ => {}
             }
         }
     }
 
-    Arc::new(coordinates)
+    Arc::new(ctx.coordinates)
 }
