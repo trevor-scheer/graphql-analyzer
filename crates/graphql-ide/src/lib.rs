@@ -5848,4 +5848,44 @@ export const RATE_LIMIT_QUERY = gql`
             nodecount_errors.iter().map(|d| &d.message).collect::<Vec<_>>()
         );
     }
+
+    #[test]
+    fn test_all_diagnostics_for_file_merges_per_file_and_project_wide() {
+        let mut host = AnalysisHost::new();
+        host.set_lint_config(graphql_linter::LintConfig::recommended());
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            r#"
+                type Query { user: User }
+                type User {
+                    id: ID!
+                    unusedField: String
+                }
+            "#,
+            FileKind::Schema,
+        );
+
+        let doc_file = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_file,
+            "query { user { id } }",
+            FileKind::ExecutableGraphQL,
+        );
+
+        host.rebuild_project_files();
+        let snapshot = host.snapshot();
+
+        // all_diagnostics_for_file should include project-wide diagnostics
+        let schema_diags = snapshot.all_diagnostics_for_file(&schema_file);
+        let has_unused_field = schema_diags.iter().any(|d| {
+            d.code.as_deref() == Some("unused_fields") && d.message.contains("unusedField")
+        });
+
+        assert!(
+            has_unused_field,
+            "all_diagnostics_for_file should include project-wide unused_fields diagnostic"
+        );
+    }
 }
