@@ -358,6 +358,12 @@ async fn load_all_project_files_background(
                 }
             }
         }
+
+        // Pre-warm Salsa caches for IDE features (hover, goto-def, references).
+        // This ensures the first user interaction is fast, even though diagnostics
+        // already warm most caches through project_lint_diagnostics.
+        snapshot.prewarm_caches();
+        tracing::debug!("Pre-warmed Salsa caches for project {}", project_name);
     }
 
     tracing::info!(
@@ -1200,6 +1206,11 @@ impl LanguageServer for GraphQLLanguageServer {
                 .publish_diagnostics(uri, lsp_diagnostics, None)
                 .await;
         }
+
+        // Pre-warm Salsa caches for IDE features.
+        // For new files, diagnostics already warm caches, but this ensures all caches are ready.
+        // For pre-loaded files, this is a fast no-op since caches are already warm.
+        snapshot.prewarm_caches();
     }
 
     #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]

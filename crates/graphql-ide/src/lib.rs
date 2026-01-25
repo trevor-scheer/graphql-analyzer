@@ -1978,6 +1978,31 @@ impl Analysis {
             &fragment_usages,
         )
     }
+
+    /// Pre-warm Salsa caches for IDE features.
+    ///
+    /// Calling this method eagerly computes and caches the expensive aggregate
+    /// queries that IDE features (hover, goto-definition, references) depend on:
+    /// - `schema_types()` - indexes all types across schema files
+    /// - `all_fragments()` - indexes all fragments across document files
+    /// - `all_operations()` - indexes all operations across document files
+    ///
+    /// This is useful to call after loading files or on `textDocument/didOpen`
+    /// to ensure the first hover/goto-def request is fast.
+    pub fn prewarm_caches(&self) {
+        let Some(project_files) = self.project_files else {
+            return;
+        };
+
+        // Warm the schema types cache - used by hover, goto-def, references for type lookups
+        let _ = graphql_hir::schema_types(&self.db, project_files);
+
+        // Warm the fragments cache - used by goto-def and references for fragment lookups
+        let _ = graphql_hir::all_fragments(&self.db, project_files);
+
+        // Warm the operations cache - used by references and code lenses
+        let _ = graphql_hir::all_operations(&self.db, project_files);
+    }
 }
 
 // Helper functions are now in feature modules
@@ -5901,5 +5926,53 @@ export const RATE_LIMIT_QUERY = gql`
             has_unused_field,
             "all_diagnostics_for_file should include project-wide unused_fields diagnostic"
         );
+    }
+
+    #[test]
+    fn test_prewarm_caches_warms_hir_queries() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User }\ntype User { id: ID!, name: String }",
+            FileKind::Schema,
+        );
+
+        let doc_file = FilePath::new("file:///query.graphql");
+        // Simple document with fragment on line 1
+        host.add_file(
+            &doc_file,
+            "query GetUser { user { ...UserFields } }\nfragment UserFields on User { id name }",
+            FileKind::ExecutableGraphQL,
+        );
+
+        host.rebuild_project_files();
+        let snapshot = host.snapshot();
+
+        // prewarm_caches should not panic
+        snapshot.prewarm_caches();
+
+        // After pre-warming, verify caches are populated by checking schema_stats
+        // (which uses schema_types cache)
+        let stats = snapshot.schema_stats();
+        assert_eq!(
+            stats.objects, 2,
+            "Schema should have 2 object types (Query, User)"
+        );
+
+        // Verify fragment usages work (uses all_fragments cache)
+        let fragment_usages = snapshot.fragment_usages();
+        assert_eq!(fragment_usages.len(), 1, "Should have 1 fragment");
+        assert_eq!(fragment_usages[0].name, "UserFields");
+    }
+
+    #[test]
+    fn test_prewarm_caches_handles_no_project_files() {
+        let host = AnalysisHost::new();
+        let snapshot = host.snapshot();
+
+        // prewarm_caches should handle the case where no project files are set
+        snapshot.prewarm_caches(); // Should not panic
     }
 }
