@@ -70,11 +70,9 @@ pub use types::{
 };
 
 // Re-export helpers for internal use
-use helpers::{
-    adjust_range_for_line_offset, convert_diagnostic, offset_range_to_range, path_to_file_uri,
-};
-// Re-export for use in symbol module
-pub use helpers::unwrap_type_to_name;
+use helpers::{adjust_range_for_line_offset, convert_diagnostic, offset_range_to_range};
+// Re-export for use in symbol module and LSP
+pub use helpers::{path_to_file_uri, unwrap_type_to_name};
 
 use symbol::{find_fragment_definition_full_range, find_operation_definition_ranges};
 
