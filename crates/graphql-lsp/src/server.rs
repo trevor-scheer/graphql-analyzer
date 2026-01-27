@@ -105,11 +105,13 @@ async fn load_workspaces_background(
     let elapsed = loading_start.elapsed();
     let total_files = workspace.file_to_project.len();
 
-    tracing::info!(
-        files = total_files,
-        elapsed_secs = format_args!("{:.1}", elapsed.as_secs_f64()),
-        "Project initialization complete"
+    let init_message = format!(
+        "Project initialization complete: {} files loaded in {:.1}s",
+        total_files,
+        elapsed.as_secs_f64()
     );
+    tracing::info!("{}", init_message);
+    client.log_message(MessageType::INFO, &init_message).await;
 
     client
         .send_notification::<StatusNotification>(StatusParams {
@@ -993,11 +995,15 @@ documents: "**/*.graphql"
         }
 
         let elapsed = start.elapsed();
-        tracing::info!(
-            files = self.workspace.file_to_project.len(),
-            elapsed_secs = format_args!("{:.1}", elapsed.as_secs_f64()),
-            "Project initialization complete"
+        let init_message = format!(
+            "Project initialization complete: {} files loaded in {:.1}s",
+            self.workspace.file_to_project.len(),
+            elapsed.as_secs_f64()
         );
+        tracing::info!("{}", init_message);
+        self.client
+            .log_message(MessageType::INFO, &init_message)
+            .await;
 
         #[cfg(target_os = "linux")]
         {
