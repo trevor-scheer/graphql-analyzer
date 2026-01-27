@@ -1,0 +1,1558 @@
+"""
+An organization account on GitHub.
+"""
+type Organization implements Node & Actor & RepositoryOwner & Sponsor & Sponsorable & UniformResourceLocatable {
+  """
+  URL of the organization's avatar.
+  """
+  avatarUrl(size: Int): URI!
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  The organization's public profile description.
+  """
+  description: String
+
+  """
+  The organization's public profile description as HTML.
+  """
+  descriptionHTML: String
+
+  """
+  The organization's public email.
+  """
+  email: String
+
+  """
+  The estimated next GitHub Sponsors payout.
+  """
+  estimatedNextSponsorsPayoutInCents: Int!
+
+  """
+  Whether this organization has a GitHub Sponsors listing.
+  """
+  hasSponsorsListing: Boolean!
+
+  id: ID!
+
+  """
+  The IP allow list for this organization.
+  """
+  ipAllowListEnabledSetting: IpAllowListEnabledSettingValue!
+
+  """
+  The IP allow list entries for this organization.
+  """
+  ipAllowListEntries(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: IpAllowListEntryOrder
+  ): IpAllowListEntryConnection!
+
+  """
+  The IP allow list for installed GitHub Apps.
+  """
+  ipAllowListForInstalledAppsEnabledSetting: IpAllowListForInstalledAppsEnabledSettingValue!
+
+  """
+  Whether the organization is sponsoring the viewer.
+  """
+  isSponsoringViewer: Boolean!
+
+  """
+  Whether the organization is verified.
+  """
+  isVerified: Boolean!
+
+  """
+  The organization's public profile location.
+  """
+  location: String
+
+  """
+  The organization's login.
+  """
+  login: String!
+
+  """
+  A list of users who are members of this organization.
+  """
+  membersWithRole(
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): OrganizationMemberConnection!
+
+  """
+  The organization's public profile name.
+  """
+  name: String
+
+  """
+  The HTTP path for creating a new team.
+  """
+  newTeamResourcePath: URI!
+
+  """
+  The HTTP URL for creating a new team.
+  """
+  newTeamUrl: URI!
+
+  """
+  The organization's billing email.
+  """
+  notificationDeliveryRestrictionEnabledSetting: NotificationRestrictionSettingValue!
+
+  """
+  A list of packages.
+  """
+  packages(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    names: [String]
+    repositoryId: ID
+    packageType: PackageType
+    orderBy: PackageOrder
+  ): PackageConnection!
+
+  """
+  A list of pending member invitations.
+  """
+  pendingMembers(first: Int, after: String, last: Int, before: String): UserConnection!
+
+  """
+  A list of pinnable items.
+  """
+  pinnableItems(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    types: [PinnableItemType!]
+  ): PinnableItemConnection!
+
+  """
+  A list of pinned items.
+  """
+  pinnedItems(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    types: [PinnableItemType!]
+  ): PinnableItemConnection!
+
+  """
+  The number of pinned items remaining.
+  """
+  pinnedItemsRemaining: Int!
+
+  """
+  A list of projects under the owner.
+  """
+  projectsV2(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    query: String
+    orderBy: ProjectV2Order
+  ): ProjectV2Connection!
+
+  """
+  A list of repositories that the organization owns.
+  """
+  repositories(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: RepositoryOrder
+    privacy: RepositoryPrivacy
+    isFork: Boolean
+    isLocked: Boolean
+    affiliations: [RepositoryAffiliation]
+  ): RepositoryConnection!
+
+  """
+  Find a repository by name.
+  """
+  repository(name: String!): Repository
+
+  """
+  The HTTP path for the organization.
+  """
+  resourcePath: URI!
+
+  """
+  Organization's SAML identity providers.
+  """
+  samlIdentityProvider: OrganizationIdentityProvider
+
+  """
+  The GitHub Sponsors listing for this organization.
+  """
+  sponsorsListing: SponsorsListing
+
+  """
+  Sponsorship from viewer.
+  """
+  sponsorshipForViewerAsSponsorable: Sponsorship
+
+  """
+  A list of teams in this organization.
+  """
+  teams(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: TeamOrder
+    query: String
+    userLogins: [String!]
+    privacy: TeamPrivacy
+    role: TeamRole
+    rootTeamsOnly: Boolean
+  ): TeamConnection!
+
+  """
+  The HTTP path for listing teams.
+  """
+  teamsResourcePath: URI!
+
+  """
+  The HTTP URL for listing teams.
+  """
+  teamsUrl: URI!
+
+  """
+  Total amount received on GitHub Sponsors in cents.
+  """
+  totalSponsorshipAmountAsSponsorInCents(since: DateTime, until: DateTime): Int
+
+  """
+  The organization's Twitter username.
+  """
+  twitterUsername: String
+
+  """
+  Identifies the date and time when the object was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The HTTP URL for the organization.
+  """
+  url: URI!
+
+  """
+  Whether the organization has verified its profile email.
+  """
+  viewerCanAdminister: Boolean!
+
+  """
+  Whether the viewer can change their pinned items.
+  """
+  viewerCanChangePinnedItems: Boolean!
+
+  """
+  Whether the viewer can create projects.
+  """
+  viewerCanCreateProjects: Boolean!
+
+  """
+  Whether the viewer can create repositories.
+  """
+  viewerCanCreateRepositories: Boolean!
+
+  """
+  Whether the viewer can create teams.
+  """
+  viewerCanCreateTeams: Boolean!
+
+  """
+  Whether the viewer is sponsoring this organization.
+  """
+  viewerIsAMember: Boolean!
+
+  """
+  Whether the viewer is following this organization.
+  """
+  viewerIsFollowing: Boolean!
+
+  """
+  Whether the viewer is sponsoring this organization.
+  """
+  viewerIsSponsoring: Boolean!
+
+  """
+  The organization's public profile URL.
+  """
+  websiteUrl: URI
+}
+
+type OrganizationMemberConnection {
+  edges: [OrganizationMemberEdge]
+  nodes: [User]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type OrganizationMemberEdge {
+  cursor: String!
+  hasTwoFactorEnabled: Boolean
+  node: User
+  role: OrganizationMemberRole
+}
+
+"""
+Organization identity provider.
+"""
+type OrganizationIdentityProvider implements Node {
+  digestMethod: URI
+  externalIdentities(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    membersOnly: Boolean
+    login: String
+    userName: String
+  ): ExternalIdentityConnection!
+  id: ID!
+  idpCertificate: X509Certificate
+  issuer: String
+  organization: Organization
+  signatureMethod: URI
+  ssoUrl: URI
+}
+
+type ExternalIdentity implements Node {
+  guid: String!
+  id: ID!
+  organizationInvitation: OrganizationInvitation
+  samlIdentity: ExternalIdentitySamlAttributes
+  scimIdentity: ExternalIdentityScimAttributes
+  user: User
+}
+
+type ExternalIdentityConnection {
+  edges: [ExternalIdentityEdge]
+  nodes: [ExternalIdentity]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ExternalIdentityEdge {
+  cursor: String!
+  node: ExternalIdentity
+}
+
+type ExternalIdentitySamlAttributes {
+  attributes: [ExternalIdentityAttribute!]!
+  emails: [UserEmailMetadata!]
+  familyName: String
+  givenName: String
+  groups: [String!]
+  nameId: String
+  username: String
+}
+
+type ExternalIdentityScimAttributes {
+  emails: [UserEmailMetadata!]
+  familyName: String
+  givenName: String
+  groups: [String!]
+  username: String
+}
+
+type ExternalIdentityAttribute {
+  metadata: String
+  name: String!
+  value: String!
+}
+
+type UserEmailMetadata {
+  primary: Boolean
+  type: String
+  value: String!
+}
+
+"""
+An invitation to join an organization.
+"""
+type OrganizationInvitation implements Node {
+  createdAt: DateTime!
+  email: String
+  id: ID!
+  invitationType: OrganizationInvitationType!
+  invitee: User
+  inviter: User!
+  organization: Organization!
+  role: OrganizationInvitationRole!
+}
+
+enum OrganizationInvitationRole {
+  DIRECT_MEMBER
+  ADMIN
+  BILLING_MANAGER
+  REINSTATE
+}
+
+"""
+A team of users.
+"""
+type Team implements Node & Subscribable {
+  """
+  The teams' ancestors.
+  """
+  ancestors(first: Int, after: String, last: Int, before: String): TeamConnection!
+
+  """
+  URL for team avatar.
+  """
+  avatarUrl(size: Int = 400): URI
+
+  """
+  Child teams.
+  """
+  childTeams(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: TeamOrder
+    userLogins: [String!]
+    immediateOnly: Boolean = true
+  ): TeamConnection!
+
+  """
+  The slug with parent teams included.
+  """
+  combinedSlug: String!
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  The team description.
+  """
+  description: String
+
+  """
+  The team discussion.
+  """
+  discussion(number: Int!): TeamDiscussion
+
+  """
+  Team discussions.
+  """
+  discussions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    isPinned: Boolean
+    orderBy: TeamDiscussionOrder
+  ): TeamDiscussionConnection!
+
+  """
+  The HTTP path for discussions.
+  """
+  discussionsResourcePath: URI!
+
+  """
+  The HTTP URL for discussions.
+  """
+  discussionsUrl: URI!
+
+  """
+  The HTTP path for editing this team.
+  """
+  editTeamResourcePath: URI!
+
+  """
+  The HTTP URL for editing this team.
+  """
+  editTeamUrl: URI!
+
+  id: ID!
+
+  """
+  Team invitations.
+  """
+  invitations(
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): OrganizationInvitationConnection
+
+  """
+  Team members.
+  """
+  members(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    query: String
+    membership: TeamMembershipType = ALL
+    role: TeamMemberRole
+    orderBy: TeamMemberOrder
+  ): TeamMemberConnection!
+
+  """
+  The HTTP path for team members.
+  """
+  membersResourcePath: URI!
+
+  """
+  The HTTP URL for team members.
+  """
+  membersUrl: URI!
+
+  """
+  The team name.
+  """
+  name: String!
+
+  """
+  The HTTP path for new team members.
+  """
+  newTeamResourcePath: URI!
+
+  """
+  The HTTP URL for new team members.
+  """
+  newTeamUrl: URI!
+
+  """
+  The organization the team belongs to.
+  """
+  organization: Organization!
+
+  """
+  The parent team.
+  """
+  parentTeam: Team
+
+  """
+  The team's privacy setting.
+  """
+  privacy: TeamPrivacy!
+
+  """
+  Projects V2.
+  """
+  projectsV2(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: ProjectV2Order
+    filterBy: ProjectV2Filters
+    query: String
+  ): ProjectV2Connection!
+
+  """
+  A list of repositories this team has access to.
+  """
+  repositories(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: TeamRepositoryOrder
+    query: String
+  ): TeamRepositoryConnection!
+
+  """
+  The HTTP path for team repositories.
+  """
+  repositoriesResourcePath: URI!
+
+  """
+  The HTTP URL for team repositories.
+  """
+  repositoriesUrl: URI!
+
+  """
+  The HTTP path for the team.
+  """
+  resourcePath: URI!
+
+  """
+  What algorithm the team uses for review assignment.
+  """
+  reviewRequestDelegationAlgorithm: TeamReviewAssignmentAlgorithm
+
+  """
+  Whether review is delegated to regular team members.
+  """
+  reviewRequestDelegationEnabled: Boolean!
+
+  """
+  The team slug.
+  """
+  slug: String!
+
+  """
+  The HTTP path for team settings.
+  """
+  teamsResourcePath: URI!
+
+  """
+  The HTTP URL for team settings.
+  """
+  teamsUrl: URI!
+
+  """
+  Identifies the date and time when the object was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The HTTP URL for the team.
+  """
+  url: URI!
+
+  """
+  Whether the viewer can administer.
+  """
+  viewerCanAdminister: Boolean!
+
+  """
+  Whether the viewer can subscribe.
+  """
+  viewerCanSubscribe: Boolean!
+
+  """
+  The viewer's subscription state.
+  """
+  viewerSubscription: SubscriptionState
+}
+
+type TeamMemberConnection {
+  edges: [TeamMemberEdge]
+  nodes: [User]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type TeamMemberEdge {
+  cursor: String!
+  memberAccessResourcePath: URI!
+  memberAccessUrl: URI!
+  node: User!
+  role: TeamMemberRole!
+}
+
+enum TeamMemberRole {
+  MAINTAINER
+  MEMBER
+}
+
+enum TeamMembershipType {
+  IMMEDIATE
+  CHILD_TEAM
+  ALL
+}
+
+"""
+A team discussion.
+"""
+type TeamDiscussion implements Node & Comment & Reactable & Subscribable & UniformResourceLocatable {
+  author: Actor
+  authorAssociation: CommentAuthorAssociation!
+  body: String!
+  bodyHTML: HTML!
+  bodyText: String!
+  bodyVersion: String!
+  comments(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: TeamDiscussionCommentOrder
+    fromComment: Int
+  ): TeamDiscussionCommentConnection!
+  commentsResourcePath: URI!
+  commentsUrl: URI!
+  createdAt: DateTime!
+  createdViaEmail: Boolean!
+  databaseId: Int
+  editor: Actor
+  id: ID!
+  includesCreatedEdit: Boolean!
+  isPinned: Boolean!
+  isPrivate: Boolean!
+  lastEditedAt: DateTime
+  number: Int!
+  publishedAt: DateTime
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
+  resourcePath: URI!
+  team: Team!
+  title: String!
+  updatedAt: DateTime!
+  url: URI!
+  viewerCanDelete: Boolean!
+  viewerCanPin: Boolean!
+  viewerCanReact: Boolean!
+  viewerCanSubscribe: Boolean!
+  viewerCanUpdate: Boolean!
+  viewerDidAuthor: Boolean!
+  viewerSubscription: SubscriptionState
+}
+
+type TeamDiscussionConnection {
+  edges: [TeamDiscussionEdge]
+  nodes: [TeamDiscussion]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type TeamDiscussionEdge {
+  cursor: String!
+  node: TeamDiscussion
+}
+
+type TeamDiscussionComment implements Node & Comment & Reactable & UniformResourceLocatable {
+  author: Actor
+  authorAssociation: CommentAuthorAssociation!
+  body: String!
+  bodyHTML: HTML!
+  bodyText: String!
+  bodyVersion: String!
+  createdAt: DateTime!
+  createdViaEmail: Boolean!
+  databaseId: Int
+  discussion: TeamDiscussion!
+  editor: Actor
+  id: ID!
+  includesCreatedEdit: Boolean!
+  lastEditedAt: DateTime
+  number: Int!
+  publishedAt: DateTime
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
+  resourcePath: URI!
+  updatedAt: DateTime!
+  url: URI!
+  viewerCanDelete: Boolean!
+  viewerCanReact: Boolean!
+  viewerCanUpdate: Boolean!
+  viewerDidAuthor: Boolean!
+}
+
+type TeamDiscussionCommentConnection {
+  edges: [TeamDiscussionCommentEdge]
+  nodes: [TeamDiscussionComment]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type TeamDiscussionCommentEdge {
+  cursor: String!
+  node: TeamDiscussionComment
+}
+
+input TeamDiscussionOrder {
+  field: TeamDiscussionOrderField!
+  direction: OrderDirection!
+}
+
+enum TeamDiscussionOrderField {
+  CREATED_AT
+}
+
+input TeamDiscussionCommentOrder {
+  field: TeamDiscussionCommentOrderField!
+  direction: OrderDirection!
+}
+
+enum TeamDiscussionCommentOrderField {
+  NUMBER
+}
+
+type OrganizationInvitationConnection {
+  edges: [OrganizationInvitationEdge]
+  nodes: [OrganizationInvitation]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type OrganizationInvitationEdge {
+  cursor: String!
+  node: OrganizationInvitation
+}
+
+type TeamRepositoryConnection {
+  edges: [TeamRepositoryEdge]
+  nodes: [Repository]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type TeamRepositoryEdge {
+  cursor: String!
+  node: Repository!
+  permission: RepositoryPermission!
+}
+
+input TeamRepositoryOrder {
+  field: TeamRepositoryOrderField!
+  direction: OrderDirection!
+}
+
+enum TeamRepositoryOrderField {
+  CREATED_AT
+  UPDATED_AT
+  PUSHED_AT
+  NAME
+  PERMISSION
+  STARGAZERS
+}
+
+enum TeamReviewAssignmentAlgorithm {
+  ROUND_ROBIN
+  LOAD_BALANCE
+}
+
+input ProjectV2Filters {
+  state: ProjectV2State
+}
+
+enum ProjectV2State {
+  OPEN
+  CLOSED
+}
+
+enum IpAllowListEnabledSettingValue {
+  ENABLED
+  DISABLED
+}
+
+enum IpAllowListForInstalledAppsEnabledSettingValue {
+  ENABLED
+  DISABLED
+}
+
+enum NotificationRestrictionSettingValue {
+  ENABLED
+  DISABLED
+}
+
+enum PackageType {
+  NPM
+  RUBYGEMS
+  MAVEN
+  DOCKER
+  DEBIAN
+  NUGET
+  PYPI
+}
+
+input PackageOrder {
+  field: PackageOrderField
+  direction: OrderDirection
+}
+
+enum PackageOrderField {
+  CREATED_AT
+}
+
+type Package implements Node {
+  id: ID!
+  latestVersion: PackageVersion
+  name: String!
+  packageType: PackageType!
+  repository: Repository
+  statistics: PackageStatistics
+  version(version: String!): PackageVersion
+  versions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: PackageVersionOrder
+  ): PackageVersionConnection!
+}
+
+type PackageConnection {
+  edges: [PackageEdge]
+  nodes: [Package]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type PackageEdge {
+  cursor: String!
+  node: Package
+}
+
+type PackageVersion implements Node {
+  files(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: PackageFileOrder
+  ): PackageFileConnection!
+  id: ID!
+  package: Package
+  platform: String
+  preRelease: Boolean!
+  readme: String
+  release: Release
+  statistics: PackageVersionStatistics
+  summary: String
+  version: String!
+}
+
+type PackageVersionConnection {
+  edges: [PackageVersionEdge]
+  nodes: [PackageVersion]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type PackageVersionEdge {
+  cursor: String!
+  node: PackageVersion
+}
+
+input PackageVersionOrder {
+  field: PackageVersionOrderField
+  direction: OrderDirection
+}
+
+enum PackageVersionOrderField {
+  CREATED_AT
+}
+
+type PackageFile implements Node {
+  id: ID!
+  md5: String
+  name: String!
+  packageVersion: PackageVersion
+  sha1: String
+  sha256: String
+  size: Int
+  updatedAt: DateTime!
+  url: URI
+}
+
+type PackageFileConnection {
+  edges: [PackageFileEdge]
+  nodes: [PackageFile]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type PackageFileEdge {
+  cursor: String!
+  node: PackageFile
+}
+
+input PackageFileOrder {
+  field: PackageFileOrderField
+  direction: OrderDirection
+}
+
+enum PackageFileOrderField {
+  CREATED_AT
+}
+
+type PackageStatistics {
+  downloadsTotalCount: Int!
+}
+
+type PackageVersionStatistics {
+  downloadsTotalCount: Int!
+}
+
+enum PinnableItemType {
+  REPOSITORY
+  GIST
+  ISSUE
+  PROJECT
+  PULL_REQUEST
+  USER
+  ORGANIZATION
+  TEAM
+}
+
+type PinnableItemConnection {
+  edges: [PinnableItemEdge]
+  nodes: [PinnableItem]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type PinnableItemEdge {
+  cursor: String!
+  node: PinnableItem
+}
+
+union PinnableItem = Gist | Repository
+
+type Gist implements Node & Starrable & UniformResourceLocatable {
+  comments(first: Int, after: String, last: Int, before: String): GistCommentConnection!
+  createdAt: DateTime!
+  description: String
+  files(limit: Int = 10, oid: GitObjectID): [GistFile]
+  forks(first: Int, after: String, last: Int, before: String, orderBy: GistOrder): GistConnection!
+  id: ID!
+  isFork: Boolean!
+  isPublic: Boolean!
+  name: String!
+  owner: RepositoryOwner
+  pushedAt: DateTime
+  resourcePath: URI!
+  stargazerCount: Int!
+  stargazers(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: StarOrder
+  ): StargazerConnection!
+  updatedAt: DateTime!
+  url: URI!
+  viewerHasStarred: Boolean!
+}
+
+type GistConnection {
+  edges: [GistEdge]
+  nodes: [Gist]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type GistEdge {
+  cursor: String!
+  node: Gist
+}
+
+type GistFile {
+  encodedName: String
+  encoding: String
+  extension: String
+  isImage: Boolean!
+  isTruncated: Boolean!
+  language: Language
+  name: String
+  size: Int
+  text(truncate: Int): String
+}
+
+type GistComment implements Node & Comment {
+  author: Actor
+  authorAssociation: CommentAuthorAssociation!
+  body: String!
+  bodyHTML: HTML!
+  bodyText: String!
+  createdAt: DateTime!
+  createdViaEmail: Boolean!
+  databaseId: Int
+  editor: Actor
+  gist: Gist!
+  id: ID!
+  includesCreatedEdit: Boolean!
+  isMinimized: Boolean!
+  lastEditedAt: DateTime
+  minimizedReason: String
+  publishedAt: DateTime
+  updatedAt: DateTime!
+  viewerCanDelete: Boolean!
+  viewerCanMinimize: Boolean!
+  viewerCanUpdate: Boolean!
+  viewerDidAuthor: Boolean!
+}
+
+type GistCommentConnection {
+  edges: [GistCommentEdge]
+  nodes: [GistComment]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type GistCommentEdge {
+  cursor: String!
+  node: GistComment
+}
+
+input GistOrder {
+  field: GistOrderField!
+  direction: OrderDirection!
+}
+
+enum GistOrderField {
+  CREATED_AT
+  UPDATED_AT
+  PUSHED_AT
+}
+
+"""
+A GitHub Enterprise.
+"""
+type Enterprise implements Node {
+  avatarUrl(size: Int): URI!
+  billingInfo: EnterpriseBillingInfo
+  createdAt: DateTime!
+  databaseId: Int
+  description: String
+  descriptionHTML: HTML!
+  id: ID!
+  location: String
+  members(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: EnterpriseMemberOrder
+    query: String
+    organizationLogins: [String!]
+    hasTwoFactorEnabled: Boolean
+    deployment: EnterpriseUserDeployment
+  ): EnterpriseMemberConnection!
+  name: String!
+  organizations(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: OrganizationOrder
+    query: String
+    viewerOrganizationRole: RoleInOrganization
+  ): OrganizationConnection!
+  ownerInfo: EnterpriseOwnerInfo
+  resourcePath: URI!
+  slug: String!
+  url: URI!
+  viewerIsAdmin: Boolean!
+  websiteUrl: URI
+}
+
+type EnterpriseBillingInfo {
+  allLicensableUsersCount: Int!
+  assetPacks: Int!
+  bandwidthQuota: Float!
+  bandwidthUsage: Float!
+  bandwidthUsagePercentage: Int!
+  storageQuota: Float!
+  storageUsage: Float!
+  storageUsagePercentage: Int!
+  totalAvailableLicenses: Int!
+  totalLicenses: Int!
+}
+
+input EnterpriseMemberOrder {
+  field: EnterpriseMemberOrderField!
+  direction: OrderDirection!
+}
+
+enum EnterpriseMemberOrderField {
+  LOGIN
+  CREATED_AT
+}
+
+type EnterpriseMemberConnection {
+  edges: [EnterpriseMemberEdge]
+  nodes: [EnterpriseMember]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type EnterpriseMemberEdge {
+  cursor: String!
+  node: EnterpriseMember
+}
+
+union EnterpriseMember = EnterpriseUserAccount | User
+
+type EnterpriseUserAccount implements Actor & Node {
+  avatarUrl(size: Int): URI!
+  createdAt: DateTime!
+  enterprise: Enterprise!
+  id: ID!
+  login: String!
+  name: String
+  organizations(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: OrganizationOrder
+    query: String
+    role: RoleInOrganization
+  ): EnterpriseOrganizationMembershipConnection!
+  resourcePath: URI!
+  updatedAt: DateTime!
+  url: URI!
+  user: User
+}
+
+type EnterpriseOrganizationMembershipConnection {
+  edges: [EnterpriseOrganizationMembershipEdge]
+  nodes: [Organization]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type EnterpriseOrganizationMembershipEdge {
+  cursor: String!
+  node: Organization
+  role: EnterpriseUserAccountMembershipRole!
+}
+
+enum EnterpriseUserAccountMembershipRole {
+  MEMBER
+  OWNER
+  UNAFFILIATED
+}
+
+enum EnterpriseUserDeployment {
+  CLOUD
+  SERVER
+}
+
+input OrganizationOrder {
+  field: OrganizationOrderField!
+  direction: OrderDirection!
+}
+
+enum OrganizationOrderField {
+  CREATED_AT
+  LOGIN
+}
+
+enum RoleInOrganization {
+  OWNER
+  DIRECT_MEMBER
+  UNAFFILIATED
+}
+
+type EnterpriseOwnerInfo {
+  admins(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: EnterpriseMemberOrder
+    query: String
+    organizationLogins: [String!]
+    hasTwoFactorEnabled: Boolean
+    role: EnterpriseAdministratorRole
+  ): EnterpriseAdministratorConnection!
+  affiliatedUsersWithTwoFactorDisabled(
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): UserConnection!
+  affiliatedUsersWithTwoFactorDisabledExist: Boolean!
+  allowPrivateRepositoryForkingSetting: EnterpriseEnabledDisabledSettingValue!
+  defaultRepositoryPermissionSetting: EnterpriseDefaultRepositoryPermissionSettingValue!
+  domains(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    isApproved: Boolean
+    isVerified: Boolean
+    orderBy: VerifiableDomainOrder
+  ): VerifiableDomainConnection!
+  ipAllowListEnabledSetting: IpAllowListEnabledSettingValue!
+  isUpdatingDefaultRepositoryPermission: Boolean!
+  isUpdatingTwoFactorRequirement: Boolean!
+  membersCanChangeRepositoryVisibilitySetting: EnterpriseEnabledDisabledSettingValue!
+  membersCanCreateInternalRepositoriesSetting: Boolean
+  membersCanCreatePrivateRepositoriesSetting: Boolean
+  membersCanCreatePublicRepositoriesSetting: Boolean
+  membersCanCreateRepositoriesSetting: EnterpriseMembersCanCreateRepositoriesSettingValue
+  membersCanDeleteIssuesSetting: EnterpriseEnabledDisabledSettingValue!
+  membersCanDeleteRepositoriesSetting: EnterpriseEnabledDisabledSettingValue!
+  membersCanInviteCollaboratorsSetting: EnterpriseEnabledDisabledSettingValue!
+  membersCanMakePurchasesSetting: EnterpriseMembersCanMakePurchasesSettingValue!
+  membersCanUpdateProtectedBranchesSetting: EnterpriseEnabledDisabledSettingValue!
+  membersCanViewDependencyInsightsSetting: EnterpriseEnabledDisabledSettingValue!
+  notificationDeliveryRestrictionEnabledSetting: NotificationRestrictionSettingValue!
+  organizationProjectsSetting: EnterpriseEnabledDisabledSettingValue!
+  outsideCollaborators(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: EnterpriseMemberOrder
+    query: String
+    login: String
+    organizationLogins: [String!]
+    visibility: RepositoryVisibility
+    hasTwoFactorEnabled: Boolean
+  ): EnterpriseOutsideCollaboratorConnection!
+  pendingAdminInvitations(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: EnterpriseAdministratorInvitationOrder
+    query: String
+    role: EnterpriseAdministratorRole
+  ): EnterpriseAdministratorInvitationConnection!
+  pendingMemberInvitations(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    invitationSource: OrganizationInvitationSource
+    query: String
+  ): EnterprisePendingMemberInvitationConnection!
+  repositoryProjectsSetting: EnterpriseEnabledDisabledSettingValue!
+  samlIdentityProvider: EnterpriseIdentityProvider
+  samlIdentityProviderSettingUrl: URI
+  supportEntitlements(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: EnterpriseMemberOrder
+  ): EnterpriseMemberConnection!
+  teamDiscussionsSetting: EnterpriseEnabledDisabledSettingValue!
+  twoFactorRequiredSetting: EnterpriseEnabledSettingValue!
+}
+
+enum EnterpriseAdministratorRole {
+  OWNER
+  BILLING_MANAGER
+}
+
+type EnterpriseAdministratorConnection {
+  edges: [EnterpriseAdministratorEdge]
+  nodes: [User]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type EnterpriseAdministratorEdge {
+  cursor: String!
+  node: User
+  role: EnterpriseAdministratorRole!
+}
+
+enum EnterpriseEnabledDisabledSettingValue {
+  ENABLED
+  DISABLED
+  NO_POLICY
+}
+
+enum EnterpriseEnabledSettingValue {
+  ENABLED
+  NO_POLICY
+}
+
+enum EnterpriseDefaultRepositoryPermissionSettingValue {
+  NO_POLICY
+  ADMIN
+  WRITE
+  READ
+  NONE
+}
+
+enum EnterpriseMembersCanCreateRepositoriesSettingValue {
+  NO_POLICY
+  ALL
+  PUBLIC
+  PRIVATE
+  DISABLED
+}
+
+enum EnterpriseMembersCanMakePurchasesSettingValue {
+  ENABLED
+  DISABLED
+}
+
+type EnterpriseOutsideCollaboratorConnection {
+  edges: [EnterpriseOutsideCollaboratorEdge]
+  nodes: [User]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type EnterpriseOutsideCollaboratorEdge {
+  cursor: String!
+  node: User
+  repositories(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: RepositoryOrder
+  ): EnterpriseRepositoryInfoConnection!
+}
+
+type EnterpriseRepositoryInfoConnection {
+  edges: [EnterpriseRepositoryInfoEdge]
+  nodes: [EnterpriseRepositoryInfo]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type EnterpriseRepositoryInfoEdge {
+  cursor: String!
+  node: EnterpriseRepositoryInfo
+}
+
+type EnterpriseRepositoryInfo implements Node {
+  id: ID!
+  isPrivate: Boolean!
+  name: String!
+  nameWithOwner: String!
+}
+
+type EnterpriseAdministratorInvitation implements Node {
+  createdAt: DateTime!
+  email: String
+  enterprise: Enterprise!
+  id: ID!
+  invitee: User
+  inviter: User
+  role: EnterpriseAdministratorRole!
+}
+
+type EnterpriseAdministratorInvitationConnection {
+  edges: [EnterpriseAdministratorInvitationEdge]
+  nodes: [EnterpriseAdministratorInvitation]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type EnterpriseAdministratorInvitationEdge {
+  cursor: String!
+  node: EnterpriseAdministratorInvitation
+}
+
+input EnterpriseAdministratorInvitationOrder {
+  field: EnterpriseAdministratorInvitationOrderField!
+  direction: OrderDirection!
+}
+
+enum EnterpriseAdministratorInvitationOrderField {
+  CREATED_AT
+}
+
+type EnterprisePendingMemberInvitationConnection {
+  edges: [EnterprisePendingMemberInvitationEdge]
+  nodes: [OrganizationInvitation]
+  pageInfo: PageInfo!
+  totalCount: Int!
+  totalUniqueUserCount: Int!
+}
+
+type EnterprisePendingMemberInvitationEdge {
+  cursor: String!
+  node: OrganizationInvitation
+}
+
+enum OrganizationInvitationSource {
+  UNKNOWN
+  MEMBER
+  SCIM
+}
+
+type EnterpriseIdentityProvider implements Node {
+  digestMethod: URI
+  id: ID!
+  idpCertificate: X509Certificate
+  issuer: String
+  recoveryCodes: [String!]
+  signatureMethod: URI
+  ssoUrl: URI
+}
+
+type VerifiableDomain implements Node {
+  createdAt: DateTime!
+  databaseId: Int
+  dnsHostName: String
+  domain: URI!
+  hasFoundHostName: Boolean!
+  hasFoundVerificationToken: Boolean!
+  id: ID!
+  isApproved: Boolean!
+  isRequiredForPolicyEnforcement: Boolean!
+  isVerified: Boolean!
+  owner: VerifiableDomainOwner!
+  punycodeEncodedDomain: URI!
+  tokenExpirationTime: DateTime
+  updatedAt: DateTime!
+  verificationToken: String
+}
+
+type VerifiableDomainConnection {
+  edges: [VerifiableDomainEdge]
+  nodes: [VerifiableDomain]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type VerifiableDomainEdge {
+  cursor: String!
+  node: VerifiableDomain
+}
+
+input VerifiableDomainOrder {
+  field: VerifiableDomainOrderField!
+  direction: OrderDirection!
+}
+
+enum VerifiableDomainOrderField {
+  DOMAIN
+  CREATED_AT
+}
+
+union VerifiableDomainOwner = Enterprise | Organization
+
+type ActorLocation {
+  city: String
+  country: String
+  countryCode: String
+  region: String
+  regionCode: String
+}
+
+union AuditEntryActor = Bot | Organization | User

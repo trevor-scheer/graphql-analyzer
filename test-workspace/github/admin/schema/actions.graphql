@@ -1,0 +1,666 @@
+"""
+A GitHub Actions workflow.
+"""
+type Workflow implements Node & UniformResourceLocatable {
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  id: ID!
+
+  """
+  The name of the workflow.
+  """
+  name: String!
+
+  """
+  The HTTP path for the workflow.
+  """
+  resourcePath: URI!
+
+  """
+  A list of workflow runs.
+  """
+  runs(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: WorkflowRunOrder
+  ): WorkflowRunConnection!
+
+  """
+  The state of the workflow.
+  """
+  state: WorkflowState!
+
+  """
+  Identifies the date and time when the object was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The HTTP URL for the workflow.
+  """
+  url: URI!
+}
+
+enum WorkflowState {
+  ACTIVE
+  DELETED
+  DISABLED_FORK
+  DISABLED_INACTIVITY
+  DISABLED_MANUALLY
+  UNKNOWN
+}
+
+"""
+A run of a GitHub Actions workflow.
+"""
+type WorkflowRun implements Node & UniformResourceLocatable {
+  """
+  The actor who triggered the workflow run.
+  """
+  actor: Actor
+
+  """
+  The check suite associated with this workflow run.
+  """
+  checkSuite: CheckSuite!
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  The log associated with the workflow run.
+  """
+  deployment: Deployment
+
+  """
+  The event that triggered the workflow run.
+  """
+  event: String!
+
+  """
+  The log associated with the workflow run.
+  """
+  file: WorkflowRunFile
+
+  id: ID!
+
+  """
+  The pending deployment requests.
+  """
+  pendingDeploymentRequests(
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): DeploymentRequestConnection!
+
+  """
+  The HTTP path for the workflow run.
+  """
+  resourcePath: URI!
+
+  """
+  The number of retry attempts.
+  """
+  retryCount: Int!
+
+  """
+  The run attempt number.
+  """
+  runNumber: Int!
+
+  """
+  Identifies the date and time when the object was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The HTTP URL for the workflow run.
+  """
+  url: URI!
+
+  """
+  The workflow associated with this run.
+  """
+  workflow: Workflow!
+}
+
+type WorkflowRunFile {
+  id: ID!
+  path: String!
+  repositoryFileUrl: URI
+  repositoryName: String
+  resourcePath: URI!
+  runnerGroupName: String
+  runnerName: String
+  runnerType: String
+  url: URI!
+  viewerCanPushRepository: Boolean!
+  viewerCanReadRepositorySecrets: Boolean!
+}
+
+input WorkflowRunOrder {
+  field: WorkflowRunOrderField!
+  direction: OrderDirection!
+}
+
+enum WorkflowRunOrderField {
+  CREATED_AT
+}
+
+"""
+A deployment of a repository.
+"""
+type Deployment implements Node & UniformResourceLocatable {
+  """
+  The commit associated with this deployment.
+  """
+  commit: Commit
+
+  """
+  The commit message associated with this deployment.
+  """
+  commitOid: String!
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  The actor who created the deployment.
+  """
+  creator: Actor!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  The deployment description.
+  """
+  description: String
+
+  """
+  The environment associated with this deployment.
+  """
+  environment: String
+
+  id: ID!
+
+  """
+  The latest status for this deployment.
+  """
+  latestEnvironment: String
+
+  """
+  The latest status for this deployment.
+  """
+  latestStatus: DeploymentStatus
+
+  """
+  The original environment associated with this deployment.
+  """
+  originalEnvironment: String
+
+  """
+  Extra information that a deployment system might need.
+  """
+  payload: String
+
+  """
+  The ref associated with this deployment.
+  """
+  ref: Ref
+
+  """
+  The repository associated with this deployment.
+  """
+  repository: Repository!
+
+  """
+  The HTTP path for the deployment.
+  """
+  resourcePath: URI!
+
+  """
+  The state of the deployment.
+  """
+  state: DeploymentState
+
+  """
+  A list of statuses associated with the deployment.
+  """
+  statuses(first: Int, after: String, last: Int, before: String): DeploymentStatusConnection
+
+  """
+  The deployment task.
+  """
+  task: String
+
+  """
+  Identifies the date and time when the object was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The HTTP URL for the deployment.
+  """
+  url: URI!
+}
+
+"""
+A deployment status.
+"""
+type DeploymentStatus implements Node {
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  The actor who created the deployment status.
+  """
+  creator: Actor!
+
+  """
+  The deployment associated with the status.
+  """
+  deployment: Deployment!
+
+  """
+  The deployment status description.
+  """
+  description: String
+
+  """
+  The environment URL associated with the status.
+  """
+  environmentUrl: URI
+
+  id: ID!
+
+  """
+  The log URL associated with the status.
+  """
+  logUrl: URI
+
+  """
+  The state of the deployment status.
+  """
+  state: DeploymentStatusState!
+
+  """
+  Identifies the date and time when the object was last updated.
+  """
+  updatedAt: DateTime!
+}
+
+type DeploymentStatusConnection {
+  edges: [DeploymentStatusEdge]
+  nodes: [DeploymentStatus]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DeploymentStatusEdge {
+  cursor: String!
+  node: DeploymentStatus
+}
+
+enum DeploymentStatusState {
+  PENDING
+  SUCCESS
+  FAILURE
+  INACTIVE
+  ERROR
+  QUEUED
+  IN_PROGRESS
+  WAITING
+}
+
+"""
+A pending deployment request.
+"""
+type DeploymentRequest {
+  """
+  The current deployment status.
+  """
+  currentUserCanApprove: Boolean!
+
+  """
+  The environment for the deployment request.
+  """
+  environment: Environment!
+
+  """
+  The reviewers for the deployment request.
+  """
+  reviewers(first: Int, after: String, last: Int, before: String): DeploymentReviewerConnection!
+
+  """
+  The time when the deployment request was created.
+  """
+  waitTimer: Int!
+
+  """
+  The remaining wait timer in minutes.
+  """
+  waitTimerStartedAt: DateTime
+}
+
+type DeploymentRequestConnection {
+  edges: [DeploymentRequestEdge]
+  nodes: [DeploymentRequest]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DeploymentRequestEdge {
+  cursor: String!
+  node: DeploymentRequest
+}
+
+"""
+An environment for a repository.
+"""
+type Environment implements Node {
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  id: ID!
+
+  """
+  The name of the environment.
+  """
+  name: String!
+
+  """
+  The protection rules for the environment.
+  """
+  protectionRules(
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): DeploymentProtectionRuleConnection!
+}
+
+type DeploymentProtectionRule implements Node {
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  id: ID!
+
+  """
+  The reviewers for the protection rule.
+  """
+  reviewers(first: Int, after: String, last: Int, before: String): DeploymentReviewerConnection!
+
+  """
+  The timeout in minutes for the protection rule.
+  """
+  timeout: Int!
+
+  """
+  The protection rule type.
+  """
+  type: DeploymentProtectionRuleType!
+}
+
+type DeploymentProtectionRuleConnection {
+  edges: [DeploymentProtectionRuleEdge]
+  nodes: [DeploymentProtectionRule]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DeploymentProtectionRuleEdge {
+  cursor: String!
+  node: DeploymentProtectionRule
+}
+
+enum DeploymentProtectionRuleType {
+  REQUIRED_REVIEWERS
+  WAIT_TIMER
+  BRANCH_POLICY
+}
+
+type DeploymentReviewer {
+  reviewer: DeploymentReviewerUnion!
+}
+
+type DeploymentReviewerConnection {
+  edges: [DeploymentReviewerEdge]
+  nodes: [DeploymentReviewer]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DeploymentReviewerEdge {
+  cursor: String!
+  node: DeploymentReviewer
+}
+
+union DeploymentReviewerUnion = Team | User
+
+"""
+A release of a repository.
+"""
+type Release implements Node & Reactable & UniformResourceLocatable {
+  """
+  The author of the release.
+  """
+  author: User
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  The description of the release.
+  """
+  description: String
+
+  """
+  The description of the release as HTML.
+  """
+  descriptionHTML: HTML
+
+  id: ID!
+
+  """
+  Whether the release is a draft.
+  """
+  isDraft: Boolean!
+
+  """
+  Whether the release is the latest.
+  """
+  isLatest: Boolean!
+
+  """
+  Whether the release is a prerelease.
+  """
+  isPrerelease: Boolean!
+
+  """
+  A list of users mentioned in the release description.
+  """
+  mentions(first: Int, after: String, last: Int, before: String): UserConnection
+
+  """
+  The title of the release.
+  """
+  name: String
+
+  """
+  Identifies the date and time when the release was published.
+  """
+  publishedAt: DateTime
+
+  """
+  A list of reactions on the release.
+  """
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
+
+  """
+  A list of assets associated with the release.
+  """
+  releaseAssets(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    name: String
+  ): ReleaseAssetConnection!
+
+  """
+  The repository associated with the release.
+  """
+  repository: Repository!
+
+  """
+  The HTTP path for the release.
+  """
+  resourcePath: URI!
+
+  """
+  The short commit message associated with the release.
+  """
+  shortDescriptionHTML(limit: Int = 200): HTML
+
+  """
+  The tag associated with the release.
+  """
+  tag: Ref
+
+  """
+  The tag commit associated with the release.
+  """
+  tagCommit: Commit
+
+  """
+  The tag name associated with the release.
+  """
+  tagName: String!
+
+  """
+  Identifies the date and time when the object was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The HTTP URL for the release.
+  """
+  url: URI!
+
+  """
+  Whether the viewer can react.
+  """
+  viewerCanReact: Boolean!
+}
+
+"""
+A release asset.
+"""
+type ReleaseAsset implements Node {
+  """
+  The content type of the asset.
+  """
+  contentType: String!
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  The number of downloads.
+  """
+  downloadCount: Int!
+
+  """
+  The download URL for the asset.
+  """
+  downloadUrl: URI!
+
+  id: ID!
+
+  """
+  The asset name.
+  """
+  name: String!
+
+  """
+  The release associated with the asset.
+  """
+  release: Release
+
+  """
+  The size of the asset in bytes.
+  """
+  size: Int!
+
+  """
+  Identifies the date and time when the object was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The user who uploaded the asset.
+  """
+  uploadedBy: User!
+
+  """
+  The URL for the asset.
+  """
+  url: URI!
+}
+
+type ReleaseAssetConnection {
+  edges: [ReleaseAssetEdge]
+  nodes: [ReleaseAsset]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ReleaseAssetEdge {
+  cursor: String!
+  node: ReleaseAsset
+}

@@ -33,9 +33,7 @@ projects:
         require_id_field: [warn, { fields: ["id", "databaseId"] }]
 
   github-admin:
-    schema:
-      - "test-workspace/github/schema/*.graphql"
-      - "test-workspace/github/admin/schema/*.graphql"
+    schema: "test-workspace/github/admin/schema/*.graphql"
     documents: "test-workspace/github/admin/src/**/*.graphql"
     lint:
       extends: recommended

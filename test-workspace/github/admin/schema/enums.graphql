@@ -1,0 +1,1199 @@
+"""
+The privacy of a repository.
+"""
+enum RepositoryPrivacy {
+  """
+  Public repositories.
+  """
+  PUBLIC
+
+  """
+  Private repositories.
+  """
+  PRIVATE
+}
+
+"""
+The affiliation of a user to a repository.
+"""
+enum RepositoryAffiliation {
+  """
+  Repositories owned by the user.
+  """
+  OWNER
+
+  """
+  Repositories the user has been added to as a collaborator.
+  """
+  COLLABORATOR
+
+  """
+  Repositories the user has access to through membership in an organization.
+  """
+  ORGANIZATION_MEMBER
+}
+
+"""
+The visibility of a repository.
+"""
+enum RepositoryVisibility {
+  """
+  The repository is visible only to users with access.
+  """
+  PRIVATE
+
+  """
+  The repository is visible to everyone.
+  """
+  PUBLIC
+
+  """
+  The repository is visible only to users in the same organization.
+  """
+  INTERNAL
+}
+
+"""
+Properties by which repository connections can be ordered.
+"""
+enum RepositoryOrderField {
+  """
+  Order repositories by creation time.
+  """
+  CREATED_AT
+
+  """
+  Order repositories by name.
+  """
+  NAME
+
+  """
+  Order repositories by push time.
+  """
+  PUSHED_AT
+
+  """
+  Order repositories by number of stargazers.
+  """
+  STARGAZERS
+
+  """
+  Order repositories by update time.
+  """
+  UPDATED_AT
+}
+
+"""
+The possible states of an issue.
+"""
+enum IssueState {
+  """
+  An issue that is open.
+  """
+  OPEN
+
+  """
+  An issue that has been closed.
+  """
+  CLOSED
+}
+
+"""
+The possible states of a pull request.
+"""
+enum PullRequestState {
+  """
+  A pull request that is open.
+  """
+  OPEN
+
+  """
+  A pull request that has been closed without being merged.
+  """
+  CLOSED
+
+  """
+  A pull request that has been merged.
+  """
+  MERGED
+}
+
+"""
+The possible states of a pull request review.
+"""
+enum PullRequestReviewState {
+  """
+  A review that has not yet been submitted.
+  """
+  PENDING
+
+  """
+  A review that has been submitted and is only a comment.
+  """
+  COMMENTED
+
+  """
+  A review that approves the changes.
+  """
+  APPROVED
+
+  """
+  A review that requests changes.
+  """
+  CHANGES_REQUESTED
+
+  """
+  A review that was dismissed.
+  """
+  DISMISSED
+}
+
+"""
+The possible events that can trigger a pull request review.
+"""
+enum PullRequestReviewEvent {
+  """
+  Submit general feedback without explicit approval.
+  """
+  COMMENT
+
+  """
+  Submit feedback and approve for merging.
+  """
+  APPROVE
+
+  """
+  Submit feedback that must be addressed before merging.
+  """
+  REQUEST_CHANGES
+
+  """
+  Dismiss a review.
+  """
+  DISMISS
+}
+
+"""
+The possible merge strategies for a pull request.
+"""
+enum MergeableState {
+  """
+  The pull request can be merged.
+  """
+  MERGEABLE
+
+  """
+  The pull request cannot be merged due to conflicts.
+  """
+  CONFLICTING
+
+  """
+  The mergeability of the pull request is unknown.
+  """
+  UNKNOWN
+}
+
+"""
+The possible reasons for locking a conversation.
+"""
+enum LockReason {
+  """
+  The issue or pull request was locked because the conversation was off-topic.
+  """
+  OFF_TOPIC
+
+  """
+  The issue or pull request was locked because the conversation was too heated.
+  """
+  TOO_HEATED
+
+  """
+  The issue or pull request was locked because the conversation was resolved.
+  """
+  RESOLVED
+
+  """
+  The issue or pull request was locked because the conversation was spam.
+  """
+  SPAM
+}
+
+"""
+The possible reasons that an issue or pull request was closed.
+"""
+enum IssueClosedStateReason {
+  """
+  An issue that has been closed as completed.
+  """
+  COMPLETED
+
+  """
+  An issue that has been closed as not planned.
+  """
+  NOT_PLANNED
+}
+
+"""
+The possible states of a subscription.
+"""
+enum SubscriptionState {
+  """
+  The user is not subscribed.
+  """
+  UNSUBSCRIBED
+
+  """
+  The user is subscribed.
+  """
+  SUBSCRIBED
+
+  """
+  The user is ignoring the subscribable.
+  """
+  IGNORED
+}
+
+"""
+Emojis that can be attached to Issues, Pull Requests and Comments.
+"""
+enum ReactionContent {
+  """
+  Represents the +1 emoji.
+  """
+  THUMBS_UP
+
+  """
+  Represents the -1 emoji.
+  """
+  THUMBS_DOWN
+
+  """
+  Represents the 😄 emoji.
+  """
+  LAUGH
+
+  """
+  Represents the 🎉 emoji.
+  """
+  HOORAY
+
+  """
+  Represents the 😕 emoji.
+  """
+  CONFUSED
+
+  """
+  Represents the ❤️ emoji.
+  """
+  HEART
+
+  """
+  Represents the 🚀 emoji.
+  """
+  ROCKET
+
+  """
+  Represents the 👀 emoji.
+  """
+  EYES
+}
+
+"""
+Properties by which reactions can be ordered.
+"""
+enum ReactionOrderField {
+  """
+  Order by when the reaction was created.
+  """
+  CREATED_AT
+}
+
+"""
+The possible commit statuses.
+"""
+enum StatusState {
+  """
+  Status is expected.
+  """
+  EXPECTED
+
+  """
+  Status is errored.
+  """
+  ERROR
+
+  """
+  Status is failing.
+  """
+  FAILURE
+
+  """
+  Status is pending.
+  """
+  PENDING
+
+  """
+  Status is successful.
+  """
+  SUCCESS
+}
+
+"""
+The possible states for a check suite or run conclusion.
+"""
+enum CheckConclusionState {
+  """
+  The check was successful.
+  """
+  SUCCESS
+
+  """
+  The check failed.
+  """
+  FAILURE
+
+  """
+  The check was neutral.
+  """
+  NEUTRAL
+
+  """
+  The check was cancelled.
+  """
+  CANCELLED
+
+  """
+  The check timed out.
+  """
+  TIMED_OUT
+
+  """
+  The check requires action.
+  """
+  ACTION_REQUIRED
+
+  """
+  The check was skipped.
+  """
+  SKIPPED
+
+  """
+  The check was stale.
+  """
+  STALE
+
+  """
+  The check failed due to a startup failure.
+  """
+  STARTUP_FAILURE
+}
+
+"""
+The possible states for a check suite or run status.
+"""
+enum CheckStatusState {
+  """
+  The check is queued.
+  """
+  QUEUED
+
+  """
+  The check is in progress.
+  """
+  IN_PROGRESS
+
+  """
+  The check is completed.
+  """
+  COMPLETED
+
+  """
+  The check is waiting.
+  """
+  WAITING
+
+  """
+  The check is pending.
+  """
+  PENDING
+
+  """
+  The check was requested.
+  """
+  REQUESTED
+}
+
+"""
+The possible states of a deployment.
+"""
+enum DeploymentState {
+  """
+  The deployment is abandoned.
+  """
+  ABANDONED
+
+  """
+  The deployment is active.
+  """
+  ACTIVE
+
+  """
+  The deployment was destroyed.
+  """
+  DESTROYED
+
+  """
+  The deployment experienced an error.
+  """
+  ERROR
+
+  """
+  The deployment is a failure.
+  """
+  FAILURE
+
+  """
+  The deployment is inactive.
+  """
+  INACTIVE
+
+  """
+  The deployment is in progress.
+  """
+  IN_PROGRESS
+
+  """
+  The deployment is pending.
+  """
+  PENDING
+
+  """
+  The deployment is queued.
+  """
+  QUEUED
+
+  """
+  The deployment is waiting.
+  """
+  WAITING
+}
+
+"""
+The possible states of a workflow run.
+"""
+enum WorkflowRunState {
+  """
+  The workflow run is active.
+  """
+  ACTIVE
+
+  """
+  The workflow run was cancelled.
+  """
+  CANCELLED
+
+  """
+  The workflow run was completed.
+  """
+  COMPLETED
+
+  """
+  The workflow run is in progress.
+  """
+  IN_PROGRESS
+
+  """
+  The workflow run is pending.
+  """
+  PENDING
+
+  """
+  The workflow run is queued.
+  """
+  QUEUED
+
+  """
+  The workflow run is waiting.
+  """
+  WAITING
+}
+
+"""
+The possible states for a Git signature.
+"""
+enum GitSignatureState {
+  """
+  The signature is valid.
+  """
+  VALID
+
+  """
+  The signature is invalid.
+  """
+  INVALID
+
+  """
+  The key that made this signature is expired.
+  """
+  EXPIRED_KEY
+
+  """
+  The signature was created by a key that doesn't exist.
+  """
+  NOT_SIGNING_KEY
+
+  """
+  The signature is valid but was created by a key not associated with the author.
+  """
+  GPGVERIFY_UNAVAILABLE
+
+  """
+  The signature is valid but the key is not certified.
+  """
+  GPGVERIFY_ERROR
+
+  """
+  The signature is valid but made by an unknown key.
+  """
+  UNKNOWN_KEY
+
+  """
+  The signature is malformed.
+  """
+  MALFORMED_SIG
+
+  """
+  The signature could not be cryptographically verified.
+  """
+  UNKNOWN_SIG_TYPE
+
+  """
+  The signature has no signature.
+  """
+  NO_USER
+
+  """
+  The signature has an unverified signer.
+  """
+  UNVERIFIED_EMAIL
+
+  """
+  The signature was bad.
+  """
+  BAD_EMAIL
+
+  """
+  The key used for signing expired before the signature.
+  """
+  OCSP_PENDING
+
+  """
+  The key used for signing was revoked before the signature.
+  """
+  OCSP_ERROR
+
+  """
+  The signature was bad cert.
+  """
+  BAD_CERT
+
+  """
+  The key used for signing was revoked.
+  """
+  OCSP_REVOKED
+}
+
+"""
+The possible organization invitation types.
+"""
+enum OrganizationInvitationType {
+  """
+  The user is invited as a member of the organization.
+  """
+  USER
+
+  """
+  The invitation is to an email address.
+  """
+  EMAIL
+}
+
+"""
+The role of a member in an organization.
+"""
+enum OrganizationMemberRole {
+  """
+  The user is an administrator of the organization.
+  """
+  ADMIN
+
+  """
+  The user is a member of the organization.
+  """
+  MEMBER
+}
+
+"""
+The role of a user on a team.
+"""
+enum TeamRole {
+  """
+  A team admin.
+  """
+  ADMIN
+
+  """
+  A team member.
+  """
+  MEMBER
+}
+
+"""
+The possible team member order fields.
+"""
+enum TeamMemberOrderField {
+  """
+  Order team members by login.
+  """
+  LOGIN
+
+  """
+  Order team members by creation time.
+  """
+  CREATED_AT
+}
+
+"""
+The possible team order fields.
+"""
+enum TeamOrderField {
+  """
+  Order teams by name.
+  """
+  NAME
+}
+
+"""
+The privacy of a team.
+"""
+enum TeamPrivacy {
+  """
+  A secret team can only be seen by its members.
+  """
+  SECRET
+
+  """
+  A visible team can be seen and mentioned by every member of the organization.
+  """
+  VISIBLE
+}
+
+"""
+Properties by which issue connections can be ordered.
+"""
+enum IssueOrderField {
+  """
+  Order by creation time.
+  """
+  CREATED_AT
+
+  """
+  Order by update time.
+  """
+  UPDATED_AT
+
+  """
+  Order by comment count.
+  """
+  COMMENTS
+}
+
+"""
+Properties by which project connections can be ordered.
+"""
+enum ProjectOrderField {
+  """
+  Order projects by creation time.
+  """
+  CREATED_AT
+
+  """
+  Order projects by update time.
+  """
+  UPDATED_AT
+
+  """
+  Order projects by name.
+  """
+  NAME
+
+  """
+  Order projects by number.
+  """
+  NUMBER
+}
+
+"""
+The type of a project field.
+"""
+enum ProjectV2FieldType {
+  """
+  A single select field.
+  """
+  SINGLE_SELECT
+
+  """
+  A text field.
+  """
+  TEXT
+
+  """
+  A number field.
+  """
+  NUMBER
+
+  """
+  A date field.
+  """
+  DATE
+
+  """
+  An iteration field.
+  """
+  ITERATION
+
+  """
+  A labels field.
+  """
+  LABELS
+
+  """
+  A linked pull requests field.
+  """
+  LINKED_PULL_REQUESTS
+
+  """
+  A milestone field.
+  """
+  MILESTONE
+
+  """
+  A repository field.
+  """
+  REPOSITORY
+
+  """
+  A reviewers field.
+  """
+  REVIEWERS
+
+  """
+  A tracks field.
+  """
+  TRACKS
+
+  """
+  An assignees field.
+  """
+  ASSIGNEES
+
+  """
+  A title field.
+  """
+  TITLE
+}
+
+"""
+Properties by which label connections can be ordered.
+"""
+enum LabelOrderField {
+  """
+  Order labels by name.
+  """
+  NAME
+
+  """
+  Order labels by creation time.
+  """
+  CREATED_AT
+}
+
+"""
+Properties by which milestone connections can be ordered.
+"""
+enum MilestoneOrderField {
+  """
+  Order milestones by creation time.
+  """
+  CREATED_AT
+
+  """
+  Order milestones by due date.
+  """
+  DUE_DATE
+
+  """
+  Order milestones by number.
+  """
+  NUMBER
+
+  """
+  Order milestones by update time.
+  """
+  UPDATED_AT
+}
+
+"""
+The state of a milestone.
+"""
+enum MilestoneState {
+  """
+  A milestone that is open.
+  """
+  OPEN
+
+  """
+  A milestone that has been closed.
+  """
+  CLOSED
+}
+
+"""
+Properties by which star connections can be ordered.
+"""
+enum StarOrderField {
+  """
+  Order stars by time.
+  """
+  STARRED_AT
+}
+
+"""
+The operation type for audit log entries.
+"""
+enum OperationType {
+  """
+  An access operation.
+  """
+  ACCESS
+
+  """
+  An authentication operation.
+  """
+  AUTHENTICATION
+
+  """
+  A create operation.
+  """
+  CREATE
+
+  """
+  A modify operation.
+  """
+  MODIFY
+
+  """
+  A remove operation.
+  """
+  REMOVE
+
+  """
+  A restore operation.
+  """
+  RESTORE
+
+  """
+  A transfer operation.
+  """
+  TRANSFER
+}
+
+"""
+The type of search.
+"""
+enum SearchType {
+  """
+  Search for issues.
+  """
+  ISSUE
+
+  """
+  Search for repositories.
+  """
+  REPOSITORY
+
+  """
+  Search for users.
+  """
+  USER
+
+  """
+  Search for discussions.
+  """
+  DISCUSSION
+}
+
+"""
+The type of a file in a repository.
+"""
+enum FileViewedState {
+  """
+  The file has been viewed.
+  """
+  VIEWED
+
+  """
+  The file has not been viewed.
+  """
+  UNVIEWED
+
+  """
+  The file has been marked for review.
+  """
+  DISMISSED
+}
+
+"""
+Whether or not a PullRequest can be merged.
+"""
+enum MergeStateStatus {
+  """
+  The merge is blocked.
+  """
+  BLOCKED
+
+  """
+  The merge commit has been pushed.
+  """
+  BEHIND
+
+  """
+  The state cannot be determined.
+  """
+  UNKNOWN
+
+  """
+  The merge is clean.
+  """
+  CLEAN
+
+  """
+  The merge is dirty.
+  """
+  DIRTY
+
+  """
+  The merge has been drafted.
+  """
+  DRAFT
+
+  """
+  The merge has conflicts.
+  """
+  HAS_HOOKS
+
+  """
+  The merge is unstable.
+  """
+  UNSTABLE
+}
+
+"""
+The possible states of a discussion.
+"""
+enum DiscussionState {
+  """
+  A discussion that is open.
+  """
+  OPEN
+
+  """
+  A discussion that has been closed.
+  """
+  CLOSED
+}
+
+"""
+The type of the ref update action.
+"""
+enum RefUpdateRule {
+  """
+  Branch creation is allowed.
+  """
+  CREATION
+
+  """
+  Branch deletion is allowed.
+  """
+  DELETION
+
+  """
+  Force push is required.
+  """
+  UPDATE
+}
+
+"""
+The possible item types found in a timeline.
+"""
+enum PullRequestTimelineItemsItemType {
+  """
+  Represents a commit.
+  """
+  PULL_REQUEST_COMMIT
+
+  """
+  Represents a review.
+  """
+  PULL_REQUEST_REVIEW
+
+  """
+  Represents a comment.
+  """
+  ISSUE_COMMENT
+
+  """
+  Represents a comment thread.
+  """
+  PULL_REQUEST_REVIEW_THREAD
+
+  """
+  Represents a commit comment.
+  """
+  PULL_REQUEST_COMMIT_COMMENT_THREAD
+
+  """
+  Represents a closed event.
+  """
+  CLOSED_EVENT
+
+  """
+  Represents a reopened event.
+  """
+  REOPENED_EVENT
+
+  """
+  Represents a merged event.
+  """
+  MERGED_EVENT
+
+  """
+  Represents a head ref force pushed event.
+  """
+  HEAD_REF_FORCE_PUSHED_EVENT
+
+  """
+  Represents a base ref changed event.
+  """
+  BASE_REF_CHANGED_EVENT
+
+  """
+  Represents a review requested event.
+  """
+  REVIEW_REQUESTED_EVENT
+
+  """
+  Represents an assigned event.
+  """
+  ASSIGNED_EVENT
+
+  """
+  Represents an unassigned event.
+  """
+  UNASSIGNED_EVENT
+
+  """
+  Represents a labeled event.
+  """
+  LABELED_EVENT
+
+  """
+  Represents an unlabeled event.
+  """
+  UNLABELED_EVENT
+
+  """
+  Represents a referenced event.
+  """
+  CROSS_REFERENCED_EVENT
+}
+
+"""
+The possible default permissions for repositories.
+"""
+enum DefaultRepositoryPermissionField {
+  """
+  No access.
+  """
+  NONE
+
+  """
+  Read access.
+  """
+  READ
+
+  """
+  Write access.
+  """
+  WRITE
+
+  """
+  Admin access.
+  """
+  ADMIN
+}
+
+"""
+The possible states of a release.
+"""
+enum ReleaseOrderField {
+  """
+  Order releases by creation time.
+  """
+  CREATED_AT
+
+  """
+  Order releases by name.
+  """
+  NAME
+}
+
+"""
+The language of a file in a repository.
+"""
+enum LanguageOrderField {
+  """
+  Order languages by size.
+  """
+  SIZE
+}
+
+"""
+The collaborator permission levels.
+"""
+enum RepositoryPermission {
+  """
+  Can read, clone, and push to the repository.
+  """
+  ADMIN
+
+  """
+  Can read, clone, and push to the repository.
+  """
+  MAINTAIN
+
+  """
+  Can read, clone, and push to the repository.
+  """
+  WRITE
+
+  """
+  Can read and clone the repository.
+  """
+  TRIAGE
+
+  """
+  Can read and clone the repository.
+  """
+  READ
+}
