@@ -18,6 +18,7 @@ import {
   Uri,
   Position,
   Range,
+  ThemeColor,
 } from "vscode";
 import {
   LanguageClient,
@@ -122,9 +123,9 @@ function updateStatusBar(state: State): void {
       statusBarItem.backgroundColor = undefined;
       break;
     case State.Starting:
-      statusBarItem.text = "$(sync~spin) GraphQL";
+      statusBarItem.text = "$(loading~spin) GraphQL";
       statusBarItem.tooltip = "GraphQL LSP is starting...";
-      statusBarItem.backgroundColor = undefined;
+      statusBarItem.backgroundColor = new ThemeColor("statusBarItem.warningBackground");
       break;
     case State.Stopped:
       statusBarItem.text = "$(warning) GraphQL";
@@ -302,6 +303,21 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
 
       await client.start();
       outputChannel.appendLine("Language client started successfully!");
+
+      client.onNotification("graphql/status", (params: { status: string; message?: string }) => {
+        switch (params.status) {
+          case "loading":
+            statusBarItem.text = "$(loading~spin) GraphQL";
+            statusBarItem.backgroundColor = new ThemeColor("statusBarItem.warningBackground");
+            statusBarItem.tooltip = params.message || "Loading GraphQL project...";
+            break;
+          case "ready":
+            statusBarItem.text = "$(check) GraphQL";
+            statusBarItem.backgroundColor = undefined;
+            statusBarItem.tooltip = params.message || "GraphQL LSP is running";
+            break;
+        }
+      });
     }
   );
 }

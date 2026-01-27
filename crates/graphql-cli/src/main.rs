@@ -160,13 +160,22 @@ enum OutputFormat {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    // Handle LSP command early, before CLI tracing init.
+    // The LSP initializes its own tracing subscriber with .with_ansi(false)
+    // (required since LSP output goes to the editor's Output tab).
+    // If we init CLI tracing first (which enables ANSI), the LSP's try_init()
+    // silently fails and ANSI escape codes leak into the Output tab.
+    if matches!(cli.command, Commands::Lsp) {
+        return commands::lsp::run().await;
+    }
+
     #[cfg(feature = "otel")]
     let otel_guard = init_telemetry();
 
     #[cfg(not(feature = "otel"))]
     init_tracing();
-
-    let cli = Cli::parse();
 
     let result = match cli.command {
         Commands::Validate { format, watch } => {
@@ -217,7 +226,7 @@ async fn main() -> anyhow::Result<()> {
             no_preload,
             preload,
         } => commands::mcp::run(workspace, no_preload, preload).await,
-        Commands::Lsp => commands::lsp::run().await,
+        Commands::Lsp => unreachable!("handled above"),
     };
 
     #[cfg(feature = "otel")]

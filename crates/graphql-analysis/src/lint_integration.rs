@@ -242,11 +242,11 @@ fn project_lint_diagnostics_impl(
     let lint_config = db.lint_config();
     let mut diagnostics_by_file: HashMap<FileId, Vec<Diagnostic>> = HashMap::new();
 
-    tracing::info!("Running project-wide lint rules");
+    tracing::debug!("Running project-wide lint rules");
 
     for rule in graphql_linter::project_rules() {
         let enabled = lint_config.is_enabled(rule.name());
-        tracing::info!(
+        tracing::debug!(
             rule = rule.name(),
             enabled = enabled,
             "Checking project-wide rule"
@@ -259,7 +259,7 @@ fn project_lint_diagnostics_impl(
         let options = lint_config.get_options(rule.name());
         let lint_diags = rule.check(db, project_files, options);
 
-        tracing::info!(
+        tracing::debug!(
             rule = rule.name(),
             file_count = lint_diags.len(),
             "Project-wide rule returned diagnostics"
