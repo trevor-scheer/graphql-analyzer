@@ -1,0 +1,984 @@
+"""
+Order for repository connections.
+"""
+input RepositoryOrder {
+  """
+  The field to order by.
+  """
+  field: RepositoryOrderField!
+
+  """
+  The direction to order by.
+  """
+  direction: OrderDirection!
+}
+
+"""
+Order direction.
+"""
+enum OrderDirection {
+  """
+  Ascending order.
+  """
+  ASC
+
+  """
+  Descending order.
+  """
+  DESC
+}
+
+"""
+Order for label connections.
+"""
+input LabelOrder {
+  """
+  The field to order by.
+  """
+  field: LabelOrderField!
+
+  """
+  The direction to order by.
+  """
+  direction: OrderDirection!
+}
+
+"""
+Order for issue connections.
+"""
+input IssueOrder {
+  """
+  The field to order by.
+  """
+  field: IssueOrderField!
+
+  """
+  The direction to order by.
+  """
+  direction: OrderDirection!
+}
+
+"""
+Order for milestone connections.
+"""
+input MilestoneOrder {
+  """
+  The field to order by.
+  """
+  field: MilestoneOrderField!
+
+  """
+  The direction to order by.
+  """
+  direction: OrderDirection!
+}
+
+"""
+Order for reaction connections.
+"""
+input ReactionOrder {
+  """
+  The field to order by.
+  """
+  field: ReactionOrderField!
+
+  """
+  The direction to order by.
+  """
+  direction: OrderDirection!
+}
+
+"""
+Order for star connections.
+"""
+input StarOrder {
+  """
+  The field to order by.
+  """
+  field: StarOrderField!
+
+  """
+  The direction to order by.
+  """
+  direction: OrderDirection!
+}
+
+"""
+Order for team connections.
+"""
+input TeamOrder {
+  """
+  The field to order by.
+  """
+  field: TeamOrderField!
+
+  """
+  The direction to order by.
+  """
+  direction: OrderDirection!
+}
+
+"""
+Order for team member connections.
+"""
+input TeamMemberOrder {
+  """
+  The field to order by.
+  """
+  field: TeamMemberOrderField!
+
+  """
+  The direction to order by.
+  """
+  direction: OrderDirection!
+}
+
+"""
+Order for project connections.
+"""
+input ProjectOrder {
+  """
+  The field to order by.
+  """
+  field: ProjectOrderField!
+
+  """
+  The direction to order by.
+  """
+  direction: OrderDirection!
+}
+
+"""
+Order for release connections.
+"""
+input ReleaseOrder {
+  """
+  The field to order by.
+  """
+  field: ReleaseOrderField!
+
+  """
+  The direction to order by.
+  """
+  direction: OrderDirection!
+}
+
+"""
+Order for language connections.
+"""
+input LanguageOrder {
+  """
+  The field to order by.
+  """
+  field: LanguageOrderField!
+
+  """
+  The direction to order by.
+  """
+  direction: OrderDirection!
+}
+
+"""
+Input for creating an issue.
+"""
+input CreateIssueInput {
+  """
+  The repository to create the issue in.
+  """
+  repositoryId: ID!
+
+  """
+  The title for the issue.
+  """
+  title: String!
+
+  """
+  The body for the issue description.
+  """
+  body: String
+
+  """
+  IDs of users to assign to this issue.
+  """
+  assigneeIds: [ID!]
+
+  """
+  The ID of the milestone to associate this issue with.
+  """
+  milestoneId: ID
+
+  """
+  IDs of labels to associate with this issue.
+  """
+  labelIds: [ID!]
+
+  """
+  An array of Node IDs of projects to associate with this issue.
+  """
+  projectIds: [ID!]
+
+  """
+  The ID of an issue template to use.
+  """
+  issueTemplate: String
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for updating an issue.
+"""
+input UpdateIssueInput {
+  """
+  The ID of the issue to modify.
+  """
+  id: ID!
+
+  """
+  The title for the issue.
+  """
+  title: String
+
+  """
+  The body for the issue description.
+  """
+  body: String
+
+  """
+  IDs of users to assign to this issue.
+  """
+  assigneeIds: [ID!]
+
+  """
+  The ID of the milestone to associate this issue with.
+  """
+  milestoneId: ID
+
+  """
+  IDs of labels to associate with this issue.
+  """
+  labelIds: [ID!]
+
+  """
+  The state of the issue.
+  """
+  state: IssueState
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for closing an issue.
+"""
+input CloseIssueInput {
+  """
+  The ID of the issue to close.
+  """
+  issueId: ID!
+
+  """
+  The reason the issue is being closed.
+  """
+  stateReason: IssueClosedStateReason
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for reopening an issue.
+"""
+input ReopenIssueInput {
+  """
+  The ID of the issue to reopen.
+  """
+  issueId: ID!
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for creating a pull request.
+"""
+input CreatePullRequestInput {
+  """
+  The repository to create the pull request in.
+  """
+  repositoryId: ID!
+
+  """
+  The name of the branch you want your changes pulled into.
+  """
+  baseRefName: String!
+
+  """
+  The name of the branch where your changes are implemented.
+  """
+  headRefName: String!
+
+  """
+  The title for the pull request.
+  """
+  title: String!
+
+  """
+  The body for the pull request description.
+  """
+  body: String
+
+  """
+  Indicates whether maintainers can modify the pull request.
+  """
+  maintainerCanModify: Boolean
+
+  """
+  Indicates whether this pull request is a draft.
+  """
+  draft: Boolean
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for updating a pull request.
+"""
+input UpdatePullRequestInput {
+  """
+  The ID of the pull request to modify.
+  """
+  pullRequestId: ID!
+
+  """
+  The title for the pull request.
+  """
+  title: String
+
+  """
+  The body for the pull request description.
+  """
+  body: String
+
+  """
+  The name of the branch you want your changes pulled into.
+  """
+  baseRefName: String
+
+  """
+  IDs of users to assign to this pull request.
+  """
+  assigneeIds: [ID!]
+
+  """
+  The ID of the milestone to associate this pull request with.
+  """
+  milestoneId: ID
+
+  """
+  IDs of labels to associate with this pull request.
+  """
+  labelIds: [ID!]
+
+  """
+  The state of the pull request.
+  """
+  state: PullRequestState
+
+  """
+  Indicates whether maintainers can modify the pull request.
+  """
+  maintainerCanModify: Boolean
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for merging a pull request.
+"""
+input MergePullRequestInput {
+  """
+  The ID of the pull request to merge.
+  """
+  pullRequestId: ID!
+
+  """
+  The commit title for the merge.
+  """
+  commitHeadline: String
+
+  """
+  The commit body for the merge.
+  """
+  commitBody: String
+
+  """
+  The merge method to use.
+  """
+  mergeMethod: PullRequestMergeMethod
+
+  """
+  The expected head OID of the pull request.
+  """
+  expectedHeadOid: GitObjectID
+
+  """
+  The author email for the merge.
+  """
+  authorEmail: String
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+The possible merge methods for a pull request.
+"""
+enum PullRequestMergeMethod {
+  """
+  Add all commits from the head branch onto the base branch individually.
+  """
+  MERGE
+
+  """
+  Combine all commits from the head branch into a single commit on base.
+  """
+  SQUASH
+
+  """
+  Add all commits from the head branch onto the base branch individually.
+  """
+  REBASE
+}
+
+"""
+Input for adding a comment to an issue or pull request.
+"""
+input AddCommentInput {
+  """
+  The ID of the subject (issue or pull request).
+  """
+  subjectId: ID!
+
+  """
+  The comment body.
+  """
+  body: String!
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for updating an issue comment.
+"""
+input UpdateIssueCommentInput {
+  """
+  The ID of the issue comment to update.
+  """
+  id: ID!
+
+  """
+  The updated body of the issue comment.
+  """
+  body: String!
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for deleting an issue comment.
+"""
+input DeleteIssueCommentInput {
+  """
+  The ID of the issue comment to delete.
+  """
+  id: ID!
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for adding a reaction.
+"""
+input AddReactionInput {
+  """
+  The ID of the subject to react to.
+  """
+  subjectId: ID!
+
+  """
+  The reaction content.
+  """
+  content: ReactionContent!
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for removing a reaction.
+"""
+input RemoveReactionInput {
+  """
+  The ID of the subject to remove reaction from.
+  """
+  subjectId: ID!
+
+  """
+  The reaction content.
+  """
+  content: ReactionContent!
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for creating a repository.
+"""
+input CreateRepositoryInput {
+  """
+  The name of the repository.
+  """
+  name: String!
+
+  """
+  The owner ID for the repository.
+  """
+  ownerId: ID
+
+  """
+  A short description of the repository.
+  """
+  description: String
+
+  """
+  The visibility of the repository.
+  """
+  visibility: RepositoryVisibility!
+
+  """
+  Whether the repository has issues enabled.
+  """
+  hasIssuesEnabled: Boolean
+
+  """
+  Whether the repository has wiki enabled.
+  """
+  hasWikiEnabled: Boolean
+
+  """
+  Whether the repository is a template.
+  """
+  template: Boolean
+
+  """
+  The URL for a web page about this repository.
+  """
+  homepageUrl: URI
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for updating a repository.
+"""
+input UpdateRepositoryInput {
+  """
+  The ID of the repository to update.
+  """
+  repositoryId: ID!
+
+  """
+  The new name of the repository.
+  """
+  name: String
+
+  """
+  A short description of the repository.
+  """
+  description: String
+
+  """
+  Whether the repository has issues enabled.
+  """
+  hasIssuesEnabled: Boolean
+
+  """
+  Whether the repository has wiki enabled.
+  """
+  hasWikiEnabled: Boolean
+
+  """
+  Whether the repository has projects enabled.
+  """
+  hasProjectsEnabled: Boolean
+
+  """
+  Whether the repository is a template.
+  """
+  template: Boolean
+
+  """
+  The URL for a web page about this repository.
+  """
+  homepageUrl: URI
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for adding a star to a starrable.
+"""
+input AddStarInput {
+  """
+  The ID of the starrable to star.
+  """
+  starrableId: ID!
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for removing a star from a starrable.
+"""
+input RemoveStarInput {
+  """
+  The ID of the starrable to unstar.
+  """
+  starrableId: ID!
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for creating a branch protection rule.
+"""
+input CreateBranchProtectionRuleInput {
+  """
+  The repository ID for the rule.
+  """
+  repositoryId: ID!
+
+  """
+  The glob-like pattern used to match branch names.
+  """
+  pattern: String!
+
+  """
+  Are approving reviews required?
+  """
+  requiresApprovingReviews: Boolean
+
+  """
+  Number of approving reviews required.
+  """
+  requiredApprovingReviewCount: Int
+
+  """
+  Are commits required to be signed?
+  """
+  requiresCommitSignatures: Boolean
+
+  """
+  Are status checks required?
+  """
+  requiresStatusChecks: Boolean
+
+  """
+  List of required status check contexts.
+  """
+  requiredStatusCheckContexts: [String!]
+
+  """
+  Is pushing directly to the branch restricted?
+  """
+  restrictsPushes: Boolean
+
+  """
+  Is branch deletion restricted?
+  """
+  restrictsReviewDismissals: Boolean
+
+  """
+  Is dismissing stale reviews required?
+  """
+  dismissesStaleReviews: Boolean
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for adding a pull request review.
+"""
+input AddPullRequestReviewInput {
+  """
+  The ID of the pull request to review.
+  """
+  pullRequestId: ID!
+
+  """
+  The body of the review.
+  """
+  body: String
+
+  """
+  The event to create for this review.
+  """
+  event: PullRequestReviewEvent
+
+  """
+  The SHA of the commit to review.
+  """
+  commitOID: GitObjectID
+
+  """
+  Comments for the review.
+  """
+  comments: [DraftPullRequestReviewComment!]
+
+  """
+  Review threads for the review.
+  """
+  threads: [DraftPullRequestReviewThread!]
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+A comment in a pull request review thread.
+"""
+input DraftPullRequestReviewComment {
+  """
+  Path to the file.
+  """
+  path: String!
+
+  """
+  Position in the diff.
+  """
+  position: Int
+
+  """
+  Body of the comment.
+  """
+  body: String!
+}
+
+"""
+A thread in a pull request review.
+"""
+input DraftPullRequestReviewThread {
+  """
+  Path to the file.
+  """
+  path: String!
+
+  """
+  The line number to comment on.
+  """
+  line: Int!
+
+  """
+  The side of the diff on which the line resides.
+  """
+  side: DiffSide
+
+  """
+  The starting line of the range.
+  """
+  startLine: Int
+
+  """
+  The starting side of the diff.
+  """
+  startSide: DiffSide
+
+  """
+  Body of the comment.
+  """
+  body: String!
+}
+
+"""
+The side of a diff.
+"""
+enum DiffSide {
+  """
+  The left side of the diff.
+  """
+  LEFT
+
+  """
+  The right side of the diff.
+  """
+  RIGHT
+}
+
+"""
+Input for submitting a pull request review.
+"""
+input SubmitPullRequestReviewInput {
+  """
+  The ID of the pull request review to submit.
+  """
+  pullRequestReviewId: ID
+
+  """
+  The ID of the pull request.
+  """
+  pullRequestId: ID
+
+  """
+  The body of the review.
+  """
+  body: String
+
+  """
+  The event to create for this review.
+  """
+  event: PullRequestReviewEvent!
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for creating a project v2.
+"""
+input CreateProjectV2Input {
+  """
+  The owner ID for the project.
+  """
+  ownerId: ID!
+
+  """
+  The title of the project.
+  """
+  title: String!
+
+  """
+  The repository to link this project to.
+  """
+  repositoryId: ID
+
+  """
+  The team to link this project to.
+  """
+  teamId: ID
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for following a user.
+"""
+input FollowUserInput {
+  """
+  The ID of the user to follow.
+  """
+  userId: ID!
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for unfollowing a user.
+"""
+input UnfollowUserInput {
+  """
+  The ID of the user to unfollow.
+  """
+  userId: ID!
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}
+
+"""
+Input for requesting reviews.
+"""
+input RequestReviewsInput {
+  """
+  The ID of the pull request.
+  """
+  pullRequestId: ID!
+
+  """
+  IDs of users to request reviews from.
+  """
+  userIds: [ID!]
+
+  """
+  IDs of teams to request reviews from.
+  """
+  teamIds: [ID!]
+
+  """
+  Whether to notify the requested reviewers.
+  """
+  union: Boolean
+
+  """
+  A unique identifier for the client performing the mutation.
+  """
+  clientMutationId: String
+}

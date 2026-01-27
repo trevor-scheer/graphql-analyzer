@@ -1,0 +1,551 @@
+"""
+A discussion in a repository.
+"""
+type Discussion implements Node & Comment & Closable & Labelable & Lockable & Reactable & RepositoryNode & Subscribable & UniformResourceLocatable {
+  """
+  Reason that the conversation was locked.
+  """
+  activeLockReason: LockReason
+
+  """
+  The comment chosen as the answer for this discussion.
+  """
+  answer: DiscussionComment
+
+  """
+  The answer was chosen at this time.
+  """
+  answerChosenAt: DateTime
+
+  """
+  The user who chose the answer.
+  """
+  answerChosenBy: Actor
+
+  """
+  The actor who authored the discussion.
+  """
+  author: Actor
+
+  """
+  Author's association with the subject of the discussion.
+  """
+  authorAssociation: CommentAuthorAssociation!
+
+  """
+  The discussion body.
+  """
+  body: String!
+
+  """
+  The discussion body as HTML.
+  """
+  bodyHTML: HTML!
+
+  """
+  The discussion body as text.
+  """
+  bodyText: String!
+
+  """
+  The category for the discussion.
+  """
+  category: DiscussionCategory!
+
+  """
+  Whether the discussion is closed.
+  """
+  closed: Boolean!
+
+  """
+  When the discussion was closed.
+  """
+  closedAt: DateTime
+
+  """
+  A list of comments on the discussion.
+  """
+  comments(first: Int, after: String, last: Int, before: String): DiscussionCommentConnection!
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Whether the discussion was created via email.
+  """
+  createdViaEmail: Boolean!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  The actor who edited the discussion.
+  """
+  editor: Actor
+
+  id: ID!
+
+  """
+  Whether the discussion includes the author associating.
+  """
+  includesCreatedEdit: Boolean!
+
+  """
+  Whether the discussion is answered.
+  """
+  isAnswered: Boolean!
+
+  """
+  A list of labels associated with the discussion.
+  """
+  labels(first: Int, after: String, last: Int, before: String, orderBy: LabelOrder): LabelConnection
+
+  """
+  When the discussion was last edited.
+  """
+  lastEditedAt: DateTime
+
+  """
+  Whether the discussion is locked.
+  """
+  locked: Boolean!
+
+  """
+  The discussion number.
+  """
+  number: Int!
+
+  """
+  A list of poll options on the discussion.
+  """
+  poll: DiscussionPoll
+
+  """
+  When the discussion was published.
+  """
+  publishedAt: DateTime
+
+  """
+  A list of reactions on the discussion.
+  """
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
+
+  """
+  The repository associated with the discussion.
+  """
+  repository: Repository!
+
+  """
+  The HTTP path for the discussion.
+  """
+  resourcePath: URI!
+
+  """
+  The state of the discussion.
+  """
+  state: DiscussionState!
+
+  """
+  The reason the discussion was closed.
+  """
+  stateReason: DiscussionStateReason
+
+  """
+  The discussion title.
+  """
+  title: String!
+
+  """
+  When the discussion was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The number of upvotes.
+  """
+  upvoteCount: Int!
+
+  """
+  The HTTP URL for the discussion.
+  """
+  url: URI!
+
+  """
+  A list of user content edits.
+  """
+  userContentEdits(first: Int, after: String, last: Int, before: String): UserContentEditConnection
+
+  """
+  Whether the viewer can close the discussion.
+  """
+  viewerCanClose: Boolean!
+
+  """
+  Whether the viewer can delete the discussion.
+  """
+  viewerCanDelete: Boolean!
+
+  """
+  Whether the viewer can react.
+  """
+  viewerCanReact: Boolean!
+
+  """
+  Whether the viewer can reopen the discussion.
+  """
+  viewerCanReopen: Boolean!
+
+  """
+  Whether the viewer can subscribe.
+  """
+  viewerCanSubscribe: Boolean!
+
+  """
+  Whether the viewer can update the discussion.
+  """
+  viewerCanUpdate: Boolean!
+
+  """
+  Whether the viewer can upvote the discussion.
+  """
+  viewerCanUpvote: Boolean!
+
+  """
+  Whether the viewer authored the discussion.
+  """
+  viewerDidAuthor: Boolean!
+
+  """
+  Whether the viewer has upvoted the discussion.
+  """
+  viewerHasUpvoted: Boolean!
+
+  """
+  The viewer's subscription state.
+  """
+  viewerSubscription: SubscriptionState
+}
+
+"""
+A comment on a discussion.
+"""
+type DiscussionComment implements Node & Comment & Reactable & UniformResourceLocatable {
+  """
+  The actor who authored the comment.
+  """
+  author: Actor
+
+  """
+  Author's association with the subject.
+  """
+  authorAssociation: CommentAuthorAssociation!
+
+  """
+  The comment body.
+  """
+  body: String!
+
+  """
+  The comment body as HTML.
+  """
+  bodyHTML: HTML!
+
+  """
+  The comment body as text.
+  """
+  bodyText: String!
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Whether the comment was created via email.
+  """
+  createdViaEmail: Boolean!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  The time the comment was deleted.
+  """
+  deletedAt: DateTime
+
+  """
+  The discussion this comment is on.
+  """
+  discussion: Discussion
+
+  """
+  The actor who edited the comment.
+  """
+  editor: Actor
+
+  id: ID!
+
+  """
+  Whether the comment includes the author associating.
+  """
+  includesCreatedEdit: Boolean!
+
+  """
+  Whether the comment is an answer.
+  """
+  isAnswer: Boolean!
+
+  """
+  Whether the comment is minimized.
+  """
+  isMinimized: Boolean!
+
+  """
+  When the comment was last edited.
+  """
+  lastEditedAt: DateTime
+
+  """
+  The reason the comment was minimized.
+  """
+  minimizedReason: String
+
+  """
+  When the comment was published.
+  """
+  publishedAt: DateTime
+
+  """
+  A list of reactions on the comment.
+  """
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
+
+  """
+  A list of replies to the comment.
+  """
+  replies(first: Int, after: String, last: Int, before: String): DiscussionCommentConnection!
+
+  """
+  The reply to this comment.
+  """
+  replyTo: DiscussionComment
+
+  """
+  The HTTP path for the comment.
+  """
+  resourcePath: URI!
+
+  """
+  When the comment was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The number of upvotes.
+  """
+  upvoteCount: Int!
+
+  """
+  The HTTP URL for the comment.
+  """
+  url: URI!
+
+  """
+  A list of user content edits.
+  """
+  userContentEdits(first: Int, after: String, last: Int, before: String): UserContentEditConnection
+
+  """
+  Whether the viewer can delete the comment.
+  """
+  viewerCanDelete: Boolean!
+
+  """
+  Whether the viewer can mark as answer.
+  """
+  viewerCanMarkAsAnswer: Boolean!
+
+  """
+  Whether the viewer can minimize the comment.
+  """
+  viewerCanMinimize: Boolean!
+
+  """
+  Whether the viewer can react.
+  """
+  viewerCanReact: Boolean!
+
+  """
+  Whether the viewer can unmark as answer.
+  """
+  viewerCanUnmarkAsAnswer: Boolean!
+
+  """
+  Whether the viewer can update the comment.
+  """
+  viewerCanUpdate: Boolean!
+
+  """
+  Whether the viewer can upvote.
+  """
+  viewerCanUpvote: Boolean!
+
+  """
+  Whether the viewer authored the comment.
+  """
+  viewerDidAuthor: Boolean!
+
+  """
+  Whether the viewer has upvoted.
+  """
+  viewerHasUpvoted: Boolean!
+}
+
+type DiscussionCommentConnection {
+  edges: [DiscussionCommentEdge]
+  nodes: [DiscussionComment]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DiscussionCommentEdge {
+  cursor: String!
+  node: DiscussionComment
+}
+
+"""
+A poll on a discussion.
+"""
+type DiscussionPoll implements Node {
+  """
+  The discussion this poll is on.
+  """
+  discussion: Discussion
+
+  id: ID!
+
+  """
+  A list of poll options.
+  """
+  options(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: DiscussionPollOptionOrder
+  ): DiscussionPollOptionConnection
+
+  """
+  The poll question.
+  """
+  question: String!
+
+  """
+  The total number of votes.
+  """
+  totalVoteCount: Int!
+
+  """
+  Whether the viewer has voted.
+  """
+  viewerCanVote: Boolean!
+
+  """
+  Whether the viewer has voted.
+  """
+  viewerHasVoted: Boolean!
+}
+
+"""
+A poll option.
+"""
+type DiscussionPollOption implements Node {
+  id: ID!
+
+  """
+  The option text.
+  """
+  option: String!
+
+  """
+  The poll this option belongs to.
+  """
+  poll: DiscussionPoll
+
+  """
+  The total number of votes.
+  """
+  totalVoteCount: Int!
+
+  """
+  Whether the viewer has voted for this option.
+  """
+  viewerHasVoted: Boolean!
+}
+
+type DiscussionPollOptionConnection {
+  edges: [DiscussionPollOptionEdge]
+  nodes: [DiscussionPollOption]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DiscussionPollOptionEdge {
+  cursor: String!
+  node: DiscussionPollOption
+}
+
+input DiscussionPollOptionOrder {
+  field: DiscussionPollOptionOrderField!
+  direction: OrderDirection!
+}
+
+enum DiscussionPollOptionOrderField {
+  AUTHORED_ORDER
+  VOTE_COUNT
+}
+
+"""
+The reason for the discussion state change.
+"""
+enum DiscussionStateReason {
+  """
+  The discussion was resolved.
+  """
+  RESOLVED
+
+  """
+  The discussion was marked as outdated.
+  """
+  OUTDATED
+
+  """
+  The discussion was marked as a duplicate.
+  """
+  DUPLICATE
+
+  """
+  The discussion was reopened.
+  """
+  REOPENED
+}

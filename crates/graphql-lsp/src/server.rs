@@ -171,16 +171,15 @@ async fn load_workspace_config_background(
 
             match graphql_config::load_config(&config_path) {
                 Ok(config) => {
-                    // Validate configuration
+                    // Validate configuration and always publish diagnostics
+                    // (empty list clears previous errors when config becomes valid)
                     let errors = graphql_config::validate(&config, workspace_path);
+                    let config_uri = Uri::from_str(&graphql_ide::path_to_file_uri(&config_path))
+                        .expect("valid config path");
 
                     if !errors.is_empty() {
                         let config_content =
                             std::fs::read_to_string(&config_path).unwrap_or_default();
-                        let config_uri =
-                            Uri::from_str(&graphql_ide::path_to_file_uri(&config_path))
-                                .expect("valid config path");
-
                         let diagnostics =
                             validation_errors_to_diagnostics(&errors, &config_content);
                         client
@@ -226,6 +225,9 @@ async fn load_workspace_config_background(
 
                         return;
                     }
+
+                    // Config is valid — clear any previous validation errors
+                    client.publish_diagnostics(config_uri, vec![], None).await;
 
                     client
                         .log_message(MessageType::INFO, "GraphQL config found, loading files...")
@@ -518,16 +520,16 @@ impl GraphQLLanguageServer {
 
                 match graphql_config::load_config(&config_path) {
                     Ok(config) => {
-                        // Validate configuration
+                        // Validate configuration and always publish diagnostics
+                        // (empty list clears previous errors when config becomes valid)
                         let errors = graphql_config::validate(&config, workspace_path);
+                        let config_uri =
+                            Uri::from_str(&graphql_ide::path_to_file_uri(&config_path))
+                                .expect("valid config path");
 
                         if !errors.is_empty() {
                             let config_content =
                                 std::fs::read_to_string(&config_path).unwrap_or_default();
-                            let config_uri =
-                                Uri::from_str(&graphql_ide::path_to_file_uri(&config_path))
-                                    .expect("valid config path");
-
                             let diagnostics =
                                 validation_errors_to_diagnostics(&errors, &config_content);
                             self.client
@@ -574,6 +576,11 @@ impl GraphQLLanguageServer {
 
                             return;
                         }
+
+                        // Config is valid — clear any previous validation errors
+                        self.client
+                            .publish_diagnostics(config_uri, vec![], None)
+                            .await;
 
                         self.client
                             .log_message(
@@ -1017,12 +1024,16 @@ documents: "**/*.graphql"
         self.load_workspace_config(workspace_uri, &workspace_path)
             .await;
 
-        self.client
-            .show_message(
-                MessageType::INFO,
-                "GraphQL configuration reloaded successfully",
-            )
-            .await;
+        // Only show success if the config was actually loaded
+        // (load_workspace_config stores the config only when validation passes)
+        if self.workspace.configs.contains_key(workspace_uri) {
+            self.client
+                .show_message(
+                    MessageType::INFO,
+                    "GraphQL configuration reloaded successfully",
+                )
+                .await;
+        }
 
         tracing::info!(
             "Configuration reload complete for workspace: {}",

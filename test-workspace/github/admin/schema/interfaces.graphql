@@ -1,0 +1,635 @@
+"""
+An object with an ID.
+"""
+interface Node {
+  """
+  ID of the object.
+  """
+  id: ID!
+}
+
+"""
+Represents an actor in a Git context - could be a User, Bot, or Organization.
+"""
+interface Actor {
+  """
+  URL of the actor's avatar.
+  """
+  avatarUrl(size: Int): URI!
+
+  """
+  The username of the actor.
+  """
+  login: String!
+
+  """
+  The HTTP path for the actor.
+  """
+  resourcePath: URI!
+
+  """
+  The HTTP URL for the actor.
+  """
+  url: URI!
+}
+
+"""
+Represents an owner of a repository.
+"""
+interface RepositoryOwner {
+  """
+  URL of the owner's avatar.
+  """
+  avatarUrl(size: Int): URI!
+
+  id: ID!
+
+  """
+  The username used to login.
+  """
+  login: String!
+
+  """
+  A list of repositories that the owner has.
+  """
+  repositories(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: RepositoryOrder
+    privacy: RepositoryPrivacy
+    isFork: Boolean
+    isLocked: Boolean
+  ): RepositoryConnection!
+
+  """
+  Find a repository owned by the owner.
+  """
+  repository(name: String!): Repository
+
+  """
+  The HTTP path for the owner.
+  """
+  resourcePath: URI!
+
+  """
+  The HTTP URL for the owner.
+  """
+  url: URI!
+}
+
+"""
+Entities that can sponsor others.
+"""
+interface Sponsor {
+  id: ID!
+
+  """
+  The GitHub Sponsors listing for this user or organization.
+  """
+  sponsorsListing: SponsorsListing
+
+  """
+  The GitHub Sponsors listing for this user or organization.
+  """
+  sponsorshipForViewerAsSponsorable: Sponsorship
+
+  """
+  Check if this entity is sponsoring another entity.
+  """
+  isSponsoringViewer: Boolean!
+
+  """
+  Check if the viewer is sponsoring this entity.
+  """
+  viewerIsSponsoring: Boolean!
+}
+
+"""
+Entities that can be sponsored.
+"""
+interface Sponsorable {
+  """
+  The estimated next GitHub Sponsors payout.
+  """
+  estimatedNextSponsorsPayoutInCents: Int!
+
+  """
+  True if this entity has a GitHub Sponsors listing.
+  """
+  hasSponsorsListing: Boolean!
+
+  """
+  The GitHub Sponsors listing for this user or organization.
+  """
+  sponsorsListing: SponsorsListing
+
+  """
+  Total amount received on GitHub Sponsors in cents.
+  """
+  totalSponsorshipAmountAsSponsorInCents(since: DateTime, until: DateTime): Int
+}
+
+"""
+Represents an object that can have labels assigned to it.
+"""
+interface Labelable {
+  """
+  A list of labels associated with the object.
+  """
+  labels(first: Int, after: String, last: Int, before: String, orderBy: LabelOrder): LabelConnection
+}
+
+"""
+An object that can be locked.
+"""
+interface Lockable {
+  """
+  Reason that the conversation was locked.
+  """
+  activeLockReason: LockReason
+
+  """
+  Whether the object is locked.
+  """
+  locked: Boolean!
+}
+
+"""
+An object that can be closed.
+"""
+interface Closable {
+  """
+  Whether the object is closed.
+  """
+  closed: Boolean!
+
+  """
+  When the object was closed.
+  """
+  closedAt: DateTime
+}
+
+"""
+An object that can have users assigned to it.
+"""
+interface Assignable {
+  """
+  A list of users assigned to the object.
+  """
+  assignees(first: Int, after: String, last: Int, before: String): UserConnection!
+}
+
+"""
+An object that can have reactions.
+"""
+interface Reactable {
+  """
+  A list of reactions on the object.
+  """
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
+
+  """
+  Whether the viewer can react to the object.
+  """
+  viewerCanReact: Boolean!
+}
+
+"""
+Represents a comment.
+"""
+interface Comment {
+  """
+  The actor who authored the comment.
+  """
+  author: Actor
+
+  """
+  The comment body as Markdown.
+  """
+  body: String!
+
+  """
+  The comment body as HTML.
+  """
+  bodyHTML: HTML!
+
+  """
+  The comment body as plain text.
+  """
+  bodyText: String!
+
+  """
+  When the comment was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Whether the comment was created via email.
+  """
+  createdViaEmail: Boolean!
+
+  """
+  The actor who edited the comment.
+  """
+  editor: Actor
+
+  id: ID!
+
+  """
+  Whether the comment includes the author associating with the author.
+  """
+  includesCreatedEdit: Boolean!
+
+  """
+  When the comment was last edited.
+  """
+  lastEditedAt: DateTime
+
+  """
+  When the comment was published.
+  """
+  publishedAt: DateTime
+
+  """
+  When the comment was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  Whether the viewer can delete the comment.
+  """
+  viewerDidAuthor: Boolean!
+}
+
+"""
+Represents a type that can be retrieved by a URL.
+"""
+interface UniformResourceLocatable {
+  """
+  The HTML path to this resource.
+  """
+  resourcePath: URI!
+
+  """
+  The URL to this resource.
+  """
+  url: URI!
+}
+
+"""
+Things that can be starred.
+"""
+interface Starrable {
+  id: ID!
+
+  """
+  Number of stars on this object.
+  """
+  stargazerCount: Int!
+
+  """
+  A list of users who have starred the object.
+  """
+  stargazers(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: StarOrder
+  ): StargazerConnection!
+
+  """
+  Whether the viewer has starred the object.
+  """
+  viewerHasStarred: Boolean!
+}
+
+"""
+Entities that can be subscribed to for web and email notifications.
+"""
+interface Subscribable {
+  id: ID!
+
+  """
+  Whether the viewer can subscribe to the object.
+  """
+  viewerCanSubscribe: Boolean!
+
+  """
+  The viewer's subscription state.
+  """
+  viewerSubscription: SubscriptionState
+}
+
+"""
+Represents a subject that can be reacted upon.
+"""
+interface RepositoryNode {
+  """
+  The repository associated with this node.
+  """
+  repository: Repository!
+}
+
+"""
+Represents an item in a project.
+"""
+interface ProjectV2ItemFieldValueCommon {
+  """
+  When the value was created.
+  """
+  createdAt: DateTime!
+
+  """
+  The actor who created the value.
+  """
+  creator: Actor
+
+  """
+  The database ID of the value.
+  """
+  databaseId: Int
+
+  """
+  The field containing this value.
+  """
+  field: ProjectV2FieldConfiguration!
+
+  id: ID!
+
+  """
+  The item containing this value.
+  """
+  item: ProjectV2Item!
+
+  """
+  When the value was last updated.
+  """
+  updatedAt: DateTime!
+}
+
+"""
+Represents a Git object.
+"""
+interface GitObject {
+  """
+  An abbreviated version of the SHA.
+  """
+  abbreviatedOid: String!
+
+  """
+  The HTTP path for the object.
+  """
+  commitResourcePath: URI!
+
+  """
+  The HTTP URL for the object.
+  """
+  commitUrl: URI!
+
+  id: ID!
+
+  """
+  The SHA of the object.
+  """
+  oid: GitObjectID!
+
+  """
+  The repository containing the object.
+  """
+  repository: Repository!
+}
+
+"""
+Information about pagination in a connection.
+"""
+interface GitSignature {
+  """
+  Email used to sign this object.
+  """
+  email: String!
+
+  """
+  True if the signature is valid and verified.
+  """
+  isValid: Boolean!
+
+  """
+  Payload for GPG verification.
+  """
+  payload: String!
+
+  """
+  ASCII-armored signature header.
+  """
+  signature: String!
+
+  """
+  GitHub user corresponding to the signer.
+  """
+  signer: User
+
+  """
+  The state of the signature.
+  """
+  state: GitSignatureState!
+
+  """
+  Whether GitHub can verify the signature.
+  """
+  wasSignedByGitHub: Boolean!
+}
+
+"""
+Represents an object which can take actions on GitHub.
+"""
+interface Contributable {
+  """
+  A list of users who have contributed to this object.
+  """
+  contributors(first: Int, after: String, last: Int, before: String): ContributorConnection
+}
+
+"""
+Represents a range of content in a file.
+"""
+interface HovercardContext {
+  """
+  A description of this context.
+  """
+  message: String!
+
+  """
+  An octicon to display with the context.
+  """
+  octicon: String!
+}
+
+"""
+Metadata for an audit log entry.
+"""
+interface AuditEntry {
+  """
+  The action name.
+  """
+  action: String!
+
+  """
+  The user who triggered the action.
+  """
+  actor: AuditEntryActor
+
+  """
+  The IP address of the actor.
+  """
+  actorIp: String
+
+  """
+  The location of the actor.
+  """
+  actorLocation: ActorLocation
+
+  """
+  The username of the actor.
+  """
+  actorLogin: String
+
+  """
+  The HTTP path for the actor.
+  """
+  actorResourcePath: URI
+
+  """
+  The HTTP URL for the actor.
+  """
+  actorUrl: URI
+
+  """
+  When the action was performed.
+  """
+  createdAt: PreciseDateTime!
+
+  """
+  The operation type.
+  """
+  operationType: OperationType
+
+  """
+  The user affected by the action.
+  """
+  user: User
+
+  """
+  The HTTP path for the user.
+  """
+  userLogin: String
+
+  """
+  The HTTP URL for the user.
+  """
+  userResourcePath: URI
+
+  """
+  The HTTP URL for the user.
+  """
+  userUrl: URI
+}
+
+"""
+An entry in the audit log.
+"""
+interface OrganizationAuditEntryData {
+  """
+  The organization associated with the audit entry.
+  """
+  organization: Organization
+
+  """
+  The name of the organization.
+  """
+  organizationName: String
+
+  """
+  The HTTP path for the organization.
+  """
+  organizationResourcePath: URI
+
+  """
+  The HTTP URL for the organization.
+  """
+  organizationUrl: URI
+}
+
+"""
+Audit log entry with repository data.
+"""
+interface RepositoryAuditEntryData {
+  """
+  The repository associated with the audit entry.
+  """
+  repository: Repository
+
+  """
+  The name of the repository.
+  """
+  repositoryName: String
+
+  """
+  The HTTP path for the repository.
+  """
+  repositoryResourcePath: URI
+
+  """
+  The HTTP URL for the repository.
+  """
+  repositoryUrl: URI
+}
+
+"""
+Audit log entry with team data.
+"""
+interface TeamAuditEntryData {
+  """
+  The team associated with the audit entry.
+  """
+  team: Team
+
+  """
+  The name of the team.
+  """
+  teamName: String
+
+  """
+  The HTTP path for the team.
+  """
+  teamResourcePath: URI
+
+  """
+  The HTTP URL for the team.
+  """
+  teamUrl: URI
+}
+
+"""
+Audit log entry with topic data.
+"""
+interface TopicAuditEntryData {
+  """
+  The topic associated with the audit entry.
+  """
+  topic: Topic
+
+  """
+  The name of the topic.
+  """
+  topicName: String
+}

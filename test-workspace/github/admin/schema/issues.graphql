@@ -1,0 +1,762 @@
+"""
+An Issue is a place to discuss ideas, enhancements, tasks, and bugs for a project.
+"""
+type Issue implements Node & Assignable & Closable & Comment & Labelable & Lockable & Reactable & RepositoryNode & Subscribable & UniformResourceLocatable {
+  """
+  Reason that the conversation was locked.
+  """
+  activeLockReason: LockReason
+
+  """
+  A list of users assigned to this issue.
+  """
+  assignees(first: Int, after: String, last: Int, before: String): UserConnection!
+
+  """
+  The actor who authored the comment.
+  """
+  author: Actor
+
+  """
+  Author's association with the subject of the comment.
+  """
+  authorAssociation: CommentAuthorAssociation!
+
+  """
+  The body as Markdown.
+  """
+  body: String!
+
+  """
+  The body as HTML.
+  """
+  bodyHTML: HTML!
+
+  """
+  The body as plain text.
+  """
+  bodyText: String!
+
+  """
+  The body as a resource URL.
+  """
+  bodyUrl: URI!
+
+  """
+  Whether the object is closed.
+  """
+  closed: Boolean!
+
+  """
+  When the object was closed.
+  """
+  closedAt: DateTime
+
+  """
+  A list of comments associated with the issue.
+  """
+  comments(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    orderBy: IssueCommentOrder
+  ): IssueCommentConnection!
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Whether the comment was created via email.
+  """
+  createdViaEmail: Boolean!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  The actor who edited the comment.
+  """
+  editor: Actor
+
+  """
+  The hovercard information for this issue.
+  """
+  hovercard(includeNotificationContexts: Boolean = true): Hovercard!
+
+  id: ID!
+
+  """
+  Whether the comment includes the author associating with the author.
+  """
+  includesCreatedEdit: Boolean!
+
+  """
+  Is this issue read by the viewer.
+  """
+  isReadByViewer: Boolean
+
+  """
+  A list of labels associated with this issue.
+  """
+  labels(first: Int, after: String, last: Int, before: String, orderBy: LabelOrder): LabelConnection
+
+  """
+  When the comment was last edited.
+  """
+  lastEditedAt: DateTime
+
+  """
+  A list of items linked to this issue.
+  """
+  linkedBranches(first: Int, after: String, last: Int, before: String): LinkedBranchConnection!
+
+  """
+  Whether the object is locked.
+  """
+  locked: Boolean!
+
+  """
+  The milestone associated with this issue.
+  """
+  milestone: Milestone
+
+  """
+  The issue number.
+  """
+  number: Int!
+
+  """
+  A list of users participating in the issue.
+  """
+  participants(first: Int, after: String, last: Int, before: String): UserConnection!
+
+  """
+  List of project items associated with this issue.
+  """
+  projectItems(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    includeArchived: Boolean = true
+  ): ProjectV2ItemConnection!
+
+  """
+  A list of projects in which this issue is referenced.
+  """
+  projectsV2(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    query: String
+  ): ProjectV2Connection!
+
+  """
+  When the comment was published.
+  """
+  publishedAt: DateTime
+
+  """
+  A list of reactions on the comment.
+  """
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
+
+  """
+  The repository associated with this issue.
+  """
+  repository: Repository!
+
+  """
+  The HTTP path for the issue.
+  """
+  resourcePath: URI!
+
+  """
+  The issue state.
+  """
+  state: IssueState!
+
+  """
+  The issue state reason.
+  """
+  stateReason: IssueStateReason
+
+  """
+  A list of events, comments, and other timeline items.
+  """
+  timelineItems(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    since: DateTime
+    skip: Int
+    itemTypes: [IssueTimelineItemsItemType!]
+  ): IssueTimelineItemsConnection!
+
+  """
+  The issue title.
+  """
+  title: String!
+
+  """
+  The issue title as HTML.
+  """
+  titleHTML: String!
+
+  """
+  A list of issues tracked by this issue.
+  """
+  trackedInIssues(first: Int, after: String, last: Int, before: String): IssueConnection!
+
+  """
+  A list of issues that track this issue.
+  """
+  trackedIssues(first: Int, after: String, last: Int, before: String): IssueConnection!
+
+  """
+  The number of issues tracked by this issue.
+  """
+  trackedIssuesCount(states: [TrackedIssueStates]): Int!
+
+  """
+  When the comment was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The HTTP URL for the issue.
+  """
+  url: URI!
+
+  """
+  Whether the viewer can close the issue.
+  """
+  viewerCanClose: Boolean!
+
+  """
+  Whether the viewer can delete the issue.
+  """
+  viewerCanDelete: Boolean!
+
+  """
+  Whether the viewer can react to the comment.
+  """
+  viewerCanReact: Boolean!
+
+  """
+  Whether the viewer can reopen the issue.
+  """
+  viewerCanReopen: Boolean!
+
+  """
+  Whether the viewer can subscribe to the issue.
+  """
+  viewerCanSubscribe: Boolean!
+
+  """
+  Whether the viewer can update the issue.
+  """
+  viewerCanUpdate: Boolean!
+
+  """
+  Whether the viewer did author the comment.
+  """
+  viewerDidAuthor: Boolean!
+
+  """
+  The viewer's subscription state.
+  """
+  viewerSubscription: SubscriptionState
+}
+
+"""
+A comment on an Issue.
+"""
+type IssueComment implements Node & Comment & Reactable & RepositoryNode & UniformResourceLocatable {
+  """
+  The actor who authored the comment.
+  """
+  author: Actor
+
+  """
+  Author's association with the subject of the comment.
+  """
+  authorAssociation: CommentAuthorAssociation!
+
+  """
+  The body as Markdown.
+  """
+  body: String!
+
+  """
+  The body as HTML.
+  """
+  bodyHTML: HTML!
+
+  """
+  The body as plain text.
+  """
+  bodyText: String!
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Whether the comment was created via email.
+  """
+  createdViaEmail: Boolean!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  """
+  The actor who edited the comment.
+  """
+  editor: Actor
+
+  id: ID!
+
+  """
+  Whether the comment includes the author associating with the author.
+  """
+  includesCreatedEdit: Boolean!
+
+  """
+  Whether the comment is minimized.
+  """
+  isMinimized: Boolean!
+
+  """
+  The issue this comment was made on.
+  """
+  issue: Issue!
+
+  """
+  When the comment was last edited.
+  """
+  lastEditedAt: DateTime
+
+  """
+  The reason the comment was minimized.
+  """
+  minimizedReason: String
+
+  """
+  When the comment was published.
+  """
+  publishedAt: DateTime
+
+  """
+  The pull request this comment was made on.
+  """
+  pullRequest: PullRequest
+
+  """
+  A list of reactions on the comment.
+  """
+  reactions(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    content: ReactionContent
+    orderBy: ReactionOrder
+  ): ReactionConnection!
+
+  """
+  The repository associated with this comment.
+  """
+  repository: Repository!
+
+  """
+  The HTTP path for the issue comment.
+  """
+  resourcePath: URI!
+
+  """
+  When the comment was last updated.
+  """
+  updatedAt: DateTime!
+
+  """
+  The HTTP URL for the issue comment.
+  """
+  url: URI!
+
+  """
+  Whether the viewer can delete the comment.
+  """
+  viewerCanDelete: Boolean!
+
+  """
+  Whether the viewer can minimize the comment.
+  """
+  viewerCanMinimize: Boolean!
+
+  """
+  Whether the viewer can react to the comment.
+  """
+  viewerCanReact: Boolean!
+
+  """
+  Whether the viewer can update the comment.
+  """
+  viewerCanUpdate: Boolean!
+
+  """
+  Whether the viewer did author the comment.
+  """
+  viewerDidAuthor: Boolean!
+}
+
+"""
+A reaction to an issue or comment.
+"""
+type Reaction implements Node {
+  """
+  Identifies the emoji reaction.
+  """
+  content: ReactionContent!
+
+  """
+  Identifies the date and time when the object was created.
+  """
+  createdAt: DateTime!
+
+  """
+  Identifies the primary key from the database.
+  """
+  databaseId: Int
+
+  id: ID!
+
+  """
+  The reactable subject.
+  """
+  reactable: Reactable!
+
+  """
+  The user who reacted.
+  """
+  user: User
+}
+
+"""
+Hovercard information.
+"""
+type Hovercard {
+  """
+  The hovercard context.
+  """
+  contexts: [HovercardContext!]!
+}
+
+"""
+A linked branch.
+"""
+type LinkedBranch implements Node {
+  id: ID!
+  ref: Ref
+}
+
+type LinkedBranchConnection {
+  edges: [LinkedBranchEdge]
+  nodes: [LinkedBranch]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type LinkedBranchEdge {
+  cursor: String!
+  node: LinkedBranch
+}
+
+"""
+The issue state reason.
+"""
+enum IssueStateReason {
+  """
+  An issue that has been reopened.
+  """
+  REOPENED
+
+  """
+  An issue that has been closed as not planned.
+  """
+  NOT_PLANNED
+
+  """
+  An issue that has been closed as completed.
+  """
+  COMPLETED
+}
+
+"""
+States for tracked issues.
+"""
+enum TrackedIssueStates {
+  OPEN
+  CLOSED
+}
+
+"""
+An item in an issue timeline.
+"""
+enum IssueTimelineItemsItemType {
+  ISSUE_COMMENT
+  CROSS_REFERENCED_EVENT
+  ADDED_TO_PROJECT_EVENT
+  ASSIGNED_EVENT
+  CLOSED_EVENT
+  COMMENT_DELETED_EVENT
+  CONNECTED_EVENT
+  CONVERTED_NOTE_TO_ISSUE_EVENT
+  DEMILESTONED_EVENT
+  DISCONNECTED_EVENT
+  LABELED_EVENT
+  LOCKED_EVENT
+  MARKED_AS_DUPLICATE_EVENT
+  MENTIONED_EVENT
+  MILESTONED_EVENT
+  MOVED_COLUMNS_IN_PROJECT_EVENT
+  PINNED_EVENT
+  REFERENCED_EVENT
+  REMOVED_FROM_PROJECT_EVENT
+  RENAMED_TITLE_EVENT
+  REOPENED_EVENT
+  SUBSCRIBED_EVENT
+  TRANSFERRED_EVENT
+  UNASSIGNED_EVENT
+  UNLABELED_EVENT
+  UNLOCKED_EVENT
+  UNMARKED_AS_DUPLICATE_EVENT
+  UNPINNED_EVENT
+  UNSUBSCRIBED_EVENT
+  USER_BLOCKED_EVENT
+}
+
+type IssueTimelineItemsConnection {
+  edges: [IssueTimelineItemsEdge]
+  filteredCount: Int!
+  nodes: [IssueTimelineItems]
+  pageCount: Int!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  updatedAt: DateTime!
+}
+
+type IssueTimelineItemsEdge {
+  cursor: String!
+  node: IssueTimelineItems
+}
+
+union IssueTimelineItems =
+  | IssueComment
+  | CrossReferencedEvent
+  | AddedToProjectEvent
+  | AssignedEvent
+  | ClosedEvent
+  | LabeledEvent
+  | LockedEvent
+  | MilestonedEvent
+  | ReferencedEvent
+  | RenamedTitleEvent
+  | ReopenedEvent
+  | UnassignedEvent
+  | UnlabeledEvent
+  | UnlockedEvent
+
+"""
+A cross referenced event.
+"""
+type CrossReferencedEvent implements Node & UniformResourceLocatable {
+  actor: Actor
+  createdAt: DateTime!
+  id: ID!
+  isCrossRepository: Boolean!
+  referencedAt: DateTime!
+  resourcePath: URI!
+  source: ReferencedSubject!
+  target: ReferencedSubject!
+  url: URI!
+  willCloseTarget: Boolean!
+}
+
+union ReferencedSubject = Issue | PullRequest
+
+"""
+An event when an item is added to a project.
+"""
+type AddedToProjectEvent implements Node {
+  actor: Actor
+  createdAt: DateTime!
+  databaseId: Int
+  id: ID!
+}
+
+"""
+An event when a user is assigned.
+"""
+type AssignedEvent implements Node {
+  actor: Actor
+  assignable: Assignable!
+  assignee: Assignee
+  createdAt: DateTime!
+  id: ID!
+}
+
+union Assignee = Bot | Mannequin | Organization | User
+
+"""
+An event when an issue or PR is closed.
+"""
+type ClosedEvent implements Node & UniformResourceLocatable {
+  actor: Actor
+  closable: Closable!
+  closer: Closer
+  createdAt: DateTime!
+  id: ID!
+  resourcePath: URI!
+  stateReason: IssueStateReason
+  url: URI!
+}
+
+union Closer = Commit | PullRequest
+
+"""
+An event when a label is applied.
+"""
+type LabeledEvent implements Node {
+  actor: Actor
+  createdAt: DateTime!
+  id: ID!
+  label: Label!
+  labelable: Labelable!
+}
+
+"""
+An event when an object is locked.
+"""
+type LockedEvent implements Node {
+  actor: Actor
+  createdAt: DateTime!
+  id: ID!
+  lockReason: LockReason
+  lockable: Lockable!
+}
+
+"""
+An event when a milestone is applied.
+"""
+type MilestonedEvent implements Node {
+  actor: Actor
+  createdAt: DateTime!
+  id: ID!
+  milestoneTitle: String!
+  subject: MilestoneItem!
+}
+
+union MilestoneItem = Issue | PullRequest
+
+"""
+An event when something is referenced.
+"""
+type ReferencedEvent implements Node {
+  actor: Actor
+  commit: Commit
+  commitRepository: Repository!
+  createdAt: DateTime!
+  id: ID!
+  isCrossRepository: Boolean!
+  isDirectReference: Boolean!
+  subject: ReferencedSubject!
+}
+
+"""
+An event when a title is renamed.
+"""
+type RenamedTitleEvent implements Node {
+  actor: Actor
+  createdAt: DateTime!
+  currentTitle: String!
+  id: ID!
+  previousTitle: String!
+  subject: RenamedTitleSubject!
+}
+
+union RenamedTitleSubject = Issue | PullRequest
+
+"""
+An event when something is reopened.
+"""
+type ReopenedEvent implements Node {
+  actor: Actor
+  closable: Closable!
+  createdAt: DateTime!
+  id: ID!
+  stateReason: IssueStateReason
+}
+
+"""
+An event when a user is unassigned.
+"""
+type UnassignedEvent implements Node {
+  actor: Actor
+  assignable: Assignable!
+  assignee: Assignee
+  createdAt: DateTime!
+  id: ID!
+}
+
+"""
+An event when a label is removed.
+"""
+type UnlabeledEvent implements Node {
+  actor: Actor
+  createdAt: DateTime!
+  id: ID!
+  label: Label!
+  labelable: Labelable!
+}
+
+"""
+An event when an object is unlocked.
+"""
+type UnlockedEvent implements Node {
+  actor: Actor
+  createdAt: DateTime!
+  id: ID!
+  lockable: Lockable!
+}
+
+input IssueCommentOrder {
+  field: IssueCommentOrderField!
+  direction: OrderDirection!
+}
+
+enum IssueCommentOrderField {
+  UPDATED_AT
+}
+
+"""
+An Issue or Pull Request.
+"""
+union IssueOrPullRequest = Issue | PullRequest
