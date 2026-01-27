@@ -105,6 +105,12 @@ async fn load_workspaces_background(
     let elapsed = loading_start.elapsed();
     let total_files = workspace.file_to_project.len();
 
+    tracing::info!(
+        files = total_files,
+        elapsed_secs = format_args!("{:.1}", elapsed.as_secs_f64()),
+        "Project initialization complete"
+    );
+
     client
         .send_notification::<StatusNotification>(StatusParams {
             status: "ready".to_string(),
@@ -987,9 +993,10 @@ documents: "**/*.graphql"
         }
 
         let elapsed = start.elapsed();
-        tracing::debug!(
-            "Finished loading all project files into AnalysisHost in {:.2}s",
-            elapsed.as_secs_f64()
+        tracing::info!(
+            files = self.workspace.file_to_project.len(),
+            elapsed_secs = format_args!("{:.1}", elapsed.as_secs_f64()),
+            "Project initialization complete"
         );
 
         #[cfg(target_os = "linux")]
