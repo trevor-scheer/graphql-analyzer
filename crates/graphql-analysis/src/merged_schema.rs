@@ -83,12 +83,12 @@ pub fn merged_schema_with_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     project_files: graphql_base_db::ProjectFiles,
 ) -> MergedSchemaResult {
-    tracing::info!("merged_schema: Starting schema merge with diagnostics");
+    tracing::debug!("merged_schema: Starting schema merge with diagnostics");
     let schema_ids = project_files.schema_file_ids(db).ids(db);
-    tracing::info!(schema_file_count = schema_ids.len(), "Found schema files");
+    tracing::debug!(schema_file_count = schema_ids.len(), "Found schema files");
 
     if schema_ids.is_empty() {
-        tracing::info!("No schema files found in project - returning empty result");
+        tracing::debug!("No schema files found in project - returning empty result");
         return MergedSchemaResult {
             schema: None,
             diagnostics_by_file: Arc::new(HashMap::new()),

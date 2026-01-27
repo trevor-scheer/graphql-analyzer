@@ -41,6 +41,23 @@ pub struct VirtualFileContentParams {
     pub uri: String,
 }
 
+/// Custom notification sent from server to client to indicate loading status.
+/// The extension uses this to update the status bar (spinning icon during loading,
+/// checkmark when ready).
+pub enum StatusNotification {}
+
+impl lsp_types::notification::Notification for StatusNotification {
+    type Params = StatusParams;
+    const METHOD: &'static str = "graphql/status";
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct StatusParams {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
 pub struct GraphQLLanguageServer {
     client: Client,
     /// Client capabilities received during initialization
@@ -56,13 +73,22 @@ async fn load_workspaces_background(
     workspace: Arc<WorkspaceManager>,
     folders: Vec<(String, PathBuf)>,
 ) {
-    tracing::info!(
+    let loading_start = std::time::Instant::now();
+
+    tracing::debug!(
         "Loading configs for {} workspace(s) in background",
         folders.len()
     );
 
+    client
+        .send_notification::<StatusNotification>(StatusParams {
+            status: "loading".to_string(),
+            message: Some(format!("Loading {} workspace(s)...", folders.len())),
+        })
+        .await;
+
     for (uri, path) in folders {
-        tracing::info!(
+        tracing::debug!(
             "Loading config for workspace: {} at {}",
             uri,
             path.display()
@@ -70,11 +96,33 @@ async fn load_workspaces_background(
         load_workspace_config_background(&client, &workspace, &uri, &path).await;
     }
 
-    tracing::info!(
+    tracing::debug!(
         "Background loading complete: {} workspace roots, {} configs",
         workspace.workspace_roots.len(),
         workspace.configs.len()
     );
+
+    let elapsed = loading_start.elapsed();
+    let total_files = workspace.file_to_project.len();
+
+    let init_message = format!(
+        "Project initialization complete: {} files loaded in {:.1}s",
+        total_files,
+        elapsed.as_secs_f64()
+    );
+    tracing::info!("{}", init_message);
+    client.log_message(MessageType::INFO, &init_message).await;
+
+    client
+        .send_notification::<StatusNotification>(StatusParams {
+            status: "ready".to_string(),
+            message: Some(format!(
+                "{} files loaded in {:.1}s",
+                total_files,
+                elapsed.as_secs_f64()
+            )),
+        })
+        .await;
 
     // Register file watchers for config files after loading
     let config_paths: Vec<PathBuf> = workspace
@@ -88,7 +136,7 @@ async fn load_workspaces_background(
         return;
     }
 
-    tracing::info!(
+    tracing::debug!(
         count = config_paths.len(),
         "Registering config file watchers"
     );
@@ -259,7 +307,7 @@ async fn load_workspace_config_background(
         }
         Ok(None) => {
             // In background mode, just log - don't show interactive dialog
-            tracing::info!("No GraphQL config found in workspace");
+            tracing::debug!("No GraphQL config found in workspace");
             client
                 .log_message(
                     MessageType::INFO,
@@ -285,13 +333,14 @@ async fn load_all_project_files_background(
     const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
     let start = std::time::Instant::now();
     let projects: Vec<_> = config.projects().collect();
-    tracing::info!(
+    tracing::debug!(
         "Loading files for {} project(s) in background",
         projects.len()
     );
 
     for (project_name, project_config) in projects {
-        tracing::info!("Loading project: {}", project_name);
+        let project_start = std::time::Instant::now();
+        tracing::debug!("Loading project: {}", project_name);
 
         let extract_config = project_config
             .extensions
@@ -326,7 +375,7 @@ async fn load_all_project_files_background(
             .with_write(
                 |h| match h.load_schemas_from_config(project_config, workspace_path) {
                     Ok(result) => {
-                        tracing::info!(
+                        tracing::debug!(
                             "Loaded {} local schema file(s), {} remote pending",
                             result.loaded_count,
                             result.pending_introspections.len()
@@ -379,7 +428,7 @@ async fn load_all_project_files_background(
         }
 
         let total_files = discovered_files.len();
-        tracing::info!(
+        tracing::debug!(
             "Discovered {} document files for project '{}'",
             total_files,
             project_name
@@ -422,7 +471,7 @@ async fn load_all_project_files_background(
 
         let all_diagnostics_map = snapshot.all_diagnostics_for_files(&loaded_file_paths);
 
-        tracing::info!(
+        tracing::debug!(
             "Publishing diagnostics for {} files with issues",
             all_diagnostics_map.len()
         );
@@ -449,9 +498,18 @@ async fn load_all_project_files_background(
                 }
             }
         }
+
+        let project_msg = format!(
+            "Project '{}' loaded: {} files in {:.1}s",
+            project_name,
+            loaded_files.len(),
+            project_start.elapsed().as_secs_f64()
+        );
+        tracing::info!("{}", project_msg);
+        client.log_message(MessageType::INFO, &project_msg).await;
     }
 
-    tracing::info!(
+    tracing::debug!(
         "Background loading finished in {:.2}s",
         start.elapsed().as_secs_f64()
     );
@@ -506,7 +564,7 @@ impl GraphQLLanguageServer {
     #[tracing::instrument(skip(self), fields(workspace_uri = %workspace_uri))]
     /// Load GraphQL config from a workspace folder and load all project files
     async fn load_workspace_config(&self, workspace_uri: &str, workspace_path: &PathBuf) {
-        tracing::info!(path = ?workspace_path, "Loading GraphQL config");
+        tracing::debug!(path = ?workspace_path, "Loading GraphQL config");
 
         self.workspace
             .workspace_roots
@@ -691,7 +749,7 @@ documents: "**/*.graphql"
         pending_introspections: &[graphql_ide::PendingIntrospection],
         project_name: &str,
     ) {
-        tracing::info!(
+        tracing::debug!(
             "Fetching {} remote schema(s) for project '{}'",
             pending_introspections.len(),
             project_name
@@ -699,7 +757,7 @@ documents: "**/*.graphql"
 
         for pending in pending_introspections {
             let url = &pending.url;
-            tracing::info!("Introspecting remote schema: {}", url);
+            tracing::debug!("Introspecting remote schema: {}", url);
 
             // Build the introspection client with config options
             let mut client = graphql_introspect::IntrospectionClient::new();
@@ -723,7 +781,7 @@ documents: "**/*.graphql"
                 Ok(response) => {
                     // Convert introspection response to SDL
                     let sdl = graphql_introspect::introspection_to_sdl(&response);
-                    tracing::info!(
+                    tracing::debug!(
                         "Successfully introspected schema from {} ({} bytes SDL)",
                         url,
                         sdl.len()
@@ -734,7 +792,7 @@ documents: "**/*.graphql"
                         .with_write(|h| h.add_introspected_schema(url, &sdl))
                         .await;
 
-                    tracing::info!("Registered remote schema as virtual file: {}", virtual_uri);
+                    tracing::debug!("Registered remote schema as virtual file: {}", virtual_uri);
 
                     self.client
                         .log_message(
@@ -767,10 +825,11 @@ documents: "**/*.graphql"
         const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
         let start = std::time::Instant::now();
         let projects: Vec<_> = config.projects().collect();
-        tracing::info!("Loading files for {} project(s)", projects.len());
+        tracing::debug!("Loading files for {} project(s)", projects.len());
 
         for (project_name, project_config) in projects {
-            tracing::info!("Loading project: {}", project_name);
+            let project_start = std::time::Instant::now();
+            tracing::debug!("Loading project: {}", project_name);
             let extract_config = project_config
                 .extensions
                 .as_ref()
@@ -817,7 +876,7 @@ documents: "**/*.graphql"
                     // Load schemas first
                     let pending = match h.load_schemas_from_config(project_config, workspace_path) {
                         Ok(result) => {
-                            tracing::info!(
+                            tracing::debug!(
                                 "Loaded {} local schema file(s), {} remote schema(s) pending",
                                 result.loaded_count,
                                 result.pending_introspections.len()
@@ -847,7 +906,7 @@ documents: "**/*.graphql"
 
             if !loaded_files.is_empty() {
                 let total_files_loaded = loaded_files.len();
-                tracing::info!(
+                tracing::debug!(
                     "Collected {} document files for project '{}'",
                     total_files_loaded,
                     project_name
@@ -878,7 +937,7 @@ documents: "**/*.graphql"
                     );
                 }
 
-                tracing::info!(
+                tracing::debug!(
                     "Finished loading documents for project '{}': {} files total",
                     project_name,
                     total_files_loaded
@@ -888,7 +947,7 @@ documents: "**/*.graphql"
                 // which rebuilds the ProjectFiles index automatically
 
                 // Publish initial diagnostics for all loaded files
-                tracing::info!(
+                tracing::debug!(
                     "Publishing initial diagnostics for {} files...",
                     total_files_loaded
                 );
@@ -906,7 +965,7 @@ documents: "**/*.graphql"
                 // Use the new all_diagnostics_for_files helper to merge per-file and project-wide diagnostics
                 let all_diagnostics_map = snapshot.all_diagnostics_for_files(&loaded_file_paths);
 
-                tracing::info!(
+                tracing::debug!(
                     "Publishing diagnostics for {} files with issues",
                     all_diagnostics_map.len()
                 );
@@ -939,25 +998,41 @@ documents: "**/*.graphql"
                     }
                 }
 
-                tracing::info!(
+                tracing::debug!(
                     "Initial diagnostics published in {:.2}s",
                     diag_start.elapsed().as_secs_f64()
                 );
             }
+
+            let project_msg = format!(
+                "Project '{}' loaded: {} files in {:.1}s",
+                project_name,
+                loaded_files.len(),
+                project_start.elapsed().as_secs_f64()
+            );
+            tracing::info!("{}", project_msg);
+            self.client
+                .log_message(MessageType::INFO, &project_msg)
+                .await;
         }
 
         let elapsed = start.elapsed();
-        tracing::info!(
-            "Finished loading all project files into AnalysisHost in {:.2}s",
+        let init_message = format!(
+            "Project initialization complete: {} files loaded in {:.1}s",
+            self.workspace.file_to_project.len(),
             elapsed.as_secs_f64()
         );
+        tracing::info!("{}", init_message);
+        self.client
+            .log_message(MessageType::INFO, &init_message)
+            .await;
 
         #[cfg(target_os = "linux")]
         {
             if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
                 for line in status.lines() {
                     if line.starts_with("VmRSS:") || line.starts_with("VmSize:") {
-                        tracing::info!("Memory: {}", line.trim());
+                        tracing::debug!("Memory: {}", line.trim());
                     }
                 }
             }
@@ -970,7 +1045,7 @@ documents: "**/*.graphql"
     /// from disk, then re-discovers and loads all project files.
     #[tracing::instrument(skip(self), fields(workspace_uri = %workspace_uri))]
     async fn reload_workspace_config(&self, workspace_uri: &str) {
-        tracing::info!("Reloading configuration for workspace: {}", workspace_uri);
+        tracing::debug!("Reloading configuration for workspace: {}", workspace_uri);
 
         let Some(workspace_path) = self
             .workspace
@@ -998,7 +1073,7 @@ documents: "**/*.graphql"
             self.workspace.hosts.remove(key);
         }
 
-        tracing::info!(
+        tracing::debug!(
             "Cleared {} existing host(s) for workspace",
             keys_to_remove.len()
         );
@@ -1015,7 +1090,7 @@ documents: "**/*.graphql"
             self.workspace.file_to_project.remove(key);
         }
 
-        tracing::info!(
+        tracing::debug!(
             "Cleared {} file-to-project mappings for workspace",
             file_keys_to_remove.len()
         );
@@ -1035,7 +1110,7 @@ documents: "**/*.graphql"
                 .await;
         }
 
-        tracing::info!(
+        tracing::debug!(
             "Configuration reload complete for workspace: {}",
             workspace_uri
         );
@@ -1156,7 +1231,7 @@ impl LanguageServer for GraphQLLanguageServer {
             .and_then(|td| td.folding_range.as_ref())
             .is_some();
 
-        tracing::info!(
+        tracing::debug!(
             supports_hover,
             supports_completion,
             supports_definition,
@@ -1170,15 +1245,15 @@ impl LanguageServer for GraphQLLanguageServer {
         );
 
         if let Some(ref folders) = params.workspace_folders {
-            tracing::info!(count = folders.len(), "Workspace folders received");
+            tracing::debug!(count = folders.len(), "Workspace folders received");
             for folder in folders {
-                tracing::info!(
+                tracing::debug!(
                     "Workspace folder: name={}, uri={}",
                     folder.name,
                     folder.uri.as_str()
                 );
                 if let Some(path) = folder.uri.to_file_path() {
-                    tracing::info!("  -> Path: {}", path.display());
+                    tracing::debug!("  -> Path: {}", path.display());
                     self.workspace
                         .init_workspace_folders
                         .insert(folder.uri.to_string(), path.into_owned());
@@ -1779,7 +1854,7 @@ impl LanguageServer for GraphQLLanguageServer {
             .filter(|t| t.token_modifiers_bitset != 0)
             .count();
         if deprecated_count > 0 {
-            tracing::info!(
+            tracing::debug!(
                 "Found {} tokens with modifiers (deprecated or definition)",
                 deprecated_count
             );
@@ -1787,7 +1862,7 @@ impl LanguageServer for GraphQLLanguageServer {
                 .iter()
                 .filter(|t| t.token_modifiers_bitset != 0)
             {
-                tracing::info!(
+                tracing::debug!(
                     "  Token with modifiers_bitset={}",
                     token.token_modifiers_bitset
                 );
