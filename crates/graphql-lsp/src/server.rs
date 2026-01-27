@@ -18,9 +18,9 @@ use lsp_types::{
     MessageType, OneOf, ReferenceParams, SemanticToken, SemanticTokenModifier, SemanticTokenType,
     SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
     SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
-    ServerCapabilities, ServerInfo, SymbolInformation, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextEdit, Uri, WorkDoneProgressOptions, WorkspaceEdit, WorkspaceSymbol,
-    WorkspaceSymbolParams,
+    ServerCapabilities, ServerInfo, ShowDocumentParams, SymbolInformation,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri, WorkDoneProgressOptions,
+    WorkspaceEdit, WorkspaceSymbol, WorkspaceSymbolParams,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -118,6 +118,39 @@ async fn load_workspaces_background(
     }
 }
 
+/// Convert config validation errors to LSP diagnostics.
+fn validation_errors_to_diagnostics(
+    errors: &[graphql_config::ConfigValidationError],
+    config_content: &str,
+) -> Vec<Diagnostic> {
+    errors
+        .iter()
+        .map(|error| {
+            let range = error
+                .location(config_content)
+                .map_or(lsp_types::Range::default(), |loc| lsp_types::Range {
+                    start: lsp_types::Position {
+                        line: loc.line,
+                        character: loc.start_column,
+                    },
+                    end: lsp_types::Position {
+                        line: loc.line,
+                        character: loc.end_column,
+                    },
+                });
+
+            Diagnostic {
+                range,
+                severity: Some(lsp_types::DiagnosticSeverity::ERROR),
+                code: Some(lsp_types::NumberOrString::String(error.code().to_string())),
+                source: Some("graphql-config".to_string()),
+                message: error.message(),
+                ..Default::default()
+            }
+        })
+        .collect()
+}
+
 /// Load a single workspace config in the background
 #[allow(clippy::too_many_lines)]
 async fn load_workspace_config_background(
@@ -138,6 +171,62 @@ async fn load_workspace_config_background(
 
             match graphql_config::load_config(&config_path) {
                 Ok(config) => {
+                    // Validate configuration
+                    let errors = graphql_config::validate(&config, workspace_path);
+
+                    if !errors.is_empty() {
+                        let config_content =
+                            std::fs::read_to_string(&config_path).unwrap_or_default();
+                        let config_uri =
+                            Uri::from_str(&graphql_ide::path_to_file_uri(&config_path))
+                                .expect("valid config path");
+
+                        let diagnostics =
+                            validation_errors_to_diagnostics(&errors, &config_content);
+                        client
+                            .publish_diagnostics(config_uri.clone(), diagnostics, None)
+                            .await;
+
+                        // Show error with action to open config file
+                        let actions = vec![
+                            MessageActionItem {
+                                title: "Open Config".to_string(),
+                                properties: HashMap::default(),
+                            },
+                            MessageActionItem {
+                                title: "Dismiss".to_string(),
+                                properties: HashMap::default(),
+                            },
+                        ];
+
+                        let response = client
+                            .show_message_request(
+                                MessageType::ERROR,
+                                format!(
+                                    "GraphQL config has {} validation error(s). \
+                                    Please fix the configuration before continuing.",
+                                    errors.len()
+                                ),
+                                Some(actions),
+                            )
+                            .await;
+
+                        if let Ok(Some(action)) = response {
+                            if action.title == "Open Config" {
+                                let _ = client
+                                    .show_document(ShowDocumentParams {
+                                        uri: config_uri,
+                                        external: Some(false),
+                                        take_focus: Some(true),
+                                        selection: None,
+                                    })
+                                    .await;
+                            }
+                        }
+
+                        return;
+                    }
+
                     client
                         .log_message(MessageType::INFO, "GraphQL config found, loading files...")
                         .await;
@@ -429,6 +518,63 @@ impl GraphQLLanguageServer {
 
                 match graphql_config::load_config(&config_path) {
                     Ok(config) => {
+                        // Validate configuration
+                        let errors = graphql_config::validate(&config, workspace_path);
+
+                        if !errors.is_empty() {
+                            let config_content =
+                                std::fs::read_to_string(&config_path).unwrap_or_default();
+                            let config_uri =
+                                Uri::from_str(&graphql_ide::path_to_file_uri(&config_path))
+                                    .expect("valid config path");
+
+                            let diagnostics =
+                                validation_errors_to_diagnostics(&errors, &config_content);
+                            self.client
+                                .publish_diagnostics(config_uri.clone(), diagnostics, None)
+                                .await;
+
+                            let actions = vec![
+                                MessageActionItem {
+                                    title: "Open Config".to_string(),
+                                    properties: HashMap::default(),
+                                },
+                                MessageActionItem {
+                                    title: "Dismiss".to_string(),
+                                    properties: HashMap::default(),
+                                },
+                            ];
+
+                            let response = self
+                                .client
+                                .show_message_request(
+                                    MessageType::ERROR,
+                                    format!(
+                                        "GraphQL config has {} validation error(s). \
+                                        Please fix the configuration before continuing.",
+                                        errors.len()
+                                    ),
+                                    Some(actions),
+                                )
+                                .await;
+
+                            if let Ok(Some(action)) = response {
+                                if action.title == "Open Config" {
+                                    let _ = self
+                                        .client
+                                        .show_document(ShowDocumentParams {
+                                            uri: config_uri,
+                                            external: Some(false),
+                                            take_focus: Some(true),
+                                            selection: None,
+                                        })
+                                        .await;
+                                }
+                            }
+
+                            return;
+                        }
+
                         self.client
                             .log_message(
                                 MessageType::INFO,

@@ -592,6 +592,7 @@ pub fn format_type_ref(type_ref: &graphql_hir::TypeRef) -> String {
 }
 
 /// Convert a filesystem path to a file:// URI
+#[must_use]
 pub fn path_to_file_uri(path: &std::path::Path) -> String {
     let path_str = path.to_string_lossy();
 

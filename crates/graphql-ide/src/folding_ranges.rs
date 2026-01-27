@@ -71,6 +71,7 @@ pub fn folding_ranges(
 }
 
 /// Collect folding ranges from a definition
+#[allow(clippy::too_many_lines)]
 fn collect_definition_folding_ranges(
     definition: &Definition,
     line_index: &graphql_syntax::LineIndex,
