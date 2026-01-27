@@ -339,6 +339,7 @@ async fn load_all_project_files_background(
     );
 
     for (project_name, project_config) in projects {
+        let project_start = std::time::Instant::now();
         tracing::debug!("Loading project: {}", project_name);
 
         let extract_config = project_config
@@ -497,6 +498,15 @@ async fn load_all_project_files_background(
                 }
             }
         }
+
+        let project_msg = format!(
+            "Project '{}' loaded: {} files in {:.1}s",
+            project_name,
+            loaded_files.len(),
+            project_start.elapsed().as_secs_f64()
+        );
+        tracing::info!("{}", project_msg);
+        client.log_message(MessageType::INFO, &project_msg).await;
     }
 
     tracing::debug!(
@@ -818,6 +828,7 @@ documents: "**/*.graphql"
         tracing::debug!("Loading files for {} project(s)", projects.len());
 
         for (project_name, project_config) in projects {
+            let project_start = std::time::Instant::now();
             tracing::debug!("Loading project: {}", project_name);
             let extract_config = project_config
                 .extensions
@@ -992,6 +1003,17 @@ documents: "**/*.graphql"
                     diag_start.elapsed().as_secs_f64()
                 );
             }
+
+            let project_msg = format!(
+                "Project '{}' loaded: {} files in {:.1}s",
+                project_name,
+                loaded_files.len(),
+                project_start.elapsed().as_secs_f64()
+            );
+            tracing::info!("{}", project_msg);
+            self.client
+                .log_message(MessageType::INFO, &project_msg)
+                .await;
         }
 
         let elapsed = start.elapsed();
