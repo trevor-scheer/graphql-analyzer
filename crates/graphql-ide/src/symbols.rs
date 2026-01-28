@@ -4,10 +4,12 @@
 //! - Document symbols (Cmd+Shift+O) - hierarchical outline of a file
 //! - Workspace symbols (Cmd+T) - search across all files
 
+use std::collections::HashMap;
+
 use crate::helpers::{adjust_range_for_line_offset, format_type_ref, offset_range_to_range};
 use crate::symbol::{
-    extract_all_definitions, find_field_definition_full_range, find_fragment_definition_full_range,
-    find_operation_definition_ranges, find_type_definition_full_range,
+    extract_all_definitions, find_fragment_definition_full_range, find_operation_definition_ranges,
+    find_type_definition_full_range, SymbolRanges,
 };
 use crate::types::{DocumentSymbol, FilePath, Location, SymbolKind, WorkspaceSymbol};
 use crate::FileRegistry;
@@ -49,6 +51,7 @@ pub fn document_symbols(
         let doc_line_offset = doc.line_offset as u32;
 
         let definitions = extract_all_definitions(doc.tree);
+        let field_ranges_map = extract_all_field_ranges(doc.tree);
 
         for (name, kind, ranges) in definitions {
             let range = adjust_range_for_line_offset(
@@ -61,37 +64,20 @@ pub fn document_symbols(
             );
 
             let symbol = match kind {
-                "object" => {
-                    let children = get_field_children(
+                "object" | "interface" | "input" => {
+                    let children = get_field_children_from_map(
                         &structure,
                         &name,
-                        doc.tree,
+                        &field_ranges_map,
                         &doc_line_index,
                         doc_line_offset,
                     );
-                    DocumentSymbol::new(name, SymbolKind::Type, range, selection_range)
-                        .with_children(children)
-                }
-                "interface" => {
-                    let children = get_field_children(
-                        &structure,
-                        &name,
-                        doc.tree,
-                        &doc_line_index,
-                        doc_line_offset,
-                    );
-                    DocumentSymbol::new(name, SymbolKind::Interface, range, selection_range)
-                        .with_children(children)
-                }
-                "input" => {
-                    let children = get_field_children(
-                        &structure,
-                        &name,
-                        doc.tree,
-                        &doc_line_index,
-                        doc_line_offset,
-                    );
-                    DocumentSymbol::new(name, SymbolKind::Input, range, selection_range)
+                    let sym_kind = match kind {
+                        "object" => SymbolKind::Type,
+                        "interface" => SymbolKind::Interface,
+                        _ => SymbolKind::Input,
+                    };
+                    DocumentSymbol::new(name, sym_kind, range, selection_range)
                         .with_children(children)
                 }
                 "union" => DocumentSymbol::new(name, SymbolKind::Union, range, selection_range),
@@ -205,11 +191,74 @@ pub fn workspace_symbols(
     symbols
 }
 
-/// Get field children for a type definition.
-fn get_field_children(
+/// Extract field ranges for all type definitions in a single AST pass.
+///
+/// Returns a map of type name to field name/range pairs.
+/// This avoids the O(types × fields × definitions) cost of searching the AST
+/// per field, which hangs the LSP on large generated schema files.
+fn extract_all_field_ranges(
+    tree: &apollo_parser::SyntaxTree,
+) -> HashMap<String, Vec<(String, SymbolRanges)>> {
+    use apollo_parser::cst::{self, CstNode};
+
+    let doc = tree.document();
+    let mut map: HashMap<String, Vec<(String, SymbolRanges)>> = HashMap::new();
+
+    for definition in doc.definitions() {
+        let (type_name, fields_def) = match &definition {
+            cst::Definition::ObjectTypeDefinition(obj) => (
+                obj.name().map(|n| n.text().to_string()),
+                obj.fields_definition(),
+            ),
+            cst::Definition::InterfaceTypeDefinition(iface) => (
+                iface.name().map(|n| n.text().to_string()),
+                iface.fields_definition(),
+            ),
+            cst::Definition::InputObjectTypeDefinition(input) => {
+                let fields = input
+                    .input_fields_definition()
+                    .and_then(|f| cst::FieldsDefinition::cast(f.syntax().clone()));
+                (input.name().map(|n| n.text().to_string()), fields)
+            }
+            _ => continue,
+        };
+
+        let Some(type_name) = type_name else {
+            continue;
+        };
+        let Some(fields_def) = fields_def else {
+            continue;
+        };
+
+        let field_ranges: Vec<(String, SymbolRanges)> = fields_def
+            .field_definitions()
+            .filter_map(|field| {
+                let name = field.name()?;
+                let name_range = name.syntax().text_range();
+                let def_range = field.syntax().text_range();
+                Some((
+                    name.text().to_string(),
+                    SymbolRanges {
+                        name_start: name_range.start().into(),
+                        name_end: name_range.end().into(),
+                        def_start: def_range.start().into(),
+                        def_end: def_range.end().into(),
+                    },
+                ))
+            })
+            .collect();
+
+        map.insert(type_name, field_ranges);
+    }
+
+    map
+}
+
+/// Get field children for a type definition using pre-extracted field ranges.
+fn get_field_children_from_map(
     structure: &graphql_hir::FileStructureData,
     type_name: &str,
-    tree: &apollo_parser::SyntaxTree,
+    field_ranges_map: &HashMap<String, Vec<(String, SymbolRanges)>>,
     line_index: &graphql_syntax::LineIndex,
     line_offset: u32,
 ) -> Vec<DocumentSymbol> {
@@ -221,10 +270,14 @@ fn get_field_children(
         return Vec::new();
     };
 
+    let Some(field_ranges) = field_ranges_map.get(type_name) else {
+        return Vec::new();
+    };
+
     let mut children = Vec::new();
 
     for field in &type_def.fields {
-        if let Some(ranges) = find_field_definition_full_range(tree, type_name, &field.name) {
+        if let Some((_, ranges)) = field_ranges.iter().find(|(n, _)| n == field.name.as_ref()) {
             let range = adjust_range_for_line_offset(
                 offset_range_to_range(line_index, ranges.def_start, ranges.def_end),
                 line_offset,
