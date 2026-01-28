@@ -1838,7 +1838,7 @@ impl LanguageServer for GraphQLLanguageServer {
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
         let uri = params.text_document.uri;
-        tracing::debug!("Document symbols requested: {:?}", uri);
+        tracing::info!("document_symbol: start {:?}", uri);
 
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
         else {
@@ -1867,7 +1867,7 @@ impl LanguageServer for GraphQLLanguageServer {
             .map(convert_ide_document_symbol)
             .collect();
 
-        tracing::debug!("Returning {} document symbols", lsp_symbols.len());
+        tracing::info!("document_symbol: done ({} symbols)", lsp_symbols.len());
         Ok(Some(DocumentSymbolResponse::Nested(lsp_symbols)))
     }
 
@@ -1906,7 +1906,7 @@ impl LanguageServer for GraphQLLanguageServer {
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
         let uri = params.text_document.uri;
-        tracing::debug!("Semantic tokens requested: {:?}", uri);
+        tracing::info!("semantic_tokens_full: start {:?}", uri);
 
         // Find workspace for this document
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
@@ -1983,6 +1983,10 @@ impl LanguageServer for GraphQLLanguageServer {
             "Returning {} semantic tokens for {:?}",
             encoded_tokens.len(),
             uri
+        );
+        tracing::info!(
+            "semantic_tokens_full: done ({} tokens)",
+            encoded_tokens.len()
         );
         Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
             result_id: None,
@@ -2212,7 +2216,7 @@ impl LanguageServer for GraphQLLanguageServer {
     #[tracing::instrument(skip(self, params), fields(uri = ?params.text_document.uri))]
     async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
         let uri = params.text_document.uri;
-        tracing::debug!("Code lens requested: {:?}", uri);
+        tracing::info!("code_lens: start {:?}", uri);
 
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
         else {
@@ -2267,11 +2271,7 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         }
 
-        tracing::debug!(
-            "Returning {} code lenses for {:?}",
-            lsp_code_lenses.len(),
-            uri
-        );
+        tracing::info!("code_lens: done ({} lenses)", lsp_code_lenses.len());
         Ok(Some(lsp_code_lenses))
     }
 
@@ -2283,7 +2283,7 @@ impl LanguageServer for GraphQLLanguageServer {
     #[tracing::instrument(skip(self, params), fields(uri = ?params.text_document.uri))]
     async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
         let uri = params.text_document.uri;
-        tracing::debug!("Folding range requested: {:?}", uri);
+        tracing::info!("folding_range: start {:?}", uri);
 
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
         else {
@@ -2308,11 +2308,7 @@ impl LanguageServer for GraphQLLanguageServer {
 
         let lsp_ranges: Vec<FoldingRange> = ranges.iter().map(convert_ide_folding_range).collect();
 
-        tracing::debug!(
-            "Returning {} folding ranges for {:?}",
-            lsp_ranges.len(),
-            uri
-        );
+        tracing::info!("folding_range: done ({} ranges)", lsp_ranges.len());
         Ok(Some(lsp_ranges))
     }
 }
