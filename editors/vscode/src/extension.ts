@@ -304,20 +304,28 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
       await client.start();
       outputChannel.appendLine("Language client started successfully!");
 
-      client.onNotification("graphql/status", (params: { status: string; message?: string }) => {
-        switch (params.status) {
-          case "loading":
-            statusBarItem.text = "$(loading~spin) GraphQL";
-            statusBarItem.backgroundColor = new ThemeColor("statusBarItem.warningBackground");
-            statusBarItem.tooltip = params.message || "Loading GraphQL project...";
-            break;
-          case "ready":
-            statusBarItem.text = "$(check) GraphQL";
-            statusBarItem.backgroundColor = undefined;
-            statusBarItem.tooltip = params.message || "GraphQL LSP is running";
-            break;
+      client.onNotification(
+        "graphql/status",
+        (params: { status: string; message?: string; files_loaded?: number; files_total?: number }) => {
+          switch (params.status) {
+            case "loading": {
+              const progress =
+                params.files_total != null
+                  ? ` (${params.files_loaded ?? 0}/${params.files_total})`
+                  : "";
+              statusBarItem.text = `$(loading~spin) GraphQL${progress}`;
+              statusBarItem.backgroundColor = new ThemeColor("statusBarItem.warningBackground");
+              statusBarItem.tooltip = params.message || "Loading GraphQL project...";
+              break;
+            }
+            case "ready":
+              statusBarItem.text = "$(check) GraphQL";
+              statusBarItem.backgroundColor = undefined;
+              statusBarItem.tooltip = params.message || "GraphQL LSP is running";
+              break;
+          }
         }
-      });
+      );
     }
   );
 }

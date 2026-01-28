@@ -25,6 +25,7 @@ use lsp_types::{
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -56,6 +57,41 @@ pub struct StatusParams {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files_loaded: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files_total: Option<usize>,
+}
+
+/// Tracks cumulative file loading progress across all projects.
+struct LoadProgress {
+    loaded: AtomicUsize,
+    total: AtomicUsize,
+}
+
+impl LoadProgress {
+    fn new() -> Self {
+        Self {
+            loaded: AtomicUsize::new(0),
+            total: AtomicUsize::new(0),
+        }
+    }
+
+    fn add_total(&self, count: usize) {
+        self.total.fetch_add(count, Ordering::Relaxed);
+    }
+
+    fn add_loaded(&self, count: usize) {
+        self.loaded.fetch_add(count, Ordering::Relaxed);
+    }
+
+    fn loaded(&self) -> usize {
+        self.loaded.load(Ordering::Relaxed)
+    }
+
+    fn total(&self) -> usize {
+        self.total.load(Ordering::Relaxed)
+    }
 }
 
 pub struct GraphQLLanguageServer {
@@ -80,10 +116,14 @@ async fn load_workspaces_background(
         folders.len()
     );
 
+    let progress = Arc::new(LoadProgress::new());
+
     client
         .send_notification::<StatusNotification>(StatusParams {
             status: "loading".to_string(),
             message: Some(format!("Loading {} workspace(s)...", folders.len())),
+            files_loaded: None,
+            files_total: None,
         })
         .await;
 
@@ -93,7 +133,7 @@ async fn load_workspaces_background(
             uri,
             path.display()
         );
-        load_workspace_config_background(&client, &workspace, &uri, &path).await;
+        load_workspace_config_background(&client, &workspace, &uri, &path, &progress).await;
     }
 
     tracing::debug!(
@@ -121,6 +161,8 @@ async fn load_workspaces_background(
                 total_files,
                 elapsed.as_secs_f64()
             )),
+            files_loaded: Some(total_files),
+            files_total: Some(total_files),
         })
         .await;
 
@@ -206,6 +248,7 @@ async fn load_workspace_config_background(
     workspace: &Arc<WorkspaceManager>,
     workspace_uri: &str,
     workspace_path: &Path,
+    progress: &Arc<LoadProgress>,
 ) {
     workspace
         .workspace_roots
@@ -291,6 +334,7 @@ async fn load_workspace_config_background(
                         workspace_uri,
                         workspace_path,
                         &config,
+                        progress,
                     )
                     .await;
                 }
@@ -329,6 +373,7 @@ async fn load_all_project_files_background(
     workspace_uri: &str,
     workspace_path: &Path,
     config: &graphql_config::GraphQLConfig,
+    progress: &Arc<LoadProgress>,
 ) {
     const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
     let start = std::time::Instant::now();
@@ -434,6 +479,19 @@ async fn load_all_project_files_background(
             project_name
         );
 
+        progress.add_total(total_files);
+
+        client
+            .send_notification::<StatusNotification>(StatusParams {
+                status: "loading".to_string(),
+                message: Some(format!(
+                    "Loading '{project_name}': discovered {total_files} files"
+                )),
+                files_loaded: Some(progress.loaded()),
+                files_total: Some(progress.total()),
+            })
+            .await;
+
         if total_files >= MAX_FILES_WARNING_THRESHOLD {
             client
                 .show_message(
@@ -495,6 +553,8 @@ async fn load_all_project_files_background(
         // floods VSCode with thousands of RPC messages and can crash the extension host.
         // Empty diagnostics will be published on-demand when files are opened.
 
+        progress.add_loaded(loaded_files.len());
+
         let project_msg = format!(
             "Project '{}' loaded: {} files in {:.1}s",
             project_name,
@@ -503,6 +563,15 @@ async fn load_all_project_files_background(
         );
         tracing::info!("{}", project_msg);
         client.log_message(MessageType::INFO, &project_msg).await;
+
+        client
+            .send_notification::<StatusNotification>(StatusParams {
+                status: "loading".to_string(),
+                message: Some(project_msg),
+                files_loaded: Some(progress.loaded()),
+                files_total: Some(progress.total()),
+            })
+            .await;
     }
 
     tracing::debug!(
