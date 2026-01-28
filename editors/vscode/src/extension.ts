@@ -199,15 +199,15 @@ function startHealthCheck(): void {
   stopHealthCheck();
 
   const config = workspace.getConfiguration("graphql");
-  const enabled = config.get<boolean>("healthCheck.enabled", false);
+  const enabled = config.get<boolean>("debug.healthCheck.enabled", false);
 
   if (!enabled) {
     outputChannel.appendLine("[Health Check] Disabled by configuration");
     return;
   }
 
-  const interval = Math.max(5000, config.get<number>("healthCheck.interval", 30000));
-  const timeout = Math.max(1000, config.get<number>("healthCheck.timeout", 5000));
+  const interval = Math.max(5000, config.get<number>("debug.healthCheck.interval", 30000));
+  const timeout = Math.max(1000, config.get<number>("debug.healthCheck.timeout", 5000));
 
   outputChannel.appendLine(
     `[Health Check] Starting with interval=${interval}ms, timeout=${timeout}ms`
@@ -509,7 +509,7 @@ export async function activate(context: ExtensionContext) {
     // Listen for configuration changes to restart health check with new settings
     context.subscriptions.push(
       workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration("graphql.healthCheck")) {
+        if (event.affectsConfiguration("graphql.debug.healthCheck")) {
           outputChannel.appendLine("[Health Check] Configuration changed, restarting...");
           startHealthCheck();
         }
