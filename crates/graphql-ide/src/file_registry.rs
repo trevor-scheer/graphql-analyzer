@@ -83,10 +83,15 @@ impl FileRegistry {
 
         // Check if file already exists
         if let Some(&existing_id) = self.uri_to_id.get(uri_str) {
-            // File exists - update content in place using Salsa setter
-            // This only invalidates queries that depend on this specific file's content
+            // File exists - only update if content or kind actually changed.
+            // Salsa's input setters unconditionally bump the revision, so setting
+            // identical content would invalidate all dependent queries and trigger
+            // expensive recomputation (e.g., re-validating all 10k files when a
+            // schema file is opened but not modified).
             if let Some(&existing_content) = self.id_to_content.get(&existing_id) {
-                existing_content.set_text(db).to(content_arc);
+                if *existing_content.text(db) != *content_arc {
+                    existing_content.set_text(db).to(content_arc);
+                }
 
                 // Update metadata if needed (kind changed)
                 let metadata = self.id_to_metadata.get(&existing_id).copied().unwrap();
