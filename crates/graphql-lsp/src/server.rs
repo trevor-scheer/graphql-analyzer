@@ -1473,6 +1473,9 @@ impl LanguageServer for GraphQLLanguageServer {
         let uri = params.text_document.uri;
         let content = params.text_document.text;
         let version = params.text_document.version;
+        let uri_str = uri.to_string();
+
+        tracing::info!(uri = uri_str, "did_open: start");
 
         self.workspace
             .document_versions
@@ -1480,6 +1483,10 @@ impl LanguageServer for GraphQLLanguageServer {
 
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
         else {
+            tracing::info!(
+                uri = uri_str,
+                "did_open: no project found, standalone validation"
+            );
             self.validate_file(uri).await;
             return;
         };
@@ -1504,16 +1511,27 @@ impl LanguageServer for GraphQLLanguageServer {
         // Update file and get snapshot in one lock
         // Uses add_file_and_snapshot which properly rebuilds project files if needed
         let file_path = graphql_ide::FilePath::new(uri.to_string());
+        tracing::info!(
+            uri = uri_str,
+            ?final_kind,
+            "did_open: acquiring lock for add_file_and_snapshot"
+        );
         let (is_new, snapshot) = host
             .add_file_and_snapshot(&file_path, &final_content, final_kind)
             .await;
+        tracing::info!(uri = uri_str, is_new, "did_open: lock released");
 
         // Only publish diagnostics if this is a new file (not already loaded during init).
         // Files loaded during init already have diagnostics published (including project-wide).
         // Re-publishing here would overwrite project-wide diagnostics with only per-file ones.
         if is_new {
-            // Use all_diagnostics_for_file to include project-wide diagnostics
+            tracing::info!(uri = uri_str, "did_open: file is new, computing all_diagnostics_for_file (includes project-wide lints)");
             let diagnostics = snapshot.all_diagnostics_for_file(&file_path);
+            tracing::info!(
+                uri = uri_str,
+                count = diagnostics.len(),
+                "did_open: diagnostics computed"
+            );
             let lsp_diagnostics: Vec<Diagnostic> = diagnostics
                 .into_iter()
                 .map(convert_ide_diagnostic)
@@ -1522,6 +1540,8 @@ impl LanguageServer for GraphQLLanguageServer {
                 .publish_diagnostics(uri, lsp_diagnostics, None)
                 .await;
         }
+
+        tracing::info!(uri = uri_str, "did_open: complete");
     }
 
     #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]

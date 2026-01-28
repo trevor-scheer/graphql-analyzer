@@ -89,7 +89,14 @@ impl FileRegistry {
             // expensive recomputation (e.g., re-validating all 10k files when a
             // schema file is opened but not modified).
             if let Some(&existing_content) = self.id_to_content.get(&existing_id) {
-                if *existing_content.text(db) != *content_arc {
+                let content_changed = *existing_content.text(db) != *content_arc;
+                tracing::info!(
+                    uri = uri_str,
+                    content_changed,
+                    "add_file: file exists, content_changed={}",
+                    content_changed
+                );
+                if content_changed {
                     existing_content.set_text(db).to(content_arc);
                 }
 

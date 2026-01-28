@@ -84,7 +84,7 @@ fn init_tracing_without_otel() -> bool {
 fn build_env_filter() -> tracing_subscriber::EnvFilter {
     let base = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    base.add_directive("salsa=off".parse().expect("valid directive"))
+    base.add_directive("salsa=warn".parse().expect("valid directive"))
 }
 
 /// Initialize tracing for the LSP server.
