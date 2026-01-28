@@ -40,8 +40,7 @@ fn init_tracing_with_otel() -> bool {
 
     let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,salsa=warn"));
+    let env_filter = build_env_filter();
 
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
@@ -73,12 +72,19 @@ fn init_tracing_without_otel() -> bool {
         .with_ansi(false) // Disable ANSI colors since LSP output doesn't support them
         .with_target(true) // Include module target in logs for better filtering
         .with_thread_ids(true) // Include thread IDs for async debugging
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,salsa=warn")),
-        )
+        .with_env_filter(build_env_filter())
         .try_init()
         .is_ok()
+}
+
+/// Build the tracing filter, always suppressing noisy Salsa internals.
+///
+/// Salsa's tracked functions emit INFO-level tracing for every query execution,
+/// which produces thousands of log lines during startup on large projects.
+fn build_env_filter() -> tracing_subscriber::EnvFilter {
+    let base = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    base.add_directive("salsa=warn".parse().expect("valid directive"))
 }
 
 /// Initialize tracing for the LSP server.
