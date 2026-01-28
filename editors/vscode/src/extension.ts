@@ -114,24 +114,114 @@ const deprecatedDecorationType: TextEditorDecorationType = window.createTextEdit
 let client: LanguageClient;
 let outputChannel: OutputChannel;
 let statusBarItem: StatusBarItem;
+let healthCheckInterval: NodeJS.Timeout | undefined;
+let isServerHealthy = true;
 
 function updateStatusBar(state: State): void {
+  // Don't override unhealthy state unless the server is stopped/starting
+  if (!isServerHealthy && state === State.Running) {
+    return;
+  }
+
   switch (state) {
     case State.Running:
       statusBarItem.text = "$(check) GraphQL";
       statusBarItem.tooltip = "GraphQL LSP is running";
       statusBarItem.backgroundColor = undefined;
+      isServerHealthy = true;
       break;
     case State.Starting:
       statusBarItem.text = "$(loading~spin) GraphQL";
       statusBarItem.tooltip = "GraphQL LSP is starting...";
       statusBarItem.backgroundColor = new ThemeColor("statusBarItem.warningBackground");
+      isServerHealthy = true;
       break;
     case State.Stopped:
       statusBarItem.text = "$(warning) GraphQL";
       statusBarItem.tooltip = "GraphQL LSP is stopped";
       statusBarItem.backgroundColor = undefined;
+      isServerHealthy = true;
       break;
+  }
+}
+
+function setServerUnhealthy(reason: string): void {
+  isServerHealthy = false;
+  statusBarItem.text = "$(error) GraphQL";
+  statusBarItem.tooltip = `GraphQL LSP is unresponsive: ${reason}`;
+  statusBarItem.backgroundColor = new ThemeColor("statusBarItem.errorBackground");
+  outputChannel.appendLine(`[Health Check] Server unresponsive: ${reason}`);
+}
+
+function setServerHealthy(): void {
+  if (!isServerHealthy) {
+    isServerHealthy = true;
+    statusBarItem.text = "$(check) GraphQL";
+    statusBarItem.tooltip = "GraphQL LSP is running";
+    statusBarItem.backgroundColor = undefined;
+    outputChannel.appendLine("[Health Check] Server recovered");
+  }
+}
+
+async function performHealthCheck(timeout: number): Promise<void> {
+  if (!client || client.state !== State.Running) {
+    return;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    const pingPromise = client.sendRequest<{ timestamp: number }>("graphql/ping");
+
+    // Race the ping against the timeout
+    const result = await Promise.race([
+      pingPromise,
+      new Promise<null>((_, reject) => {
+        controller.signal.addEventListener("abort", () => {
+          reject(new Error("Health check timed out"));
+        });
+      }),
+    ]);
+
+    clearTimeout(timeoutId);
+
+    if (result) {
+      setServerHealthy();
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setServerUnhealthy(message);
+  }
+}
+
+function startHealthCheck(): void {
+  stopHealthCheck();
+
+  const config = workspace.getConfiguration("graphql");
+  const enabled = config.get<boolean>("debug.healthCheck.enabled", false);
+
+  if (!enabled) {
+    outputChannel.appendLine("[Health Check] Disabled by configuration");
+    return;
+  }
+
+  const interval = Math.max(5000, config.get<number>("debug.healthCheck.interval", 30000));
+  const timeout = Math.max(1000, config.get<number>("debug.healthCheck.timeout", 5000));
+
+  outputChannel.appendLine(
+    `[Health Check] Starting with interval=${interval}ms, timeout=${timeout}ms`
+  );
+
+  healthCheckInterval = setInterval(() => {
+    performHealthCheck(timeout);
+  }, interval);
+}
+
+function stopHealthCheck(): void {
+  if (healthCheckInterval) {
+    clearInterval(healthCheckInterval);
+    healthCheckInterval = undefined;
   }
 }
 
@@ -315,9 +405,13 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
             statusBarItem.text = "$(check) GraphQL";
             statusBarItem.backgroundColor = undefined;
             statusBarItem.tooltip = params.message || "GraphQL LSP is running";
+            isServerHealthy = true;
             break;
         }
       });
+
+      // Start health check monitoring after client is ready
+      startHealthCheck();
     }
   );
 }
@@ -350,6 +444,8 @@ export async function activate(context: ExtensionContext) {
       outputChannel.appendLine("=== Restarting GraphQL LSP ===");
 
       try {
+        stopHealthCheck();
+
         if (client) {
           outputChannel.appendLine("Stopping existing client...");
           await client.stop();
@@ -410,6 +506,16 @@ export async function activate(context: ExtensionContext) {
       }
     );
 
+    // Listen for configuration changes to restart health check with new settings
+    context.subscriptions.push(
+      workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration("graphql.debug.healthCheck")) {
+          outputChannel.appendLine("[Health Check] Configuration changed, restarting...");
+          startHealthCheck();
+        }
+      })
+    );
+
     context.subscriptions.push(reloadCommand, checkStatusCommand, showReferencesCommand);
   } catch (error) {
     const errorMessage = `Failed to start GraphQL LSP: ${error}`;
@@ -427,6 +533,7 @@ export async function activate(context: ExtensionContext) {
 }
 
 export function deactivate(): Thenable<void> | undefined {
+  stopHealthCheck();
   if (!client) {
     return undefined;
   }

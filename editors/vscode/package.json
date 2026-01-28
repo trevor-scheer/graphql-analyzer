@@ -75,47 +75,70 @@
         }
       }
     },
-    "configuration": {
-      "type": "object",
-      "title": "GraphQL LSP",
-      "properties": {
-        "graphql.trace.server": {
-          "type": "string",
-          "enum": [
-            "off",
-            "messages",
-            "verbose"
-          ],
-          "default": "off",
-          "description": "Traces the communication between VS Code and the language server."
-        },
-        "graphql.server.path": {
-          "type": "string",
-          "default": "",
-          "description": "Path to the graphql-lsp server executable. If empty, the extension will search for it in PATH or download it automatically."
-        },
-        "graphql.server.logLevel": {
-          "type": "string",
-          "enum": [
-            "error",
-            "warn",
-            "info",
-            "debug",
-            "trace"
-          ],
-          "default": "info",
-          "description": "Log level for the LSP server (sets RUST_LOG environment variable)."
-        },
-        "graphql.server.env": {
-          "type": "object",
-          "default": {},
-          "description": "Environment variables to pass to the LSP server process.",
-          "additionalProperties": {
-            "type": "string"
+    "configuration": [
+      {
+        "title": "General",
+        "properties": {
+          "graphql.trace.server": {
+            "type": "string",
+            "enum": [
+              "off",
+              "messages",
+              "verbose"
+            ],
+            "default": "off",
+            "description": "Traces the communication between VS Code and the language server."
+          },
+          "graphql.server.path": {
+            "type": "string",
+            "default": "",
+            "description": "Path to the graphql-lsp server executable. If empty, the extension will search for it in PATH or download it automatically."
+          },
+          "graphql.server.logLevel": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warn",
+              "info",
+              "debug",
+              "trace"
+            ],
+            "default": "info",
+            "description": "Log level for the LSP server (sets RUST_LOG environment variable)."
+          },
+          "graphql.server.env": {
+            "type": "object",
+            "default": {},
+            "description": "Environment variables to pass to the LSP server process.",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "title": "Debug",
+        "properties": {
+          "graphql.debug.healthCheck.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable periodic health checks to detect when the LSP server becomes unresponsive."
+          },
+          "graphql.debug.healthCheck.interval": {
+            "type": "number",
+            "default": 30000,
+            "minimum": 5000,
+            "description": "Interval between health checks in milliseconds (minimum 5000ms)."
+          },
+          "graphql.debug.healthCheck.timeout": {
+            "type": "number",
+            "default": 5000,
+            "minimum": 1000,
+            "description": "Timeout for health check requests in milliseconds (minimum 1000ms)."
           }
         }
       }
-    },
+    ],
     "keybindings": [
       {
         "command": "graphql-lsp.restartServer",

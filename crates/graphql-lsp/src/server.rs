@@ -58,6 +58,13 @@ pub struct StatusParams {
     pub message: Option<String>,
 }
 
+/// Response for the `graphql/ping` health check request.
+#[derive(Debug, serde::Serialize)]
+pub struct PingResponse {
+    /// Server timestamp in milliseconds since Unix epoch.
+    pub timestamp: u64,
+}
+
 pub struct GraphQLLanguageServer {
     client: Client,
     /// Client capabilities received during initialization
@@ -549,6 +556,20 @@ impl GraphQLLanguageServer {
 
         tracing::debug!("Virtual file not found: {}", params.uri);
         Ok(None)
+    }
+
+    /// Health check endpoint for the extension to verify the server is responsive.
+    ///
+    /// Returns a simple response with the current server timestamp. If this request
+    /// times out, the extension can assume the server is hung and display a warning.
+    #[allow(clippy::unused_async)] // tower-lsp requires async for custom methods
+    pub async fn ping(&self) -> Result<PingResponse> {
+        #[allow(clippy::cast_possible_truncation)] // timestamp fits in u64 for centuries
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        Ok(PingResponse { timestamp })
     }
 
     #[allow(clippy::too_many_lines)]

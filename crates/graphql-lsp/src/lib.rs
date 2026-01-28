@@ -126,6 +126,7 @@ pub async fn run_server() {
             "graphql/virtualFileContent",
             GraphQLLanguageServer::virtual_file_content,
         )
+        .custom_method("graphql/ping", GraphQLLanguageServer::ping)
         .finish();
 
     Server::new(stdin, stdout, socket).serve(service).await;
