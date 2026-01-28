@@ -113,6 +113,23 @@
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "graphql.healthCheck.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable periodic health checks to detect when the LSP server becomes unresponsive."
+        },
+        "graphql.healthCheck.interval": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 5000,
+          "description": "Interval between health checks in milliseconds (minimum 5000ms)."
+        },
+        "graphql.healthCheck.timeout": {
+          "type": "number",
+          "default": 5000,
+          "minimum": 1000,
+          "description": "Timeout for health check requests in milliseconds (minimum 1000ms)."
         }
       }
     },
