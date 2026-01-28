@@ -490,14 +490,10 @@ async fn load_all_project_files_background(
                 .await;
         }
 
-        // Publish empty diagnostics for files without issues
-        for loaded_file in &loaded_files {
-            if !all_diagnostics_map.contains_key(&loaded_file.path) {
-                if let Ok(file_uri) = Uri::from_str(loaded_file.path.as_str()) {
-                    client.publish_diagnostics(file_uri, vec![], None).await;
-                }
-            }
-        }
+        // Skip publishing empty diagnostics during initial load.
+        // For large projects, sending publish_diagnostics for every clean file
+        // floods VSCode with thousands of RPC messages and can crash the extension host.
+        // Empty diagnostics will be published on-demand when files are opened.
 
         let project_msg = format!(
             "Project '{}' loaded: {} files in {:.1}s",
