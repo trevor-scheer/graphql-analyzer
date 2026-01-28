@@ -497,6 +497,15 @@ async fn load_all_project_files_background(
                 .await;
         }
 
+        // Prewarm field coverage analysis - this triggers operation_body() for all operations,
+        // so the first hover doesn't block on a project-wide query
+        let prewarm_start = std::time::Instant::now();
+        let _ = snapshot.field_coverage();
+        tracing::debug!(
+            "Prewarmed field coverage in {:.2}ms",
+            prewarm_start.elapsed().as_secs_f64() * 1000.0
+        );
+
         let project_msg = format!(
             "Project '{}' loaded: {} files in {:.1}s",
             project_name,
