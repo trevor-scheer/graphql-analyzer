@@ -376,6 +376,7 @@ async fn load_all_project_files_background(
     progress: &Arc<LoadProgress>,
 ) {
     const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
+    const PROGRESS_UPDATE_INTERVAL: usize = 50;
     let start = std::time::Instant::now();
     let projects: Vec<_> = config.projects().collect();
     tracing::debug!(
@@ -518,42 +519,66 @@ async fn load_all_project_files_background(
         host.with_write(graphql_ide::AnalysisHost::rebuild_project_files)
             .await;
 
-        // Compute and publish diagnostics
+        // Compute and publish diagnostics per file, updating progress as we go.
         // Use try_snapshot since this is a background task - if we can't get the lock, just skip diagnostics
         let Some(snapshot) = host.try_snapshot().await else {
             tracing::warn!("Could not get snapshot for diagnostics in background load");
+            progress.add_loaded(loaded_files.len());
             continue;
         };
-        let loaded_file_paths: Vec<graphql_ide::FilePath> =
-            loaded_files.iter().map(|f| f.path.clone()).collect();
 
-        let all_diagnostics_map = snapshot.all_diagnostics_for_files(&loaded_file_paths);
+        let mut files_with_issues = 0usize;
 
-        tracing::debug!(
-            "Publishing diagnostics for {} files with issues",
-            all_diagnostics_map.len()
-        );
+        for (i, loaded_file) in loaded_files.iter().enumerate() {
+            let per_file = snapshot.diagnostics(&loaded_file.path);
+            if !per_file.is_empty() {
+                if let Ok(file_uri) = Uri::from_str(loaded_file.path.as_str()) {
+                    let lsp_diagnostics: Vec<Diagnostic> =
+                        per_file.into_iter().map(convert_ide_diagnostic).collect();
+                    client
+                        .publish_diagnostics(file_uri, lsp_diagnostics, None)
+                        .await;
+                    files_with_issues += 1;
+                }
+            }
 
-        for (file_path, diagnostics) in &all_diagnostics_map {
-            let Ok(file_uri) = Uri::from_str(file_path.as_str()) else {
-                continue;
-            };
-            let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-                .iter()
-                .cloned()
-                .map(convert_ide_diagnostic)
-                .collect();
-            client
-                .publish_diagnostics(file_uri, lsp_diagnostics, None)
-                .await;
+            progress.add_loaded(1);
+
+            if (i + 1) % PROGRESS_UPDATE_INTERVAL == 0 {
+                client
+                    .send_notification::<StatusNotification>(StatusParams {
+                        status: "loading".to_string(),
+                        message: Some(format!(
+                            "Analyzing '{project_name}': {}/{total_files} files",
+                            i + 1
+                        )),
+                        files_loaded: Some(progress.loaded()),
+                        files_total: Some(progress.total()),
+                    })
+                    .await;
+            }
         }
 
-        // Skip publishing empty diagnostics during initial load.
-        // For large projects, sending publish_diagnostics for every clean file
-        // floods VSCode with thousands of RPC messages and can crash the extension host.
-        // Empty diagnostics will be published on-demand when files are opened.
+        // Run project-wide lints and publish any additional diagnostics
+        let project_diagnostics = snapshot.project_lint_diagnostics();
+        for (file_path, diagnostics) in &project_diagnostics {
+            if let Ok(file_uri) = Uri::from_str(file_path.as_str()) {
+                let lsp_diagnostics: Vec<Diagnostic> = diagnostics
+                    .iter()
+                    .cloned()
+                    .map(convert_ide_diagnostic)
+                    .collect();
+                client
+                    .publish_diagnostics(file_uri, lsp_diagnostics, None)
+                    .await;
+            }
+        }
 
-        progress.add_loaded(loaded_files.len());
+        tracing::debug!(
+            "Published diagnostics for {files_with_issues} files with per-file issues, \
+             {} files with project-wide issues",
+            project_diagnostics.len()
+        );
 
         let project_msg = format!(
             "Project '{}' loaded: {} files in {:.1}s",

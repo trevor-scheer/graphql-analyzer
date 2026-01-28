@@ -41,7 +41,7 @@ fn init_tracing_with_otel() -> bool {
     let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,salsa=warn"));
 
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
@@ -75,7 +75,7 @@ fn init_tracing_without_otel() -> bool {
         .with_thread_ids(true) // Include thread IDs for async debugging
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,salsa=warn")),
         )
         .try_init()
         .is_ok()
