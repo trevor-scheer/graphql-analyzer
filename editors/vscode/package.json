@@ -126,15 +126,13 @@
           },
           "graphql.debug.healthCheck.interval": {
             "type": "number",
-            "default": 30000,
-            "minimum": 5000,
-            "description": "Interval between health checks in milliseconds (minimum 5000ms)."
+            "default": 10000,
+            "description": "Interval between health checks in milliseconds."
           },
           "graphql.debug.healthCheck.timeout": {
             "type": "number",
-            "default": 5000,
-            "minimum": 1000,
-            "description": "Timeout for health check requests in milliseconds (minimum 1000ms)."
+            "default": 3000,
+            "description": "Timeout for health check requests in milliseconds."
           }
         }
       }
