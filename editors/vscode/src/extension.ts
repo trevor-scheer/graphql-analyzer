@@ -406,12 +406,11 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
             statusBarItem.backgroundColor = undefined;
             statusBarItem.tooltip = params.message || "GraphQL LSP is running";
             isServerHealthy = true;
+            // Start health check only after background initialization completes
+            startHealthCheck();
             break;
         }
       });
-
-      // Start health check monitoring after client is ready
-      startHealthCheck();
     }
   );
 }
