@@ -1373,6 +1373,12 @@ impl LanguageServer for GraphQLLanguageServer {
 
         if folders.is_empty() {
             tracing::debug!("No workspace folders to load");
+            self.client
+                .send_notification::<StatusNotification>(StatusParams {
+                    status: "ready".to_string(),
+                    message: Some("No workspace folders".to_string()),
+                })
+                .await;
             return;
         }
 
