@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "graphql": {
-      "command": "/path/to/graphql-lsp/target/debug/graphql",
-      "args": ["mcp", "--workspace", "/path/to/graphql-lsp/test-workspace"],
+      "command": "/path/to/graphql-analyzer/target/debug/graphql",
+      "args": ["mcp", "--workspace", "/path/to/graphql-analyzer/test-workspace"],
       "env": {
         "RUST_LOG": "graphql_mcp=debug"
       }

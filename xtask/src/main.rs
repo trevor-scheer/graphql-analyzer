@@ -489,7 +489,7 @@ fn publish_to_github(root: &Path, tag: &str, artifacts: &[PathBuf]) -> Result<()
             tag,
             "--generate-notes",
             "--repo",
-            "trevor-scheer/graphql-lsp",
+            "trevor-scheer/graphql-analyzer",
         ])
         .current_dir(root)
         .status()
@@ -509,7 +509,7 @@ fn publish_to_github(root: &Path, tag: &str, artifacts: &[PathBuf]) -> Result<()
         tag,
         "--clobber",
         "--repo",
-        "trevor-scheer/graphql-lsp",
+        "trevor-scheer/graphql-analyzer",
     ];
     args.extend(artifact_paths);
 
@@ -523,7 +523,9 @@ fn publish_to_github(root: &Path, tag: &str, artifacts: &[PathBuf]) -> Result<()
         bail!("Failed to upload artifacts to release");
     }
 
-    println!("Published release: https://github.com/trevor-scheer/graphql-lsp/releases/tag/{tag}");
+    println!(
+        "Published release: https://github.com/trevor-scheer/graphql-analyzer/releases/tag/{tag}"
+    );
     Ok(())
 }
 

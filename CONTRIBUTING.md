@@ -1,4 +1,4 @@
-# Contributing to GraphQL LSP
+# Contributing to graphql-analyzer
 
 Thank you for your interest in contributing! This guide will help you get started with development and explain our processes.
 
@@ -29,12 +29,12 @@ Thank you for your interest in contributing! This guide will help you get starte
 1. Fork the repository on GitHub
 2. Clone your fork:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/graphql-lsp.git
-   cd graphql-lsp
+   git clone https://github.com/YOUR_USERNAME/graphql-analyzer.git
+   cd graphql-analyzer
    ```
 3. Add upstream remote:
    ```bash
-   git remote add upstream https://github.com/trevor-scheer/graphql-lsp.git
+   git remote add upstream https://github.com/trevor-scheer/graphql-analyzer.git
    ```
 
 ---
@@ -461,9 +461,9 @@ See [.claude/CLAUDE.md#common-tasks](.claude/CLAUDE.md#common-tasks) for detaile
 
 ### Questions & Discussions
 
-- **General questions**: [GitHub Discussions](https://github.com/trevor-scheer/graphql-lsp/discussions)
-- **Bug reports**: [GitHub Issues](https://github.com/trevor-scheer/graphql-lsp/issues)
-- **Feature requests**: [GitHub Issues](https://github.com/trevor-scheer/graphql-lsp/issues) with "enhancement" label
+- **General questions**: [GitHub Discussions](https://github.com/trevor-scheer/graphql-analyzer/discussions)
+- **Bug reports**: [GitHub Issues](https://github.com/trevor-scheer/graphql-analyzer/issues)
+- **Feature requests**: [GitHub Issues](https://github.com/trevor-scheer/graphql-analyzer/issues) with "enhancement" label
 
 ### Reporting Bugs
 

@@ -42,8 +42,8 @@ git log --oneline -5 2>/dev/null || true
 
 echo ""
 echo "Open issues:"
-gh issue list --repo trevor-scheer/graphql-lsp --limit 5 2>/dev/null || echo "  (unable to fetch)"
+gh issue list --repo trevor-scheer/graphql-analyzer --limit 5 2>/dev/null || echo "  (unable to fetch)"
 
 echo ""
 echo "Open PRs:"
-gh pr list --repo trevor-scheer/graphql-lsp --limit 5 2>/dev/null || echo "  (unable to fetch)"
+gh pr list --repo trevor-scheer/graphql-analyzer --limit 5 2>/dev/null || echo "  (unable to fetch)"

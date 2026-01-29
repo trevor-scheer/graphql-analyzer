@@ -24,7 +24,7 @@ cargo install graphql-lsp
 
 ### From Binary Release
 
-Download the appropriate binary from the [releases page](https://github.com/trevor-scheer/graphql-lsp/releases):
+Download the appropriate binary from the [releases page](https://github.com/trevor-scheer/graphql-analyzer/releases):
 
 - macOS (Intel): `graphql-lsp-x86_64-apple-darwin.tar.xz`
 - macOS (Apple Silicon): `graphql-lsp-aarch64-apple-darwin.tar.xz`
@@ -517,7 +517,7 @@ extensions:
 
 ```bash
 # Clone repository
-git clone https://github.com/trevor-scheer/graphql-lsp
+git clone https://github.com/trevor-scheer/graphql-analyzer
 cd graphql-lsp
 
 # Build LSP server

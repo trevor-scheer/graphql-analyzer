@@ -21,8 +21,8 @@ Or just ask: "Review PR #123"
 ### 1. Fetch PR Information
 
 ```bash
-gh pr view <number> --repo trevor-scheer/graphql-lsp
-gh pr diff <number> --repo trevor-scheer/graphql-lsp
+gh pr view <number> --repo trevor-scheer/graphql-analyzer
+gh pr diff <number> --repo trevor-scheer/graphql-analyzer
 ```
 
 ### 2. Understand the Changes

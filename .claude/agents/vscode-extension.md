@@ -61,8 +61,8 @@ editors/vscode/
 import { LanguageClient, TransportKind } from "vscode-languageclient/node";
 
 const serverOptions = {
-  command: "graphql-lsp",
-  args: [],
+  command: "graphql",
+  args: ["lsp"],
   transport: TransportKind.stdio,
 };
 
@@ -74,8 +74,8 @@ const clientOptions = {
 };
 
 const client = new LanguageClient(
-  "graphql-lsp",
-  "GraphQL Language Server",
+  "graphql-analyzer",
+  "graphql-analyzer Language Server",
   serverOptions,
   clientOptions,
 );

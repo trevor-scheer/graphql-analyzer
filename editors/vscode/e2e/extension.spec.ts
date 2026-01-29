@@ -15,7 +15,7 @@ test.describe("GraphQL LSP Extension", () => {
 
     // Type ">" to switch to command mode, then search for our command
     const input = commandPalette.locator("input");
-    await input.fill(">GraphQL: Check Status");
+    await input.fill(">graphql-analyzer: Check Status");
 
     // Wait for the command to appear in results (longer timeout for extension activation)
     const checkStatusResult = page.getByText("Check Status");
@@ -95,10 +95,10 @@ test.describe("GraphQL LSP Extension", () => {
 
     // Type ">" to switch to command mode, then search for GraphQL commands
     const input = commandPalette.locator("input");
-    await input.fill(">GraphQL");
+    await input.fill(">graphql-analyzer");
 
     // Wait for our commands to appear (longer timeout for extension activation)
-    const restartCommand = page.getByText("Restart GraphQL Language Server");
+    const restartCommand = page.getByText("Restart Language Server");
     const checkStatusCommand = page.getByText("Check Status");
 
     await expect(restartCommand).toBeVisible({ timeout: 10000 });

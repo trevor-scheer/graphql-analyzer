@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=./graphqlrc.schema.json
-# Or use public URL: https://raw.githubusercontent.com/trevor-scheer/graphql-lsp/main/crates/graphql-config/schema/graphqlrc.schema.json
+# Or use public URL: https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/crates/graphql-config/schema/graphqlrc.schema.json
 
 # Example GraphQL configuration file with schema validation
 # This file demonstrates all supported configuration options

@@ -1,21 +1,21 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/graphql-config",
-  "crates/graphql-extract",
-  "crates/graphql-introspect",
-  "crates/graphql-lsp",
-  "crates/graphql-cli",
-  "crates/graphql-linter",
-  "crates/graphql-base-db",
-  "crates/graphql-syntax",
-  "crates/graphql-hir",
-  "crates/graphql-analysis",
-  "crates/graphql-ide",
-  "crates/graphql-ide-db",
-  "crates/graphql-test-utils",
-  "crates/graphql-mcp",
-  "crates/graphql-apollo-ext",
+  "crates/config",
+  "crates/extract",
+  "crates/introspect",
+  "crates/lsp",
+  "crates/cli",
+  "crates/linter",
+  "crates/base-db",
+  "crates/syntax",
+  "crates/hir",
+  "crates/analysis",
+  "crates/ide",
+  "crates/ide-db",
+  "crates/test-utils",
+  "crates/mcp",
+  "crates/apollo-ext",
   "benches",
   ".husky",
   "xtask",
@@ -25,7 +25,7 @@ members = [
 version = "0.1.0-alpha.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/trevor-scheer/graphql-lsp"
+repository = "https://github.com/trevor-scheer/graphql-analyzer"
 authors = ["Trevor Scheer <trevor.scheer@gmail.com>"]
 
 [workspace.dependencies]
@@ -40,7 +40,7 @@ anyhow = "1.0"
 apollo-parser = "0.8"
 # FORK DEPENDENCY: Uses trevor-scheer/apollo-rs fork with `parse_with_offset` branch
 # Required for: ExecutableDocument::builder() API for incremental document construction
-# Tracking issue: https://github.com/trevor-scheer/graphql-lsp/issues/274
+# Tracking issue: https://github.com/trevor-scheer/graphql-analyzer/issues/274
 # TODO: Upstream these changes to apollographql/apollo-rs and switch to official release
 apollo-compiler = { git = "https://github.com/trevor-scheer/apollo-rs.git", branch = "parse_with_offset" }
 

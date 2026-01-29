@@ -11,10 +11,10 @@ categories = ["development-tools"]
 
 [dependencies]
 # Internal dependencies - NEW ARCHITECTURE
-graphql-base-db = { path = "../graphql-base-db" }
-graphql-syntax = { path = "../graphql-syntax" }
-graphql-hir = { path = "../graphql-hir" }
-graphql-apollo-ext = { path = "../graphql-apollo-ext" }
+graphql-base-db = { path = "../base-db" }
+graphql-syntax = { path = "../syntax" }
+graphql-hir = { path = "../hir" }
+graphql-apollo-ext = { path = "../apollo-ext" }
 
 # GraphQL parsing
 apollo-parser = { workspace = true }
@@ -30,4 +30,4 @@ tracing = "0.1"
 [dev-dependencies]
 serde_yaml = { workspace = true }
 insta = { workspace = true }
-graphql-ide-db = { path = "../graphql-ide-db" }
+graphql-ide-db = { path = "../ide-db" }

@@ -1,9 +1,9 @@
 {
-  "name": "graphql-lsp",
-  "displayName": "GraphQL LSP",
-  "description": "GraphQL Language Server with validation, completion, and go-to-definition",
+  "name": "graphql-analyzer",
+  "displayName": "graphql-analyzer",
+  "description": "GraphQL language support for VS Code",
   "version": "0.1.0-alpha.0",
-  "repository": "https://github.com/trevor-scheer/graphql-lsp",
+  "repository": "https://github.com/trevor-scheer/graphql-analyzer",
   "license": "SEE LICENSE IN LICENSE.md",
   "publisher": "trevor-scheer",
   "engines": {
@@ -20,14 +20,14 @@
   "contributes": {
     "commands": [
       {
-        "command": "graphql-lsp.restartServer",
-        "title": "Restart GraphQL Language Server",
-        "category": "GraphQL"
+        "command": "graphql-analyzer.restartServer",
+        "title": "Restart Language Server",
+        "category": "graphql-analyzer"
       },
       {
-        "command": "graphql-lsp.checkStatus",
+        "command": "graphql-analyzer.checkStatus",
         "title": "Check Status",
-        "category": "GraphQL"
+        "category": "graphql-analyzer"
       }
     ],
     "languages": [
@@ -92,7 +92,7 @@
           "graphql.server.path": {
             "type": "string",
             "default": "",
-            "description": "Path to the graphql-lsp server executable. If empty, the extension will search for it in PATH or download it automatically."
+            "description": "Path to the graphql-analyzer server executable. If empty, the extension will search for it in PATH or download it automatically."
           },
           "graphql.server.logLevel": {
             "type": "string",
@@ -139,7 +139,7 @@
     ],
     "keybindings": [
       {
-        "command": "graphql-lsp.restartServer",
+        "command": "graphql-analyzer.restartServer",
         "key": "ctrl+alt+g r",
         "mac": "cmd+alt+g r"
       }

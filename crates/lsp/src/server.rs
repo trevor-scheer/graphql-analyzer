@@ -48,7 +48,7 @@ pub enum StatusNotification {}
 
 impl lsp_types::notification::Notification for StatusNotification {
     type Params = StatusParams;
-    const METHOD: &'static str = "graphql/status";
+    const METHOD: &'static str = "graphql-analyzer/status";
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -1336,7 +1336,7 @@ impl LanguageServer for GraphQLLanguageServer {
                 folding_range_provider: supports_folding_range
                     .then_some(FoldingRangeProviderCapability::Simple(true)),
                 execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: vec!["graphql.checkStatus".to_string()],
+                    commands: vec!["graphql-analyzer.checkStatus".to_string()],
                     work_done_progress_options: WorkDoneProgressOptions::default(),
                 }),
                 ..Default::default()
@@ -1920,7 +1920,7 @@ impl LanguageServer for GraphQLLanguageServer {
     ) -> Result<Option<serde_json::Value>> {
         tracing::info!("Execute command requested: {}", params.command);
 
-        if params.command.as_str() == "graphql.checkStatus" {
+        if params.command.as_str() == "graphql-analyzer.checkStatus" {
             let mut status_lines = Vec::new();
 
             for workspace_entry in &self.workspace.workspace_roots {

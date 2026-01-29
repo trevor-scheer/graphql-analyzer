@@ -1,4 +1,4 @@
-console.log(">>> GraphQL LSP extension module loading <<<");
+console.log(">>> graphql-analyzer extension module loading <<<");
 
 import {
   workspace,
@@ -54,7 +54,7 @@ import { findServerBinary } from "./binaryManager";
 // See: https://github.com/rust-lang/rust-analyzer/blob/master/editors/code/src/commands.ts
 // =============================================================================
 
-console.log(">>> GraphQL LSP extension imports complete <<<");
+console.log(">>> graphql-analyzer extension imports complete <<<");
 
 // =============================================================================
 // Virtual File Support for Remote Schemas
@@ -85,14 +85,17 @@ class SchemaContentProvider implements TextDocumentContentProvider {
 
   async provideTextDocumentContent(uri: Uri, _token: CancellationToken): Promise<string> {
     if (!client) {
-      return "// GraphQL LSP is not running";
+      return "// graphql-analyzer is not running";
     }
 
     try {
       // Request the virtual file content from the LSP server
-      const content = await client.sendRequest<string | null>("graphql/virtualFileContent", {
-        uri: uri.toString(),
-      });
+      const content = await client.sendRequest<string | null>(
+        "graphql-analyzer/virtualFileContent",
+        {
+          uri: uri.toString(),
+        }
+      );
 
       if (content) {
         return content;
@@ -125,20 +128,20 @@ function updateStatusBar(state: State): void {
 
   switch (state) {
     case State.Running:
-      statusBarItem.text = "$(check) GraphQL";
-      statusBarItem.tooltip = "GraphQL LSP is running";
+      statusBarItem.text = "$(check) graphql-analyzer";
+      statusBarItem.tooltip = "graphql-analyzer is running";
       statusBarItem.backgroundColor = undefined;
       isServerHealthy = true;
       break;
     case State.Starting:
-      statusBarItem.text = "$(loading~spin) GraphQL";
-      statusBarItem.tooltip = "GraphQL LSP is starting...";
+      statusBarItem.text = "$(loading~spin) graphql-analyzer";
+      statusBarItem.tooltip = "graphql-analyzer is starting...";
       statusBarItem.backgroundColor = new ThemeColor("statusBarItem.warningBackground");
       isServerHealthy = true;
       break;
     case State.Stopped:
-      statusBarItem.text = "$(warning) GraphQL";
-      statusBarItem.tooltip = "GraphQL LSP is stopped";
+      statusBarItem.text = "$(warning) graphql-analyzer";
+      statusBarItem.tooltip = "graphql-analyzer is stopped";
       statusBarItem.backgroundColor = undefined;
       isServerHealthy = true;
       break;
@@ -147,8 +150,8 @@ function updateStatusBar(state: State): void {
 
 function setServerUnhealthy(reason: string): void {
   isServerHealthy = false;
-  statusBarItem.text = "$(error) GraphQL";
-  statusBarItem.tooltip = `GraphQL LSP is unresponsive: ${reason}`;
+  statusBarItem.text = "$(error) graphql-analyzer";
+  statusBarItem.tooltip = `graphql-analyzer is unresponsive: ${reason}`;
   statusBarItem.backgroundColor = new ThemeColor("statusBarItem.errorBackground");
   outputChannel.appendLine(`[Health Check] Server unresponsive: ${reason}`);
 }
@@ -156,8 +159,8 @@ function setServerUnhealthy(reason: string): void {
 function setServerHealthy(): void {
   if (!isServerHealthy) {
     isServerHealthy = true;
-    statusBarItem.text = "$(check) GraphQL";
-    statusBarItem.tooltip = "GraphQL LSP is running";
+    statusBarItem.text = "$(check) graphql-analyzer";
+    statusBarItem.tooltip = "graphql-analyzer is running";
     statusBarItem.backgroundColor = undefined;
     outputChannel.appendLine("[Health Check] Server recovered");
   }
@@ -172,7 +175,7 @@ async function performHealthCheck(timeout: number): Promise<void> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    const pingPromise = client.sendRequest<{ timestamp: number }>("graphql/ping");
+    const pingPromise = client.sendRequest<{ timestamp: number }>("graphql-analyzer/ping");
 
     // Race the ping against the timeout
     const result = await Promise.race([
@@ -370,8 +373,8 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
   outputChannel.appendLine("Creating language client...");
 
   client = new LanguageClient(
-    "graphql-lsp",
-    "GraphQL Language Server",
+    "graphql-analyzer",
+    "graphql-analyzer Language Server",
     serverOptions,
     clientOptions
   );
@@ -385,7 +388,7 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
   await window.withProgress(
     {
       location: ProgressLocation.Notification,
-      title: "GraphQL LSP",
+      title: "graphql-analyzer",
       cancellable: false,
     },
     async (progress) => {
@@ -394,35 +397,38 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
       await client.start();
       outputChannel.appendLine("Language client started successfully!");
 
-      client.onNotification("graphql/status", (params: { status: string; message?: string }) => {
-        switch (params.status) {
-          case "loading":
-            statusBarItem.text = "$(loading~spin) GraphQL";
-            statusBarItem.backgroundColor = new ThemeColor("statusBarItem.warningBackground");
-            statusBarItem.tooltip = params.message || "Loading GraphQL project...";
-            break;
-          case "ready":
-            statusBarItem.text = "$(check) GraphQL";
-            statusBarItem.backgroundColor = undefined;
-            statusBarItem.tooltip = params.message || "GraphQL LSP is running";
-            isServerHealthy = true;
-            // Start health check only after background initialization completes
-            startHealthCheck();
-            break;
+      client.onNotification(
+        "graphql-analyzer/status",
+        (params: { status: string; message?: string }) => {
+          switch (params.status) {
+            case "loading":
+              statusBarItem.text = "$(loading~spin) graphql-analyzer";
+              statusBarItem.backgroundColor = new ThemeColor("statusBarItem.warningBackground");
+              statusBarItem.tooltip = params.message || "Loading GraphQL project...";
+              break;
+            case "ready":
+              statusBarItem.text = "$(check) graphql-analyzer";
+              statusBarItem.backgroundColor = undefined;
+              statusBarItem.tooltip = params.message || "graphql-analyzer is running";
+              isServerHealthy = true;
+              // Start health check only after background initialization completes
+              startHealthCheck();
+              break;
+          }
         }
-      });
+      );
     }
   );
 }
 
 export async function activate(context: ExtensionContext) {
-  outputChannel = window.createOutputChannel("GraphQL LSP Debug");
-  outputChannel.appendLine("=== GraphQL LSP extension activating ===");
+  outputChannel = window.createOutputChannel("graphql-analyzer Debug");
+  outputChannel.appendLine("=== graphql-analyzer extension activating ===");
 
   statusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 100);
-  statusBarItem.command = "graphql-lsp.checkStatus";
-  statusBarItem.text = "$(sync~spin) GraphQL";
-  statusBarItem.tooltip = "GraphQL LSP is starting...";
+  statusBarItem.command = "graphql-analyzer.checkStatus";
+  statusBarItem.text = "$(sync~spin) graphql-analyzer";
+  statusBarItem.tooltip = "graphql-analyzer is starting...";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
@@ -439,8 +445,8 @@ export async function activate(context: ExtensionContext) {
     // Setup decoration listeners for deprecated fields in TS/JS files
     setupDecorationListeners(context);
 
-    const reloadCommand = commands.registerCommand("graphql-lsp.restartServer", async () => {
-      outputChannel.appendLine("=== Restarting GraphQL LSP ===");
+    const reloadCommand = commands.registerCommand("graphql-analyzer.restartServer", async () => {
+      outputChannel.appendLine("=== Restarting graphql-analyzer ===");
 
       try {
         stopHealthCheck();
@@ -452,32 +458,9 @@ export async function activate(context: ExtensionContext) {
         }
 
         await startLanguageServer(context);
-        window.showInformationMessage("GraphQL LSP restarted successfully");
+        window.showInformationMessage("graphql-analyzer restarted successfully");
       } catch (error) {
-        const errorMessage = `Failed to restart GraphQL LSP: ${error}`;
-        outputChannel.appendLine(errorMessage);
-        outputChannel.show(true);
-        window.showErrorMessage(errorMessage);
-      }
-    });
-
-    const checkStatusCommand = commands.registerCommand("graphql-lsp.checkStatus", async () => {
-      outputChannel.appendLine("=== Checking GraphQL LSP Status ===");
-
-      try {
-        if (!client) {
-          window.showWarningMessage("GraphQL LSP is not running");
-          return;
-        }
-
-        outputChannel.show(true);
-
-        await client.sendRequest("workspace/executeCommand", {
-          command: "graphql.checkStatus",
-          arguments: [],
-        });
-      } catch (error) {
-        const errorMessage = `Failed to check status: ${error}`;
+        const errorMessage = `Failed to restart graphql-analyzer: ${error}`;
         outputChannel.appendLine(errorMessage);
         outputChannel.show(true);
         window.showErrorMessage(errorMessage);
@@ -489,7 +472,7 @@ export async function activate(context: ExtensionContext) {
     // to native VSCode types before calling editor.action.showReferences.
     // See the comment block at the top of this file for why this is necessary.
     const showReferencesCommand = commands.registerCommand(
-      "graphql-lsp.showReferences",
+      "graphql-analyzer.showReferences",
       async (uriString: string, position: LspPosition, locations: LspLocation[]) => {
         if (!client) {
           return;
@@ -515,14 +498,14 @@ export async function activate(context: ExtensionContext) {
       })
     );
 
-    context.subscriptions.push(reloadCommand, checkStatusCommand, showReferencesCommand);
+    context.subscriptions.push(reloadCommand, showReferencesCommand);
   } catch (error) {
-    const errorMessage = `Failed to start GraphQL LSP: ${error}`;
+    const errorMessage = `Failed to start graphql-analyzer: ${error}`;
     outputChannel.appendLine(errorMessage);
     outputChannel.show(true);
     window.showErrorMessage(errorMessage);
-    statusBarItem.text = "$(error) GraphQL";
-    statusBarItem.tooltip = `GraphQL LSP failed to start: ${error}`;
+    statusBarItem.text = "$(error) graphql-analyzer";
+    statusBarItem.tooltip = `graphql-analyzer failed to start: ${error}`;
     // Don't throw - allow partial activation so restart command can still work
   }
 

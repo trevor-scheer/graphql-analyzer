@@ -175,7 +175,7 @@ pub fn convert_ide_code_lens_info(info: &graphql_ide::CodeLensInfo, uri: &Uri) -
     };
 
     // Create the command that will be executed when the code lens is clicked.
-    // We use our custom graphql-lsp.showReferences command which handles the
+    // We use our custom graphql-analyzer.showReferences command which handles the
     // JSON-to-VSCode type conversion. See editors/vscode/src/extension.ts for
     // why this wrapper is necessary (LSP sends JSON, but VSCode commands need
     // native types with methods).
@@ -189,7 +189,7 @@ pub fn convert_ide_code_lens_info(info: &graphql_ide::CodeLensInfo, uri: &Uri) -
 
         Some(Command {
             title,
-            command: "graphql-lsp.showReferences".to_string(),
+            command: "graphql-analyzer.showReferences".to_string(),
             arguments: Some(vec![
                 serde_json::to_value(uri.to_string()).unwrap(),
                 serde_json::to_value(convert_ide_position(info.range.start)).unwrap(),
@@ -232,7 +232,7 @@ pub fn convert_ide_code_lens(
         // Has references - make clickable to show them
         Some(Command {
             title: lens.title.clone(),
-            command: "graphql-lsp.showReferences".to_string(),
+            command: "graphql-analyzer.showReferences".to_string(),
             arguments: Some(vec![
                 serde_json::to_value(uri.to_string()).unwrap(),
                 serde_json::to_value(convert_ide_position(lens.range.start)).unwrap(),
