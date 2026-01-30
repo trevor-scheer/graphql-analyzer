@@ -651,7 +651,7 @@ mod caching_tests {
     }
 
     #[test]
-    fn test_golden_invariant_schema_stable_across_operation_edits() {
+    fn test_structure_body_separation_schema_stable_across_operation_edits() {
         let mut db = TrackedDatabase::new();
 
         let schema_id = FileId::new(0);
@@ -715,7 +715,7 @@ mod caching_tests {
 
         assert_eq!(
             schema_types_delta, 0,
-            "GOLDEN INVARIANT VIOLATED: schema_types ran {schema_types_delta} times after operation edit"
+            "STRUCTURE/BODY SEPARATION VIOLATED: schema_types ran {schema_types_delta} times after operation edit"
         );
 
         assert_eq!(

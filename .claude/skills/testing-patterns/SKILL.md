@@ -174,7 +174,7 @@ cargo bench -- --baseline main           # Compare against baseline
 **Expected results:**
 
 - Warm vs Cold: 100-1000x speedup
-- Golden Invariant: < 100 nanoseconds
+- Structure/Body Separation: < 100 nanoseconds
 - Fragment Resolution: ~10x speedup with caching
 
 View reports at `target/criterion/report/index.html`.

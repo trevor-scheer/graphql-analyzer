@@ -173,12 +173,12 @@ fn bench_schema_types_warm(c: &mut Criterion) {
     });
 }
 
-/// Golden invariant benchmark: editing operation body doesn't invalidate schema
+/// Structure/body separation benchmark: editing operation body doesn't invalidate schema
 ///
 /// This tests the critical performance property: when we edit only the document
 /// content (not add/remove files), the schema types should remain cached.
-fn bench_golden_invariant(c: &mut Criterion) {
-    c.bench_function("golden_invariant_schema_after_body_edit", |b| {
+fn bench_structure_body_separation(c: &mut Criterion) {
+    c.bench_function("structure_body_separation_schema_after_edit", |b| {
         b.iter_batched(
             || {
                 // Setup: Database with schema and doc, schema types cached
@@ -479,7 +479,7 @@ fn bench_analysis_host_diagnostics(c: &mut Criterion) {
 /// See: `test_diagnostics_after_file_update` in graphql-ide/src/lib.rs
 ///
 /// The fix we implemented (not calling `rebuild_project_files` on content changes)
-/// is validated by the `golden_invariant` benchmark which tests the underlying
+/// is validated by the `structure_body_separation` benchmark which tests the underlying
 /// Salsa caching behavior directly.
 #[allow(dead_code)]
 const fn bench_analysis_host_warm_edit(_c: &mut Criterion) {
@@ -493,7 +493,7 @@ criterion_group!(
     bench_parse_warm,
     bench_schema_types_cold,
     bench_schema_types_warm,
-    bench_golden_invariant,
+    bench_structure_body_separation,
     bench_per_file_granular_caching,
     bench_fragment_resolution_cold,
     bench_fragment_resolution_warm,

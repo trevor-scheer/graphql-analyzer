@@ -73,13 +73,13 @@ The crate includes comprehensive tests that verify Salsa's incremental computati
 | `test_granular_caching_editing_one_file`                     | Editing file A doesn't invalidate queries for file B         |
 | `test_unrelated_file_edit_doesnt_invalidate_schema`          | Document changes don't affect schema queries                 |
 | `test_editing_one_of_many_files_is_o1_not_on`                | O(1) recomputation when editing 1 of N files                 |
-| `test_golden_invariant_schema_stable_across_operation_edits` | **Critical**: Schema queries never re-run on operation edits |
+| `test_structure_body_separation_schema_stable_across_operation_edits` | **Critical**: Schema queries never re-run on operation edits |
 | `test_per_file_contribution_queries_incremental`             | Per-file queries (names, fragments) are O(1) on single edit  |
 | `test_executions_since_for_debugging`                        | Debugging helper works correctly                             |
 
-### Golden Invariant Test
+### Structure/Body Separation Test
 
-The most important test verifies the architectural invariant:
+The most important test verifies the structure/body separation invariant:
 
 ```rust
 // Edit BOTH operation files (simulating active development)
@@ -89,7 +89,7 @@ op2_content.set_text(&mut db).to(Arc::from("query GetUserNames { users { name em
 // Re-query schema - should be COMPLETELY cached
 let types_after = schema_types(&db, project_files);
 
-// GOLDEN INVARIANT: schema_types should NOT re-execute
+// Structure/body separation: schema_types should NOT re-execute
 assert_eq!(db.count_since(queries::SCHEMA_TYPES, checkpoint), 0);
 ```
 

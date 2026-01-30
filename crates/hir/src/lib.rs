@@ -1,6 +1,6 @@
 // GraphQL HIR (High-level Intermediate Representation)
 // This crate provides semantic queries on top of syntax.
-// It implements the "golden invariant": editing a document's body never invalidates global schema knowledge.
+// It implements structure/body separation: editing a document's body never invalidates global schema knowledge.
 
 use graphql_base_db::FileId;
 use std::collections::HashMap;

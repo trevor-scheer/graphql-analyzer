@@ -678,7 +678,7 @@ Per-file granular caching via `FileEntryMap` ensures editing file A doesn't inva
 
 Files are collected without holding locks, then batch-added. This eliminates O(n) lock acquisitions.
 
-### Golden Invariant
+### Structure/Body Separation
 
 **Location**: Throughout `graphql-hir`
 

@@ -1660,7 +1660,7 @@ pub fn fragment_spreads_index(...) -> Arc<HashMap<Arc<str>, HashSet<Arc<str>>>> 
 
 - Editing fragment A rebuilds spreads for B, C, D...
 - O(n) work per change instead of O(1)
-- Violates "golden invariant"
+- Violates structure/body separation
 
 ### Proposed Solution
 
