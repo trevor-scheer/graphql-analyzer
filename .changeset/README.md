@@ -27,7 +27,7 @@ Create a file in `.changeset/` with any name ending in `.md`:
 
 ```markdown
 ---
-default: minor
+graphql-lsp: minor
 ---
 
 Add support for feature X

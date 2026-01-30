@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - ".changeset/**"
   workflow_dispatch:
 
 permissions:
@@ -13,8 +11,11 @@ permissions:
   pull-requests: write
 
 jobs:
+  # When changesets exist, create a release PR
   prepare-release:
     runs-on: ubuntu-latest
+    # Skip if this is a release PR merge (handled by create-release-tag)
+    if: ${{ !contains(github.event.head_commit.message, 'chore: prepare release') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,7 +31,7 @@ jobs:
           if [ "$CHANGESET_COUNT" -gt 0 ]; then
             echo "Found $CHANGESET_COUNT changeset(s)"
           else
-            echo "No changesets found"
+            echo "No changesets found, skipping release preparation"
           fi
 
       - name: Install knope
@@ -52,11 +53,8 @@ jobs:
   # When a release PR is merged, create the tag
   create-release-tag:
     runs-on: ubuntu-latest
-    # Only run on main when the commit message indicates a release PR merge
-    if: >
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      contains(github.event.head_commit.message, 'chore: prepare release')
+    # Only run when a release PR is merged (detected by commit message)
+    if: ${{ contains(github.event.head_commit.message, 'chore: prepare release') }}
     steps:
       - uses: actions/checkout@v4
         with:
