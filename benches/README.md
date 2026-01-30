@@ -59,14 +59,14 @@ These test the high-level IDE API performance.
 
 ## Expected Results
 
-If the Salsa architecture is working correctly, you should see:
+If the cache invariants hold, you should see:
 
-- **Warm vs Cold**: 100-1000x speedup for warm queries
-- **Golden Invariant**: < 100 nanoseconds after body edit
-- **Per-File Granular Caching**: O(1) recomputation when editing 1 of N files
+- **Basic Memoization**: 100-1000x speedup for warm vs cold queries
+- **Golden Invariant**: < 100 nanoseconds for schema query after body edit
+- **File Isolation**: Editing 1 of N files should cost O(1), not O(N)
 - **Fragment Resolution**: ~10x speedup with caching
 
-If you don't see these improvements, something is wrong with the incremental computation setup.
+If you don't see these improvements, a cache invariant is being violated somewhere in the incremental computation setup.
 
 ## Interpreting Results
 

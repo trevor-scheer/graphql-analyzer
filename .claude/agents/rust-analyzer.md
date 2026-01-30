@@ -29,7 +29,7 @@ Consult this agent when:
 - Understanding the AnalysisHost/Analysis pattern
 - Designing for cancellation and concurrent access
 - Performance optimization for language servers
-- Understanding the golden invariant (body edits don't invalidate structure)
+- Understanding cache invariants (structure/body separation, file isolation, etc.)
 
 ## Key Architectural Patterns
 
@@ -48,13 +48,19 @@ vfs (virtual file system) → base_db → syntax → hir_def → hir_ty → ide
 
 Each layer only depends on layers below it.
 
-### The Golden Invariant
+### Cache Invariants
 
-"Editing a function body should not require re-analyzing other function bodies"
+rust-analyzer relies on several cache invariants for efficient incremental computation:
 
-- Structure (signatures, types) is stable
-- Bodies (implementations) are dynamic
-- This separation enables fine-grained incremental updates
+1. **Structure/Body Separation**: Editing a function body should not require re-analyzing other function bodies
+   - Structure (signatures, types) is stable
+   - Bodies (implementations) are dynamic
+
+2. **File Isolation**: Editing file A shouldn't invalidate queries for unrelated file B (implies O(1) cost for editing 1 of N files)
+
+3. **Index Stability**: Global indexes (all functions, all types) remain cached when edits don't change names/signatures
+
+4. **Lazy Evaluation**: Body queries only run when their results are needed
 
 ### AnalysisHost Pattern
 
@@ -86,7 +92,7 @@ When providing guidance:
 2. **Analyze invalidation**: What inputs does this query depend on?
 3. **Consider granularity**: Is this query too coarse? Too fine?
 4. **Profile, don't guess**: Benchmark cache hit rates and query times
-5. **Preserve the golden invariant**: Body changes must not invalidate structure
+5. **Preserve cache invariants**: Body changes must not invalidate structure; file changes must not invalidate unrelated files
 
 ### Strong Opinions
 

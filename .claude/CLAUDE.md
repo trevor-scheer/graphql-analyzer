@@ -297,16 +297,81 @@ When validating operations, you MUST:
 - **Type Names**: Must be unique within the schema
 - **Anonymous Operations**: Only allowed when a document contains a single operation
 
-### The Golden Invariant
+### Cache Invariants
 
-> **"Editing a document's body never invalidates global schema knowledge"**
+The Salsa-based architecture relies on several cache invariants to ensure efficient incremental computation. These invariants define what changes should NOT invalidate what caches.
 
-This principle drives the architecture:
+#### 1. Structure/Body Separation
 
-- **Structure** (stable): Type names, field signatures, operation names, fragment names
-- **Bodies** (dynamic): Selection sets, field selections, directives
+> Editing body content never invalidates structure queries.
 
-By separating structure from bodies, we achieve fine-grained incremental recomputation.
+**Structure** is the "identity" of a definition - what it IS:
+
+| Definition | Structure (stable) | Body (dynamic) |
+|------------|-------------------|----------------|
+| Schema type | Type name, field names, field types, arguments | Directives on fields |
+| Operation | Operation name, operation type (query/mutation) | Selection set, variables used |
+| Fragment | Fragment name, type condition | Selection set |
+
+**Structure queries** return indexes of definitions by name: `schema_types()`, `all_fragments()`, `all_operations()`.
+
+```graphql
+# Editing this operation's selection set...
+query GetUser {
+  user { id name email }  # <-- change this body
+}
+
+# ...does NOT re-compute schema_types() or all_fragments()
+# The operation's NAME hasn't changed, only its BODY
+```
+
+#### 2. File Isolation
+
+> Editing file A never invalidates unrelated queries for file B. Cost is O(1), not O(N).
+
+```
+files:
+  schema.graphql      # schema types
+  operations.graphql  # operations
+  fragments.graphql   # fragments
+
+# Editing operations.graphql does NOT re-parse schema.graphql or fragments.graphql
+# In a project with 100 files, editing 1 file only re-processes that 1 file
+```
+
+**What DOES cause cross-file invalidation:**
+- Validation results for an operation depend on fragments it references (even in other files)
+- If `UserFields` fragment changes, operations using `...UserFields` need revalidation
+- Schema changes can invalidate validation results for all documents
+
+#### 3. Index Stability
+
+> Global indexes remain cached when edits don't change index keys (names).
+
+```graphql
+# Editing a fragment's BODY...
+fragment UserFields on User {
+  id name avatar  # <-- add 'avatar'
+}
+
+# ...does NOT invalidate all_fragments() index
+# The fragment NAME "UserFields" hasn't changed, only its body
+# But: operations using this fragment WILL need revalidation
+```
+
+#### 4. Lazy Evaluation
+
+> Body queries only execute when their results are actually needed.
+
+```rust
+// Getting schema types does NOT trigger operation_body() queries
+let types = schema_types(db);  // Only structure queries run
+
+// Body queries run on-demand during validation
+let diagnostics = file_diagnostics(db, file_id);  // Now bodies are needed
+```
+
+By maintaining these invariants, we achieve fine-grained incremental recomputation that keeps the IDE responsive during active development.
 
 ### Salsa Query System
 
@@ -559,44 +624,13 @@ fn lint_report_format() {
 
 ### Performance Benchmarks
 
-The project includes comprehensive benchmarks to validate the Salsa-based incremental computation architecture. See [benches/README.md](../benches/README.md) for complete documentation.
-
-#### Running Benchmarks
+The project includes benchmarks to validate cache invariants. See [benches/README.md](../benches/README.md) for details on what's measured and expected results.
 
 ```bash
-# Run all benchmarks
-cargo bench
-
-# Run specific benchmark
-cargo bench parse_cold
-
-# Save baseline for comparison
-cargo bench -- --save-baseline main
-
-# Compare against baseline
-cargo bench -- --baseline main
+cargo bench                          # Run all benchmarks
+cargo bench -- --save-baseline main  # Save baseline for comparison
+cargo bench -- --baseline main       # Compare against baseline
 ```
-
-#### What the Benchmarks Validate
-
-1. **Salsa Caching**: Warm queries should be 100-1000x faster than cold queries
-2. **Golden Invariant**: Editing operation bodies doesn't invalidate schema cache (< 100ns)
-3. **Fragment Resolution**: Cross-file fragment resolution benefits from caching
-4. **AnalysisHost Performance**: High-level IDE API performance
-
-#### Interpreting Results
-
-Criterion generates HTML reports in `target/criterion/`. Open `target/criterion/report/index.html` to view:
-
-- Performance distributions
-- Regression detection
-- Comparison with previous runs
-
-**Expected results if architecture is working correctly:**
-
-- Warm vs Cold: 100-1000x speedup
-- Golden Invariant: < 100 nanoseconds
-- Fragment Resolution: ~10x speedup with caching
 
 ---
 

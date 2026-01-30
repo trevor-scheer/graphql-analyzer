@@ -2,16 +2,20 @@
 
 ## Phase 2: Semantics Layer
 
-This crate provides semantic queries on top of syntax, implementing the "golden invariant":
-
-> **"Editing a document's body never invalidates global schema knowledge"**
+This crate provides semantic queries on top of syntax, implementing the cache invariants that enable efficient incremental computation.
 
 ## Architecture
 
 The HIR layer separates **structure** from **bodies**:
 
-- **Structure** (stable): Type names, field signatures, operation names, fragment names
-- **Bodies** (dynamic): Selection sets, field selections, directives
+| Definition | Structure (stable) | Body (dynamic) |
+|------------|-------------------|----------------|
+| Schema type | Type name, field names, field types, arguments | Directives on fields |
+| Operation | Operation name, operation type (query/mutation) | Selection set, variables used |
+| Fragment | Fragment name, type condition | Selection set |
+
+**Structure queries** (`schema_types()`, `all_fragments()`, `all_operations()`) return indexes by name.
+**Body queries** (`operation_body()`, `fragment_body()`) return the content of those definitions.
 
 This separation enables fine-grained incremental recomputation via Salsa.
 
@@ -57,7 +61,7 @@ This separation enables fine-grained incremental recomputation via Salsa.
    - `field_data()` - Get detailed field information
    - `type_by_name()` - Look up types by name
 
-## Caching Verification Tests
+## Cache Invariant Tests
 
 The crate includes comprehensive tests that verify Salsa's incremental computation is working correctly. These tests use `TrackedHirDatabase` (a local database type with query tracking) to make deterministic assertions about caching behavior.
 
