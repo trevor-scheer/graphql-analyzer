@@ -37,19 +37,17 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
-            REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.pull_request.number }}
+            Review PR #${{ github.event.pull_request.number }} in ${{ github.repository }}.
 
-            Please review this pull request and provide feedback on:
-            - Code quality and best practices
-            - Potential bugs or issues
-            - Performance considerations
-            - Security concerns
-            - Test coverage
+            This is an incremental review workflow. First, check for your previous review comments on this PR using `gh pr view` with `--comments`. If you've commented before, only review the NEW changes since your last comment - use `gh pr diff` to see current changes and focus on what's different.
 
-            Use the repository's CLAUDE.md for guidance on style and conventions. Be constructive and helpful in your feedback.
+            Keep feedback concise and actionable:
+            - Point out specific issues that need fixing, with line references
+            - Explain WHY something should change, not just what
+            - Skip praise and filler - just the substance
+            - If the new changes look good or address previous feedback, a brief "LGTM" or short acknowledgment is fine
 
-            Use `gh pr comment` with your Bash tool to leave your review as a comment on the PR.
+            Follow the repo's CLAUDE.md for style/conventions. Use `gh pr comment` to post your review.
 
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
