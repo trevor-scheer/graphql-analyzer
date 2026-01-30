@@ -210,11 +210,15 @@ Errors and warnings appear as annotations in GitHub pull requests.
 
 ## Configuration
 
-The CLI uses `.graphqlrc` configuration files. It searches for:
+The CLI uses standard GraphQL configuration files (YAML or JSON only). It searches for these files in order:
 
-- `.graphqlrc` (YAML or JSON)
 - `.graphqlrc.yml` / `.graphqlrc.yaml`
 - `.graphqlrc.json`
+- `.graphqlrc` (YAML or JSON, auto-detected)
+- `graphql.config.yml` / `graphql.config.yaml`
+- `graphql.config.json`
+
+**Note:** JavaScript/TypeScript configs (`graphql.config.js`, `graphql.config.ts`) are not supported. See [config README](../config/README.md#note-on-javascripttypescript-configs) for migration guidance.
 
 ### Basic Configuration
 
