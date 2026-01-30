@@ -9,18 +9,18 @@ description = "GraphQL Language Server Protocol implementation"
 keywords = ["graphql", "lsp", "language-server"]
 categories = ["development-tools", "parser-implementations"]
 
-[[bin]]
-name = "graphql-lsp"
-path = "src/main.rs"
+[lib]
+name = "graphql_lsp"
+path = "src/lib.rs"
 
 [dependencies]
 # Internal dependencies
-graphql-linter = { path = "../graphql-linter" }
-graphql-config = { path = "../graphql-config" }
-graphql-extract = { path = "../graphql-extract" }
-graphql-ide = { path = "../graphql-ide" }
-graphql-syntax = { path = "../graphql-syntax" }
-graphql-introspect = { path = "../graphql-introspect" }
+graphql-linter = { path = "../linter" }
+graphql-config = { path = "../config" }
+graphql-extract = { path = "../extract" }
+graphql-ide = { path = "../ide" }
+graphql-syntax = { path = "../syntax" }
+graphql-introspect = { path = "../introspect" }
 
 # GraphQL
 apollo-compiler = { workspace = true }

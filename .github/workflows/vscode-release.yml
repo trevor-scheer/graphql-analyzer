@@ -101,7 +101,7 @@ jobs:
             gh release create "$TAG" \
               --target "$GITHUB_SHA" \
               $PRERELEASE_FLAG \
-              --title "GraphQL LSP VSCode Extension $TAG" \
-              --notes "VSCode Extension release for version $TAG. Download the .vsix file and install it in VS Code using the Extensions view menu or by running: code --install-extension graphql-lsp-*.vsix" \
+              --title "graphql-analyzer VSCode Extension $TAG" \
+              --notes "VSCode Extension release for version $TAG. Download the .vsix file and install it in VS Code using the Extensions view menu or by running: code --install-extension graphql-analyzer-*.vsix" \
               artifacts/*.vsix
           fi

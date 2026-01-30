@@ -13,7 +13,7 @@ The [graphqlrc.schema.json](./crates/graphql-config/schema/graphqlrc.schema.json
 Add a comment at the top of your `.graphqlrc.yaml` or `.graphqlrc.yml` file:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/trevor-scheer/graphql-lsp/main/crates/graphql-config/schem./crates/graphql-config/schema/graphqlrc.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/crates/graphql-config/schem./crates/graphql-config/schema/graphqlrc.schema.json
 schema: schema.graphql
 documents: "**/*.{graphql,gql,ts,tsx}"
 ```
@@ -182,7 +182,7 @@ To make the schema publicly available:
 2. Use the raw GitHub URL in the `$schema` comment:
 
    ```yaml
-   # yaml-language-server: $schema=https://raw.githubusercontent.com/trevor-scheer/graphql-lsp/main/crates/graphql-config/schem./crates/graphql-config/schema/graphqlrc.schema.json
+   # yaml-language-server: $schema=https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/crates/graphql-config/schem./crates/graphql-config/schema/graphqlrc.schema.json
    ```
 
 3. (Optional) Publish to [Schema Store](https://www.schemastore.org/) for automatic IDE support without manual configuration

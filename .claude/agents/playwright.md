@@ -81,7 +81,7 @@ page.locator("#some-dynamic-id");
 const body = page.locator("body");
 await body.press(`${mod}+Shift+P`);
 const input = commandPalette.locator("input");
-await input.fill(">GraphQL");
+await input.fill(">graphql-analyzer");
 await input.press("Enter");
 
 // AVOID - page.keyboard.* methods

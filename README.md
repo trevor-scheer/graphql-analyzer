@@ -5,22 +5,22 @@ A comprehensive GraphQL tooling ecosystem in Rust, providing LSP (Language Serve
 ## Project Structure
 
 ```
-graphql-lsp/
+graphql-analyzer/
 ├── crates/
-│   ├── graphql-config/       # .graphqlrc parser and loader
-│   ├── graphql-extract/      # Extract GraphQL from source files
-│   ├── graphql-introspect/   # GraphQL introspection and SDL conversion
-│   ├── graphql-db/           # Salsa database and input queries
-│   ├── graphql-syntax/       # GraphQL parsing and syntax trees
-│   ├── graphql-hir/          # High-level semantic representation
-│   ├── graphql-analysis/     # Query-based validation and analysis
-│   ├── graphql-linter/       # Linting engine with custom rules
-│   ├── graphql-ide/          # Editor-facing IDE features API
-│   ├── graphql-lsp/          # LSP server implementation
-│   ├── graphql-mcp/          # MCP server for AI agents
-│   └── graphql-cli/          # CLI tool for CI/CD
-└── .claude/
-    └── project-plan.md       # Comprehensive project plan
+│   ├── config/          # .graphqlrc parser and loader
+│   ├── extract/         # Extract GraphQL from source files
+│   ├── introspect/      # GraphQL introspection and SDL conversion
+│   ├── base-db/         # Salsa database and input queries
+│   ├── syntax/          # GraphQL parsing and syntax trees
+│   ├── hir/             # High-level semantic representation
+│   ├── analysis/        # Query-based validation and analysis
+│   ├── linter/          # Linting engine with custom rules
+│   ├── ide/             # Editor-facing IDE features API
+│   ├── lsp/             # LSP server implementation
+│   ├── mcp/             # MCP server for AI agents
+│   └── cli/             # CLI tool for CI/CD
+└── editors/
+    └── vscode/          # VSCode extension
 ```
 
 ## Crates
@@ -133,7 +133,7 @@ MCP (Model Context Protocol) server for AI agent integration.
 - `load_project` - Load a project on demand
 - `get_project_diagnostics` - Get diagnostics for all files
 
-See [graphql-mcp README](crates/graphql-mcp/README.md) for setup instructions.
+See [graphql-mcp README](crates/mcp/README.md) for setup instructions.
 
 ### graphql-cli
 
@@ -143,6 +143,7 @@ Command-line tool for validation, linting, and CI/CD integration.
 
 - `graphql validate` - Validate schema and documents (Apollo compiler validation)
 - `graphql lint` - Run custom lint rules with configurable severity
+- `graphql lsp` - Start the LSP server
 - `graphql mcp` - Start MCP server for AI agent integration
 - `graphql check` - Check for breaking changes (coming soon)
 
@@ -155,24 +156,24 @@ Command-line tool for validation, linting, and CI/CD integration.
 **macOS and Linux:**
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/trevor-scheer/graphql-lsp/releases/latest/download/graphql-cli-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://github.com/trevor-scheer/graphql-lsp/releases/latest/download/graphql-cli-installer.ps1 | iex
+irm https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.ps1 | iex
 ```
 
 #### Install from Source
 
 ```bash
-cargo install --git https://github.com/trevor-scheer/graphql-lsp graphql-cli
+cargo install --git https://github.com/trevor-scheer/graphql-analyzer graphql-cli
 ```
 
 #### Download Binary Directly
 
-Download the appropriate binary for your platform from the [releases page](https://github.com/trevor-scheer/graphql-lsp/releases):
+Download the appropriate binary for your platform from the [releases page](https://github.com/trevor-scheer/graphql-analyzer/releases):
 
 - macOS (Intel): `graphql-cli-x86_64-apple-darwin.tar.xz`
 - macOS (Apple Silicon): `graphql-cli-aarch64-apple-darwin.tar.xz`
@@ -180,36 +181,15 @@ Download the appropriate binary for your platform from the [releases page](https
 - Linux (ARM64): `graphql-cli-aarch64-unknown-linux-gnu.tar.xz`
 - Windows: `graphql-cli-x86_64-pc-windows-msvc.zip`
 
-### LSP Server
+### VSCode Extension
 
-The VSCode extension will automatically download and install the LSP server binary on first use. However, you can also install it manually:
-
-#### Automatic Installation (Recommended)
-
-Simply install the VSCode extension - it will download the appropriate binary for your platform automatically.
-
-#### Manual Installation
-
-**Via cargo:**
-
-```bash
-cargo install graphql-lsp
-```
-
-**From releases:**
-Download the appropriate binary from the [releases page](https://github.com/trevor-scheer/graphql-lsp/releases):
-
-- macOS (Intel): `graphql-lsp-x86_64-apple-darwin.tar.xz`
-- macOS (Apple Silicon): `graphql-lsp-aarch64-apple-darwin.tar.xz`
-- Linux (x86_64): `graphql-lsp-x86_64-unknown-linux-gnu.tar.xz`
-- Linux (ARM64): `graphql-lsp-aarch64-unknown-linux-gnu.tar.xz`
-- Windows: `graphql-lsp-x86_64-pc-windows-msvc.zip`
+The VSCode extension (graphql-analyzer) will automatically download and install the CLI binary on first use.
 
 **Custom binary path:**
-Set the `graphql-lsp.serverPath` setting in VSCode to point to a custom binary location.
+Set the `graphql.server.path` setting in VSCode to point to a custom binary location.
 
 **For development:**
-The extension will automatically use `target/debug/graphql-lsp` when running from the repository, or you can set the `GRAPHQL_LSP_PATH` environment variable.
+The extension will automatically use `target/debug/graphql` when running from the repository, or you can set the `GRAPHQL_PATH` environment variable.
 
 ## Getting Started
 
@@ -345,7 +325,7 @@ cargo run -p graphql-cli -- validate --help
 #### Run LSP Server
 
 ```bash
-cargo run -p graphql-lsp
+cargo run -p graphql-cli -- lsp
 ```
 
 ## Development Status
@@ -382,14 +362,14 @@ cargo run -p graphql-lsp
 
 ## Configuration
 
-Configuration files support IDE validation and autocompletion via JSON Schema. See [graphqlrc.schema.md](./crates/graphql-config/schema/graphqlrc.schema.md) for setup instructions.
+Configuration files support IDE validation and autocompletion via JSON Schema. See [graphqlrc.schema.md](./crates/config/schema/graphqlrc.schema.md) for setup instructions.
 
 ### Configuration Example
 
 `.graphqlrc.yml`:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/trevor-scheer/graphql-lsp/main/crates/graphql-config/schema/graphqlrc.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/crates/config/schema/graphqlrc.schema.json
 schema: "schema.graphql"
 documents: "src/**/*.{graphql,ts,tsx}"
 lint:

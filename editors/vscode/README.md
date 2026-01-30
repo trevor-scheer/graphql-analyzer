@@ -45,7 +45,7 @@ Coming soon - this extension will be published to the VS Code Marketplace.
 
 ### From GitHub Release
 
-1. Download the `.vsix` file from the [latest release](https://github.com/trevor-scheer/graphql-lsp/releases)
+1. Download the `.vsix` file from the [latest release](https://github.com/trevor-scheer/graphql-analyzer/releases)
 2. Install in VS Code:
    - Open VS Code
    - Go to Extensions view (Ctrl/Cmd+Shift+X)
@@ -175,7 +175,7 @@ query {
 1. **Clone and build the LSP server:**
 
    ```bash
-   git clone https://github.com/trevor-scheer/graphql-lsp.git
+   git clone https://github.com/trevor-scheer/graphql-analyzer.git
    cd graphql-lsp
    cargo build --package graphql-lsp
    ```
@@ -341,8 +341,8 @@ git push origin vscode-v0.1.0
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/trevor-scheer/graphql-lsp/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/trevor-scheer/graphql-lsp/discussions)
+- **Issues**: [GitHub Issues](https://github.com/trevor-scheer/graphql-analyzer/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/trevor-scheer/graphql-analyzer/discussions)
 
 ## License
 

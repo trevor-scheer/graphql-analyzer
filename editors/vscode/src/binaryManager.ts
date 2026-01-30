@@ -170,7 +170,7 @@ async function downloadAndInstallBinary(
 
   outputChannel.appendLine("Fetching latest release information...");
 
-  const releaseUrl = "https://api.github.com/repos/trevor-scheer/graphql-lsp/releases/latest";
+  const releaseUrl = "https://api.github.com/repos/trevor-scheer/graphql-analyzer/releases/latest";
 
   return new Promise((resolve, reject) => {
     https
@@ -178,7 +178,7 @@ async function downloadAndInstallBinary(
         releaseUrl,
         {
           headers: {
-            "User-Agent": "vscode-graphql-lsp",
+            "User-Agent": "vscode-graphql-analyzer",
           },
         },
         (response) => {
@@ -196,7 +196,7 @@ async function downloadAndInstallBinary(
               const isWindows = process.platform === "win32";
               const extension = isWindows ? "zip" : "tar.xz";
               const archiveName = `graphql-cli-${platformInfo.platform}.${extension}`;
-              const downloadUrl = `https://github.com/trevor-scheer/graphql-lsp/releases/download/${version}/${archiveName}`;
+              const downloadUrl = `https://github.com/trevor-scheer/graphql-analyzer/releases/download/${version}/${archiveName}`;
 
               outputChannel.appendLine(`Downloading from: ${downloadUrl}`);
 

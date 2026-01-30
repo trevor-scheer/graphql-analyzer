@@ -18,24 +18,24 @@ Command-line tool for validating and linting GraphQL projects.
 **macOS and Linux:**
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/trevor-scheer/graphql-lsp/releases/latest/download/graphql-cli-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://github.com/trevor-scheer/graphql-lsp/releases/latest/download/graphql-cli-installer.ps1 | iex
+irm https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.ps1 | iex
 ```
 
 ### Via Cargo
 
 ```bash
-cargo install --git https://github.com/trevor-scheer/graphql-lsp graphql-cli
+cargo install --git https://github.com/trevor-scheer/graphql-analyzer graphql-cli
 ```
 
 ### From Binary Release
 
-Download the appropriate binary for your platform from the [releases page](https://github.com/trevor-scheer/graphql-lsp/releases):
+Download the appropriate binary for your platform from the [releases page](https://github.com/trevor-scheer/graphql-analyzer/releases):
 
 - macOS (Intel): `graphql-cli-x86_64-apple-darwin.tar.xz`
 - macOS (Apple Silicon): `graphql-cli-aarch64-apple-darwin.tar.xz`
@@ -273,7 +273,7 @@ jobs:
       - name: Install CLI
         run: |
           curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/trevor-scheer/graphql-lsp/releases/latest/download/graphql-cli-installer.sh | sh
+            https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
       - name: Validate GraphQL
         run: graphql validate --format github
       - name: Lint GraphQL
@@ -295,7 +295,7 @@ graphql-validate:
 
 ```bash
 # Install
-curl -LsSf https://github.com/trevor-scheer/graphql-lsp/releases/latest/download/graphql-cli-installer.sh | sh
+curl -LsSf https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
 
 # Validate
 graphql validate --format json > results.json
@@ -507,7 +507,7 @@ extensions:
 
 ```bash
 # Clone repository
-git clone https://github.com/trevor-scheer/graphql-lsp
+git clone https://github.com/trevor-scheer/graphql-analyzer
 cd graphql-lsp
 
 # Build CLI

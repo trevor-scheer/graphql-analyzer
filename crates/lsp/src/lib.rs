@@ -36,7 +36,7 @@ fn init_tracing_with_otel() -> bool {
         .with_batch_exporter(exporter)
         .build();
 
-    let tracer = provider.tracer("graphql-lsp");
+    let tracer = provider.tracer("graphql-analyzer");
 
     let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
@@ -123,10 +123,10 @@ pub async fn run_server() {
 
     let (service, socket) = LspService::build(GraphQLLanguageServer::new)
         .custom_method(
-            "graphql/virtualFileContent",
+            "graphql-analyzer/virtualFileContent",
             GraphQLLanguageServer::virtual_file_content,
         )
-        .custom_method("graphql/ping", GraphQLLanguageServer::ping)
+        .custom_method("graphql-analyzer/ping", GraphQLLanguageServer::ping)
         .finish();
 
     Server::new(stdin, stdout, socket).serve(service).await;

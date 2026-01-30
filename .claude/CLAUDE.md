@@ -933,12 +933,12 @@ The git remote also uses a local proxy that `gh` doesn't recognize as a GitHub h
 
 ```bash
 # Correct - always specify the repo explicitly
-gh issue list --repo trevor-scheer/graphql-lsp
-gh issue view 123 --repo trevor-scheer/graphql-lsp
-gh pr view 123 --repo trevor-scheer/graphql-lsp
+gh issue list --repo trevor-scheer/graphql-analyzer
+gh issue view 123 --repo trevor-scheer/graphql-analyzer
+gh pr view 123 --repo trevor-scheer/graphql-analyzer
 
 # For pr create, also include --head to specify the branch
-gh pr create --repo trevor-scheer/graphql-lsp --head your-branch-name
+gh pr create --repo trevor-scheer/graphql-analyzer --head your-branch-name
 
 # Incorrect - will fail with "none of the git remotes configured for this repository point to a known GitHub host"
 gh issue list

@@ -84,7 +84,7 @@ These are enforced by CI and mentioning them adds zero value.
 
 ```bash
 gh pr create \
-  --repo trevor-scheer/graphql-lsp \
+  --repo trevor-scheer/graphql-analyzer \
   --head your-branch-name \
   --title "feat: your feature description" \
   --body "$(cat <<'EOF'

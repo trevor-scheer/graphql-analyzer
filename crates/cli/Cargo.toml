@@ -19,13 +19,13 @@ path = "src/main.rs"
 
 [dependencies]
 # Internal dependencies
-graphql-config = { path = "../graphql-config" }
-graphql-extract = { path = "../graphql-extract" }
-graphql-ide = { path = "../graphql-ide" }
-graphql-introspect = { path = "../graphql-introspect" }
-graphql-linter = { path = "../graphql-linter" }
-graphql-lsp = { path = "../graphql-lsp" }
-graphql-mcp = { path = "../graphql-mcp" }
+graphql-config = { path = "../config" }
+graphql-extract = { path = "../extract" }
+graphql-ide = { path = "../ide" }
+graphql-introspect = { path = "../introspect" }
+graphql-linter = { path = "../linter" }
+graphql-lsp = { path = "../lsp" }
+graphql-mcp = { path = "../mcp" }
 
 # GraphQL
 apollo-parser = { workspace = true }

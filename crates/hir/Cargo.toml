@@ -10,12 +10,12 @@ keywords = ["graphql", "hir", "semantic"]
 categories = ["development-tools", "parser-implementations"]
 
 [dependencies]
-graphql-base-db = { path = "../graphql-base-db" }
-graphql-syntax = { path = "../graphql-syntax" }
+graphql-base-db = { path = "../base-db" }
+graphql-syntax = { path = "../syntax" }
 salsa = { workspace = true }
 apollo-parser = { workspace = true }
 apollo-compiler = { workspace = true }
 text-size = "1.1"
 
 [dev-dependencies]
-graphql-test-utils = { path = "../graphql-test-utils" }
+graphql-test-utils = { path = "../test-utils" }

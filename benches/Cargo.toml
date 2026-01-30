@@ -12,11 +12,11 @@ name = "incremental_computation"
 harness = false
 
 [dependencies]
-graphql-base-db = { path = "../crates/graphql-base-db" }
-graphql-ide-db = { path = "../crates/graphql-ide-db" }
-graphql-syntax = { path = "../crates/graphql-syntax" }
-graphql-hir = { path = "../crates/graphql-hir" }
-graphql-analysis = { path = "../crates/graphql-analysis" }
-graphql-ide = { path = "../crates/graphql-ide" }
+graphql-base-db = { path = "../crates/base-db" }
+graphql-ide-db = { path = "../crates/ide-db" }
+graphql-syntax = { path = "../crates/syntax" }
+graphql-hir = { path = "../crates/hir" }
+graphql-analysis = { path = "../crates/analysis" }
+graphql-ide = { path = "../crates/ide" }
 criterion = { workspace = true }
 salsa = { workspace = true }

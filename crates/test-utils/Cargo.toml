@@ -14,10 +14,10 @@ categories = ["development-tools::testing"]
 default = []
 
 [dependencies]
-graphql-base-db = { path = "../graphql-base-db" }
-graphql-syntax = { path = "../graphql-syntax" }
-graphql-hir = { path = "../graphql-hir" }
-graphql-analysis = { path = "../graphql-analysis" }
-graphql-ide-db = { path = "../graphql-ide-db" }
+graphql-base-db = { path = "../base-db" }
+graphql-syntax = { path = "../syntax" }
+graphql-hir = { path = "../hir" }
+graphql-analysis = { path = "../analysis" }
+graphql-ide-db = { path = "../ide-db" }
 salsa = { workspace = true }
 insta = { workspace = true }
