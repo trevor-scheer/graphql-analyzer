@@ -1,0 +1,90 @@
+name: Prepare Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  # When changesets exist, create a release PR
+  # NOTE: This job and create-release-tag are mutually exclusive via their conditions
+  prepare-release:
+    runs-on: ubuntu-latest
+    # Skip if this is a release PR merge (handled by create-release-tag job below)
+    if: "!contains(github.event.head_commit.message, 'chore: prepare release')"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for changesets
+        id: check
+        run: |
+          # Count markdown files in .changeset (excluding README)
+          CHANGESET_COUNT=$(find .changeset -name "*.md" ! -name "README.md" 2>/dev/null | wc -l | tr -d ' ')
+          echo "changeset_count=$CHANGESET_COUNT" >> "$GITHUB_OUTPUT"
+          if [ "$CHANGESET_COUNT" -gt 0 ]; then
+            echo "Found $CHANGESET_COUNT changeset(s)"
+          else
+            echo "No changesets found, skipping release preparation"
+          fi
+
+      - name: Install knope
+        if: steps.check.outputs.changeset_count > 0
+        uses: knope-dev/action@v2
+
+      - name: Configure git
+        if: steps.check.outputs.changeset_count > 0
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run knope prepare-release
+        if: steps.check.outputs.changeset_count > 0
+        run: knope prepare-release --verbose
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # When a release PR is merged, create the tag
+  create-release-tag:
+    runs-on: ubuntu-latest
+    # Only run when a release PR is merged (detected by commit message)
+    if: "contains(github.event.head_commit.message, 'chore: prepare release')"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify version sync
+        run: |
+          # Extract versions from both files
+          CARGO_VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          PKG_VERSION=$(grep -m1 '"version"' editors/vscode/package.json | sed 's/.*"\([0-9][^"]*\)".*/\1/')
+
+          echo "Cargo.toml version: $CARGO_VERSION"
+          echo "package.json version: $PKG_VERSION"
+
+          if [ "$CARGO_VERSION" != "$PKG_VERSION" ]; then
+            echo "ERROR: Version mismatch between Cargo.toml ($CARGO_VERSION) and package.json ($PKG_VERSION)"
+            exit 1
+          fi
+          echo "Versions are in sync"
+
+      - name: Install knope
+        uses: knope-dev/action@v2
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run knope release
+        run: knope release --verbose
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

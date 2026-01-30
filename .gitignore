@@ -26,6 +26,7 @@ node_modules/
 *.dll
 *.so
 *.dylib
+/dist/
 
 # Test artifacts
 *.profraw
@@ -46,3 +47,4 @@ node_modules/
 !.claude/hooks/
 !.claude/agents/
 !.claude/skills/
+plan-dist-manifest.json

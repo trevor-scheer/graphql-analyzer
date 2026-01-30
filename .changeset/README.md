@@ -1,0 +1,127 @@
+# Changesets
+
+This directory contains changeset files that document changes for the changelog.
+
+## Quick Start
+
+```bash
+# After making changes, create a changeset
+knope document-change
+```
+
+That's it! When your PR is merged to main, CI will automatically:
+
+1. Detect the changeset
+2. Create a Release PR with version bump and changelog
+3. When the Release PR is merged, create a git tag
+4. Build and publish the release
+
+## What is a Changeset?
+
+A changeset is a Markdown file describing a change. Each changeset specifies:
+
+- The type of version bump (major, minor, patch)
+- A summary for the changelog
+
+### Changeset Format
+
+Create a file in `.changeset/` with any name ending in `.md`:
+
+```markdown
+---
+graphql-lsp: minor
+---
+
+Add support for feature X
+```
+
+The frontmatter specifies the version bump type. The body becomes the changelog entry.
+
+### Version Bump Types
+
+- **major**: Breaking changes (API changes, removed features)
+- **minor**: New features, significant improvements
+- **patch**: Bug fixes, documentation updates
+
+### When to Create a Changeset
+
+**DO create changesets for:**
+
+- New features
+- Bug fixes
+- Breaking changes
+- Significant improvements
+
+**DON'T create changesets for:**
+
+- Internal refactoring (no behavior change)
+- CI/CD changes
+- Test-only changes
+- Typo fixes
+
+## Release Flow (CI-Automated)
+
+Releases are fully automated via GitHub Actions:
+
+```
+1. Create changesets with `knope document-change`
+2. Push/merge to main
+3. CI detects changesets → creates Release PR
+4. Review and merge Release PR
+5. CI creates git tag → triggers release workflow
+6. Builds binaries (cargo-dist) + VSCode extension
+7. Creates GitHub release with all artifacts
+```
+
+**You never need to manually build or publish releases.**
+
+## Versioning Strategy
+
+This project uses **unified versioning**:
+
+- All crates share the same version (workspace version in `Cargo.toml`)
+- VS Code extension version is synced automatically
+- Single `CHANGELOG.md` tracks all changes
+- Git tags use format `v{version}` (e.g., `v0.1.0-alpha.0`)
+
+### Prerelease Versions
+
+The project is currently in **alpha** (`0.x.0-alpha.x`). Version bumps stay in alpha:
+
+- `minor` changeset: `0.1.0-alpha.0` → `0.2.0-alpha.0`
+- `patch` changeset: `0.1.0-alpha.0` → `0.1.1-alpha.0`
+
+### Transitioning to Stable
+
+When ready for stable releases, remove `prerelease_label` from `knope.toml`:
+
+```toml
+# Before (alpha)
+[[workflows.prepare-release.steps]]
+type = "PrepareRelease"
+prerelease_label = "alpha"
+
+# After (stable)
+[[workflows.prepare-release.steps]]
+type = "PrepareRelease"
+# No prerelease_label = stable versions
+```
+
+The next release will be stable (e.g., `0.2.0-alpha.5` → `0.3.0`).
+
+## Tools
+
+### Knope
+
+[Knope](https://knope.tech) handles version management and changelog generation.
+
+```bash
+# Install
+cargo install knope
+
+# Create a changeset interactively
+knope document-change
+
+# Preview what a release would look like (local only)
+knope prepare-release --dry-run
+```

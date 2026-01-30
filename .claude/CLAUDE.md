@@ -15,6 +15,7 @@ This document provides context and guidance for working with the GraphQL LSP cod
   - [Protected Core Features](#protected-core-features)
 - [Architecture](#architecture)
 - [Development Workflow](#development-workflow)
+- [Versioning & Releases](#versioning--releases)
 - [Key Concepts](#key-concepts)
   - [VSCode Extension Architecture (Critical)](#vscode-extension-architecture-critical)
 - [Configuration](#configuration)
@@ -255,6 +256,73 @@ Use the `/create-pr` skill for detailed guidance. Key points:
 - **Never mention CI status** (tests passing, clippy clean) - CI enforces these
 
 For bug fixes, use the `/bug-fix-workflow` skill which enforces the two-commit structure (failing test first, then fix).
+
+---
+
+## Versioning & Releases
+
+This project uses [Knope](https://knope.tech) with changesets for version management. **All releases are automated via CI** - there is no manual release process.
+
+### When to Create a Changeset
+
+Create a changeset for changes that should appear in the changelog:
+
+- **major**: Breaking changes (API changes, removed features)
+- **minor**: New features, significant improvements
+- **patch**: Bug fixes, documentation updates
+
+Skip changesets for:
+
+- Internal refactoring that doesn't change behavior
+- CI/CD changes
+- Test-only changes
+
+### Creating a Changeset
+
+```bash
+# Interactive mode (recommended)
+knope document-change
+
+# Or create manually in .changeset/
+```
+
+Manual changeset format:
+
+```markdown
+---
+graphql-lsp: minor
+---
+
+Add support for feature X
+```
+
+### Release Flow (CI-Automated)
+
+Releases are fully automated via GitHub Actions:
+
+```
+1. Create changesets with `knope document-change`
+2. Push/merge to main
+3. CI detects changesets → creates Release PR
+4. Review and merge Release PR
+5. CI creates git tag → triggers release workflow
+6. Builds binaries (cargo-dist) + VSCode extension
+7. Creates GitHub release with all artifacts
+```
+
+**You never need to manually build or publish releases.** Just create changesets and merge to main.
+
+### Workspace Versioning
+
+All crates in this workspace share the same version (defined in root `Cargo.toml`). When releasing:
+
+1. All crates are versioned together
+2. A single `CHANGELOG.md` tracks all changes
+3. Git tags use the format `v{version}` (e.g., `v0.1.0-alpha.0`)
+
+### Prerelease Versions
+
+The project is currently in **alpha**. To transition to stable releases, remove `prerelease_label = "alpha"` from `knope.toml`. See [.changeset/README.md](../.changeset/README.md) for details.
 
 ---
 
