@@ -6101,8 +6101,7 @@ type Post {
         let string_hints = hint_labels.iter().filter(|l| l.contains("String")).count();
         assert!(
             string_hints >= 2,
-            "Expected at least 2 String type hints, got {}",
-            string_hints
+            "Expected at least 2 String type hints, got {string_hints}"
         );
     }
 
