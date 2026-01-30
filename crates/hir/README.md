@@ -2,16 +2,20 @@
 
 ## Phase 2: Semantics Layer
 
-This crate provides semantic queries on top of syntax, implementing the "golden invariant":
-
-> **"Editing a document's body never invalidates global schema knowledge"**
+This crate provides semantic queries on top of syntax, implementing the cache invariants that enable efficient incremental computation.
 
 ## Architecture
 
 The HIR layer separates **structure** from **bodies**:
 
-- **Structure** (stable): Type names, field signatures, operation names, fragment names
-- **Bodies** (dynamic): Selection sets, field selections, directives
+| Definition | Structure (stable) | Body (dynamic) |
+|------------|-------------------|----------------|
+| Schema type | Type name, field names, field types, arguments | Directives on fields |
+| Operation | Operation name, operation type (query/mutation) | Selection set, variables used |
+| Fragment | Fragment name, type condition | Selection set |
+
+**Structure queries** (`schema_types()`, `all_fragments()`, `all_operations()`) return indexes by name.
+**Body queries** (`operation_body()`, `fragment_body()`) return the content of those definitions.
 
 This separation enables fine-grained incremental recomputation via Salsa.
 
@@ -72,25 +76,22 @@ This separation enables fine-grained incremental recomputation via Salsa.
    - `field_data()` - Get detailed field information
    - `type_by_name()` - Look up types by name
 
-## Caching Verification Tests
+## Cache Invariant Tests
 
 The crate includes comprehensive tests that verify Salsa's incremental computation is working correctly. These tests use `TrackedHirDatabase` (a local database type with query tracking) to make deterministic assertions about caching behavior.
 
-### Tests Included
+### Invariants Tested
 
-| Test                                                         | What It Verifies                                             |
-| ------------------------------------------------------------ | ------------------------------------------------------------ |
-| `test_cache_hit_on_repeated_query`                           | Repeated queries don't re-execute (served from cache)        |
-| `test_granular_caching_editing_one_file`                     | Editing file A doesn't invalidate queries for file B         |
-| `test_unrelated_file_edit_doesnt_invalidate_schema`          | Document changes don't affect schema queries                 |
-| `test_editing_one_of_many_files_is_o1_not_on`                | O(1) recomputation when editing 1 of N files                 |
-| `test_fragment_index_not_invalidated_by_unrelated_edit`      | Fragment cache stable across non-fragment edits              |
-| `test_golden_invariant_schema_stable_across_operation_edits` | **Critical**: Schema queries never re-run on operation edits |
-| `test_executions_since_for_debugging`                        | Debugging helper works correctly                             |
+| Cache Invariant | Tests |
+|-----------------|-------|
+| **Structure/Body Separation** | `test_structure_body_separation`, `test_golden_invariant_schema_stable_across_operation_edits` |
+| **File Isolation** | `test_granular_caching_editing_one_file`, `test_unrelated_file_edit_doesnt_invalidate_schema`, `test_editing_one_of_many_files_is_o1_not_on` |
+| **Index Stability** | `test_fragment_index_not_invalidated_by_unrelated_edit` |
+| **Basic Memoization** | `test_cache_hit_on_repeated_query` |
 
-### Golden Invariant Test
+### Structure/Body Separation Test
 
-The most important test verifies the architectural invariant:
+The most critical test verifies that editing operation bodies doesn't invalidate schema knowledge:
 
 ```rust
 // Edit BOTH operation files (simulating active development)
@@ -100,7 +101,7 @@ op2_content.set_text(&mut db).to(Arc::from("query GetUserNames { users { name em
 // Re-query schema - should be COMPLETELY cached
 let types_after = schema_types(&db, project_files);
 
-// GOLDEN INVARIANT: schema_types should NOT re-execute
+// Structure/Body Separation: schema_types should NOT re-execute
 assert_eq!(db.count_since(queries::SCHEMA_TYPES, checkpoint), 0);
 ```
 

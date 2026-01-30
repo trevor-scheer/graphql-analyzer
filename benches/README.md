@@ -31,11 +31,19 @@ These benchmarks validate that Salsa's memoization works correctly. The warm par
 
 These test the `schema_types` query performance.
 
-### Golden Invariant Benchmark
+### Structure/Body Separation Benchmark
 
-- **golden_invariant_schema_after_body_edit**: Measures schema type query performance after editing an operation body
+- **structure_body_separation_schema_after_edit**: Measures schema type query performance after editing an operation body
 
-This is the most important benchmark - it validates the "golden invariant" that editing a document's body doesn't invalidate schema knowledge. The schema types query should be instant (< 100ns) after a body edit because the schema hasn't changed.
+This benchmark validates the **structure/body separation invariant**: editing a document's body doesn't invalidate schema knowledge. The schema types query should be instant (< 100ns) after a body edit because the schema hasn't changed.
+
+```
+# Example scenario this benchmark validates:
+1. Parse schema and operations (cold)
+2. Query schema_types() (caches result)
+3. Edit an operation's selection set
+4. Query schema_types() again → should be ~0ns (cache hit)
+```
 
 ### Fragment Resolution Benchmarks
 
@@ -53,13 +61,14 @@ These test the high-level IDE API performance.
 
 ## Expected Results
 
-If the Salsa architecture is working correctly, you should see:
+If the cache invariants hold, you should see:
 
-- **Warm vs Cold**: 100-1000x speedup for warm queries
-- **Golden Invariant**: < 100 nanoseconds after body edit
-- **Fragment Resolution**: ~10x speedup with caching
+- **Basic Memoization**: 100-1000x speedup for warm vs cold queries
+- **Structure/Body Separation**: < 100 nanoseconds for schema query after body edit
+- **File Isolation**: Editing 1 of N files should cost O(1), not O(N)
+- **Index Stability**: Fragment index queries instant after body edits
 
-If you don't see these improvements, something is wrong with the incremental computation setup.
+If you don't see these improvements, a cache invariant is being violated somewhere in the incremental computation setup.
 
 ## Interpreting Results
 
