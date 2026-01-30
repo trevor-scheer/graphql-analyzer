@@ -19,9 +19,11 @@ repo = "graphql-analyzer"
 [workflows]
 
 # Prepare a release PR - consumes changesets and creates a PR with version bump
+# Currently in alpha phase. To release stable versions, remove prerelease_label.
 [workflows.prepare-release]
 [[workflows.prepare-release.steps]]
 type = "PrepareRelease"
+prerelease_label = "alpha"
 
 [[workflows.prepare-release.steps]]
 type = "Command"
