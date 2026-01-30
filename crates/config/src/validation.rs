@@ -362,12 +362,12 @@ mod tests {
 
     #[test]
     fn test_error_location_in_yaml() {
-        let config_content = r#"
+        let config_content = r"
 projects:
   github:
     schema: test-workspace/github/schema/*.graphql
     documents: test-workspace/github/operations/*.graphql
-"#;
+";
 
         let error = ConfigValidationError::OverlappingPattern {
             project: "github".to_string(),
@@ -385,13 +385,13 @@ projects:
 
     #[test]
     fn test_error_location_nth_occurrence() {
-        let config_content = r#"
+        let config_content = r"
 projects:
   github:
     schema: schema/*.graphql
   admin:
     schema: schema/*.graphql
-"#;
+";
 
         let first = ConfigValidationError::OverlappingPattern {
             project: "github".to_string(),

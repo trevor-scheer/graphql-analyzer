@@ -5,6 +5,18 @@
 
 set -e
 
+# Check Rust formatting if any Rust files are staged
+if git diff --cached --name-only | grep -qE '\.rs$'; then
+    echo '+cargo fmt --check'
+    cargo fmt --check
+fi
+
+# Run clippy if any Rust files are staged
+if git diff --cached --name-only | grep -qE '\.(rs|toml)$'; then
+    echo '+cargo clippy --workspace --all-targets --all-features'
+    cargo clippy --workspace --all-targets --all-features
+fi
+
 # Check if VSCode extension files are staged
 if git diff --cached --name-only | grep -q "^editors/vscode/"; then
     echo '+(cd editors/vscode && npm run format:check)'

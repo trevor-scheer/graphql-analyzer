@@ -753,8 +753,7 @@ fn test_interface_implementation_missing_field() {
             .iter()
             .any(|d| d.message.to_lowercase().contains("name")
                 || d.message.to_lowercase().contains("interface")),
-        "Expected error about missing 'name' field. Got: {:?}",
-        all_diagnostics
+        "Expected error about missing 'name' field. Got: {all_diagnostics:?}"
     );
 }
 
@@ -866,13 +865,11 @@ fn test_schema_diagnostics_attributed_to_correct_file() {
 
     assert!(
         diags_for_types.is_empty(),
-        "file_diagnostics for types.graphql should be empty. Got: {:?}",
-        diags_for_types
+        "file_diagnostics for types.graphql should be empty. Got: {diags_for_types:?}"
     );
     assert!(
         !diags_for_user.is_empty(),
-        "file_diagnostics for user.graphql should have errors. Got: {:?}",
-        diags_for_user
+        "file_diagnostics for user.graphql should have errors. Got: {diags_for_user:?}"
     );
 }
 
@@ -920,8 +917,7 @@ fn test_schema_build_error_attributed_to_correct_file() {
         all_files_with_errors
             .iter()
             .all(|f| f.contains("query.graphql") || f.contains("duplicate.graphql")),
-        "Diagnostics should only be for files involved in the error. Got: {:?}",
-        all_files_with_errors
+        "Diagnostics should only be for files involved in the error. Got: {all_files_with_errors:?}"
     );
 }
 
@@ -937,7 +933,7 @@ fn test_analyze_field_usage_basic() {
     let schema_content = FileContent::new(
         &db,
         Arc::from(
-            r#"
+            r"
             type Query {
                 user: User
             }
@@ -947,7 +943,7 @@ fn test_analyze_field_usage_basic() {
                 name: String!
                 email: String!
             }
-            "#,
+            ",
         ),
     );
     let schema_metadata = FileMetadata::new(
@@ -961,14 +957,14 @@ fn test_analyze_field_usage_basic() {
     let doc_content = FileContent::new(
         &db,
         Arc::from(
-            r#"
+            r"
             query GetUser {
                 user {
                     id
                     name
                 }
             }
-            "#,
+            ",
         ),
     );
     let doc_metadata = FileMetadata::new(
@@ -1013,7 +1009,7 @@ fn test_analyze_field_usage_multiple_operations() {
     let schema_content = FileContent::new(
         &db,
         Arc::from(
-            r#"
+            r"
             type Query {
                 user: User
             }
@@ -1022,7 +1018,7 @@ fn test_analyze_field_usage_multiple_operations() {
                 id: ID!
                 name: String!
             }
-            "#,
+            ",
         ),
     );
     let schema_metadata = FileMetadata::new(
@@ -1036,7 +1032,7 @@ fn test_analyze_field_usage_multiple_operations() {
     let doc_content = FileContent::new(
         &db,
         Arc::from(
-            r#"
+            r"
             query GetUser {
                 user {
                     id
@@ -1049,7 +1045,7 @@ fn test_analyze_field_usage_multiple_operations() {
                     name
                 }
             }
-            "#,
+            ",
         ),
     );
     let doc_metadata = FileMetadata::new(
@@ -1091,7 +1087,7 @@ fn test_analyze_field_usage_with_fragments() {
     let schema_content = FileContent::new(
         &db,
         Arc::from(
-            r#"
+            r"
             type Query {
                 user: User
             }
@@ -1101,7 +1097,7 @@ fn test_analyze_field_usage_with_fragments() {
                 name: String!
                 email: String!
             }
-            "#,
+            ",
         ),
     );
     let schema_metadata = FileMetadata::new(
@@ -1115,7 +1111,7 @@ fn test_analyze_field_usage_with_fragments() {
     let doc_content = FileContent::new(
         &db,
         Arc::from(
-            r#"
+            r"
             query GetUser {
                 user {
                     ...UserFields
@@ -1126,7 +1122,7 @@ fn test_analyze_field_usage_with_fragments() {
                 id
                 email
             }
-            "#,
+            ",
         ),
     );
     let doc_metadata = FileMetadata::new(
@@ -1161,9 +1157,11 @@ fn test_analyze_field_usage_with_fragments() {
 
 #[test]
 fn test_field_coverage_report_percentage() {
-    let mut report = FieldCoverageReport::default();
-    report.total_fields = 10;
-    report.used_fields = 7;
+    let report = FieldCoverageReport {
+        total_fields: 10,
+        used_fields: 7,
+        ..FieldCoverageReport::default()
+    };
 
     assert!((report.coverage_percentage() - 70.0).abs() < 0.01);
 }

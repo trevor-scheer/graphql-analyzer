@@ -5584,8 +5584,7 @@ query GetUsers {
         // Should complete in reasonable time (< 5 seconds even for 100 files)
         assert!(
             elapsed.as_secs() < 5,
-            "Batch loading took too long: {:?}",
-            elapsed
+            "Batch loading took too long: {elapsed:?}"
         );
 
         // Verify files are loaded
@@ -5846,7 +5845,8 @@ export const RATE_LIMIT_QUERY = gql`
         host.rebuild_project_files();
 
         // Now simulate did_open for the schema file (as if user navigated to it)
-        let schema_file_path = FilePath::new(format!("file://{}", schema_path.display()));
+        // Use path_to_file_uri for consistent path handling across platforms
+        let schema_file_path = FilePath::new(crate::helpers::path_to_file_uri(&schema_path));
         let (is_new, snapshot) =
             host.update_file_and_snapshot(&schema_file_path, schema_content, FileKind::Schema);
 
@@ -6101,8 +6101,7 @@ type Post {
         let string_hints = hint_labels.iter().filter(|l| l.contains("String")).count();
         assert!(
             string_hints >= 2,
-            "Expected at least 2 String type hints, got {}",
-            string_hints
+            "Expected at least 2 String type hints, got {string_hints}"
         );
     }
 

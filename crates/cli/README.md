@@ -454,6 +454,7 @@ graphql validate --color
 ```
 
 Color priority (highest to lowest):
+
 1. `--color` / `--no-color` flags
 2. `NO_COLOR` environment variable
 3. `CLICOLOR_FORCE` environment variable

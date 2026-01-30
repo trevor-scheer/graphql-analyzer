@@ -23,13 +23,12 @@ fn init_tracing_with_otel() -> bool {
     let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
         .unwrap_or_else(|_| "http://localhost:4317".to_string());
 
-    let exporter = match opentelemetry_otlp::SpanExporter::builder()
+    let Ok(exporter) = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
         .with_endpoint(&otlp_endpoint)
         .build()
-    {
-        Ok(e) => e,
-        Err(_) => return false,
+    else {
+        return false;
     };
 
     let provider = SdkTracerProvider::builder()

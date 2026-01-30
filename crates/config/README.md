@@ -221,8 +221,8 @@ If you're migrating from a JS/TS config, convert your configuration to YAML or J
 ```javascript
 // graphql.config.js (NOT SUPPORTED)
 module.exports = {
-  schema: 'schema.graphql',
-  documents: 'src/**/*.graphql',
+  schema: "schema.graphql",
+  documents: "src/**/*.graphql",
 };
 ```
 

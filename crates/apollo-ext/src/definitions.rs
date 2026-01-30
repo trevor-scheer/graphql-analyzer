@@ -9,11 +9,11 @@
 //! use graphql_apollo_ext::DocumentExt;
 //! use apollo_parser::Parser;
 //!
-//! let source = r#"
+//! let source = r"
 //!     query GetUser { user { id } }
 //!     mutation UpdateUser { updateUser { id } }
 //!     fragment UserFields on User { name }
-//! "#;
+//! ";
 //! let tree = Parser::new(source).parse();
 //!
 //! // Get all operations
@@ -352,11 +352,11 @@ mod tests {
 
     #[test]
     fn test_operations() {
-        let source = r#"
+        let source = r"
             query GetUser { user { id } }
             mutation UpdateUser { updateUser { id } }
             subscription OnUserUpdate { userUpdated { id } }
-        "#;
+        ";
         let tree = Parser::new(source).parse();
 
         let ops: Vec<_> = tree.operations().collect();
@@ -369,10 +369,10 @@ mod tests {
 
     #[test]
     fn test_fragments() {
-        let source = r#"
+        let source = r"
             fragment UserFields on User { name }
             fragment AdminFields on Admin { role }
-        "#;
+        ";
         let tree = Parser::new(source).parse();
 
         let frags: Vec<_> = tree.fragments().collect();
@@ -381,14 +381,14 @@ mod tests {
 
     #[test]
     fn test_type_definitions() {
-        let source = r#"
+        let source = r"
             type User { id: ID! }
             interface Node { id: ID! }
             union SearchResult = User | Post
             enum Status { ACTIVE INACTIVE }
             scalar DateTime
             input UserInput { name: String! }
-        "#;
+        ";
         let tree = Parser::new(source).parse();
 
         assert_eq!(tree.object_types().count(), 1);
@@ -401,10 +401,10 @@ mod tests {
 
     #[test]
     fn test_find_operation() {
-        let source = r#"
+        let source = r"
             query GetUser { user { id } }
             query GetPost { post { id } }
-        "#;
+        ";
         let tree = Parser::new(source).parse();
 
         let op = tree.find_operation("GetUser");
@@ -428,10 +428,10 @@ mod tests {
 
     #[test]
     fn test_find_type() {
-        let source = r#"
+        let source = r"
             type User { id: ID! }
             interface Node { id: ID! }
-        "#;
+        ";
         let tree = Parser::new(source).parse();
 
         let type_def = tree.find_type("User");

@@ -146,7 +146,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: editors/vscode/package-lock.json
 
@@ -179,11 +179,20 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Debug info
+        run: |
+          echo "Node version: $(node --version)"
+          echo "npm version: $(npm --version)"
+          echo "oxfmt version: $(npx oxfmt --version)"
+          echo "Git SHA: $(git rev-parse HEAD)"
+          echo "CLAUDE.md hash: $(git hash-object .claude/CLAUDE.md)"
+          echo "hir README hash: $(git hash-object crates/hir/README.md)"
 
       - name: Check formatting
         run: npm run fmt:check
