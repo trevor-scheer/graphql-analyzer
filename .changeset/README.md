@@ -1,4 +1,4 @@
-# Changesets & Release Workflow
+# Changesets
 
 This directory contains changeset files that document changes for the changelog.
 
@@ -7,13 +7,13 @@ This directory contains changeset files that document changes for the changelog.
 ```bash
 # After making changes, create a changeset
 knope document-change
-
-# Or create manually (see format below)
-
-# When ready to release
-cargo xtask release --dry-run --skip-prepare  # Preview
-cargo xtask release --skip-prepare --publish  # Build + GitHub release
 ```
+
+That's it! When your PR is merged to main, CI will automatically:
+1. Detect the changeset
+2. Create a Release PR with version bump and changelog
+3. When the Release PR is merged, create a git tag
+4. Build and publish the release
 
 ## What is a Changeset?
 
@@ -55,73 +55,21 @@ The frontmatter specifies the version bump type. The body becomes the changelog 
 - Test-only changes
 - Typo fixes
 
-## Release Workflow
+## Release Flow (CI-Automated)
 
-### Option 1: Full Manual Release (Recommended)
-
-```bash
-# 1. Preview what will happen
-cargo xtask release --dry-run --skip-prepare
-
-# 2. Build release artifacts
-cargo xtask release --skip-prepare
-
-# 3. Review artifacts
-ls -la dist/
-
-# 4. Commit and create GitHub release
-git add -A && git commit -m "chore: release v0.1.0"
-cargo xtask release --skip-prepare --publish
-```
-
-### Option 2: One-Step Release
-
-```bash
-# Build and publish in one step
-cargo xtask release --skip-prepare --publish
-```
-
-### Option 3: With Version Bump (via Knope)
-
-If you have changesets and want Knope to bump versions:
-
-```bash
-# Let knope process changesets and bump versions
-cargo xtask release --publish
-```
-
-## Release Command Reference
-
-```bash
-cargo xtask release [OPTIONS]
-
-Options:
-  --skip-prepare  Skip knope prepare-release (use current versions)
-  --tag           Create git tag after building
-  --publish       Create GitHub release with artifacts (implies --tag)
-  --dry-run       Show what would happen without doing it
-```
-
-### What the Release Command Does
-
-1. **Prepare** (unless `--skip-prepare`): Runs `knope prepare-release` to bump versions from changesets
-2. **Sync versions**: Updates VS Code extension version to match workspace
-3. **Build binaries**: Builds `graphql` and `graphql-lsp` in release mode
-4. **Package extension**: Compiles and packages VS Code extension (.vsix)
-5. **Collect artifacts**: Copies everything to `dist/`
-6. **Tag** (if `--tag` or `--publish`): Creates annotated git tag
-7. **Publish** (if `--publish`): Pushes to remote and creates GitHub release
-
-### Release Artifacts
-
-After running the release command, `dist/` contains:
+Releases are fully automated via GitHub Actions:
 
 ```
-dist/
-├── graphql                      # CLI binary
-├── graphql-lsp                  # LSP server binary
-└── graphql-lsp-{version}.vsix   # VS Code extension
+1. Create changesets with `knope document-change`
+2. Push/merge to main
+3. CI detects changesets → creates Release PR
+4. Review and merge Release PR
+5. CI creates git tag → triggers release workflow
+6. Builds binaries (cargo-dist) + VSCode extension
+7. Creates GitHub release with all artifacts
 ```
+
+**You never need to manually build or publish releases.**
 
 ## Versioning Strategy
 
@@ -130,7 +78,7 @@ This project uses **unified versioning**:
 - All crates share the same version (workspace version in `Cargo.toml`)
 - VS Code extension version is synced automatically
 - Single `CHANGELOG.md` tracks all changes
-- Git tags use format `v{version}` (e.g., `v0.1.0`)
+- Git tags use format `v{version}` (e.g., `v0.1.0-alpha.0`)
 
 ## Tools
 
@@ -145,41 +93,6 @@ cargo install knope
 # Create a changeset interactively
 knope document-change
 
-# Preview release (version bump + changelog)
+# Preview what a release would look like (local only)
 knope prepare-release --dry-run
-```
-
-### GitHub CLI
-
-The `gh` CLI is required for `--publish` to create GitHub releases.
-
-```bash
-# Install (if not already)
-# macOS: brew install gh
-# Linux: see https://cli.github.com/
-
-# Authenticate
-gh auth login
-```
-
-## Troubleshooting
-
-### "knope not found"
-
-Install Knope: `cargo install knope`
-
-### "gh not found" or authentication errors
-
-Install and authenticate the GitHub CLI:
-```bash
-gh auth login
-```
-
-### Version mismatch between Cargo.toml and package.json
-
-The release command syncs these automatically. If manually fixing:
-```bash
-# Check versions
-grep version Cargo.toml | head -1
-grep version editors/vscode/package.json | head -1
 ```

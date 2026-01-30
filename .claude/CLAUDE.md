@@ -261,7 +261,7 @@ For bug fixes, use the `/bug-fix-workflow` skill which enforces the two-commit s
 
 ## Versioning & Releases
 
-This project uses [Knope](https://knope.tech) with changesets for version management and changelog generation.
+This project uses [Knope](https://knope.tech) with changesets for version management. **All releases are automated via CI** - there is no manual release process.
 
 ### When to Create a Changeset
 
@@ -295,50 +295,21 @@ graphql-lsp: minor
 Add support for feature X
 ```
 
-### Quick Reference
+### Release Flow (CI-Automated)
 
-```bash
-# Create a changeset
-knope document-change
+Releases are fully automated via GitHub Actions:
 
-# Build a release (dry run first)
-cargo xtask release --dry-run --skip-prepare
-
-# Build and publish to GitHub
-cargo xtask release --skip-prepare --publish
+```
+1. Create changesets with `knope document-change`
+2. Push/merge to main
+3. CI detects changesets → creates Release PR
+4. Review and merge Release PR
+5. CI creates git tag → triggers release workflow
+6. Builds binaries (cargo-dist) + VSCode extension
+7. Creates GitHub release with all artifacts
 ```
 
-### Manual Release Workflow
-
-Use `cargo xtask release` for manual releases (no GitHub Actions required):
-
-```bash
-# 1. Preview what will happen
-cargo xtask release --dry-run --skip-prepare
-
-# 2. Build the release (syncs versions, builds binaries, packages extension)
-cargo xtask release --skip-prepare
-
-# 3. Review artifacts in dist/
-ls -la dist/
-
-# 4. Commit changes (if any)
-git add -A && git commit -m "chore: release v0.1.0"
-
-# 5. Publish to GitHub (creates tag + release with artifacts)
-cargo xtask release --skip-prepare --publish
-```
-
-### Release Command Options
-
-```bash
-cargo xtask release [OPTIONS]
-
-  --skip-prepare  Skip knope prepare-release (use current versions)
-  --tag           Create git tag after building
-  --publish       Create GitHub release with artifacts (implies --tag)
-  --dry-run       Show what would happen without doing it
-```
+**You never need to manually build or publish releases.** Just create changesets and merge to main.
 
 ### Workspace Versioning
 
@@ -1213,7 +1184,6 @@ Skills provide contextual guidance for common workflows. They activate automatic
 | Create PR         | `/create-pr`         | Opening PRs, preparing for review                 |
 | Add IDE Feature   | `/add-ide-feature`   | Implementing LSP features (hover, goto def, etc.) |
 | Debug LSP         | `/debug-lsp`         | Troubleshooting LSP server issues                 |
-| Release           | `/release`           | Building and publishing releases                  |
 | Review PR         | `/review-pr`         | Reviewing pull requests                           |
 
 Skills are located in `.claude/skills/` and are loaded into context when relevant.
