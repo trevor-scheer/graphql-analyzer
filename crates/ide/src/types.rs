@@ -591,6 +591,52 @@ impl CodeLensCommand {
     }
 }
 
+/// Kind of inlay hint
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InlayHintKind {
+    /// Type hint (e.g., showing return type of a field)
+    Type,
+    /// Parameter hint (e.g., showing parameter name)
+    Parameter,
+}
+
+/// An inlay hint that shows inline type information without modifying source
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlayHint {
+    /// Position where the hint should be displayed (after the element)
+    pub position: Position,
+    /// The hint label text
+    pub label: String,
+    /// Kind of inlay hint
+    pub kind: InlayHintKind,
+    /// Whether to add padding before the hint
+    pub padding_left: bool,
+    /// Whether to add padding after the hint
+    pub padding_right: bool,
+}
+
+impl InlayHint {
+    /// Create a new inlay hint
+    #[must_use]
+    pub fn new(position: Position, label: impl Into<String>, kind: InlayHintKind) -> Self {
+        Self {
+            position,
+            label: label.into(),
+            kind,
+            padding_left: true,
+            padding_right: false,
+        }
+    }
+
+    /// Set padding options
+    #[must_use]
+    pub const fn with_padding(mut self, left: bool, right: bool) -> Self {
+        self.padding_left = left;
+        self.padding_right = right;
+        self
+    }
+}
+
 /// Result of loading schemas from configuration.
 ///
 /// This type captures both the successfully loaded local schemas and any

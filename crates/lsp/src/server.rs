@@ -1,7 +1,8 @@
 use crate::conversions::{
     convert_ide_code_lens, convert_ide_code_lens_info, convert_ide_completion_item,
     convert_ide_diagnostic, convert_ide_document_symbol, convert_ide_folding_range,
-    convert_ide_hover, convert_ide_location, convert_ide_workspace_symbol, convert_lsp_position,
+    convert_ide_hover, convert_ide_inlay_hint, convert_ide_location, convert_ide_workspace_symbol,
+    convert_lsp_position,
 };
 use crate::workspace::{ProjectHost, WorkspaceManager};
 use graphql_config::find_config;
@@ -14,7 +15,8 @@ use lsp_types::{
     DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, FileChangeType,
     FileSystemWatcher, FoldingRange, FoldingRangeParams, FoldingRangeProviderCapability,
     GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability,
-    InitializeParams, InitializeResult, InitializedParams, Location, MessageActionItem,
+    InitializeParams, InitializeResult, InitializedParams, InlayHint as LspInlayHint,
+    InlayHintOptions, InlayHintParams, InlayHintServerCapabilities, Location, MessageActionItem,
     MessageType, OneOf, ReferenceParams, SemanticToken, SemanticTokenModifier, SemanticTokenType,
     SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
     SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
@@ -1252,6 +1254,11 @@ impl LanguageServer for GraphQLLanguageServer {
             .and_then(|td| td.folding_range.as_ref())
             .is_some();
 
+        // Check if client supports inlay hints
+        let supports_inlay_hints = text_document_caps
+            .and_then(|td| td.inlay_hint.as_ref())
+            .is_some();
+
         tracing::debug!(
             supports_hover,
             supports_completion,
@@ -1262,6 +1269,7 @@ impl LanguageServer for GraphQLLanguageServer {
             supports_semantic_tokens,
             supports_code_lens,
             supports_folding_range,
+            supports_inlay_hints,
             "Client capabilities detected"
         );
 
@@ -1335,6 +1343,12 @@ impl LanguageServer for GraphQLLanguageServer {
                 }),
                 folding_range_provider: supports_folding_range
                     .then_some(FoldingRangeProviderCapability::Simple(true)),
+                inlay_hint_provider: supports_inlay_hints.then_some(OneOf::Right(
+                    InlayHintServerCapabilities::Options(InlayHintOptions {
+                        resolve_provider: Some(false),
+                        work_done_progress_options: WorkDoneProgressOptions::default(),
+                    }),
+                )),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["graphql-analyzer.checkStatus".to_string()],
                     work_done_progress_options: WorkDoneProgressOptions::default(),
@@ -2266,5 +2280,45 @@ impl LanguageServer for GraphQLLanguageServer {
             uri
         );
         Ok(Some(lsp_ranges))
+    }
+
+    #[tracing::instrument(skip(self, params), fields(uri = ?params.text_document.uri))]
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<LspInlayHint>>> {
+        let uri = params.text_document.uri;
+        tracing::debug!("Inlay hints requested: {:?}", uri);
+
+        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
+        else {
+            tracing::debug!("No project found for inlay hints: {:?}", uri);
+            return Ok(None);
+        };
+
+        let host = self
+            .workspace
+            .get_or_create_host(&workspace_uri, &project_name);
+
+        let Some(analysis) = host.try_snapshot().await else {
+            return Ok(None);
+        };
+
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
+
+        // Convert LSP range to IDE range for filtering
+        let range = Some(graphql_ide::Range::new(
+            graphql_ide::Position::new(params.range.start.line, params.range.start.character),
+            graphql_ide::Position::new(params.range.end.line, params.range.end.character),
+        ));
+
+        let hints = analysis.inlay_hints(&file_path, range);
+
+        if hints.is_empty() {
+            tracing::debug!("No inlay hints found for {:?}", uri);
+            return Ok(None);
+        }
+
+        let lsp_hints: Vec<LspInlayHint> = hints.iter().map(convert_ide_inlay_hint).collect();
+
+        tracing::debug!("Returning {} inlay hints for {:?}", lsp_hints.len(), uri);
+        Ok(Some(lsp_hints))
     }
 }
