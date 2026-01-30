@@ -307,18 +307,22 @@ The Salsa-based architecture relies on several cache invariants to ensure effici
 
 **Structure** is the "identity" of a definition - what it IS:
 
-| Definition | Structure (stable) | Body (dynamic) |
-|------------|-------------------|----------------|
-| Schema type | Type name, field names, field types, arguments | Directives on fields |
-| Operation | Operation name, operation type (query/mutation) | Selection set, variables used |
-| Fragment | Fragment name, type condition | Selection set |
+| Definition  | Structure (stable)                              | Body (dynamic)                |
+| ----------- | ----------------------------------------------- | ----------------------------- |
+| Schema type | Type name, field names, field types, arguments  | Directives on fields          |
+| Operation   | Operation name, operation type (query/mutation) | Selection set, variables used |
+| Fragment    | Fragment name, type condition                   | Selection set                 |
 
 **Structure queries** return indexes of definitions by name: `schema_types()`, `all_fragments()`, `all_operations()`.
 
 ```graphql
 # Editing this operation's selection set...
 query GetUser {
-  user { id name email }  # <-- change this body
+  user {
+    id
+    name
+    email
+  } # <-- change this body
 }
 
 # ...does NOT re-compute schema_types() or all_fragments()
@@ -340,6 +344,7 @@ files:
 ```
 
 **What DOES cause cross-file invalidation:**
+
 - Validation results for an operation depend on fragments it references (even in other files)
 - If `UserFields` fragment changes, operations using `...UserFields` need revalidation
 - Schema changes can invalidate validation results for all documents
@@ -351,7 +356,9 @@ files:
 ```graphql
 # Editing a fragment's BODY...
 fragment UserFields on User {
-  id name avatar  # <-- add 'avatar'
+  id
+  name
+  avatar # <-- add 'avatar'
 }
 
 # ...does NOT invalidate all_fragments() index

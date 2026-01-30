@@ -8,11 +8,11 @@ This crate provides semantic queries on top of syntax, implementing the cache in
 
 The HIR layer separates **structure** from **bodies**:
 
-| Definition | Structure (stable) | Body (dynamic) |
-|------------|-------------------|----------------|
-| Schema type | Type name, field names, field types, arguments | Directives on fields |
-| Operation | Operation name, operation type (query/mutation) | Selection set, variables used |
-| Fragment | Fragment name, type condition | Selection set |
+| Definition  | Structure (stable)                              | Body (dynamic)                |
+| ----------- | ----------------------------------------------- | ----------------------------- |
+| Schema type | Type name, field names, field types, arguments  | Directives on fields          |
+| Operation   | Operation name, operation type (query/mutation) | Selection set, variables used |
+| Fragment    | Fragment name, type condition                   | Selection set                 |
 
 **Structure queries** (`schema_types()`, `all_fragments()`, `all_operations()`) return indexes by name.
 **Body queries** (`operation_body()`, `fragment_body()`) return the content of those definitions.
@@ -82,12 +82,12 @@ The crate includes comprehensive tests that verify Salsa's incremental computati
 
 ### Invariants Tested
 
-| Cache Invariant | Tests |
-|-----------------|-------|
-| **Structure/Body Separation** | `test_structure_body_separation`, `test_golden_invariant_schema_stable_across_operation_edits` |
-| **File Isolation** | `test_granular_caching_editing_one_file`, `test_unrelated_file_edit_doesnt_invalidate_schema`, `test_editing_one_of_many_files_is_o1_not_on` |
-| **Index Stability** | `test_fragment_index_not_invalidated_by_unrelated_edit` |
-| **Basic Memoization** | `test_cache_hit_on_repeated_query` |
+| Cache Invariant               | Tests                                                                                                                                        |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Structure/Body Separation** | `test_structure_body_separation`, `test_golden_invariant_schema_stable_across_operation_edits`                                               |
+| **File Isolation**            | `test_granular_caching_editing_one_file`, `test_unrelated_file_edit_doesnt_invalidate_schema`, `test_editing_one_of_many_files_is_o1_not_on` |
+| **Index Stability**           | `test_fragment_index_not_invalidated_by_unrelated_edit`                                                                                      |
+| **Basic Memoization**         | `test_cache_hit_on_repeated_query`                                                                                                           |
 
 ### Structure/Body Separation Test
 
