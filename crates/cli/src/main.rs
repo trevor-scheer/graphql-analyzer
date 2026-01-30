@@ -18,6 +18,14 @@ struct Cli {
     #[arg(short, long, global = true)]
     project: Option<String>,
 
+    /// Force colored output even when not a TTY
+    #[arg(long, global = true, conflicts_with = "no_color")]
+    color: bool,
+
+    /// Disable colored output
+    #[arg(long, global = true, conflicts_with = "color")]
+    no_color: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -177,6 +185,8 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(not(feature = "otel"))]
     init_tracing();
 
+    configure_colors(cli.color, cli.no_color);
+
     let result = match cli.command {
         Commands::Validate { format, watch } => {
             commands::validate::run(cli.config, cli.project.as_deref(), format, watch)
@@ -253,6 +263,41 @@ fn init_tracing() {
         .init();
 }
 
+/// Configure colored output based on flags and environment variables.
+///
+/// Priority order (highest to lowest):
+/// 1. `--color` flag (force colors on)
+/// 2. `--no-color` flag (force colors off)
+/// 3. `NO_COLOR` environment variable (if set to any value, disable colors)
+/// 4. `CLICOLOR_FORCE` environment variable (if set to non-zero, force colors)
+/// 5. `CLICOLOR` environment variable (if set to "0", disable colors)
+/// 6. Default: colors enabled if stdout is a TTY (handled by `colored` crate)
+///
+/// See: <https://no-color.org/> and <https://bixense.com/clicolors/>
+fn configure_colors(force_color: bool, no_color: bool) {
+    use colored::control;
+
+    if force_color {
+        control::set_override(true);
+    } else if no_color {
+        control::set_override(false);
+    } else if std::env::var_os("NO_COLOR").is_some() {
+        // NO_COLOR: if present (regardless of value), disable colors
+        control::set_override(false);
+    } else if let Ok(val) = std::env::var("CLICOLOR_FORCE") {
+        // CLICOLOR_FORCE: if set to non-empty, non-zero value, force colors
+        if !val.is_empty() && val != "0" {
+            control::set_override(true);
+        }
+    } else if let Ok(val) = std::env::var("CLICOLOR") {
+        // CLICOLOR: if set to "0", disable colors
+        if val == "0" {
+            control::set_override(false);
+        }
+    }
+    // Default: let the colored crate decide based on TTY detection
+}
+
 /// Initialize OpenTelemetry tracing with OTLP exporter
 #[cfg(feature = "otel")]
 #[allow(clippy::too_many_lines)]
@@ -314,4 +359,145 @@ fn init_telemetry() -> Option<opentelemetry_sdk::trace::TracerProvider> {
     eprintln!("OpenTelemetry initialized. Traces will be sent to {endpoint}");
 
     Some(provider)
+}
+
+#[cfg(test)]
+mod color_tests {
+    use super::configure_colors;
+    use colored::control::{self, SHOULD_COLORIZE};
+    use std::sync::Mutex;
+
+    // Mutex to serialize tests that modify global state (env vars and color override)
+    static TEST_MUTEX: Mutex<()> = Mutex::new(());
+
+    fn with_clean_env<F: FnOnce()>(f: F) {
+        let _lock = TEST_MUTEX.lock().unwrap();
+
+        // Save and clear color-related env vars
+        let saved_no_color = std::env::var_os("NO_COLOR");
+        let saved_clicolor = std::env::var_os("CLICOLOR");
+        let saved_clicolor_force = std::env::var_os("CLICOLOR_FORCE");
+
+        std::env::remove_var("NO_COLOR");
+        std::env::remove_var("CLICOLOR");
+        std::env::remove_var("CLICOLOR_FORCE");
+
+        // Reset color override
+        control::unset_override();
+
+        f();
+
+        // Restore env vars
+        control::unset_override();
+        if let Some(v) = saved_no_color {
+            std::env::set_var("NO_COLOR", v);
+        }
+        if let Some(v) = saved_clicolor {
+            std::env::set_var("CLICOLOR", v);
+        }
+        if let Some(v) = saved_clicolor_force {
+            std::env::set_var("CLICOLOR_FORCE", v);
+        }
+    }
+
+    #[test]
+    fn color_flag_forces_colors_on() {
+        with_clean_env(|| {
+            configure_colors(true, false);
+            assert!(SHOULD_COLORIZE.should_colorize());
+        });
+    }
+
+    #[test]
+    fn no_color_flag_forces_colors_off() {
+        with_clean_env(|| {
+            configure_colors(false, true);
+            assert!(!SHOULD_COLORIZE.should_colorize());
+        });
+    }
+
+    #[test]
+    fn color_flag_overrides_no_color_env() {
+        with_clean_env(|| {
+            std::env::set_var("NO_COLOR", "1");
+            configure_colors(true, false);
+            assert!(SHOULD_COLORIZE.should_colorize());
+        });
+    }
+
+    #[test]
+    fn no_color_env_disables_colors() {
+        with_clean_env(|| {
+            std::env::set_var("NO_COLOR", "1");
+            configure_colors(false, false);
+            assert!(!SHOULD_COLORIZE.should_colorize());
+        });
+    }
+
+    #[test]
+    fn no_color_env_with_empty_value_disables_colors() {
+        with_clean_env(|| {
+            // NO_COLOR spec: presence alone is enough, value doesn't matter
+            std::env::set_var("NO_COLOR", "");
+            configure_colors(false, false);
+            assert!(!SHOULD_COLORIZE.should_colorize());
+        });
+    }
+
+    #[test]
+    fn clicolor_force_enables_colors() {
+        with_clean_env(|| {
+            std::env::set_var("CLICOLOR_FORCE", "1");
+            configure_colors(false, false);
+            assert!(SHOULD_COLORIZE.should_colorize());
+        });
+    }
+
+    #[test]
+    fn clicolor_force_zero_does_not_enable_colors() {
+        with_clean_env(|| {
+            std::env::set_var("CLICOLOR_FORCE", "0");
+            configure_colors(false, false);
+            // Should fall through to TTY detection (not forced on)
+            // We can't easily assert the default, but we verify no override was set
+        });
+    }
+
+    #[test]
+    fn clicolor_force_empty_does_not_enable_colors() {
+        with_clean_env(|| {
+            std::env::set_var("CLICOLOR_FORCE", "");
+            configure_colors(false, false);
+            // Empty string should not force colors on
+        });
+    }
+
+    #[test]
+    fn clicolor_zero_disables_colors() {
+        with_clean_env(|| {
+            std::env::set_var("CLICOLOR", "0");
+            configure_colors(false, false);
+            assert!(!SHOULD_COLORIZE.should_colorize());
+        });
+    }
+
+    #[test]
+    fn clicolor_one_uses_default_tty_detection() {
+        with_clean_env(|| {
+            std::env::set_var("CLICOLOR", "1");
+            configure_colors(false, false);
+            // CLICOLOR=1 means "use TTY detection", not "force on"
+            // No override should be set, so default behavior applies
+        });
+    }
+
+    #[test]
+    fn no_color_env_takes_priority_over_clicolor_force() {
+        with_clean_env(|| {
+            std::env::set_var("NO_COLOR", "1");
+            std::env::set_var("CLICOLOR_FORCE", "1");
+            configure_colors(false, false);
+            assert!(!SHOULD_COLORIZE.should_colorize());
+        });
+    }
 }

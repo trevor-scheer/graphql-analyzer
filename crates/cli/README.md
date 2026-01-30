@@ -438,10 +438,29 @@ $ graphql --project client validate
 
 - `GRAPHQL_CONFIG` - Override config file path
 - `RUST_LOG` - Set log level (`error`, `warn`, `info`, `debug`, `trace`)
+- `NO_COLOR` - Disable colored output (any value)
+- `CLICOLOR` - Set to `0` to disable colors, `1` to enable
+- `CLICOLOR_FORCE` - Set to `1` to force colors even when not a TTY
 
 ```bash
 RUST_LOG=debug graphql validate
+
+# Disable colors via environment
+NO_COLOR=1 graphql validate
+
+# Or use flags
+graphql validate --no-color
+graphql validate --color
 ```
+
+Color priority (highest to lowest):
+1. `--color` / `--no-color` flags
+2. `NO_COLOR` environment variable
+3. `CLICOLOR_FORCE` environment variable
+4. `CLICOLOR` environment variable
+5. Auto-detect (colors enabled if stdout is a TTY)
+
+See [NO_COLOR standard](https://no-color.org/) and [CLICOLOR spec](https://bixense.com/clicolors/) for details
 
 ## Architecture
 
