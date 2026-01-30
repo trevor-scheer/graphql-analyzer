@@ -7,8 +7,8 @@
 //! These conversions are stateless and can be used from any LSP handler.
 
 use lsp_types::{
-    CodeLens, Command, Diagnostic, DiagnosticSeverity, FoldingRange, FoldingRangeKind, Location,
-    Position, Range, Uri,
+    CodeLens, Command, Diagnostic, DiagnosticSeverity, FoldingRange, FoldingRangeKind, InlayHint,
+    InlayHintKind, InlayHintLabel, Location, Position, Range, Uri,
 };
 
 /// Convert LSP Position to graphql-ide Position
@@ -260,5 +260,22 @@ pub fn convert_ide_folding_range(range: &graphql_ide::FoldingRange) -> FoldingRa
             graphql_ide::FoldingRangeKind::Comment => FoldingRangeKind::Comment,
         }),
         collapsed_text: None,
+    }
+}
+
+/// Convert graphql-ide `InlayHint` to LSP `InlayHint`
+pub fn convert_ide_inlay_hint(hint: &graphql_ide::InlayHint) -> InlayHint {
+    InlayHint {
+        position: convert_ide_position(hint.position),
+        label: InlayHintLabel::String(hint.label.clone()),
+        kind: Some(match hint.kind {
+            graphql_ide::InlayHintKind::Type => InlayHintKind::TYPE,
+            graphql_ide::InlayHintKind::Parameter => InlayHintKind::PARAMETER,
+        }),
+        text_edits: None,
+        tooltip: None,
+        padding_left: Some(hint.padding_left),
+        padding_right: Some(hint.padding_right),
+        data: None,
     }
 }
