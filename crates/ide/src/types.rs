@@ -650,6 +650,41 @@ impl PendingIntrospection {
     }
 }
 
+/// Status information for a project.
+///
+/// Used by the LSP status command to report project health and metrics.
+#[derive(Debug, Clone, Default)]
+pub struct ProjectStatus {
+    /// Number of schema files loaded
+    pub schema_file_count: usize,
+    /// Number of document files loaded
+    pub document_file_count: usize,
+    /// Whether a schema has been loaded (at least one schema file)
+    pub has_schema: bool,
+}
+
+impl ProjectStatus {
+    /// Create a new project status
+    #[must_use]
+    pub const fn new(
+        schema_file_count: usize,
+        document_file_count: usize,
+        has_schema: bool,
+    ) -> Self {
+        Self {
+            schema_file_count,
+            document_file_count,
+            has_schema,
+        }
+    }
+
+    /// Total number of files (schema + documents)
+    #[must_use]
+    pub const fn total_files(&self) -> usize {
+        self.schema_file_count + self.document_file_count
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

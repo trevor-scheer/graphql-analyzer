@@ -1922,6 +1922,7 @@ impl LanguageServer for GraphQLLanguageServer {
 
         if params.command.as_str() == "graphql-analyzer.checkStatus" {
             let mut status_lines = Vec::new();
+            let mut total_projects = 0;
 
             for workspace_entry in &self.workspace.workspace_roots {
                 let workspace_uri = workspace_entry.key();
@@ -1939,7 +1940,41 @@ impl LanguageServer for GraphQLLanguageServer {
                     ));
                 }
 
-                // Project information removed (old system)
+                // Collect projects for this workspace
+                let workspace_projects: Vec<_> = self
+                    .workspace
+                    .hosts
+                    .iter()
+                    .filter(|entry| entry.key().0 == *workspace_uri)
+                    .map(|entry| (entry.key().1.clone(), entry.value().clone()))
+                    .collect();
+
+                if workspace_projects.is_empty() {
+                    status_lines.push("  Projects: (none loaded)".to_string());
+                } else {
+                    status_lines.push(format!("  Projects: {}", workspace_projects.len()));
+                    total_projects += workspace_projects.len();
+
+                    for (project_name, host) in workspace_projects {
+                        if let Some(snapshot) = host.try_snapshot().await {
+                            let status = snapshot.project_status();
+                            let schema_status = if status.has_schema {
+                                "loaded"
+                            } else {
+                                "missing"
+                            };
+                            status_lines.push(format!(
+                                "    - {}: {} schema file(s), {} document(s), schema {}",
+                                project_name,
+                                status.schema_file_count,
+                                status.document_file_count,
+                                schema_status
+                            ));
+                        } else {
+                            status_lines.push(format!("    - {}: (busy)", project_name));
+                        }
+                    }
+                }
             }
 
             let status_report = status_lines.join("\n");
@@ -1956,8 +1991,8 @@ impl LanguageServer for GraphQLLanguageServer {
             } else {
                 let workspace_count = self.workspace.workspace_roots.len();
                 format!(
-                    "{} workspace(s) - Check output for details",
-                    workspace_count
+                    "{} workspace(s), {} project(s) - Check output for details",
+                    workspace_count, total_projects
                 )
             };
 
