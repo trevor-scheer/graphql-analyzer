@@ -6147,4 +6147,42 @@ type Post {
             "Expected Int type hint"
         );
     }
+
+    #[test]
+    fn test_inlay_hints_with_aliases() {
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { user: User }\ntype User { name: String! email: String! }",
+            FileKind::Schema,
+        );
+
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "query GetUser {\n  user {\n    userName: name\n    userEmail: email\n  }\n}",
+            FileKind::ExecutableGraphQL,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let hints = snapshot.inlay_hints(&doc_path, None);
+
+        // Should have hints for aliased scalar fields
+        assert!(
+            hints.len() >= 2,
+            "Expected at least 2 inlay hints for aliased fields, got {}",
+            hints.len()
+        );
+
+        // Both hints should show String type
+        let string_hints = hints.iter().filter(|h| h.label.contains("String")).count();
+        assert_eq!(
+            string_hints, 2,
+            "Expected 2 String type hints for aliased fields"
+        );
+    }
 }

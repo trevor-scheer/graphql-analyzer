@@ -18,7 +18,6 @@ use crate::FileRegistry;
 /// Returns inlay hints showing:
 /// - Return types after field selections
 /// - Variable types after variable references
-#[allow(clippy::too_many_lines)]
 pub fn inlay_hints(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
     registry: &FileRegistry,
@@ -69,7 +68,6 @@ pub fn inlay_hints(
 }
 
 /// Collect inlay hints from a syntax tree
-#[allow(clippy::too_many_lines)]
 fn collect_hints_from_tree(
     tree: &apollo_parser::SyntaxTree,
     schema_types: &HashMap<Arc<str>, graphql_hir::TypeDef>,
@@ -157,7 +155,6 @@ fn collect_hints_from_tree(
 }
 
 /// Collect field type hints from a selection set
-#[allow(clippy::too_many_lines)]
 fn collect_selection_set_hints(
     selection_set: &apollo_parser::cst::SelectionSet,
     parent_type: &str,
@@ -167,7 +164,10 @@ fn collect_selection_set_hints(
     range: Option<Range>,
     hints: &mut Vec<InlayHint>,
 ) {
-    let type_def = schema_types.get(parent_type);
+    // Early return if parent type is unknown - no type info available for hints
+    let Some(type_def) = schema_types.get(parent_type) else {
+        return;
+    };
 
     for selection in selection_set.selections() {
         match selection {
@@ -176,49 +176,46 @@ fn collect_selection_set_hints(
                     let field_name = name.text();
 
                     // Find field type in schema
-                    if let Some(type_def) = type_def {
-                        if let Some(field_def) = type_def
-                            .fields
-                            .iter()
-                            .find(|f| f.name.as_ref() == field_name)
-                        {
-                            // Get position after the field name (or alias if present)
-                            let end_node = field.alias().map_or_else(
-                                || name.syntax().text_range().end(),
-                                |alias| alias.syntax().text_range().end(),
+                    if let Some(field_def) = type_def
+                        .fields
+                        .iter()
+                        .find(|f| f.name.as_ref() == field_name)
+                    {
+                        // Get position after the field name (or alias if present)
+                        let end_node = field.alias().map_or_else(
+                            || name.syntax().text_range().end(),
+                            |alias| alias.syntax().text_range().end(),
+                        );
+
+                        // If there's no selection set, show the type hint
+                        // (for scalar fields, showing the type is most useful)
+                        if field.selection_set().is_none() {
+                            let end_offset: usize = end_node.into();
+                            let position = offset_to_position(line_index, end_offset);
+                            let adjusted = adjust_position_for_line_offset(position, line_offset);
+
+                            if should_include_position(adjusted, range) {
+                                let type_str = format_type_ref(&field_def.type_ref);
+                                hints.push(InlayHint::new(
+                                    adjusted,
+                                    format!(": {type_str}"),
+                                    InlayHintKind::Type,
+                                ));
+                            }
+                        }
+
+                        // Recurse into nested selection sets
+                        if let Some(nested) = field.selection_set() {
+                            let field_type_name = field_def.type_ref.name.as_ref();
+                            collect_selection_set_hints(
+                                &nested,
+                                field_type_name,
+                                schema_types,
+                                line_index,
+                                line_offset,
+                                range,
+                                hints,
                             );
-
-                            // If there's no selection set, show the type hint
-                            // (for scalar fields, showing the type is most useful)
-                            if field.selection_set().is_none() {
-                                let end_offset: usize = end_node.into();
-                                let position = offset_to_position(line_index, end_offset);
-                                let adjusted =
-                                    adjust_position_for_line_offset(position, line_offset);
-
-                                if should_include_position(adjusted, range) {
-                                    let type_str = format_type_ref(&field_def.type_ref);
-                                    hints.push(InlayHint::new(
-                                        adjusted,
-                                        format!(": {type_str}"),
-                                        InlayHintKind::Type,
-                                    ));
-                                }
-                            }
-
-                            // Recurse into nested selection sets
-                            if let Some(nested) = field.selection_set() {
-                                let field_type_name = field_def.type_ref.name.as_ref();
-                                collect_selection_set_hints(
-                                    &nested,
-                                    field_type_name,
-                                    schema_types,
-                                    line_index,
-                                    line_offset,
-                                    range,
-                                    hints,
-                                );
-                            }
                         }
                     }
                 }
@@ -258,13 +255,28 @@ const fn adjust_position_for_line_offset(position: Position, line_offset: u32) -
     }
 }
 
-/// Check if a position should be included based on the requested range
+/// Check if a position should be included based on the requested range.
+/// Uses proper 2D range comparison (line and character).
 fn should_include_position(position: Position, range: Option<Range>) -> bool {
     let Some(range) = range else {
         return true;
     };
 
-    position.line >= range.start.line && position.line <= range.end.line
+    // Check if position is within the 2D range
+    if position.line < range.start.line || position.line > range.end.line {
+        return false;
+    }
+
+    // Handle same-line ranges
+    if position.line == range.start.line && position.character < range.start.character {
+        return false;
+    }
+
+    if position.line == range.end.line && position.character > range.end.character {
+        return false;
+    }
+
+    true
 }
 
 #[cfg(test)]
@@ -289,6 +301,30 @@ mod tests {
         let pos = Position::new(15, 10);
         let range = Range::new(Position::new(0, 0), Position::new(10, 0));
         assert!(!should_include_position(pos, Some(range)));
+    }
+
+    #[test]
+    fn test_should_include_position_same_line_before_start() {
+        // Position is on the start line but before the start character
+        let pos = Position::new(5, 5);
+        let range = Range::new(Position::new(5, 10), Position::new(5, 20));
+        assert!(!should_include_position(pos, Some(range)));
+    }
+
+    #[test]
+    fn test_should_include_position_same_line_after_end() {
+        // Position is on the end line but after the end character
+        let pos = Position::new(5, 50);
+        let range = Range::new(Position::new(5, 10), Position::new(5, 20));
+        assert!(!should_include_position(pos, Some(range)));
+    }
+
+    #[test]
+    fn test_should_include_position_same_line_in_range() {
+        // Position is within a same-line range
+        let pos = Position::new(5, 15);
+        let range = Range::new(Position::new(5, 10), Position::new(5, 20));
+        assert!(should_include_position(pos, Some(range)));
     }
 
     #[test]

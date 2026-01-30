@@ -578,10 +578,10 @@ pub fn format_type_ref(type_ref: &graphql_hir::TypeRef) -> String {
     let mut result = type_ref.name.to_string();
 
     if type_ref.is_list {
-        result = format!("[{result}]");
         if type_ref.inner_non_null {
-            result = format!("[{}!]", type_ref.name);
+            result.push('!');
         }
+        result = format!("[{result}]");
     }
 
     if type_ref.is_non_null {
