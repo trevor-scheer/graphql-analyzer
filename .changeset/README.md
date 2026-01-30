@@ -10,6 +10,7 @@ knope document-change
 ```
 
 That's it! When your PR is merged to main, CI will automatically:
+
 1. Detect the changeset
 2. Create a Release PR with version bump and changelog
 3. When the Release PR is merged, create a git tag
@@ -18,6 +19,7 @@ That's it! When your PR is merged to main, CI will automatically:
 ## What is a Changeset?
 
 A changeset is a Markdown file describing a change. Each changeset specifies:
+
 - The type of version bump (major, minor, patch)
 - A summary for the changelog
 
@@ -44,12 +46,14 @@ The frontmatter specifies the version bump type. The body becomes the changelog 
 ### When to Create a Changeset
 
 **DO create changesets for:**
+
 - New features
 - Bug fixes
 - Breaking changes
 - Significant improvements
 
 **DON'T create changesets for:**
+
 - Internal refactoring (no behavior change)
 - CI/CD changes
 - Test-only changes
@@ -83,6 +87,7 @@ This project uses **unified versioning**:
 ### Prerelease Versions
 
 The project is currently in **alpha** (`0.x.0-alpha.x`). Version bumps stay in alpha:
+
 - `minor` changeset: `0.1.0-alpha.0` → `0.2.0-alpha.0`
 - `patch` changeset: `0.1.0-alpha.0` → `0.1.1-alpha.0`
 

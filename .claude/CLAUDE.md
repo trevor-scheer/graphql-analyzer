@@ -272,6 +272,7 @@ Create a changeset for changes that should appear in the changelog:
 - **patch**: Bug fixes, documentation updates
 
 Skip changesets for:
+
 - Internal refactoring that doesn't change behavior
 - CI/CD changes
 - Test-only changes
