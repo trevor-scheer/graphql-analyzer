@@ -1,8 +1,10 @@
 //! Inlay hints feature implementation.
 //!
 //! This module provides IDE inlay hints functionality:
-//! - Field return types (displayed after field selections)
-//! - Variable types (displayed after variable references)
+//! - Field return types (displayed after scalar field selections)
+//!
+//! Note: Variable definition types are NOT shown as hints since they already
+//! have explicit type annotations in the GraphQL syntax.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,9 +17,11 @@ use crate::FileRegistry;
 
 /// Get inlay hints for a file.
 ///
-/// Returns inlay hints showing:
-/// - Return types after field selections
-/// - Variable types after variable references
+/// Returns inlay hints showing return types after scalar field selections.
+/// Hints are only shown for leaf fields (fields without nested selection sets)
+/// since the return type is not visible in the query syntax.
+///
+/// If `range` is provided, only returns hints within that range for efficiency.
 pub fn inlay_hints(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
     registry: &FileRegistry,
@@ -87,34 +91,6 @@ fn collect_hints_from_tree(
                     _ => "Query",
                 };
 
-                // Collect variable hints from operation definition
-                if let Some(var_defs) = op.variable_definitions() {
-                    for var_def in var_defs.variable_definitions() {
-                        if let (Some(variable), Some(ty)) = (var_def.variable(), var_def.ty()) {
-                            if let Some(name) = variable.name() {
-                                let type_text = ty.syntax().text().to_string();
-                                let range_end = name.syntax().text_range().end();
-                                let end_offset: usize = range_end.into();
-
-                                let position = offset_to_position(line_index, end_offset);
-                                let adjusted =
-                                    adjust_position_for_line_offset(position, line_offset);
-
-                                if should_include_position(adjusted, range) {
-                                    hints.push(
-                                        InlayHint::new(
-                                            adjusted,
-                                            format!(": {type_text}"),
-                                            InlayHintKind::Type,
-                                        )
-                                        .with_padding(false, false),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-
                 // Collect field hints from selection set
                 if let Some(selection_set) = op.selection_set() {
                     collect_selection_set_hints(
@@ -175,18 +151,38 @@ fn collect_selection_set_hints(
                 if let Some(name) = field.name() {
                     let field_name = name.text();
 
+                    // Get position after the alias (if present) or field name.
+                    // We use the alias position because that's what appears in the result.
+                    let end_node = field.alias().map_or_else(
+                        || name.syntax().text_range().end(),
+                        |alias| alias.syntax().text_range().end(),
+                    );
+
+                    // Handle __typename introspection field specially
+                    // It's always available on any type and returns String!
+                    if field_name == "__typename" {
+                        if field.selection_set().is_none() {
+                            let end_offset: usize = end_node.into();
+                            let position = offset_to_position(line_index, end_offset);
+                            let adjusted = adjust_position_for_line_offset(position, line_offset);
+
+                            if should_include_position(adjusted, range) {
+                                hints.push(InlayHint::new(
+                                    adjusted,
+                                    ": String!".to_string(),
+                                    InlayHintKind::Type,
+                                ));
+                            }
+                        }
+                        continue;
+                    }
+
                     // Find field type in schema
                     if let Some(field_def) = type_def
                         .fields
                         .iter()
                         .find(|f| f.name.as_ref() == field_name)
                     {
-                        // Get position after the field name (or alias if present)
-                        let end_node = field.alias().map_or_else(
-                            || name.syntax().text_range().end(),
-                            |alias| alias.syntax().text_range().end(),
-                        );
-
                         // If there's no selection set, show the type hint
                         // (for scalar fields, showing the type is most useful)
                         if field.selection_set().is_none() {
@@ -324,6 +320,38 @@ mod tests {
         // Position is within a same-line range
         let pos = Position::new(5, 15);
         let range = Range::new(Position::new(5, 10), Position::new(5, 20));
+        assert!(should_include_position(pos, Some(range)));
+    }
+
+    #[test]
+    fn test_should_include_position_at_range_start() {
+        // Position exactly at range start should be included
+        let pos = Position::new(5, 10);
+        let range = Range::new(Position::new(5, 10), Position::new(5, 20));
+        assert!(should_include_position(pos, Some(range)));
+    }
+
+    #[test]
+    fn test_should_include_position_at_range_end() {
+        // Position exactly at range end should be included
+        let pos = Position::new(5, 20);
+        let range = Range::new(Position::new(5, 10), Position::new(5, 20));
+        assert!(should_include_position(pos, Some(range)));
+    }
+
+    #[test]
+    fn test_should_include_position_at_multiline_start() {
+        // Position exactly at range start on multi-line range
+        let pos = Position::new(3, 5);
+        let range = Range::new(Position::new(3, 5), Position::new(10, 15));
+        assert!(should_include_position(pos, Some(range)));
+    }
+
+    #[test]
+    fn test_should_include_position_at_multiline_end() {
+        // Position exactly at range end on multi-line range
+        let pos = Position::new(10, 15);
+        let range = Range::new(Position::new(3, 5), Position::new(10, 15));
         assert!(should_include_position(pos, Some(range)));
     }
 

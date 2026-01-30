@@ -1395,9 +1395,8 @@ impl Analysis {
 
     /// Get inlay hints for a file within an optional range.
     ///
-    /// Returns inlay hints showing:
-    /// - Return types after scalar field selections
-    /// - Variable types (for operation parameters)
+    /// Returns inlay hints showing return types after scalar field selections.
+    /// Includes support for the `__typename` introspection field.
     ///
     /// If `range` is provided, only returns hints within that range for efficiency.
     pub fn inlay_hints(&self, file: &FilePath, range: Option<Range>) -> Vec<InlayHint> {
@@ -6183,6 +6182,45 @@ type Post {
         assert_eq!(
             string_hints, 2,
             "Expected 2 String type hints for aliased fields"
+        );
+    }
+
+    #[test]
+    fn test_inlay_hints_typename() {
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { user: User }\ntype User { name: String! }",
+            FileKind::Schema,
+        );
+
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "query GetUser {\n  user {\n    __typename\n    name\n  }\n}",
+            FileKind::ExecutableGraphQL,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let hints = snapshot.inlay_hints(&doc_path, None);
+
+        // Should have hints for both __typename and name
+        assert_eq!(
+            hints.len(),
+            2,
+            "Expected 2 inlay hints (for __typename and name), got {}",
+            hints.len()
+        );
+
+        // Check __typename shows String! hint
+        let typename_hint = hints.iter().find(|h| h.label == ": String!");
+        assert!(
+            typename_hint.is_some(),
+            "Expected __typename hint with 'String!' type"
         );
     }
 }
