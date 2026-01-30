@@ -90,7 +90,7 @@ fn install(release: bool) -> Result<()> {
 
     // Step 1: Build cargo
     println!("Building LSP server...");
-    let mut cargo_args = vec!["build", "--package", "graphql-lsp"];
+    let mut cargo_args = vec!["build", "--package", "graphql-cli"];
     if release {
         cargo_args.push("--release");
     }
