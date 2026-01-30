@@ -37,6 +37,12 @@ These test the `schema_types` query performance.
 
 This is the most important benchmark - it validates the "golden invariant" that editing a document's body doesn't invalidate schema knowledge. The schema types query should be instant (< 100ns) after a body edit because the schema hasn't changed.
 
+### Per-File Granular Caching Benchmark
+
+- **per_file_granular_caching**: Measures O(1) behavior when editing 1 of N files
+
+This benchmark validates file isolation: editing one file in a project with many files should only recompute queries for the edited file, not all files.
+
 ### Fragment Resolution Benchmarks
 
 - **fragment_resolution_cold**: First-time resolution of all fragments in project
@@ -57,6 +63,7 @@ If the Salsa architecture is working correctly, you should see:
 
 - **Warm vs Cold**: 100-1000x speedup for warm queries
 - **Golden Invariant**: < 100 nanoseconds after body edit
+- **Per-File Granular Caching**: O(1) recomputation when editing 1 of N files
 - **Fragment Resolution**: ~10x speedup with caching
 
 If you don't see these improvements, something is wrong with the incremental computation setup.
