@@ -317,9 +317,11 @@ All crates in this workspace share the same version (defined in root `Cargo.toml
 
 1. All crates are versioned together
 2. A single `CHANGELOG.md` tracks all changes
-3. Git tags use the format `v{version}` (e.g., `v0.1.0`)
+3. Git tags use the format `v{version}` (e.g., `v0.1.0-alpha.0`)
 
-See [.changeset/README.md](../.changeset/README.md) for detailed workflow documentation.
+### Prerelease Versions
+
+The project is currently in **alpha**. To transition to stable releases, remove `prerelease_label = "alpha"` from `knope.toml`. See [.changeset/README.md](../.changeset/README.md) for details.
 
 ---
 

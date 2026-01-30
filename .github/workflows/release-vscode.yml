@@ -1,0 +1,66 @@
+name: Release VSCode Extension
+
+# Runs after the cargo-dist Release workflow completes
+# Builds and uploads the VSCode extension to the same GitHub release
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  upload-vscode-extension:
+    # Only run if Release workflow succeeded and this is a tag push (not a PR)
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch != 'main' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Get release tag
+        id: tag
+        run: |
+          TAG="${{ github.event.workflow_run.head_branch }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Building VSCode extension for release: $TAG"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install dependencies
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Build extension
+        working-directory: editors/vscode
+        run: npm run compile
+
+      - name: Package extension
+        working-directory: editors/vscode
+        run: npm run package
+
+      - name: Upload to GitHub Release
+        run: |
+          # Find the .vsix file
+          VSIX_FILE=$(find editors/vscode -name "*.vsix" | head -1)
+          if [ -z "$VSIX_FILE" ]; then
+            echo "Error: No .vsix file found"
+            exit 1
+          fi
+          echo "Uploading: $VSIX_FILE"
+          gh release upload "${{ steps.tag.outputs.tag }}" "$VSIX_FILE" --clobber --repo ${{ github.repository }}

@@ -80,6 +80,30 @@ This project uses **unified versioning**:
 - Single `CHANGELOG.md` tracks all changes
 - Git tags use format `v{version}` (e.g., `v0.1.0-alpha.0`)
 
+### Prerelease Versions
+
+The project is currently in **alpha** (`0.x.0-alpha.x`). Version bumps stay in alpha:
+- `minor` changeset: `0.1.0-alpha.0` → `0.2.0-alpha.0`
+- `patch` changeset: `0.1.0-alpha.0` → `0.1.1-alpha.0`
+
+### Transitioning to Stable
+
+When ready for stable releases, remove `prerelease_label` from `knope.toml`:
+
+```toml
+# Before (alpha)
+[[workflows.prepare-release.steps]]
+type = "PrepareRelease"
+prerelease_label = "alpha"
+
+# After (stable)
+[[workflows.prepare-release.steps]]
+type = "PrepareRelease"
+# No prerelease_label = stable versions
+```
+
+The next release will be stable (e.g., `0.2.0-alpha.5` → `0.3.0`).
+
 ## Tools
 
 ### Knope
