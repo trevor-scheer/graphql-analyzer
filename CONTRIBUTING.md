@@ -67,18 +67,32 @@ cargo test --package graphql-linter test_redundant_fields
 cargo test -- --nocapture
 ```
 
-### Run the LSP Server
+### Quick Install for LSP and extension (xtask)
+
+The project includes an `xtask` command that builds the LSP server and installs the VSCode extension in one step:
+
+```bash
+# Build LSP server (debug) and install extension
+cargo xtask install
+
+# Build LSP server (release) and install extension
+cargo xtask install --release
+```
+
+This is the fastest way to test changes in your local VSCode instance.
+
+### Run the LSP Server standalone
 
 ```bash
 # Development build
-cargo run --package graphql-lsp
+cargo run --package graphql-cli -- lsp
 
 # With debug logging
-RUST_LOG=debug cargo run --package graphql-lsp
+RUST_LOG=debug cargo run --package graphql-cli -- lsp
 
 # Release build (for performance testing)
-cargo build --release --package graphql-lsp
-RUST_LOG=info ./target/release/graphql-lsp
+cargo build --release --package graphql-cli
+RUST_LOG=info ./target/release/graphql lsp
 ```
 
 ### Run the CLI
@@ -110,106 +124,7 @@ npm run watch
 code .
 ```
 
-The extension will automatically use `target/debug/graphql-lsp` when running from the repository.
-
-### Quick Install (xtask)
-
-The project includes an `xtask` command that builds the LSP server and installs the VSCode extension in one step:
-
-```bash
-# Build LSP server (debug) and install extension
-cargo xtask install
-
-# Build LSP server (release) and install extension
-cargo xtask install --release
-```
-
-This is the fastest way to test changes in your local VSCode instance.
-
----
-
-## Making Changes
-
-### Branch Naming
-
-Use descriptive branch names with prefixes:
-
-- `feat/` - New features (e.g., `feat/goto-definition`)
-- `fix/` - Bug fixes (e.g., `fix/fragment-resolution`)
-- `refactor/` - Code refactoring (e.g., `refactor/linter-architecture`)
-- `docs/` - Documentation updates (e.g., `docs/improve-readme`)
-- `test/` - Test additions or improvements (e.g., `test/validation-coverage`)
-
-Example:
-
-```bash
-git checkout -b feat/add-completion-support
-```
-
-### Commit Messages
-
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-<type>: <description>
-
-[optional body]
-
-[optional footer]
-```
-
-**Types:**
-
-- `feat`: New feature
-- `fix`: Bug fix
-- `refactor`: Code refactoring
-- `docs`: Documentation changes
-- `test`: Adding or updating tests
-- `chore`: Maintenance tasks
-- `perf`: Performance improvements
-
-**Examples:**
-
-```
-feat: add completion support for field selections
-
-Implements completion suggestions when typing fields in selection sets.
-Includes schema-based suggestions with type information.
-```
-
-```
-fix: resolve fragment circular reference detection
-
-Fixes an issue where circular fragment dependencies caused infinite loops
-during validation. Now properly detects and reports cycles.
-
-Fixes #123
-```
-
-### Code Style
-
-**Rust:**
-
-- Follow standard Rust conventions
-- Use `snake_case` for functions and variables
-- Use `CamelCase` for types and traits
-- Keep lines under 100 characters where reasonable
-- Run `cargo fmt` before committing
-- Run `cargo clippy` and address warnings
-
-**TypeScript (VSCode Extension):**
-
-- Follow the existing code style
-- Use 2-space indentation
-- Run `npm run format` before committing
-- Run `npm run lint` and fix issues
-
-**General:**
-
-- Write self-documenting code
-- Add comments only for subtle, confusing, or surprising behavior
-- Avoid needless comments that just restate what the code does
-- No emoji in code or commit messages (unless specifically requested)
+The extension will automatically use `target/debug/graphql lsp` when running from the repository.
 
 ---
 
@@ -295,10 +210,8 @@ cargo clippy --workspace --all-targets --all-features
 # Run all tests
 cargo test --workspace
 
-# For VSCode extension
-cd editors/vscode
-npm run format:check
-npm run lint
+# Format TS code (VSCode extension)
+npm run fmt
 ```
 
 ### Addressing Clippy Warnings
@@ -405,8 +318,9 @@ crates/
 ├── graphql-ide/         # Editor API
 ├── graphql-lsp/         # LSP server
 ├── graphql-cli/         # CLI tool
+├── graphql-mcp/         # MCP server
 ├── graphql-config/      # Configuration
-├── graphql-extract/     # GraphQL extraction
+├── graphql-extract/     # GraphQL document extraction
 ├── graphql-introspect/  # Schema introspection
 └── graphql-linter/      # Linting engine
 ```
@@ -414,7 +328,7 @@ crates/
 ### Architecture Layers
 
 ```
-LSP/CLI (user-facing)
+LSP/CLI/MCP (user-facing)
     ↓
 IDE API (POD types, snapshots)
     ↓
@@ -519,4 +433,4 @@ By contributing, you agree that your contributions will be licensed under the sa
 
 ---
 
-Thank you for contributing to GraphQL LSP!
+Thank you for contributing to graphql-analyzer!
