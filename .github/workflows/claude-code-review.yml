@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
       issues: read
       id-token: write
 
@@ -45,10 +45,10 @@ jobs:
             - Point out specific issues that need fixing, with line references
             - Explain WHY something should change, not just what
             - Skip praise and filler - just the substance
-            - If the new changes look good or address previous feedback, a brief "LGTM" or short acknowledgment is fine
+            - If the changes look good, use `gh pr review --approve` with a brief message instead of commenting
 
-            Follow the repo's CLAUDE.md for style/conventions. Use `gh pr comment` to post your review.
+            Follow the repo's CLAUDE.md for style/conventions. Use `gh pr comment` for feedback or `gh pr review --approve` for approvals.
 
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
-          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
+          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh pr review:*)"'
