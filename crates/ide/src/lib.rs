@@ -1590,9 +1590,8 @@ impl Analysis {
             .document_file_ids(&self.db)
             .ids(&self.db)
             .len();
-        let has_schema = schema_file_count > 0;
 
-        ProjectStatus::new(schema_file_count, document_file_count, has_schema)
+        ProjectStatus::new(schema_file_count, document_file_count)
     }
 
     /// Get field usage coverage report for the project

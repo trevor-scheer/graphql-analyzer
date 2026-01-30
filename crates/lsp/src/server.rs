@@ -1958,7 +1958,7 @@ impl LanguageServer for GraphQLLanguageServer {
                     for (project_name, host) in workspace_projects {
                         if let Some(snapshot) = host.try_snapshot().await {
                             let status = snapshot.project_status();
-                            let schema_status = if status.has_schema {
+                            let schema_status = if status.has_schema() {
                                 "loaded"
                             } else {
                                 "missing"
