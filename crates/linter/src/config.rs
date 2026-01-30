@@ -596,10 +596,10 @@ rules:
 
     #[test]
     fn test_eslint_array_style_severity_only() {
-        let yaml = r#"
+        let yaml = r"
 rules:
   require_id_field: [error]
-"#;
+";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
             config.get_severity("require_id_field"),
@@ -632,10 +632,10 @@ rules:
 
     #[test]
     fn test_get_options_returns_none_for_simple_severity() {
-        let yaml = r#"
+        let yaml = r"
 rules:
   require_id_field: warn
-"#;
+";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         assert!(config.get_options("require_id_field").is_none());
     }

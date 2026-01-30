@@ -2015,9 +2015,7 @@ const GET_USER = gql`
         let gql_tag_pos = source.find("gql`").expect("Should find gql tag");
         assert!(
             file_relative_pos > gql_tag_pos,
-            "File-relative position {} should be after gql tag at {}",
-            file_relative_pos,
-            gql_tag_pos
+            "File-relative position {file_relative_pos} should be after gql tag at {gql_tag_pos}"
         );
     }
 }

@@ -267,7 +267,7 @@ const FRAG = gql`
 // Caching verification tests using TrackedDatabase
 // ============================================================================
 
-/// Tests for file_schema_coordinates query which tracks field usage across files
+/// Tests for `file_schema_coordinates` query which tracks field usage across files
 mod schema_coordinates_tests {
     use graphql_hir::file_schema_coordinates;
 
@@ -283,7 +283,7 @@ mod schema_coordinates_tests {
         let project = graphql_test_utils::TestProjectBuilder::new()
             .with_schema(
                 "schema.graphql",
-                r#"
+                r"
                     type Query { rateLimit: RateLimit }
                     type RateLimit {
                         cost: Int!
@@ -291,30 +291,30 @@ mod schema_coordinates_tests {
                         remaining: Int!
                         nodeCount: Int!
                     }
-                "#,
+                ",
             )
             // Fragment defines fields to select
             .with_document(
                 "fragment.graphql",
-                r#"
+                r"
                     fragment RateLimitFields on RateLimit {
                         cost
                         limit
                         remaining
                         nodeCount
                     }
-                "#,
+                ",
             )
             // Operation uses the fragment spread
             .with_document(
                 "operation.graphql",
-                r#"
+                r"
                     query GetRateLimit {
                         rateLimit {
                             ...RateLimitFields
                         }
                     }
-                "#,
+                ",
             )
             .build_detailed();
 
@@ -333,8 +333,7 @@ mod schema_coordinates_tests {
             coords
                 .iter()
                 .any(|c| c.type_name.as_ref() == "Query" && c.field_name.as_ref() == "rateLimit"),
-            "Should track Query.rateLimit. Got: {:?}",
-            coords
+            "Should track Query.rateLimit. Got: {coords:?}"
         );
 
         // The operation file uses RateLimit.nodeCount via fragment spread.
@@ -345,8 +344,7 @@ mod schema_coordinates_tests {
             coords.iter().any(
                 |c| c.type_name.as_ref() == "RateLimit" && c.field_name.as_ref() == "nodeCount"
             ),
-            "Should track RateLimit.nodeCount used via fragment spread. Got: {:?}",
-            coords
+            "Should track RateLimit.nodeCount used via fragment spread. Got: {coords:?}"
         );
     }
 
@@ -357,7 +355,7 @@ mod schema_coordinates_tests {
         let project = graphql_test_utils::TestProjectBuilder::new()
             .with_schema(
                 "schema.graphql",
-                r#"
+                r"
                     type Query { user: User }
                     type User {
                         id: ID!
@@ -368,20 +366,20 @@ mod schema_coordinates_tests {
                         bio: String
                         avatar: String
                     }
-                "#,
+                ",
             )
             .with_document(
                 "profile-fragment.graphql",
-                r#"
+                r"
                     fragment ProfileFields on Profile {
                         bio
                         avatar
                     }
-                "#,
+                ",
             )
             .with_document(
                 "user-fragment.graphql",
-                r#"
+                r"
                     fragment UserWithProfile on User {
                         id
                         name
@@ -389,17 +387,17 @@ mod schema_coordinates_tests {
                             ...ProfileFields
                         }
                     }
-                "#,
+                ",
             )
             .with_document(
                 "query.graphql",
-                r#"
+                r"
                     query GetUser {
                         user {
                             ...UserWithProfile
                         }
                     }
-                "#,
+                ",
             )
             .build_detailed();
 
@@ -427,8 +425,7 @@ mod schema_coordinates_tests {
             coords
                 .iter()
                 .any(|c| c.type_name.as_ref() == "User" && c.field_name.as_ref() == "id"),
-            "Should track User.id via fragment spread. Got: {:?}",
-            coords
+            "Should track User.id via fragment spread. Got: {coords:?}"
         );
 
         // Second level (nested): ProfileFields fragment within UserWithProfile
@@ -436,8 +433,7 @@ mod schema_coordinates_tests {
             coords
                 .iter()
                 .any(|c| c.type_name.as_ref() == "Profile" && c.field_name.as_ref() == "bio"),
-            "Should track Profile.bio via nested fragment spread. Got: {:?}",
-            coords
+            "Should track Profile.bio via nested fragment spread. Got: {coords:?}"
         );
     }
 }
@@ -512,19 +508,19 @@ mod caching_tests {
     fn test_granular_caching_editing_one_file() {
         let mut db = TrackedDatabase::new();
 
-        let file_a_id = FileId::new(0);
-        let file_a_content = FileContent::new(&db, Arc::from("type TypeA { id: ID! }"));
-        let file_a_metadata =
-            FileMetadata::new(&db, file_a_id, FileUri::new("a.graphql"), FileKind::Schema);
+        let first_id = FileId::new(0);
+        let first_content = FileContent::new(&db, Arc::from("type TypeA { id: ID! }"));
+        let first_metadata =
+            FileMetadata::new(&db, first_id, FileUri::new("a.graphql"), FileKind::Schema);
 
-        let file_b_id = FileId::new(1);
-        let file_b_content = FileContent::new(&db, Arc::from("type TypeB { id: ID! }"));
-        let file_b_metadata =
-            FileMetadata::new(&db, file_b_id, FileUri::new("b.graphql"), FileKind::Schema);
+        let second_id = FileId::new(1);
+        let second_content = FileContent::new(&db, Arc::from("type TypeB { id: ID! }"));
+        let second_metadata =
+            FileMetadata::new(&db, second_id, FileUri::new("b.graphql"), FileKind::Schema);
 
         let schema_files = [
-            (file_a_id, file_a_content, file_a_metadata),
-            (file_b_id, file_b_content, file_b_metadata),
+            (first_id, first_content, first_metadata),
+            (second_id, second_content, second_metadata),
         ];
         let project_files = create_tracked_project_files(&db, &schema_files, &[]);
 
@@ -535,7 +531,7 @@ mod caching_tests {
 
         let checkpoint = db.checkpoint();
 
-        file_a_content
+        first_content
             .set_text(&mut db)
             .to(Arc::from("type TypeA { id: ID! name: String }"));
 
@@ -604,14 +600,14 @@ mod caching_tests {
 
     #[test]
     fn test_editing_one_of_many_files_is_o1_not_on() {
+        const NUM_FILES: usize = 10;
         let mut db = TrackedDatabase::new();
 
-        const NUM_FILES: usize = 10;
         let mut schema_files = Vec::with_capacity(NUM_FILES);
         let mut file_contents = Vec::with_capacity(NUM_FILES);
 
         for i in 0..NUM_FILES {
-            let file_id = FileId::new(i as u32);
+            let file_id = FileId::new(u32::try_from(i).expect("NUM_FILES fits in u32"));
             let type_name = format!("Type{i}");
             let content_str = format!("type {type_name} {{ id: ID! }}");
             let content = FileContent::new(&db, Arc::from(content_str.as_str()));
@@ -726,14 +722,14 @@ mod caching_tests {
 
     #[test]
     fn test_per_file_contribution_queries_incremental() {
+        const NUM_FILES: usize = 5;
         let mut db = TrackedDatabase::new();
 
-        const NUM_FILES: usize = 5;
         let mut doc_files = Vec::with_capacity(NUM_FILES);
         let mut file_contents = Vec::with_capacity(NUM_FILES);
 
         for i in 0..NUM_FILES {
-            let file_id = FileId::new(i as u32);
+            let file_id = FileId::new(u32::try_from(i).expect("NUM_FILES fits in u32"));
             let fragment_name = format!("Fragment{i}");
             let content_str = format!(
                 "fragment {fragment_name} on User {{ id }} query Q{i} {{ user {{ ...{fragment_name} }} }}"

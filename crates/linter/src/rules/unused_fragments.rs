@@ -245,7 +245,7 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
 
         // No diagnostics - fragment is used
-        assert!(diagnostics.is_empty() || diagnostics.get(&file_id).map_or(true, |d| d.is_empty()));
+        assert!(diagnostics.is_empty() || diagnostics.get(&file_id).is_none_or(Vec::is_empty));
     }
 
     #[test]
@@ -287,8 +287,8 @@ mod tests {
         // No diagnostics - fragment is used in another file
         assert!(
             diagnostics.is_empty()
-                || (diagnostics.get(&file_id1).map_or(true, |d| d.is_empty())
-                    && diagnostics.get(&file_id2).map_or(true, |d| d.is_empty()))
+                || (diagnostics.get(&file_id1).is_none_or(Vec::is_empty)
+                    && diagnostics.get(&file_id2).is_none_or(Vec::is_empty))
         );
     }
 
@@ -355,7 +355,7 @@ mod tests {
         // Verify the fix deletes exactly the fragment definition
         let deleted_text = &source[fix.edits[0].offset_range.start..fix.edits[0].offset_range.end];
         assert!(deleted_text.starts_with("fragment Unused"));
-        assert!(deleted_text.ends_with("}"));
+        assert!(deleted_text.ends_with('}'));
     }
 
     #[test]

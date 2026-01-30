@@ -531,10 +531,10 @@ mod tests {
 
     #[test]
     fn test_collect_fragment_definitions() {
-        let source = r#"
+        let source = r"
             fragment UserFields on User { name }
             fragment AdminFields on Admin { role }
-        "#;
+        ";
         let tree = Parser::new(source).parse();
 
         let defs = collect_fragment_definitions(&tree);

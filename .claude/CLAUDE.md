@@ -850,14 +850,14 @@ Overhead: ~1-2% CPU when enabled, zero when disabled.
 
 **Before starting any implementation, check if a skill applies:**
 
-| If the task involves...        | Use this skill FIRST        |
-| ------------------------------ | --------------------------- |
-| Fixing a bug or issue          | `/bug-fix-workflow`         |
-| Adding a lint rule             | `/adding-lint-rules`        |
-| Adding an IDE/LSP feature      | `/add-ide-feature`          |
-| Creating a pull request        | `/create-pr`                |
-| Reviewing a pull request       | `/review-pr`                |
-| Feature/bug/architecture work  | `/sme-consultation`         |
+| If the task involves...       | Use this skill FIRST |
+| ----------------------------- | -------------------- |
+| Fixing a bug or issue         | `/bug-fix-workflow`  |
+| Adding a lint rule            | `/adding-lint-rules` |
+| Adding an IDE/LSP feature     | `/add-ide-feature`   |
+| Creating a pull request       | `/create-pr`         |
+| Reviewing a pull request      | `/review-pr`         |
+| Feature/bug/architecture work | `/sme-consultation`  |
 
 **This is not optional.** Skills enforce important workflows (e.g., bug fixes require a failing test first). Skipping them leads to incomplete work that must be redone.
 

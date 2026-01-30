@@ -366,12 +366,12 @@ mod tests {
         let query_path = FilePath::new("file:///query.graphql");
         host.add_file(
             &query_path,
-            r#"query GetUser {
+            r"query GetUser {
   user {
     id
     name
   }
-}"#,
+}",
             FileKind::ExecutableGraphQL,
         );
         host.rebuild_project_files();
@@ -386,8 +386,7 @@ mod tests {
         let has_operation_fold = ranges.iter().any(|r| r.start_line == 0 && r.end_line == 5);
         assert!(
             has_operation_fold,
-            "Should have operation folding range, got: {:?}",
-            ranges
+            "Should have operation folding range, got: {ranges:?}"
         );
     }
 
@@ -405,14 +404,14 @@ mod tests {
         let query_path = FilePath::new("file:///query.graphql");
         host.add_file(
             &query_path,
-            r#"query GetUser {
+            r"query GetUser {
   user {
     profile {
       avatar
       bio
     }
   }
-}"#,
+}",
             FileKind::ExecutableGraphQL,
         );
         host.rebuild_project_files();
@@ -423,8 +422,7 @@ mod tests {
         // Should have multiple folding ranges for nested selection sets
         assert!(
             ranges.len() >= 2,
-            "Should have multiple folding ranges, got: {:?}",
-            ranges
+            "Should have multiple folding ranges, got: {ranges:?}"
         );
     }
 
@@ -442,11 +440,11 @@ mod tests {
         let fragment_path = FilePath::new("file:///fragment.graphql");
         host.add_file(
             &fragment_path,
-            r#"fragment UserFields on User {
+            r"fragment UserFields on User {
   id
   name
   email
-}"#,
+}",
             FileKind::ExecutableGraphQL,
         );
         host.rebuild_project_files();
@@ -459,8 +457,7 @@ mod tests {
         let has_fragment_fold = ranges.iter().any(|r| r.start_line == 0 && r.end_line == 4);
         assert!(
             has_fragment_fold,
-            "Should have fragment folding range, got: {:?}",
-            ranges
+            "Should have fragment folding range, got: {ranges:?}"
         );
     }
 
@@ -471,7 +468,7 @@ mod tests {
         let schema_path = FilePath::new("file:///schema.graphql");
         host.add_file(
             &schema_path,
-            r#"type User {
+            r"type User {
   id: ID!
   name: String!
   email: String
@@ -480,7 +477,7 @@ mod tests {
 enum Status {
   ACTIVE
   INACTIVE
-}"#,
+}",
             FileKind::Schema,
         );
         host.rebuild_project_files();
@@ -491,8 +488,7 @@ enum Status {
         // Should have folding ranges for type and enum definitions
         assert!(
             ranges.len() >= 2,
-            "Should have folding ranges for type and enum, got: {:?}",
-            ranges
+            "Should have folding ranges for type and enum, got: {ranges:?}"
         );
     }
 
@@ -521,8 +517,7 @@ type User {
         let has_comment_fold = ranges.iter().any(|r| r.kind == FoldingRangeKind::Comment);
         assert!(
             has_comment_fold,
-            "Should have comment folding range, got: {:?}",
-            ranges
+            "Should have comment folding range, got: {ranges:?}"
         );
     }
 
@@ -540,7 +535,7 @@ type User {
         let query_path = FilePath::new("file:///query.graphql");
         host.add_file(
             &query_path,
-            r#"query { user { id } }"#,
+            r"query { user { id } }",
             FileKind::ExecutableGraphQL,
         );
         host.rebuild_project_files();
@@ -551,8 +546,7 @@ type User {
         // Single line queries shouldn't have folding ranges
         assert!(
             ranges.is_empty(),
-            "Single-line query should not have folding ranges, got: {:?}",
-            ranges
+            "Single-line query should not have folding ranges, got: {ranges:?}"
         );
     }
 }

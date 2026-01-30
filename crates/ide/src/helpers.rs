@@ -592,6 +592,10 @@ pub fn format_type_ref(type_ref: &graphql_hir::TypeRef) -> String {
 }
 
 /// Convert a filesystem path to a file:// URI
+///
+/// Handles both Unix and Windows paths:
+/// - Unix: `/path/to/file` -> `file:///path/to/file`
+/// - Windows: `C:\path\to\file` -> `file:///C:/path/to/file`
 #[must_use]
 pub fn path_to_file_uri(path: &std::path::Path) -> String {
     let path_str = path.to_string_lossy();
@@ -600,8 +604,18 @@ pub fn path_to_file_uri(path: &std::path::Path) -> String {
         return path_str.to_string();
     }
 
+    // Unix path (starts with /)
     if path_str.starts_with('/') {
         return format!("file://{path_str}");
+    }
+
+    // Windows path (e.g., C:\Users\...) - convert to file:///C:/Users/...
+    // Check for drive letter pattern (e.g., "C:" or "D:")
+    let chars: Vec<char> = path_str.chars().collect();
+    if chars.len() >= 2 && chars[0].is_ascii_alphabetic() && chars[1] == ':' {
+        // Convert backslashes to forward slashes for proper URI format
+        let normalized = path_str.replace('\\', "/");
+        return format!("file:///{normalized}");
     }
 
     path_str.to_string()
@@ -700,5 +714,57 @@ mod tests {
         assert_eq!(ide_diag.range.start.character, 0);
         assert_eq!(ide_diag.range.end.line, 2);
         assert_eq!(ide_diag.range.end.character, 10);
+    }
+
+    #[test]
+    fn test_path_to_file_uri_unix() {
+        use std::path::Path;
+
+        // Unix absolute path
+        assert_eq!(
+            path_to_file_uri(Path::new("/home/user/file.graphql")),
+            "file:///home/user/file.graphql"
+        );
+
+        // Unix nested path
+        assert_eq!(
+            path_to_file_uri(Path::new("/var/lib/app/schema.graphql")),
+            "file:///var/lib/app/schema.graphql"
+        );
+    }
+
+    #[test]
+    fn test_path_to_file_uri_already_uri() {
+        use std::path::Path;
+
+        // Already a file URI - should pass through unchanged
+        assert_eq!(
+            path_to_file_uri(Path::new("file:///home/user/file.graphql")),
+            "file:///home/user/file.graphql"
+        );
+
+        // Other URI scheme - should pass through unchanged
+        assert_eq!(
+            path_to_file_uri(Path::new("https://example.com/schema")),
+            "https://example.com/schema"
+        );
+    }
+
+    #[test]
+    fn test_path_to_file_uri_windows_style() {
+        // Test Windows-style paths with backslashes
+        // On Windows, Path::new will properly parse this as a Windows path
+        #[cfg(windows)]
+        {
+            let windows_path = "C:\\Users\\test\\schema.graphql";
+            let result = path_to_file_uri(std::path::Path::new(windows_path));
+            assert_eq!(result, "file:///C:/Users/test/schema.graphql");
+        }
+
+        // Test drive letter detection with forward slashes (cross-platform)
+        // This tests the drive letter detection logic on all platforms
+        let path_with_drive = "D:/Projects/app/query.graphql";
+        let result = path_to_file_uri(std::path::Path::new(path_with_drive));
+        assert_eq!(result, "file:///D:/Projects/app/query.graphql");
     }
 }
