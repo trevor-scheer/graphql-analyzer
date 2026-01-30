@@ -650,6 +650,40 @@ impl PendingIntrospection {
     }
 }
 
+/// Status information for a project.
+///
+/// Used by the LSP status command to report project health and metrics.
+#[derive(Debug, Clone, Default)]
+pub struct ProjectStatus {
+    /// Number of schema files loaded
+    pub schema_file_count: usize,
+    /// Number of document files loaded
+    pub document_file_count: usize,
+}
+
+impl ProjectStatus {
+    /// Create a new project status
+    #[must_use]
+    pub const fn new(schema_file_count: usize, document_file_count: usize) -> Self {
+        Self {
+            schema_file_count,
+            document_file_count,
+        }
+    }
+
+    /// Total number of files (schema + documents)
+    #[must_use]
+    pub const fn total_files(&self) -> usize {
+        self.schema_file_count + self.document_file_count
+    }
+
+    /// Whether a schema has been loaded (at least one schema file)
+    #[must_use]
+    pub const fn has_schema(&self) -> bool {
+        self.schema_file_count > 0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -712,5 +746,31 @@ mod tests {
         assert_eq!(diag.severity, DiagnosticSeverity::Error);
         assert_eq!(diag.message, "Unknown type: User");
         assert_eq!(diag.code, Some("unknown-type".to_string()));
+    }
+
+    #[test]
+    fn test_project_status_total_files() {
+        let status = ProjectStatus::new(3, 7);
+        assert_eq!(status.total_files(), 10);
+        assert_eq!(status.schema_file_count, 3);
+        assert_eq!(status.document_file_count, 7);
+    }
+
+    #[test]
+    fn test_project_status_has_schema() {
+        let with_schema = ProjectStatus::new(1, 5);
+        assert!(with_schema.has_schema());
+
+        let without_schema = ProjectStatus::new(0, 5);
+        assert!(!without_schema.has_schema());
+    }
+
+    #[test]
+    fn test_project_status_default() {
+        let status = ProjectStatus::default();
+        assert_eq!(status.schema_file_count, 0);
+        assert_eq!(status.document_file_count, 0);
+        assert_eq!(status.total_files(), 0);
+        assert!(!status.has_schema());
     }
 }

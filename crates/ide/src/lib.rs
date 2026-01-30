@@ -65,8 +65,8 @@ pub use types::{
     CodeFix, CodeLens, CodeLensCommand, CodeLensInfo, CompletionItem, CompletionKind, Diagnostic,
     DiagnosticSeverity, DocumentSymbol, FilePath, FoldingRange, FoldingRangeKind,
     FragmentReference, FragmentUsage, HoverResult, InsertTextFormat, Location,
-    PendingIntrospection, Position, Range, SchemaLoadResult, SchemaStats, SymbolKind, TextEdit,
-    WorkspaceSymbol,
+    PendingIntrospection, Position, ProjectStatus, Range, SchemaLoadResult, SchemaStats,
+    SymbolKind, TextEdit, WorkspaceSymbol,
 };
 
 // Re-export helpers for internal use
@@ -1574,6 +1574,24 @@ impl Analysis {
         let file_id = registry.get_file_id(file)?;
         let content = registry.get_content(file_id)?;
         Some(content.text(&self.db).to_string())
+    }
+
+    /// Get the status of the project (file counts, schema loaded, etc.)
+    ///
+    /// Returns status information for the LSP status command.
+    #[must_use]
+    pub fn project_status(&self) -> ProjectStatus {
+        let Some(project_files) = self.project_files else {
+            return ProjectStatus::default();
+        };
+
+        let schema_file_count = project_files.schema_file_ids(&self.db).ids(&self.db).len();
+        let document_file_count = project_files
+            .document_file_ids(&self.db)
+            .ids(&self.db)
+            .len();
+
+        ProjectStatus::new(schema_file_count, document_file_count)
     }
 
     /// Get field usage coverage report for the project
