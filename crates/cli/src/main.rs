@@ -285,8 +285,8 @@ fn configure_colors(force_color: bool, no_color: bool) {
         // NO_COLOR: if present (regardless of value), disable colors
         control::set_override(false);
     } else if let Ok(val) = std::env::var("CLICOLOR_FORCE") {
-        // CLICOLOR_FORCE: if set to non-zero value, force colors
-        if val != "0" {
+        // CLICOLOR_FORCE: if set to non-empty, non-zero value, force colors
+        if !val.is_empty() && val != "0" {
             control::set_override(true);
         }
     } else if let Ok(val) = std::env::var("CLICOLOR") {
