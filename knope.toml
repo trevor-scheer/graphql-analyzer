@@ -1,4 +1,4 @@
-# Knope configuration for graphql-lsp workspace
+# Knope configuration for graphql-analyzer workspace
 # https://knope.tech
 
 # Single package for the entire workspace - all crates share the same version
@@ -6,39 +6,33 @@
 versioned_files = ["Cargo.toml", "editors/vscode/package.json"]
 changelog = "CHANGELOG.md"
 
-# Conventional commit scopes that map to this package
-# Changes with these scopes affect this package's version
-[package.scopes]
-"*" = "graphql-lsp"
-
 # GitHub integration for PR creation and releases
 [github]
 owner = "trevor-scheer"
 repo = "graphql-analyzer"
 
-[workflows]
-
 # Prepare a release PR - consumes changesets and creates a PR with version bump
 # Currently in alpha phase. To release stable versions, remove prerelease_label.
-[workflows.prepare-release]
-[[workflows.prepare-release.steps]]
+[[workflows]]
+name = "prepare-release"
+
+[[workflows.steps]]
 type = "PrepareRelease"
 prerelease_label = "alpha"
 
-[[workflows.prepare-release.steps]]
+[[workflows.steps]]
 type = "Command"
 command = "cargo check --workspace"
 
-# Create a PR with the changes (requires GITHUB_TOKEN)
-[[workflows.prepare-release.steps]]
+[[workflows.steps]]
 type = "CreatePullRequest"
 base = "main"
 
-[workflows.prepare-release.steps.title]
+[workflows.steps.title]
 template = "chore: prepare release v{{version}}"
 variables = { "version" = "Version" }
 
-[workflows.prepare-release.steps.body]
+[workflows.steps.body]
 template = """
 ## Release
 
@@ -58,6 +52,15 @@ When merged, this will trigger the release workflow to:
 variables = { "version" = "Version", "changelog" = "ChangelogEntry" }
 
 # Execute the release - creates git tag and pushes it
-[workflows.release]
-[[workflows.release.steps]]
+[[workflows]]
+name = "release"
+
+[[workflows.steps]]
 type = "Release"
+
+# Create a changeset file interactively
+[[workflows]]
+name = "document-change"
+
+[[workflows.steps]]
+type = "CreateChangeFile"
