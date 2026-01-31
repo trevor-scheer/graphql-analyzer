@@ -1,5 +1,5 @@
 ---
-graphql-lsp: patch
+default: patch
 ---
 
 Test changeset for CI validation
