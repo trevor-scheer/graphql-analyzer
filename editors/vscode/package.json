@@ -1,22 +1,37 @@
 {
   "name": "graphql-analyzer",
   "displayName": "graphql-analyzer",
-  "description": "GraphQL language support for VS Code",
   "version": "0.1.0-alpha.1",
-  "repository": "https://github.com/trevor-scheer/graphql-analyzer",
-  "license": "SEE LICENSE IN LICENSE.md",
-  "publisher": "trevor-scheer",
-  "engines": {
-    "vscode": "^1.75.0"
-  },
+  "description": "GraphQL language support for VS Code",
   "categories": [
     "Programming Languages"
   ],
-  "activationEvents": [
-    "workspaceContains:**/graphql.config.{yaml,yml,json}",
-    "workspaceContains:**/.graphqlrc{.yaml,.yml,.json,}"
-  ],
+  "license": "SEE LICENSE IN LICENSE.md",
+  "repository": "https://github.com/trevor-scheer/graphql-analyzer",
+  "publisher": "trevor-scheer",
   "main": "./out/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "oxlint src",
+    "package": "vsce package",
+    "test:e2e": "npm run compile && npx playwright test",
+    "test:e2e:headed": "npm run compile && npx playwright test --headed",
+    "test:e2e:debug": "npm run compile && npx playwright test --debug"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@types/node": "^24.10.1",
+    "@types/vscode": "^1.75.0",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.2.1",
+    "oxlint": "^1.30.0",
+    "typescript": "^5.0.0"
+  },
   "contributes": {
     "commands": [
       {
@@ -145,26 +160,11 @@
       }
     ]
   },
-  "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "lint": "oxlint src",
-    "package": "vsce package",
-    "test:e2e": "npm run compile && npx playwright test",
-    "test:e2e:headed": "npm run compile && npx playwright test --headed",
-    "test:e2e:debug": "npm run compile && npx playwright test --debug"
-  },
-  "dependencies": {
-    "vscode-languageclient": "^9.0.1"
-  },
-  "devDependencies": {
-    "@playwright/test": "^1.57.0",
-    "@types/node": "^24.10.1",
-    "@types/vscode": "^1.75.0",
-    "@vscode/test-electron": "^2.5.2",
-    "@vscode/vsce": "^3.2.1",
-    "oxlint": "^1.30.0",
-    "typescript": "^5.0.0"
+  "activationEvents": [
+    "workspaceContains:**/.graphqlrc{.yaml,.yml,.json,}",
+    "workspaceContains:**/graphql.config.{yaml,yml,json}"
+  ],
+  "engines": {
+    "vscode": "^1.75.0"
   }
 }

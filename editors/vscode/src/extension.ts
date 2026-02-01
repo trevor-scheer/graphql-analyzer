@@ -94,7 +94,7 @@ class SchemaContentProvider implements TextDocumentContentProvider {
         "graphql-analyzer/virtualFileContent",
         {
           uri: uri.toString(),
-        }
+        },
       );
 
       if (content) {
@@ -213,7 +213,7 @@ function startHealthCheck(): void {
   const timeout = Math.max(1000, config.get<number>("debug.healthCheck.timeout", 5000));
 
   outputChannel.appendLine(
-    `[Health Check] Starting with interval=${interval}ms, timeout=${timeout}ms`
+    `[Health Check] Starting with interval=${interval}ms, timeout=${timeout}ms`,
   );
 
   healthCheckInterval = setInterval(() => {
@@ -302,7 +302,7 @@ function setupDecorationListeners(context: ExtensionContext): void {
       if (editor) {
         updateDeprecatedDecorations(editor);
       }
-    })
+    }),
   );
 
   // Update decorations when document changes (debounced)
@@ -316,7 +316,7 @@ function setupDecorationListeners(context: ExtensionContext): void {
         }
         debounceTimer = setTimeout(() => updateDeprecatedDecorations(editor), 500);
       }
-    })
+    }),
   );
 
   // Update current editor immediately
@@ -376,7 +376,7 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
     "graphql-analyzer",
     "graphql-analyzer Language Server",
     serverOptions,
-    clientOptions
+    clientOptions,
   );
 
   client.onDidChangeState((event) => {
@@ -415,9 +415,9 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
               startHealthCheck();
               break;
           }
-        }
+        },
       );
-    }
+    },
   );
 }
 
@@ -438,7 +438,7 @@ export async function activate(context: ExtensionContext) {
     // Register content provider for virtual files (remote schemas)
     const schemaProvider = new SchemaContentProvider();
     context.subscriptions.push(
-      workspace.registerTextDocumentContentProvider("schema", schemaProvider)
+      workspace.registerTextDocumentContentProvider("schema", schemaProvider),
     );
     outputChannel.appendLine("Registered schema:// content provider for remote schemas");
 
@@ -483,9 +483,9 @@ export async function activate(context: ExtensionContext) {
           "editor.action.showReferences",
           Uri.parse(uriString),
           converter.asPosition(position),
-          locations.map((loc) => converter.asLocation(loc))
+          locations.map((loc) => converter.asLocation(loc)),
         );
-      }
+      },
     );
 
     // Listen for configuration changes to restart health check with new settings
@@ -495,7 +495,7 @@ export async function activate(context: ExtensionContext) {
           outputChannel.appendLine("[Health Check] Configuration changed, restarting...");
           startHealthCheck();
         }
-      })
+      }),
     );
 
     context.subscriptions.push(reloadCommand, showReferencesCommand);
