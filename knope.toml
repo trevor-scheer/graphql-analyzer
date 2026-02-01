@@ -19,6 +19,9 @@ name = "prepare-release"
 [[workflows.steps]]
 type = "PrepareRelease"
 prerelease_label = "alpha"
+# Only use changesets for changelog, not conventional commits
+# (prevents including entire commit history in each release)
+ignore_conventional_commits = true
 
 [[workflows.steps]]
 type = "Command"
