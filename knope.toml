@@ -27,6 +27,11 @@ ignore_conventional_commits = true
 type = "Command"
 command = "cargo check --workspace"
 
+# Stage Cargo.lock which was updated by cargo check
+[[workflows.steps]]
+type = "Command"
+command = "git add Cargo.lock"
+
 # Create release branch with new version, commit and push
 [[workflows.steps]]
 type = "Command"

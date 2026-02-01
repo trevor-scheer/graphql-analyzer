@@ -4,6 +4,7 @@
     "CHANGELOG.md",
     ".github/workflows/release.yml",
     "Cargo.toml",
+    "dist-worspace.toml",
     "editors/vscode/package.json"
   ]
 }
