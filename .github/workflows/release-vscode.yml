@@ -106,9 +106,21 @@ jobs:
           # Get current release body (cargo-dist install instructions)
           CURRENT_BODY=$(gh release view "$TAG" --json body --jq '.body' --repo ${{ github.repository }})
 
-          # Combine: changelog + separator + install instructions
+          # Combine: changelog + vscode instructions + separator + CLI install instructions
           {
             echo "$CHANGELOG_ENTRY"
+            echo ""
+            echo "---"
+            echo ""
+            echo "## Install VSCode Extension"
+            echo ""
+            echo "Download \`graphql-analyzer-${VERSION}.vsix\` from this release, then install:"
+            echo ""
+            echo "\`\`\`sh"
+            echo "code --install-extension graphql-analyzer-${VERSION}.vsix"
+            echo "\`\`\`"
+            echo ""
+            echo "Or install via VSCode: Extensions → ⋯ → Install from VSIX..."
             echo ""
             echo "---"
             echo ""
