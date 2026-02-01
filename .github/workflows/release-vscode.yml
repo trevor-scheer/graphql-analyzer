@@ -107,12 +107,14 @@ jobs:
           CURRENT_BODY=$(gh release view "$TAG" --json body --jq '.body' --repo ${{ github.repository }})
 
           # Combine: changelog + separator + install instructions
-          NEW_BODY="$CHANGELOG_ENTRY
-
----
-
-$CURRENT_BODY"
+          {
+            echo "$CHANGELOG_ENTRY"
+            echo ""
+            echo "---"
+            echo ""
+            echo "$CURRENT_BODY"
+          } > /tmp/release-notes.md
 
           # Update the release
-          echo "$NEW_BODY" | gh release edit "$TAG" --notes-file - --repo ${{ github.repository }}
+          gh release edit "$TAG" --notes-file /tmp/release-notes.md --repo ${{ github.repository }}
           echo "Updated release notes with changelog"
