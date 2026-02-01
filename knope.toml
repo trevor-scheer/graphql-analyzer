@@ -19,7 +19,7 @@ name = "prepare-release"
 # Create a release branch from current HEAD
 [[workflows.steps]]
 type = "Command"
-command = "git switch -c release"
+command = "git switch -c release/v$version"
 
 [[workflows.steps]]
 type = "PrepareRelease"
@@ -35,10 +35,10 @@ type = "Command"
 command = "git commit -m 'chore: prepare release v$version'"
 variables = { "$version" = "Version" }
 
-# Push the release branch (force to overwrite any previous release branch)
+# Push the release branch
 [[workflows.steps]]
 type = "Command"
-command = "git push --force origin release"
+command = "git push origin release/v$version"
 
 [[workflows.steps]]
 type = "CreatePullRequest"
