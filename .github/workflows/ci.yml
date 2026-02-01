@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
     paths:
       - "**/*.rs"
       - "**/Cargo.toml"
@@ -19,6 +19,7 @@ on:
       - "**/*.graphql"
       - "package.json"
       - "package-lock.json"
+      - "CHANGELOG.md"
       - ".github/workflows/**"
   pull_request:
     branches: [main]
@@ -38,6 +39,7 @@ on:
       - "**/*.graphql"
       - "package.json"
       - "package-lock.json"
+      - "CHANGELOG.md"
       - ".github/workflows/**"
 
 concurrency:
