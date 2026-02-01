@@ -20,6 +20,14 @@ Initial alpha release. This project is under active development and APIs may cha
 - Support for embedded GraphQL in TypeScript/JavaScript
 - Remote schema introspection
 - Extensible linting engine with configurable rules
+## 0.1.0-alpha.7 (2026-02-01)
+
+### Fixes
+
+- Fix knope changeset handling: name package explicitly and stage changeset deletions
+- Test changeset for CI validation
+- Add VSCode extension installation instructions to GitHub release notes
+
 ## 0.1.0-alpha.6 (2026-02-01)
 
 ### Fixes
