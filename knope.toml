@@ -3,7 +3,7 @@
 
 # Single package for the entire workspace - all crates share the same version
 [package]
-name = "graphql-lsp"
+name = "graphql-analyzer"
 versioned_files = ["Cargo.toml", "editors/vscode/package.json"]
 changelog = "CHANGELOG.md"
 

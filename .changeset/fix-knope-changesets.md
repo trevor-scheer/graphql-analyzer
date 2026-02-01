@@ -1,5 +1,5 @@
 ---
-graphql-lsp: patch
+graphql-analyzer: patch
 ---
 
 Fix knope changeset handling: name package explicitly and stage changeset deletions
