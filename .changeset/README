@@ -19,12 +19,12 @@ That's it! When your PR is merged to main, CI will automatically:
 
 This project has 4 independently versioned packages:
 
-| Package | Description | Changelog |
-|---------|-------------|-----------|
-| `cli` | GraphQL CLI tool | `crates/cli/CHANGELOG.md` |
-| `lsp` | GraphQL Language Server | `crates/lsp/CHANGELOG.md` |
-| `mcp` | GraphQL MCP Server | `crates/mcp/CHANGELOG.md` |
-| `vscode` | VSCode Extension | `editors/vscode/CHANGELOG.md` |
+| Package  | Description             | Changelog                     |
+| -------- | ----------------------- | ----------------------------- |
+| `cli`    | GraphQL CLI tool        | `crates/cli/CHANGELOG.md`     |
+| `lsp`    | GraphQL Language Server | `crates/lsp/CHANGELOG.md`     |
+| `mcp`    | GraphQL MCP Server      | `crates/mcp/CHANGELOG.md`     |
+| `vscode` | VSCode Extension        | `editors/vscode/CHANGELOG.md` |
 
 ## Changeset Format
 
@@ -50,6 +50,7 @@ List the packages affected and their bump type. Only include packages that have 
 ### Examples
 
 **CLI-only change:**
+
 ```markdown
 ---
 cli: patch
@@ -59,6 +60,7 @@ Fix argument parsing bug
 ```
 
 **Change affecting multiple packages:**
+
 ```markdown
 ---
 cli: minor
@@ -70,6 +72,7 @@ Add support for new GraphQL directive
 ```
 
 **VSCode extension update:**
+
 ```markdown
 ---
 vscode: patch
@@ -81,12 +84,14 @@ Fix syntax highlighting for fragments
 ## When to Create a Changeset
 
 **DO create changesets for:**
+
 - New features
 - Bug fixes
 - Breaking changes
 - Significant improvements
 
 **DON'T create changesets for:**
+
 - Internal refactoring (no behavior change)
 - CI/CD changes
 - Test-only changes
