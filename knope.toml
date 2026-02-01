@@ -66,19 +66,18 @@ When merged, this will trigger the release workflow to:
 """
 
 # Execute the release - creates git tag and pushes it
+# NOTE: We create the tag via git (not knope Release) so that pushing it
+# triggers the release.yml workflow. cargo-dist handles the GitHub release.
 [[workflows]]
 name = "release"
 
 [[workflows.steps]]
-type = "Release"
+type = "Command"
+command = "git tag v$version"
 
 [[workflows.steps]]
 type = "Command"
-command = "git push"
-
-[[workflows.steps]]
-type = "Command"
-command = "git push --tags"
+command = "git push origin v$version"
 
 # Create a changeset file interactively
 [[workflows]]
