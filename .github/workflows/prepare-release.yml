@@ -60,4 +60,3 @@ jobs:
         run: knope prepare-release --verbose
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-
