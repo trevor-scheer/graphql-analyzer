@@ -84,3 +84,35 @@ jobs:
           fi
           echo "Uploading: $VSIX_FILE to release ${{ steps.tag.outputs.tag }}"
           gh release upload "${{ steps.tag.outputs.tag }}" "$VSIX_FILE" --clobber --repo ${{ github.repository }}
+
+      - name: Update release notes with changelog
+        if: steps.tag.outputs.skip != 'true' && steps.release.outputs.exists == 'true'
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          VERSION="${TAG#v}"  # Remove 'v' prefix
+
+          # Extract changelog entry for this version
+          # Matches from "## {version}" until the next "## " or end of file
+          CHANGELOG_ENTRY=$(awk -v ver="$VERSION" '
+            /^## / { if (found) exit; if (index($0, ver)) found=1 }
+            found { print }
+          ' CHANGELOG.md)
+
+          if [ -z "$CHANGELOG_ENTRY" ]; then
+            echo "No changelog entry found for $VERSION, skipping update"
+            exit 0
+          fi
+
+          # Get current release body (cargo-dist install instructions)
+          CURRENT_BODY=$(gh release view "$TAG" --json body --jq '.body' --repo ${{ github.repository }})
+
+          # Combine: changelog + separator + install instructions
+          NEW_BODY="$CHANGELOG_ENTRY
+
+---
+
+$CURRENT_BODY"
+
+          # Update the release
+          echo "$NEW_BODY" | gh release edit "$TAG" --notes-file - --repo ${{ github.repository }}
+          echo "Updated release notes with changelog"
