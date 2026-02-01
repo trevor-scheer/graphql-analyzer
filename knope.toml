@@ -51,6 +51,11 @@ command = "cargo check --workspace"
 type = "Command"
 command = "git add Cargo.lock"
 
+# Delete consumed changesets (knope should do this but doesn't in multi-package mode)
+[[workflows.steps]]
+type = "Command"
+command = "find .changeset -name '*.md' ! -name 'README*' -delete"
+
 [[workflows.steps]]
 type = "Command"
 command = "git add .changeset/"
