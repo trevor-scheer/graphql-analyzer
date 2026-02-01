@@ -50,19 +50,23 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools (ARM64 Linux)
+      - name: Install cross (ARM64 Linux)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build binaries (cross-compilation)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+          cross build --release --target ${{ matrix.target }} --package graphql-cli
+          cross build --release --target ${{ matrix.target }} --package graphql-lsp
+          cross build --release --target ${{ matrix.target }} --package graphql-mcp
 
-      - name: Build binaries
+      - name: Build binaries (native)
+        if: matrix.target != 'aarch64-unknown-linux-gnu'
         run: |
           cargo build --release --target ${{ matrix.target }} --package graphql-cli
           cargo build --release --target ${{ matrix.target }} --package graphql-lsp
           cargo build --release --target ${{ matrix.target }} --package graphql-mcp
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
@@ -99,7 +103,7 @@ jobs:
 
           # MCP
           Copy-Item target/${{ matrix.target }}/release/graphql-mcp.exe dist/
-          Compress-Archive -Path dist/graphql-mcp-${{ matrix.target }}.zip -DestinationPath dist/graphql-mcp-${{ matrix.target }}.zip
+          Compress-Archive -Path dist/graphql-mcp.exe -DestinationPath dist/graphql-mcp-${{ matrix.target }}.zip
           Remove-Item dist/graphql-mcp.exe
 
       - name: Upload artifacts
