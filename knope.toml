@@ -6,6 +6,8 @@
 name = "graphql-analyzer"
 versioned_files = ["Cargo.toml", "editors/vscode/package.json"]
 changelog = "CHANGELOG.md"
+# Use simple tag format without package name prefix (default for named packages is "{name}/v{version}")
+tag_format = "v{version}"
 
 # GitHub integration for PR creation and releases
 [github]
