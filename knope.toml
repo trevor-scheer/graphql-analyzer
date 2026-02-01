@@ -72,6 +72,14 @@ name = "release"
 [[workflows.steps]]
 type = "Release"
 
+[[workflows.steps]]
+type = "Command"
+command = "git push"
+
+[[workflows.steps]]
+type = "Command"
+command = "git push --tags"
+
 # Create a changeset file interactively
 [[workflows]]
 name = "document-change"
