@@ -16,11 +16,6 @@ repo = "graphql-analyzer"
 [[workflows]]
 name = "prepare-release"
 
-# Create a release branch from current HEAD
-[[workflows.steps]]
-type = "Command"
-command = "git switch -c release/v$version"
-
 [[workflows.steps]]
 type = "PrepareRelease"
 prerelease_label = "alpha"
@@ -29,13 +24,15 @@ prerelease_label = "alpha"
 type = "Command"
 command = "cargo check --workspace"
 
-# Commit the version bump and changelog updates
+# Create release branch with new version, commit and push
+[[workflows.steps]]
+type = "Command"
+command = "git switch -c release/v$version"
+
 [[workflows.steps]]
 type = "Command"
 command = "git commit -m 'chore: prepare release v$version'"
-variables = { "$version" = "Version" }
 
-# Push the release branch
 [[workflows.steps]]
 type = "Command"
 command = "git push origin release/v$version"
