@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   # When changesets exist, create a release PR
-  # NOTE: This job and create-release-tag are mutually exclusive via their conditions
+  # NOTE: Skips when a release PR is merged (release.yml handles that)
   prepare-release:
     runs-on: ubuntu-latest
     # Skip if this is a release PR merge (handled by create-release-tag job below)
@@ -61,43 +61,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
-  # When a release PR is merged, create the tag
-  create-release-tag:
-    runs-on: ubuntu-latest
-    # Only run when a release PR is merged (detected by commit message)
-    if: "contains(github.event.head_commit.message, 'chore: prepare release')"
-    steps:
-      # Use PAT to allow tag push to trigger release workflow
-      # (GITHUB_TOKEN events don't trigger other workflows)
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.RELEASE_TOKEN }}
-
-      - name: Verify version sync
-        run: |
-          # Extract versions from both files
-          CARGO_VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
-          PKG_VERSION=$(grep -m1 '"version"' editors/vscode/package.json | sed 's/.*"\([0-9][^"]*\)".*/\1/')
-
-          echo "Cargo.toml version: $CARGO_VERSION"
-          echo "package.json version: $PKG_VERSION"
-
-          if [ "$CARGO_VERSION" != "$PKG_VERSION" ]; then
-            echo "ERROR: Version mismatch between Cargo.toml ($CARGO_VERSION) and package.json ($PKG_VERSION)"
-            exit 1
-          fi
-          echo "Versions are in sync"
-
-      - name: Install knope
-        uses: knope-dev/action@v2.1.0
-
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Run knope release
-        run: knope release --verbose
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

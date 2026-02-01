@@ -29,7 +29,7 @@ Create a file in `.changeset/` with any name ending in `.md`:
 
 ```markdown
 ---
-graphql-analyzer: minor
+default: minor
 ---
 
 Add support for feature X

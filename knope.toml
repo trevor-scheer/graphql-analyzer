@@ -1,13 +1,11 @@
 # Knope configuration for graphql-analyzer workspace
 # https://knope.tech
 
-# Single package for the entire workspace - all crates share the same version
 [package]
-name = "graphql-analyzer"
 versioned_files = ["Cargo.toml", "editors/vscode/package.json"]
 changelog = "CHANGELOG.md"
-# Use simple tag format without package name prefix (default for named packages is "{name}/v{version}")
-tag_format = "v{version}"
+# Assets to upload to GitHub releases (built by CI before running `knope release`)
+assets = "artifacts/*"
 
 # GitHub integration for PR creation and releases
 [github]
@@ -73,24 +71,17 @@ $changelog
 ---
 
 When merged, this will trigger the release workflow to:
-1. Create git tag `v$version`
-2. Build release artifacts (binaries + VSCode extension)
-3. Create GitHub release
+1. Build release artifacts (CLI binaries + VSCode extension)
+2. Create GitHub release with changelog
+3. Upload all artifacts
 """
 
-# Execute the release - creates git tag and pushes it
-# NOTE: We create the tag via git (not knope Release) so that pushing it
-# triggers the release.yml workflow. cargo-dist handles the GitHub release.
+# Execute the release - creates GitHub release with changelog and uploads assets
 [[workflows]]
 name = "release"
 
 [[workflows.steps]]
-type = "Command"
-command = "git tag v$version"
-
-[[workflows.steps]]
-type = "Command"
-command = "git push origin v$version"
+type = "Release"
 
 # Create a changeset file interactively
 [[workflows]]
