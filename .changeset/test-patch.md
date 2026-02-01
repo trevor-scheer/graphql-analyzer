@@ -1,5 +1,8 @@
 ---
-default: patch
+cli: patch
+lsp: patch
+mcp: patch
+vscode: patch
 ---
 
-Test changeset for CI validation
+Initial release with multi-package versioning

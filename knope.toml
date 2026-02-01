@@ -1,11 +1,32 @@
 # Knope configuration for graphql-analyzer workspace
 # https://knope.tech
+#
+# Multi-package setup: each component has independent versioning and changelogs.
+# Changesets specify which package(s) they affect:
+#   ---
+#   cli: patch
+#   lsp: minor
+#   ---
 
-[package]
-versioned_files = ["Cargo.toml", "editors/vscode/package.json"]
-changelog = "CHANGELOG.md"
-# Assets to upload to GitHub releases (built by CI before running `knope release`)
-assets = "artifacts/*"
+[packages.cli]
+versioned_files = ["crates/cli/Cargo.toml"]
+changelog = "crates/cli/CHANGELOG.md"
+assets = "artifacts/graphql-cli-*"
+
+[packages.lsp]
+versioned_files = ["crates/lsp/Cargo.toml"]
+changelog = "crates/lsp/CHANGELOG.md"
+assets = "artifacts/graphql-lsp-*"
+
+[packages.mcp]
+versioned_files = ["crates/mcp/Cargo.toml"]
+changelog = "crates/mcp/CHANGELOG.md"
+assets = "artifacts/graphql-mcp-*"
+
+[packages.vscode]
+versioned_files = ["editors/vscode/package.json"]
+changelog = "editors/vscode/CHANGELOG.md"
+assets = "artifacts/*.vsix"
 
 # GitHub integration for PR creation and releases
 [github]
@@ -20,43 +41,38 @@ name = "prepare-release"
 [[workflows.steps]]
 type = "PrepareRelease"
 prerelease_label = "alpha"
-# Only use changesets for changelog, not conventional commits
-# (prevents including entire commit history in each release)
 ignore_conventional_commits = true
 
 [[workflows.steps]]
 type = "Command"
 command = "cargo check --workspace"
 
-# Stage Cargo.lock which was updated by cargo check
 [[workflows.steps]]
 type = "Command"
 command = "git add Cargo.lock"
 
-# Stage changeset deletions (PrepareRelease deletes them but we need to ensure they're staged)
 [[workflows.steps]]
 type = "Command"
 command = "git add .changeset/"
 
-# Create release branch with new version, commit and push
 [[workflows.steps]]
 type = "Command"
-command = "git switch -c release/v$version"
+command = "git switch -c release/next"
 
 [[workflows.steps]]
 type = "Command"
-command = "git commit -m 'chore: prepare release v$version'"
+command = "git commit -m 'chore: prepare release'"
 
 [[workflows.steps]]
 type = "Command"
-command = "git push --force origin release/v$version"
+command = "git push --force origin release/next"
 
 [[workflows.steps]]
 type = "CreatePullRequest"
 base = "main"
 
 [workflows.steps.title]
-template = "chore: prepare release v$version"
+template = "chore: prepare release"
 
 [workflows.steps.body]
 template = """
@@ -71,12 +87,12 @@ $changelog
 ---
 
 When merged, this will trigger the release workflow to:
-1. Build release artifacts (CLI binaries + VSCode extension)
-2. Create GitHub release with changelog
+1. Build release artifacts
+2. Create GitHub releases with changelogs
 3. Upload all artifacts
 """
 
-# Execute the release - creates GitHub release with changelog and uploads assets
+# Execute the release - creates GitHub releases with changelogs and uploads assets
 [[workflows]]
 name = "release"
 

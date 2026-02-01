@@ -24,8 +24,8 @@ jobs:
             echo "should_release=false" >> "$GITHUB_OUTPUT"
           fi
 
-  # Build CLI binaries for all platforms
-  build-cli:
+  # Build CLI, LSP, and MCP binaries for all platforms
+  build-binaries:
     needs: check-release
     if: needs.check-release.outputs.should_release == 'true'
     strategy:
@@ -56,8 +56,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
-      - name: Build CLI
-        run: cargo build --release --target ${{ matrix.target }} --package graphql-cli
+      - name: Build binaries
+        run: |
+          cargo build --release --target ${{ matrix.target }} --package graphql-cli
+          cargo build --release --target ${{ matrix.target }} --package graphql-lsp
+          cargo build --release --target ${{ matrix.target }} --package graphql-mcp
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
@@ -65,23 +68,45 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist
+
+          # CLI
           cp target/${{ matrix.target }}/release/graphql dist/
-          cd dist
-          tar -cJf graphql-cli-${{ matrix.target }}.tar.xz graphql
+          cd dist && tar -cJf graphql-cli-${{ matrix.target }}.tar.xz graphql && rm graphql && cd ..
+
+          # LSP
+          cp target/${{ matrix.target }}/release/graphql-lsp dist/
+          cd dist && tar -cJf graphql-lsp-${{ matrix.target }}.tar.xz graphql-lsp && rm graphql-lsp && cd ..
+
+          # MCP
+          cp target/${{ matrix.target }}/release/graphql-mcp dist/
+          cd dist && tar -cJf graphql-mcp-${{ matrix.target }}.tar.xz graphql-mcp && rm graphql-mcp && cd ..
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist
+
+          # CLI
           Copy-Item target/${{ matrix.target }}/release/graphql.exe dist/
           Compress-Archive -Path dist/graphql.exe -DestinationPath dist/graphql-cli-${{ matrix.target }}.zip
+          Remove-Item dist/graphql.exe
 
-      - name: Upload artifact
+          # LSP
+          Copy-Item target/${{ matrix.target }}/release/graphql-lsp.exe dist/
+          Compress-Archive -Path dist/graphql-lsp.exe -DestinationPath dist/graphql-lsp-${{ matrix.target }}.zip
+          Remove-Item dist/graphql-lsp.exe
+
+          # MCP
+          Copy-Item target/${{ matrix.target }}/release/graphql-mcp.exe dist/
+          Compress-Archive -Path dist/graphql-mcp-${{ matrix.target }}.zip -DestinationPath dist/graphql-mcp-${{ matrix.target }}.zip
+          Remove-Item dist/graphql-mcp.exe
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: cli-${{ matrix.target }}
-          path: dist/graphql-cli-*
+          name: binaries-${{ matrix.target }}
+          path: dist/*
 
   # Build VSCode extension
   build-vscode:
@@ -116,9 +141,9 @@ jobs:
           name: vscode-extension
           path: editors/vscode/*.vsix
 
-  # Create GitHub release and upload all assets
+  # Create GitHub releases and upload all assets
   release:
-    needs: [check-release, build-cli, build-vscode]
+    needs: [check-release, build-binaries, build-vscode]
     if: needs.check-release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -138,7 +163,7 @@ jobs:
       - name: Install knope
         uses: knope-dev/action@v2.1.0
 
-      - name: Create release
+      - name: Create releases
         run: knope release --verbose
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
