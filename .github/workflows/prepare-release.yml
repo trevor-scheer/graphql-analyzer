@@ -18,10 +18,12 @@ jobs:
     # Skip if this is a release PR merge (handled by create-release-tag job below)
     if: "!contains(github.event.head_commit.message, 'chore: prepare release')"
     steps:
+      # Use PAT so PR creation triggers CI workflows
+      # (GITHUB_TOKEN events don't trigger other workflows)
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Check for changesets
         id: check
@@ -57,7 +59,7 @@ jobs:
         if: steps.check.outputs.changeset_count > 0
         run: knope prepare-release --verbose
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
   # When a release PR is merged, create the tag
   create-release-tag:
