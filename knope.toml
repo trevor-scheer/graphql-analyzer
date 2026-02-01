@@ -3,6 +3,7 @@
 
 # Single package for the entire workspace - all crates share the same version
 [package]
+name = "graphql-analyzer"
 versioned_files = ["Cargo.toml", "editors/vscode/package.json"]
 changelog = "CHANGELOG.md"
 
@@ -31,6 +32,11 @@ command = "cargo check --workspace"
 [[workflows.steps]]
 type = "Command"
 command = "git add Cargo.lock"
+
+# Stage changeset deletions (PrepareRelease deletes them but we need to ensure they're staged)
+[[workflows.steps]]
+type = "Command"
+command = "git add .changeset/"
 
 # Create release branch with new version, commit and push
 [[workflows.steps]]
