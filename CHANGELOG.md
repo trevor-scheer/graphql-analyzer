@@ -20,6 +20,12 @@ Initial alpha release. This project is under active development and APIs may cha
 - Support for embedded GraphQL in TypeScript/JavaScript
 - Remote schema introspection
 - Extensible linting engine with configurable rules
+## 0.1.0-alpha.6 (2026-02-01)
+
+### Fixes
+
+- Test changeset for CI validation
+
 ## 0.1.0-alpha.5 (2026-02-01)
 
 ### Features
