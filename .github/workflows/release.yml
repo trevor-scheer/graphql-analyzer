@@ -39,8 +39,9 @@ jobs:
             os: macos-latest
           - target: x86_64-apple-darwin
             os: macos-latest
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
+          # ARM64 Linux requires cross-compilation with Docker, skipped for now
+          # - target: aarch64-unknown-linux-gnu
+          #   os: ubuntu-latest
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
           - target: x86_64-pc-windows-msvc
@@ -54,19 +55,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross (ARM64 Linux)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: cargo install cross --git https://github.com/cross-rs/cross
-
-      - name: Build binaries (cross-compilation)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          cross build --release --target ${{ matrix.target }} --package graphql-cli
-          cross build --release --target ${{ matrix.target }} --package graphql-lsp
-          cross build --release --target ${{ matrix.target }} --package graphql-mcp
-
-      - name: Build binaries (native)
-        if: matrix.target != 'aarch64-unknown-linux-gnu'
+      - name: Build binaries
         run: |
           cargo build --release --target ${{ matrix.target }} --package graphql-cli
           cargo build --release --target ${{ matrix.target }} --package graphql-lsp
