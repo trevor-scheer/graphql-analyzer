@@ -35,6 +35,14 @@ jobs:
             echo "No changesets found, skipping release preparation"
           fi
 
+      - name: Setup Rust toolchain
+        if: steps.check.outputs.changeset_count > 0
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        if: steps.check.outputs.changeset_count > 0
+        uses: Swatinem/rust-cache@v2
+
       - name: Install knope
         if: steps.check.outputs.changeset_count > 0
         uses: knope-dev/action@v2.1.0
