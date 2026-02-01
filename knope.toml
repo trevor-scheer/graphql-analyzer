@@ -38,7 +38,7 @@ command = "git commit -m 'chore: prepare release v$version'"
 
 [[workflows.steps]]
 type = "Command"
-command = "git push origin release/v$version"
+command = "git push --force origin release/v$version"
 
 [[workflows.steps]]
 type = "CreatePullRequest"
