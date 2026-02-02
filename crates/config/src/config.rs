@@ -57,12 +57,12 @@ impl GraphQLConfig {
     }
 
     /// Get lint configuration from the first/default project
-    /// For single-project configs, returns the project's lint config
+    /// For single-project configs, returns the project's lint config from extensions
     /// For multi-project configs, returns None (each project has its own)
     #[must_use]
-    pub const fn lint_config(&self) -> Option<&serde_json::Value> {
+    pub fn lint_config(&self) -> Option<&serde_json::Value> {
         match self {
-            Self::Single(config) => config.lint.as_ref(),
+            Self::Single(config) => config.lint(),
             Self::Multi { .. } => None,
         }
     }
@@ -282,13 +282,26 @@ pub struct ProjectConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude: Option<Vec<String>>,
 
-    /// Lint configuration (applies to all tools by default)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lint: Option<serde_json::Value>,
-
-    /// Tool-specific extensions
+    /// Tool-specific extensions (includes lint configuration)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extensions: Option<HashMap<String, serde_json::Value>>,
+}
+
+impl ProjectConfig {
+    /// Get the lint configuration from extensions.
+    ///
+    /// Lint configuration should be specified under `extensions.lint`:
+    /// ```yaml
+    /// extensions:
+    ///   lint:
+    ///     extends: recommended
+    ///     rules:
+    ///       noDeprecated: warn
+    /// ```
+    #[must_use]
+    pub fn lint(&self) -> Option<&serde_json::Value> {
+        self.extensions.as_ref().and_then(|ext| ext.get("lint"))
+    }
 }
 
 /// Schema source configuration
@@ -395,7 +408,6 @@ mod tests {
             documents: Some(DocumentsConfig::Pattern("**/*.graphql".to_string())),
             include: None,
             exclude: None,
-            lint: None,
             extensions: None,
         }));
 
@@ -415,7 +427,6 @@ mod tests {
                 documents: Some(DocumentsConfig::Pattern("frontend/**/*.ts".to_string())),
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             },
         );
@@ -426,7 +437,6 @@ mod tests {
                 documents: Some(DocumentsConfig::Pattern("backend/**/*.graphql".to_string())),
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             },
         );
@@ -505,7 +515,6 @@ extensions:
             documents: Some(DocumentsConfig::Pattern("**/*.graphql".to_string())),
             include: None,
             exclude: None,
-            lint: None,
             extensions: None,
         }));
 
@@ -530,7 +539,6 @@ extensions:
                 )),
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             },
         );
@@ -541,7 +549,6 @@ extensions:
                 documents: Some(DocumentsConfig::Pattern("backend/**/*.graphql".to_string())),
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             },
         );
@@ -580,7 +587,6 @@ extensions:
                 documents: Some(DocumentsConfig::Pattern("**/*.graphql".to_string())),
                 include: Some(vec!["src/**".to_string()]),
                 exclude: Some(vec!["**/__tests__/**".to_string()]),
-                lint: None,
                 extensions: None,
             },
         );
@@ -655,7 +661,6 @@ extensions:
                 )),
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             },
         );
@@ -695,7 +700,6 @@ extensions:
                 ])),
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             },
         );

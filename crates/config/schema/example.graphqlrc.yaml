@@ -36,11 +36,9 @@ extensions:
       - "@apollo/client"
     allowGlobalIdentifiers: false
 
-  # Project-level settings for GraphQL LSP
-  project:
-    lint: "recommended"
-    # Or use custom rules:
-    # lint:
-    #   recommended: error
-    #   no_deprecated: warn
-    #   unique_names: error
+  # Lint configuration
+  lint:
+    extends: recommended
+    rules:
+      noDeprecated: warn
+      uniqueNames: error

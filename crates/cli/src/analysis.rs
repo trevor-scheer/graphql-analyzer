@@ -48,7 +48,7 @@ impl CliAnalysisHost {
         let mut schema_files = Vec::new();
         let mut document_files = Vec::new();
 
-        if let Some(ref lint_value) = project_config.lint {
+        if let Some(lint_value) = project_config.lint() {
             tracing::debug!("Raw lint configuration: {lint_value:?}");
             match serde_json::from_value::<graphql_linter::LintConfig>(lint_value.clone()) {
                 Ok(lint_config) => {
@@ -69,9 +69,10 @@ impl CliAnalysisHost {
                     return Err(anyhow::anyhow!(
                         "Failed to parse lint configuration: {e}\n\n\
                          Expected format:\n\
-                         lint:\n  \
-                           rule_name: error  # or 'warn' or 'off'\n  \
-                           another_rule: warn"
+                         extensions:\n  \
+                           lint:\n    \
+                             rules:\n      \
+                               ruleName: error  # or 'warn' or 'off'"
                     ));
                 }
             }

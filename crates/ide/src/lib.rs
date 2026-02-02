@@ -4392,7 +4392,6 @@ export const typeDefs = gql`
                 documents: None,
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             };
 
@@ -4456,7 +4455,6 @@ export const postType = gql`
                 documents: None,
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             };
 
@@ -4520,7 +4518,6 @@ export const typeDefs = gql`
                 documents: None,
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             };
 
@@ -4566,7 +4563,6 @@ export function greet(name: string) {
                 documents: None,
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             };
 
@@ -4611,7 +4607,6 @@ export const typeDefs = gql`
                 documents: None,
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             };
 
@@ -4655,7 +4650,6 @@ export const typeDefs = gql`
                 documents: None,
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             };
 
@@ -4702,7 +4696,6 @@ export const typeDefs = gql`
                 documents: None,
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             };
 
@@ -4972,7 +4965,6 @@ query GetUser {
             )),
             include: None,
             exclude: None,
-            lint: None,
             extensions: None,
         };
 
@@ -5725,7 +5717,6 @@ export const RATE_LIMIT_QUERY = gql`
             documents: Some(graphql_config::DocumentsConfig::Pattern("*.ts".to_string())),
             include: None,
             exclude: None,
-            lint: None,
             extensions: None,
         };
 
@@ -5815,7 +5806,6 @@ export const RATE_LIMIT_QUERY = gql`
             documents: Some(graphql_config::DocumentsConfig::Pattern("*.ts".to_string())),
             include: None,
             exclude: None,
-            lint: None,
             extensions: None,
         };
 

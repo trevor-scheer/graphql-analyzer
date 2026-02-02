@@ -363,13 +363,13 @@ async fn load_all_project_files_background(
             })
             .unwrap_or_default();
 
-        let lint_config = project_config.lint.as_ref().map_or_else(
-            graphql_linter::LintConfig::default,
-            |lint_value| {
-                serde_json::from_value::<graphql_linter::LintConfig>(lint_value.clone())
-                    .unwrap_or_default()
-            },
-        );
+        let lint_config =
+            project_config
+                .lint()
+                .map_or_else(graphql_linter::LintConfig::default, |lint_value| {
+                    serde_json::from_value::<graphql_linter::LintConfig>(lint_value.clone())
+                        .unwrap_or_default()
+                });
 
         let host = workspace.get_or_create_host(workspace_uri, project_name);
 
@@ -870,7 +870,7 @@ documents: "**/*.graphql"
                 })
                 .unwrap_or_default();
 
-            let lint_config = project_config.lint.as_ref().map_or_else(
+            let lint_config = project_config.lint().map_or_else(
                 graphql_linter::LintConfig::default,
                 |lint_value| match serde_json::from_value::<graphql_linter::LintConfig>(lint_value.clone()) {
                     Ok(cfg) => cfg,
