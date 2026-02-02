@@ -1,8 +1,9 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "ignorePatterns": [
-    "CHANGELOG.md",
+    ".changeset/**",
     ".github/workflows/release.yml",
+    "CHANGELOG.md",
     "Cargo.toml",
     "dist-workspace.toml",
     "editors/vscode/package.json",

@@ -1,6 +1,7 @@
 use crate::analysis::CliAnalysisHost;
 use crate::commands::common::CommandContext;
 use crate::commands::fix::{apply_fixes, collect_fixable_diagnostics, display_dry_run};
+use crate::watch::{FileWatcher, WatchConfig, WatchMode};
 use crate::OutputFormat;
 use anyhow::Result;
 use colored::Colorize;
@@ -8,25 +9,35 @@ use graphql_ide::DiagnosticSeverity;
 use std::path::PathBuf;
 use std::process;
 
+/// Diagnostic output structure for collecting warnings and errors
+struct DiagnosticOutput {
+    file_path: String,
+    line: usize,
+    column: usize,
+    end_line: usize,
+    end_column: usize,
+    message: String,
+    severity: String,
+    rule: Option<String>,
+}
+
 #[allow(clippy::too_many_lines)]
 pub fn run(
     config_path: Option<PathBuf>,
     project_name: Option<&str>,
     format: OutputFormat,
-    _watch: bool,
+    watch: bool,
     fix: bool,
     fix_dry_run: bool,
 ) -> Result<()> {
-    // Define diagnostic output structure for collecting warnings and errors
-    struct DiagnosticOutput {
-        file_path: String,
-        line: usize,
-        column: usize,
-        end_line: usize,
-        end_column: usize,
-        message: String,
-        severity: String,
-        rule: Option<String>,
+    if watch {
+        if fix || fix_dry_run {
+            eprintln!(
+                "{}",
+                "Warning: --fix and --fix-dry-run are ignored in watch mode".yellow()
+            );
+        }
+        return run_watch_mode(config_path, project_name, format);
     }
 
     // Start timing
@@ -286,4 +297,36 @@ pub fn run(
     }
 
     Ok(())
+}
+
+/// Run lint in watch mode
+fn run_watch_mode(
+    config_path: Option<PathBuf>,
+    project_name: Option<&str>,
+    format: OutputFormat,
+) -> Result<()> {
+    // Load config
+    let ctx = CommandContext::load(config_path, project_name, "lint")?;
+
+    // Get project config
+    let selected_name = CommandContext::get_project_name(project_name);
+    let project_config = ctx
+        .config
+        .projects()
+        .find(|(name, _)| *name == selected_name)
+        .map(|(_, cfg)| cfg.clone())
+        .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
+
+    // Create watch config
+    let watch_config = WatchConfig {
+        mode: WatchMode::Lint,
+        format,
+        project_config,
+        base_dir: ctx.base_dir,
+    };
+
+    // Create and run watcher
+    let mut watcher = FileWatcher::new(watch_config)?;
+    watcher.start()?;
+    watcher.run()
 }
