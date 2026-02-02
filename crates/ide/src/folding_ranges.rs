@@ -40,7 +40,6 @@ pub fn folding_ranges(
 
     for doc in parse.documents() {
         let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-        #[allow(clippy::cast_possible_truncation)]
         let line_offset = doc.line_offset as u32;
 
         let doc_cst = doc.tree.document();
@@ -71,7 +70,6 @@ pub fn folding_ranges(
 }
 
 /// Collect folding ranges from a definition
-#[allow(clippy::too_many_lines)]
 fn collect_definition_folding_ranges(
     definition: &Definition,
     line_index: &graphql_syntax::LineIndex,

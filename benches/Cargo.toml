@@ -20,3 +20,6 @@ graphql-analysis = { path = "../crates/analysis" }
 graphql-ide = { path = "../crates/ide" }
 criterion = { workspace = true }
 salsa = { workspace = true }
+
+[lints]
+workspace = true

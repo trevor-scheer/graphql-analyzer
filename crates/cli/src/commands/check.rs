@@ -54,7 +54,6 @@ impl std::fmt::Display for DiagnosticSource {
 /// 3. Runs custom lint rules
 /// 4. Reports all issues with unified output
 /// 5. Returns appropriate exit code (1 if any errors)
-#[allow(clippy::too_many_lines)]
 pub fn run(
     config_path: Option<PathBuf>,
     project_name: Option<&str>,

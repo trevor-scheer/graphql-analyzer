@@ -55,7 +55,6 @@ pub fn inlay_hints(
 
     for doc in parse.documents() {
         let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-        #[allow(clippy::cast_possible_truncation)]
         let line_offset = doc.line_offset as u32;
 
         collect_hints_from_tree(

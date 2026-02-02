@@ -26,8 +26,6 @@ struct FieldOutput {
     is_connection: bool,
     warning: Option<String>,
 }
-
-#[allow(clippy::too_many_lines)]
 pub fn run(
     config_path: Option<PathBuf>,
     project_name: Option<&str>,

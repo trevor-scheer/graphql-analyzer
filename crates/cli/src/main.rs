@@ -301,7 +301,6 @@ fn configure_colors(force_color: bool, no_color: bool) {
 
 /// Initialize OpenTelemetry tracing with OTLP exporter
 #[cfg(feature = "otel")]
-#[allow(clippy::too_many_lines)]
 fn init_telemetry() -> Option<opentelemetry_sdk::trace::TracerProvider> {
     use opentelemetry::trace::TracerProvider as _;
     use opentelemetry::KeyValue;

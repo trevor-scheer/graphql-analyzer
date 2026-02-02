@@ -37,7 +37,6 @@ struct FieldInfo {
 }
 
 impl ProjectLintRule for UnusedFieldsRuleImpl {
-    #[allow(clippy::too_many_lines)]
     fn check(
         &self,
         db: &dyn graphql_hir::GraphQLHirDatabase,

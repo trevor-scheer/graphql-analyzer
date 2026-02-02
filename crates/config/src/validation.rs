@@ -190,7 +190,6 @@ fn find_pattern_location(
     for (line_num, line) in config_content.lines().enumerate() {
         if let Some(col) = line.find(pattern) {
             if found == occurrence {
-                #[allow(clippy::cast_possible_truncation)]
                 return Some(Location {
                     line: line_num as u32,
                     start_column: col as u32,

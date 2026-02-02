@@ -210,7 +210,6 @@ fn validation_errors_to_diagnostics(
 }
 
 /// Load a single workspace config in the background
-#[allow(clippy::too_many_lines)]
 async fn load_workspace_config_background(
     client: &Client,
     workspace: &Arc<WorkspaceManager>,
@@ -332,7 +331,6 @@ async fn load_workspace_config_background(
 }
 
 /// Load all project files in the background
-#[allow(clippy::too_many_lines)]
 async fn load_all_project_files_background(
     client: &Client,
     workspace: &Arc<WorkspaceManager>,
@@ -576,15 +574,12 @@ impl GraphQLLanguageServer {
     /// times out, the extension can assume the server is hung and display a warning.
     #[allow(clippy::unused_async)] // tower-lsp requires async for custom methods
     pub async fn ping(&self) -> Result<PingResponse> {
-        #[allow(clippy::cast_possible_truncation)] // timestamp fits in u64 for centuries
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
         Ok(PingResponse { timestamp })
     }
-
-    #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self), fields(workspace_uri = %workspace_uri))]
     /// Load GraphQL config from a workspace folder and load all project files
     async fn load_workspace_config(&self, workspace_uri: &str, workspace_path: &PathBuf) {
@@ -839,7 +834,6 @@ documents: "**/*.graphql"
     }
 
     /// Load all GraphQL files from the config into `AnalysisHost`
-    #[allow(clippy::too_many_lines)]
     async fn load_all_project_files(
         &self,
         workspace_uri: &str,
@@ -1141,7 +1135,6 @@ documents: "**/*.graphql"
     }
 
     /// Validate a file and publish diagnostics
-    #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self), fields(path = %uri.as_str()))]
     async fn validate_file(&self, uri: Uri) {
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
@@ -1197,7 +1190,6 @@ documents: "**/*.graphql"
 }
 
 impl LanguageServer for GraphQLLanguageServer {
-    #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self, params))]
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         tracing::info!("Initializing GraphQL Language Server");
@@ -2079,11 +2071,7 @@ impl LanguageServer for GraphQLLanguageServer {
         }
     }
 
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::mutable_key_type,
-        clippy::too_many_lines
-    )]
+    #[allow(clippy::mutable_key_type)]
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = params.text_document.uri;
         let range = params.range;

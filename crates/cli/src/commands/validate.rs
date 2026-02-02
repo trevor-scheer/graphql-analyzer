@@ -7,8 +7,6 @@ use colored::Colorize;
 use graphql_ide::DiagnosticSeverity;
 use std::path::PathBuf;
 use std::process;
-
-#[allow(clippy::too_many_lines)]
 #[tracing::instrument(skip(config_path, project_name, format), fields(project = ?project_name))]
 pub fn run(
     config_path: Option<PathBuf>,

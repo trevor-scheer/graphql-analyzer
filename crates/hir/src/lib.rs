@@ -706,7 +706,7 @@ pub struct SchemaCoordinate {
 /// and `FragmentA` is defined elsewhere and uses fields, those fields are
 /// included in this file's coordinates.
 #[salsa::tracked]
-#[allow(clippy::items_after_statements, clippy::too_many_lines)]
+#[allow(clippy::items_after_statements)]
 pub fn file_schema_coordinates(
     db: &dyn GraphQLHirDatabase,
     _file_id: FileId,

@@ -12,7 +12,7 @@ use std::sync::Arc;
 /// - Variable usage and type validation
 /// - Circular fragment detection
 /// - Type coercion validation
-#[allow(clippy::too_many_lines)]
+
 #[salsa::tracked]
 pub fn validate_file(
     db: &dyn GraphQLAnalysisDatabase,
@@ -101,7 +101,6 @@ pub fn validate_file(
                         }
                     }
                     // Line offset adjusts positions since the AST was parsed without source offset
-                    #[allow(clippy::cast_possible_truncation)]
                     let range = apollo_diag.line_column_range().map_or_else(
                         DiagnosticRange::default,
                         |loc_range| DiagnosticRange {

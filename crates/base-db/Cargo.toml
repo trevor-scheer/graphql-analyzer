@@ -11,3 +11,6 @@ categories = ["development-tools"]
 
 [dependencies]
 salsa = { workspace = true }
+
+[lints]
+workspace = true

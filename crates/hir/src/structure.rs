@@ -149,7 +149,6 @@ pub struct FileStructureData {
 }
 
 /// Extract a `TextRange` from an apollo-compiler `Node`
-#[allow(clippy::cast_possible_truncation)]
 fn node_range<T>(node: &Node<T>) -> TextRange {
     node.location()
         .map(|loc| {
@@ -162,7 +161,6 @@ fn node_range<T>(node: &Node<T>) -> TextRange {
 }
 
 /// Extract a `TextRange` from an apollo-compiler `Name`
-#[allow(clippy::cast_possible_truncation)]
 fn name_range(name: &apollo_compiler::Name) -> TextRange {
     name.location()
         .map(|loc| {

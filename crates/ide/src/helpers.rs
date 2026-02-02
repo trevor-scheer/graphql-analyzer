@@ -19,7 +19,6 @@ pub fn position_to_offset(
 }
 
 /// Convert byte offset to IDE Position using `LineIndex`
-#[allow(clippy::cast_possible_truncation)]
 pub fn offset_to_position(line_index: &graphql_syntax::LineIndex, offset: usize) -> Position {
     let line = line_index.line_col(offset).0;
     let line_start = line_index.line_start(line).unwrap_or(0);
@@ -109,7 +108,6 @@ pub struct BlockContext<'a> {
 /// For pure GraphQL files (single document at `line_offset` 0), the position maps directly.
 /// For TS/JS files (multiple documents at various offsets), finds the block
 /// containing the position and adjusts accordingly.
-#[allow(clippy::cast_possible_truncation)]
 pub fn find_block_for_position(
     parse: &graphql_syntax::Parse,
     position: Position,
@@ -144,7 +142,7 @@ pub fn find_block_for_position(
 }
 
 /// Find a fragment definition in a parsed file, handling all document types uniformly
-#[allow(clippy::cast_possible_truncation, unused_variables)]
+#[allow(unused_variables)]
 pub fn find_fragment_definition_in_parse(
     parse: &graphql_syntax::Parse,
     fragment_name: &str,
@@ -165,7 +163,7 @@ pub fn find_fragment_definition_in_parse(
 }
 
 /// Find a type definition in a parsed file, handling all document types uniformly
-#[allow(clippy::cast_possible_truncation, unused_variables)]
+#[allow(unused_variables)]
 pub fn find_type_definition_in_parse(
     parse: &graphql_syntax::Parse,
     type_name: &str,
@@ -184,7 +182,7 @@ pub fn find_type_definition_in_parse(
 }
 
 /// Find all fragment spreads in a parsed file, handling all document types uniformly
-#[allow(clippy::cast_possible_truncation, unused_variables)]
+#[allow(unused_variables)]
 pub fn find_fragment_spreads_in_parse(
     parse: &graphql_syntax::Parse,
     fragment_name: &str,
@@ -208,7 +206,7 @@ pub fn find_fragment_spreads_in_parse(
 }
 
 /// Find all type references in a parsed file, handling all document types uniformly
-#[allow(clippy::cast_possible_truncation, unused_variables)]
+#[allow(unused_variables)]
 pub fn find_type_references_in_parse(
     parse: &graphql_syntax::Parse,
     type_name: &str,
@@ -232,7 +230,7 @@ pub fn find_type_references_in_parse(
 }
 
 /// Find field usages in a parsed file that match the given type and field name
-#[allow(clippy::cast_possible_truncation, unused_variables)]
+#[allow(unused_variables)]
 pub fn find_field_usages_in_parse(
     parse: &graphql_syntax::Parse,
     type_name: &str,
@@ -275,7 +273,6 @@ fn type_matches_or_implements(
 }
 
 /// Find all field usages in a tree that match the given type and field name
-#[allow(clippy::too_many_lines)]
 pub fn find_field_usages_in_tree(
     tree: &apollo_parser::SyntaxTree,
     target_type: &str,

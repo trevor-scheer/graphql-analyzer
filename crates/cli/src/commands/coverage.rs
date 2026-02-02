@@ -6,7 +6,7 @@ use colored::Colorize;
 use std::path::PathBuf;
 use std::process;
 
-#[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
+#[allow(clippy::needless_pass_by_value)]
 #[tracing::instrument(skip(config_path, project_name, format), fields(project = ?project_name))]
 pub fn run(
     config_path: Option<PathBuf>,

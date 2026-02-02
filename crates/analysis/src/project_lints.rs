@@ -212,7 +212,6 @@ pub fn find_unused_fragments(
 /// Returns detailed usage information for every schema field,
 /// including which operations use each field and how many times.
 #[salsa::tracked]
-#[allow(clippy::too_many_lines)]
 pub fn analyze_field_usage(
     db: &dyn GraphQLAnalysisDatabase,
     project_files: graphql_base_db::ProjectFiles,

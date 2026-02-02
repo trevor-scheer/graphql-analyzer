@@ -1,6 +1,5 @@
 /// Walks the CST from the root to the cursor, maintaining a stack of type context.
 /// Returns the type at the cursor position for completions, following the field chain and fragments.
-#[allow(clippy::too_many_lines)]
 pub fn walk_type_stack_to_offset(
     tree: &apollo_parser::SyntaxTree,
     schema_types: &std::collections::HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
@@ -1362,7 +1361,6 @@ pub fn find_field_definition_full_range(
 
 /// Extract all definitions from a document for document symbols
 /// Returns a list of (name, kind, ranges) for each definition
-#[allow(clippy::too_many_lines)]
 pub fn extract_all_definitions(
     tree: &apollo_parser::SyntaxTree,
 ) -> Vec<(String, &'static str, SymbolRanges)> {

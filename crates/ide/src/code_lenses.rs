@@ -53,7 +53,6 @@ pub fn code_lenses(
         for doc in parse.documents() {
             if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name) {
                 let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-                #[allow(clippy::cast_possible_truncation)]
                 let range = adjust_range_for_line_offset(
                     offset_range_to_range(&doc_line_index, ranges.def_start, ranges.def_start),
                     doc.line_offset as u32,

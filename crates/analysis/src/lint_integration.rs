@@ -407,7 +407,6 @@ pub fn project_lint_diagnostics_with_fixes(
 /// - We add `block_line_offset` to get the correct position in the original file
 ///
 /// For pure GraphQL files (no block context), we use the full file's `LineIndex`.
-#[allow(clippy::cast_possible_truncation)]
 fn convert_lint_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,

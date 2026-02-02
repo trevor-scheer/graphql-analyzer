@@ -8,3 +8,6 @@ publish = false
 cargo-husky = { version = "1.5.0", default-features = false, features = [
   "user-hooks",
 ] }
+
+[lints]
+workspace = true

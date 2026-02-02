@@ -9,7 +9,14 @@ rustflags = [
   "-Dclippy::correctness",
   "-Dclippy::suspicious",
   "-Dclippy::pedantic",
+  # Docs
   "-Aclippy::missing_errors_doc",
   "-Aclippy::missing_panics_doc",
+  # Cargo
   "-Aclippy::multiple_crate_versions",
+  # Pedantic - not useful for this project:
+  # - too_many_lines: IDE/LSP handlers legitimately handle many cases sequentially
+  # - cast_possible_truncation: All uses are safe usize→u32 for line/column numbers
+  "-Aclippy::too_many_lines",
+  "-Aclippy::cast_possible_truncation",
 ]

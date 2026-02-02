@@ -68,3 +68,6 @@ otel = [
   "opentelemetry-semantic-conventions",
   "tracing-opentelemetry",
 ]
+
+[lints]
+workspace = true

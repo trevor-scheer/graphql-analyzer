@@ -46,7 +46,6 @@ pub fn semantic_tokens(
 
     let mut tokens = Vec::new();
 
-    #[allow(clippy::cast_possible_truncation)]
     for doc in parse.documents() {
         let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
         collect_semantic_tokens_from_document(
@@ -72,7 +71,6 @@ pub fn semantic_tokens(
 ///
 /// Walks the document and emits tokens for fields, types, fragments, etc.
 /// Checks the schema to determine if fields are deprecated.
-#[allow(clippy::too_many_lines)]
 fn collect_semantic_tokens_from_document(
     doc_cst: &apollo_parser::cst::Document,
     line_index: &graphql_syntax::LineIndex,
@@ -185,7 +183,6 @@ fn collect_semantic_tokens_from_document(
 }
 
 /// Collect semantic tokens from a selection set.
-#[allow(clippy::too_many_lines)]
 fn collect_tokens_from_selection_set(
     selection_set: &apollo_parser::cst::SelectionSet,
     parent_type_name: Option<&str>,
@@ -309,7 +306,6 @@ fn collect_tokens_from_selection_set(
 }
 
 /// Emit a semantic token for a syntax node.
-#[allow(clippy::cast_possible_truncation)]
 fn emit_token_for_syntax_node(
     node: &apollo_parser::SyntaxNode,
     line_index: &graphql_syntax::LineIndex,
@@ -331,7 +327,6 @@ fn emit_token_for_syntax_node(
 }
 
 /// Emit a semantic token for a syntax token (keyword, punctuation, etc.).
-#[allow(clippy::cast_possible_truncation)]
 fn emit_token_for_syntax_token(
     token: &apollo_parser::SyntaxToken,
     line_index: &graphql_syntax::LineIndex,

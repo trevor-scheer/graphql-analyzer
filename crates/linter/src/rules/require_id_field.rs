@@ -263,7 +263,7 @@ struct DiagnosticLocation {
     end: usize,
 }
 
-#[allow(clippy::only_used_in_recursion, clippy::too_many_lines)]
+#[allow(clippy::only_used_in_recursion)]
 fn check_selection_set(
     selection_set: &cst::SelectionSet,
     parent_type_name: &str,
@@ -1074,7 +1074,6 @@ query GetUser {
         let mut doc_file_ids = Vec::new();
         let mut first_doc: Option<(FileId, FileContent, FileMetadata)> = None;
 
-        #[allow(clippy::cast_possible_truncation)]
         for (i, (uri, source, kind)) in documents.iter().enumerate() {
             let file_id = FileId::new((i + 1) as u32);
             let content = FileContent::new(db, Arc::from(*source));

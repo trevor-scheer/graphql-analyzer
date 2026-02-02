@@ -32,7 +32,6 @@ pub trait GraphQLAnalysisDatabase: graphql_hir::GraphQLHirDatabase {
 ///
 /// This is the public API that accepts an optional `ProjectFiles`.
 /// When `project_files` is `None`, only syntax errors are returned.
-#[allow(clippy::cast_possible_truncation)] // Line and column numbers won't exceed u32::MAX
 pub fn file_validation_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: graphql_base_db::FileContent,
@@ -48,7 +47,6 @@ pub fn file_validation_diagnostics(
 
 /// Get only syntax errors for a file (no validation against schema)
 #[salsa::tracked]
-#[allow(clippy::cast_possible_truncation)]
 fn syntax_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: graphql_base_db::FileContent,
@@ -85,7 +83,6 @@ fn syntax_diagnostics(
 
 /// Internal tracked function for validation with project files
 #[salsa::tracked]
-#[allow(clippy::cast_possible_truncation)]
 fn file_validation_diagnostics_impl(
     db: &dyn GraphQLAnalysisDatabase,
     content: graphql_base_db::FileContent,
