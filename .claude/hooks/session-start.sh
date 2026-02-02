@@ -35,7 +35,7 @@ else
   echo "✓ gh CLI installed successfully: $($LOCAL_BIN/gh --version | head -1)"
 fi
 
-# Install npm dependencies (for oxfmt and husky hooks)
+# Install npm dependencies (for oxfmt and pre-commit hooks)
 if [ ! -d "node_modules" ]; then
   echo ""
   echo "Installing npm dependencies..."
@@ -43,11 +43,10 @@ if [ ! -d "node_modules" ]; then
   echo "✓ npm dependencies installed"
 fi
 
-# Ensure git hooks are installed (cargo-husky with user-hooks)
+# Ensure git hooks are installed (cargo-husky installs on cargo build)
 if [ ! -f ".git/hooks/pre-commit" ] || ! grep -q "cargo-husky" ".git/hooks/pre-commit" 2>/dev/null; then
   echo ""
   echo "Installing git hooks..."
-  # cargo-husky installs hooks on cargo build
   cargo check --quiet 2>/dev/null || true
   echo "✓ git hooks installed"
 fi
