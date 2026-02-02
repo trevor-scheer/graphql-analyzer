@@ -159,6 +159,42 @@ graphql lint --watch
 graphql --project frontend lint
 ```
 
+### check
+
+Runs both validation and linting in a single pass. This is the recommended command for most workflows as it's more efficient than running `validate` and `lint` separately.
+
+```bash
+graphql check [OPTIONS]
+```
+
+**Options:**
+
+- `--format <FORMAT>` - Output format: `human` (default), `json`, `github`
+- `--watch` - Watch for file changes and re-check
+- `--config <PATH>` - Path to config file (auto-discovered by default)
+- `--project <NAME>` - Project name for multi-project configs
+
+**Exit codes:**
+
+- `0` - No validation or lint errors
+- `1` - Errors found
+
+**Examples:**
+
+```bash
+# Run all checks (recommended)
+graphql check
+
+# JSON output for CI
+graphql check --format json
+
+# Watch mode for development (recommended for terminal-based workflows)
+graphql check --watch
+
+# Specific project
+graphql --project backend check
+```
+
 ## Output Formats
 
 ### Human (Default)
@@ -349,10 +385,17 @@ Watch mode for continuous validation:
 # Terminal 1: Run dev server
 npm run dev
 
-# Terminal 2: Watch GraphQL
+# Terminal 2: Watch all GraphQL checks (recommended)
+graphql check --watch
+```
+
+Or run validation and linting separately:
+
+```bash
+# Terminal 2: Watch validation only
 graphql validate --watch
 
-# Terminal 3: Watch lints
+# Terminal 3: Watch lints only
 graphql lint --watch
 ```
 
