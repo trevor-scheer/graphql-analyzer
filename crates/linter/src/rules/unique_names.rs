@@ -155,3 +155,213 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
         diagnostics_by_file
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::traits::ProjectLintRule;
+    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+    use graphql_ide_db::RootDatabase;
+    use std::sync::Arc;
+
+    fn create_multi_file_project(
+        db: &dyn graphql_hir::GraphQLHirDatabase,
+        documents: &[(&str, &str)],
+    ) -> ProjectFiles {
+        let schema_file_ids = graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![]));
+
+        let mut file_entries = std::collections::HashMap::new();
+        let mut doc_file_ids = Vec::new();
+
+        #[allow(clippy::cast_possible_truncation)]
+        for (i, (uri, source)) in documents.iter().enumerate() {
+            let file_id = FileId::new(i as u32);
+            let content = FileContent::new(db, Arc::from(*source));
+            let metadata =
+                FileMetadata::new(db, file_id, FileUri::new(*uri), FileKind::ExecutableGraphQL);
+
+            let entry = graphql_base_db::FileEntry::new(db, content, metadata);
+            file_entries.insert(file_id, entry);
+            doc_file_ids.push(file_id);
+        }
+
+        let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(doc_file_ids));
+        let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(file_entries));
+
+        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+    }
+
+    fn create_single_file_project(
+        db: &dyn graphql_hir::GraphQLHirDatabase,
+        source: &str,
+    ) -> ProjectFiles {
+        create_multi_file_project(db, &[("file:///test.graphql", source)])
+    }
+
+    #[test]
+    fn test_unique_operation_names_no_warning() {
+        let db = RootDatabase::default();
+        let rule = UniqueNamesRuleImpl;
+
+        let source = r"
+query GetUser { user { id } }
+query GetPosts { posts { id } }
+mutation UpdateUser { updateUser { id } }
+";
+
+        let project_files = create_single_file_project(&db, source);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_duplicate_operation_names_in_same_file() {
+        let db = RootDatabase::default();
+        let rule = UniqueNamesRuleImpl;
+
+        let source = r"
+query GetUser { user { id } }
+query GetUser { user { name } }
+";
+
+        let project_files = create_single_file_project(&db, source);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        let file_diags = diagnostics.values().next().unwrap();
+        assert_eq!(file_diags.len(), 2);
+        assert!(file_diags[0].message.contains("GetUser"));
+        assert!(file_diags[0].message.contains("not unique"));
+    }
+
+    #[test]
+    fn test_duplicate_operation_names_across_files() {
+        let db = RootDatabase::default();
+        let rule = UniqueNamesRuleImpl;
+
+        let documents = [
+            ("file:///file1.graphql", "query GetUser { user { id } }"),
+            ("file:///file2.graphql", "query GetUser { user { name } }"),
+        ];
+
+        let project_files = create_multi_file_project(&db, &documents);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert_eq!(diagnostics.len(), 2);
+        let total_diags: usize = diagnostics.values().map(Vec::len).sum();
+        assert_eq!(total_diags, 2);
+    }
+
+    #[test]
+    fn test_unique_fragment_names_no_warning() {
+        let db = RootDatabase::default();
+        let rule = UniqueNamesRuleImpl;
+
+        let source = r"
+fragment UserFields on User { id name }
+fragment PostFields on Post { id title }
+";
+
+        let project_files = create_single_file_project(&db, source);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_duplicate_fragment_names_in_same_file() {
+        let db = RootDatabase::default();
+        let rule = UniqueNamesRuleImpl;
+
+        let source = r"
+fragment UserFields on User { id name }
+fragment UserFields on User { id email }
+";
+
+        let project_files = create_single_file_project(&db, source);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        let file_diags = diagnostics.values().next().unwrap();
+        assert_eq!(file_diags.len(), 2);
+        assert!(file_diags[0].message.contains("UserFields"));
+        assert!(file_diags[0].message.contains("not unique"));
+    }
+
+    #[test]
+    fn test_duplicate_fragment_names_across_files() {
+        let db = RootDatabase::default();
+        let rule = UniqueNamesRuleImpl;
+
+        let documents = [
+            (
+                "file:///fragments1.graphql",
+                "fragment UserFields on User { id }",
+            ),
+            (
+                "file:///fragments2.graphql",
+                "fragment UserFields on User { name }",
+            ),
+        ];
+
+        let project_files = create_multi_file_project(&db, &documents);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert_eq!(diagnostics.len(), 2);
+        let total_diags: usize = diagnostics.values().map(Vec::len).sum();
+        assert_eq!(total_diags, 2);
+    }
+
+    #[test]
+    fn test_same_name_for_operation_and_fragment_allowed() {
+        let db = RootDatabase::default();
+        let rule = UniqueNamesRuleImpl;
+
+        let source = r"
+query UserFields { user { id } }
+fragment UserFields on User { id name }
+";
+
+        let project_files = create_single_file_project(&db, source);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_three_duplicate_operation_names() {
+        let db = RootDatabase::default();
+        let rule = UniqueNamesRuleImpl;
+
+        let source = r"
+query GetUser { user { id } }
+query GetUser { user { name } }
+query GetUser { user { email } }
+";
+
+        let project_files = create_single_file_project(&db, source);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        let file_diags = diagnostics.values().next().unwrap();
+        assert_eq!(file_diags.len(), 3);
+        assert!(file_diags[0].message.contains("3 definitions"));
+    }
+
+    #[test]
+    fn test_anonymous_operations_not_checked() {
+        let db = RootDatabase::default();
+        let rule = UniqueNamesRuleImpl;
+
+        let source = r"
+{ user { id } }
+{ posts { id } }
+";
+
+        let project_files = create_single_file_project(&db, source);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert!(diagnostics.is_empty());
+    }
+}

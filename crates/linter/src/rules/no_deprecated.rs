@@ -339,3 +339,403 @@ fn check_value_for_deprecated_enum(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::traits::DocumentSchemaLintRule;
+    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+    use graphql_ide_db::RootDatabase;
+
+    fn create_test_project(
+        db: &dyn graphql_hir::GraphQLHirDatabase,
+        schema_source: &str,
+        document_source: &str,
+    ) -> (FileId, FileContent, FileMetadata, ProjectFiles) {
+        let schema_file_id = FileId::new(0);
+        let schema_content = FileContent::new(db, Arc::from(schema_source));
+        let schema_metadata = FileMetadata::new(
+            db,
+            schema_file_id,
+            FileUri::new("file:///schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let doc_file_id = FileId::new(1);
+        let doc_content = FileContent::new(db, Arc::from(document_source));
+        let doc_metadata = FileMetadata::new(
+            db,
+            doc_file_id,
+            FileUri::new("file:///query.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let schema_file_ids =
+            graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
+        let document_file_ids =
+            graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![doc_file_id]));
+        let mut file_entries = std::collections::HashMap::new();
+        let schema_entry = graphql_base_db::FileEntry::new(db, schema_content, schema_metadata);
+        let doc_entry = graphql_base_db::FileEntry::new(db, doc_content, doc_metadata);
+        file_entries.insert(schema_file_id, schema_entry);
+        file_entries.insert(doc_file_id, doc_entry);
+        let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(file_entries));
+        let project_files =
+            ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map);
+
+        (doc_file_id, doc_content, doc_metadata, project_files)
+    }
+
+    const SCHEMA_WITH_DEPRECATIONS: &str = r#"
+type Query {
+    user(id: ID!): User
+    oldUser(id: ID!): User @deprecated(reason: "Use user instead")
+}
+
+type User {
+    id: ID!
+    name: String!
+    email: String!
+    username: String @deprecated(reason: "Use name instead")
+    posts(status: PostStatus): [Post!]!
+}
+
+type Post {
+    id: ID!
+    title: String!
+}
+
+enum PostStatus {
+    PUBLISHED
+    DRAFT
+    ARCHIVED @deprecated(reason: "Use DRAFT instead")
+}
+"#;
+
+    #[test]
+    fn test_deprecated_field_warning() {
+        let db = RootDatabase::default();
+        let rule = NoDeprecatedRuleImpl;
+
+        let source = r#"
+query GetUser {
+    user(id: "1") {
+        id
+        username
+    }
+}
+"#;
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, SCHEMA_WITH_DEPRECATIONS, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("username"));
+        assert!(diagnostics[0].message.contains("deprecated"));
+        assert!(diagnostics[0].message.contains("Use name instead"));
+    }
+
+    #[test]
+    fn test_no_warning_for_non_deprecated_fields() {
+        let db = RootDatabase::default();
+        let rule = NoDeprecatedRuleImpl;
+
+        let source = r#"
+query GetUser {
+    user(id: "1") {
+        id
+        name
+        email
+    }
+}
+"#;
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, SCHEMA_WITH_DEPRECATIONS, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn test_deprecated_root_field_warning() {
+        let db = RootDatabase::default();
+        let rule = NoDeprecatedRuleImpl;
+
+        let source = r#"
+query GetUser {
+    oldUser(id: "1") {
+        id
+        name
+    }
+}
+"#;
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, SCHEMA_WITH_DEPRECATIONS, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("oldUser"));
+        assert!(diagnostics[0].message.contains("deprecated"));
+    }
+
+    #[test]
+    fn test_deprecated_enum_value_warning() {
+        let db = RootDatabase::default();
+        let rule = NoDeprecatedRuleImpl;
+
+        let source = r#"
+query GetUserPosts {
+    user(id: "1") {
+        posts(status: ARCHIVED) {
+            id
+            title
+        }
+    }
+}
+"#;
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, SCHEMA_WITH_DEPRECATIONS, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("ARCHIVED"));
+        assert!(diagnostics[0].message.contains("deprecated"));
+    }
+
+    #[test]
+    fn test_non_deprecated_enum_value_no_warning() {
+        let db = RootDatabase::default();
+        let rule = NoDeprecatedRuleImpl;
+
+        let source = r#"
+query GetUserPosts {
+    user(id: "1") {
+        posts(status: PUBLISHED) {
+            id
+            title
+        }
+    }
+}
+"#;
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, SCHEMA_WITH_DEPRECATIONS, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn test_multiple_deprecated_usages() {
+        let db = RootDatabase::default();
+        let rule = NoDeprecatedRuleImpl;
+
+        let source = r#"
+query GetUser {
+    oldUser(id: "1") {
+        id
+        username
+    }
+}
+"#;
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, SCHEMA_WITH_DEPRECATIONS, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 2);
+        let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
+        assert!(messages.iter().any(|m| m.contains("oldUser")));
+        assert!(messages.iter().any(|m| m.contains("username")));
+    }
+
+    #[test]
+    fn test_deprecated_field_in_fragment() {
+        let db = RootDatabase::default();
+        let rule = NoDeprecatedRuleImpl;
+
+        let source = r#"
+fragment UserFields on User {
+    id
+    username
+}
+
+query GetUser {
+    user(id: "1") {
+        ...UserFields
+    }
+}
+"#;
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, SCHEMA_WITH_DEPRECATIONS, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("username"));
+    }
+
+    #[test]
+    fn test_mutation_with_deprecated_field() {
+        let db = RootDatabase::default();
+        let rule = NoDeprecatedRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+}
+
+type Mutation {
+    updateUser(id: ID!): User
+}
+
+type User {
+    id: ID!
+    name: String!
+    oldField: String @deprecated
+}
+";
+
+        let source = r#"
+mutation UpdateUser {
+    updateUser(id: "1") {
+        oldField
+    }
+}
+"#;
+
+        let (file_id, content, metadata, project_files) = create_test_project(&db, schema, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("oldField"));
+    }
+
+    #[test]
+    fn test_nested_selection_deprecated_field() {
+        let db = RootDatabase::default();
+        let rule = NoDeprecatedRuleImpl;
+
+        let schema = r#"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    profile: Profile
+}
+
+type Profile {
+    bio: String
+    oldAvatar: String @deprecated(reason: "Use avatar instead")
+}
+"#;
+
+        let source = r"
+query GetUser {
+    user {
+        id
+        profile {
+            bio
+            oldAvatar
+        }
+    }
+}
+";
+
+        let (file_id, content, metadata, project_files) = create_test_project(&db, schema, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("oldAvatar"));
+    }
+
+    #[test]
+    fn test_inline_fragment_deprecated_field() {
+        let db = RootDatabase::default();
+        let rule = NoDeprecatedRuleImpl;
+
+        let schema = r"
+type Query {
+    node(id: ID!): Node
+}
+
+interface Node {
+    id: ID!
+}
+
+type User implements Node {
+    id: ID!
+    name: String!
+    oldField: String @deprecated
+}
+";
+
+        let source = r#"
+query GetNode {
+    node(id: "1") {
+        id
+        ... on User {
+            name
+            oldField
+        }
+    }
+}
+"#;
+
+        let (file_id, content, metadata, project_files) = create_test_project(&db, schema, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("oldField"));
+    }
+
+    #[test]
+    fn test_deprecated_without_reason() {
+        let db = RootDatabase::default();
+        let rule = NoDeprecatedRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    legacyField: String @deprecated
+}
+";
+
+        let source = r"
+query GetUser {
+    user {
+        legacyField
+    }
+}
+";
+
+        let (file_id, content, metadata, project_files) = create_test_project(&db, schema, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("legacyField"));
+        assert!(diagnostics[0].message.contains("deprecated"));
+        assert!(!diagnostics[0].message.contains(':'));
+    }
+}
