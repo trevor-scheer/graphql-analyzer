@@ -18,7 +18,17 @@ cargo clippy
 cargo test
 ```
 
-### 2. Review Your Changes
+### 2. Create a Changeset (if needed)
+
+For user-facing changes (features, bug fixes, breaking changes), create a changeset:
+
+```bash
+knope document-change
+```
+
+**Skip changesets for:** internal refactoring, CI changes, test-only changes, documentation updates.
+
+### 4. Review Your Changes
 
 ```bash
 git status
@@ -26,7 +36,7 @@ git diff main...HEAD
 git log main..HEAD --oneline
 ```
 
-### 3. Ensure Commits Follow Conventions
+### 5. Ensure Commits Follow Conventions
 
 - `feat:` - New feature
 - `fix:` - Bug fix
@@ -105,6 +115,7 @@ EOF
 - [ ] All tests pass locally
 - [ ] Clippy is clean
 - [ ] Code is formatted
+- [ ] Changeset created (if user-facing changes)
 - [ ] Commits follow conventional format
 - [ ] PR title is descriptive (no emoji)
 - [ ] PR body follows `.github/PULL_REQUEST_TEMPLATE.md` structure
