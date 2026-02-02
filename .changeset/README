@@ -12,30 +12,34 @@ knope document-change
 That's it! When your PR is merged to main, CI will automatically:
 
 1. Detect the changeset
-2. Create a Release PR with version bump and changelog
-3. When the Release PR is merged, create a git tag
-4. Build and publish the release
+2. Create a Release PR with version bumps and changelogs
+3. When the Release PR is merged, build artifacts and create GitHub releases
 
-## What is a Changeset?
+## Packages
 
-A changeset is a Markdown file describing a change. Each changeset specifies:
+This project has 4 independently versioned packages:
 
-- The type of version bump (major, minor, patch)
-- A summary for the changelog
+| Package  | Description             | Changelog                     |
+| -------- | ----------------------- | ----------------------------- |
+| `cli`    | GraphQL CLI tool        | `crates/cli/CHANGELOG.md`     |
+| `lsp`    | GraphQL Language Server | `crates/lsp/CHANGELOG.md`     |
+| `mcp`    | GraphQL MCP Server      | `crates/mcp/CHANGELOG.md`     |
+| `vscode` | VSCode Extension        | `editors/vscode/CHANGELOG.md` |
 
-### Changeset Format
+## Changeset Format
 
 Create a file in `.changeset/` with any name ending in `.md`:
 
 ```markdown
 ---
-graphql-lsp: minor
+cli: patch
+lsp: minor
 ---
 
-Add support for feature X
+Add new feature to CLI and LSP
 ```
 
-The frontmatter specifies the version bump type. The body becomes the changelog entry.
+List the packages affected and their bump type. Only include packages that have changes.
 
 ### Version Bump Types
 
@@ -43,7 +47,41 @@ The frontmatter specifies the version bump type. The body becomes the changelog 
 - **minor**: New features, significant improvements
 - **patch**: Bug fixes, documentation updates
 
-### When to Create a Changeset
+### Examples
+
+**CLI-only change:**
+
+```markdown
+---
+cli: patch
+---
+
+Fix argument parsing bug
+```
+
+**Change affecting multiple packages:**
+
+```markdown
+---
+cli: minor
+lsp: minor
+mcp: minor
+---
+
+Add support for new GraphQL directive
+```
+
+**VSCode extension update:**
+
+```markdown
+---
+vscode: patch
+---
+
+Fix syntax highlighting for fragments
+```
+
+## When to Create a Changeset
 
 **DO create changesets for:**
 
@@ -57,71 +95,12 @@ The frontmatter specifies the version bump type. The body becomes the changelog 
 - Internal refactoring (no behavior change)
 - CI/CD changes
 - Test-only changes
-- Typo fixes
+- Documentation-only changes
 
-## Release Flow (CI-Automated)
+## Release Flow
 
-Releases are fully automated via GitHub Actions:
-
-```
 1. Create changesets with `knope document-change`
 2. Push/merge to main
 3. CI detects changesets → creates Release PR
 4. Review and merge Release PR
-5. CI creates git tag → triggers release workflow
-6. Builds binaries (cargo-dist) + VSCode extension
-7. Creates GitHub release with all artifacts
-```
-
-**You never need to manually build or publish releases.**
-
-## Versioning Strategy
-
-This project uses **unified versioning**:
-
-- All crates share the same version (workspace version in `Cargo.toml`)
-- VS Code extension version is synced automatically
-- Single `CHANGELOG.md` tracks all changes
-- Git tags use format `v{version}` (e.g., `v0.1.0-alpha.0`)
-
-### Prerelease Versions
-
-The project is currently in **alpha** (`0.x.0-alpha.x`). Version bumps stay in alpha:
-
-- `minor` changeset: `0.1.0-alpha.0` → `0.2.0-alpha.0`
-- `patch` changeset: `0.1.0-alpha.0` → `0.1.1-alpha.0`
-
-### Transitioning to Stable
-
-When ready for stable releases, remove `prerelease_label` from `knope.toml`:
-
-```toml
-# Before (alpha)
-[[workflows.prepare-release.steps]]
-type = "PrepareRelease"
-prerelease_label = "alpha"
-
-# After (stable)
-[[workflows.prepare-release.steps]]
-type = "PrepareRelease"
-# No prerelease_label = stable versions
-```
-
-The next release will be stable (e.g., `0.2.0-alpha.5` → `0.3.0`).
-
-## Tools
-
-### Knope
-
-[Knope](https://knope.tech) handles version management and changelog generation.
-
-```bash
-# Install
-cargo install knope
-
-# Create a changeset interactively
-knope document-change
-
-# Preview what a release would look like (local only)
-knope prepare-release --dry-run
-```
+5. CI builds artifacts → creates GitHub releases for affected packages

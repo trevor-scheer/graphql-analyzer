@@ -69,7 +69,7 @@ export const test = base.extend<VSCodeFixtures>({
     // Create a .graphqlrc.yaml so the extension activates
     fs.writeFileSync(
       path.join(workspaceDir, ".graphqlrc.yaml"),
-      `schema: schema.graphql\ndocuments: "**/*.graphql"\n`
+      `schema: schema.graphql\ndocuments: "**/*.graphql"\n`,
     );
 
     // Create settings.json to disable AI features and other prompts
@@ -87,14 +87,14 @@ export const test = base.extend<VSCodeFixtures>({
           "security.workspace.trust.enabled": false,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
 
     // Create a simple schema file
     fs.writeFileSync(
       path.join(workspaceDir, "schema.graphql"),
-      `type Query {\n  hello: String\n}\n`
+      `type Query {\n  hello: String\n}\n`,
     );
 
     // Create a simple query file

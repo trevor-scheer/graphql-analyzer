@@ -140,7 +140,7 @@ async function askUserForDownloadPermission(): Promise<boolean> {
     "GraphQL CLI not found. Would you like to download it from GitHub releases?",
     { modal: true, detail: "You can also install manually with: cargo install graphql-cli" },
     download,
-    cancel
+    cancel,
   );
 
   return result === download;
@@ -149,7 +149,7 @@ async function askUserForDownloadPermission(): Promise<boolean> {
 async function downloadAndInstallBinary(
   context: ExtensionContext,
   platformInfo: PlatformInfo,
-  outputChannel: OutputChannel
+  outputChannel: OutputChannel,
 ): Promise<string> {
   const storageDir = context.globalStorageUri.fsPath;
   if (!fs.existsSync(storageDir)) {
@@ -210,7 +210,7 @@ async function downloadAndInstallBinary(
                 },
                 async () => {
                   await downloadBinary(downloadUrl, archivePath);
-                }
+                },
               );
 
               outputChannel.appendLine("Download complete, extracting...");
@@ -224,7 +224,7 @@ async function downloadAndInstallBinary(
               const extractedBinaryPath = path.join(
                 storageDir,
                 `graphql-cli-${platformInfo.platform}`,
-                platformInfo.binaryName
+                platformInfo.binaryName,
               );
 
               if (fs.existsSync(extractedBinaryPath)) {
@@ -247,7 +247,7 @@ async function downloadAndInstallBinary(
               reject(error);
             }
           });
-        }
+        },
       )
       .on("error", reject);
   });
@@ -267,7 +267,7 @@ async function downloadAndInstallBinary(
 export async function findServerBinary(
   context: ExtensionContext,
   outputChannel: OutputChannel,
-  customPath?: string
+  customPath?: string,
 ): Promise<string> {
   const platformInfo = getPlatformInfo();
 
@@ -307,7 +307,7 @@ export async function findServerBinary(
           return binaryInDir;
         }
         outputChannel.appendLine(
-          `GRAPHQL_PATH is a directory but binary not found: ${binaryInDir}`
+          `GRAPHQL_PATH is a directory but binary not found: ${binaryInDir}`,
         );
       } else {
         outputChannel.appendLine(`Found binary at GRAPHQL_PATH: ${envPath}`);
@@ -357,7 +357,7 @@ export async function findServerBinary(
     return downloadedPath;
   } catch (error) {
     throw new Error(
-      `Failed to download graphql binary. You can install it manually with: cargo install graphql-cli\n\nError: ${error}`
+      `Failed to download graphql binary. You can install it manually with: cargo install graphql-cli\n\nError: ${error}`,
     );
   }
 }
