@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.1.0 (2026-02-02)
+
+### Features
+
+- Initial release
+
 ## 0.1.0-alpha.10 (2026-02-01)
 
 ### Fixes
