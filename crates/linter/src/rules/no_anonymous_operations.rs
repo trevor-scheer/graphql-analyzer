@@ -1,49 +1,40 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
-use crate::traits::{LintRule, StandaloneDocumentLintRule};
+use crate::traits::StandaloneDocumentLintRule;
 use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 
-/// Lint rule that requires all GraphQL operations to have explicit names
-///
-/// Anonymous operations are allowed by the GraphQL specification but are
-/// discouraged in production code. Named operations provide several benefits:
-/// - Better monitoring and debugging (operation names appear in logs and APM tools)
-/// - Improved caching strategies in GraphQL clients
-/// - Self-documenting code that describes what each operation does
-/// - Easier security auditing and operation tracking
-///
-/// Example:
-/// ```graphql
-/// # Bad - anonymous operation
-/// query {
-///   user {
-///     id
-///     name
-///   }
-/// }
-///
-/// # Good - named operation
-/// query GetUser {
-///   user {
-///     id
-///     name
-///   }
-/// }
-/// ```
-pub struct NoAnonymousOperationsRuleImpl;
-
-impl LintRule for NoAnonymousOperationsRuleImpl {
-    fn name(&self) -> &'static str {
-        "no_anonymous_operations"
-    }
-
-    fn description(&self) -> &'static str {
-        "Requires all operations to have explicit names for better monitoring and debugging"
-    }
-
-    fn default_severity(&self) -> LintSeverity {
-        LintSeverity::Error
-    }
+crate::define_lint_rule! {
+    /// Lint rule that requires all GraphQL operations to have explicit names
+    ///
+    /// Anonymous operations are allowed by the GraphQL specification but are
+    /// discouraged in production code. Named operations provide several benefits:
+    /// - Better monitoring and debugging (operation names appear in logs and APM tools)
+    /// - Improved caching strategies in GraphQL clients
+    /// - Self-documenting code that describes what each operation does
+    /// - Easier security auditing and operation tracking
+    ///
+    /// Example:
+    /// ```graphql
+    /// # Bad - anonymous operation
+    /// query {
+    ///   user {
+    ///     id
+    ///     name
+    ///   }
+    /// }
+    ///
+    /// # Good - named operation
+    /// query GetUser {
+    ///   user {
+    ///     id
+    ///     name
+    ///   }
+    /// }
+    /// ```
+    pub struct NoAnonymousOperationsRuleImpl;
+    name = "no_anonymous_operations",
+    description = "Requires all operations to have explicit names for better monitoring and debugging",
+    severity = Error,
 }
 
 impl StandaloneDocumentLintRule for NoAnonymousOperationsRuleImpl {
