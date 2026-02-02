@@ -191,7 +191,7 @@ jobs:
           INSTALL_LINK=$'\n\n---\n\n📦 **[Installation Instructions](https://github.com/trevor-scheer/graphql-analyzer#installation)**'
 
           # Append to each release
-          for TAG in "cli/v${CLI_VERSION}" "lsp/v${LSP_VERSION}" "mcp/v${MCP_VERSION}"; do
+          for TAG in "graphql-analyzer-cli/v${CLI_VERSION}" "graphql-analyzer-lsp/v${LSP_VERSION}" "graphql-analyzer-mcp/v${MCP_VERSION}"; do
             if CURRENT_BODY=$(gh release view "$TAG" --json body -q .body 2>/dev/null); then
               gh release edit "$TAG" --notes "${CURRENT_BODY}${INSTALL_LINK}"
             fi

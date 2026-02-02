@@ -4,26 +4,26 @@
 # Multi-package setup: each component has independent versioning and changelogs.
 # Changesets specify which package(s) they affect:
 #   ---
-#   cli: patch
-#   lsp: minor
+#   graphql-analyzer-cli: patch
+#   graphql-analyzer-lsp: minor
 #   ---
 
-[packages.cli]
+[packages.graphql-analyzer-cli]
 versioned_files = ["crates/cli/Cargo.toml"]
 changelog = "crates/cli/CHANGELOG.md"
 assets = "artifacts/graphql-cli-*"
 
-[packages.lsp]
+[packages.graphql-analyzer-lsp]
 versioned_files = ["crates/lsp/Cargo.toml"]
 changelog = "crates/lsp/CHANGELOG.md"
 assets = "artifacts/graphql-lsp-*"
 
-[packages.mcp]
+[packages.graphql-analyzer-mcp]
 versioned_files = ["crates/mcp/Cargo.toml"]
 changelog = "crates/mcp/CHANGELOG.md"
 assets = "artifacts/graphql-mcp-*"
 
-[packages.vscode]
+[packages.graphql-analyzer-vscode]
 versioned_files = ["editors/vscode/package.json"]
 changelog = "editors/vscode/CHANGELOG.md"
 assets = "artifacts/*.vsix"

@@ -19,12 +19,12 @@ That's it! When your PR is merged to main, CI will automatically:
 
 This project has 4 independently versioned packages:
 
-| Package  | Description             | Changelog                     |
-| -------- | ----------------------- | ----------------------------- |
-| `cli`    | GraphQL CLI tool        | `crates/cli/CHANGELOG.md`     |
-| `lsp`    | GraphQL Language Server | `crates/lsp/CHANGELOG.md`     |
-| `mcp`    | GraphQL MCP Server      | `crates/mcp/CHANGELOG.md`     |
-| `vscode` | VSCode Extension        | `editors/vscode/CHANGELOG.md` |
+| Package                   | Description             | Changelog                     |
+| ------------------------- | ----------------------- | ----------------------------- |
+| `graphql-analyzer-cli`    | GraphQL CLI tool        | `crates/cli/CHANGELOG.md`     |
+| `graphql-analyzer-lsp`    | GraphQL Language Server | `crates/lsp/CHANGELOG.md`     |
+| `graphql-analyzer-mcp`    | GraphQL MCP Server      | `crates/mcp/CHANGELOG.md`     |
+| `graphql-analyzer-vscode` | VSCode Extension        | `editors/vscode/CHANGELOG.md` |
 
 ## Changeset Format
 
@@ -32,8 +32,8 @@ Create a file in `.changeset/` with any name ending in `.md`:
 
 ```markdown
 ---
-cli: patch
-lsp: minor
+graphql-analyzer-cli: patch
+graphql-analyzer-lsp: minor
 ---
 
 Add new feature to CLI and LSP
@@ -53,7 +53,7 @@ List the packages affected and their bump type. Only include packages that have 
 
 ```markdown
 ---
-cli: patch
+graphql-analyzer-cli: patch
 ---
 
 Fix argument parsing bug
@@ -63,9 +63,9 @@ Fix argument parsing bug
 
 ```markdown
 ---
-cli: minor
-lsp: minor
-mcp: minor
+graphql-analyzer-cli: minor
+graphql-analyzer-lsp: minor
+graphql-analyzer-mcp: minor
 ---
 
 Add support for new GraphQL directive
@@ -75,7 +75,7 @@ Add support for new GraphQL directive
 
 ```markdown
 ---
-vscode: patch
+graphql-analyzer-vscode: patch
 ---
 
 Fix syntax highlighting for fragments
