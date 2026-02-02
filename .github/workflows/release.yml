@@ -59,6 +59,12 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Rust cache
+        if: ${{ !matrix.cross }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-${{ matrix.target }}"
+
       - name: Install cross
         if: matrix.cross
         uses: taiki-e/install-action@cross
@@ -172,3 +178,58 @@ jobs:
         run: knope release --verbose
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get CLI version
+        id: version
+        run: |
+          VERSION=$(grep -m1 '^version = ' crates/cli/Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Append installation instructions to CLI release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="cli/v${VERSION}"
+
+          # Get current release body
+          CURRENT_BODY=$(gh release view "$TAG" --json body -q .body || echo "")
+
+          # Create installation instructions
+          INSTALL_INSTRUCTIONS=$(cat << 'EOF'
+
+          ---
+
+          ## Installation
+
+          ### Quick Install (Recommended)
+
+          **macOS / Linux:**
+          ```sh
+          curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
+          ```
+
+          **Windows (PowerShell):**
+          ```powershell
+          irm https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.ps1 | iex
+          ```
+
+          ### Manual Installation
+
+          Download the appropriate archive for your platform from the assets below, extract it, and add the binary to your PATH.
+
+          | Platform | CLI | LSP | MCP |
+          |----------|-----|-----|-----|
+          | macOS (Apple Silicon) | [graphql-cli-aarch64-apple-darwin.tar.xz](https://github.com/trevor-scheer/graphql-analyzer/releases/download/cli/vVERSION/graphql-cli-aarch64-apple-darwin.tar.xz) | [graphql-lsp-aarch64-apple-darwin.tar.xz](https://github.com/trevor-scheer/graphql-analyzer/releases/download/cli/vVERSION/graphql-lsp-aarch64-apple-darwin.tar.xz) | [graphql-mcp-aarch64-apple-darwin.tar.xz](https://github.com/trevor-scheer/graphql-analyzer/releases/download/cli/vVERSION/graphql-mcp-aarch64-apple-darwin.tar.xz) |
+          | macOS (Intel) | [graphql-cli-x86_64-apple-darwin.tar.xz](https://github.com/trevor-scheer/graphql-analyzer/releases/download/cli/vVERSION/graphql-cli-x86_64-apple-darwin.tar.xz) | [graphql-lsp-x86_64-apple-darwin.tar.xz](https://github.com/trevor-scheer/graphql-analyzer/releases/download/cli/vVERSION/graphql-lsp-x86_64-apple-darwin.tar.xz) | [graphql-mcp-x86_64-apple-darwin.tar.xz](https://github.com/trevor-scheer/graphql-analyzer/releases/download/cli/vVERSION/graphql-mcp-x86_64-apple-darwin.tar.xz) |
+          | Linux (x86_64) | [graphql-cli-x86_64-unknown-linux-gnu.tar.xz](https://github.com/trevor-scheer/graphql-analyzer/releases/download/cli/vVERSION/graphql-cli-x86_64-unknown-linux-gnu.tar.xz) | [graphql-lsp-x86_64-unknown-linux-gnu.tar.xz](https://github.com/trevor-scheer/graphql-analyzer/releases/download/cli/vVERSION/graphql-lsp-x86_64-unknown-linux-gnu.tar.xz) | [graphql-mcp-x86_64-unknown-linux-gnu.tar.xz](https://github.com/trevor-scheer/graphql-analyzer/releases/download/cli/vVERSION/graphql-mcp-x86_64-unknown-linux-gnu.tar.xz) |
+          | Linux (ARM64) | [graphql-cli-aarch64-unknown-linux-gnu.tar.xz](https://github.com/trevor-scheer/graphql-analyzer/releases/download/cli/vVERSION/graphql-cli-aarch64-unknown-linux-gnu.tar.xz) | [graphql-lsp-aarch64-unknown-linux-gnu.tar.xz](https://github.com/trevor-scheer/graphql-analyzer/releases/download/cli/vVERSION/graphql-lsp-aarch64-unknown-linux-gnu.tar.xz) | [graphql-mcp-aarch64-unknown-linux-gnu.tar.xz](https://github.com/trevor-scheer/graphql-analyzer/releases/download/cli/vVERSION/graphql-mcp-aarch64-unknown-linux-gnu.tar.xz) |
+          | Windows (x86_64) | [graphql-cli-x86_64-pc-windows-msvc.zip](https://github.com/trevor-scheer/graphql-analyzer/releases/download/cli/vVERSION/graphql-cli-x86_64-pc-windows-msvc.zip) | [graphql-lsp-x86_64-pc-windows-msvc.zip](https://github.com/trevor-scheer/graphql-analyzer/releases/download/cli/vVERSION/graphql-lsp-x86_64-pc-windows-msvc.zip) | [graphql-mcp-x86_64-pc-windows-msvc.zip](https://github.com/trevor-scheer/graphql-analyzer/releases/download/cli/vVERSION/graphql-mcp-x86_64-pc-windows-msvc.zip) |
+          EOF
+          )
+
+          # Replace VERSION placeholder
+          INSTALL_INSTRUCTIONS="${INSTALL_INSTRUCTIONS//VERSION/$VERSION}"
+
+          # Update the release with combined body
+          gh release edit "$TAG" --notes "${CURRENT_BODY}${INSTALL_INSTRUCTIONS}"
