@@ -44,6 +44,16 @@ pub enum LintSeverity {
     Error,
 }
 
+impl std::fmt::Display for LintSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Off => write!(f, "off"),
+            Self::Warn => write!(f, "warn"),
+            Self::Error => write!(f, "error"),
+        }
+    }
+}
+
 /// Configuration for a single lint rule
 ///
 /// Supports multiple formats:
