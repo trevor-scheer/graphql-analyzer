@@ -1,155 +1,10 @@
-# GraphQL Tooling in Rust
+# GraphQL Analyzer
 
-A comprehensive GraphQL tooling ecosystem in Rust, providing LSP (Language Server Protocol) for editor integration and CLI for CI/CD enforcement.
-
-## Project Structure
-
-```
-graphql-analyzer/
-├── crates/
-│   ├── config/          # .graphqlrc parser and loader
-│   ├── extract/         # Extract GraphQL from source files
-│   ├── introspect/      # GraphQL introspection and SDL conversion
-│   ├── base-db/         # Salsa database and input queries
-│   ├── syntax/          # GraphQL parsing and syntax trees
-│   ├── hir/             # High-level semantic representation
-│   ├── analysis/        # Query-based validation and analysis
-│   ├── linter/          # Linting engine with custom rules
-│   ├── ide/             # Editor-facing IDE features API
-│   ├── lsp/             # LSP server implementation
-│   ├── mcp/             # MCP server for AI agents
-│   └── cli/             # CLI tool for CI/CD
-└── editors/
-    └── vscode/          # VSCode extension
-```
-
-## Crates
-
-### graphql-config
-
-Parses and loads `.graphqlrc` configuration files with parity to the npm `graphql-config` package.
-
-**Features:**
-
-- YAML and JSON config formats
-- Single and multi-project configurations
-- Schema and document patterns
-- Configuration discovery (walks up directory tree)
-
-### graphql-extract
-
-Extracts GraphQL queries, mutations, and fragments from source files.
-
-**Supported:**
-
-- Raw GraphQL files (`.graphql`, `.gql`, `.gqls`)
-- TypeScript/JavaScript (via SWC) - Coming soon
-- Template literals with `gql` tags
-- Magic comments (`/* GraphQL */`)
-
-### graphql-introspect
-
-Fetches GraphQL schemas from remote endpoints via introspection and converts them to SDL.
-
-**Features:**
-
-- Standard GraphQL introspection query execution
-- Type-safe deserialization of introspection responses
-- Conversion from introspection JSON to SDL strings
-- Support for all GraphQL schema types and directives
-- Automatic filtering of built-in types and directives
-
-### graphql-linter
-
-Flexible linting engine with support for different linting contexts.
-
-**Features:**
-
-- Document-level lints (fast, real-time feedback)
-- Project-wide lints (comprehensive analysis)
-- Schema validation rules
-- Configurable severity levels
-- Tool-specific configuration (LSP vs CLI)
-
-**Current rules:**
-
-- `no_deprecated` - Warns when using @deprecated fields
-- `unique_names` - Ensures operation/fragment names are unique
-- `unused_fields` - Detects schema fields never used in operations (opt-in)
-
-### graphql-ide
-
-Editor-facing API layer providing IDE features through the Salsa-based analysis infrastructure.
-
-**Features:**
-
-- Schema loading from config (with Apollo Client built-in directives)
-- Document management and change tracking
-- Real-time validation and diagnostics
-- Linting with configurable rules
-- Type information and hover support
-- Go-to-definition and find references
-- Completion suggestions
-
-### graphql-lsp
-
-Language Server Protocol implementation for GraphQL.
-
-**Implemented Features:**
-
-- Real-time validation with project-wide diagnostics
-- Configurable linting with custom rules
-- Comprehensive go-to-definition support:
-  - Fragment spreads, operations, types, fields
-  - Variables, arguments, enum values
-  - Directives and directive arguments
-- Find references for fragments and type definitions
-- Hover information for types and fields
-- Works with embedded GraphQL in TypeScript/JavaScript
-
-**Planned Features:**
-
-- Additional find references support (fields, variables, directives, enum values)
-- Autocomplete
-- Document symbols
-- Code actions
-
-### graphql-mcp
-
-MCP (Model Context Protocol) server for AI agent integration.
-
-**Features:**
-
-- Schema-aware validation
-- Linting with diagnostics
-- Multi-project support
-- On-demand project loading
-
-**Available Tools:**
-
-- `validate_document` - Validate GraphQL against schema
-- `lint_document` - Run lint rules on a document
-- `list_projects` - List available projects
-- `load_project` - Load a project on demand
-- `get_project_diagnostics` - Get diagnostics for all files
-
-See [graphql-mcp README](crates/mcp/README.md) for setup instructions.
-
-### graphql-cli
-
-Command-line tool for validation, linting, and CI/CD integration.
-
-**Commands:**
-
-- `graphql validate` - Validate schema and documents (Apollo compiler validation)
-- `graphql lint` - Run custom lint rules with configurable severity
-- `graphql lsp` - Start the LSP server
-- `graphql mcp` - Start MCP server for AI agent integration
-- `graphql check` - Check for breaking changes (coming soon)
+A comprehensive GraphQL tooling ecosystem in Rust, providing IDE features via LSP and CLI tools for CI/CD.
 
 ## Installation
 
-### Quick Install (Recommended)
+### CLI
 
 **macOS / Linux:**
 
@@ -163,12 +18,118 @@ curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main
 irm https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.ps1 | iex
 ```
 
-This installs the `graphql` CLI, which includes all functionality:
+Or download directly from the [releases page](https://github.com/trevor-scheer/graphql-analyzer/releases).
 
-- `graphql validate` - Validate GraphQL documents
-- `graphql lint` - Lint GraphQL documents
-- `graphql lsp` - Start the language server
-- `graphql mcp` - Start the MCP server
+### VSCode Extension
+
+Install the **GraphQL Analyzer** extension from the VSCode marketplace. It automatically downloads the CLI on first use.
+
+## Quick Start
+
+1. Create a `.graphqlrc.yml` in your project root:
+
+```yaml
+schema: "schema.graphql"
+documents: "src/**/*.graphql"
+```
+
+2. Run validation:
+
+```bash
+graphql validate
+```
+
+3. Run linting:
+
+```bash
+graphql lint
+```
+
+## CLI Commands
+
+| Command            | Description                        |
+| ------------------ | ---------------------------------- |
+| `graphql validate` | Validate GraphQL documents         |
+| `graphql lint`     | Lint with configurable rules       |
+| `graphql check`    | Run both validate and lint         |
+| `graphql lsp`      | Start the language server          |
+| `graphql mcp`      | Start the MCP server for AI agents |
+
+Use `--format json` for CI/CD integration.
+
+## Configuration
+
+`.graphqlrc.yml`:
+
+```yaml
+schema: "schema.graphql"
+documents: "src/**/*.{graphql,ts,tsx}"
+lint:
+  recommended: error
+  rules:
+    no_deprecated: warn
+```
+
+### Multi-Project
+
+```yaml
+projects:
+  frontend:
+    schema: "https://api.example.com/graphql"
+    documents: "frontend/**/*.ts"
+  backend:
+    schema: "backend/schema.graphql"
+    documents: "backend/**/*.graphql"
+```
+
+Use `--project <name>` to specify which project to validate/lint.
+
+### Lint Rules
+
+| Rule                      | Description                                | Default |
+| ------------------------- | ------------------------------------------ | ------- |
+| `unique_names`            | Unique operation/fragment names            | error   |
+| `no_anonymous_operations` | Require named operations                   | error   |
+| `no_deprecated`           | Warn on deprecated usage                   | warn    |
+| `redundant_fields`        | Detect fields already in fragment spreads  | warn    |
+| `require_id_field`        | Warn when `id` field not requested         | warn    |
+| `unused_fields`           | Detect unused schema fields                | off     |
+| `unused_fragments`        | Detect unused fragments                    | off     |
+| `unused_variables`        | Detect unused variables                    | off     |
+| `operation_name_suffix`   | Require Query/Mutation/Subscription suffix | off     |
+
+Enable the recommended preset with `recommended: error`, then override individual rules as needed.
+
+## IDE Features
+
+The language server provides:
+
+- Real-time validation and diagnostics
+- Go-to-definition (types, fields, fragments, variables, directives)
+- Find references
+- Hover information
+- Works with embedded GraphQL in TypeScript/JavaScript
+
+## MCP Server
+
+For AI agent integration, the MCP server exposes GraphQL tooling:
+
+```bash
+graphql mcp
+```
+
+See [graphql-mcp README](crates/mcp/README.md) for setup instructions.
+
+---
+
+## Development
+
+### Building from Source
+
+```bash
+cargo build --workspace
+cargo test --workspace
+```
 
 ### Install from Source
 
@@ -176,324 +137,25 @@ This installs the `graphql` CLI, which includes all functionality:
 cargo install --git https://github.com/trevor-scheer/graphql-analyzer graphql-cli
 ```
 
-### Download Binary Directly
-
-Download the CLI for your platform from the [releases page](https://github.com/trevor-scheer/graphql-analyzer/releases):
-
-| Platform              | Archive                                        |
-| --------------------- | ---------------------------------------------- |
-| macOS (Apple Silicon) | `graphql-cli-aarch64-apple-darwin.tar.xz`      |
-| macOS (Intel)         | `graphql-cli-x86_64-apple-darwin.tar.xz`       |
-| Linux (x86_64)        | `graphql-cli-x86_64-unknown-linux-gnu.tar.xz`  |
-| Linux (ARM64)         | `graphql-cli-aarch64-unknown-linux-gnu.tar.xz` |
-| Windows               | `graphql-cli-x86_64-pc-windows-msvc.zip`       |
-
-Standalone `graphql-lsp` and `graphql-mcp` binaries are also available on the releases page for specialized use cases.
-
-### VSCode Extension
-
-The VSCode extension (graphql-analyzer) will automatically download and install the CLI binary on first use.
-
-**Custom binary path:**
-Set the `graphql.server.path` setting in VSCode to point to a custom binary location.
-
-**For development:**
-The extension will automatically use `target/debug/graphql` when running from the repository, or you can set the `GRAPHQL_PATH` environment variable.
-
-## Getting Started
-
-### Using the CLI
-
-#### Basic Usage
-
-```bash
-# Validate your GraphQL project (Apollo compiler validation)
-graphql validate
-
-# Run lints with configured rules
-graphql lint
-
-# Validate with a specific config file
-graphql --config .graphqlrc.yml validate
-
-# Output as JSON for CI/CD
-graphql validate --format json
-graphql lint --format json
-
-# Watch mode for development (coming soon)
-graphql validate --watch
-graphql lint --watch
-```
-
-#### Multi-Project Configurations
-
-When using a multi-project configuration, you must specify which project to use with the `--project` flag, unless your config includes a project named `default`.
-
-**Single-project config** - No `--project` flag needed:
-
-```yaml
-# .graphqlrc.yml
-schema: "schema.graphql"
-documents: "src/**/*.graphql"
-```
-
-```bash
-graphql validate
-graphql lint
-```
-
-**Multi-project config** - Requires `--project` flag:
-
-```yaml
-# .graphqlrc.yml
-projects:
-  frontend:
-    schema: "frontend/schema.graphql"
-    documents: "frontend/**/*.ts"
-  backend:
-    schema: "backend/schema.graphql"
-    documents: "backend/**/*.graphql"
-```
-
-```bash
-# Must specify which project to validate/lint
-graphql validate --project frontend
-graphql lint --project backend
-```
-
-**Multi-project with "default"** - Optional `--project` flag:
-
-```yaml
-# .graphqlrc.yml
-projects:
-  default:
-    schema: "schema.graphql"
-    documents: "src/**/*.graphql"
-  experimental:
-    schema: "experimental/schema.graphql"
-    documents: "experimental/**/*.graphql"
-```
-
-```bash
-# Uses "default" project automatically
-graphql validate
-graphql lint
-
-# Or explicitly specify a project
-graphql validate --project experimental
-```
-
-If you omit `--project` with a multi-project config (without "default"), you'll see an error listing available projects:
+### Project Structure
 
 ```
-Error: Multi-project configuration requires --project flag
-
-Available projects:
-  - frontend
-  - backend
-
-Usage: graphql --project <NAME> validate
-```
-
-### Development
-
-#### Build
-
-```bash
-cargo build --workspace
-```
-
-#### Run Tests
-
-```bash
-cargo test --workspace
-```
-
-#### Run Benchmarks
-
-```bash
-# Run all benchmarks
-cargo bench
-
-# Run specific benchmark
-cargo bench parse_cold
-
-# Compare against baseline
-cargo bench -- --save-baseline main
-cargo bench -- --baseline main
-```
-
-See [benches/README.md](benches/README.md) for detailed information about the benchmark suite and interpreting results.
-
-#### Run CLI from Source
-
-```bash
-cargo run -p graphql-cli -- validate --help
-```
-
-#### Run LSP Server
-
-```bash
-cargo run -p graphql-cli -- lsp
-```
-
-## Development Status
-
-✅ **Completed:**
-
-- Cargo workspace structure
-- graphql-config implementation (parsing, loading, validation)
-- Core validation engine with project-wide diagnostics
-- Document loading and indexing
-- TypeScript/JavaScript extraction and position mapping
-- Remote schema introspection via URL
-- Comprehensive linting system with multiple rule types
-- LSP features:
-  - Real-time validation and diagnostics
-  - Comprehensive goto definition (fragments, types, fields, variables, arguments, enum values, directives)
-  - Find references (fragments, types, fields)
-  - Hover information
-- CLI tools (validate, lint) with JSON output
-- MCP server for AI agent integration
-- VSCode extension with automatic LSP binary download
-
-🚧 **In Progress:**
-
-- Query-based architecture migration (Salsa)
-- Additional IDE features (completions, document symbols)
-
-📋 **Planned:**
-
-- Breaking change detection
-- Code actions and refactoring
-- Semantic highlighting
-- Additional find references (variables, directives, enum values)
-
-## Configuration
-
-Configuration files support IDE validation and autocompletion via JSON Schema. See [graphqlrc.schema.md](./crates/config/schema/graphqlrc.schema.md) for setup instructions.
-
-### Configuration Example
-
-`.graphqlrc.yml`:
-
-```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/crates/config/schema/graphqlrc.schema.json
-schema: "schema.graphql"
-documents: "src/**/*.{graphql,ts,tsx}"
-lint:
-  # Enable recommended lints
-  recommended: error
-  rules:
-    # Override specific rules
-    no_deprecated: warn
-    unique_names: off
-```
-
-Multi-project:
-
-```yaml
-projects:
-  frontend:
-    schema: "https://api.example.com/graphql"
-    documents: "frontend/**/*.ts"
-    lint:
-      recommended: error
-  backend:
-    schema: "backend/schema.graphql"
-    documents: "backend/**/*.graphql"
-    lint:
-      recommended: warn
-```
-
-### Lint Configuration
-
-Linting is configured via top-level `lint` with optional tool-specific overrides:
-
-**Available rules:**
-
-| Rule                      | Description                                                                                      | Recommended |
-| ------------------------- | ------------------------------------------------------------------------------------------------ | ----------- |
-| `unique_names`            | Ensures operation and fragment names are unique across the project                               | error       |
-| `no_anonymous_operations` | Requires all operations to have explicit names for better monitoring and debugging               | error       |
-| `no_deprecated`           | Warns when using deprecated fields, arguments, or enum values                                    | warn        |
-| `redundant_fields`        | Detects fields that are redundant because they are already included in a sibling fragment spread | warn        |
-| `require_id_field`        | Warns when the `id` field is not requested on types that have it                                 | warn        |
-| `unused_fields`           | Detects schema fields that are never used in any operation or fragment                           | -           |
-| `unused_fragments`        | Detects fragment definitions that are never used in any operation                                | -           |
-| `unused_variables`        | Detects variables declared in operations that are never used                                     | -           |
-| `operation_name_suffix`   | Requires operation names to have type-specific suffixes (Query, Mutation, Subscription)          | -           |
-
-Rules marked with `-` in the Recommended column are not included in the `recommended` preset and must be explicitly enabled.
-
-**Severity levels:**
-
-- `off` - Disable the rule
-- `warn` - Show as warning
-- `error` - Show as error
-
-**Using the recommended preset:**
-
-```yaml
-lint:
-  # Enable all recommended rules at their predefined severities
-  # (see Recommended column in the table above)
-  recommended: error
-```
-
-Note: The value (`error` or `warn`) after `recommended:` enables the preset. Each rule in the preset runs at its own predefined severity level as shown in the table above.
-
-**Enabling additional rules:**
-
-```yaml
-lint:
-  recommended: error
-  rules:
-    # Add rules not in the recommended preset
-    unused_fields: warn
-    operation_name_suffix: error
-```
-
-**Overriding recommended rule severities:**
-
-```yaml
-lint:
-  recommended: error
-  rules:
-    # Override a recommended rule's severity
-    no_deprecated: off # Disable entirely
-    require_id_field: error # Upgrade from warn to error
-```
-
-**Tool-specific overrides:**
-
-```yaml
-lint:
-  recommended: error
-
-extensions:
-  cli:
-    lint:
-      rules:
-        unused_fields: error # Enable for CLI
-
-  lsp:
-    lint:
-      rules:
-        unused_fields: off # Disable for LSP
-```
-
-**Per-project configuration:**
-
-```yaml
-projects:
-  default:
-    schema: "schema.graphql"
-    documents: "src/**/*.graphql"
-    lint:
-      recommended: error
-      rules:
-        no_deprecated: off # Project-specific override
+graphql-analyzer/
+├── crates/
+│   ├── config/       # .graphqlrc parser
+│   ├── extract/      # Extract GraphQL from TS/JS
+│   ├── introspect/   # Remote schema introspection
+│   ├── base-db/      # Salsa database
+│   ├── syntax/       # Parsing
+│   ├── hir/          # Semantic representation
+│   ├── analysis/     # Validation
+│   ├── linter/       # Lint rules
+│   ├── ide/          # IDE features API
+│   ├── lsp/          # LSP server
+│   ├── mcp/          # MCP server
+│   └── cli/          # CLI
+└── editors/
+    └── vscode/       # VSCode extension
 ```
 
 ## License
