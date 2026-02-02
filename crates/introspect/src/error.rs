@@ -3,6 +3,7 @@ use thiserror::Error;
 pub type Result<T> = std::result::Result<T, IntrospectionError>;
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum IntrospectionError {
     #[error("Network error: {0}")]
     Network(String),

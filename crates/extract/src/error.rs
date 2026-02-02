@@ -5,6 +5,7 @@ use thiserror::Error;
 pub type Result<T> = std::result::Result<T, ExtractError>;
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum ExtractError {
     #[error("IO error: {0}")]
     Io(#[from] io::Error),
