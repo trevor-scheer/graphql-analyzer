@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL LSP will be documented in this file.
 
+## 0.1.0-alpha.14 (2026-02-02)
+
+### Fixes
+
+- Add installation scripts and update release workflow with install instructions
+
 ## 0.1.0-alpha.13 (2026-02-02)
 
 ### Fixes
