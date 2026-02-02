@@ -11,8 +11,8 @@
       "patterns": [
         {
           "name": "meta.embedded.block.graphql",
-          "comment": "Function call with template literal: graphql(`query { ... }`)",
-          "begin": "(gql|graphql|gqltag)\\s*\\(\\s*(`)",
+          "comment": "Function call with template literal (same line): graphql(`query { ... }`)",
+          "begin": "(gql|graphql|gqltag)[ \\t]*\\([ \\t]*(`)",
           "beginCaptures": {
             "1": {
               "name": "entity.name.function.js"
@@ -38,8 +38,43 @@
         },
         {
           "name": "meta.embedded.block.graphql",
-          "comment": "Tagged template literal: gql`query { ... }`",
-          "begin": "(gql|graphql|gqltag)\\s*(`)",
+          "comment": "Function call with template literal (multi-line): graphql(\\n`query { ... }`)",
+          "begin": "(gql|graphql|gqltag)[ \\t]*\\([ \\t]*$",
+          "beginCaptures": {
+            "1": {
+              "name": "entity.name.function.js"
+            }
+          },
+          "end": "(?<=`)",
+          "patterns": [
+            {
+              "begin": "[ \\t]*(`)",
+              "beginCaptures": {
+                "1": {
+                  "name": "punctuation.definition.string.template.begin.js"
+                }
+              },
+              "end": "`",
+              "endCaptures": {
+                "0": {
+                  "name": "punctuation.definition.string.template.end.js"
+                }
+              },
+              "patterns": [
+                {
+                  "include": "#template-substitution-element"
+                },
+                {
+                  "include": "source.graphql"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "meta.embedded.block.graphql",
+          "comment": "Tagged template literal (same line): gql`query { ... }`",
+          "begin": "(gql|graphql|gqltag)[ \\t]*(`)",
           "beginCaptures": {
             "1": {
               "name": "entity.name.function.tagged-template.js"
@@ -60,6 +95,41 @@
             },
             {
               "include": "source.graphql"
+            }
+          ]
+        },
+        {
+          "name": "meta.embedded.block.graphql",
+          "comment": "Tagged template literal (multi-line): gql\\n`query { ... }`",
+          "begin": "(gql|graphql|gqltag)[ \\t]*$",
+          "beginCaptures": {
+            "1": {
+              "name": "entity.name.function.tagged-template.js"
+            }
+          },
+          "end": "(?<=`)",
+          "patterns": [
+            {
+              "begin": "[ \\t]*(`)",
+              "beginCaptures": {
+                "1": {
+                  "name": "punctuation.definition.string.template.begin.js"
+                }
+              },
+              "end": "`",
+              "endCaptures": {
+                "0": {
+                  "name": "punctuation.definition.string.template.end.js"
+                }
+              },
+              "patterns": [
+                {
+                  "include": "#template-substitution-element"
+                },
+                {
+                  "include": "source.graphql"
+                }
+              ]
             }
           ]
         }
