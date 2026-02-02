@@ -821,12 +821,11 @@ pub fn file_schema_coordinates(
         }
     }
 
-    #[allow(clippy::needless_borrow)]
     let mut ctx = CollectContext {
         db,
         project_files,
-        schema_types: &schema_types,
-        fragments: &fragments,
+        schema_types,
+        fragments,
         visited_fragments: std::collections::HashSet::new(),
         coordinates: std::collections::HashSet::new(),
     };

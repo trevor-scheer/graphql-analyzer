@@ -311,18 +311,23 @@ pub fn content_has_schema_definitions(content: &str) -> bool {
     })
 }
 
+/// Check if a path has a given extension (case-insensitive)
+fn has_extension(path: &str, ext: &str) -> bool {
+    path.len() > ext.len()
+        && path.as_bytes()[path.len() - ext.len()..].eq_ignore_ascii_case(ext.as_bytes())
+}
+
 /// Determine `FileKind` for files opened/changed in the editor
 ///
 /// For TypeScript/JavaScript files, returns the appropriate `FileKind` without content inspection.
 /// For .graphql/.gql files, inspects the content to determine if it contains schema definitions
 /// (`FileKind::Schema`) or executable documents (`FileKind::ExecutableGraphQL`).
 #[must_use]
-#[allow(clippy::case_sensitive_file_extension_comparisons)]
 pub fn determine_file_kind_from_content(path: &str, content: &str) -> FileKind {
-    if path.ends_with(".ts") || path.ends_with(".tsx") {
+    if has_extension(path, ".ts") || has_extension(path, ".tsx") {
         return FileKind::TypeScript;
     }
-    if path.ends_with(".js") || path.ends_with(".jsx") {
+    if has_extension(path, ".js") || has_extension(path, ".jsx") {
         return FileKind::JavaScript;
     }
 

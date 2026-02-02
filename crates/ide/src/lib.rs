@@ -204,6 +204,12 @@ fn expand_braces(pattern: &str) -> Vec<String> {
     vec![pattern.to_string()]
 }
 
+/// Check if a path has a given extension (case-insensitive)
+fn has_extension(path: &str, ext: &str) -> bool {
+    path.len() > ext.len()
+        && path.as_bytes()[path.len() - ext.len()..].eq_ignore_ascii_case(ext.as_bytes())
+}
+
 /// Determine `FileKind` for a document file based on its path.
 ///
 /// This is used for files loaded from the `documents` configuration.
@@ -213,11 +219,10 @@ fn expand_braces(pattern: &str) -> Vec<String> {
 ///
 /// Note: Files from the `schema` configuration are always `FileKind::Schema`,
 /// regardless of their extension.
-#[allow(clippy::case_sensitive_file_extension_comparisons)]
 fn determine_document_file_kind(path: &str, _content: &str) -> FileKind {
-    if path.ends_with(".ts") || path.ends_with(".tsx") {
+    if has_extension(path, ".ts") || has_extension(path, ".tsx") {
         FileKind::TypeScript
-    } else if path.ends_with(".js") || path.ends_with(".jsx") {
+    } else if has_extension(path, ".js") || has_extension(path, ".jsx") {
         FileKind::JavaScript
     } else {
         FileKind::ExecutableGraphQL
