@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL CLI will be documented in this file.
 
+## 0.1.0-alpha.12 (2026-02-02)
+
+### Fixes
+
+- Fix ARM64 Linux cross-compilation by switching from native-tls to rustls
+
 ## 0.1.0-alpha.11 (2026-02-01)
 
 ### Fixes
