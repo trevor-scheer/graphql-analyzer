@@ -5,6 +5,7 @@
     ".github/workflows/release.yml",
     "Cargo.toml",
     "dist-workspace.toml",
-    "editors/vscode/package.json"
+    "editors/vscode/package.json",
+    "test-workspace/starwars/src/multilineTagExample.ts"
   ]
 }

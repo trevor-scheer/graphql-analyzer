@@ -12,23 +12,23 @@ Context and guidance for Claude when working with this codebase.
 
 ### Critical File Locations
 
-| Location | Purpose |
-|----------|---------|
-| `.graphqlrc.yaml` | Project configuration |
-| `crates/*/src/` | Crate sources |
-| `editors/vscode/` | VS Code extension |
-| `.claude/agents/` | SME agents for consultation |
-| `.claude/skills/` | Workflow guidance |
-| `DEVELOPMENT.md` | Build, test, and debug commands |
+| Location          | Purpose                         |
+| ----------------- | ------------------------------- |
+| `.graphqlrc.yaml` | Project configuration           |
+| `crates/*/src/`   | Crate sources                   |
+| `editors/vscode/` | VS Code extension               |
+| `.claude/agents/` | SME agents for consultation     |
+| `.claude/skills/` | Workflow guidance               |
+| `DEVELOPMENT.md`  | Build, test, and debug commands |
 
 ### Quick Answers
 
-| Question | Answer |
-|----------|--------|
-| Where to add a lint rule? | `crates/linter/src/rules/` - use `/adding-lint-rules` skill |
-| Where to add validation? | `crates/analysis/src/` |
-| Where's schema loading? | `crates/introspect/` (remote), `crates/config/` (local) |
-| How does incremental work? | Salsa queries: `base-db` → `syntax` → `hir` → `analysis` |
+| Question                   | Answer                                                      |
+| -------------------------- | ----------------------------------------------------------- |
+| Where to add a lint rule?  | `crates/linter/src/rules/` - use `/adding-lint-rules` skill |
+| Where to add validation?   | `crates/analysis/src/`                                      |
+| Where's schema loading?    | `crates/introspect/` (remote), `crates/config/` (local)     |
+| How does incremental work? | Salsa queries: `base-db` → `syntax` → `hir` → `analysis`    |
 
 ---
 
@@ -37,6 +37,7 @@ Context and guidance for Claude when working with this codebase.
 A GraphQL LSP implementation in Rust providing IDE features for `.graphql` files and embedded GraphQL in TypeScript/JavaScript.
 
 **Key characteristics:**
+
 - Query-based architecture using [Salsa](https://github.com/salsa-rs/salsa) for incremental computation
 - Project-wide analysis with proper fragment resolution across files
 - Remote schema support via introspection
@@ -45,11 +46,11 @@ A GraphQL LSP implementation in Rust providing IDE features for `.graphql` files
 
 These features must NOT be removed or degraded:
 
-| Feature | Why Critical | What Enables It |
-|---------|-------------|-----------------|
+| Feature                       | Why Critical                      | What Enables It                                        |
+| ----------------------------- | --------------------------------- | ------------------------------------------------------ |
 | **Embedded GraphQL in TS/JS** | Most users write queries in TS/JS | `documentSelector` includes TS/JS in VS Code extension |
-| **Real-time diagnostics** | Users expect immediate feedback | LSP `textDocument/didChange` notifications |
-| **Project-wide fragments** | Fragments span many files | `all_fragments()` indexes entire project |
+| **Real-time diagnostics**     | Users expect immediate feedback   | LSP `textDocument/didChange` notifications             |
+| **Project-wide fragments**    | Fragments span many files         | `all_fragments()` indexes entire project               |
 
 **Solve performance problems without removing features.** Use filtering, lazy evaluation, debouncing, or configuration options instead.
 
@@ -80,11 +81,13 @@ See `DEVELOPMENT.md` for project structure and detailed architecture.
 ### GraphQL Document Model
 
 **Fragment scope is project-wide**, not file-scoped:
+
 - Operations can reference fragments in other files
 - Fragment spreads can reference other fragments (transitive dependencies)
 - Fragment and operation names must be unique across the entire project
 
 **When validating operations**, you MUST:
+
 1. Include direct fragment dependencies
 2. Recurse through fragment dependencies
 3. Handle circular references
@@ -94,12 +97,12 @@ See `DEVELOPMENT.md` for project structure and detailed architecture.
 
 The Salsa architecture relies on these invariants for incremental computation:
 
-| Invariant | Meaning |
-|-----------|---------|
-| **Structure/Body separation** | Editing body content never invalidates structure queries |
-| **File isolation** | Editing file A never invalidates unrelated queries for file B |
-| **Index stability** | Global indexes stay cached when edits don't change names |
-| **Lazy evaluation** | Body queries only run when results are needed |
+| Invariant                     | Meaning                                                       |
+| ----------------------------- | ------------------------------------------------------------- |
+| **Structure/Body separation** | Editing body content never invalidates structure queries      |
+| **File isolation**            | Editing file A never invalidates unrelated queries for file B |
+| **Index stability**           | Global indexes stay cached when edits don't change names      |
+| **Lazy evaluation**           | Body queries only run when results are needed                 |
 
 **Structure** = identity (names, types). **Body** = content (selection sets, directives).
 
@@ -107,11 +110,11 @@ The Salsa architecture relies on these invariants for incremental computation:
 
 The extension has three separate systems - don't confuse them:
 
-| System | Purpose | Scope |
-|--------|---------|-------|
-| `documentSelector` | LSP features (diagnostics, hover, goto def) | Controls which files get IDE features |
-| Grammar injection | Syntax highlighting only | Visual coloring, no semantic understanding |
-| File watcher | Disk events only | File create/delete/rename, NOT real-time editing |
+| System             | Purpose                                     | Scope                                            |
+| ------------------ | ------------------------------------------- | ------------------------------------------------ |
+| `documentSelector` | LSP features (diagnostics, hover, goto def) | Controls which files get IDE features            |
+| Grammar injection  | Syntax highlighting only                    | Visual coloring, no semantic understanding       |
+| File watcher       | Disk events only                            | File create/delete/rename, NOT real-time editing |
 
 **Common mistake:** Thinking grammar injection provides embedded GraphQL support. It only provides colors. The `documentSelector` MUST include TS/JS for actual LSP features.
 
@@ -126,7 +129,7 @@ documents: "src/**/*.{graphql,ts,tsx}"
 
 # Lint config uses extensions.lint with camelCase rule names
 extensions:
-  lint: recommended  # Happy path - just use preset
+  lint: recommended # Happy path - just use preset
 ```
 
 See `crates/config/README.md` for multi-project and advanced configuration.
@@ -135,13 +138,13 @@ See `crates/config/README.md` for multi-project and advanced configuration.
 
 ## Common Tasks
 
-| Task | Guidance |
-|------|----------|
-| Add a lint rule | Use `/adding-lint-rules` skill |
-| Add an IDE feature | Use `/add-ide-feature` skill |
-| Fix a bug | Use `/bug-fix-workflow` skill (test-first approach) |
-| Create a PR | Use `/create-pr` skill |
-| Debug LSP | Use `/debug-lsp` skill |
+| Task               | Guidance                                            |
+| ------------------ | --------------------------------------------------- |
+| Add a lint rule    | Use `/adding-lint-rules` skill                      |
+| Add an IDE feature | Use `/add-ide-feature` skill                        |
+| Fix a bug          | Use `/bug-fix-workflow` skill (test-first approach) |
+| Create a PR        | Use `/create-pr` skill                              |
+| Debug LSP          | Use `/debug-lsp` skill                              |
 
 For build, test, and debug commands, see `DEVELOPMENT.md`.
 
@@ -171,13 +174,13 @@ Ensure `.graphqlrc.yaml` exists. For multi-project configs, use `--project` flag
 
 ### Pre-Task Skill Check (REQUIRED)
 
-| Task Type | Skill to Use |
-|-----------|-------------|
-| Fixing a bug | `/bug-fix-workflow` |
-| Adding a lint rule | `/adding-lint-rules` |
-| Adding an IDE feature | `/add-ide-feature` |
-| Creating a PR | `/create-pr` |
-| Feature/architecture work | `/sme-consultation` |
+| Task Type                 | Skill to Use         |
+| ------------------------- | -------------------- |
+| Fixing a bug              | `/bug-fix-workflow`  |
+| Adding a lint rule        | `/adding-lint-rules` |
+| Adding an IDE feature     | `/add-ide-feature`   |
+| Creating a PR             | `/create-pr`         |
+| Feature/architecture work | `/sme-consultation`  |
 
 Skills enforce important workflows. Skipping them leads to incomplete work.
 
@@ -194,6 +197,7 @@ Skills enforce important workflows. Skipping them leads to incomplete work.
 4. Use the `/create-pr` skill for guidance
 
 **When to create a changeset:**
+
 - Features, bug fixes, breaking changes → YES
 - Internal refactoring, CI changes, test-only → NO
 
@@ -236,28 +240,28 @@ gh issue view 123 --repo trevor-scheer/graphql-analyzer
 
 SME agents in `.claude/agents/` provide domain guidance. Use `/sme-consultation` skill.
 
-| Agent | Domain |
-|-------|--------|
-| `graphql.md` | GraphQL spec, validation rules |
-| `rust-analyzer.md` | Query-based architecture, Salsa patterns |
-| `salsa.md` | Salsa framework, database design |
-| `lsp.md` | LSP specification, protocol messages |
-| `apollo-rs.md` | apollo-parser, apollo-compiler |
-| `vscode-extension.md` | Extension development |
+| Agent                 | Domain                                   |
+| --------------------- | ---------------------------------------- |
+| `graphql.md`          | GraphQL spec, validation rules           |
+| `rust-analyzer.md`    | Query-based architecture, Salsa patterns |
+| `salsa.md`            | Salsa framework, database design         |
+| `lsp.md`              | LSP specification, protocol messages     |
+| `apollo-rs.md`        | apollo-parser, apollo-compiler           |
+| `vscode-extension.md` | Extension development                    |
 
 ---
 
 ## Skills
 
-| Skill | When to Use |
-|-------|-------------|
-| `/sme-consultation` | Feature work, architecture changes |
-| `/adding-lint-rules` | Implementing lint rules |
-| `/bug-fix-workflow` | Fixing bugs (test-first) |
-| `/create-pr` | Opening pull requests |
-| `/add-ide-feature` | LSP features (hover, goto def) |
-| `/debug-lsp` | Troubleshooting LSP issues |
-| `/review-pr` | Reviewing pull requests |
+| Skill                | When to Use                        |
+| -------------------- | ---------------------------------- |
+| `/sme-consultation`  | Feature work, architecture changes |
+| `/adding-lint-rules` | Implementing lint rules            |
+| `/bug-fix-workflow`  | Fixing bugs (test-first)           |
+| `/create-pr`         | Opening pull requests              |
+| `/add-ide-feature`   | LSP features (hover, goto def)     |
+| `/debug-lsp`         | Troubleshooting LSP issues         |
+| `/review-pr`         | Reviewing pull requests            |
 
 ---
 
