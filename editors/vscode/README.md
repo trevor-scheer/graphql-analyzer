@@ -93,28 +93,28 @@ The extension supports several configuration options in VS Code settings:
 
 ### Linting Configuration
 
-Linting is configured via `.graphqlrc.yaml` in your project root:
+Linting is configured via `.graphqlrc.yaml` in your project root. Rule names use camelCase:
 
 ```yaml
 # Basic configuration
 schema: "schema.graphql"
 documents: "src/**/*.{graphql,ts,tsx}"
 
-# Lint rules
-lint:
-  recommended: error
-  rules:
-    no_deprecated: warn
-    require_id_field: error
-    redundant_fields: error
-    unused_fields: off
-
-# Tool-specific overrides
+# Lint configuration under extensions.lint
 extensions:
+  lint:
+    extends: recommended
+    rules:
+      noDeprecated: warn
+      requireIdField: error
+      redundantFields: error
+      unusedFields: off
+
+  # LSP-specific overrides
   lsp:
     lint:
       rules:
-        unused_fields: off
+        unusedFields: off
 ```
 
 See [Configuration Documentation](../../README.md#configuration) for more details.

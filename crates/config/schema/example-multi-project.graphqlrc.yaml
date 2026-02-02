@@ -8,10 +8,10 @@ projects:
     schema: api/schema.graphql
     documents: "api/**/*.graphql"
     extensions:
-      project:
-        lint:
-          recommended: error
-          no_deprecated: off
+      lint:
+        extends: recommended
+        rules:
+          noDeprecated: off
 
   client:
     schema:
@@ -31,14 +31,14 @@ projects:
       extractConfig:
         tagIdentifiers: ["gql"]
         modules: ["@apollo/client"]
-      project:
-        lint:
-          unique_names: error
-          no_deprecated: warn
+      lint:
+        extends: recommended
+        rules:
+          uniqueNames: error
+          noDeprecated: warn
 
   admin:
     schema: "https://admin-api.example.com/graphql"
     documents: "admin/**/*.graphql"
     extensions:
-      project:
-        lint: "recommended"
+      lint: recommended

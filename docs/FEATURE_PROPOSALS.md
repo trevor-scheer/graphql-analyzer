@@ -780,8 +780,9 @@ graphql init --schema https://api.example.com/graphql
 # .graphqlrc.yml
 schema: schema.graphql
 documents: "src/**/*.{graphql,ts,tsx}"
-lint:
-  recommended: error
+extensions:
+  lint:
+    extends: recommended
 ```
 
 ---

@@ -278,7 +278,6 @@ mod tests {
                         include: None,
                         exclude: None,
                         extensions: None,
-                        lint: None,
                     },
                 );
                 map.insert(
@@ -289,7 +288,6 @@ mod tests {
                         include: None,
                         exclude: None,
                         extensions: None,
-                        lint: None,
                     },
                 );
                 map
@@ -338,7 +336,6 @@ mod tests {
                         include: None,
                         exclude: None,
                         extensions: None,
-                        lint: None,
                     },
                 );
                 map.insert(
@@ -349,7 +346,6 @@ mod tests {
                         include: None,
                         exclude: None,
                         extensions: None,
-                        lint: None,
                     },
                 );
                 map

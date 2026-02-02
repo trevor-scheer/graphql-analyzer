@@ -95,7 +95,6 @@ mod tests {
             documents: None,
             include: None,
             exclude: None,
-            lint: None,
             extensions: None,
         }));
 
@@ -113,7 +112,6 @@ mod tests {
                 documents: None,
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             },
         );
@@ -124,7 +122,6 @@ mod tests {
                 documents: None,
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             },
         );
@@ -146,7 +143,6 @@ mod tests {
                 documents: None,
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             },
         );
@@ -157,7 +153,6 @@ mod tests {
                 documents: None,
                 include: None,
                 exclude: None,
-                lint: None,
                 extensions: None,
             },
         );

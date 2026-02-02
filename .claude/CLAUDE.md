@@ -548,32 +548,38 @@ The file watcher fires `workspace/didChangeWatchedFiles` **only on disk saves**:
 schema: schema.graphql
 documents: "src/**/*.graphql"
 
-# Happy path - use recommended preset
-lint: recommended
+# Lint configuration lives under extensions.lint
+# Rule names use camelCase in config files
+extensions:
+  lint: recommended  # Happy path - just use preset
 
 # Or: Preset with overrides (ESLint-style)
-lint:
-  extends: recommended
-  rules:
-    no_deprecated: warn
-    require_id_field: error
+extensions:
+  lint:
+    extends: recommended
+    rules:
+      noDeprecated: warn
+      requireIdField: error
 
 # Or: Fine-grained rules only
-lint:
-  rules:
-    unique_names: error
-    no_deprecated: warn
-
-# Tool-specific overrides
 extensions:
+  lint:
+    rules:
+      uniqueNames: error
+      noDeprecated: warn
+
+# Tool-specific overrides (lsp/cli under extensions)
+extensions:
+  lint:
+    extends: recommended
   lsp:
     lint:
       rules:
-        unused_fields: off
+        unusedFields: off
   cli:
     lint:
       rules:
-        unused_fields: error
+        unusedFields: error
 ```
 
 ### Multi-Project Configuration
