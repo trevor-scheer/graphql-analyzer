@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL MCP server will be documented in this file.
 
+## 0.1.0-alpha.13 (2026-02-02)
+
+### Fixes
+
+- Add standalone graphql-lsp and graphql-mcp binaries
+
 ## 0.1.0-alpha.12 (2026-02-02)
 
 ### Fixes
