@@ -6,7 +6,6 @@ A flexible GraphQL linting engine with support for document-level and project-wi
 
 - **Multiple Linting Contexts**: Document-level, schema-only, and project-wide analysis
 - **Configurable Rules**: Enable/disable rules with custom severity levels
-- **Tool-Specific Config**: Different rule sets for LSP vs CLI
 - **Extensible**: Easy to add new custom rules
 - **Performance-Aware**: Separate fast and expensive rule categories
 
@@ -200,29 +199,6 @@ extensions:
     extends: [recommended]
     rules:
       unusedFields: warn
-```
-
-**Tool-specific overrides:**
-
-```yaml
-extensions:
-  # Base lint configuration
-  lint:
-    extends: recommended
-    rules:
-      noDeprecated: warn
-
-  # CLI-specific overrides
-  cli:
-    lint:
-      rules:
-        unusedFields: error # Enable expensive rule in CI
-
-  # LSP-specific overrides
-  lsp:
-    lint:
-      rules:
-        unusedFields: off # Disable expensive rule in editor
 ```
 
 ### Severity Levels
@@ -583,7 +559,6 @@ impl LintConfig {
     pub fn get_severity(&self, rule: &str) -> Option<LintSeverity>;
     pub fn is_enabled(&self, rule: &str) -> bool;
     pub fn validate(&self) -> Result<(), String>;
-    pub fn merge(&self, override_config: &Self) -> Self;
 }
 ```
 
@@ -624,26 +599,13 @@ let diagnostics = linter.lint_document(&ctx);
 // let diagnostics = linter.lint_project(&ctx);  // Too slow!
 ```
 
-Configure LSP to disable expensive rules:
-
-```yaml
-extensions:
-  lsp:
-    lint:
-      rules:
-        unused_fields: off
-```
-
 ### For CLI Integration
 
-Enable all rules including expensive project-wide analysis:
+Use project-wide analysis for comprehensive checks in CI:
 
-```yaml
-extensions:
-  cli:
-    lint:
-      rules:
-        unused_fields: error # Enable in CI
+```rust
+// Enable all rules including expensive project-wide analysis
+let diagnostics = linter.lint_project(&ctx);
 ```
 
 ## Examples
