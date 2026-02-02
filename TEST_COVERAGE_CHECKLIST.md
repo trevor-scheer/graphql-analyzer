@@ -14,22 +14,22 @@ This document tracks test coverage for all Rust source files in the codebase.
 
 ## Summary Statistics
 
-| Crate      | Files | With Tests    | Coverage | Notes                       |
-| ---------- | ----- | ------------- | -------- | --------------------------- |
-| apollo-ext | 5     | 4             | 80%      | Good coverage               |
-| base-db    | 1     | 1             | 100%     | Complete                    |
-| syntax     | 1     | 1             | 100%     | Complete                    |
-| extract    | 5     | 2             | 40%      | Data types only             |
-| hir        | 3     | 0 (2 📁)      | 67%      | External test files         |
-| analysis   | 7     | 2 (1 📁)      | 43%      | External test files         |
-| linter     | 13    | **11** (1 📁) | **85%**  | ➕ 4 rules added            |
-| config     | 5     | 3             | 60%      | Core tested                 |
-| introspect | 6     | 3             | 50%      | Core tested                 |
-| ide        | 15    | 8             | 53%      | Integration tests in lib.rs |
-| ide-db     | 1     | 1             | 100%     | Complete                    |
-| lsp        | 5     | 1             | 20%      | Protocol layer              |
-| cli        | 17    | 4             | 24%      | Commands                    |
-| mcp        | 5     | 1             | 20%      | Protocol layer              |
+| Crate      | Files | With Tests    | Coverage | Notes                |
+| ---------- | ----- | ------------- | -------- | -------------------- |
+| apollo-ext | 5     | 4             | 80%      | Good coverage        |
+| base-db    | 1     | 1             | 100%     | Complete             |
+| syntax     | 1     | 1             | 100%     | Complete             |
+| extract    | 5     | 2             | 40%      | Data types only      |
+| hir        | 3     | 0 (2 📁)      | 67%      | External test files  |
+| analysis   | 7     | **4** (1 📁)  | **57%**  | ➕ 2 files added     |
+| linter     | 13    | **13** (1 📁) | **100%** | ➕ 6 files added     |
+| config     | 5     | 3             | 60%      | Core tested          |
+| introspect | 6     | 3             | 50%      | Core tested          |
+| ide        | 15    | **12**        | **80%**  | ➕ 4 files added     |
+| ide-db     | 1     | 1             | 100%     | Complete             |
+| lsp        | 5     | **2**         | **40%**  | ➕ conversions added |
+| cli        | 17    | 4             | 24%      | Commands             |
+| mcp        | 5     | 1             | 20%      | Protocol layer       |
 
 ---
 
@@ -103,9 +103,9 @@ Validation and diagnostics.
 | `diagnostics.rs`         | ✅    | ✓      | Diagnostic creation tested          |
 | `project_lints.rs`       | ✅    | ✓      | Project lint tested                 |
 | `validation.rs`          | 📁    | ✓      | Tested in tests/validation_tests.rs |
-| `merged_schema.rs`       | ⬜    |        | Schema merging logic                |
-| `document_validation.rs` | ⬜    |        | Document validation                 |
-| `lint_integration.rs`    | ⬜    |        | Lint integration                    |
+| `merged_schema.rs`       | ✅ ➕ | ✓      | **Added tests**                     |
+| `document_validation.rs` | ✅ ➕ | ✓      | **Added tests**                     |
+| `lint_integration.rs`    | ⬜    | ✓      | Tested via integration tests        |
 
 ---
 
@@ -118,8 +118,8 @@ Lint rule engine and rules.
 | `lib.rs`          | ⬜    | ✓      | Re-exports              |
 | `config.rs`       | ✅    | ✓      | Config parsing tested   |
 | `diagnostics.rs`  | ✅    | ✓      | Diagnostic types tested |
-| `registry.rs`     | ⬜    |        | Rule registry           |
-| `schema_utils.rs` | ⬜    |        | Schema utilities        |
+| `registry.rs`     | ✅ ➕ | ✓      | **Added tests**         |
+| `schema_utils.rs` | ✅ ➕ | ✓      | **Added tests**         |
 | `traits.rs`       | ⬜    | ✓      | Trait definitions only  |
 
 ### Rules
@@ -179,15 +179,15 @@ IDE feature implementations.
 | `helpers.rs`                 | ✅    | ✓      | Helper functions tested            |
 | `file_registry.rs`           | ✅    | ✓      | Registry tested                    |
 | `symbol.rs`                  | ✅    | ✓      | Symbol finding tested              |
-| `symbols.rs`                 | ⬜    |        | Document symbols                   |
+| `symbols.rs`                 | ✅ ➕ | ✓      | **Added tests**                    |
 | `folding_ranges.rs`          | ✅    | ✓      | Folding tested                     |
 | `inlay_hints.rs`             | ✅    | ✓      | Inlay hints tested                 |
 | `goto_definition.rs`         | ⬜    | ✓      | Tested via lib.rs integration      |
 | `hover.rs`                   | ⬜    | ✓      | Tested via lib.rs integration      |
 | `references.rs`              | ⬜    | ✓      | Tested via lib.rs integration      |
-| `completion.rs`              | ⬜    |        | Completion logic                   |
-| `semantic_tokens.rs`         | ⬜    |        | Semantic tokens                    |
-| `code_lenses.rs`             | ⬜    |        | Code lenses                        |
+| `completion.rs`              | ✅ ➕ | ✓      | **Added tests**                    |
+| `semantic_tokens.rs`         | ✅ ➕ | ✓      | **Added tests**                    |
+| `code_lenses.rs`             | ✅ ➕ | ✓      | **Added tests**                    |
 | `analysis_host_isolation.rs` | ⬜    | ✓      | Thread isolation                   |
 
 ---
@@ -210,9 +210,9 @@ Language Server Protocol implementation.
 | ---------------- | ----- | ------ | ------------------------- |
 | `lib.rs`         | ⬜    | ✓      | Re-exports                |
 | `main.rs`        | ⬜    | ✓      | Entry point only          |
-| `server.rs`      | ⬜    |        | LSP server implementation |
+| `server.rs`      | ⬜    | ✓      | Complex integration layer |
 | `workspace.rs`   | ✅    | ✓      | Workspace tested          |
-| `conversions.rs` | ⬜    |        | Type conversions          |
+| `conversions.rs` | ✅ ➕ | ✓      | **Added tests**           |
 
 ---
 
@@ -389,3 +389,92 @@ fn test_ide_feature() {
    - `test_implementing_type_field_tracked_separately`
    - `test_nested_field_used`
    - `test_custom_schema_definition_root_types`
+
+5. **`registry.rs`** - 9 tests added:
+   - `test_standalone_document_rules_not_empty`
+   - `test_document_schema_rules_not_empty`
+   - `test_project_rules_not_empty`
+   - `test_all_rule_names_returns_sorted_list`
+   - `test_all_rule_names_includes_expected_rules`
+   - `test_rules_have_unique_names`
+   - `test_standalone_rules_have_valid_metadata`
+   - `test_document_schema_rules_have_valid_metadata`
+   - `test_project_rules_have_valid_metadata`
+
+6. **`schema_utils.rs`** - 6 tests added:
+   - `test_root_type_names_default`
+   - `test_is_root_type_with_query`
+   - `test_is_root_type_with_all_types`
+   - `test_is_root_type_with_custom_names`
+   - `test_is_root_type_empty`
+   - `test_root_type_names_clone`
+
+### graphql-analysis crate
+
+1. **`merged_schema.rs`** - 6 tests added:
+   - `test_merged_schema_result_default_values`
+   - `test_merged_schema_result_with_schema`
+   - `test_merged_schema_result_with_diagnostics`
+   - `test_merged_schema_result_equality`
+   - `test_diagnostic_range_default`
+   - `test_position_values`
+
+2. **`document_validation.rs`** - 7 tests added:
+   - `test_is_builtin_scalar_int`
+   - `test_is_builtin_scalar_float`
+   - `test_is_builtin_scalar_string`
+   - `test_is_builtin_scalar_boolean`
+   - `test_is_builtin_scalar_id`
+   - `test_is_builtin_scalar_custom_type`
+   - `test_is_builtin_scalar_case_sensitive`
+
+### graphql-ide crate
+
+1. **`symbols.rs`** - 6 tests added:
+   - `test_document_symbol_new`
+   - `test_document_symbol_with_children`
+   - `test_document_symbol_with_detail`
+   - `test_workspace_symbol_new`
+   - `test_workspace_symbol_with_container`
+   - `test_symbol_kind_variants`
+
+2. **`completion.rs`** - 7 tests added:
+   - `test_completion_item_new`
+   - `test_completion_item_with_detail`
+   - `test_completion_item_with_insert_text`
+   - `test_completion_item_with_insert_text_format`
+   - `test_completion_kind_variants`
+   - `test_insert_text_format_variants`
+   - `test_completion_item_chaining`
+
+3. **`semantic_tokens.rs`** - 5 tests added:
+   - `test_semantic_token_new`
+   - `test_semantic_token_type_variants`
+   - `test_semantic_token_modifiers`
+   - `test_semantic_token_with_deprecated_modifier`
+   - `test_semantic_token_with_line_offset`
+
+4. **`code_lenses.rs`** - 6 tests added:
+   - `test_code_lens_new`
+   - `test_code_lens_with_command`
+   - `test_code_lens_command_new`
+   - `test_code_lens_command_with_arguments`
+   - `test_code_lens_info_new`
+   - `test_code_lens_info_with_deprecation_reason`
+
+### graphql-lsp crate
+
+1. **`conversions.rs`** - 13 tests added:
+   - `test_convert_lsp_position`
+   - `test_convert_ide_position`
+   - `test_convert_ide_range`
+   - `test_convert_ide_location`
+   - `test_convert_ide_completion_item_field`
+   - `test_convert_ide_completion_item_fragment`
+   - `test_convert_ide_completion_item_with_detail`
+   - `test_convert_ide_hover`
+   - `test_convert_ide_diagnostic_error`
+   - `test_convert_ide_diagnostic_warning`
+   - `test_convert_ide_symbol_kind`
+   - `test_convert_ide_folding_range`
+   - `test_convert_ide_inlay_hint`

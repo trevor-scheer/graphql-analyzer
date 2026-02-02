@@ -351,3 +351,70 @@ fn emit_token_for_syntax_token(
         modifiers,
     ));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_semantic_token_new() {
+        let token = SemanticToken::new(
+            Position::new(1, 5),
+            10,
+            SemanticTokenType::Keyword,
+            SemanticTokenModifiers::NONE,
+        );
+
+        assert_eq!(token.start.line, 1);
+        assert_eq!(token.start.character, 5);
+        assert_eq!(token.length, 10);
+        assert_eq!(token.token_type, SemanticTokenType::Keyword);
+        assert_eq!(token.modifiers, SemanticTokenModifiers::NONE);
+    }
+
+    #[test]
+    fn test_semantic_token_type_variants() {
+        assert_eq!(SemanticTokenType::Keyword, SemanticTokenType::Keyword);
+        assert_eq!(SemanticTokenType::Type, SemanticTokenType::Type);
+        assert_eq!(SemanticTokenType::Property, SemanticTokenType::Property);
+        assert_eq!(SemanticTokenType::Function, SemanticTokenType::Function);
+    }
+
+    #[test]
+    fn test_semantic_token_modifiers() {
+        assert_eq!(SemanticTokenModifiers::NONE, SemanticTokenModifiers::NONE);
+        assert_eq!(
+            SemanticTokenModifiers::DEPRECATED,
+            SemanticTokenModifiers::DEPRECATED
+        );
+        assert_ne!(
+            SemanticTokenModifiers::NONE,
+            SemanticTokenModifiers::DEPRECATED
+        );
+    }
+
+    #[test]
+    fn test_semantic_token_with_deprecated_modifier() {
+        let token = SemanticToken::new(
+            Position::new(0, 0),
+            5,
+            SemanticTokenType::Property,
+            SemanticTokenModifiers::DEPRECATED,
+        );
+
+        assert_eq!(token.modifiers, SemanticTokenModifiers::DEPRECATED);
+    }
+
+    #[test]
+    fn test_semantic_token_with_line_offset() {
+        let token = SemanticToken::new(
+            Position::new(10, 3),
+            8,
+            SemanticTokenType::Type,
+            SemanticTokenModifiers::NONE,
+        );
+
+        assert_eq!(token.start.line, 10);
+        assert_eq!(token.start.character, 3);
+    }
+}

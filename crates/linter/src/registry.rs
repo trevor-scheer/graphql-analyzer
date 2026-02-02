@@ -71,3 +71,78 @@ pub fn all_rule_names() -> Vec<&'static str> {
     names.sort_unstable();
     names
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_standalone_document_rules_not_empty() {
+        let rules = standalone_document_rules();
+        assert!(!rules.is_empty());
+    }
+
+    #[test]
+    fn test_document_schema_rules_not_empty() {
+        let rules = document_schema_rules();
+        assert!(!rules.is_empty());
+    }
+
+    #[test]
+    fn test_project_rules_not_empty() {
+        let rules = project_rules();
+        assert!(!rules.is_empty());
+    }
+
+    #[test]
+    fn test_all_rule_names_returns_sorted_list() {
+        let names = all_rule_names();
+        assert!(!names.is_empty());
+
+        let mut sorted_names = names.clone();
+        sorted_names.sort_unstable();
+        assert_eq!(names, sorted_names);
+    }
+
+    #[test]
+    fn test_all_rule_names_includes_expected_rules() {
+        let names = all_rule_names();
+        assert!(names.contains(&"no_anonymous_operations"));
+        assert!(names.contains(&"no_deprecated"));
+        assert!(names.contains(&"unique_names"));
+        assert!(names.contains(&"unused_fragments"));
+    }
+
+    #[test]
+    fn test_rules_have_unique_names() {
+        let names = all_rule_names();
+        let mut seen = std::collections::HashSet::new();
+        for name in &names {
+            assert!(seen.insert(*name), "Duplicate rule name: {name}");
+        }
+    }
+
+    #[test]
+    fn test_standalone_rules_have_valid_metadata() {
+        for rule in standalone_document_rules() {
+            assert!(!rule.name().is_empty());
+            assert!(!rule.description().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_document_schema_rules_have_valid_metadata() {
+        for rule in document_schema_rules() {
+            assert!(!rule.name().is_empty());
+            assert!(!rule.description().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_project_rules_have_valid_metadata() {
+        for rule in project_rules() {
+            assert!(!rule.name().is_empty());
+            assert!(!rule.description().is_empty());
+        }
+    }
+}

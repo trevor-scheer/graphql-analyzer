@@ -206,3 +206,47 @@ fn validate_fragment_type_condition(
 fn is_builtin_scalar(name: &str) -> bool {
     matches!(name, "Int" | "Float" | "String" | "Boolean" | "ID")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_builtin_scalar_int() {
+        assert!(is_builtin_scalar("Int"));
+    }
+
+    #[test]
+    fn test_is_builtin_scalar_float() {
+        assert!(is_builtin_scalar("Float"));
+    }
+
+    #[test]
+    fn test_is_builtin_scalar_string() {
+        assert!(is_builtin_scalar("String"));
+    }
+
+    #[test]
+    fn test_is_builtin_scalar_boolean() {
+        assert!(is_builtin_scalar("Boolean"));
+    }
+
+    #[test]
+    fn test_is_builtin_scalar_id() {
+        assert!(is_builtin_scalar("ID"));
+    }
+
+    #[test]
+    fn test_is_builtin_scalar_custom_type() {
+        assert!(!is_builtin_scalar("User"));
+        assert!(!is_builtin_scalar("DateTime"));
+        assert!(!is_builtin_scalar("JSON"));
+    }
+
+    #[test]
+    fn test_is_builtin_scalar_case_sensitive() {
+        assert!(!is_builtin_scalar("string"));
+        assert!(!is_builtin_scalar("int"));
+        assert!(!is_builtin_scalar("BOOLEAN"));
+    }
+}

@@ -105,5 +105,74 @@ fn extract_from_schema_definition(
     result
 }
 
-// Tests for schema_utils are in the integration tests since they require
-// the full database setup which is complex to replicate in a unit test.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_root_type_names_default() {
+        let root_types = RootTypeNames::default();
+        assert!(root_types.query.is_none());
+        assert!(root_types.mutation.is_none());
+        assert!(root_types.subscription.is_none());
+    }
+
+    #[test]
+    fn test_is_root_type_with_query() {
+        let root_types = RootTypeNames {
+            query: Some("Query".to_string()),
+            mutation: None,
+            subscription: None,
+        };
+        assert!(root_types.is_root_type("Query"));
+        assert!(!root_types.is_root_type("Mutation"));
+        assert!(!root_types.is_root_type("User"));
+    }
+
+    #[test]
+    fn test_is_root_type_with_all_types() {
+        let root_types = RootTypeNames {
+            query: Some("RootQuery".to_string()),
+            mutation: Some("RootMutation".to_string()),
+            subscription: Some("RootSubscription".to_string()),
+        };
+        assert!(root_types.is_root_type("RootQuery"));
+        assert!(root_types.is_root_type("RootMutation"));
+        assert!(root_types.is_root_type("RootSubscription"));
+        assert!(!root_types.is_root_type("Query"));
+        assert!(!root_types.is_root_type("User"));
+    }
+
+    #[test]
+    fn test_is_root_type_with_custom_names() {
+        let root_types = RootTypeNames {
+            query: Some("QueryRoot".to_string()),
+            mutation: Some("MutationRoot".to_string()),
+            subscription: None,
+        };
+        assert!(root_types.is_root_type("QueryRoot"));
+        assert!(root_types.is_root_type("MutationRoot"));
+        assert!(!root_types.is_root_type("Subscription"));
+    }
+
+    #[test]
+    fn test_is_root_type_empty() {
+        let root_types = RootTypeNames::default();
+        assert!(!root_types.is_root_type("Query"));
+        assert!(!root_types.is_root_type("Mutation"));
+        assert!(!root_types.is_root_type("Subscription"));
+    }
+
+    #[test]
+    fn test_root_type_names_clone() {
+        let root_types = RootTypeNames {
+            query: Some("Query".to_string()),
+            mutation: Some("Mutation".to_string()),
+            subscription: None,
+        };
+        let cloned = root_types.clone();
+        assert_eq!(root_types.query, cloned.query);
+        assert_eq!(root_types.mutation, cloned.mutation);
+        assert_eq!(root_types.subscription, cloned.subscription);
+    }
+}

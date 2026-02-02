@@ -408,3 +408,85 @@ fn get_operation_location(
 
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Position, Range};
+
+    fn test_range() -> Range {
+        Range::new(Position::new(0, 0), Position::new(0, 10))
+    }
+
+    #[test]
+    fn test_document_symbol_new() {
+        let range = Range::new(Position::new(0, 0), Position::new(5, 0));
+        let selection_range = Range::new(Position::new(0, 5), Position::new(0, 9));
+
+        let symbol =
+            DocumentSymbol::new("User".to_string(), SymbolKind::Type, range, selection_range);
+
+        assert_eq!(symbol.name, "User");
+        assert_eq!(symbol.kind, SymbolKind::Type);
+        assert!(symbol.children.is_empty());
+        assert!(symbol.detail.is_none());
+    }
+
+    #[test]
+    fn test_document_symbol_with_children() {
+        let range = test_range();
+
+        let child = DocumentSymbol::new("id".to_string(), SymbolKind::Field, range, range);
+        let parent = DocumentSymbol::new("User".to_string(), SymbolKind::Type, range, range)
+            .with_children(vec![child]);
+
+        assert_eq!(parent.children.len(), 1);
+        assert_eq!(parent.children[0].name, "id");
+    }
+
+    #[test]
+    fn test_document_symbol_with_detail() {
+        let range = test_range();
+        let symbol =
+            DocumentSymbol::new("UserFields".to_string(), SymbolKind::Fragment, range, range)
+                .with_detail("on User".to_string());
+
+        assert_eq!(symbol.detail, Some("on User".to_string()));
+    }
+
+    #[test]
+    fn test_workspace_symbol_new() {
+        let location = Location::new(FilePath::new("file:///schema.graphql"), test_range());
+
+        let symbol = WorkspaceSymbol::new("User".to_string(), SymbolKind::Type, location);
+
+        assert_eq!(symbol.name, "User");
+        assert_eq!(symbol.kind, SymbolKind::Type);
+        assert!(symbol.container_name.is_none());
+    }
+
+    #[test]
+    fn test_workspace_symbol_with_container() {
+        let location = Location::new(FilePath::new("file:///fragments.graphql"), test_range());
+
+        let symbol = WorkspaceSymbol::new("UserFields".to_string(), SymbolKind::Fragment, location)
+            .with_container("on User".to_string());
+
+        assert_eq!(symbol.container_name, Some("on User".to_string()));
+    }
+
+    #[test]
+    fn test_symbol_kind_variants() {
+        assert_eq!(SymbolKind::Type, SymbolKind::Type);
+        assert_eq!(SymbolKind::Field, SymbolKind::Field);
+        assert_eq!(SymbolKind::Query, SymbolKind::Query);
+        assert_eq!(SymbolKind::Mutation, SymbolKind::Mutation);
+        assert_eq!(SymbolKind::Subscription, SymbolKind::Subscription);
+        assert_eq!(SymbolKind::Fragment, SymbolKind::Fragment);
+        assert_eq!(SymbolKind::Interface, SymbolKind::Interface);
+        assert_eq!(SymbolKind::Union, SymbolKind::Union);
+        assert_eq!(SymbolKind::Enum, SymbolKind::Enum);
+        assert_eq!(SymbolKind::Scalar, SymbolKind::Scalar);
+        assert_eq!(SymbolKind::Input, SymbolKind::Input);
+    }
+}

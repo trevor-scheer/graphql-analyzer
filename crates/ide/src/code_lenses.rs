@@ -156,3 +156,78 @@ pub fn deprecated_field_code_lenses(
 
     code_lenses
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Position, Range};
+
+    fn test_range() -> Range {
+        Range::new(Position::new(0, 0), Position::new(0, 10))
+    }
+
+    #[test]
+    fn test_code_lens_new() {
+        let range = test_range();
+        let lens = CodeLens::new(range, "1 reference".to_string());
+
+        assert_eq!(lens.title, "1 reference");
+        assert!(lens.command.is_none());
+    }
+
+    #[test]
+    fn test_code_lens_with_command() {
+        let range = test_range();
+        let command = CodeLensCommand::new("editor.action.showReferences", "Show References");
+        let lens = CodeLens::new(range, "5 references".to_string()).with_command(command);
+
+        assert!(lens.command.is_some());
+        let cmd = lens.command.unwrap();
+        assert_eq!(cmd.command, "editor.action.showReferences");
+        assert_eq!(cmd.title, "Show References");
+    }
+
+    #[test]
+    fn test_code_lens_command_new() {
+        let command = CodeLensCommand::new("my.command", "My Command");
+        assert_eq!(command.command, "my.command");
+        assert_eq!(command.title, "My Command");
+        assert!(command.arguments.is_empty());
+    }
+
+    #[test]
+    fn test_code_lens_command_with_arguments() {
+        let command = CodeLensCommand::new("editor.action.showReferences", "Show")
+            .with_arguments(vec!["arg1".to_string(), "arg2".to_string()]);
+
+        assert_eq!(command.arguments.len(), 2);
+        assert_eq!(command.arguments[0], "arg1");
+        assert_eq!(command.arguments[1], "arg2");
+    }
+
+    #[test]
+    fn test_code_lens_info_new() {
+        let range = test_range();
+        let locations = vec![];
+
+        let info = CodeLensInfo::new(range, "User", "name", 0, locations);
+
+        assert_eq!(info.type_name, "User");
+        assert_eq!(info.field_name, "name");
+        assert_eq!(info.usage_count, 0);
+        assert!(info.usage_locations.is_empty());
+        assert!(info.deprecation_reason.is_none());
+    }
+
+    #[test]
+    fn test_code_lens_info_with_deprecation_reason() {
+        let range = test_range();
+        let info = CodeLensInfo::new(range, "User", "oldField", 3, vec![])
+            .with_deprecation_reason("Use newField instead");
+
+        assert_eq!(
+            info.deprecation_reason,
+            Some("Use newField instead".to_string())
+        );
+    }
+}
