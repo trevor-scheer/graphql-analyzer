@@ -40,7 +40,7 @@ name = "prepare-release"
 
 [[workflows.steps]]
 type = "PrepareRelease"
-prerelease_label = "alpha"
+# prerelease_label = "alpha"
 ignore_conventional_commits = true
 
 [[workflows.steps]]

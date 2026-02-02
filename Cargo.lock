@@ -1025,7 +1025,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "graphql-analysis"
-version = "0.1.0-alpha.6"
+version = "0.1.0"
 dependencies = [
  "apollo-compiler",
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1042,14 +1042,14 @@ dependencies = [
 
 [[package]]
 name = "graphql-apollo-ext"
-version = "0.1.0-alpha.6"
+version = "0.1.0"
 dependencies = [
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "graphql-base-db"
-version = "0.1.0-alpha.6"
+version = "0.1.0"
 dependencies = [
  "salsa",
 ]
@@ -1085,7 +1085,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-config"
-version = "0.1.0-alpha.6"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "glob",
@@ -1099,7 +1099,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-extract"
-version = "0.1.0-alpha.6"
+version = "0.1.0"
 dependencies = [
  "glob",
  "serde",
@@ -1112,7 +1112,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-hir"
-version = "0.1.0-alpha.6"
+version = "0.1.0"
 dependencies = [
  "apollo-compiler",
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1125,7 +1125,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-ide"
-version = "0.1.0-alpha.6"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1146,7 +1146,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-ide-db"
-version = "0.1.0-alpha.6"
+version = "0.1.0"
 dependencies = [
  "graphql-analysis",
  "graphql-base-db",
@@ -1158,7 +1158,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-introspect"
-version = "0.1.0-alpha.6"
+version = "0.1.0"
 dependencies = [
  "reqwest",
  "serde",
@@ -1170,7 +1170,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-linter"
-version = "0.1.0-alpha.6"
+version = "0.1.0"
 dependencies = [
  "apollo-compiler",
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-lsp-benches"
-version = "0.1.0-alpha.6"
+version = "0.1.0"
 dependencies = [
  "criterion",
  "graphql-analysis",
@@ -1252,7 +1252,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-syntax"
-version = "0.1.0-alpha.6"
+version = "0.1.0"
 dependencies = [
  "apollo-compiler",
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1264,7 +1264,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-test-utils"
-version = "0.1.0-alpha.6"
+version = "0.1.0"
 dependencies = [
  "graphql-analysis",
  "graphql-base-db",
