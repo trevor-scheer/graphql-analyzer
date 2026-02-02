@@ -36,11 +36,17 @@ pub struct ParseError {
     pub offset: usize,
 }
 
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (at offset {})", self.message, self.offset)
+    }
+}
+
 /// Result of parsing a file
 ///
 /// All GraphQL content is represented uniformly as blocks. Pure GraphQL files
 /// have a single block at offset 0. Use `documents()` to iterate over blocks.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Parse {
     /// GraphQL blocks (always at least one for valid files)
     blocks: Vec<ExtractedBlock>,

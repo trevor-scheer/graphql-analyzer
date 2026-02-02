@@ -201,10 +201,16 @@ impl LintDiagnostic {
 }
 
 /// Byte offset range in a file
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct OffsetRange {
     pub start: usize,
     pub end: usize,
+}
+
+impl std::fmt::Display for OffsetRange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}..{}", self.start, self.end)
+    }
 }
 
 impl OffsetRange {
@@ -230,6 +236,16 @@ pub enum LintSeverity {
     Error,
     Warning,
     Info,
+}
+
+impl std::fmt::Display for LintSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Error => write!(f, "error"),
+            Self::Warning => write!(f, "warning"),
+            Self::Info => write!(f, "info"),
+        }
+    }
 }
 
 #[cfg(test)]
