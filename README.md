@@ -69,18 +69,19 @@ For full CLI documentation, see the **[CLI README](crates/cli/README.md)**.
 schema: "schema.graphql"
 documents: "src/**/*.{graphql,ts,tsx}"
 
-lint:
-  recommended: error
-  rules:
-    no_deprecated: warn
+extensions:
+  lint:
+    extends: recommended
+    rules:
+      noDeprecated: warn
 ```
 
 For multi-project setups and advanced configuration, see the **[Configuration Guide](crates/config/README.md)**.
 
 ## Documentation
 
-| Component            | Description                                 |
-| -------------------- | ------------------------------------------- |
+| Component                                     | Description                                 |
+| --------------------------------------------- | ------------------------------------------- |
 | [VS Code Extension](editors/vscode/README.md) | IDE features, installation, troubleshooting |
 | [CLI](crates/cli/README.md)                   | Commands, CI/CD integration, output formats |
 | [LSP Server](crates/lsp/README.md)            | Editor integration, Neovim setup, debugging |

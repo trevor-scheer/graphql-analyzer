@@ -115,20 +115,22 @@ projects:
 
 ### Lint Configuration
 
-```yaml
-# Top-level lint config
-lint:
-  recommended: error
-  rules:
-    no_deprecated: warn
-    unique_names: error
+Lint configuration lives under `extensions.lint`. Rule names use camelCase:
 
-# LSP-specific overrides
+```yaml
 extensions:
+  # Base lint config
+  lint:
+    extends: recommended
+    rules:
+      noDeprecated: warn
+      uniqueNames: error
+
+  # LSP-specific overrides
   lsp:
     lint:
       rules:
-        unused_fields: off
+        unusedFields: off
 ```
 
 See [graphql-linter](../graphql-linter/README.md) for available rules.
@@ -383,13 +385,13 @@ schema: https://api.example.com/graphql
 documents:
   - "src/**/*.{ts,tsx}"
   - "!src/**/*.test.ts"
-lint:
-  recommended: error
 extensions:
+  lint:
+    extends: recommended
   lsp:
     lint:
       rules:
-        no_deprecated: warn
+        noDeprecated: warn
 ```
 
 ### Monorepo with Multiple Projects
@@ -399,15 +401,21 @@ projects:
   web:
     schema: packages/web/schema.graphql
     documents: packages/web/src/**/*.{graphql,tsx}
+    extensions:
+      lint:
+        extends: recommended
   mobile:
     schema: packages/mobile/schema.graphql
     documents: packages/mobile/src/**/*.{graphql,ts}
+    extensions:
+      lint:
+        extends: recommended
   api:
     schema: packages/api/schema/**/*.graphql
     documents: packages/api/src/**/*.graphql
-
-lint:
-  recommended: error
+    extensions:
+      lint:
+        extends: recommended
 ```
 
 ### Custom Extract Configuration

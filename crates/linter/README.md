@@ -172,52 +172,57 @@ let config = LintConfig::Full(FullLintConfig {
 
 ### YAML Configuration
 
-Configure in `.graphqlrc.yaml`:
+Configure in `.graphqlrc.yaml`. Lint configuration lives under `extensions.lint`, and rule names use camelCase:
 
 ```yaml
 # Happy path - just use recommended preset
-lint: recommended
+extensions:
+  lint: recommended
 
 # Fine-grained rules only (no presets)
-lint:
-  rules:
-    unique_names: error
-    no_deprecated: warn
+extensions:
+  lint:
+    rules:
+      uniqueNames: error
+      noDeprecated: warn
 
 # Preset with overrides (ESLint-style)
-lint:
-  extends: recommended
-  rules:
-    no_deprecated: off
-    require_id_field: error
+extensions:
+  lint:
+    extends: recommended
+    rules:
+      noDeprecated: off
+      requireIdField: error
 
 # Multiple presets (later overrides earlier)
-lint:
-  extends: [recommended]
-  rules:
-    unused_fields: warn
+extensions:
+  lint:
+    extends: [recommended]
+    rules:
+      unusedFields: warn
 ```
 
 **Tool-specific overrides:**
 
 ```yaml
-# Base configuration
-lint:
-  extends: recommended
-  rules:
-    no_deprecated: warn
-
-# Tool-specific overrides
 extensions:
+  # Base lint configuration
+  lint:
+    extends: recommended
+    rules:
+      noDeprecated: warn
+
+  # CLI-specific overrides
   cli:
     lint:
       rules:
-        unused_fields: error # Enable expensive rule in CI
+        unusedFields: error # Enable expensive rule in CI
 
+  # LSP-specific overrides
   lsp:
     lint:
       rules:
-        unused_fields: off # Disable expensive rule in editor
+        unusedFields: off # Disable expensive rule in editor
 ```
 
 ### Severity Levels
@@ -246,17 +251,19 @@ Some rules support additional configuration options. Options can be specified us
 
 ```yaml
 # ESLint-style array: [severity, options]
-lint:
-  rules:
-    require_id_field: [warn, { fields: ["id", "uuid"] }]
+extensions:
+  lint:
+    rules:
+      requireIdField: [warn, { fields: ["id", "uuid"] }]
 
 # Object style
-lint:
-  rules:
-    require_id_field:
-      severity: warn
-      options:
-        fields: ["id", "uuid"]
+extensions:
+  lint:
+    rules:
+      requireIdField:
+        severity: warn
+        options:
+          fields: ["id", "uuid"]
 ```
 
 See individual rule documentation for available options.
@@ -316,27 +323,31 @@ Warns when selection sets on types that have an `id` field don't include it. Thi
 
 ```yaml
 # Default: require 'id' field
-lint:
-  rules:
-    require_id_field: warn
+extensions:
+  lint:
+    rules:
+      requireIdField: warn
 
 # Require a different field (e.g., for Relay-style nodeId)
-lint:
-  rules:
-    require_id_field: [warn, { fields: ["nodeId"] }]
+extensions:
+  lint:
+    rules:
+      requireIdField: [warn, { fields: ["nodeId"] }]
 
 # Require multiple fields (if they exist on the type)
-lint:
-  rules:
-    require_id_field:
-      severity: warn
-      options:
-        fields: ["id", "uuid"]
+extensions:
+  lint:
+    rules:
+      requireIdField:
+        severity: warn
+        options:
+          fields: ["id", "uuid"]
 
 # Disable the rule
-lint:
-  rules:
-    require_id_field: off
+extensions:
+  lint:
+    rules:
+      requireIdField: off
 ```
 
 **Example:**

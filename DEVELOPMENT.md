@@ -170,6 +170,7 @@ graphql-db (Salsa database)
 ```
 
 Key technologies:
+
 - **Salsa** - Incremental computation framework
 - **tower-lsp** - LSP framework
 - **apollo-compiler** - GraphQL parsing and validation

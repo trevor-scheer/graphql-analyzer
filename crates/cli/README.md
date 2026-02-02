@@ -241,20 +241,22 @@ projects:
 
 ### Lint Configuration
 
-```yaml
-# Top-level lint config
-lint:
-  recommended: error
-  rules:
-    no_deprecated: warn
-    unique_names: error
+Lint configuration lives under `extensions.lint`. Rule names use camelCase:
 
-# CLI-specific overrides
+```yaml
 extensions:
+  # Base lint config
+  lint:
+    extends: recommended
+    rules:
+      noDeprecated: warn
+      uniqueNames: error
+
+  # CLI-specific overrides
   cli:
     lint:
       rules:
-        unused_fields: error
+        unusedFields: error
 ```
 
 See [graphql-linter](../graphql-linter/README.md) for available rules and configuration options.
