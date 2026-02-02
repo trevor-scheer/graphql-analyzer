@@ -13,6 +13,10 @@ categories = ["development-tools", "parser-implementations"]
 name = "graphql_lsp"
 path = "src/lib.rs"
 
+[[bin]]
+name = "graphql-lsp"
+path = "src/main.rs"
+
 [dependencies]
 # Internal dependencies
 graphql-linter = { path = "../linter" }

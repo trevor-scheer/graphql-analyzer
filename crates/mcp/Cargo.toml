@@ -10,6 +10,10 @@ description = "MCP (Model Context Protocol) server for GraphQL tooling"
 keywords = ["graphql", "mcp", "ai", "language-server"]
 categories = ["development-tools"]
 
+[[bin]]
+name = "graphql-mcp"
+path = "src/main.rs"
+
 [dependencies]
 # Internal dependencies
 graphql-ide = { path = "../ide" }
@@ -30,6 +34,7 @@ schemars = "1.0"
 
 # Utilities
 anyhow = { workspace = true }
+clap = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 

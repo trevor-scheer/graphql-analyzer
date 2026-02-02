@@ -1236,6 +1236,7 @@ name = "graphql-mcp"
 version = "0.1.0-alpha.12"
 dependencies = [
  "anyhow",
+ "clap",
  "glob",
  "graphql-config",
  "graphql-ide",
