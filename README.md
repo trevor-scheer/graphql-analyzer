@@ -163,31 +163,32 @@ curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main
 irm https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.ps1 | iex
 ```
 
-This installs all three binaries:
+This installs the `graphql` CLI, which includes all functionality:
 
-- `graphql` - CLI for validation, linting, and CI/CD
-- `graphql-lsp` - Language server for editor integration
-- `graphql-mcp` - MCP server for AI agent integration
+- `graphql validate` - Validate GraphQL documents
+- `graphql lint` - Lint GraphQL documents
+- `graphql lsp` - Start the language server
+- `graphql mcp` - Start the MCP server
 
 ### Install from Source
 
 ```bash
 cargo install --git https://github.com/trevor-scheer/graphql-analyzer graphql-cli
-cargo install --git https://github.com/trevor-scheer/graphql-analyzer graphql-lsp
-cargo install --git https://github.com/trevor-scheer/graphql-analyzer graphql-mcp
 ```
 
-### Download Binaries Directly
+### Download Binary Directly
 
-Download the appropriate archive for your platform from the [releases page](https://github.com/trevor-scheer/graphql-analyzer/releases):
+Download the CLI for your platform from the [releases page](https://github.com/trevor-scheer/graphql-analyzer/releases):
 
-| Platform              | CLI                                            | LSP                                            | MCP                                            |
-| --------------------- | ---------------------------------------------- | ---------------------------------------------- | ---------------------------------------------- |
-| macOS (Apple Silicon) | `graphql-cli-aarch64-apple-darwin.tar.xz`      | `graphql-lsp-aarch64-apple-darwin.tar.xz`      | `graphql-mcp-aarch64-apple-darwin.tar.xz`      |
-| macOS (Intel)         | `graphql-cli-x86_64-apple-darwin.tar.xz`       | `graphql-lsp-x86_64-apple-darwin.tar.xz`       | `graphql-mcp-x86_64-apple-darwin.tar.xz`       |
-| Linux (x86_64)        | `graphql-cli-x86_64-unknown-linux-gnu.tar.xz`  | `graphql-lsp-x86_64-unknown-linux-gnu.tar.xz`  | `graphql-mcp-x86_64-unknown-linux-gnu.tar.xz`  |
-| Linux (ARM64)         | `graphql-cli-aarch64-unknown-linux-gnu.tar.xz` | `graphql-lsp-aarch64-unknown-linux-gnu.tar.xz` | `graphql-mcp-aarch64-unknown-linux-gnu.tar.xz` |
-| Windows               | `graphql-cli-x86_64-pc-windows-msvc.zip`       | `graphql-lsp-x86_64-pc-windows-msvc.zip`       | `graphql-mcp-x86_64-pc-windows-msvc.zip`       |
+| Platform              | Archive                                        |
+| --------------------- | ---------------------------------------------- |
+| macOS (Apple Silicon) | `graphql-cli-aarch64-apple-darwin.tar.xz`      |
+| macOS (Intel)         | `graphql-cli-x86_64-apple-darwin.tar.xz`       |
+| Linux (x86_64)        | `graphql-cli-x86_64-unknown-linux-gnu.tar.xz`  |
+| Linux (ARM64)         | `graphql-cli-aarch64-unknown-linux-gnu.tar.xz` |
+| Windows               | `graphql-cli-x86_64-pc-windows-msvc.zip`       |
+
+Standalone `graphql-lsp` and `graphql-mcp` binaries are also available on the releases page for specialized use cases.
 
 ### VSCode Extension
 

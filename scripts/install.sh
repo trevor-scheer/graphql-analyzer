@@ -1,5 +1,5 @@
 #!/bin/sh
-# GraphQL Analyzer Installer
+# GraphQL CLI Installer
 # Usage: curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
 
 set -e
@@ -28,7 +28,7 @@ detect_platform() {
     PLATFORM="${ARCH}-${OS}"
 }
 
-# Get latest release version
+# Get latest CLI release version
 get_latest_version() {
     VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" |
         grep -o '"tag_name": *"cli/v[^"]*"' |
@@ -41,35 +41,9 @@ get_latest_version() {
     fi
 }
 
-# Download and install a binary
-install_binary() {
-    BINARY_NAME="$1"
-    ASSET_PREFIX="$2"
-
-    URL="https://github.com/${REPO}/releases/download/cli/v${VERSION}/${ASSET_PREFIX}-${PLATFORM}.tar.xz"
-
-    echo "Downloading ${BINARY_NAME}..."
-
-    TMP_DIR=$(mktemp -d)
-    trap "rm -rf $TMP_DIR" EXIT
-
-    if ! curl -fsSL "$URL" -o "$TMP_DIR/archive.tar.xz"; then
-        echo "Failed to download ${BINARY_NAME} from ${URL}"
-        return 1
-    fi
-
-    tar -xJf "$TMP_DIR/archive.tar.xz" -C "$TMP_DIR"
-
-    mkdir -p "$INSTALL_DIR"
-    mv "$TMP_DIR/$BINARY_NAME" "$INSTALL_DIR/"
-    chmod +x "$INSTALL_DIR/$BINARY_NAME"
-
-    echo "Installed ${BINARY_NAME} to ${INSTALL_DIR}/${BINARY_NAME}"
-}
-
 main() {
-    echo "GraphQL Analyzer Installer"
-    echo "=========================="
+    echo "GraphQL CLI Installer"
+    echo "====================="
     echo
 
     detect_platform
@@ -79,13 +53,25 @@ main() {
     echo "Latest version: $VERSION"
     echo
 
-    # Install all binaries
-    install_binary "graphql" "graphql-cli"
-    install_binary "graphql-lsp" "graphql-lsp"
-    install_binary "graphql-mcp" "graphql-mcp"
+    URL="https://github.com/${REPO}/releases/download/cli/v${VERSION}/graphql-cli-${PLATFORM}.tar.xz"
 
-    echo
-    echo "Installation complete!"
+    echo "Downloading graphql CLI..."
+
+    TMP_DIR=$(mktemp -d)
+    trap "rm -rf $TMP_DIR" EXIT
+
+    if ! curl -fsSL "$URL" -o "$TMP_DIR/archive.tar.xz"; then
+        echo "Failed to download from ${URL}"
+        exit 1
+    fi
+
+    tar -xJf "$TMP_DIR/archive.tar.xz" -C "$TMP_DIR"
+
+    mkdir -p "$INSTALL_DIR"
+    mv "$TMP_DIR/graphql" "$INSTALL_DIR/"
+    chmod +x "$INSTALL_DIR/graphql"
+
+    echo "Installed graphql to ${INSTALL_DIR}/graphql"
     echo
 
     # Check if install dir is in PATH
@@ -99,6 +85,12 @@ main() {
     esac
 
     echo "Run 'graphql --help' to get started."
+    echo
+    echo "The CLI includes:"
+    echo "  graphql validate  - Validate GraphQL documents"
+    echo "  graphql lint      - Lint GraphQL documents"
+    echo "  graphql lsp       - Start the language server"
+    echo "  graphql mcp       - Start the MCP server"
 }
 
 main
