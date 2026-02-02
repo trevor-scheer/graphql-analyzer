@@ -85,12 +85,6 @@ main() {
     esac
 
     echo "Run 'graphql --help' to get started."
-    echo
-    echo "The CLI includes:"
-    echo "  graphql validate  - Validate GraphQL documents"
-    echo "  graphql lint      - Lint GraphQL documents"
-    echo "  graphql lsp       - Start the language server"
-    echo "  graphql mcp       - Start the MCP server"
 }
 
 main

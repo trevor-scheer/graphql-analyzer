@@ -59,9 +59,3 @@ if ($CurrentPath -notlike "*$InstallDir*") {
 
 Write-Host ""
 Write-Host "Run 'graphql --help' to get started."
-Write-Host ""
-Write-Host "The CLI includes:"
-Write-Host "  graphql validate  - Validate GraphQL documents"
-Write-Host "  graphql lint      - Lint GraphQL documents"
-Write-Host "  graphql lsp       - Start the language server"
-Write-Host "  graphql mcp       - Start the MCP server"
