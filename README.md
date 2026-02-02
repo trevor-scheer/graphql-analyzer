@@ -22,7 +22,19 @@ Or download directly from the [releases page](https://github.com/trevor-scheer/g
 
 ### VSCode Extension
 
-Install the **GraphQL Analyzer** extension from the VSCode marketplace. It automatically downloads the CLI on first use.
+**macOS / Linux:**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install-vscode.sh | sh
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install-vscode.ps1 | iex
+```
+
+Or download the `.vsix` from the [releases page](https://github.com/trevor-scheer/graphql-analyzer/releases) and install with `code --install-extension <file>.vsix`.
 
 ## Quick Start
 
