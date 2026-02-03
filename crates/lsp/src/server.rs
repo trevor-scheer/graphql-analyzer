@@ -1,8 +1,5 @@
 use crate::conversions::{
-    convert_ide_code_lens, convert_ide_code_lens_info, convert_ide_completion_item,
-    convert_ide_diagnostic, convert_ide_document_symbol, convert_ide_folding_range,
-    convert_ide_hover, convert_ide_inlay_hint, convert_ide_location, convert_ide_workspace_symbol,
-    convert_lsp_position,
+    convert_ide_code_lens, convert_ide_code_lens_info, convert_lsp_position, IntoLsp,
 };
 use crate::workspace::{ProjectHost, WorkspaceManager};
 use graphql_config::find_config;
@@ -489,11 +486,8 @@ async fn load_all_project_files_background(
             let Ok(file_uri) = Uri::from_str(file_path.as_str()) else {
                 continue;
             };
-            let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-                .iter()
-                .cloned()
-                .map(convert_ide_diagnostic)
-                .collect();
+            let lsp_diagnostics: Vec<Diagnostic> =
+                diagnostics.iter().cloned().map(IntoLsp::into_lsp).collect();
             client
                 .publish_diagnostics(file_uri, lsp_diagnostics, None)
                 .await;
@@ -998,11 +992,8 @@ documents: "**/*.graphql"
                         continue;
                     };
 
-                    let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-                        .iter()
-                        .cloned()
-                        .map(convert_ide_diagnostic)
-                        .collect();
+                    let lsp_diagnostics: Vec<Diagnostic> =
+                        diagnostics.iter().cloned().map(IntoLsp::into_lsp).collect();
 
                     self.client
                         .publish_diagnostics(file_uri, lsp_diagnostics, None)
@@ -1165,10 +1156,8 @@ documents: "**/*.graphql"
         let file_path = graphql_ide::FilePath::new(uri.as_str());
         let diagnostics = snapshot.diagnostics(&file_path);
 
-        let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-            .into_iter()
-            .map(convert_ide_diagnostic)
-            .collect();
+        let lsp_diagnostics: Vec<Diagnostic> =
+            diagnostics.into_iter().map(IntoLsp::into_lsp).collect();
 
         self.client
             .publish_diagnostics(uri, lsp_diagnostics, None)
@@ -1184,10 +1173,8 @@ documents: "**/*.graphql"
         let file_path = graphql_ide::FilePath::new(uri.as_str());
         let diagnostics = snapshot.diagnostics(&file_path);
 
-        let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-            .into_iter()
-            .map(convert_ide_diagnostic)
-            .collect();
+        let lsp_diagnostics: Vec<Diagnostic> =
+            diagnostics.into_iter().map(IntoLsp::into_lsp).collect();
 
         self.client
             .publish_diagnostics(uri.clone(), lsp_diagnostics, None)
@@ -1465,10 +1452,8 @@ impl LanguageServer for GraphQLLanguageServer {
         if is_new {
             // Use all_diagnostics_for_file to include project-wide diagnostics
             let diagnostics = snapshot.all_diagnostics_for_file(&file_path);
-            let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-                .into_iter()
-                .map(convert_ide_diagnostic)
-                .collect();
+            let lsp_diagnostics: Vec<Diagnostic> =
+                diagnostics.into_iter().map(IntoLsp::into_lsp).collect();
             self.client
                 .publish_diagnostics(uri, lsp_diagnostics, None)
                 .await;
@@ -1571,11 +1556,11 @@ impl LanguageServer for GraphQLLanguageServer {
             let per_file_diagnostics = snapshot.diagnostics(&file_path);
             let mut all_diagnostics: Vec<Diagnostic> = per_file_diagnostics
                 .into_iter()
-                .map(convert_ide_diagnostic)
+                .map(IntoLsp::into_lsp)
                 .collect();
 
             // Add project-wide diagnostics
-            all_diagnostics.extend(diagnostics.into_iter().map(convert_ide_diagnostic));
+            all_diagnostics.extend(diagnostics.into_iter().map(IntoLsp::into_lsp));
 
             self.client
                 .publish_diagnostics(file_uri, all_diagnostics, None)
@@ -1659,7 +1644,7 @@ impl LanguageServer for GraphQLLanguageServer {
         };
 
         let lsp_items: Vec<lsp_types::CompletionItem> =
-            items.into_iter().map(convert_ide_completion_item).collect();
+            items.into_iter().map(IntoLsp::into_lsp).collect();
 
         Ok(Some(CompletionResponse::Array(lsp_items)))
     }
@@ -1687,9 +1672,7 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         };
 
-        let hover = convert_ide_hover(hover_result);
-
-        Ok(Some(hover))
+        Ok(Some(hover_result.into_lsp()))
     }
 
     async fn goto_definition(
@@ -1718,7 +1701,7 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         };
 
-        let lsp_locations: Vec<Location> = locations.iter().map(convert_ide_location).collect();
+        let lsp_locations: Vec<Location> = locations.iter().map(IntoLsp::into_lsp).collect();
 
         if lsp_locations.is_empty() {
             Ok(None)
@@ -1752,10 +1735,7 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         };
 
-        let lsp_locations: Vec<Location> = locations
-            .into_iter()
-            .map(|loc| convert_ide_location(&loc))
-            .collect();
+        let lsp_locations: Vec<Location> = locations.iter().map(IntoLsp::into_lsp).collect();
 
         if lsp_locations.is_empty() {
             Ok(None)
@@ -1793,10 +1773,8 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         }
 
-        let lsp_symbols: Vec<lsp_types::DocumentSymbol> = symbols
-            .into_iter()
-            .map(convert_ide_document_symbol)
-            .collect();
+        let lsp_symbols: Vec<lsp_types::DocumentSymbol> =
+            symbols.into_iter().map(IntoLsp::into_lsp).collect();
 
         tracing::debug!("Returning {} document symbols", lsp_symbols.len());
         Ok(Some(DocumentSymbolResponse::Nested(lsp_symbols)))
@@ -1819,7 +1797,7 @@ impl LanguageServer for GraphQLLanguageServer {
 
             let symbols = analysis.workspace_symbols(&params.query);
             for symbol in symbols {
-                all_symbols.push(convert_ide_workspace_symbol(symbol));
+                all_symbols.push(symbol.into_lsp());
             }
         }
 
@@ -2141,7 +2119,7 @@ impl LanguageServer for GraphQLLanguageServer {
             let action = CodeAction {
                 title: fix.label.clone(),
                 kind: Some(CodeActionKind::QUICKFIX),
-                diagnostics: Some(vec![convert_ide_diagnostic(graphql_ide::Diagnostic {
+                diagnostics: Some(vec![graphql_ide::Diagnostic {
                     range: graphql_ide::Range {
                         start: graphql_ide::Position {
                             line: diag_start_line as u32,
@@ -2157,7 +2135,8 @@ impl LanguageServer for GraphQLLanguageServer {
                     code: Some(diag.rule.clone()),
                     source: "graphql-linter".to_string(),
                     fix: None,
-                })]),
+                }
+                .into_lsp()]),
                 edit: Some(workspace_edit),
                 command: None,
                 is_preferred: Some(true),
@@ -2219,7 +2198,7 @@ impl LanguageServer for GraphQLLanguageServer {
                 analysis
                     .find_fragment_references(name, false)
                     .iter()
-                    .map(convert_ide_location)
+                    .map(IntoLsp::into_lsp)
                     .collect()
             } else {
                 Vec::new()
@@ -2272,7 +2251,7 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         }
 
-        let lsp_ranges: Vec<FoldingRange> = ranges.iter().map(convert_ide_folding_range).collect();
+        let lsp_ranges: Vec<FoldingRange> = ranges.iter().map(IntoLsp::into_lsp).collect();
 
         tracing::debug!(
             "Returning {} folding ranges for {:?}",
@@ -2316,7 +2295,7 @@ impl LanguageServer for GraphQLLanguageServer {
             return Ok(None);
         }
 
-        let lsp_hints: Vec<LspInlayHint> = hints.iter().map(convert_ide_inlay_hint).collect();
+        let lsp_hints: Vec<LspInlayHint> = hints.iter().map(IntoLsp::into_lsp).collect();
 
         tracing::debug!("Returning {} inlay hints for {:?}", lsp_hints.len(), uri);
         Ok(Some(lsp_hints))
