@@ -208,3 +208,74 @@ impl ServerHandler for GraphQLToolRouter {
         self.tool_router.call(tool_call_context).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_params_serialization() {
+        let params = ValidateParams {
+            document: "query { user { id } }".to_string(),
+            file_path: Some("query.graphql".to_string()),
+            project: None,
+        };
+        let json = serde_json::to_string(&params).unwrap();
+        assert!(json.contains("query { user { id } }"));
+        assert!(json.contains("query.graphql"));
+    }
+
+    #[test]
+    fn test_validate_params_deserialization() {
+        let json = r#"{"document": "query { user }", "file_path": "test.graphql"}"#;
+        let params: ValidateParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.document, "query { user }");
+        assert_eq!(params.file_path, Some("test.graphql".to_string()));
+        assert!(params.project.is_none());
+    }
+
+    #[test]
+    fn test_validate_params_minimal() {
+        let json = r#"{"document": "query { user }"}"#;
+        let params: ValidateParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.document, "query { user }");
+        assert!(params.file_path.is_none());
+        assert!(params.project.is_none());
+    }
+
+    #[test]
+    fn test_lint_params_serialization() {
+        let params = LintParams {
+            document: "query GetUser { user { id } }".to_string(),
+            file_path: None,
+            project: Some("default".to_string()),
+        };
+        let json = serde_json::to_string(&params).unwrap();
+        assert!(json.contains("GetUser"));
+        assert!(json.contains("default"));
+    }
+
+    #[test]
+    fn test_lint_params_deserialization() {
+        let json = r#"{"document": "mutation { createUser }", "project": "api"}"#;
+        let params: LintParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.document, "mutation { createUser }");
+        assert_eq!(params.project, Some("api".to_string()));
+    }
+
+    #[test]
+    fn test_load_project_params_serialization() {
+        let params = LoadProjectParams {
+            project: "my-project".to_string(),
+        };
+        let json = serde_json::to_string(&params).unwrap();
+        assert!(json.contains("my-project"));
+    }
+
+    #[test]
+    fn test_load_project_params_deserialization() {
+        let json = r#"{"project": "backend-api"}"#;
+        let params: LoadProjectParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.project, "backend-api");
+    }
+}

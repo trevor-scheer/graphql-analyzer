@@ -28,8 +28,8 @@ This document tracks test coverage for all Rust source files in the codebase.
 | ide        | 15    | **12**        | **80%**  | ➕ 4 files added     |
 | ide-db     | 1     | 1             | 100%     | Complete             |
 | lsp        | 5     | **2**         | **40%**  | ➕ conversions added |
-| cli        | 17    | 4             | 24%      | Commands             |
-| mcp        | 5     | 1             | 20%      | Protocol layer       |
+| cli        | 17    | **11**        | **65%**  | ➕ 7 files added     |
+| mcp        | 5     | **2**         | **40%**  | ➕ tools.rs added    |
 
 ---
 
@@ -223,8 +223,8 @@ Command-line interface.
 | File          | Tests | Status | Notes                  |
 | ------------- | ----- | ------ | ---------------------- |
 | `main.rs`     | ✅    | ✓      | CLI arg parsing tested |
-| `analysis.rs` | ⬜    |        | Analysis helpers       |
-| `progress.rs` | ⬜    |        | Progress reporting     |
+| `analysis.rs` | ✅ ➕ | ✓      | **Added tests**        |
+| `progress.rs` | ✅ ➕ | ✓      | **Added tests**        |
 
 ### Commands
 
@@ -232,18 +232,18 @@ Command-line interface.
 | -------------------------- | ----- | ------ | ------------------------ |
 | `commands/mod.rs`          | ⬜    | ✓      | Re-exports               |
 | `commands/common.rs`       | ✅    | ✓      | Common utilities tested  |
-| `commands/check.rs`        | ⬜    |        | Check command            |
-| `commands/complexity.rs`   | ⬜    |        | Complexity command       |
-| `commands/coverage.rs`     | ⬜    |        | Coverage command         |
+| `commands/check.rs`        | ✅ ➕ | ✓      | **Added tests**          |
+| `commands/complexity.rs`   | ✅ ➕ | ✓      | **Added tests**          |
+| `commands/coverage.rs`     | ⬜    | ✓      | Integration-heavy        |
 | `commands/deprecations.rs` | ✅    | ✓      | Deprecations tested      |
-| `commands/fix.rs`          | ⬜    |        | Fix command              |
-| `commands/fragments.rs`    | ⬜    |        | Fragments command        |
-| `commands/lint.rs`         | ⬜    |        | Lint command             |
+| `commands/fix.rs`          | ✅ ➕ | ✓      | **Added tests**          |
+| `commands/fragments.rs`    | ✅ ➕ | ✓      | **Added tests**          |
+| `commands/lint.rs`         | ⬜    | ✓      | Integration-heavy        |
 | `commands/lsp.rs`          | ⬜    | ✓      | LSP server launcher only |
 | `commands/mcp.rs`          | ⬜    | ✓      | MCP server launcher only |
 | `commands/schema.rs`       | ✅    | ✓      | Schema command tested    |
-| `commands/stats.rs`        | ⬜    |        | Stats command            |
-| `commands/validate.rs`     | ⬜    |        | Validate command         |
+| `commands/stats.rs`        | ✅ ➕ | ✓      | **Added tests**          |
+| `commands/validate.rs`     | ⬜    | ✓      | Integration-heavy        |
 
 ---
 
@@ -251,13 +251,13 @@ Command-line interface.
 
 Model Context Protocol server.
 
-| File         | Tests | Status | Notes                 |
-| ------------ | ----- | ------ | --------------------- |
-| `lib.rs`     | ⬜    | ✓      | Re-exports            |
-| `main.rs`    | ⬜    | ✓      | Entry point only      |
-| `service.rs` | ✅    | ✓      | MCP service tested    |
-| `tools.rs`   | ⬜    |        | Tool definitions      |
-| `types.rs`   | ⬜    | ✓      | Type definitions only |
+| File         | Tests | Status | Notes              |
+| ------------ | ----- | ------ | ------------------ |
+| `lib.rs`     | ⬜    | ✓      | Re-exports         |
+| `main.rs`    | ⬜    | ✓      | Entry point only   |
+| `service.rs` | ✅    | ✓      | MCP service tested |
+| `tools.rs`   | ✅ ➕ | ✓      | **Added tests**    |
+| `types.rs`   | ⬜    | ✓      | Type definitions   |
 
 ---
 
@@ -478,3 +478,80 @@ fn test_ide_feature() {
    - `test_convert_ide_symbol_kind`
    - `test_convert_ide_folding_range`
    - `test_convert_ide_inlay_hint`
+
+### graphql-cli crate
+
+1. **`analysis.rs`** - 9 tests added:
+   - `test_path_to_file_uri_absolute_unix_path`
+   - `test_path_to_file_uri_already_file_uri`
+   - `test_path_to_file_uri_other_scheme`
+   - `test_path_to_file_uri_relative_path`
+   - `test_expand_braces_single_brace_group`
+   - `test_expand_braces_three_options`
+   - `test_expand_braces_no_braces`
+   - `test_expand_braces_with_spaces`
+   - `test_expand_braces_single_option`
+
+2. **`progress.rs`** - 4 tests added:
+   - `test_is_ci_detects_ci_env`
+   - `test_is_ci_detects_github_actions`
+   - `test_spinner_creates_progressbar`
+   - `test_spinner_with_empty_message`
+
+3. **`commands/check.rs`** - 5 tests added:
+   - `test_diagnostic_source_display_validation`
+   - `test_diagnostic_source_display_lint`
+   - `test_diagnostic_source_debug`
+   - `test_diagnostic_source_clone`
+   - `test_diagnostic_source_copy`
+
+4. **`commands/complexity.rs`** - 7 tests added:
+   - `test_format_complexity_under_100_no_threshold`
+   - `test_format_complexity_over_100_no_threshold`
+   - `test_format_complexity_at_threshold`
+   - `test_format_complexity_under_threshold`
+   - `test_format_complexity_over_threshold`
+   - `test_complexity_output_serialization`
+   - `test_field_output_serialization`
+
+5. **`commands/fix.rs`** - 7 tests added:
+   - `test_file_fix_struct`
+   - `test_file_relative_edit_fields`
+   - `test_file_relative_edit_empty_replacement`
+   - `test_apply_edit_to_content`
+   - `test_apply_multiple_edits_reverse_order`
+   - `test_edit_at_start_of_content`
+   - `test_edit_at_end_of_content`
+
+6. **`commands/fragments.rs`** - 3 tests added:
+   - `test_format_path_strips_file_prefix`
+   - `test_format_path_handles_no_prefix`
+   - `test_format_path_relative_when_possible`
+
+7. **`commands/stats.rs`** - 17 tests added:
+   - `test_document_stats_default`
+   - `test_document_stats_total_operations`
+   - `test_document_stats_total_operations_zero`
+   - `test_complexity_stats_default`
+   - `test_complexity_stats_avg_depth`
+   - `test_complexity_stats_avg_depth_empty`
+   - `test_complexity_stats_min_depth`
+   - `test_complexity_stats_min_depth_empty`
+   - `test_complexity_stats_max_depth`
+   - `test_complexity_stats_max_depth_empty`
+   - `test_complexity_stats_avg_fragment_usages`
+   - `test_complexity_stats_avg_fragment_usages_empty`
+   - `test_complexity_stats_total_fragment_usages`
+   - `test_complexity_stats_total_fragment_usages_empty`
+   - `test_project_stats_default`
+
+### graphql-mcp crate
+
+1. **`tools.rs`** - 8 tests added:
+   - `test_validate_params_serialization`
+   - `test_validate_params_deserialization`
+   - `test_validate_params_minimal`
+   - `test_lint_params_serialization`
+   - `test_lint_params_deserialization`
+   - `test_load_project_params_serialization`
+   - `test_load_project_params_deserialization`

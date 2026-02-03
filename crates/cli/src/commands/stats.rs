@@ -272,3 +272,125 @@ impl CliAnalysisHost {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_document_stats_default() {
+        let stats = DocumentStats::default();
+        assert_eq!(stats.files, 0);
+        assert_eq!(stats.queries, 0);
+        assert_eq!(stats.mutations, 0);
+        assert_eq!(stats.subscriptions, 0);
+        assert_eq!(stats.fragments, 0);
+    }
+
+    #[test]
+    fn test_document_stats_total_operations() {
+        let stats = DocumentStats {
+            files: 5,
+            queries: 10,
+            mutations: 5,
+            subscriptions: 2,
+            fragments: 8,
+        };
+        assert_eq!(stats.total_operations(), 17);
+    }
+
+    #[test]
+    fn test_document_stats_total_operations_zero() {
+        let stats = DocumentStats::default();
+        assert_eq!(stats.total_operations(), 0);
+    }
+
+    #[test]
+    fn test_complexity_stats_default() {
+        let stats = ComplexityStats::default();
+        assert!(stats.operation_depths.is_empty());
+        assert!(stats.fragment_usages_per_operation.is_empty());
+    }
+
+    #[test]
+    fn test_complexity_stats_avg_depth() {
+        let stats = ComplexityStats {
+            operation_depths: vec![2, 4, 6],
+            fragment_usages_per_operation: vec![],
+        };
+        assert!((stats.avg_depth() - 4.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_complexity_stats_avg_depth_empty() {
+        let stats = ComplexityStats::default();
+        assert!((stats.avg_depth() - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_complexity_stats_min_depth() {
+        let stats = ComplexityStats {
+            operation_depths: vec![5, 2, 8, 3],
+            fragment_usages_per_operation: vec![],
+        };
+        assert_eq!(stats.min_depth(), 2);
+    }
+
+    #[test]
+    fn test_complexity_stats_min_depth_empty() {
+        let stats = ComplexityStats::default();
+        assert_eq!(stats.min_depth(), 0);
+    }
+
+    #[test]
+    fn test_complexity_stats_max_depth() {
+        let stats = ComplexityStats {
+            operation_depths: vec![5, 2, 8, 3],
+            fragment_usages_per_operation: vec![],
+        };
+        assert_eq!(stats.max_depth(), 8);
+    }
+
+    #[test]
+    fn test_complexity_stats_max_depth_empty() {
+        let stats = ComplexityStats::default();
+        assert_eq!(stats.max_depth(), 0);
+    }
+
+    #[test]
+    fn test_complexity_stats_avg_fragment_usages() {
+        let stats = ComplexityStats {
+            operation_depths: vec![],
+            fragment_usages_per_operation: vec![1, 2, 3, 4],
+        };
+        assert!((stats.avg_fragment_usages() - 2.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_complexity_stats_avg_fragment_usages_empty() {
+        let stats = ComplexityStats::default();
+        assert!((stats.avg_fragment_usages() - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_complexity_stats_total_fragment_usages() {
+        let stats = ComplexityStats {
+            operation_depths: vec![],
+            fragment_usages_per_operation: vec![3, 5, 2],
+        };
+        assert_eq!(stats.total_fragment_usages(), 10);
+    }
+
+    #[test]
+    fn test_complexity_stats_total_fragment_usages_empty() {
+        let stats = ComplexityStats::default();
+        assert_eq!(stats.total_fragment_usages(), 0);
+    }
+
+    #[test]
+    fn test_project_stats_default() {
+        let stats = ProjectStats::default();
+        assert_eq!(stats.documents.files, 0);
+        assert!(stats.complexity.operation_depths.is_empty());
+    }
+}
