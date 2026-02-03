@@ -308,7 +308,6 @@ fn compute_line_deletion_range(
 }
 
 /// Check a selection set for redundant fields
-#[allow(clippy::too_many_lines)]
 fn check_selection_set_for_redundancy(
     selection_set: &cst::SelectionSet,
     fragments: &FragmentRegistry,

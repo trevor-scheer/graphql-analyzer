@@ -17,7 +17,6 @@ use crate::FileRegistry;
 /// Get hover information at a position.
 ///
 /// Returns documentation, type information, etc.
-#[allow(clippy::too_many_lines)]
 pub fn hover(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
     registry: &FileRegistry,

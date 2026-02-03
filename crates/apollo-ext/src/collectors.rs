@@ -371,7 +371,6 @@ pub enum ElementAtOffset {
 ///
 /// Returns the first element whose range contains the offset.
 #[must_use]
-#[allow(clippy::too_many_lines)]
 pub fn find_element_at_offset(tree: &SyntaxTree, offset: usize) -> Option<ElementAtOffset> {
     use crate::{RangeExt, TypeConditionExt};
 

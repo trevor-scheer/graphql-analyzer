@@ -18,7 +18,6 @@ pub struct MergedSchemaResult {
 }
 
 /// Convert apollo-compiler diagnostics to our diagnostic format, grouped by file URI
-#[allow(clippy::cast_possible_truncation)]
 fn collect_apollo_diagnostics(errors: &DiagnosticList) -> HashMap<Arc<str>, Vec<Diagnostic>> {
     let mut diagnostics_by_file: HashMap<Arc<str>, Vec<Diagnostic>> = HashMap::new();
 

@@ -8,7 +8,6 @@ use text_size::TextRange;
 /// Convert a `TextRange` (byte offsets) to `DiagnosticRange` (line/column)
 ///
 /// Uses the `LineIndex` to convert byte offsets to line/column positions.
-#[allow(clippy::cast_possible_truncation)]
 fn text_range_to_diagnostic_range(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,

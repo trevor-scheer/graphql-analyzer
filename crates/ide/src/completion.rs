@@ -15,7 +15,6 @@ use crate::FileRegistry;
 /// Get completions at a position.
 ///
 /// Returns a list of completion items appropriate for the context.
-#[allow(clippy::too_many_lines)]
 pub fn completions(
     db: &dyn graphql_hir::GraphQLHirDatabase,
     registry: &FileRegistry,

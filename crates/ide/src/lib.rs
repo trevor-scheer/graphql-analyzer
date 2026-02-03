@@ -105,7 +105,6 @@ pub struct DiscoveredFile {
 ///
 /// This function performs all file I/O upfront so that lock acquisition
 /// for registration can be brief. Returns the file data ready for registration.
-#[allow(clippy::too_many_lines)]
 pub fn discover_document_files(
     config: &graphql_config::ProjectConfig,
     workspace_path: &std::path::Path,
@@ -204,6 +203,12 @@ fn expand_braces(pattern: &str) -> Vec<String> {
     vec![pattern.to_string()]
 }
 
+/// Check if a path has a given extension (case-insensitive)
+fn has_extension(path: &str, ext: &str) -> bool {
+    path.len() > ext.len()
+        && path.as_bytes()[path.len() - ext.len()..].eq_ignore_ascii_case(ext.as_bytes())
+}
+
 /// Determine `FileKind` for a document file based on its path.
 ///
 /// This is used for files loaded from the `documents` configuration.
@@ -213,11 +218,10 @@ fn expand_braces(pattern: &str) -> Vec<String> {
 ///
 /// Note: Files from the `schema` configuration are always `FileKind::Schema`,
 /// regardless of their extension.
-#[allow(clippy::case_sensitive_file_extension_comparisons)]
 fn determine_document_file_kind(path: &str, _content: &str) -> FileKind {
-    if path.ends_with(".ts") || path.ends_with(".tsx") {
+    if has_extension(path, ".ts") || has_extension(path, ".tsx") {
         FileKind::TypeScript
-    } else if path.ends_with(".js") || path.ends_with(".jsx") {
+    } else if has_extension(path, ".js") || has_extension(path, ".jsx") {
         FileKind::JavaScript
     } else {
         FileKind::ExecutableGraphQL
@@ -894,7 +898,6 @@ impl AnalysisHost {
     ///
     /// Returns a [`SchemaLoadResult`] containing the count of loaded files and any
     /// pending introspection configurations that require async fetching.
-    #[allow(clippy::too_many_lines)]
     pub fn load_schemas_from_config(
         &mut self,
         config: &graphql_config::ProjectConfig,
@@ -1122,7 +1125,6 @@ impl AnalysisHost {
     ///
     /// A vector of `LoadedFile` structs containing file paths and metadata.
     /// The caller can use this information to build file-to-project indexes.
-    #[allow(clippy::too_many_lines)]
     pub fn load_documents_from_config(
         &mut self,
         config: &graphql_config::ProjectConfig,
@@ -1691,7 +1693,6 @@ impl Analysis {
                 for doc in parse.documents() {
                     if let Some(ranges) = find_operation_definition_ranges(doc.tree, name) {
                         let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-                        #[allow(clippy::cast_possible_truncation)]
                         let doc_line_offset = doc.line_offset as u32;
                         found_range = Some(adjust_range_for_line_offset(
                             offset_range_to_range(
@@ -1972,7 +1973,6 @@ impl Analysis {
         for doc in parse.documents() {
             if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name) {
                 let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-                #[allow(clippy::cast_possible_truncation)]
                 let range = adjust_range_for_line_offset(
                     offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
                     doc.line_offset as u32,
@@ -3682,7 +3682,7 @@ type Move {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines)]
+
     fn test_typescript_off_by_one_parent_completions() {
         let schema = r#"
 type Query { allPokemon(region: Region!, limit: Int): PokemonConnection }
@@ -3810,7 +3810,7 @@ enum Region { KANTO JOHTO }
     }
 
     #[test]
-    #[allow(clippy::too_many_lines)]
+
     fn test_typescript_deeply_nested_completions() {
         let schema = r#"
 type Query { allPokemon(region: Region!, limit: Int): PokemonConnection }
@@ -4044,7 +4044,7 @@ query TestEvolution {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines)]
+
     fn test_completions_for_interface_type_suggest_fields_and_inline_fragments() {
         let schema = r#"
 type Query { evolution: EvolutionEdge }

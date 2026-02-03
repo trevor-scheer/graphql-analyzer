@@ -126,7 +126,6 @@ fn check_document_for_deprecated(
 }
 
 /// Check a selection set for deprecated field usage
-#[allow(clippy::too_many_lines)]
 fn check_selection_set(
     selection_set: &cst::SelectionSet,
     parent_type_name: Option<&str>,

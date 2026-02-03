@@ -18,7 +18,6 @@ use crate::FileRegistry;
 ///
 /// Returns types, operations, and fragments with their fields as children.
 /// This powers the "Go to Symbol in Editor" (Cmd+Shift+O) feature.
-#[allow(clippy::too_many_lines)]
 pub fn document_symbols(
     db: &dyn graphql_hir::GraphQLHirDatabase,
     registry: &FileRegistry,
@@ -47,7 +46,6 @@ pub fn document_symbols(
 
     for doc in parse.documents() {
         let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-        #[allow(clippy::cast_possible_truncation)]
         let doc_line_offset = doc.line_offset as u32;
 
         let definitions = extract_all_definitions(doc.tree);
@@ -341,7 +339,6 @@ fn get_type_location(
     for doc in parse.documents() {
         if let Some(ranges) = find_type_definition_full_range(doc.tree, &type_def.name) {
             let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-            #[allow(clippy::cast_possible_truncation)]
             let range = adjust_range_for_line_offset(
                 offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
                 doc.line_offset as u32,
@@ -368,7 +365,6 @@ fn get_fragment_location(
     for doc in parse.documents() {
         if let Some(ranges) = find_fragment_definition_full_range(doc.tree, &fragment.name) {
             let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-            #[allow(clippy::cast_possible_truncation)]
             let range = adjust_range_for_line_offset(
                 offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
                 doc.line_offset as u32,
@@ -397,7 +393,6 @@ fn get_operation_location(
     for doc in parse.documents() {
         if let Some(ranges) = find_operation_definition_ranges(doc.tree, op_name) {
             let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-            #[allow(clippy::cast_possible_truncation)]
             let range = adjust_range_for_line_offset(
                 offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
                 doc.line_offset as u32,

@@ -23,7 +23,6 @@ use crate::{helpers::find_block_for_position, symbol, FileRegistry};
 /// Get goto definition locations for the symbol at a position.
 ///
 /// Returns the definition location(s) for types, fields, fragments, etc.
-#[allow(clippy::too_many_lines)]
 pub fn goto_definition(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
     registry: &FileRegistry,
@@ -105,7 +104,6 @@ pub fn goto_definition(
                             ranges.name_start,
                             ranges.name_end,
                         );
-                        #[allow(clippy::cast_possible_truncation)]
                         let adjusted_range =
                             adjust_range_for_line_offset(range, doc.line_offset as u32);
                         return Some(vec![Location::new(file_path, adjusted_range)]);
@@ -223,7 +221,6 @@ pub fn goto_definition(
 
                 for doc in schema_parse.documents() {
                     let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-                    #[allow(clippy::cast_possible_truncation)]
                     if let Some(range) = find_argument_definition_in_tree(
                         doc.tree,
                         &parent_type_name,
