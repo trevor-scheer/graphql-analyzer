@@ -624,16 +624,23 @@ struct ExtractConfigInput {
 
 /// Custom database that implements config traits
 ///
-/// Config is now stored as Salsa inputs (`LintConfigInput` and `ExtractConfigInput`)
-/// instead of `Arc<RwLock<...>>` wrappers. This allows Salsa to properly track config
-/// dependencies and only invalidate affected queries when config changes.
+/// All configuration is now stored as Salsa inputs (`LintConfigInput`, `ExtractConfigInput`,
+/// and `ProjectFiles`) instead of `Arc<RwLock<...>>` wrappers. This allows Salsa to properly
+/// track config dependencies and only invalidate affected queries when inputs change.
+///
+/// Queries can access `project_files` via `db.project_files()` and Salsa will automatically
+/// track dependencies when the query calls getters like `project_files.schema_file_ids(db)`.
 #[salsa::db]
 #[derive(Clone)]
 struct IdeDatabase {
     storage: salsa::Storage<Self>,
     lint_config_input: Option<LintConfigInput>,
     extract_config_input: Option<ExtractConfigInput>,
-    project_files: Arc<RwLock<Option<graphql_base_db::ProjectFiles>>>,
+    /// Project files input - stores the current `ProjectFiles` Salsa input directly.
+    /// Unlike the old `Arc<RwLock<...>>` approach, this enables proper Salsa dependency
+    /// tracking: queries that call `db.project_files()` and then access fields like
+    /// `project_files.schema_file_ids(db)` will have their dependencies tracked.
+    project_files_input: Option<graphql_base_db::ProjectFiles>,
 }
 
 impl Default for IdeDatabase {
@@ -642,7 +649,7 @@ impl Default for IdeDatabase {
             storage: salsa::Storage::default(),
             lint_config_input: None,
             extract_config_input: None,
-            project_files: Arc::new(RwLock::new(None)),
+            project_files_input: None,
         };
 
         // Initialize with default configs as Salsa inputs
@@ -673,7 +680,7 @@ impl graphql_syntax::GraphQLSyntaxDatabase for IdeDatabase {
 #[salsa::db]
 impl graphql_hir::GraphQLHirDatabase for IdeDatabase {
     fn project_files(&self) -> Option<graphql_base_db::ProjectFiles> {
-        *self.project_files.read()
+        self.project_files_input
     }
 }
 
@@ -770,9 +777,16 @@ impl AnalysisHost {
     /// This should be called after batch adding files to avoid O(n²) performance.
     /// It's relatively expensive as it iterates through all files, so avoid calling
     /// it in a loop.
+    ///
+    /// This method also syncs the `ProjectFiles` to the database so queries can
+    /// access it via `db.project_files()`.
     pub fn rebuild_project_files(&mut self) {
         let mut registry = self.registry.write();
         registry.rebuild_project_files(&mut self.db);
+
+        // Sync project_files from registry to database
+        // This enables queries to access project_files via db.project_files()
+        self.db.project_files_input = registry.project_files();
     }
 
     /// Add multiple files in batch, then rebuild the project index once
@@ -808,6 +822,8 @@ impl AnalysisHost {
         // Only rebuild if at least one file was new
         if any_new {
             registry.rebuild_project_files(&mut self.db);
+            // Sync project_files from registry to database
+            self.db.project_files_input = registry.project_files();
         }
     }
 
@@ -832,16 +848,16 @@ impl AnalysisHost {
         let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, kind);
 
         // If this is a new file, rebuild the index before creating snapshot
+        // This also syncs project_files to self.db.project_files_input
         if is_new {
             registry.rebuild_project_files(&mut self.db);
+            // Sync project_files from registry to database
+            self.db.project_files_input = registry.project_files();
         }
 
-        let project_files = registry.project_files();
+        let project_files = self.db.project_files_input;
         // Release the lock before creating the snapshot (no longer needed)
         drop(registry);
-
-        // Sync project_files to the database
-        *self.db.project_files.write() = project_files;
 
         let snapshot = Analysis {
             db: self.db.clone(),
@@ -1219,14 +1235,13 @@ impl AnalysisHost {
     /// on this `AnalysisHost`. This is required by Salsa's single-writer model.
     /// See the struct-level documentation for details and examples.
     pub fn snapshot(&self) -> Analysis {
-        let project_files = self.registry.read().project_files();
+        // project_files is already synced to the database in rebuild_project_files()
+        // Queries access it via db.project_files()
+        let project_files = self.db.project_files_input;
 
-        if let Some(ref project_files) = project_files {
-            let doc_count = project_files
-                .document_file_ids(&self.db)
-                .ids(&self.db)
-                .len();
-            let schema_count = project_files.schema_file_ids(&self.db).ids(&self.db).len();
+        if let Some(ref pf) = project_files {
+            let doc_count = pf.document_file_ids(&self.db).ids(&self.db).len();
+            let schema_count = pf.schema_file_ids(&self.db).ids(&self.db).len();
             tracing::debug!(
                 "Snapshot project_files: {} schema files, {} document files",
                 schema_count,
@@ -1235,9 +1250,6 @@ impl AnalysisHost {
         } else {
             tracing::warn!("Snapshot project_files is None!");
         }
-
-        // Sync project_files to the database so queries can access it via db.project_files()
-        *self.db.project_files.write() = project_files;
 
         Analysis {
             db: self.db.clone(),
