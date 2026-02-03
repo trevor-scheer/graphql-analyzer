@@ -730,6 +730,57 @@ impl ProjectStatus {
     }
 }
 
+/// Selection range for smart expand/shrink selection.
+///
+/// Represents a range at a cursor position with an optional parent range
+/// for progressively expanding selection. Used by `textDocument/selectionRange`.
+///
+/// Selection ranges form a linked list from innermost to outermost:
+/// - field name → field with args → selection set → operation body → operation → document
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectionRange {
+    /// The range of this selection
+    pub range: Range,
+    /// The parent selection range (enclosing scope)
+    pub parent: Option<Box<SelectionRange>>,
+}
+
+impl SelectionRange {
+    /// Create a new selection range without a parent
+    #[must_use]
+    pub const fn new(range: Range) -> Self {
+        Self {
+            range,
+            parent: None,
+        }
+    }
+
+    /// Create a new selection range with a parent
+    #[must_use]
+    pub fn with_parent(range: Range, parent: Self) -> Self {
+        Self {
+            range,
+            parent: Some(Box::new(parent)),
+        }
+    }
+
+    /// Build a selection range chain from a list of ranges (outermost to innermost)
+    ///
+    /// The first range is the outermost (document), the last is the innermost (current selection).
+    #[must_use]
+    pub fn from_ranges(ranges: &[Range]) -> Option<Self> {
+        if ranges.is_empty() {
+            return None;
+        }
+
+        let mut result = Self::new(ranges[0]);
+        for range in ranges.iter().skip(1) {
+            result = Self::with_parent(*range, result);
+        }
+        Some(result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -58,6 +58,7 @@ mod goto_definition;
 mod hover;
 mod inlay_hints;
 mod references;
+mod selection_range;
 mod semantic_tokens;
 mod symbols;
 
@@ -67,7 +68,7 @@ pub use types::{
     DiagnosticSeverity, DocumentSymbol, FilePath, FoldingRange, FoldingRangeKind,
     FragmentReference, FragmentUsage, HoverResult, InlayHint, InlayHintKind, InsertTextFormat,
     Location, PendingIntrospection, Position, ProjectStatus, Range, SchemaLoadResult, SchemaStats,
-    SymbolKind, TextEdit, WorkspaceSymbol,
+    SelectionRange, SymbolKind, TextEdit, WorkspaceSymbol,
 };
 
 // Re-export helpers for internal use
@@ -1797,6 +1798,21 @@ impl Analysis {
             fragment_name,
             include_declaration,
         )
+    }
+
+    /// Get selection ranges for smart expand/shrink selection
+    ///
+    /// Returns a `SelectionRange` for each input position, forming a linked list
+    /// from the innermost syntax element to the outermost (document).
+    /// This powers the "Expand Selection" (Shift+Alt+Right) and
+    /// "Shrink Selection" (Shift+Alt+Left) features.
+    pub fn selection_ranges(
+        &self,
+        file: &FilePath,
+        positions: &[Position],
+    ) -> Vec<Option<SelectionRange>> {
+        let registry = self.registry.read();
+        selection_range::selection_ranges(&self.db, &registry, file, positions)
     }
 
     /// Get code lenses for deprecated fields in a schema file
