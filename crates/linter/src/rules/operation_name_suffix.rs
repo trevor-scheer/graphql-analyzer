@@ -100,3 +100,168 @@ impl StandaloneDocumentLintRule for OperationNameSuffixRuleImpl {
         diagnostics
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::traits::StandaloneDocumentLintRule;
+    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+    use graphql_ide_db::RootDatabase;
+    use std::sync::Arc;
+
+    fn create_empty_project_files(db: &RootDatabase) -> ProjectFiles {
+        let schema_file_ids = graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![]));
+        let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![]));
+        let file_entry_map =
+            graphql_base_db::FileEntryMap::new(db, Arc::new(std::collections::HashMap::new()));
+        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+    }
+
+    fn run_rule(db: &RootDatabase, source: &str) -> Vec<LintDiagnostic> {
+        let file_id = FileId::new(0);
+        let content = FileContent::new(db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            db,
+            file_id,
+            FileUri::new("test.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+        let project_files = create_empty_project_files(db);
+
+        let rule = OperationNameSuffixRuleImpl;
+        rule.check(db, file_id, content, metadata, project_files, None)
+    }
+
+    #[test]
+    fn test_query_with_correct_suffix() {
+        let db = RootDatabase::default();
+        let source = "query GetUserQuery { user { id } }";
+
+        let diagnostics = run_rule(&db, source);
+
+        assert_eq!(diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn test_query_without_suffix_warns() {
+        let db = RootDatabase::default();
+        let source = "query GetUser { user { id } }";
+
+        let diagnostics = run_rule(&db, source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("GetUser"));
+        assert!(diagnostics[0].message.contains("Query"));
+    }
+
+    #[test]
+    fn test_mutation_with_correct_suffix() {
+        let db = RootDatabase::default();
+        let source = "mutation UpdateUserMutation { updateUser { id } }";
+
+        let diagnostics = run_rule(&db, source);
+
+        assert_eq!(diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn test_mutation_without_suffix_warns() {
+        let db = RootDatabase::default();
+        let source = "mutation UpdateUser { updateUser { id } }";
+
+        let diagnostics = run_rule(&db, source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("UpdateUser"));
+        assert!(diagnostics[0].message.contains("Mutation"));
+    }
+
+    #[test]
+    fn test_subscription_with_correct_suffix() {
+        let db = RootDatabase::default();
+        let source = "subscription OnUserUpdateSubscription { userUpdated { id } }";
+
+        let diagnostics = run_rule(&db, source);
+
+        assert_eq!(diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn test_subscription_without_suffix_warns() {
+        let db = RootDatabase::default();
+        let source = "subscription OnUserUpdate { userUpdated { id } }";
+
+        let diagnostics = run_rule(&db, source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("OnUserUpdate"));
+        assert!(diagnostics[0].message.contains("Subscription"));
+    }
+
+    #[test]
+    fn test_anonymous_query_no_warning() {
+        let db = RootDatabase::default();
+        let source = "{ user { id } }";
+
+        let diagnostics = run_rule(&db, source);
+
+        assert_eq!(diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn test_anonymous_mutation_no_warning() {
+        let db = RootDatabase::default();
+        let source = "mutation { updateUser { id } }";
+
+        let diagnostics = run_rule(&db, source);
+
+        assert_eq!(diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn test_multiple_operations_mixed() {
+        let db = RootDatabase::default();
+        let source = r"
+query GetUserQuery { user { id } }
+query FetchPosts { posts { id } }
+mutation UpdateUserMutation { updateUser { id } }
+";
+
+        let diagnostics = run_rule(&db, source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("FetchPosts"));
+    }
+
+    #[test]
+    fn test_wrong_suffix_for_operation_type() {
+        let db = RootDatabase::default();
+        let source = "mutation UpdateUserQuery { updateUser { id } }";
+
+        let diagnostics = run_rule(&db, source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("Mutation"));
+    }
+
+    #[test]
+    fn test_shorthand_query_no_warning() {
+        let db = RootDatabase::default();
+        let source = "query { user { id } }";
+
+        let diagnostics = run_rule(&db, source);
+
+        assert_eq!(diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn test_suggestion_includes_correct_suffix() {
+        let db = RootDatabase::default();
+        let source = "query GetUser { user { id } }";
+
+        let diagnostics = run_rule(&db, source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("GetUserQuery"));
+    }
+}

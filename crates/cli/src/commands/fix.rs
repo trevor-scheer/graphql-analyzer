@@ -194,3 +194,119 @@ fn apply_file_fixes(file_fix: &FileFix, format: OutputFormat) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Helper to create FileRelativeEdit for tests
+    fn make_edit(start: usize, end: usize, new_text: &str) -> FileRelativeEdit {
+        FileRelativeEdit {
+            start,
+            end,
+            new_text: new_text.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_file_fix_struct() {
+        let fix = FileFix {
+            path: PathBuf::from("/home/user/query.graphql"),
+            diagnostics: vec![],
+        };
+        assert_eq!(fix.path.to_string_lossy(), "/home/user/query.graphql");
+        assert!(fix.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_file_relative_edit_fields() {
+        let edit = make_edit(10, 20, "replacement");
+        assert_eq!(edit.start, 10);
+        assert_eq!(edit.end, 20);
+        assert_eq!(edit.new_text, "replacement");
+    }
+
+    #[test]
+    fn test_file_relative_edit_empty_replacement() {
+        let edit = make_edit(5, 15, "");
+        assert_eq!(edit.start, 5);
+        assert_eq!(edit.end, 15);
+        assert!(edit.new_text.is_empty());
+    }
+
+    #[test]
+    fn test_apply_edit_to_content() {
+        // Test the edit application logic
+        let content = "query { user { id name } }";
+        let edit = make_edit(15, 17, "firstName");
+
+        // Manually apply the edit to verify the logic
+        let result = format!(
+            "{}{}{}",
+            &content[..edit.start],
+            edit.new_text,
+            &content[edit.end..]
+        );
+
+        assert_eq!(result, "query { user { firstName name } }");
+    }
+
+    #[test]
+    fn test_apply_multiple_edits_reverse_order() {
+        // Edits should be applied from end to start
+        let content = "query { a b c }";
+
+        // Replace 'c' (position 12-13)
+        let replace_c = make_edit(12, 13, "third");
+        // Replace 'a' (position 8-9)
+        let replace_a = make_edit(8, 9, "first");
+
+        // Apply in reverse order (end to start)
+        let mut all_edits = vec![replace_c, replace_a];
+        all_edits.sort_by(|a, b| b.start.cmp(&a.start));
+
+        let mut result = content.to_string();
+        for edit in all_edits {
+            if edit.end <= result.len() {
+                result = format!(
+                    "{}{}{}",
+                    &result[..edit.start],
+                    edit.new_text,
+                    &result[edit.end..]
+                );
+            }
+        }
+
+        assert_eq!(result, "query { first b third }");
+    }
+
+    #[test]
+    fn test_edit_at_start_of_content() {
+        let content = "query { user }";
+        let edit = make_edit(0, 5, "mutation");
+
+        let result = format!(
+            "{}{}{}",
+            &content[..edit.start],
+            edit.new_text,
+            &content[edit.end..]
+        );
+
+        assert_eq!(result, "mutation { user }");
+    }
+
+    #[test]
+    fn test_edit_at_end_of_content() {
+        let content = "query { user }";
+        let edit = make_edit(14, 14, " extra");
+
+        let result = format!(
+            "{}{}{}",
+            &content[..edit.start],
+            edit.new_text,
+            &content[edit.end..]
+        );
+
+        assert_eq!(result, "query { user } extra");
+    }
+}

@@ -484,3 +484,62 @@ fn count_fragment_spreads_in_selection_set(
 
     count
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_path_to_file_uri_absolute_unix_path() {
+        let result = path_to_file_uri(std::path::Path::new("/home/user/file.graphql"));
+        assert_eq!(result, "file:///home/user/file.graphql");
+    }
+
+    #[test]
+    fn test_path_to_file_uri_already_file_uri() {
+        let result = path_to_file_uri(std::path::Path::new("file:///home/user/file.graphql"));
+        assert_eq!(result, "file:///home/user/file.graphql");
+    }
+
+    #[test]
+    fn test_path_to_file_uri_other_scheme() {
+        let result = path_to_file_uri(std::path::Path::new("https://example.com/schema.graphql"));
+        assert_eq!(result, "https://example.com/schema.graphql");
+    }
+
+    #[test]
+    fn test_path_to_file_uri_relative_path() {
+        let result = path_to_file_uri(std::path::Path::new("src/schema.graphql"));
+        assert_eq!(result, "file:///src/schema.graphql");
+    }
+
+    #[test]
+    fn test_expand_braces_single_brace_group() {
+        let result = CliAnalysisHost::expand_braces("src/**/*.{ts,tsx}");
+        assert_eq!(result, vec!["src/**/*.ts", "src/**/*.tsx"]);
+    }
+
+    #[test]
+    fn test_expand_braces_three_options() {
+        let result = CliAnalysisHost::expand_braces("**/*.{js,jsx,ts}");
+        assert_eq!(result, vec!["**/*.js", "**/*.jsx", "**/*.ts"]);
+    }
+
+    #[test]
+    fn test_expand_braces_no_braces() {
+        let result = CliAnalysisHost::expand_braces("src/**/*.graphql");
+        assert_eq!(result, vec!["src/**/*.graphql"]);
+    }
+
+    #[test]
+    fn test_expand_braces_with_spaces() {
+        let result = CliAnalysisHost::expand_braces("src/**/*.{ts, tsx}");
+        assert_eq!(result, vec!["src/**/*.ts", "src/**/*.tsx"]);
+    }
+
+    #[test]
+    fn test_expand_braces_single_option() {
+        let result = CliAnalysisHost::expand_braces("src/**/*.{graphql}");
+        assert_eq!(result, vec!["src/**/*.graphql"]);
+    }
+}

@@ -29,3 +29,60 @@ pub fn spinner(message: &str) -> ProgressBar {
     pb.enable_steady_tick(std::time::Duration::from_millis(80));
     pb
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_ci_detects_ci_env() {
+        // Save original values
+        let ci_orig = std::env::var("CI").ok();
+
+        // Set CI environment variable
+        std::env::set_var("CI", "true");
+        assert!(is_ci());
+
+        // Restore original value
+        if let Some(val) = ci_orig {
+            std::env::set_var("CI", val);
+        } else {
+            std::env::remove_var("CI");
+        }
+    }
+
+    #[test]
+    fn test_is_ci_detects_github_actions() {
+        // Save original values
+        let github_orig = std::env::var("GITHUB_ACTIONS").ok();
+        let ci_orig = std::env::var("CI").ok();
+
+        // Remove CI and set GITHUB_ACTIONS
+        std::env::remove_var("CI");
+        std::env::set_var("GITHUB_ACTIONS", "true");
+        assert!(is_ci());
+
+        // Restore original values
+        if let Some(val) = github_orig {
+            std::env::set_var("GITHUB_ACTIONS", val);
+        } else {
+            std::env::remove_var("GITHUB_ACTIONS");
+        }
+        if let Some(val) = ci_orig {
+            std::env::set_var("CI", val);
+        }
+    }
+
+    #[test]
+    fn test_spinner_creates_progressbar() {
+        let pb = spinner("Loading...");
+        // Just verify it doesn't panic and returns a progress bar
+        pb.finish_and_clear();
+    }
+
+    #[test]
+    fn test_spinner_with_empty_message() {
+        let pb = spinner("");
+        pb.finish_and_clear();
+    }
+}

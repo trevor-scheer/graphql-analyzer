@@ -238,3 +238,433 @@ fn is_introspection_type(type_name: &str) -> bool {
 fn is_introspection_field(field_name: &str) -> bool {
     matches!(field_name, "__typename" | "__schema" | "__type")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::traits::ProjectLintRule;
+    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+    use graphql_ide_db::RootDatabase;
+    use std::sync::Arc;
+
+    fn create_test_project(
+        db: &dyn graphql_hir::GraphQLHirDatabase,
+        schema_source: &str,
+        document_source: &str,
+    ) -> ProjectFiles {
+        let schema_file_id = FileId::new(0);
+        let schema_content = FileContent::new(db, Arc::from(schema_source));
+        let schema_metadata = FileMetadata::new(
+            db,
+            schema_file_id,
+            FileUri::new("file:///schema.graphql"),
+            FileKind::Schema,
+        );
+
+        let doc_file_id = FileId::new(1);
+        let doc_content = FileContent::new(db, Arc::from(document_source));
+        let doc_metadata = FileMetadata::new(
+            db,
+            doc_file_id,
+            FileUri::new("file:///query.graphql"),
+            FileKind::ExecutableGraphQL,
+        );
+
+        let schema_file_ids =
+            graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
+        let document_file_ids =
+            graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![doc_file_id]));
+        let mut file_entries = std::collections::HashMap::new();
+        let schema_entry = graphql_base_db::FileEntry::new(db, schema_content, schema_metadata);
+        let doc_entry = graphql_base_db::FileEntry::new(db, doc_content, doc_metadata);
+        file_entries.insert(schema_file_id, schema_entry);
+        file_entries.insert(doc_file_id, doc_entry);
+        let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(file_entries));
+
+        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+    }
+
+    #[test]
+    fn test_all_fields_used_no_warning() {
+        let db = RootDatabase::default();
+        let rule = UnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    name: String!
+}
+";
+
+        let document = r"
+query GetUser {
+    user {
+        id
+        name
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_unused_field_warning() {
+        let db = RootDatabase::default();
+        let rule = UnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    name: String!
+    unusedField: String
+}
+";
+
+        let document = r"
+query GetUser {
+    user {
+        id
+        name
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        let file_diags = diagnostics.values().next().unwrap();
+        assert_eq!(file_diags.len(), 1);
+        assert!(file_diags[0].message.contains("User.unusedField"));
+        assert!(file_diags[0].message.contains("never used"));
+    }
+
+    #[test]
+    fn test_field_used_in_fragment_not_reported() {
+        let db = RootDatabase::default();
+        let rule = UnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    name: String!
+    email: String
+}
+";
+
+        let document = r"
+fragment UserFields on User {
+    id
+    name
+    email
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_root_type_fields_not_reported() {
+        let db = RootDatabase::default();
+        let rule = UnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+    posts: [Post!]!
+}
+
+type User {
+    id: ID!
+}
+
+type Post {
+    id: ID!
+}
+";
+
+        let document = r"
+query GetUser {
+    user {
+        id
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        let root_type_warnings: Vec<_> = diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.message.contains("Query.posts"))
+            .collect();
+        assert!(
+            root_type_warnings.is_empty(),
+            "Root type fields should not be reported as unused"
+        );
+    }
+
+    #[test]
+    fn test_introspection_types_not_reported() {
+        let db = RootDatabase::default();
+        let rule = UnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+}
+";
+
+        let document = r"
+query GetUser {
+    user {
+        id
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        let introspection_warnings: Vec<_> = diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.message.contains("__"))
+            .collect();
+        assert!(
+            introspection_warnings.is_empty(),
+            "Introspection types should not be reported as unused"
+        );
+    }
+
+    #[test]
+    fn test_multiple_unused_fields() {
+        let db = RootDatabase::default();
+        let rule = UnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    name: String!
+    email: String
+    phone: String
+}
+";
+
+        let document = r"
+query GetUser {
+    user {
+        id
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        let total_diags: usize = diagnostics.values().map(Vec::len).sum();
+        assert_eq!(total_diags, 3);
+    }
+
+    #[test]
+    fn test_interface_field_used_through_interface() {
+        let db = RootDatabase::default();
+        let rule = UnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    node: Node
+}
+
+interface Node {
+    id: ID!
+}
+
+type User implements Node {
+    id: ID!
+    name: String!
+}
+";
+
+        let document = r"
+query GetNode {
+    node {
+        id
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        let interface_id_warnings: Vec<_> = diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.message.contains("Node.id"))
+            .collect();
+        assert!(
+            interface_id_warnings.is_empty(),
+            "Interface Node.id field should not be reported when used"
+        );
+    }
+
+    #[test]
+    fn test_implementing_type_field_tracked_separately() {
+        let db = RootDatabase::default();
+        let rule = UnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    name: String!
+}
+";
+
+        let document = r"
+query GetUser {
+    user {
+        id
+        name
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert!(
+            diagnostics.is_empty(),
+            "All fields are used, no warnings expected"
+        );
+    }
+
+    #[test]
+    fn test_nested_field_used() {
+        let db = RootDatabase::default();
+        let rule = UnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    profile: Profile
+}
+
+type Profile {
+    bio: String
+    avatar: String
+}
+";
+
+        let document = r"
+query GetUser {
+    user {
+        id
+        profile {
+            bio
+        }
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        let avatar_warnings: Vec<_> = diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.message.contains("Profile.avatar"))
+            .collect();
+        assert_eq!(
+            avatar_warnings.len(),
+            1,
+            "Unused avatar field should be reported"
+        );
+    }
+
+    #[test]
+    fn test_custom_schema_definition_root_types() {
+        let db = RootDatabase::default();
+        let rule = UnusedFieldsRuleImpl;
+
+        let schema = r"
+schema {
+    query: RootQuery
+    mutation: RootMutation
+}
+
+type RootQuery {
+    user: User
+    posts: [Post!]!
+}
+
+type RootMutation {
+    createUser: User
+}
+
+type User {
+    id: ID!
+}
+
+type Post {
+    id: ID!
+}
+";
+
+        let document = r"
+query GetUser {
+    user {
+        id
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        let root_query_warnings: Vec<_> = diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.message.contains("RootQuery."))
+            .collect();
+        assert!(
+            root_query_warnings.is_empty(),
+            "Custom root type fields should not be reported as unused"
+        );
+    }
+}

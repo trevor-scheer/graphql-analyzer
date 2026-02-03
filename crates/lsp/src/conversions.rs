@@ -428,3 +428,193 @@ pub fn convert_ide_selection_range(
             .map(|parent| Box::new(convert_ide_selection_range(*parent))),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_convert_lsp_position() {
+        let lsp_pos = Position {
+            line: 5,
+            character: 10,
+        };
+        let ide_pos = convert_lsp_position(lsp_pos);
+        assert_eq!(ide_pos.line, 5);
+        assert_eq!(ide_pos.character, 10);
+    }
+
+    #[test]
+    fn test_convert_ide_position() {
+        let ide_pos = graphql_ide::Position::new(3, 7);
+        let lsp_pos = convert_ide_position(ide_pos);
+        assert_eq!(lsp_pos.line, 3);
+        assert_eq!(lsp_pos.character, 7);
+    }
+
+    #[test]
+    fn test_convert_ide_range() {
+        let ide_range = graphql_ide::Range {
+            start: graphql_ide::Position::new(1, 0),
+            end: graphql_ide::Position::new(5, 10),
+        };
+        let lsp_range = convert_ide_range(ide_range);
+        assert_eq!(lsp_range.start.line, 1);
+        assert_eq!(lsp_range.start.character, 0);
+        assert_eq!(lsp_range.end.line, 5);
+        assert_eq!(lsp_range.end.character, 10);
+    }
+
+    #[test]
+    fn test_convert_ide_location() {
+        let ide_loc = graphql_ide::Location::new(
+            graphql_ide::FilePath::new("file:///test.graphql"),
+            graphql_ide::Range {
+                start: graphql_ide::Position::new(0, 0),
+                end: graphql_ide::Position::new(1, 5),
+            },
+        );
+        let lsp_loc = convert_ide_location(&ide_loc);
+        assert_eq!(lsp_loc.uri.as_str(), "file:///test.graphql");
+        assert_eq!(lsp_loc.range.start.line, 0);
+        assert_eq!(lsp_loc.range.end.line, 1);
+    }
+
+    #[test]
+    fn test_convert_ide_completion_item_field() {
+        let ide_item = graphql_ide::CompletionItem::new(
+            "name".to_string(),
+            graphql_ide::CompletionKind::Field,
+        );
+        let lsp_item = convert_ide_completion_item(ide_item);
+        assert_eq!(lsp_item.label, "name");
+        assert_eq!(lsp_item.kind, Some(lsp_types::CompletionItemKind::FIELD));
+    }
+
+    #[test]
+    fn test_convert_ide_completion_item_fragment() {
+        let ide_item = graphql_ide::CompletionItem::new(
+            "UserFields".to_string(),
+            graphql_ide::CompletionKind::Fragment,
+        );
+        let lsp_item = convert_ide_completion_item(ide_item);
+        assert_eq!(lsp_item.label, "UserFields");
+        assert_eq!(lsp_item.kind, Some(lsp_types::CompletionItemKind::SNIPPET));
+    }
+
+    #[test]
+    fn test_convert_ide_completion_item_with_detail() {
+        let ide_item =
+            graphql_ide::CompletionItem::new("id".to_string(), graphql_ide::CompletionKind::Field)
+                .with_detail("ID!".to_string());
+        let lsp_item = convert_ide_completion_item(ide_item);
+        assert_eq!(lsp_item.detail, Some("ID!".to_string()));
+    }
+
+    #[test]
+    fn test_convert_ide_hover() {
+        let ide_hover = graphql_ide::HoverResult {
+            contents: "**User**\nA user in the system".to_string(),
+            range: Some(graphql_ide::Range {
+                start: graphql_ide::Position::new(0, 0),
+                end: graphql_ide::Position::new(0, 4),
+            }),
+        };
+        let lsp_hover = convert_ide_hover(ide_hover);
+        if let lsp_types::HoverContents::Markup(markup) = lsp_hover.contents {
+            assert!(markup.value.contains("User"));
+        } else {
+            panic!("Expected markup contents");
+        }
+    }
+
+    #[test]
+    fn test_convert_ide_diagnostic_error() {
+        let ide_diag = graphql_ide::Diagnostic {
+            severity: graphql_ide::DiagnosticSeverity::Error,
+            message: "Unknown field".to_string(),
+            range: graphql_ide::Range::new(
+                graphql_ide::Position::new(1, 2),
+                graphql_ide::Position::new(1, 10),
+            ),
+            source: "graphql".to_string(),
+            code: Some("unknown-field".to_string()),
+            fix: None,
+        };
+        let lsp_diag = convert_ide_diagnostic(ide_diag);
+        assert_eq!(lsp_diag.severity, Some(DiagnosticSeverity::ERROR));
+        assert_eq!(lsp_diag.message, "Unknown field");
+        assert_eq!(lsp_diag.source, Some("graphql".to_string()));
+    }
+
+    #[test]
+    fn test_convert_ide_diagnostic_warning() {
+        let ide_diag = graphql_ide::Diagnostic {
+            severity: graphql_ide::DiagnosticSeverity::Warning,
+            message: "Deprecated field".to_string(),
+            range: graphql_ide::Range::new(
+                graphql_ide::Position::new(0, 0),
+                graphql_ide::Position::new(0, 0),
+            ),
+            source: "linter".to_string(),
+            code: None,
+            fix: None,
+        };
+        let lsp_diag = convert_ide_diagnostic(ide_diag);
+        assert_eq!(lsp_diag.severity, Some(DiagnosticSeverity::WARNING));
+    }
+
+    #[test]
+    fn test_convert_ide_symbol_kind() {
+        assert_eq!(
+            convert_ide_symbol_kind(graphql_ide::SymbolKind::Type),
+            lsp_types::SymbolKind::CLASS
+        );
+        assert_eq!(
+            convert_ide_symbol_kind(graphql_ide::SymbolKind::Field),
+            lsp_types::SymbolKind::FIELD
+        );
+        assert_eq!(
+            convert_ide_symbol_kind(graphql_ide::SymbolKind::Query),
+            lsp_types::SymbolKind::FUNCTION
+        );
+        assert_eq!(
+            convert_ide_symbol_kind(graphql_ide::SymbolKind::Scalar),
+            lsp_types::SymbolKind::TYPE_PARAMETER
+        );
+        assert_eq!(
+            convert_ide_symbol_kind(graphql_ide::SymbolKind::Interface),
+            lsp_types::SymbolKind::INTERFACE
+        );
+    }
+
+    #[test]
+    fn test_convert_ide_folding_range() {
+        let ide_range = graphql_ide::FoldingRange {
+            start_line: 0,
+            end_line: 5,
+            kind: graphql_ide::FoldingRangeKind::Region,
+        };
+        let lsp_range = convert_ide_folding_range(&ide_range);
+        assert_eq!(lsp_range.start_line, 0);
+        assert_eq!(lsp_range.end_line, 5);
+        assert_eq!(lsp_range.kind, Some(FoldingRangeKind::Region));
+    }
+
+    #[test]
+    fn test_convert_ide_inlay_hint() {
+        let ide_hint = graphql_ide::InlayHint {
+            position: graphql_ide::Position::new(1, 5),
+            label: ": String".to_string(),
+            kind: graphql_ide::InlayHintKind::Type,
+            padding_left: true,
+            padding_right: false,
+        };
+        let lsp_hint = convert_ide_inlay_hint(&ide_hint);
+        assert_eq!(lsp_hint.position.line, 1);
+        assert_eq!(lsp_hint.position.character, 5);
+        assert_eq!(lsp_hint.kind, Some(InlayHintKind::TYPE));
+        assert_eq!(lsp_hint.padding_left, Some(true));
+        assert_eq!(lsp_hint.padding_right, Some(false));
+    }
+}

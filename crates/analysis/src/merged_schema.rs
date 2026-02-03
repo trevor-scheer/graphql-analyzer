@@ -175,3 +175,87 @@ pub fn merged_schema_diagnostics_for_file(
         .cloned()
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_merged_schema_result_default_values() {
+        let result = MergedSchemaResult {
+            schema: None,
+            diagnostics_by_file: Arc::new(HashMap::new()),
+        };
+        assert!(result.schema.is_none());
+        assert!(result.diagnostics_by_file.is_empty());
+    }
+
+    #[test]
+    fn test_merged_schema_result_with_schema() {
+        let schema = apollo_compiler::Schema::builder()
+            .parse("type Query { hello: String }", "schema.graphql")
+            .build()
+            .unwrap();
+
+        let result = MergedSchemaResult {
+            schema: Some(Arc::new(schema)),
+            diagnostics_by_file: Arc::new(HashMap::new()),
+        };
+        assert!(result.schema.is_some());
+        assert!(result.diagnostics_by_file.is_empty());
+    }
+
+    #[test]
+    fn test_merged_schema_result_with_diagnostics() {
+        let mut diagnostics = HashMap::new();
+        diagnostics.insert(
+            Arc::from("file:///schema.graphql"),
+            vec![Diagnostic {
+                severity: Severity::Error,
+                message: Arc::from("Test error"),
+                range: DiagnosticRange::default(),
+                source: "test".into(),
+                code: None,
+            }],
+        );
+
+        let result = MergedSchemaResult {
+            schema: None,
+            diagnostics_by_file: Arc::new(diagnostics),
+        };
+        assert!(result.schema.is_none());
+        assert_eq!(result.diagnostics_by_file.len(), 1);
+    }
+
+    #[test]
+    fn test_merged_schema_result_equality() {
+        let result1 = MergedSchemaResult {
+            schema: None,
+            diagnostics_by_file: Arc::new(HashMap::new()),
+        };
+        let result2 = MergedSchemaResult {
+            schema: None,
+            diagnostics_by_file: Arc::new(HashMap::new()),
+        };
+        assert_eq!(result1, result2);
+    }
+
+    #[test]
+    fn test_diagnostic_range_default() {
+        let range = DiagnosticRange::default();
+        assert_eq!(range.start.line, 0);
+        assert_eq!(range.start.character, 0);
+        assert_eq!(range.end.line, 0);
+        assert_eq!(range.end.character, 0);
+    }
+
+    #[test]
+    fn test_position_values() {
+        let pos = Position {
+            line: 10,
+            character: 5,
+        };
+        assert_eq!(pos.line, 10);
+        assert_eq!(pos.character, 5);
+    }
+}

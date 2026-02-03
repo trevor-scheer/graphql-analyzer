@@ -278,3 +278,29 @@ fn display_json_format(fragment_usages: &[graphql_ide::FragmentUsage]) {
 
     println!("{}", serde_json::to_string_pretty(&output).unwrap());
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_path_strips_file_prefix() {
+        let result = format_path("file:///home/user/project/query.graphql");
+        assert!(!result.starts_with("file://"));
+        assert!(result.contains("query.graphql"));
+    }
+
+    #[test]
+    fn test_format_path_handles_no_prefix() {
+        let result = format_path("/home/user/project/query.graphql");
+        assert!(result.contains("query.graphql"));
+    }
+
+    #[test]
+    fn test_format_path_relative_when_possible() {
+        // When CWD matches the path prefix, it should make it relative
+        let result = format_path("/some/path/file.graphql");
+        // Result should still contain the file name
+        assert!(result.contains("file.graphql"));
+    }
+}

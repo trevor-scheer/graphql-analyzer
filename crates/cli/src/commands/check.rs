@@ -378,3 +378,42 @@ fn run_watch_mode(
     watcher.start()?;
     watcher.run()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_diagnostic_source_display_validation() {
+        let source = DiagnosticSource::Validation;
+        assert_eq!(format!("{source}"), "validation");
+    }
+
+    #[test]
+    fn test_diagnostic_source_display_lint() {
+        let source = DiagnosticSource::Lint;
+        assert_eq!(format!("{source}"), "lint");
+    }
+
+    #[test]
+    fn test_diagnostic_source_debug() {
+        let source = DiagnosticSource::Validation;
+        assert_eq!(format!("{source:?}"), "Validation");
+    }
+
+    #[test]
+    fn test_diagnostic_source_clone() {
+        let source = DiagnosticSource::Lint;
+        let cloned = source;
+        assert!(matches!(cloned, DiagnosticSource::Lint));
+    }
+
+    #[test]
+    fn test_diagnostic_source_copy() {
+        let source = DiagnosticSource::Validation;
+        let copied = source;
+        // Both should be valid since DiagnosticSource is Copy
+        assert!(matches!(source, DiagnosticSource::Validation));
+        assert!(matches!(copied, DiagnosticSource::Validation));
+    }
+}

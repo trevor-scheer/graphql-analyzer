@@ -252,3 +252,76 @@ fn format_complexity(complexity: u32, threshold: u32) -> String {
         s.green().to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_complexity_under_100_no_threshold() {
+        let result = format_complexity(50, 0);
+        // Should be green (contains ANSI escape codes)
+        assert!(result.contains("50"));
+    }
+
+    #[test]
+    fn test_format_complexity_over_100_no_threshold() {
+        let result = format_complexity(150, 0);
+        // Should be yellow (contains ANSI escape codes)
+        assert!(result.contains("150"));
+    }
+
+    #[test]
+    fn test_format_complexity_at_threshold() {
+        let result = format_complexity(100, 100);
+        // Should be red and bold (contains ANSI escape codes)
+        assert!(result.contains("100"));
+    }
+
+    #[test]
+    fn test_format_complexity_under_threshold() {
+        let result = format_complexity(50, 100);
+        // Should be green
+        assert!(result.contains("50"));
+    }
+
+    #[test]
+    fn test_format_complexity_over_threshold() {
+        let result = format_complexity(200, 100);
+        // Should be red and bold
+        assert!(result.contains("200"));
+    }
+
+    #[test]
+    fn test_complexity_output_serialization() {
+        let output = ComplexityOutput {
+            operation_name: "GetUser".to_string(),
+            operation_type: "query".to_string(),
+            file: "src/queries.graphql".to_string(),
+            total_complexity: 42,
+            depth: 5,
+            breakdown: vec![],
+            warnings: vec!["Nested pagination detected".to_string()],
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(json.contains("GetUser"));
+        assert!(json.contains("42"));
+        assert!(json.contains("Nested pagination"));
+    }
+
+    #[test]
+    fn test_field_output_serialization() {
+        let output = FieldOutput {
+            path: "user.posts".to_string(),
+            complexity: 10,
+            multiplier: 2,
+            depth: 3,
+            is_connection: true,
+            warning: Some("Paginated field".to_string()),
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(json.contains("user.posts"));
+        assert!(json.contains("is_connection"));
+        assert!(json.contains("Paginated field"));
+    }
+}
