@@ -1625,9 +1625,9 @@ impl Analysis {
     /// detailed coverage statistics. This is useful for understanding
     /// schema usage patterns and finding unused fields.
     pub fn field_coverage(&self) -> Option<FieldCoverageReport> {
-        let _ = self.project_files?;
+        let pf = self.project_files?;
         Some(FieldCoverageReport::from(
-            graphql_analysis::analyze_field_usage(&self.db),
+            graphql_analysis::analyze_field_usage(&self.db, pf),
         ))
     }
 
@@ -1636,8 +1636,8 @@ impl Analysis {
     /// Returns usage information for a field if it exists in the schema.
     /// Useful for enhancing hover to show "Used in N operations".
     pub fn field_usage(&self, type_name: &str, field_name: &str) -> Option<FieldUsageInfo> {
-        let _ = self.project_files?;
-        let coverage = graphql_analysis::analyze_field_usage(&self.db);
+        let pf = self.project_files?;
+        let coverage = graphql_analysis::analyze_field_usage(&self.db, pf);
         let key = (
             std::sync::Arc::from(type_name),
             std::sync::Arc::from(field_name),

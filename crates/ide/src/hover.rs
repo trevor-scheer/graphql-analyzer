@@ -91,7 +91,7 @@ pub fn hover(
             let field_type = format_type_ref(&field.type_ref);
             write!(hover_text, "**Type:** `{field_type}`\n\n").ok();
 
-            let coverage = graphql_analysis::analyze_field_usage(db);
+            let coverage = graphql_analysis::analyze_field_usage(db, project_files);
             let usage_key = (Arc::from(parent_type_name.as_str()), Arc::from(name));
             if let Some(usage) = coverage.field_usages.get(&usage_key) {
                 let op_count = usage.operations.len();
