@@ -12,6 +12,19 @@ mod structure;
 pub use body::*;
 pub use structure::*;
 
+// Type aliases for commonly used HashMap types.
+// These improve readability in function signatures and provide
+// a single point of change if the underlying type needs modification.
+
+/// Map from type name to type definition.
+pub type TypeDefMap = HashMap<Arc<str>, TypeDef>;
+
+/// Map from fragment name to fragment structure.
+pub type FragmentMap = HashMap<Arc<str>, FragmentStructure>;
+
+/// Map from name to count (used for uniqueness validation).
+pub type NameCountMap = HashMap<Arc<str>, usize>;
+
 /// Identifier for a GraphQL type in the schema
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeId(salsa::Id);
@@ -148,7 +161,7 @@ pub fn file_operations(
 pub fn schema_types(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
-) -> HashMap<Arc<str>, TypeDef> {
+) -> TypeDefMap {
     let schema_ids = project_files.schema_file_ids(db).ids(db);
     let mut types = HashMap::new();
 
@@ -178,7 +191,7 @@ pub fn schema_types(
 pub fn all_fragments(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
-) -> HashMap<Arc<str>, FragmentStructure> {
+) -> FragmentMap {
     let doc_ids = project_files.document_file_ids(db).ids(db);
     let mut fragments = HashMap::new();
 
@@ -720,8 +733,8 @@ pub fn file_schema_coordinates(
     struct CollectContext<'a> {
         db: &'a dyn GraphQLHirDatabase,
         project_files: graphql_base_db::ProjectFiles,
-        schema_types: &'a HashMap<Arc<str>, TypeDef>,
-        fragments: &'a HashMap<Arc<str>, FragmentStructure>,
+        schema_types: &'a TypeDefMap,
+        fragments: &'a FragmentMap,
         visited_fragments: std::collections::HashSet<Arc<str>>,
         coordinates: std::collections::HashSet<SchemaCoordinate>,
     }
