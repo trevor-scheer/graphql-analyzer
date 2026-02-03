@@ -323,9 +323,10 @@ pub fn convert_ide_code_lens_info(info: &graphql_ide::CodeLensInfo, uri: &Uri) -
             title,
             command: "graphql-analyzer.showReferences".to_string(),
             arguments: Some(vec![
-                serde_json::to_value(uri.to_string()).unwrap(),
-                serde_json::to_value(convert_ide_position(info.range.start)).unwrap(),
-                serde_json::to_value(lsp_locations).unwrap(),
+                serde_json::to_value(uri.to_string()).expect("String is always serializable"),
+                serde_json::to_value(convert_ide_position(info.range.start))
+                    .expect("Position is always serializable"),
+                serde_json::to_value(lsp_locations).expect("Vec<Location> is always serializable"),
             ]),
         })
     } else {
@@ -366,9 +367,10 @@ pub fn convert_ide_code_lens(
             title: lens.title.clone(),
             command: "graphql-analyzer.showReferences".to_string(),
             arguments: Some(vec![
-                serde_json::to_value(uri.to_string()).unwrap(),
-                serde_json::to_value(convert_ide_position(lens.range.start)).unwrap(),
-                serde_json::to_value(references).unwrap(),
+                serde_json::to_value(uri.to_string()).expect("String is always serializable"),
+                serde_json::to_value(convert_ide_position(lens.range.start))
+                    .expect("Position is always serializable"),
+                serde_json::to_value(references).expect("&[Location] is always serializable"),
             ]),
         })
     };

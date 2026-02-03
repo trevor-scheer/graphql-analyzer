@@ -167,7 +167,7 @@ async fn load_workspaces_background(
         method: "workspace/didChangeWatchedFiles".to_string(),
         register_options: Some(
             serde_json::to_value(lsp_types::DidChangeWatchedFilesRegistrationOptions { watchers })
-                .unwrap(),
+                .expect("DidChangeWatchedFilesRegistrationOptions is always serializable"),
         ),
     };
 
@@ -1142,7 +1142,7 @@ documents: "**/*.graphql"
 
     /// Validate a file and publish diagnostics
     #[allow(clippy::too_many_lines)]
-    #[tracing::instrument(skip(self), fields(path = ?uri.to_file_path().unwrap()))]
+    #[tracing::instrument(skip(self), fields(path = %uri.as_str()))]
     async fn validate_file(&self, uri: Uri) {
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
         else {
@@ -1180,7 +1180,7 @@ documents: "**/*.graphql"
     ///
     /// This variant avoids acquiring the host lock again when we already have a snapshot.
     /// Used by `did_change` after updating a file to avoid double-locking.
-    #[tracing::instrument(skip(self, snapshot), fields(path = ?uri.to_file_path().unwrap()))]
+    #[tracing::instrument(skip(self, snapshot), fields(path = %uri.as_str()))]
     async fn validate_file_with_snapshot(&self, uri: &Uri, snapshot: graphql_ide::Analysis) {
         let file_path = graphql_ide::FilePath::new(uri.as_str());
         let diagnostics = snapshot.diagnostics(&file_path);
@@ -1428,7 +1428,7 @@ impl LanguageServer for GraphQLLanguageServer {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
+    #[tracing::instrument(skip(self, params), fields(path = %params.text_document.uri.as_str()))]
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
         let content = params.text_document.text;
@@ -1484,7 +1484,7 @@ impl LanguageServer for GraphQLLanguageServer {
         }
     }
 
-    #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
+    #[tracing::instrument(skip(self, params), fields(path = %params.text_document.uri.as_str()))]
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
@@ -1533,7 +1533,7 @@ impl LanguageServer for GraphQLLanguageServer {
         }
     }
 
-    #[tracing::instrument(skip(self, params), fields(path = ?params.text_document.uri.to_file_path().unwrap()))]
+    #[tracing::instrument(skip(self, params), fields(path = %params.text_document.uri.as_str()))]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri;
 
