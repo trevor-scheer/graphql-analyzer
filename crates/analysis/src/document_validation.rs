@@ -44,13 +44,10 @@ pub fn validate_document_file(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
     metadata: FileMetadata,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> Arc<Vec<Diagnostic>> {
     let structure = graphql_hir::file_structure(db, metadata.file_id(db), content, metadata);
     let mut diagnostics = Vec::new();
-
-    let project_files = db
-        .project_files()
-        .expect("project files must be set for validation");
     let schema = graphql_hir::schema_types(db, project_files);
 
     // Use the operation name index for O(1) lookup instead of iterating all operations

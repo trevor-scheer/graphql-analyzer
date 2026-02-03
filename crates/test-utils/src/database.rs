@@ -36,10 +36,9 @@ pub type TestDatabase = RootDatabase;
 ///
 /// let db = TestDatabaseWithProject::default();
 /// let project_files = create_project_files(&db, &schemas, &docs);
-/// db.set_project_files(Some(project_files));
 ///
-/// // Now validation can access project context
-/// let diagnostics = validate_document_file(&db, content, metadata);
+/// // Pass project_files directly to validation functions
+/// let diagnostics = validate_document_file(&db, content, metadata, project_files);
 /// ```
 #[salsa::db]
 #[derive(Clone)]

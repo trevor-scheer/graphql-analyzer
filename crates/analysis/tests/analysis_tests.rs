@@ -408,7 +408,7 @@ fn test_unknown_variable_type() {
     let project_files = create_project_files(&mut db, &[], &[(file_id, content, metadata)]);
     db.set_project_files(Some(project_files));
 
-    let diagnostics = validate_document_file(&db, content, metadata);
+    let diagnostics = validate_document_file(&db, content, metadata, project_files);
 
     let unknown_type_error = diagnostics
         .iter()
@@ -436,7 +436,7 @@ fn test_fragment_unknown_type_condition() {
     let project_files = create_project_files(&mut db, &[], &[(file_id, content, metadata)]);
     db.set_project_files(Some(project_files));
 
-    let diagnostics = validate_document_file(&db, content, metadata);
+    let diagnostics = validate_document_file(&db, content, metadata, project_files);
 
     let unknown_type_error = diagnostics
         .iter()
@@ -464,7 +464,7 @@ fn test_missing_root_type() {
     let project_files = create_project_files(&mut db, &[], &[(file_id, content, metadata)]);
     db.set_project_files(Some(project_files));
 
-    let diagnostics = validate_document_file(&db, content, metadata);
+    let diagnostics = validate_document_file(&db, content, metadata, project_files);
 
     let missing_root_error = diagnostics
         .iter()
@@ -515,7 +515,7 @@ fn test_valid_document() {
     );
     db.set_project_files(Some(project_files));
 
-    let diagnostics = validate_document_file(&db, doc_fc, doc_metadata);
+    let diagnostics = validate_document_file(&db, doc_fc, doc_metadata, project_files);
 
     assert_eq!(diagnostics.len(), 0, "Expected no validation errors");
 }
@@ -982,7 +982,7 @@ fn test_analyze_field_usage_basic() {
 
     db.set_project_files(Some(project_files));
 
-    let coverage = analyze_field_usage(&db);
+    let coverage = analyze_field_usage(&db, project_files);
 
     assert_eq!(coverage.total_fields, 4); // Query.user, User.id, User.name, User.email
     assert_eq!(coverage.used_fields, 3); // Query.user, User.id, User.name
@@ -1063,7 +1063,7 @@ fn test_analyze_field_usage_multiple_operations() {
 
     db.set_project_files(Some(project_files));
 
-    let coverage = analyze_field_usage(&db);
+    let coverage = analyze_field_usage(&db, project_files);
 
     let user_name = coverage
         .field_usages
@@ -1140,7 +1140,7 @@ fn test_analyze_field_usage_with_fragments() {
 
     db.set_project_files(Some(project_files));
 
-    let coverage = analyze_field_usage(&db);
+    let coverage = analyze_field_usage(&db, project_files);
 
     let user_email = coverage
         .field_usages

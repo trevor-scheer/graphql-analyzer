@@ -68,10 +68,10 @@ impl TypeCoverage {
 }
 
 #[salsa::tracked]
-pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId, Diagnostic)>> {
-    let project_files = db
-        .project_files()
-        .expect("project files must be set for project-wide analysis");
+pub fn find_unused_fields(
+    db: &dyn GraphQLAnalysisDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+) -> Arc<Vec<(FieldId, Diagnostic)>> {
     let schema = graphql_hir::schema_types(db, project_files);
     let operations = graphql_hir::all_operations(db, project_files);
     let all_fragments = graphql_hir::all_fragments(db, project_files);
@@ -157,10 +157,8 @@ pub fn find_unused_fields(db: &dyn GraphQLAnalysisDatabase) -> Arc<Vec<(FieldId,
 #[salsa::tracked]
 pub fn find_unused_fragments(
     db: &dyn GraphQLAnalysisDatabase,
+    project_files: graphql_base_db::ProjectFiles,
 ) -> Arc<Vec<(FragmentId, Diagnostic)>> {
-    let project_files = db
-        .project_files()
-        .expect("project files must be set for project-wide analysis");
     let all_fragments = graphql_hir::all_fragments(db, project_files);
 
     // Use the fragment spreads index from HIR (cached, no AST cloning needed)
@@ -215,10 +213,10 @@ pub fn find_unused_fragments(
 /// including which operations use each field and how many times.
 #[salsa::tracked]
 #[allow(clippy::too_many_lines)]
-pub fn analyze_field_usage(db: &dyn GraphQLAnalysisDatabase) -> Arc<FieldCoverageReport> {
-    let project_files = db
-        .project_files()
-        .expect("project files must be set for project-wide analysis");
+pub fn analyze_field_usage(
+    db: &dyn GraphQLAnalysisDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+) -> Arc<FieldCoverageReport> {
     let schema = graphql_hir::schema_types(db, project_files);
     let operations = graphql_hir::all_operations(db, project_files);
     let all_fragments = graphql_hir::all_fragments(db, project_files);
@@ -704,7 +702,7 @@ mod tests {
 
         db.set_project_files(Some(project_files));
 
-        let unused = find_unused_fields(&db);
+        let unused = find_unused_fields(&db, project_files);
 
         assert_eq!(unused.len(), 1);
         assert!(unused[0].1.message.contains("User.email"));
@@ -773,7 +771,7 @@ mod tests {
 
         db.set_project_files(Some(project_files));
 
-        let unused = find_unused_fields(&db);
+        let unused = find_unused_fields(&db, project_files);
 
         assert_eq!(unused.len(), 1);
         assert!(unused[0].1.message.contains("User.age"));
@@ -845,7 +843,7 @@ mod tests {
 
         db.set_project_files(Some(project_files));
 
-        let unused = find_unused_fields(&db);
+        let unused = find_unused_fields(&db, project_files);
 
         assert_eq!(unused.len(), 2);
         let messages: Vec<Arc<str>> = unused.iter().map(|(_, d)| d.message.clone()).collect();
@@ -919,7 +917,7 @@ mod tests {
 
         db.set_project_files(Some(project_files));
 
-        let unused = find_unused_fields(&db);
+        let unused = find_unused_fields(&db, project_files);
 
         assert_eq!(unused.len(), 2);
         let messages: Vec<Arc<str>> = unused.iter().map(|(_, d)| d.message.clone()).collect();
