@@ -357,6 +357,29 @@ impl FileWatcher {
                     }
                 }
             }
+            OutputFormat::Github => {
+                for (file_path, diags) in diagnostics {
+                    for diag in diags {
+                        let level = match diag.severity {
+                            DiagnosticSeverity::Error => "error",
+                            DiagnosticSeverity::Warning => "warning",
+                            _ => "notice",
+                        };
+                        let line = diag.range.start.line + 1;
+                        let col = diag.range.start.character + 1;
+                        let rule_suffix = diag
+                            .code
+                            .as_ref()
+                            .map(|r| format!(" [{r}]"))
+                            .unwrap_or_default();
+                        println!(
+                            "::{level} file={},line={line},col={col}::{}{rule_suffix}",
+                            file_path.display(),
+                            diag.message
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -387,6 +410,22 @@ impl FileWatcher {
                         "timestamp": chrono_now()
                     })
                 );
+            }
+            OutputFormat::Github => {
+                // GitHub Actions format uses human-readable header
+                let mode_name = match self.config.mode {
+                    WatchMode::Validate => "validation",
+                    WatchMode::Lint => "linting",
+                    WatchMode::Check => "checks",
+                };
+                println!();
+                println!(
+                    "{} Watching for changes... (press {} to stop)",
+                    "●".cyan(),
+                    "Ctrl+C".bold()
+                );
+                println!("  Running {} on file changes", mode_name.cyan());
+                println!();
             }
         }
     }
@@ -457,6 +496,53 @@ impl FileWatcher {
                         "duration_ms": result.duration.as_millis()
                     })
                 );
+            }
+            OutputFormat::Github => {
+                // GitHub Actions format uses human-readable result summary
+                let timestamp = format!("[{}]", chrono_now()).dimmed();
+
+                if !is_initial && !result.changed_files.is_empty() {
+                    println!();
+                    for file in &result.changed_files {
+                        println!(
+                            "{} {} changed",
+                            timestamp,
+                            file.file_name()
+                                .map_or_else(
+                                    || file.display().to_string(),
+                                    |n| n.to_string_lossy().to_string(),
+                                )
+                                .cyan()
+                        );
+                    }
+                }
+
+                println!();
+                if total_errors == 0 && result.lint_warnings == 0 {
+                    println!("{} {}", timestamp, "✓ All checks passed!".green().bold());
+                } else if total_errors == 0 {
+                    println!(
+                        "{} {}",
+                        timestamp,
+                        format!("✓ Passed with {} warning(s)", result.lint_warnings)
+                            .yellow()
+                            .bold()
+                    );
+                } else {
+                    let mut parts = Vec::new();
+                    if result.validation_errors > 0 {
+                        parts.push(format!("{} validation error(s)", result.validation_errors));
+                    }
+                    if result.lint_errors > 0 {
+                        parts.push(format!("{} lint error(s)", result.lint_errors));
+                    }
+                    if result.lint_warnings > 0 {
+                        parts.push(format!("{} warning(s)", result.lint_warnings));
+                    }
+                    println!("{} {}", timestamp, format!("✗ {}", parts.join(", ")).red());
+                }
+
+                println!("  {} {:.2}s", "⏱".dimmed(), result.duration.as_secs_f64());
             }
         }
     }
