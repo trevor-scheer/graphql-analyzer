@@ -5,11 +5,143 @@
 //! - graphql-ide types (our internal IDE API types)
 //!
 //! These conversions are stateless and can be used from any LSP handler.
+//!
+//! ## Extension Traits
+//!
+//! For ergonomic conversions, use the extension traits:
+//!
+//! ```rust,ignore
+//! use crate::conversions::{IntoLsp, IntoIde};
+//!
+//! // IDE -> LSP
+//! let lsp_position = ide_position.into_lsp();
+//! let lsp_range = ide_range.into_lsp();
+//!
+//! // LSP -> IDE
+//! let ide_position = lsp_position.into_ide();
+//! ```
 
 use lsp_types::{
     CodeLens, Command, Diagnostic, DiagnosticSeverity, FoldingRange, FoldingRangeKind, InlayHint,
     InlayHintKind, InlayHintLabel, Location, Position, Range, Uri,
 };
+
+// =============================================================================
+// Extension Traits
+// =============================================================================
+
+/// Extension trait for converting graphql-ide types to LSP types.
+///
+/// Provides ergonomic method-style conversion: `ide_type.into_lsp()`
+#[allow(dead_code)] // Public API - implementations below are used internally
+pub trait IntoLsp {
+    /// The LSP type this converts to
+    type Output;
+    /// Convert to the corresponding LSP type
+    fn into_lsp(self) -> Self::Output;
+}
+
+/// Extension trait for converting LSP types to graphql-ide types.
+///
+/// Provides ergonomic method-style conversion: `lsp_type.into_ide()`
+#[allow(dead_code)] // Public API for future use
+pub trait IntoIde {
+    /// The IDE type this converts to
+    type Output;
+    /// Convert to the corresponding IDE type
+    fn into_ide(self) -> Self::Output;
+}
+
+// Position conversions
+impl IntoLsp for graphql_ide::Position {
+    type Output = Position;
+    fn into_lsp(self) -> Position {
+        convert_ide_position(self)
+    }
+}
+
+impl IntoIde for Position {
+    type Output = graphql_ide::Position;
+    fn into_ide(self) -> graphql_ide::Position {
+        convert_lsp_position(self)
+    }
+}
+
+// Range conversions
+impl IntoLsp for graphql_ide::Range {
+    type Output = Range;
+    fn into_lsp(self) -> Range {
+        convert_ide_range(self)
+    }
+}
+
+// Location conversions (reference version for efficiency)
+impl IntoLsp for &graphql_ide::Location {
+    type Output = Location;
+    fn into_lsp(self) -> Location {
+        convert_ide_location(self)
+    }
+}
+
+// Diagnostic conversions
+impl IntoLsp for graphql_ide::Diagnostic {
+    type Output = Diagnostic;
+    fn into_lsp(self) -> Diagnostic {
+        convert_ide_diagnostic(self)
+    }
+}
+
+// HoverResult conversions
+impl IntoLsp for graphql_ide::HoverResult {
+    type Output = lsp_types::Hover;
+    fn into_lsp(self) -> lsp_types::Hover {
+        convert_ide_hover(self)
+    }
+}
+
+// CompletionItem conversions
+impl IntoLsp for graphql_ide::CompletionItem {
+    type Output = lsp_types::CompletionItem;
+    fn into_lsp(self) -> lsp_types::CompletionItem {
+        convert_ide_completion_item(self)
+    }
+}
+
+// DocumentSymbol conversions
+impl IntoLsp for graphql_ide::DocumentSymbol {
+    type Output = lsp_types::DocumentSymbol;
+    fn into_lsp(self) -> lsp_types::DocumentSymbol {
+        convert_ide_document_symbol(self)
+    }
+}
+
+// WorkspaceSymbol conversions
+impl IntoLsp for graphql_ide::WorkspaceSymbol {
+    type Output = lsp_types::WorkspaceSymbol;
+    fn into_lsp(self) -> lsp_types::WorkspaceSymbol {
+        convert_ide_workspace_symbol(self)
+    }
+}
+
+// FoldingRange conversions (reference version)
+impl IntoLsp for &graphql_ide::FoldingRange {
+    type Output = FoldingRange;
+    fn into_lsp(self) -> FoldingRange {
+        convert_ide_folding_range(self)
+    }
+}
+
+// InlayHint conversions (reference version)
+impl IntoLsp for &graphql_ide::InlayHint {
+    type Output = InlayHint;
+    fn into_lsp(self) -> InlayHint {
+        convert_ide_inlay_hint(self)
+    }
+}
+
+// =============================================================================
+// Standalone Conversion Functions (for backward compatibility)
+// =============================================================================
 
 /// Convert LSP Position to graphql-ide Position
 pub const fn convert_lsp_position(pos: Position) -> graphql_ide::Position {
