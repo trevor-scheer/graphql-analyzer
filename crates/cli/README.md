@@ -216,21 +216,30 @@ Colorized, human-readable output with context:
 
 ### JSON
 
-Machine-readable JSON output:
+Machine-readable aggregated JSON output:
 
 ```json
 {
   "success": false,
-  "errors": [
+  "files": [
     {
       "file": "src/queries.graphql",
-      "message": "Cannot query field \"invalidField\" on type \"User\"",
-      "severity": "error",
-      "line": 5,
-      "column": 3
+      "errors": [
+        {
+          "message": "Cannot query field \"invalidField\" on type \"User\"",
+          "severity": "error",
+          "location": {
+            "start": { "line": 5, "column": 3 },
+            "end": { "line": 5, "column": 15 }
+          }
+        }
+      ]
     }
   ],
-  "warnings": []
+  "stats": {
+    "total_files": 1,
+    "total_errors": 1
+  }
 }
 ```
 
@@ -430,16 +439,25 @@ $ graphql validate --format json
 
 {
   "success": false,
-  "files_validated": 15,
-  "errors": [
+  "files": [
     {
       "file": "src/queries.graphql",
-      "message": "Cannot query field \"invalidField\" on type \"User\"",
-      "severity": "error",
-      "line": 5,
-      "column": 3
+      "errors": [
+        {
+          "message": "Cannot query field \"invalidField\" on type \"User\"",
+          "severity": "error",
+          "location": {
+            "start": { "line": 5, "column": 3 },
+            "end": { "line": 5, "column": 15 }
+          }
+        }
+      ]
     }
-  ]
+  ],
+  "stats": {
+    "total_files": 1,
+    "total_errors": 1
+  }
 }
 ```
 

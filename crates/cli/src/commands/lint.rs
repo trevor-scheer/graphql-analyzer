@@ -21,6 +21,12 @@ struct DiagnosticOutput {
     rule: Option<String>,
 }
 
+/// File-level diagnostic grouping for JSON output
+struct FileDiagnostics {
+    errors: Vec<DiagnosticOutput>,
+    warnings: Vec<DiagnosticOutput>,
+}
+
 #[allow(clippy::too_many_lines)]
 pub fn run(
     config_path: Option<PathBuf>,
@@ -125,11 +131,13 @@ pub fn run(
 
     let lint_duration = lint_start.elapsed();
 
-    // Convert diagnostics to CLI output format
-    let mut all_warnings = Vec::new();
-    let mut all_errors = Vec::new();
+    // Convert diagnostics to CLI output format, grouped by file
+    let mut files_with_diagnostics: std::collections::HashMap<String, FileDiagnostics> =
+        std::collections::HashMap::new();
 
     for (file_path, diagnostics) in all_diagnostics {
+        let file_path_str = file_path.to_string_lossy().to_string();
+
         for diag in diagnostics {
             let severity_string = match diag.severity {
                 DiagnosticSeverity::Error => "error",
@@ -140,7 +148,7 @@ pub fn run(
             .to_string();
 
             let diag_output = DiagnosticOutput {
-                file_path: file_path.to_string_lossy().into(),
+                file_path: file_path_str.clone(),
                 // Convert from 0-based to 1-based for display
                 line: (diag.range.start.line + 1) as usize,
                 column: (diag.range.start.character + 1) as usize,
@@ -151,20 +159,36 @@ pub fn run(
                 rule: diag.code,
             };
 
+            let file_diags = files_with_diagnostics
+                .entry(file_path_str.clone())
+                .or_insert_with(|| FileDiagnostics {
+                    errors: Vec::new(),
+                    warnings: Vec::new(),
+                });
+
             match diag.severity {
                 DiagnosticSeverity::Warning
                 | DiagnosticSeverity::Information
                 | DiagnosticSeverity::Hint => {
-                    all_warnings.push(diag_output);
+                    file_diags.warnings.push(diag_output);
                 }
-                DiagnosticSeverity::Error => all_errors.push(diag_output),
+                DiagnosticSeverity::Error => file_diags.errors.push(diag_output),
             }
         }
     }
 
-    // Display results
+    // Flatten for counting and human output
+    let all_warnings: Vec<_> = files_with_diagnostics
+        .values()
+        .flat_map(|f| &f.warnings)
+        .collect();
+    let all_errors: Vec<_> = files_with_diagnostics
+        .values()
+        .flat_map(|f| &f.errors)
+        .collect();
     let total_warnings = all_warnings.len();
     let total_errors = all_errors.len();
+    let total_files = files_with_diagnostics.len();
 
     match format {
         OutputFormat::Human => {
@@ -199,50 +223,48 @@ pub fn run(
             }
         }
         OutputFormat::Json => {
-            // Print all diagnostics as JSON
-            for warning in &all_warnings {
-                println!(
-                    "{}",
-                    serde_json::json!({
-                        "file": warning.file_path,
-                        "severity": warning.severity,
-                        "rule": warning.rule,
-                        "message": warning.message,
-                        "location": {
-                            "start": {
-                                "line": warning.line,
-                                "column": warning.column
-                            },
-                            "end": {
-                                "line": warning.end_line,
-                                "column": warning.end_column
-                            }
-                        }
-                    })
-                );
-            }
+            // Build aggregated JSON output
+            let diag_to_json = |d: &DiagnosticOutput| {
+                serde_json::json!({
+                    "message": d.message,
+                    "severity": d.severity,
+                    "rule": d.rule,
+                    "location": {
+                        "start": { "line": d.line, "column": d.column },
+                        "end": { "line": d.end_line, "column": d.end_column }
+                    }
+                })
+            };
 
-            for error in &all_errors {
-                println!(
-                    "{}",
+            let mut files: Vec<serde_json::Value> = files_with_diagnostics
+                .iter()
+                .map(|(file, diags)| {
                     serde_json::json!({
-                        "file": error.file_path,
-                        "severity": error.severity,
-                        "rule": error.rule,
-                        "message": error.message,
-                        "location": {
-                            "start": {
-                                "line": error.line,
-                                "column": error.column
-                            },
-                            "end": {
-                                "line": error.end_line,
-                                "column": error.end_column
-                            }
-                        }
+                        "file": file,
+                        "errors": diags.errors.iter().map(diag_to_json).collect::<Vec<_>>(),
+                        "warnings": diags.warnings.iter().map(diag_to_json).collect::<Vec<_>>()
                     })
-                );
-            }
+                })
+                .collect();
+
+            // Sort files for consistent output
+            files.sort_by(|a, b| {
+                a.get("file")
+                    .and_then(|v| v.as_str())
+                    .cmp(&b.get("file").and_then(|v| v.as_str()))
+            });
+
+            let output = serde_json::json!({
+                "success": total_errors == 0,
+                "files": files,
+                "stats": {
+                    "total_files": total_files,
+                    "total_errors": total_errors,
+                    "total_warnings": total_warnings
+                }
+            });
+
+            println!("{}", serde_json::to_string_pretty(&output).unwrap());
         }
     }
 
