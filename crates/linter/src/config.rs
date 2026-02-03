@@ -398,55 +398,6 @@ impl LintConfig {
     pub fn recommended() -> Self {
         Self::Preset(ExtendsConfig::Single("recommended".to_string()))
     }
-
-    /// Merge another config into this one (tool-specific overrides)
-    #[must_use]
-    pub fn merge(&self, override_config: &Self) -> Self {
-        match (self, override_config) {
-            // If override is a preset, use it directly
-            (_, Self::Preset(name)) => Self::Preset(name.clone()),
-
-            // If override is empty Full config, keep base
-            (
-                base,
-                Self::Full(FullLintConfig {
-                    extends: None,
-                    rules,
-                }),
-            ) if rules.is_empty() => base.clone(),
-
-            // Merge Full configs
-            (
-                Self::Full(FullLintConfig {
-                    extends: base_ext,
-                    rules: base_rules,
-                }),
-                Self::Full(FullLintConfig {
-                    extends: override_ext,
-                    rules: override_rules,
-                }),
-            ) => {
-                let mut merged_rules = base_rules.clone();
-                merged_rules.extend(override_rules.clone());
-                Self::Full(FullLintConfig {
-                    extends: override_ext.clone().or_else(|| base_ext.clone()),
-                    rules: merged_rules,
-                })
-            }
-
-            // Preset + Full override: convert preset to extends and merge
-            (
-                Self::Preset(presets),
-                Self::Full(FullLintConfig {
-                    extends: override_ext,
-                    rules: override_rules,
-                }),
-            ) => Self::Full(FullLintConfig {
-                extends: override_ext.clone().or_else(|| Some(presets.clone())),
-                rules: override_rules.clone(),
-            }),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -547,40 +498,6 @@ rules:
             config.get_severity("no_deprecated"),
             Some(LintSeverity::Warn)
         );
-    }
-
-    #[test]
-    fn test_merge_preset_with_rules() {
-        let base = LintConfig::recommended();
-        let override_yaml = r"
-rules:
-  unusedFields: error
-";
-        let override_config: LintConfig = serde_yaml::from_str(override_yaml).unwrap();
-        let merged = base.merge(&override_config);
-
-        // unique_names is not in recommended (opinionated)
-        assert!(!merged.is_enabled("unique_names"));
-        assert!(merged.is_enabled("unused_fields"));
-    }
-
-    #[test]
-    fn test_merge_extends_override_severity() {
-        let base_yaml = r"
-extends: recommended
-";
-        let base: LintConfig = serde_yaml::from_str(base_yaml).unwrap();
-
-        let override_yaml = r"
-rules:
-  noDeprecated: off
-";
-        let override_config: LintConfig = serde_yaml::from_str(override_yaml).unwrap();
-        let merged = base.merge(&override_config);
-
-        // unique_names is not in recommended (opinionated)
-        assert!(!merged.is_enabled("unique_names"));
-        assert!(!merged.is_enabled("no_deprecated"));
     }
 
     #[test]
