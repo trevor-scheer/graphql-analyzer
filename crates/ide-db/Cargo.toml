@@ -22,6 +22,3 @@ graphql-extract = { path = "../extract" }
 
 # Salsa for incremental computation
 salsa = { workspace = true }
-
-[lints]
-workspace = true

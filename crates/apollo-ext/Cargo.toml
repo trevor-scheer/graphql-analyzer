@@ -11,6 +11,3 @@ categories = ["development-tools", "parser-implementations"]
 
 [dependencies]
 apollo-parser.workspace = true
-
-[lints]
-workspace = true

@@ -64,6 +64,3 @@ vergen-git2 = { version = "1.0", features = ["build", "cargo"] }
 [features]
 default = []
 otel = ["tracing-opentelemetry", "opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp"]
-
-[lints]
-workspace = true

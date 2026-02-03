@@ -84,14 +84,6 @@ criterion = { version = "0.5", features = ["html_reports"] }
 # Testing
 insta = { version = "1.40", features = ["yaml"] }
 
-# Workspace-wide lint configuration
-# These lints are disabled because they don't add value for this project:
-# - too_many_lines: IDE/LSP handlers legitimately handle many cases sequentially
-# - cast_possible_truncation: All uses are safe usize→u32 for line/column numbers
-[workspace.lints.clippy]
-too_many_lines = "allow"
-cast_possible_truncation = "allow"
-
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
