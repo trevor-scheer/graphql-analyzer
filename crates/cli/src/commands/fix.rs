@@ -69,7 +69,7 @@ pub fn display_dry_run(fixes: &[FileFix], format: OutputFormat) {
                 println!();
             }
         }
-        OutputFormat::Json => {
+        OutputFormat::Json | OutputFormat::Github => {
             for file_fix in fixes {
                 for diag in &file_fix.diagnostics {
                     let fix = diag.fix.as_ref().unwrap();
@@ -176,7 +176,7 @@ fn apply_file_fixes(file_fix: &FileFix, format: OutputFormat) -> Result<()> {
                 format!("{} fix(es)", file_fix.diagnostics.len()).dimmed()
             );
         }
-        OutputFormat::Json => {
+        OutputFormat::Json | OutputFormat::Github => {
             for diag in &file_fix.diagnostics {
                 let fix = diag.fix.as_ref().unwrap();
                 println!(

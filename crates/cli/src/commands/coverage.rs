@@ -77,7 +77,7 @@ pub fn run(
         OutputFormat::Human => {
             print_human_report(&coverage, filter_type, total_duration);
         }
-        OutputFormat::Json => {
+        OutputFormat::Json | OutputFormat::Github => {
             print_json_report(&coverage, filter_type);
         }
     }

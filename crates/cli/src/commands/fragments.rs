@@ -72,7 +72,7 @@ pub fn run(
         OutputFormat::Human => {
             display_human_format(&fragment_usages, start_time.elapsed());
         }
-        OutputFormat::Json => {
+        OutputFormat::Json | OutputFormat::Github => {
             display_json_format(&fragment_usages);
         }
     }

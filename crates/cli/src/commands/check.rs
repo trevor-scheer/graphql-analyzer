@@ -301,6 +301,35 @@ pub fn run(
 
             println!("{}", serde_json::to_string_pretty(&output).unwrap());
         }
+        OutputFormat::Github => {
+            // Print GitHub Actions workflow commands
+            for issue in &all_issues {
+                let severity = match issue.severity.as_str() {
+                    "error" => "error",
+                    "warning" => "warning",
+                    _ => "notice",
+                };
+                let rule_suffix = issue
+                    .rule
+                    .as_ref()
+                    .map(|r| format!(" [{r}]"))
+                    .unwrap_or_default();
+
+                if issue.line > 0 {
+                    println!(
+                        "::{} file={},line={},col={}::{}{}",
+                        severity,
+                        issue.file_path,
+                        issue.line,
+                        issue.column,
+                        issue.message,
+                        rule_suffix
+                    );
+                } else {
+                    println!("::{}::{}{}", severity, issue.message, rule_suffix);
+                }
+            }
+        }
     }
 
     // Summary
