@@ -19,31 +19,31 @@ This document provides a critical engineering review of the GraphQL LSP project,
 
 ### Addressed Issues ✅
 
-| Section | Issue | Resolution |
-|---------|-------|------------|
-| 1.1 | RefCell Usage in IdeDatabase | `ProjectFiles` is now a Salsa input; no RefCell usage found |
-| 2.1 | AnalysisHost Lock Granularity | Architecture redesigned with `WorkspaceManager` |
-| 2.2 | Async Lock Holding | Improved patterns in workspace management |
+| Section | Issue                         | Resolution                                                  |
+| ------- | ----------------------------- | ----------------------------------------------------------- |
+| 1.1     | RefCell Usage in IdeDatabase  | `ProjectFiles` is now a Salsa input; no RefCell usage found |
+| 2.1     | AnalysisHost Lock Granularity | Architecture redesigned with `WorkspaceManager`             |
+| 2.2     | Async Lock Holding            | Improved patterns in workspace management                   |
 
 ### Still Valid ⚠️
 
-| Section | Issue | Notes |
-|---------|-------|-------|
-| 1.2 | Forked apollo-rs | Still using `trevor-scheer/apollo-rs.git` branch `parse_with_offset` |
-| 1.3 | Layer Boundary Violations | `crates/ide/src/lib.rs` is 6243 lines |
-| 3.2 | Duplicate Parsing | apollo-compiler errors still use `offset: 0` |
-| 5.1 | Full Text Sync | Still using `TextDocumentSyncKind::FULL` |
-| 5.2 | No Request Cancellation | Not yet implemented |
-| 6.1 | FileId Lacks Type Safety | Still using u32 wrapper |
-| 9.1 | Large Files | Several files exceed recommended size |
+| Section | Issue                     | Notes                                                                |
+| ------- | ------------------------- | -------------------------------------------------------------------- |
+| 1.2     | Forked apollo-rs          | Still using `trevor-scheer/apollo-rs.git` branch `parse_with_offset` |
+| 1.3     | Layer Boundary Violations | `crates/ide/src/lib.rs` is 6243 lines                                |
+| 3.2     | Duplicate Parsing         | apollo-compiler errors still use `offset: 0`                         |
+| 5.1     | Full Text Sync            | Still using `TextDocumentSyncKind::FULL`                             |
+| 5.2     | No Request Cancellation   | Not yet implemented                                                  |
+| 6.1     | FileId Lacks Type Safety  | Still using u32 wrapper                                              |
+| 9.1     | Large Files               | Several files exceed recommended size                                |
 
 ### Low Priority / Nice to Have
 
-| Section | Issue | Notes |
-|---------|-------|-------|
-| 5.3 | Document Version Tracking | Minor - editors handle this reasonably |
-| 6.2 | Public Fields | Would require breaking changes |
-| 9.3 | Module Documentation | Ongoing effort |
+| Section | Issue                     | Notes                                  |
+| ------- | ------------------------- | -------------------------------------- |
+| 5.3     | Document Version Tracking | Minor - editors handle this reasonably |
+| 6.2     | Public Fields             | Would require breaking changes         |
+| 9.3     | Module Documentation      | Ongoing effort                         |
 
 ---
 
