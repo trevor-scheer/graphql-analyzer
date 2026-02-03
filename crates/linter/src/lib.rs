@@ -18,3 +18,19 @@ pub use traits::{
     DocumentSchemaLintRule, LintRule, ProjectLintRule, StandaloneDocumentLintRule,
     StandaloneSchemaLintRule,
 };
+
+/// Prelude module for convenient imports.
+///
+/// This module re-exports the most commonly used types for working with
+/// the linter. Import with:
+///
+/// ```rust,ignore
+/// use graphql_linter::prelude::*;
+/// ```
+pub mod prelude {
+    pub use crate::config::{LintConfig, LintSeverity};
+    pub use crate::diagnostics::{LintDiagnostic, LintSeverity as DiagnosticSeverity, OffsetRange};
+    pub use crate::traits::{
+        DocumentSchemaLintRule, LintRule, ProjectLintRule, StandaloneDocumentLintRule,
+    };
+}
