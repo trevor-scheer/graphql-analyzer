@@ -1,0 +1,198 @@
+name: Release PR Check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # Only run full build for release PRs
+  check-release-pr:
+    runs-on: ubuntu-latest
+    outputs:
+      is_release_pr: ${{ steps.check.outputs.is_release_pr }}
+    steps:
+      - name: Check if release PR
+        id: check
+        run: |
+          if [[ "${{ github.event.pull_request.title }}" == "chore: prepare release"* ]]; then
+            echo "is_release_pr=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_release_pr=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Build binaries for all platforms
+  build-binaries:
+    needs: check-release-pr
+    if: needs.check-release-pr.outputs.is_release_pr == 'true'
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-${{ matrix.target }}"
+
+      - name: Install cross
+        if: matrix.cross
+        uses: taiki-e/install-action@cross
+
+      - name: Build LSP binary
+        run: ${{ matrix.cross && 'cross' || 'cargo' }} build --release --target ${{ matrix.target }} --package graphql-lsp
+
+      - name: Upload LSP binary (Unix)
+        if: runner.os != 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lsp-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/graphql-lsp
+
+      - name: Upload LSP binary (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lsp-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/graphql-lsp.exe
+
+  # Build platform-specific VS Code extensions
+  build-vscode:
+    needs: [check-release-pr, build-binaries]
+    if: needs.check-release-pr.outputs.is_release_pr == 'true'
+    strategy:
+      matrix:
+        include:
+          - rust_target: aarch64-apple-darwin
+            vscode_target: darwin-arm64
+            binary_name: graphql-lsp
+          - rust_target: x86_64-apple-darwin
+            vscode_target: darwin-x64
+            binary_name: graphql-lsp
+          - rust_target: aarch64-unknown-linux-gnu
+            vscode_target: linux-arm64
+            binary_name: graphql-lsp
+          - rust_target: x86_64-unknown-linux-gnu
+            vscode_target: linux-x64
+            binary_name: graphql-lsp
+          - rust_target: x86_64-pc-windows-msvc
+            vscode_target: win32-x64
+            binary_name: graphql-lsp.exe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Download LSP binary
+        uses: actions/download-artifact@v4
+        with:
+          name: lsp-${{ matrix.rust_target }}
+          path: editors/vscode/bin
+
+      - name: Make binary executable
+        if: matrix.binary_name != 'graphql-lsp.exe'
+        run: chmod +x editors/vscode/bin/${{ matrix.binary_name }}
+
+      - name: Install dependencies
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Build extension
+        working-directory: editors/vscode
+        run: npm run compile
+
+      - name: Package extension
+        working-directory: editors/vscode
+        run: npx vsce package --target ${{ matrix.vscode_target }}
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-${{ matrix.vscode_target }}
+          path: editors/vscode/*.vsix
+
+  # Post comment with installation instructions
+  post-comment:
+    needs: [check-release-pr, build-vscode]
+    if: needs.check-release-pr.outputs.is_release_pr == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post installation comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const body = `## VS Code Extension Build
+
+            All platform-specific extensions built successfully.
+
+            ### Test locally
+
+            1. Download the VSIX for your platform from [this workflow run](${runUrl})
+            2. Install with:
+               \`\`\`bash
+               code --install-extension ~/Downloads/graphql-analyzer-*.vsix
+               \`\`\`
+
+            | Platform | Artifact |
+            |----------|----------|
+            | macOS Apple Silicon | \`vsix-darwin-arm64\` |
+            | macOS Intel | \`vsix-darwin-x64\` |
+            | Linux x64 | \`vsix-linux-x64\` |
+            | Linux ARM64 | \`vsix-linux-arm64\` |
+            | Windows x64 | \`vsix-win32-x64\` |
+            `;
+
+            // Find existing comment to update
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const marker = '## VS Code Extension Build';
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
