@@ -43,11 +43,11 @@ if [ ! -d "node_modules" ]; then
   echo "✓ npm dependencies installed"
 fi
 
-# Ensure git hooks are installed (cargo-husky installs on cargo build)
+# Ensure git hooks are installed (cargo-husky installs on cargo test)
 if [ ! -f ".git/hooks/pre-commit" ] || ! grep -q "cargo-husky" ".git/hooks/pre-commit" 2>/dev/null; then
   echo ""
   echo "Installing git hooks..."
-  cargo check --quiet 2>/dev/null || true
+  cargo test -p husky-hooks --quiet 2>/dev/null || true
   echo "✓ git hooks installed"
 fi
 
