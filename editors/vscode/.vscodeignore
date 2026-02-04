@@ -1,0 +1,19 @@
+# Source files (compiled output is in out/)
+src/**
+e2e/**
+tsconfig.json
+playwright.config.ts
+
+# Development files
+.gitignore
+**/*.map
+*.vsix
+
+# Node development
+node_modules/**
+
+# Documentation (not needed in extension)
+CHANGELOG.md
+
+# Ensure bin/ is included (contains bundled binary)
+!bin/**

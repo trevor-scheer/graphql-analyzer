@@ -113,16 +113,50 @@ jobs:
           Compress-Archive -Path dist/graphql-mcp.exe -DestinationPath dist/graphql-mcp-${{ matrix.target }}.zip
           Remove-Item dist/graphql-mcp.exe
 
-      - name: Upload artifacts
+      - name: Upload binary artifacts
         uses: actions/upload-artifact@v4
         with:
           name: binaries-${{ matrix.target }}
           path: dist/*
 
-  # Build VSCode extension
+      # Also upload raw CLI binary for VS Code extension bundling
+      - name: Upload raw CLI binary (Unix)
+        if: runner.os != 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-raw-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/graphql
+
+      - name: Upload raw CLI binary (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-raw-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/graphql.exe
+
+  # Build platform-specific VS Code extensions with bundled CLI binary
   build-vscode:
-    needs: check-release
+    needs: [check-release, build-binaries]
     if: needs.check-release.outputs.should_release == 'true'
+    strategy:
+      matrix:
+        include:
+          # Map Rust targets to VS Code targets
+          - rust_target: aarch64-apple-darwin
+            vscode_target: darwin-arm64
+            binary_name: graphql
+          - rust_target: x86_64-apple-darwin
+            vscode_target: darwin-x64
+            binary_name: graphql
+          - rust_target: aarch64-unknown-linux-gnu
+            vscode_target: linux-arm64
+            binary_name: graphql
+          - rust_target: x86_64-unknown-linux-gnu
+            vscode_target: linux-x64
+            binary_name: graphql
+          - rust_target: x86_64-pc-windows-msvc
+            vscode_target: win32-x64
+            binary_name: graphql.exe
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -134,6 +168,16 @@ jobs:
           cache: "npm"
           cache-dependency-path: editors/vscode/package-lock.json
 
+      - name: Download CLI binary
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-raw-${{ matrix.rust_target }}
+          path: editors/vscode/bin
+
+      - name: Make binary executable
+        if: matrix.binary_name != 'graphql.exe'
+        run: chmod +x editors/vscode/bin/${{ matrix.binary_name }}
+
       - name: Install dependencies
         working-directory: editors/vscode
         run: npm ci
@@ -142,14 +186,14 @@ jobs:
         working-directory: editors/vscode
         run: npm run compile
 
-      - name: Package extension
+      - name: Package platform-specific extension
         working-directory: editors/vscode
-        run: npx vsce package
+        run: npx vsce package --target ${{ matrix.vscode_target }}
 
-      - name: Upload artifact
+      - name: Upload extension artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vscode-extension
+          name: vscode-extension-${{ matrix.vscode_target }}
           path: editors/vscode/*.vsix
 
   # Create GitHub releases and upload all assets
@@ -188,7 +232,7 @@ jobs:
           LSP_VERSION=$(grep -m1 '^version = ' crates/lsp/Cargo.toml | sed 's/version = "\(.*\)"/\1/')
           MCP_VERSION=$(grep -m1 '^version = ' crates/mcp/Cargo.toml | sed 's/version = "\(.*\)"/\1/')
 
-          INSTALL_LINK=$'\n\n---\n\n📦 **[Installation Instructions](https://github.com/trevor-scheer/graphql-analyzer#installation)**'
+          INSTALL_LINK=$'\n\n---\n\n[Installation Instructions](https://github.com/trevor-scheer/graphql-analyzer#installation)'
 
           # Append to each release
           for TAG in "graphql-analyzer-cli/v${CLI_VERSION}" "graphql-analyzer-lsp/v${LSP_VERSION}" "graphql-analyzer-mcp/v${MCP_VERSION}"; do
