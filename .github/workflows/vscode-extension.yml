@@ -1,33 +1,36 @@
-name: Release PR Check
+name: VS Code Extension
 
 on:
-  pull_request:
-    branches: [main]
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
-  # Only run full build for release PRs
-  check-release-pr:
+  check-command:
+    if: github.event.issue.pull_request && contains(github.event.comment.body, '/build-extension')
     runs-on: ubuntu-latest
     outputs:
-      is_release_pr: ${{ steps.check.outputs.is_release_pr }}
+      head_sha: ${{ steps.get-sha.outputs.sha }}
     steps:
-      - name: Check if release PR
-        id: check
+      - name: Get PR head SHA
+        id: get-sha
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ "${{ github.event.pull_request.title }}" == "chore: prepare release"* ]]; then
-            echo "is_release_pr=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "is_release_pr=false" >> "$GITHUB_OUTPUT"
-          fi
+          SHA=$(gh pr view ${{ github.event.issue.number }} --repo ${{ github.repository }} --json headRefOid -q .headRefOid)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
-  # Build binaries for all platforms
+      - name: React to comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions -f content='+1'
+
   build-binaries:
-    needs: check-release-pr
-    if: needs.check-release-pr.outputs.is_release_pr == 'true'
+    needs: check-command
     strategy:
       matrix:
         include:
@@ -45,6 +48,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-command.outputs.head_sha }}
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -77,10 +82,8 @@ jobs:
           name: lsp-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/graphql-lsp.exe
 
-  # Build platform-specific VS Code extensions
   build-vscode:
-    needs: [check-release-pr, build-binaries]
-    if: needs.check-release-pr.outputs.is_release_pr == 'true'
+    needs: [check-command, build-binaries]
     strategy:
       matrix:
         include:
@@ -102,6 +105,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-command.outputs.head_sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -138,61 +143,29 @@ jobs:
           name: vsix-${{ matrix.vscode_target }}
           path: editors/vscode/*.vsix
 
-  # Post comment with installation instructions
   post-comment:
-    needs: [check-release-pr, build-vscode]
-    if: needs.check-release-pr.outputs.is_release_pr == 'true'
+    needs: [check-command, build-vscode]
     runs-on: ubuntu-latest
     steps:
-      - name: Post installation comment
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+      - name: Post download comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          SHORT_SHA=$(echo "${{ needs.check-command.outputs.head_sha }}" | cut -c1-7)
 
-            const body = `## VS Code Extension Build
+          gh pr comment ${{ github.event.issue.number }} --repo ${{ github.repository }} --body "## VS Code Extension
 
-            All platform-specific extensions built successfully.
+          Built at \`$SHORT_SHA\`. **[Download artifacts]($RUN_URL)**
 
-            ### Test locally
+          \`\`\`bash
+          code --install-extension ~/Downloads/graphql-analyzer-*.vsix
+          \`\`\`
 
-            1. Download the VSIX for your platform from [this workflow run](${runUrl})
-            2. Install with:
-               \`\`\`bash
-               code --install-extension ~/Downloads/graphql-analyzer-*.vsix
-               \`\`\`
-
-            | Platform | Artifact |
-            |----------|----------|
-            | macOS Apple Silicon | \`vsix-darwin-arm64\` |
-            | macOS Intel | \`vsix-darwin-x64\` |
-            | Linux x64 | \`vsix-linux-x64\` |
-            | Linux ARM64 | \`vsix-linux-arm64\` |
-            | Windows x64 | \`vsix-win32-x64\` |
-            `;
-
-            // Find existing comment to update
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-
-            const marker = '## VS Code Extension Build';
-            const existing = comments.find(c => c.body.includes(marker));
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
+          | Platform | Artifact |
+          |----------|----------|
+          | macOS Apple Silicon | vsix-darwin-arm64 |
+          | macOS Intel | vsix-darwin-x64 |
+          | Linux x64 | vsix-linux-x64 |
+          | Linux ARM64 | vsix-linux-arm64 |
+          | Windows x64 | vsix-win32-x64 |"
