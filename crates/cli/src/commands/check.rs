@@ -10,7 +10,7 @@
 use crate::analysis::CliAnalysisHost;
 use crate::commands::common::CommandContext;
 use crate::watch::{FileWatcher, WatchConfig, WatchMode};
-use crate::OutputFormat;
+use crate::{OutputFormat, OutputOptions};
 use anyhow::Result;
 use colored::Colorize;
 use graphql_ide::DiagnosticSeverity;
@@ -59,6 +59,7 @@ pub fn run(
     project_name: Option<&str>,
     format: OutputFormat,
     watch: bool,
+    output_opts: OutputOptions,
 ) -> Result<()> {
     if watch {
         return run_watch_mode(config_path, project_name, format);
@@ -80,7 +81,7 @@ pub fn run(
         .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
 
     // Load and select project (shared between validate and lint)
-    let spinner = if matches!(format, OutputFormat::Human) {
+    let spinner = if matches!(format, OutputFormat::Human) && output_opts.show_progress {
         Some(crate::progress::spinner("Loading schema and documents..."))
     } else {
         None
@@ -105,7 +106,7 @@ pub fn run(
     let load_duration = load_start.elapsed();
 
     // Report project loaded successfully
-    if matches!(format, OutputFormat::Human) {
+    if matches!(format, OutputFormat::Human) && output_opts.show_info {
         println!("{}", "✓ Schema loaded successfully".green());
         println!("{}", "✓ Documents loaded successfully".green());
     }
@@ -114,7 +115,7 @@ pub fn run(
     let mut all_issues: Vec<DiagnosticOutput> = Vec::new();
 
     // Run validation
-    let spinner = if matches!(format, OutputFormat::Human) {
+    let spinner = if matches!(format, OutputFormat::Human) && output_opts.show_progress {
         Some(crate::progress::spinner(
             "Running validation and lint checks...",
         ))
@@ -334,7 +335,7 @@ pub fn run(
 
     // Summary
     let total_duration = start_time.elapsed();
-    if matches!(format, OutputFormat::Human) {
+    if matches!(format, OutputFormat::Human) && output_opts.show_info {
         println!();
         if total_errors == 0 && total_warnings == 0 {
             println!("{}", "✓ All checks passed!".green().bold());

@@ -1,18 +1,21 @@
 use crate::analysis::CliAnalysisHost;
 use crate::commands::common::CommandContext;
 use crate::watch::{FileWatcher, WatchConfig, WatchMode};
-use crate::OutputFormat;
+use crate::{OutputFormat, OutputOptions};
 use anyhow::Result;
 use colored::Colorize;
 use graphql_ide::DiagnosticSeverity;
 use std::path::PathBuf;
 use std::process;
-#[tracing::instrument(skip(config_path, project_name, format), fields(project = ?project_name))]
+
+#[allow(clippy::too_many_lines)]
+#[tracing::instrument(skip(config_path, project_name, format, output_opts), fields(project = ?project_name))]
 pub fn run(
     config_path: Option<PathBuf>,
     project_name: Option<&str>,
     format: OutputFormat,
     watch: bool,
+    output_opts: OutputOptions,
 ) -> Result<()> {
     // Define diagnostic output structure for collecting errors
     struct DiagnosticOutput {
@@ -42,7 +45,7 @@ pub fn run(
         .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
 
     // Load and select project
-    let spinner = if matches!(format, OutputFormat::Human) {
+    let spinner = if matches!(format, OutputFormat::Human) && output_opts.show_progress {
         Some(crate::progress::spinner("Loading schema and documents..."))
     } else {
         None
@@ -68,13 +71,13 @@ pub fn run(
     let load_duration = load_start.elapsed();
 
     // Report project loaded successfully
-    if matches!(format, OutputFormat::Human) {
+    if matches!(format, OutputFormat::Human) && output_opts.show_info {
         println!("{}", "✓ Schema loaded successfully".green());
         println!("{}", "✓ Documents loaded successfully".green());
     }
 
     // Validate all files (spec validation only, no custom lints)
-    let spinner = if matches!(format, OutputFormat::Human) {
+    let spinner = if matches!(format, OutputFormat::Human) && output_opts.show_progress {
         Some(crate::progress::spinner("Validating GraphQL documents..."))
     } else {
         None
@@ -208,7 +211,7 @@ pub fn run(
 
     // Summary
     let total_duration = start_time.elapsed();
-    if matches!(format, OutputFormat::Human) {
+    if matches!(format, OutputFormat::Human) && output_opts.show_info {
         println!();
         if total_errors == 0 {
             println!("{}", "✓ All validations passed!".green().bold());
