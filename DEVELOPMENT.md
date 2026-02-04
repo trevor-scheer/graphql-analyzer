@@ -72,7 +72,7 @@ npm run compile
 
 1. Open `editors/vscode` in VS Code
 2. Press `F5` to launch the Extension Development Host
-3. The extension automatically uses `target/debug/graphql` when running from the repo
+3. The extension automatically uses `target/debug/graphql-lsp` when running from the repo
 
 ### Commands
 
@@ -83,6 +83,14 @@ npm run format       # Format TypeScript
 npm run lint         # Lint TypeScript
 npm run package      # Create .vsix file
 ```
+
+### Testing Extension Builds
+
+To test a platform-specific extension build from a PR, comment `/build-extension` on the PR. This will:
+
+- Build LSP binaries for all platforms
+- Package platform-specific VSIXs
+- Post a comment with download links
 
 ## Benchmarking
 
