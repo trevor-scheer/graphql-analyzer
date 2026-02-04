@@ -17,16 +17,16 @@ interface PlatformInfo {
 
 function getPlatformInfo(): PlatformInfo {
   const platform = process.platform;
-  const binaryName = platform === "win32" ? "graphql.exe" : "graphql";
+  const binaryName = platform === "win32" ? "graphql-lsp.exe" : "graphql-lsp";
   return { binaryName };
 }
 
 /**
- * Find the GraphQL CLI binary. The extension will use `graphql lsp` as the server command.
+ * Find the GraphQL LSP server binary.
  *
  * Search order:
  * 1. Custom path from settings (graphql.server.path)
- * 2. Development build (target/debug/graphql) - for local development
+ * 2. Development build (target/debug/graphql-lsp) - for local development
  * 3. Bundled binary - always available in platform-specific extension
  *
  * This extension uses platform-specific bundling: the correct binary for your
@@ -78,7 +78,7 @@ export async function findServerBinary(
 
   // This should not happen in production - the binary should always be bundled
   throw new Error(
-    `GraphQL CLI binary not found. Expected bundled binary at: ${bundledPath}\n\n` +
+    `GraphQL LSP binary not found. Expected bundled binary at: ${bundledPath}\n\n` +
       "This indicates a packaging issue with the extension. Please report this at:\n" +
       "https://github.com/trevor-scheer/graphql-analyzer/issues",
   );

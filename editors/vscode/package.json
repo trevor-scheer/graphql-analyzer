@@ -112,7 +112,7 @@
           "graphql.server.path": {
             "type": "string",
             "default": "",
-            "description": "Path to the graphql-analyzer server executable. If empty, the extension will search for it in PATH or download it automatically."
+            "description": "Path to the graphql-lsp server executable. If empty, uses the bundled binary."
           },
           "graphql.server.logLevel": {
             "type": "string",

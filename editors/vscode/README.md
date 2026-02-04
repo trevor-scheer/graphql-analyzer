@@ -372,13 +372,13 @@ The VS Code Marketplace automatically serves the correct platform-specific exten
 
 ### Version Coupling
 
-The extension bundles the `graphql` CLI binary and invokes it with the `lsp` subcommand. This means:
+The extension bundles the `graphql-lsp` binary (the standalone LSP server). This means:
 
-- **Extension releases include CLI changes**: Any CLI or LSP changes that affect IDE features will trigger an extension version bump
+- **Extension releases include LSP changes**: Any LSP changes that affect IDE features will trigger an extension version bump
 - **Consistent behavior**: The bundled binary version is always known and tested with the extension
-- **Independent CLI installation**: Users who install the CLI separately get the CLI version they chose; the extension uses its bundled version
+- **Independent CLI**: The CLI (`graphql`) and LSP (`graphql-lsp`) are separate binaries; installing one doesn't affect the other
 
-For development, the extension automatically detects and uses `target/debug/graphql` when running from the repository, allowing you to test local changes without rebuilding the extension.
+For development, the extension automatically detects and uses `target/debug/graphql-lsp` when running from the repository, allowing you to test local changes without rebuilding the extension.
 
 ## Support
 

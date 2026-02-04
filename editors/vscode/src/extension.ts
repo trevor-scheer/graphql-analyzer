@@ -331,14 +331,12 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
   const logLevel = config.get<string>("server.logLevel") || "info";
 
   const serverBinary = await findServerBinary(context, outputChannel, customPath);
-  outputChannel.appendLine(`Using GraphQL CLI at: ${serverBinary}`);
-  outputChannel.appendLine(`Server command: ${serverBinary} lsp`);
+  outputChannel.appendLine(`Using GraphQL LSP server: ${serverBinary}`);
 
   const serverEnv = config.get<Record<string, string>>("server.env") || {};
 
   const run: Executable = {
     command: serverBinary,
-    args: ["lsp"],
     options: {
       env: {
         ...process.env,

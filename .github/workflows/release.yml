@@ -119,22 +119,22 @@ jobs:
           name: binaries-${{ matrix.target }}
           path: dist/*
 
-      # Also upload raw CLI binary for VS Code extension bundling
-      - name: Upload raw CLI binary (Unix)
+      # Also upload raw LSP binary for VS Code extension bundling
+      - name: Upload raw LSP binary (Unix)
         if: runner.os != 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: cli-raw-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/graphql
+          name: lsp-raw-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/graphql-lsp
 
-      - name: Upload raw CLI binary (Windows)
+      - name: Upload raw LSP binary (Windows)
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: cli-raw-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/graphql.exe
+          name: lsp-raw-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/graphql-lsp.exe
 
-  # Build platform-specific VS Code extensions with bundled CLI binary
+  # Build platform-specific VS Code extensions with bundled LSP binary
   build-vscode:
     needs: [check-release, build-binaries]
     if: needs.check-release.outputs.should_release == 'true'
@@ -144,19 +144,19 @@ jobs:
           # Map Rust targets to VS Code targets
           - rust_target: aarch64-apple-darwin
             vscode_target: darwin-arm64
-            binary_name: graphql
+            binary_name: graphql-lsp
           - rust_target: x86_64-apple-darwin
             vscode_target: darwin-x64
-            binary_name: graphql
+            binary_name: graphql-lsp
           - rust_target: aarch64-unknown-linux-gnu
             vscode_target: linux-arm64
-            binary_name: graphql
+            binary_name: graphql-lsp
           - rust_target: x86_64-unknown-linux-gnu
             vscode_target: linux-x64
-            binary_name: graphql
+            binary_name: graphql-lsp
           - rust_target: x86_64-pc-windows-msvc
             vscode_target: win32-x64
-            binary_name: graphql.exe
+            binary_name: graphql-lsp.exe
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -168,14 +168,14 @@ jobs:
           cache: "npm"
           cache-dependency-path: editors/vscode/package-lock.json
 
-      - name: Download CLI binary
+      - name: Download LSP binary
         uses: actions/download-artifact@v4
         with:
-          name: cli-raw-${{ matrix.rust_target }}
+          name: lsp-raw-${{ matrix.rust_target }}
           path: editors/vscode/bin
 
       - name: Make binary executable
-        if: matrix.binary_name != 'graphql.exe'
+        if: matrix.binary_name != 'graphql-lsp.exe'
         run: chmod +x editors/vscode/bin/${{ matrix.binary_name }}
 
       - name: Install dependencies
