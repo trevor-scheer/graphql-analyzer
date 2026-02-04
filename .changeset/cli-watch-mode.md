@@ -1,5 +1,5 @@
 ---
-graphql-cli: minor
+graphql-analyzer-cli: minor
 ---
 
 Add `--watch` flag to validate, lint, and check commands for continuous validation during development
