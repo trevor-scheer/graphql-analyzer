@@ -2,7 +2,7 @@
 graphql-analyzer-cli: minor
 ---
 
-Add `--watch` flag to validate, lint, and check commands for continuous validation during development
+Add `--watch` flag to validate, lint, and check commands for continuous validation during development ([#467](https://github.com/trevor-scheer/graphql-analyzer/pull/467))
 
 - `graphql validate --watch`: Watch mode for GraphQL spec validation
 - `graphql lint --watch`: Watch mode for custom lint rules

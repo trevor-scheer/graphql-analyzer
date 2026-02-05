@@ -26,6 +26,18 @@ For user-facing changes (features, bug fixes, breaking changes), create a change
 knope document-change
 ```
 
+**Important:** After creating the changeset file, edit it to include a PR link at the end of the first line. Since you're creating a PR, use the PR number you expect (or update after PR is created):
+
+```markdown
+---
+graphql-analyzer-cli: patch
+---
+
+Fix argument parsing bug ([#123](https://github.com/trevor-scheer/graphql-analyzer/pull/123))
+```
+
+The PR link helps users trace changelog entries back to implementation details.
+
 **Skip changesets for:** internal refactoring, CI changes, test-only changes, documentation updates.
 
 ### 4. Review Your Changes
@@ -115,7 +127,7 @@ EOF
 - [ ] All tests pass locally
 - [ ] Clippy is clean
 - [ ] Code is formatted
-- [ ] Changeset created (if user-facing changes)
+- [ ] Changeset created with PR link (if user-facing changes)
 - [ ] Commits follow conventional format
 - [ ] PR title is descriptive (no emoji)
 - [ ] PR body follows `.github/PULL_REQUEST_TEMPLATE.md` structure
