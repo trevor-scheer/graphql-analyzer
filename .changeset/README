@@ -7,6 +7,8 @@ This directory contains changeset files that document changes for the changelog.
 ```bash
 # After making changes, create a changeset
 knope document-change
+
+# Then edit the generated file to add a PR link (see format below)
 ```
 
 That's it! When your PR is merged to main, CI will automatically:
@@ -36,10 +38,16 @@ graphql-analyzer-cli: patch
 graphql-analyzer-lsp: minor
 ---
 
-Add new feature to CLI and LSP
+Add new feature to CLI and LSP ([#123](https://github.com/trevor-scheer/graphql-analyzer/pull/123))
 ```
 
 List the packages affected and their bump type. Only include packages that have changes.
+
+**Important:** Always include a link to the PR that implements the change at the end of the first line. This helps users trace changelog entries back to the implementation details.
+
+**Workflow tip:** Since you won't have a PR number when creating the changeset, either:
+1. Create the PR first, note the number, then add the changeset with the link
+2. Create the changeset, push, create the PR, then amend your commit to add the PR link
 
 ### Version Bump Types
 
@@ -56,7 +64,7 @@ List the packages affected and their bump type. Only include packages that have 
 graphql-analyzer-cli: patch
 ---
 
-Fix argument parsing bug
+Fix argument parsing bug ([#456](https://github.com/trevor-scheer/graphql-analyzer/pull/456))
 ```
 
 **Change affecting multiple packages:**
@@ -68,7 +76,7 @@ graphql-analyzer-lsp: minor
 graphql-analyzer-mcp: minor
 ---
 
-Add support for new GraphQL directive
+Add support for new GraphQL directive ([#789](https://github.com/trevor-scheer/graphql-analyzer/pull/789))
 ```
 
 **VSCode extension update:**
@@ -78,7 +86,7 @@ Add support for new GraphQL directive
 graphql-analyzer-vscode: patch
 ---
 
-Fix syntax highlighting for fragments
+Fix syntax highlighting for fragments ([#234](https://github.com/trevor-scheer/graphql-analyzer/pull/234))
 ```
 
 ## When to Create a Changeset

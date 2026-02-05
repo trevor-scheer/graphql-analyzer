@@ -196,6 +196,16 @@ Skills enforce important workflows. Skipping them leads to incomplete work.
 3. Review changes: `git diff main...HEAD`
 4. Use the `/create-pr` skill for guidance
 
+**Changeset format:** Always include a PR link at the end of the first line:
+
+```markdown
+---
+graphql-analyzer-cli: patch
+---
+
+Fix argument parsing bug ([#123](https://github.com/trevor-scheer/graphql-analyzer/pull/123))
+```
+
 **When to create a changeset:**
 
 - Features, bug fixes, breaking changes → YES
