@@ -27,27 +27,43 @@ function Find-Editor {
     }
 }
 
+# Detect platform for platform-specific extension
+function Get-Platform {
+    # Windows only supports x64 for now
+    $arch = [System.Environment]::GetEnvironmentVariable("PROCESSOR_ARCHITECTURE")
+
+    if ($arch -eq "AMD64" -or $arch -eq "x86_64") {
+        return "win32-x64"
+    } else {
+        throw "Unsupported Windows architecture: $arch"
+    }
+}
+
 $Editor = Find-Editor
+$Platform = Get-Platform
 
 function Get-LatestVersion {
     $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases"
-    $vscodeRelease = $releases | Where-Object { $_.tag_name -like "vscode/v*" } | Select-Object -First 1
+    $vscodeRelease = $releases | Where-Object { $_.tag_name -like "graphql-analyzer-vscode/v*" } | Select-Object -First 1
     if (-not $vscodeRelease) {
         throw "Failed to find latest VSCode extension release"
     }
-    return $vscodeRelease.tag_name -replace "vscode/v", ""
+    return $vscodeRelease.tag_name -replace "graphql-analyzer-vscode/v", ""
 }
 
 Write-Host "GraphQL Analyzer Extension Installer"
 Write-Host "====================================="
 Write-Host ""
 Write-Host "Using: $Editor"
+Write-Host "Platform: $Platform"
 
 $Version = Get-LatestVersion
 Write-Host "Latest version: $Version"
 Write-Host ""
 
-$Url = "https://github.com/$Repo/releases/download/vscode/v$Version/graphql-analyzer-$Version.vsix"
+# Platform-specific extension filename: graphql-analyzer-{platform}-{version}.vsix
+$VsixName = "graphql-analyzer-$Platform-$Version.vsix"
+$Url = "https://github.com/$Repo/releases/download/graphql-analyzer-vscode/v$Version/$VsixName"
 $TempDir = New-Item -ItemType Directory -Path (Join-Path $env:TEMP ([System.Guid]::NewGuid().ToString()))
 
 try {

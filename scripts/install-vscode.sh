@@ -30,12 +30,54 @@ find_editor() {
     fi
 }
 
+# Detect platform for platform-specific extension
+detect_platform() {
+    OS=$(uname -s)
+    ARCH=$(uname -m)
+
+    case "$OS" in
+        Darwin)
+            case "$ARCH" in
+                arm64)
+                    PLATFORM="darwin-arm64"
+                    ;;
+                x86_64)
+                    PLATFORM="darwin-x64"
+                    ;;
+                *)
+                    echo "Error: unsupported macOS architecture: $ARCH"
+                    exit 1
+                    ;;
+            esac
+            ;;
+        Linux)
+            case "$ARCH" in
+                aarch64)
+                    PLATFORM="linux-arm64"
+                    ;;
+                x86_64)
+                    PLATFORM="linux-x64"
+                    ;;
+                *)
+                    echo "Error: unsupported Linux architecture: $ARCH"
+                    exit 1
+                    ;;
+            esac
+            ;;
+        *)
+            echo "Error: unsupported operating system: $OS"
+            echo "Use the PowerShell script for Windows."
+            exit 1
+            ;;
+    esac
+}
+
 # Get latest vscode extension version
 get_latest_version() {
     VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" |
-        grep -o '"tag_name": *"vscode/v[^"]*"' |
+        grep -o '"tag_name": *"graphql-analyzer-vscode/v[^"]*"' |
         head -1 |
-        sed 's/.*"vscode\/v\([^"]*\)".*/\1/')
+        sed 's/.*"graphql-analyzer-vscode\/v\([^"]*\)".*/\1/')
 
     if [ -z "$VERSION" ]; then
         echo "Failed to get latest version"
@@ -44,16 +86,21 @@ get_latest_version() {
 }
 
 find_editor
+detect_platform
+
 echo "GraphQL Analyzer Extension Installer"
 echo "====================================="
 echo
 echo "Using: $EDITOR"
+echo "Platform: $PLATFORM"
 
 get_latest_version
 echo "Latest version: $VERSION"
 echo
 
-URL="https://github.com/${REPO}/releases/download/vscode/v${VERSION}/graphql-analyzer-${VERSION}.vsix"
+# Platform-specific extension filename: graphql-analyzer-{platform}-{version}.vsix
+VSIX_NAME="graphql-analyzer-${PLATFORM}-${VERSION}.vsix"
+URL="https://github.com/${REPO}/releases/download/graphql-analyzer-vscode/v${VERSION}/${VSIX_NAME}"
 
 echo "Downloading extension..."
 

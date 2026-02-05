@@ -1,0 +1,171 @@
+name: VS Code Extension
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check-command:
+    if: github.event.issue.pull_request && contains(github.event.comment.body, '/build-extension')
+    runs-on: ubuntu-latest
+    outputs:
+      head_sha: ${{ steps.get-sha.outputs.sha }}
+    steps:
+      - name: Get PR head SHA
+        id: get-sha
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA=$(gh pr view ${{ github.event.issue.number }} --repo ${{ github.repository }} --json headRefOid -q .headRefOid)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: React to comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions -f content='+1'
+
+  build-binaries:
+    needs: check-command
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-command.outputs.head_sha }}
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-${{ matrix.target }}"
+
+      - name: Install cross
+        if: matrix.cross
+        uses: taiki-e/install-action@cross
+
+      - name: Build LSP binary
+        run: ${{ matrix.cross && 'cross' || 'cargo' }} build --release --target ${{ matrix.target }} --package graphql-lsp
+
+      - name: Upload LSP binary (Unix)
+        if: runner.os != 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lsp-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/graphql-lsp
+
+      - name: Upload LSP binary (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lsp-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/graphql-lsp.exe
+
+  build-vscode:
+    needs: [check-command, build-binaries]
+    strategy:
+      matrix:
+        include:
+          - rust_target: aarch64-apple-darwin
+            vscode_target: darwin-arm64
+            binary_name: graphql-lsp
+          - rust_target: x86_64-apple-darwin
+            vscode_target: darwin-x64
+            binary_name: graphql-lsp
+          - rust_target: aarch64-unknown-linux-gnu
+            vscode_target: linux-arm64
+            binary_name: graphql-lsp
+          - rust_target: x86_64-unknown-linux-gnu
+            vscode_target: linux-x64
+            binary_name: graphql-lsp
+          - rust_target: x86_64-pc-windows-msvc
+            vscode_target: win32-x64
+            binary_name: graphql-lsp.exe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-command.outputs.head_sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Download LSP binary
+        uses: actions/download-artifact@v4
+        with:
+          name: lsp-${{ matrix.rust_target }}
+          path: editors/vscode/bin
+
+      - name: Make binary executable
+        if: matrix.binary_name != 'graphql-lsp.exe'
+        run: chmod +x editors/vscode/bin/${{ matrix.binary_name }}
+
+      - name: Install dependencies
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Build extension
+        working-directory: editors/vscode
+        run: npm run compile
+
+      - name: Package extension
+        working-directory: editors/vscode
+        run: npx vsce package --target ${{ matrix.vscode_target }}
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-${{ matrix.vscode_target }}
+          path: editors/vscode/*.vsix
+
+  post-comment:
+    needs: [check-command, build-vscode]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post download comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          SHORT_SHA=$(echo "${{ needs.check-command.outputs.head_sha }}" | cut -c1-7)
+
+          gh pr comment ${{ github.event.issue.number }} --repo ${{ github.repository }} --body "## VS Code Extension
+
+          Built at \`$SHORT_SHA\`. **[Download artifacts]($RUN_URL)**
+
+          \`\`\`bash
+          code --install-extension ~/Downloads/graphql-analyzer-*.vsix
+          \`\`\`
+
+          | Platform | Artifact |
+          |----------|----------|
+          | macOS Apple Silicon | vsix-darwin-arm64 |
+          | macOS Intel | vsix-darwin-x64 |
+          | Linux x64 | vsix-linux-x64 |
+          | Linux ARM64 | vsix-linux-arm64 |
+          | Windows x64 | vsix-win32-x64 |"

@@ -45,7 +45,21 @@ Coming soon - this extension will be published to the VS Code Marketplace.
 
 ### From GitHub Release
 
-1. Download the `.vsix` file from the [latest release](https://github.com/trevor-scheer/graphql-analyzer/releases)
+**One-line installer (macOS/Linux):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install-vscode.sh | sh
+```
+
+**One-line installer (Windows PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install-vscode.ps1 | iex
+```
+
+**Manual installation:**
+
+1. Download the `.vsix` file for your platform from the [latest release](https://github.com/trevor-scheer/graphql-analyzer/releases)
 2. Install in VS Code:
    - Open VS Code
    - Go to Extensions view (Ctrl/Cmd+Shift+X)
@@ -56,12 +70,16 @@ Coming soon - this extension will be published to the VS Code Marketplace.
 Or install via command line:
 
 ```bash
-code --install-extension graphql-lsp-*.vsix
+code --install-extension graphql-analyzer-darwin-arm64-*.vsix  # macOS Apple Silicon
+code --install-extension graphql-analyzer-darwin-x64-*.vsix    # macOS Intel
+code --install-extension graphql-analyzer-linux-x64-*.vsix     # Linux x64
+code --install-extension graphql-analyzer-linux-arm64-*.vsix   # Linux ARM64
+code --install-extension graphql-analyzer-win32-x64-*.vsix     # Windows x64
 ```
 
-### Automatic LSP Server Download
+### Bundled LSP Server
 
-The extension automatically downloads and installs the appropriate LSP server binary for your platform on first use. No manual installation required!
+The extension includes a pre-compiled LSP server binary for your platform. No separate installation or downloads required - it works immediately after installation.
 
 Supported platforms:
 
@@ -338,6 +356,29 @@ npm version patch  # or minor, major
 git tag -a vscode-v0.1.0 -m "Release vscode v0.1.0"
 git push origin vscode-v0.1.0
 ```
+
+## Architecture
+
+### Platform-Specific Bundling
+
+This extension uses **platform-specific bundling**: the compiled LSP server binary is included directly in the extension package for each supported platform. This approach was chosen over download-on-demand for several reasons:
+
+1. **Zero-friction experience** - Works immediately after installation, no network requests or permission dialogs
+2. **Reliability** - No dependency on GitHub availability or network connectivity
+3. **Offline support** - Works in air-gapped environments
+4. **Simplicity** - Fewer failure modes and simpler extension code
+
+The VS Code Marketplace automatically serves the correct platform-specific extension to users.
+
+### Version Coupling
+
+The extension bundles the `graphql-lsp` binary (the standalone LSP server). This means:
+
+- **Extension releases include LSP changes**: Any LSP changes that affect IDE features will trigger an extension version bump
+- **Consistent behavior**: The bundled binary version is always known and tested with the extension
+- **Independent CLI**: The CLI (`graphql`) and LSP (`graphql-lsp`) are separate binaries; installing one doesn't affect the other
+
+For development, the extension automatically detects and uses `target/debug/graphql-lsp` when running from the repository, allowing you to test local changes without rebuilding the extension.
 
 ## Support
 
