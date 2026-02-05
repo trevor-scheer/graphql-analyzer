@@ -733,8 +733,7 @@ mod tests {
         // In a valid selection set, when we're at a field position, we get Field context
         assert!(
             matches!(ctx, Some(CompletionContext::Field { .. })),
-            "Expected Field context, got {:?}",
-            ctx
+            "Expected Field context, got {ctx:?}",
         );
     }
 
@@ -749,8 +748,7 @@ mod tests {
         let ctx = find_completion_context(source, &tree, 19);
         assert!(
             matches!(ctx, Some(CompletionContext::TypeName { input_only: true })),
-            "Expected TypeName context with input_only: true, got {:?}",
-            ctx
+            "Expected TypeName context with input_only: true, got {ctx:?}",
         );
     }
 
