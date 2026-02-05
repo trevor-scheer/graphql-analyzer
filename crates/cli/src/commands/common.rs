@@ -1,8 +1,8 @@
+use crate::ExitCode;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use graphql_config::{find_config, load_config, GraphQLConfig};
 use std::path::PathBuf;
-use std::process;
 
 /// Common context for all CLI commands that require config and project selection
 pub struct CommandContext {
@@ -57,7 +57,7 @@ impl CommandContext {
                     "graphql".green(),
                     command_name
                 );
-                process::exit(1);
+                ExitCode::ConfigError.exit();
             }
         }
 
