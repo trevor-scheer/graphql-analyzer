@@ -26,6 +26,7 @@ import {
   ServerOptions,
   Executable,
   State,
+  Trace,
   Location as LspLocation,
   Position as LspPosition,
 } from "vscode-languageclient/node";
@@ -326,6 +327,14 @@ function setupDecorationListeners(context: ExtensionContext): void {
   }
 }
 
+function syncTraceLevel(): void {
+  if (!client) {
+    return;
+  }
+  const enabled = workspace.getConfiguration("graphql").get<boolean>("trace.server", true);
+  client.setTrace(enabled ? Trace.Verbose : Trace.Off);
+}
+
 async function startLanguageServer(context: ExtensionContext): Promise<void> {
   const config = workspace.getConfiguration("graphql");
   const customPath = config.get<string>("server.path");
@@ -395,6 +404,7 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
       progress.report({ message: "Starting language server..." });
 
       await client.start();
+      syncTraceLevel();
       outputChannel.appendLine("Language client started successfully!");
 
       client.onNotification(
@@ -489,9 +499,12 @@ export async function activate(context: ExtensionContext) {
       },
     );
 
-    // Listen for configuration changes to restart health check with new settings
+    // Listen for configuration changes
     context.subscriptions.push(
       workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration("graphql.trace.server")) {
+          syncTraceLevel();
+        }
         if (event.affectsConfiguration("graphql.debug.healthCheck")) {
           outputChannel.appendLine("[Health Check] Configuration changed, restarting...");
           startHealthCheck();
