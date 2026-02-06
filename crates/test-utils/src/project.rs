@@ -6,7 +6,9 @@
 
 use std::sync::Arc;
 
-use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+use graphql_base_db::{
+    ExtractionOffset, FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles,
+};
 
 use crate::TestDatabase;
 
@@ -117,7 +119,13 @@ impl TestProjectBuilder {
 
             let uri = format!("file:///{name}");
             let file_content = FileContent::new(&db, Arc::from(content.as_str()));
-            let metadata = FileMetadata::new(&db, id, FileUri::new(uri), FileKind::Schema);
+            let metadata = FileMetadata::new(
+                &db,
+                id,
+                FileUri::new(uri),
+                FileKind::Schema,
+                ExtractionOffset::default(),
+            );
 
             schema_tuples.push((id, file_content, metadata));
         }
@@ -129,8 +137,13 @@ impl TestProjectBuilder {
 
             let uri = format!("file:///{name}");
             let file_content = FileContent::new(&db, Arc::from(content.as_str()));
-            let metadata =
-                FileMetadata::new(&db, id, FileUri::new(uri), FileKind::ExecutableGraphQL);
+            let metadata = FileMetadata::new(
+                &db,
+                id,
+                FileUri::new(uri),
+                FileKind::ExecutableGraphQL,
+                ExtractionOffset::default(),
+            );
 
             doc_tuples.push((id, file_content, metadata));
         }
@@ -184,7 +197,13 @@ impl TestProjectBuilder {
 
             let uri = format!("file:///{name}");
             let file_content = FileContent::new(&db, Arc::from(content.as_str()));
-            let metadata = FileMetadata::new(&db, id, FileUri::new(uri), FileKind::Schema);
+            let metadata = FileMetadata::new(
+                &db,
+                id,
+                FileUri::new(uri),
+                FileKind::Schema,
+                ExtractionOffset::default(),
+            );
 
             schema_tuples.push((id, file_content, metadata));
             schema_files.push(TestFile {
@@ -202,8 +221,13 @@ impl TestProjectBuilder {
 
             let uri = format!("file:///{name}");
             let file_content = FileContent::new(&db, Arc::from(content.as_str()));
-            let metadata =
-                FileMetadata::new(&db, id, FileUri::new(uri), FileKind::ExecutableGraphQL);
+            let metadata = FileMetadata::new(
+                &db,
+                id,
+                FileUri::new(uri),
+                FileKind::ExecutableGraphQL,
+                ExtractionOffset::default(),
+            );
 
             doc_tuples.push((id, file_content, metadata));
             doc_files.push(TestFile {

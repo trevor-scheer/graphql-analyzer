@@ -1,0 +1,9 @@
+schema:
+  - "schema/*.graphql"
+  - "schema/*.ts"
+
+documents: "src/**/*.{graphql,ts,tsx}"
+
+extensions:
+  extractConfig:
+    allowGlobalIdentifiers: true

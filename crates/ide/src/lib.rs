@@ -754,6 +754,23 @@ impl AnalysisHost {
         is_new
     }
 
+    /// Add a file with extraction offset information.
+    ///
+    /// This is used for content extracted from host files (e.g., GraphQL from TypeScript).
+    /// The offset allows correct position reporting in diagnostics.
+    pub fn add_file_with_offset(
+        &mut self,
+        path: &FilePath,
+        content: &str,
+        kind: FileKind,
+        extraction_offset: graphql_base_db::ExtractionOffset,
+    ) -> bool {
+        let mut registry = self.registry.write();
+        let (_, _, _, is_new) =
+            registry.add_file_with_offset(&mut self.db, path, content, kind, extraction_offset);
+        is_new
+    }
+
     /// Batch-add pre-discovered files to the host.
     ///
     /// This is more efficient than calling `add_file` in a loop because
@@ -974,10 +991,21 @@ impl AnalysisHost {
                                                             file_uri.clone()
                                                         };
 
-                                                        self.add_file(
+                                                        // Extract offset information for correct position reporting
+                                                        let extraction_offset =
+                                                            graphql_base_db::ExtractionOffset::new(
+                                                                block.location.range.start.line
+                                                                    as u32,
+                                                                block.location.range.start.column
+                                                                    as u32,
+                                                                block.location.offset as u32,
+                                                            );
+
+                                                        self.add_file_with_offset(
                                                             &FilePath::new(block_uri),
                                                             &block.source,
                                                             FileKind::Schema,
+                                                            extraction_offset,
                                                         );
                                                         count += 1;
                                                     }

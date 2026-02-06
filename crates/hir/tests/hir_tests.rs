@@ -3,7 +3,7 @@
 //! These tests verify HIR construction, fragment resolution, schema types,
 //! and incremental computation behavior.
 
-use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+use graphql_base_db::{ExtractionOffset, FileContent, FileId, FileKind, FileMetadata, FileUri};
 use graphql_hir::{
     all_fragments, file_defined_fragment_names, file_operation_names, file_structure,
     file_used_fragment_names, fragment_source, schema_types,
@@ -25,7 +25,13 @@ fn test_file_structure_basic() {
     let db = TestDatabase::default();
     let file_id = FileId::new(0);
     let content = FileContent::new(&db, Arc::from("type User { id: ID! }"));
-    let metadata = FileMetadata::new(&db, file_id, FileUri::new("test.graphql"), FileKind::Schema);
+    let metadata = FileMetadata::new(
+        &db,
+        file_id,
+        FileUri::new("test.graphql"),
+        FileKind::Schema,
+        ExtractionOffset::default(),
+    );
 
     let structure = file_structure(&db, file_id, content, metadata);
     assert_eq!(structure.type_defs.len(), 1);
@@ -43,6 +49,7 @@ fn test_all_fragments_granular_invalidation() {
         file1_id,
         FileUri::new("f1.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let file2_id = FileId::new(1);
@@ -52,6 +59,7 @@ fn test_all_fragments_granular_invalidation() {
         file2_id,
         FileUri::new("f2.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let doc_files = [
@@ -86,6 +94,7 @@ fn test_fragment_source_per_fragment_lookup() {
         file1_id,
         FileUri::new("user-fragment.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let file2_id = FileId::new(1);
@@ -96,6 +105,7 @@ fn test_fragment_source_per_fragment_lookup() {
         file2_id,
         FileUri::new("post-fragment.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let doc_files = [
@@ -133,6 +143,7 @@ fn test_fragment_source_granular_invalidation() {
         file1_id,
         FileUri::new("user-fragment.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let file2_id = FileId::new(1);
@@ -142,6 +153,7 @@ fn test_fragment_source_granular_invalidation() {
         file2_id,
         FileUri::new("post-fragment.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let doc_files = [
@@ -192,7 +204,13 @@ const MY_FRAGMENT = gql`
 "#;
 
     let content = FileContent::new(&db, Arc::from(ts_content));
-    let metadata = FileMetadata::new(&db, file_id, FileUri::new("test.ts"), FileKind::TypeScript);
+    let metadata = FileMetadata::new(
+        &db,
+        file_id,
+        FileUri::new("test.ts"),
+        FileKind::TypeScript,
+        ExtractionOffset::default(),
+    );
 
     let structure = file_structure(&db, file_id, content, metadata);
 
@@ -216,6 +234,7 @@ fn test_all_fragments_includes_typescript_files() {
         graphql_file_id,
         FileUri::new("test.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let ts_file_id = FileId::new(2);
@@ -239,6 +258,7 @@ const FRAG = gql`
         ts_file_id,
         FileUri::new("test.ts"),
         FileKind::TypeScript,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(
@@ -477,8 +497,13 @@ mod caching_tests {
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
-        let metadata =
-            FileMetadata::new(&db, file_id, FileUri::new("test.graphql"), FileKind::Schema);
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("test.graphql"),
+            FileKind::Schema,
+            ExtractionOffset::default(),
+        );
 
         let schema_files = [(file_id, content, metadata)];
         let project_files = create_tracked_project_files(&db, &schema_files, &[]);
@@ -510,13 +535,23 @@ mod caching_tests {
 
         let first_id = FileId::new(0);
         let first_content = FileContent::new(&db, Arc::from("type TypeA { id: ID! }"));
-        let first_metadata =
-            FileMetadata::new(&db, first_id, FileUri::new("a.graphql"), FileKind::Schema);
+        let first_metadata = FileMetadata::new(
+            &db,
+            first_id,
+            FileUri::new("a.graphql"),
+            FileKind::Schema,
+            ExtractionOffset::default(),
+        );
 
         let second_id = FileId::new(1);
         let second_content = FileContent::new(&db, Arc::from("type TypeB { id: ID! }"));
-        let second_metadata =
-            FileMetadata::new(&db, second_id, FileUri::new("b.graphql"), FileKind::Schema);
+        let second_metadata = FileMetadata::new(
+            &db,
+            second_id,
+            FileUri::new("b.graphql"),
+            FileKind::Schema,
+            ExtractionOffset::default(),
+        );
 
         let schema_files = [
             (first_id, first_content, first_metadata),
@@ -562,6 +597,7 @@ mod caching_tests {
             schema_id,
             FileUri::new("schema.graphql"),
             FileKind::Schema,
+            ExtractionOffset::default(),
         );
 
         let doc_id = FileId::new(1);
@@ -571,6 +607,7 @@ mod caching_tests {
             doc_id,
             FileUri::new("query.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
 
         let project_files = create_tracked_project_files(
@@ -612,7 +649,13 @@ mod caching_tests {
             let content_str = format!("type {type_name} {{ id: ID! }}");
             let content = FileContent::new(&db, Arc::from(content_str.as_str()));
             let uri = format!("file{i}.graphql");
-            let metadata = FileMetadata::new(&db, file_id, FileUri::new(uri), FileKind::Schema);
+            let metadata = FileMetadata::new(
+                &db,
+                file_id,
+                FileUri::new(uri),
+                FileKind::Schema,
+                ExtractionOffset::default(),
+            );
 
             file_contents.push(content);
             schema_files.push((file_id, content, metadata));
@@ -662,6 +705,7 @@ mod caching_tests {
             schema_id,
             FileUri::new("schema.graphql"),
             FileKind::Schema,
+            ExtractionOffset::default(),
         );
 
         let op1_id = FileId::new(1);
@@ -671,6 +715,7 @@ mod caching_tests {
             op1_id,
             FileUri::new("op1.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
 
         let op2_id = FileId::new(2);
@@ -680,6 +725,7 @@ mod caching_tests {
             op2_id,
             FileUri::new("op2.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
 
         let project_files = create_tracked_project_files(
@@ -736,8 +782,13 @@ mod caching_tests {
             );
             let content = FileContent::new(&db, Arc::from(content_str.as_str()));
             let uri = format!("file{i}.graphql");
-            let metadata =
-                FileMetadata::new(&db, file_id, FileUri::new(uri), FileKind::ExecutableGraphQL);
+            let metadata = FileMetadata::new(
+                &db,
+                file_id,
+                FileUri::new(uri),
+                FileKind::ExecutableGraphQL,
+                ExtractionOffset::default(),
+            );
 
             file_contents.push(content);
             doc_files.push((file_id, content, metadata));
@@ -788,8 +839,13 @@ mod caching_tests {
 
         let file_id = FileId::new(0);
         let content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
-        let metadata =
-            FileMetadata::new(&db, file_id, FileUri::new("test.graphql"), FileKind::Schema);
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("test.graphql"),
+            FileKind::Schema,
+            ExtractionOffset::default(),
+        );
 
         let schema_files = [(file_id, content, metadata)];
         let project_files = create_tracked_project_files(&db, &schema_files, &[]);

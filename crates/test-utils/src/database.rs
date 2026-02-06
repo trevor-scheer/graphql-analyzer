@@ -11,8 +11,8 @@
 //!   allowing tests to set project context after database construction.
 
 use graphql_base_db::{
-    DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileKind, FileMetadata, FileUri,
-    ProjectFiles, SchemaFileIds,
+    DocumentFileIds, ExtractionOffset, FileContent, FileEntry, FileEntryMap, FileId, FileKind,
+    FileMetadata, FileUri, ProjectFiles, SchemaFileIds,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -91,7 +91,13 @@ pub fn file_metadata(
     uri: &str,
     kind: FileKind,
 ) -> FileMetadata {
-    FileMetadata::new(db, FileId::new(id), FileUri::new(uri), kind)
+    FileMetadata::new(
+        db,
+        FileId::new(id),
+        FileUri::new(uri),
+        kind,
+        ExtractionOffset::default(),
+    )
 }
 
 /// Helper to create `ProjectFiles` for tests.

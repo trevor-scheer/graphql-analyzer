@@ -159,8 +159,8 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
 mod tests {
     use super::*;
     use graphql_base_db::{
-        DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileKind, FileMetadata,
-        FileUri, ProjectFiles, SchemaFileIds,
+        DocumentFileIds, ExtractionOffset, FileContent, FileEntry, FileEntryMap, FileId, FileKind,
+        FileMetadata, FileUri, ProjectFiles, SchemaFileIds,
     };
     use graphql_ide_db::RootDatabase;
     use std::sync::Arc;
@@ -197,6 +197,7 @@ mod tests {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
 
         let project_files = create_test_project_files(&db, &[(file_id, content, metadata)]);
@@ -239,6 +240,7 @@ mod tests {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
 
         let project_files = create_test_project_files(&db, &[(file_id, content, metadata)]);
@@ -262,6 +264,7 @@ mod tests {
             file_id1,
             FileUri::new("file:///fragments.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
 
         // File 2: Operation using the fragment
@@ -273,6 +276,7 @@ mod tests {
             file_id2,
             FileUri::new("file:///queries.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
 
         let project_files = create_test_project_files(
@@ -305,6 +309,7 @@ mod tests {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
 
         let project_files = create_test_project_files(&db, &[(file_id, content, metadata)]);
@@ -339,6 +344,7 @@ mod tests {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
 
         let project_files = create_test_project_files(&db, &[(file_id, content, metadata)]);
@@ -371,6 +377,7 @@ mod tests {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
 
         let project_files = create_test_project_files(&db, &[(file_id, content, metadata)]);

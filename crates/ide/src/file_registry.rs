@@ -16,8 +16,8 @@
 //! any file change would invalidate queries for ALL files.
 
 use graphql_base_db::{
-    DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileKind, FileMetadata, FileUri,
-    ProjectFiles, SchemaFileIds,
+    DocumentFileIds, ExtractionOffset, FileContent, FileEntry, FileEntryMap, FileId, FileKind,
+    FileMetadata, FileUri, ProjectFiles, SchemaFileIds,
 };
 use salsa::Setter;
 use std::collections::HashMap;
@@ -78,6 +78,24 @@ impl FileRegistry {
     where
         DB: salsa::Database,
     {
+        self.add_file_with_offset(db, path, content, kind, ExtractionOffset::default())
+    }
+
+    /// Add or update a file with extraction offset information.
+    ///
+    /// This is used for content extracted from host files (e.g., GraphQL from TypeScript).
+    /// The offset allows correct position reporting in diagnostics.
+    pub fn add_file_with_offset<DB>(
+        &mut self,
+        db: &mut DB,
+        path: &FilePath,
+        content: &str,
+        kind: FileKind,
+        extraction_offset: ExtractionOffset,
+    ) -> (FileId, FileContent, FileMetadata, bool)
+    where
+        DB: salsa::Database,
+    {
         let uri_str = path.as_str();
         let content_arc: Arc<str> = Arc::from(content);
 
@@ -116,9 +134,9 @@ impl FileRegistry {
         let file_content = FileContent::new(db, content_arc);
         self.id_to_content.insert(file_id, file_content);
 
-        // Create new FileMetadata
+        // Create new FileMetadata with extraction offset
         let uri = FileUri::new(uri_str);
-        let metadata = FileMetadata::new(db, file_id, uri, kind);
+        let metadata = FileMetadata::new(db, file_id, uri, kind, extraction_offset);
         self.id_to_metadata.insert(file_id, metadata);
 
         // Create new FileEntry (for granular caching)
