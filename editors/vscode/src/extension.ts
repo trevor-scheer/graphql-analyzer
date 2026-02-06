@@ -116,6 +116,7 @@ const deprecatedDecorationType: TextEditorDecorationType = window.createTextEdit
 
 let client: LanguageClient;
 let outputChannel: OutputChannel;
+let traceOutputChannel: OutputChannel;
 let statusBarItem: StatusBarItem;
 let healthCheckInterval: NodeJS.Timeout | undefined;
 let isServerHealthy = true;
@@ -366,6 +367,7 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
       fileEvents: workspace.createFileSystemWatcher("**/*.{graphql,gql,ts,tsx,js,jsx}"),
     },
     outputChannel: outputChannel,
+    traceOutputChannel: traceOutputChannel,
   };
 
   outputChannel.appendLine("Creating language client...");
@@ -421,6 +423,7 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
 
 export async function activate(context: ExtensionContext) {
   outputChannel = window.createOutputChannel("graphql-analyzer Debug");
+  traceOutputChannel = window.createOutputChannel("GraphQL Language Server");
   outputChannel.appendLine("=== graphql-analyzer extension activating ===");
 
   statusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 100);
@@ -507,7 +510,7 @@ export async function activate(context: ExtensionContext) {
     // Don't throw - allow partial activation so restart command can still work
   }
 
-  context.subscriptions.push(outputChannel);
+  context.subscriptions.push(outputChannel, traceOutputChannel);
   outputChannel.appendLine("Extension activated!");
   console.log("=== Extension activation complete ===");
 }
