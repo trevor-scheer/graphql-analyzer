@@ -1299,7 +1299,14 @@ impl LanguageServer for GraphQLLanguageServer {
                     TextDocumentSyncKind::FULL,
                 )),
                 completion_provider: supports_completion.then(|| CompletionOptions {
-                    trigger_characters: Some(vec!["{".to_string(), "@".to_string()]),
+                    trigger_characters: Some(vec![
+                        "{".to_string(), // Field completions in selection sets
+                        "@".to_string(), // Directive completions
+                        "$".to_string(), // Variable completions
+                        "(".to_string(), // Argument completions
+                        ":".to_string(), // Type completions (after : in variable definitions)
+                        ".".to_string(), // Fragment spread completions (after ...)
+                    ]),
                     ..Default::default()
                 }),
                 hover_provider: supports_hover.then_some(HoverProviderCapability::Simple(true)),

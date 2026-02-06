@@ -251,5 +251,8 @@ pub fn goto_definition(
             }
             None
         }
+        // Directives are typically built-in (@skip, @include, etc.) - no goto definition
+        // Enum values don't have a separate definition location; goto the enum type instead
+        Symbol::DirectiveName { .. } | Symbol::EnumValue { .. } => None,
     }
 }
