@@ -423,7 +423,7 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
 
 export async function activate(context: ExtensionContext) {
   outputChannel = window.createOutputChannel("graphql-analyzer Debug");
-  traceOutputChannel = window.createOutputChannel("GraphQL Language Server");
+  traceOutputChannel = window.createOutputChannel("graphql-analyzer LSP");
   outputChannel.appendLine("=== graphql-analyzer extension activating ===");
 
   statusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 100);
