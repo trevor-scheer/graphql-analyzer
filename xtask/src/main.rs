@@ -105,7 +105,21 @@ fn install(release: bool) -> Result<()> {
         bail!("cargo build failed");
     }
 
-    // Step 2: Compile TypeScript
+    // Step 2: Install npm dependencies if needed
+    let node_modules = vscode_dir.join("node_modules");
+    if !node_modules.exists() {
+        println!("Installing npm dependencies...");
+        let status = Command::new("npm")
+            .args(["install"])
+            .current_dir(&vscode_dir)
+            .status()
+            .context("Failed to run npm install")?;
+        if !status.success() {
+            bail!("npm install failed");
+        }
+    }
+
+    // Step 3: Compile TypeScript
     println!("Compiling VSCode extension...");
     let status = Command::new("npm")
         .args(["run", "compile"])
