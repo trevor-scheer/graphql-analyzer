@@ -2,6 +2,13 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.1.1 (2026-02-06)
+
+### Fixes
+
+- Fix extension failing to load due to missing vscode-languageclient module ([#557](https://github.com/trevor-scheer/graphql-analyzer/pull/557))
+- Fix syntax highlighting for gql tags with backtick on separate line ([#529](https://github.com/trevor-scheer/graphql-analyzer/pull/529))
+
 ## 0.1.0 (2026-02-02)
 
 ### Features
