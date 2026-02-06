@@ -105,7 +105,7 @@ impl StandaloneDocumentLintRule for OperationNameSuffixRuleImpl {
 mod tests {
     use super::*;
     use crate::traits::StandaloneDocumentLintRule;
-    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+    use graphql_base_db::{ExtractionOffset, FileContent, FileId, FileKind, FileMetadata, FileUri};
     use graphql_ide_db::RootDatabase;
     use std::sync::Arc;
 
@@ -125,6 +125,7 @@ mod tests {
             file_id,
             FileUri::new("test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
         let project_files = create_empty_project_files(db);
 

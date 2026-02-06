@@ -32,8 +32,8 @@
 
 // Re-export commonly used types from the foundation crate
 pub use graphql_base_db::{
-    DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileKind, FileMetadata, FileUri,
-    ProjectFiles, SchemaFileIds,
+    DocumentFileIds, ExtractionOffset, FileContent, FileEntry, FileEntryMap, FileId, FileKind,
+    FileMetadata, FileUri, ProjectFiles, SchemaFileIds,
 };
 
 /// The root Salsa database for GraphQL IDE features.
@@ -85,6 +85,7 @@ mod tests {
             FileId::new(0),
             FileUri::new("test.graphql"),
             FileKind::Schema,
+            ExtractionOffset::default(),
         );
 
         let parse = graphql_syntax::parse(&db, content, metadata);

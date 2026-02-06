@@ -653,7 +653,9 @@ fn check_fragment_selection_for_field(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+    use graphql_base_db::{
+        ExtractionOffset, FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles,
+    };
     use graphql_hir::GraphQLHirDatabase;
     use graphql_ide_db::RootDatabase;
 
@@ -672,6 +674,7 @@ mod tests {
             schema_file_id,
             FileUri::new("file:///schema.graphql"),
             FileKind::Schema,
+            ExtractionOffset::default(),
         );
 
         // Create document file
@@ -682,6 +685,7 @@ mod tests {
             doc_file_id,
             FileUri::new("file:///query.graphql"),
             document_kind,
+            ExtractionOffset::default(),
         );
 
         let schema_file_ids =
@@ -1065,6 +1069,7 @@ query GetUser {
             schema_file_id,
             FileUri::new("file:///schema.graphql"),
             FileKind::Schema,
+            ExtractionOffset::default(),
         );
 
         let mut file_entries = std::collections::HashMap::new();
@@ -1077,7 +1082,13 @@ query GetUser {
         for (i, (uri, source, kind)) in documents.iter().enumerate() {
             let file_id = FileId::new((i + 1) as u32);
             let content = FileContent::new(db, Arc::from(*source));
-            let metadata = FileMetadata::new(db, file_id, FileUri::new(*uri), *kind);
+            let metadata = FileMetadata::new(
+                db,
+                file_id,
+                FileUri::new(*uri),
+                *kind,
+                ExtractionOffset::default(),
+            );
 
             let entry = graphql_base_db::FileEntry::new(db, content, metadata);
             file_entries.insert(file_id, entry);

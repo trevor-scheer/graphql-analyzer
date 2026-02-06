@@ -40,6 +40,37 @@ impl std::fmt::Display for FileUri {
     }
 }
 
+/// Offset information for content extracted from host files (e.g., GraphQL from TypeScript).
+///
+/// When GraphQL content is extracted from a host file, positions within the extracted
+/// content need to be adjusted to report correct positions in the original file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct ExtractionOffset {
+    /// Line offset in the original file (0-based).
+    /// Added to all line numbers in diagnostics.
+    pub line: u32,
+    /// Column offset for the first line only (0-based).
+    /// Only relevant for single-line content or the first line of multi-line content.
+    pub column: u32,
+    /// Byte offset in the original file.
+    /// Used for precise position calculations.
+    pub byte: u32,
+}
+
+impl ExtractionOffset {
+    /// Create a new extraction offset.
+    #[must_use]
+    pub const fn new(line: u32, column: u32, byte: u32) -> Self {
+        Self { line, column, byte }
+    }
+
+    /// Check if this represents zero offset (content at the start of a file).
+    #[must_use]
+    pub const fn is_zero(&self) -> bool {
+        self.line == 0 && self.column == 0 && self.byte == 0
+    }
+}
+
 /// File kind discriminator
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FileKind {
@@ -87,6 +118,10 @@ pub struct FileMetadata {
     pub file_id: FileId,
     pub uri: FileUri,
     pub kind: FileKind,
+    /// Extraction offset for content from host files (e.g., GraphQL from TypeScript).
+    /// For pure GraphQL files, this is zero. For extracted content, this contains
+    /// the position in the original file where the GraphQL content starts.
+    pub extraction_offset: ExtractionOffset,
 }
 
 /// Input: Schema file ID list (identity only)
@@ -241,7 +276,8 @@ mod tests {
         let uri = FileUri::new("file:///test.graphql");
         let kind = FileKind::Schema;
 
-        let metadata = FileMetadata::new(&db, file_id, uri.clone(), kind);
+        let metadata =
+            FileMetadata::new(&db, file_id, uri.clone(), kind, ExtractionOffset::default());
 
         assert_eq!(metadata.file_id(&db), file_id);
         assert_eq!(metadata.uri(&db), uri);

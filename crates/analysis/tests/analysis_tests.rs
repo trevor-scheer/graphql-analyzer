@@ -7,7 +7,7 @@ use graphql_analysis::{
     merged_schema::merged_schema_with_diagnostics, validate_document_file, validate_file,
     FieldCoverageReport, TypeCoverage,
 };
-use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+use graphql_base_db::{ExtractionOffset, FileContent, FileId, FileKind, FileMetadata, FileUri};
 use graphql_test_utils::{create_project_files, TestDatabase, TestDatabaseWithProject};
 use std::sync::Arc;
 
@@ -26,6 +26,7 @@ fn test_file_diagnostics_empty() {
         file_id,
         FileUri::new("file:///test.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let diagnostics = file_diagnostics(&db, content, metadata, None);
@@ -51,6 +52,7 @@ fn test_validate_file_no_schema() {
         file_id,
         FileUri::new("query.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(&mut db, &[], &[]);
@@ -74,6 +76,7 @@ fn test_validate_file_with_valid_fragment() {
         schema_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let doc_id = FileId::new(1);
@@ -83,6 +86,7 @@ fn test_validate_file_with_valid_fragment() {
         doc_id,
         FileUri::new("fragment.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(
@@ -110,6 +114,7 @@ fn test_validate_file_with_invalid_fragment() {
         schema_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let doc_id = FileId::new(1);
@@ -122,6 +127,7 @@ fn test_validate_file_with_invalid_fragment() {
         doc_id,
         FileUri::new("fragment.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(
@@ -154,6 +160,7 @@ fn test_validate_file_invalid_field() {
         schema_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let doc_id = FileId::new(1);
@@ -163,6 +170,7 @@ fn test_validate_file_invalid_field() {
         doc_id,
         FileUri::new("query.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(
@@ -195,6 +203,7 @@ fn test_validate_file_valid_query() {
         schema_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let doc_id = FileId::new(1);
@@ -204,6 +213,7 @@ fn test_validate_file_valid_query() {
         doc_id,
         FileUri::new("query.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(
@@ -234,6 +244,7 @@ fn test_cross_file_fragment_resolution() {
         schema_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let frag_id = FileId::new(1);
@@ -243,6 +254,7 @@ fn test_cross_file_fragment_resolution() {
         frag_id,
         FileUri::new("fragments.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let query_id = FileId::new(2);
@@ -252,6 +264,7 @@ fn test_cross_file_fragment_resolution() {
         query_id,
         FileUri::new("query.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(
@@ -294,6 +307,7 @@ fn test_valid_schema() {
         file_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(&mut db, &[(file_id, content, metadata)], &[]);
@@ -321,6 +335,7 @@ fn test_duplicate_type_name() {
         file_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(&mut db, &[(file_id, content, metadata)], &[]);
@@ -347,6 +362,7 @@ fn test_invalid_syntax() {
         file_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let diagnostics = file_validation_diagnostics(&db, content, metadata, None);
@@ -370,6 +386,7 @@ fn test_duplicate_field_in_extension() {
         file_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(&mut db, &[(file_id, content, metadata)], &[]);
@@ -403,6 +420,7 @@ fn test_unknown_variable_type() {
         file_id,
         FileUri::new("query.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(&mut db, &[], &[(file_id, content, metadata)]);
@@ -431,6 +449,7 @@ fn test_fragment_unknown_type_condition() {
         file_id,
         FileUri::new("fragment.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(&mut db, &[], &[(file_id, content, metadata)]);
@@ -459,6 +478,7 @@ fn test_missing_root_type() {
         file_id,
         FileUri::new("query.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(&mut db, &[], &[(file_id, content, metadata)]);
@@ -491,6 +511,7 @@ fn test_valid_document() {
         schema_file_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let doc_file_id = FileId::new(1);
@@ -506,6 +527,7 @@ fn test_valid_document() {
         doc_file_id,
         FileUri::new("query.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(
@@ -535,6 +557,7 @@ fn test_merged_schema_single_file() {
         file_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
     let schema_files = [(file_id, content, metadata)];
     let project_files = create_project_files(&mut db, &schema_files, &[]);
@@ -562,6 +585,7 @@ fn test_merged_schema_multiple_files() {
         file1_id,
         FileUri::new("schema1.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let file2_id = FileId::new(1);
@@ -571,6 +595,7 @@ fn test_merged_schema_multiple_files() {
         file2_id,
         FileUri::new("schema2.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let schema_files = [
@@ -607,6 +632,7 @@ fn test_merged_schema_with_extensions() {
         file1_id,
         FileUri::new("schema1.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let file2_id = FileId::new(1);
@@ -616,6 +642,7 @@ fn test_merged_schema_with_extensions() {
         file2_id,
         FileUri::new("schema2.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let schema_files = [
@@ -674,6 +701,7 @@ fn test_merged_schema_invalid_syntax() {
         file_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let schema_files = [(file_id, content, metadata)];
@@ -700,6 +728,7 @@ fn test_merged_schema_validation_error() {
         file_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let schema_files = [(file_id, content, metadata)];
@@ -732,6 +761,7 @@ fn test_interface_implementation_missing_field() {
         file_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let schema_files = [(file_id, content, metadata)];
@@ -777,6 +807,7 @@ fn test_valid_interface_implementation() {
         file_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let schema_files = [(file_id, content, metadata)];
@@ -814,6 +845,7 @@ fn test_schema_diagnostics_attributed_to_correct_file() {
         file_id1,
         FileUri::new("types.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let file_id2 = FileId::new(1);
@@ -830,6 +862,7 @@ fn test_schema_diagnostics_attributed_to_correct_file() {
         file_id2,
         FileUri::new("user.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let schema_files = [
@@ -884,6 +917,7 @@ fn test_schema_build_error_attributed_to_correct_file() {
         file_id1,
         FileUri::new("query.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let file_id2 = FileId::new(1);
@@ -893,6 +927,7 @@ fn test_schema_build_error_attributed_to_correct_file() {
         file_id2,
         FileUri::new("duplicate.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let schema_files = [
@@ -951,6 +986,7 @@ fn test_analyze_field_usage_basic() {
         schema_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let doc_id = FileId::new(1);
@@ -972,6 +1008,7 @@ fn test_analyze_field_usage_basic() {
         doc_id,
         FileUri::new("query.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(
@@ -1026,6 +1063,7 @@ fn test_analyze_field_usage_multiple_operations() {
         schema_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let doc_id = FileId::new(1);
@@ -1053,6 +1091,7 @@ fn test_analyze_field_usage_multiple_operations() {
         doc_id,
         FileUri::new("query.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(
@@ -1105,6 +1144,7 @@ fn test_analyze_field_usage_with_fragments() {
         schema_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let doc_id = FileId::new(1);
@@ -1130,6 +1170,7 @@ fn test_analyze_field_usage_with_fragments() {
         doc_id,
         FileUri::new("query.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let project_files = create_project_files(

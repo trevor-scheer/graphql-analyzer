@@ -577,8 +577,8 @@ fn unwrap_type_name(type_name: &str) -> Arc<str> {
 mod tests {
     use super::*;
     use graphql_base_db::{
-        DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileKind, FileMetadata,
-        FileUri, ProjectFiles, SchemaFileIds,
+        DocumentFileIds, ExtractionOffset, FileContent, FileEntry, FileEntryMap, FileId, FileKind,
+        FileMetadata, FileUri, ProjectFiles, SchemaFileIds,
     };
 
     #[salsa::db]
@@ -670,6 +670,7 @@ mod tests {
             schema_id,
             FileUri::new("schema.graphql"),
             FileKind::Schema,
+            ExtractionOffset::default(),
         );
 
         let doc_id = FileId::new(1);
@@ -691,6 +692,7 @@ mod tests {
             doc_id,
             FileUri::new("query.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
 
         let project_files = create_project_files(
@@ -734,6 +736,7 @@ mod tests {
             schema_id,
             FileUri::new("schema.graphql"),
             FileKind::Schema,
+            ExtractionOffset::default(),
         );
 
         let doc_id = FileId::new(1);
@@ -760,6 +763,7 @@ mod tests {
             doc_id,
             FileUri::new("query.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
 
         let project_files = create_project_files(
@@ -808,6 +812,7 @@ mod tests {
             schema_id,
             FileUri::new("schema.graphql"),
             FileKind::Schema,
+            ExtractionOffset::default(),
         );
 
         let doc_id = FileId::new(1);
@@ -832,6 +837,7 @@ mod tests {
             doc_id,
             FileUri::new("query.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
 
         let project_files = create_project_files(
@@ -877,6 +883,7 @@ mod tests {
             schema_id,
             FileUri::new("schema.graphql"),
             FileKind::Schema,
+            ExtractionOffset::default(),
         );
 
         let doc_id = FileId::new(1);
@@ -906,6 +913,7 @@ mod tests {
             doc_id,
             FileUri::new("query.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
 
         let project_files = create_project_files(

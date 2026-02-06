@@ -48,6 +48,16 @@ pub enum ConfigValidationError {
         /// Needed when the same pattern appears under multiple projects.
         occurrence: usize,
     },
+    /// A file matches both schema and documents patterns within the same project.
+    /// Files must contain either schema definitions OR operation documents, not both.
+    SchemaDocumentOverlap {
+        /// The project name with the overlap.
+        project: String,
+        /// The documents pattern that caused the overlap.
+        pattern: String,
+        /// Files that match both schema and documents patterns.
+        overlapping_files: Vec<PathBuf>,
+    },
 }
 
 impl ConfigValidationError {
@@ -56,6 +66,7 @@ impl ConfigValidationError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::OverlappingPattern { .. } => "overlapping-files",
+            Self::SchemaDocumentOverlap { .. } => "schema-document-overlap",
         }
     }
 
@@ -79,6 +90,26 @@ impl ConfigValidationError {
                     format!("This {file_type} pattern causes {count} files to belong to multiple projects")
                 }
             }
+            Self::SchemaDocumentOverlap {
+                overlapping_files, ..
+            } => {
+                let count = overlapping_files.len();
+                if count == 1 {
+                    let name = overlapping_files[0].file_name().map_or_else(
+                        || "1 file".to_string(),
+                        |n| format!("'{}'", n.to_string_lossy()),
+                    );
+                    format!(
+                        "This documents pattern matches {name} which is also matched by a schema pattern. \
+                         Files must contain either schema definitions or operation documents, not both."
+                    )
+                } else {
+                    format!(
+                        "This documents pattern matches {count} files that are also matched by schema patterns. \
+                         Files must contain either schema definitions or operation documents, not both."
+                    )
+                }
+            }
         }
     }
 
@@ -91,6 +122,10 @@ impl ConfigValidationError {
                 occurrence,
                 ..
             } => find_pattern_location(config_content, pattern, *occurrence),
+            Self::SchemaDocumentOverlap { pattern, .. } => {
+                // Find the first occurrence of the documents pattern
+                find_pattern_location(config_content, pattern, 0)
+            }
         }
     }
 }
@@ -103,6 +138,7 @@ impl ConfigValidationError {
 pub fn validate(config: &GraphQLConfig, workspace_path: &Path) -> Vec<ConfigValidationError> {
     let mut errors = Vec::new();
     errors.extend(validate_file_uniqueness(config, workspace_path));
+    errors.extend(validate_schema_document_separation(config, workspace_path));
     errors
 }
 
@@ -178,6 +214,62 @@ fn validate_file_uniqueness(
             }
         })
         .collect()
+}
+
+/// Validate that schema and documents patterns don't overlap within a project.
+///
+/// Files must contain either schema definitions OR operation documents, not both.
+/// This catches misconfigurations where TypeScript files with schema SDL are
+/// accidentally included in documents patterns.
+fn validate_schema_document_separation(
+    config: &GraphQLConfig,
+    workspace_path: &Path,
+) -> Vec<ConfigValidationError> {
+    let mut errors = Vec::new();
+
+    for (project_name, project_config) in config.projects() {
+        // Collect all files matched by schema patterns
+        let mut schema_files: HashSet<PathBuf> = HashSet::new();
+        for pattern in project_config.schema.paths() {
+            if pattern.starts_with("http://") || pattern.starts_with("https://") {
+                continue;
+            }
+            for file_path in resolve_pattern_to_files(pattern, workspace_path) {
+                schema_files.insert(file_path);
+            }
+        }
+
+        // Skip if no local schema files
+        if schema_files.is_empty() {
+            continue;
+        }
+
+        // Check documents patterns for overlap with schema files
+        if let Some(documents_config) = &project_config.documents {
+            for pattern in documents_config.patterns() {
+                if pattern.trim().starts_with('!') {
+                    continue;
+                }
+
+                let mut overlapping: Vec<PathBuf> = Vec::new();
+                for file_path in resolve_pattern_to_files(pattern, workspace_path) {
+                    if schema_files.contains(&file_path) {
+                        overlapping.push(file_path);
+                    }
+                }
+
+                if !overlapping.is_empty() {
+                    errors.push(ConfigValidationError::SchemaDocumentOverlap {
+                        project: project_name.to_string(),
+                        pattern: pattern.to_string(),
+                        overlapping_files: overlapping,
+                    });
+                }
+            }
+        }
+    }
+
+    errors
 }
 
 /// Find the Nth occurrence of a pattern string in config content.
@@ -429,5 +521,150 @@ projects:
 
         let location = error.location(config_content);
         assert!(location.is_some());
+    }
+
+    #[test]
+    fn test_schema_document_overlap_detected() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        // Create a TypeScript file that's in both schema and documents paths
+        let src_dir = workspace_path.join("src");
+        std::fs::create_dir(&src_dir).unwrap();
+        let mut ts_file = std::fs::File::create(src_dir.join("schema.ts")).unwrap();
+        writeln!(
+            ts_file,
+            "export const typeDefs = gql`type Query {{ hello: String }}`"
+        )
+        .unwrap();
+
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
+            schema: SchemaConfig::Path("src/schema.ts".to_string()),
+            documents: Some(crate::DocumentsConfig::Pattern("src/**/*.ts".to_string())),
+            include: None,
+            exclude: None,
+            extensions: None,
+        }));
+
+        let errors = validate(&config, workspace_path);
+
+        assert_eq!(
+            errors.len(),
+            1,
+            "Should detect schema/document overlap: {errors:?}"
+        );
+        let error = &errors[0];
+        assert_eq!(error.code(), "schema-document-overlap");
+        assert!(error.message().contains("schema.ts"));
+    }
+
+    #[test]
+    fn test_schema_document_no_overlap_when_separate() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        // Create separate schema and documents directories
+        let schema_dir = workspace_path.join("schema");
+        std::fs::create_dir(&schema_dir).unwrap();
+        let mut schema_file = std::fs::File::create(schema_dir.join("types.graphql")).unwrap();
+        writeln!(schema_file, "type Query {{ hello: String }}").unwrap();
+
+        let src_dir = workspace_path.join("src");
+        std::fs::create_dir(&src_dir).unwrap();
+        let mut doc_file = std::fs::File::create(src_dir.join("queries.ts")).unwrap();
+        writeln!(doc_file, "export const query = gql`query {{ hello }}`").unwrap();
+
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
+            schema: SchemaConfig::Path("schema/*.graphql".to_string()),
+            documents: Some(crate::DocumentsConfig::Pattern("src/**/*.ts".to_string())),
+            include: None,
+            exclude: None,
+            extensions: None,
+        }));
+
+        let errors = validate(&config, workspace_path);
+
+        // Filter to only schema-document-overlap errors (ignore other validations)
+        let overlap_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| e.code() == "schema-document-overlap")
+            .collect();
+
+        assert!(
+            overlap_errors.is_empty(),
+            "Should not detect overlap when schema and documents are separate"
+        );
+    }
+
+    #[test]
+    fn test_schema_document_overlap_with_multiple_patterns() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        // Create files
+        let src_dir = workspace_path.join("src");
+        std::fs::create_dir(&src_dir).unwrap();
+
+        let mut schema_ts = std::fs::File::create(src_dir.join("schema.ts")).unwrap();
+        writeln!(
+            schema_ts,
+            "export const typeDefs = gql`type User {{ id: ID! }}`"
+        )
+        .unwrap();
+
+        let mut queries_ts = std::fs::File::create(src_dir.join("queries.ts")).unwrap();
+        writeln!(
+            queries_ts,
+            "export const query = gql`query {{ users {{ id }} }}`"
+        )
+        .unwrap();
+
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
+            schema: SchemaConfig::Paths(vec![
+                "src/schema.ts".to_string(),
+                "src/types.ts".to_string(), // doesn't exist, no match
+            ]),
+            documents: Some(crate::DocumentsConfig::Patterns(vec![
+                "src/queries.ts".to_string(),
+                "src/**/*.ts".to_string(), // This one overlaps with schema.ts
+            ])),
+            include: None,
+            exclude: None,
+            extensions: None,
+        }));
+
+        let errors = validate(&config, workspace_path);
+
+        let overlap_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| e.code() == "schema-document-overlap")
+            .collect();
+
+        // The "src/**/*.ts" pattern overlaps with schema.ts
+        assert_eq!(
+            overlap_errors.len(),
+            1,
+            "Should detect one overlap: {overlap_errors:?}"
+        );
+        assert!(overlap_errors[0].message().contains("schema.ts"));
+    }
+
+    #[test]
+    fn test_schema_document_overlap_error_location() {
+        let config_content = r"
+schema: src/schema.ts
+documents: src/**/*.ts
+";
+
+        let error = ConfigValidationError::SchemaDocumentOverlap {
+            project: "default".to_string(),
+            pattern: "src/**/*.ts".to_string(),
+            overlapping_files: vec![PathBuf::from("src/schema.ts")],
+        };
+
+        let location = error.location(config_content);
+        assert!(location.is_some());
+        let loc = location.unwrap();
+        assert_eq!(loc.line, 2); // "documents: src/**/*.ts" line
     }
 }

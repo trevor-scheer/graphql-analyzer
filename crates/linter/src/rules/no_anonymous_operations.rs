@@ -151,7 +151,9 @@ fn get_operation_type(operation: &cst::OperationDefinition) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+    use graphql_base_db::{
+        ExtractionOffset, FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles,
+    };
     use graphql_ide_db::RootDatabase;
     use std::sync::Arc;
 
@@ -184,6 +186,7 @@ query {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
         let project_files = create_test_project_files(&db);
 
@@ -215,6 +218,7 @@ query {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
         let project_files = create_test_project_files(&db);
 
@@ -246,6 +250,7 @@ mutation {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
         let project_files = create_test_project_files(&db);
 
@@ -279,6 +284,7 @@ subscription {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
         let project_files = create_test_project_files(&db);
 
@@ -312,6 +318,7 @@ query GetUser {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
         let project_files = create_test_project_files(&db);
 
@@ -341,6 +348,7 @@ mutation UpdateUser {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
         let project_files = create_test_project_files(&db);
 
@@ -370,6 +378,7 @@ subscription OnMessageAdded {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
         let project_files = create_test_project_files(&db);
 
@@ -410,6 +419,7 @@ query {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
         let project_files = create_test_project_files(&db);
 
@@ -451,6 +461,7 @@ query GetUser {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
         let project_files = create_test_project_files(&db);
 
@@ -481,6 +492,7 @@ query {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
         let project_files = create_test_project_files(&db);
 
@@ -512,6 +524,7 @@ query GetUserById($id: ID!) {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
         let project_files = create_test_project_files(&db);
 
@@ -541,6 +554,7 @@ query($id: ID!) {
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
         let project_files = create_test_project_files(&db);
 
@@ -569,6 +583,7 @@ subscription { onUserUpdate { id } }
             file_id,
             FileUri::new("file:///test.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
         let project_files = create_test_project_files(&db);
 

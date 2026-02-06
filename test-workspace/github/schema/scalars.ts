@@ -1,0 +1,65 @@
+/**
+ * GitHub GraphQL API Custom Scalars
+ *
+ * This file defines custom scalar types used throughout the GitHub GraphQL API.
+ * Schema SDL is defined using tagged template literals.
+ */
+
+import { gql } from "graphql-tag";
+
+export const scalarTypeDefs = gql`
+  """
+  An ISO-8601 encoded date string.
+  """
+  scalar Date
+  
+  """
+  An ISO-8601 encoded UTC date string.
+  """
+  scalar DateTime
+  
+  """
+  A Git object ID.
+  """
+  scalar GitObjectID
+  
+  """
+  A fully qualified reference name (e.g. refs/heads/main).
+  """
+  scalar GitRefname
+  
+  """
+  An ISO-8601 encoded date string with optional timezone.
+  """
+  scalar GitTimestamp
+  
+  """
+  A string containing HTML.
+  """
+  scalar HTML
+  
+  """
+  An ISO-8601 encoded UTC date string with millisecond precision.
+  """
+  scalar PreciseDateTime
+  
+  """
+  A URI string.
+  """
+  scalar URI
+  
+  """
+  A valid x509 certificate string.
+  """
+  scalar X509Certificate
+  
+  """
+  Represents a unique identifier in Base64 format.
+  """
+  scalar Base64String
+  
+  """
+  A BigInt value.
+  """
+  scalar BigInt
+`;

@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
-use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+use graphql_base_db::{
+    ExtractionOffset, FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles,
+};
 use graphql_ide::AnalysisHost;
 use graphql_ide_db::RootDatabase;
 use salsa::Setter;
@@ -72,6 +74,7 @@ fn create_project_files(db: &mut RootDatabase) -> ProjectFiles {
         schema_id,
         FileUri::new("schema.graphql"),
         FileKind::Schema,
+        ExtractionOffset::default(),
     );
 
     let doc_id = FileId::new(1);
@@ -81,6 +84,7 @@ fn create_project_files(db: &mut RootDatabase) -> ProjectFiles {
         doc_id,
         FileUri::new("query.graphql"),
         FileKind::ExecutableGraphQL,
+        ExtractionOffset::default(),
     );
 
     let schema_file_ids = graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![schema_id]));
@@ -107,6 +111,7 @@ fn bench_parse_cold(c: &mut Criterion) {
                     FileId::new(0),
                     FileUri::new("schema.graphql"),
                     FileKind::Schema,
+                    ExtractionOffset::default(),
                 );
                 (db, content, metadata)
             },
@@ -129,6 +134,7 @@ fn bench_parse_warm(c: &mut Criterion) {
             FileId::new(0),
             FileUri::new("schema.graphql"),
             FileKind::Schema,
+            ExtractionOffset::default(),
         );
         let _ = graphql_syntax::parse(&db, content, metadata);
 
@@ -191,6 +197,7 @@ fn bench_golden_invariant(c: &mut Criterion) {
                     schema_id,
                     FileUri::new("schema.graphql"),
                     FileKind::Schema,
+                    ExtractionOffset::default(),
                 );
 
                 let doc_id = FileId::new(1);
@@ -200,6 +207,7 @@ fn bench_golden_invariant(c: &mut Criterion) {
                     doc_id,
                     FileUri::new("query.graphql"),
                     FileKind::ExecutableGraphQL,
+                    ExtractionOffset::default(),
                 );
 
                 let schema_file_ids =
@@ -267,6 +275,7 @@ fn bench_per_file_granular_caching(c: &mut Criterion) {
                     schema_id,
                     FileUri::new("schema.graphql"),
                     FileKind::Schema,
+                    ExtractionOffset::default(),
                 );
 
                 let doc1_id = FileId::new(1);
@@ -276,6 +285,7 @@ fn bench_per_file_granular_caching(c: &mut Criterion) {
                     doc1_id,
                     FileUri::new("query1.graphql"),
                     FileKind::ExecutableGraphQL,
+                    ExtractionOffset::default(),
                 );
 
                 let doc2_id = FileId::new(2);
@@ -288,6 +298,7 @@ fn bench_per_file_granular_caching(c: &mut Criterion) {
                     doc2_id,
                     FileUri::new("query2.graphql"),
                     FileKind::ExecutableGraphQL,
+                    ExtractionOffset::default(),
                 );
 
                 // Create granular FileEntryMap for per-file caching
@@ -349,6 +360,7 @@ fn bench_fragment_resolution_cold(c: &mut Criterion) {
                     schema_id,
                     FileUri::new("schema.graphql"),
                     FileKind::Schema,
+                    ExtractionOffset::default(),
                 );
 
                 let doc_id = FileId::new(1);
@@ -358,6 +370,7 @@ fn bench_fragment_resolution_cold(c: &mut Criterion) {
                     doc_id,
                     FileUri::new("query.graphql"),
                     FileKind::ExecutableGraphQL,
+                    ExtractionOffset::default(),
                 );
 
                 let schema_file_ids =
@@ -399,6 +412,7 @@ fn bench_fragment_resolution_warm(c: &mut Criterion) {
             schema_id,
             FileUri::new("schema.graphql"),
             FileKind::Schema,
+            ExtractionOffset::default(),
         );
 
         let doc_id = FileId::new(1);
@@ -408,6 +422,7 @@ fn bench_fragment_resolution_warm(c: &mut Criterion) {
             doc_id,
             FileUri::new("query.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
 
         let schema_file_ids = graphql_base_db::SchemaFileIds::new(&db, Arc::new(vec![schema_id]));

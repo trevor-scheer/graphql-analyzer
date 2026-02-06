@@ -242,7 +242,7 @@ fn is_introspection_field(field_name: &str) -> bool {
 mod tests {
     use super::*;
     use crate::traits::ProjectLintRule;
-    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+    use graphql_base_db::{ExtractionOffset, FileContent, FileId, FileKind, FileMetadata, FileUri};
     use graphql_ide_db::RootDatabase;
     use std::sync::Arc;
 
@@ -258,6 +258,7 @@ mod tests {
             schema_file_id,
             FileUri::new("file:///schema.graphql"),
             FileKind::Schema,
+            ExtractionOffset::default(),
         );
 
         let doc_file_id = FileId::new(1);
@@ -267,6 +268,7 @@ mod tests {
             doc_file_id,
             FileUri::new("file:///query.graphql"),
             FileKind::ExecutableGraphQL,
+            ExtractionOffset::default(),
         );
 
         let schema_file_ids =

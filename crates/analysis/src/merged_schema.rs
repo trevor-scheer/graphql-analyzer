@@ -2,6 +2,7 @@ use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase, Position, Seve
 use apollo_compiler::diagnostic::ToCliReport;
 use apollo_compiler::parser::Parser;
 use apollo_compiler::validation::DiagnosticList;
+use graphql_base_db::ExtractionOffset;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -17,8 +18,15 @@ pub struct MergedSchemaResult {
     pub diagnostics_by_file: DiagnosticsByFile,
 }
 
-/// Convert apollo-compiler diagnostics to our diagnostic format, grouped by file URI
-fn collect_apollo_diagnostics(errors: &DiagnosticList) -> HashMap<Arc<str>, Vec<Diagnostic>> {
+/// Convert apollo-compiler diagnostics to our diagnostic format, grouped by file URI.
+///
+/// The `uri_offsets` map provides extraction offset information for files that contain
+/// GraphQL extracted from host files (e.g., TypeScript). When a file has a non-zero offset,
+/// diagnostic positions are adjusted to report correct positions in the original file.
+fn collect_apollo_diagnostics(
+    errors: &DiagnosticList,
+    uri_offsets: &HashMap<Arc<str>, ExtractionOffset>,
+) -> HashMap<Arc<str>, Vec<Diagnostic>> {
     let mut diagnostics_by_file: HashMap<Arc<str>, Vec<Diagnostic>> = HashMap::new();
 
     for apollo_diag in errors.iter() {
@@ -32,15 +40,38 @@ fn collect_apollo_diagnostics(errors: &DiagnosticList) -> HashMap<Arc<str>, Vec<
             continue;
         };
 
+        // Get extraction offset for this file (if any)
+        let offset = uri_offsets
+            .get(&file_uri)
+            .copied()
+            .unwrap_or(ExtractionOffset::default());
+
         let range = if let Some(loc_range) = apollo_diag.line_column_range() {
+            // Apollo-compiler uses 1-indexed lines, we use 0-indexed
+            let start_line = loc_range.start.line.saturating_sub(1) as u32;
+            let end_line = loc_range.end.line.saturating_sub(1) as u32;
+            let start_col = loc_range.start.column.saturating_sub(1) as u32;
+            let end_col = loc_range.end.column.saturating_sub(1) as u32;
+
+            // Apply extraction offset to positions.
+            // Line offset applies to all lines.
+            // Column offset only applies to the first line (line 0 in the extracted content).
             DiagnosticRange {
                 start: Position {
-                    line: loc_range.start.line.saturating_sub(1) as u32,
-                    character: loc_range.start.column.saturating_sub(1) as u32,
+                    line: start_line + offset.line,
+                    character: if start_line == 0 {
+                        start_col + offset.column
+                    } else {
+                        start_col
+                    },
                 },
                 end: Position {
-                    line: loc_range.end.line.saturating_sub(1) as u32,
-                    character: loc_range.end.column.saturating_sub(1) as u32,
+                    line: end_line + offset.line,
+                    character: if end_line == 0 {
+                        end_col + offset.column
+                    } else {
+                        end_col
+                    },
                 },
             }
         } else {
@@ -96,6 +127,8 @@ pub fn merged_schema_with_diagnostics(
 
     let mut builder = apollo_compiler::schema::SchemaBuilder::new();
     let mut parser = Parser::new();
+    // Track extraction offsets for files with embedded GraphQL
+    let mut uri_offsets: HashMap<Arc<str>, ExtractionOffset> = HashMap::new();
 
     for file_id in schema_ids.iter() {
         let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
@@ -104,6 +137,12 @@ pub fn merged_schema_with_diagnostics(
         };
         let text = content.text(db);
         let uri = metadata.uri(db);
+        let extraction_offset = metadata.extraction_offset(db);
+
+        // Store extraction offset if non-zero (for files with embedded GraphQL)
+        if !extraction_offset.is_zero() {
+            uri_offsets.insert(Arc::from(uri.as_str()), extraction_offset);
+        }
 
         tracing::debug!(uri = ?uri, "Adding schema file to merge");
         parser.parse_into_schema_builder(text.as_ref(), uri.as_str(), &mut builder);
@@ -136,7 +175,8 @@ pub fn merged_schema_with_diagnostics(
                         error_count = with_errors.errors.len(),
                         "Schema validation errors found (schema still usable for document validation)"
                     );
-                    let diagnostics_by_file = collect_apollo_diagnostics(&with_errors.errors);
+                    let diagnostics_by_file =
+                        collect_apollo_diagnostics(&with_errors.errors, &uri_offsets);
                     MergedSchemaResult {
                         schema: Some(Arc::new(with_errors.partial)),
                         diagnostics_by_file: Arc::new(diagnostics_by_file),
@@ -149,7 +189,7 @@ pub fn merged_schema_with_diagnostics(
                 error_count = with_errors.errors.len(),
                 "Failed to merge schema due to build errors"
             );
-            let diagnostics_by_file = collect_apollo_diagnostics(&with_errors.errors);
+            let diagnostics_by_file = collect_apollo_diagnostics(&with_errors.errors, &uri_offsets);
             MergedSchemaResult {
                 schema: None,
                 diagnostics_by_file: Arc::new(diagnostics_by_file),
