@@ -203,7 +203,7 @@ async function performHealthCheck(timeout: number): Promise<void> {
 function startHealthCheck(): void {
   stopHealthCheck();
 
-  const config = workspace.getConfiguration("graphql");
+  const config = workspace.getConfiguration("graphql-analyzer");
   const enabled = config.get<boolean>("debug.healthCheck.enabled", false);
 
   if (!enabled) {
@@ -331,14 +331,14 @@ function syncTraceLevel(): void {
   if (!client) {
     return;
   }
-  const enabled = workspace.getConfiguration("graphql").get<boolean>("trace.server", true);
+  const enabled = workspace.getConfiguration("graphql-analyzer").get<boolean>("trace.server", true);
   client.setTrace(enabled ? Trace.Verbose : Trace.Off);
 }
 
 async function startLanguageServer(context: ExtensionContext): Promise<void> {
-  const config = workspace.getConfiguration("graphql");
+  const config = workspace.getConfiguration("graphql-analyzer");
   const customPath = config.get<string>("server.path");
-  const logLevel = config.get<string>("server.logLevel") || "info";
+  const logLevel = config.get<string>("debug.logLevel") || "info";
 
   const serverBinary = await findServerBinary(context, outputChannel, customPath);
   outputChannel.appendLine(`Using GraphQL LSP server: ${serverBinary}`);
@@ -502,10 +502,10 @@ export async function activate(context: ExtensionContext) {
     // Listen for configuration changes
     context.subscriptions.push(
       workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration("graphql.trace.server")) {
+        if (event.affectsConfiguration("graphql-analyzer.trace.server")) {
           syncTraceLevel();
         }
-        if (event.affectsConfiguration("graphql.debug.healthCheck")) {
+        if (event.affectsConfiguration("graphql-analyzer.debug.healthCheck")) {
           outputChannel.appendLine("[Health Check] Configuration changed, restarting...");
           startHealthCheck();
         }

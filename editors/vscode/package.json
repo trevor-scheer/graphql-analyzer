@@ -99,31 +99,14 @@
     },
     "configuration": [
       {
-        "title": "General",
+        "title": "Server",
         "properties": {
-          "graphql.trace.server": {
-            "type": "boolean",
-            "default": true,
-            "description": "Log LSP requests and responses to the 'graphql-analyzer LSP' output channel."
-          },
-          "graphql.server.path": {
+          "graphql-analyzer.server.path": {
             "type": "string",
             "default": "",
             "description": "Path to the graphql-lsp server executable. If empty, uses the bundled binary."
           },
-          "graphql.server.logLevel": {
-            "type": "string",
-            "enum": [
-              "error",
-              "warn",
-              "info",
-              "debug",
-              "trace"
-            ],
-            "default": "info",
-            "description": "Log level for the LSP server (sets RUST_LOG environment variable)."
-          },
-          "graphql.server.env": {
+          "graphql-analyzer.server.env": {
             "type": "object",
             "default": {},
             "description": "Environment variables to pass to the LSP server process.",
@@ -136,20 +119,41 @@
       {
         "title": "Debug",
         "properties": {
-          "graphql.debug.healthCheck.enabled": {
+          "graphql-analyzer.debug.logLevel": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warn",
+              "info",
+              "debug"
+            ],
+            "default": "info",
+            "description": "Log level for the 'graphql-analyzer Debug' output channel (sets RUST_LOG)."
+          },
+          "graphql-analyzer.debug.healthCheck.enabled": {
             "type": "boolean",
             "default": false,
             "description": "Enable periodic health checks to detect when the LSP server becomes unresponsive."
           },
-          "graphql.debug.healthCheck.interval": {
+          "graphql-analyzer.debug.healthCheck.interval": {
             "type": "number",
             "default": 10000,
             "description": "Interval between health checks in milliseconds."
           },
-          "graphql.debug.healthCheck.timeout": {
+          "graphql-analyzer.debug.healthCheck.timeout": {
             "type": "number",
             "default": 3000,
             "description": "Timeout for health check requests in milliseconds."
+          }
+        }
+      },
+      {
+        "title": "LSP Trace",
+        "properties": {
+          "graphql-analyzer.trace.server": {
+            "type": "boolean",
+            "default": true,
+            "description": "Log LSP requests and responses to the 'graphql-analyzer LSP' output channel."
           }
         }
       }
