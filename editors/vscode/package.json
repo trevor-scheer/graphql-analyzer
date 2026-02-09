@@ -11,10 +11,11 @@
   "publisher": "trevor-scheer",
   "main": "./out/extension.js",
   "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile -- --production",
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
     "lint": "oxlint src",
+    "typecheck": "tsc --noEmit",
     "package": "vsce package",
     "package:darwin-arm64": "vsce package --target darwin-arm64",
     "package:darwin-x64": "vsce package --target darwin-x64",
@@ -34,6 +35,7 @@
     "@types/vscode": "^1.75.0",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.27.3",
     "oxlint": "^1.30.0",
     "typescript": "^5.0.0"
   },
@@ -97,39 +99,17 @@
     },
     "configuration": [
       {
-        "title": "General",
+        "title": "Server",
         "properties": {
-          "graphql.trace.server": {
-            "type": "string",
-            "enum": [
-              "off",
-              "messages",
-              "verbose"
-            ],
-            "default": "off",
-            "description": "Traces the communication between VS Code and the language server."
-          },
-          "graphql.server.path": {
+          "graphql-analyzer.server.path": {
             "type": "string",
             "default": "",
-            "description": "Path to the graphql-lsp server executable. If empty, uses the bundled binary."
+            "description": "Custom path to the graphql-lsp executable. Uses the bundled binary when empty."
           },
-          "graphql.server.logLevel": {
-            "type": "string",
-            "enum": [
-              "error",
-              "warn",
-              "info",
-              "debug",
-              "trace"
-            ],
-            "default": "info",
-            "description": "Log level for the LSP server (sets RUST_LOG environment variable)."
-          },
-          "graphql.server.env": {
+          "graphql-analyzer.server.env": {
             "type": "object",
             "default": {},
-            "description": "Environment variables to pass to the LSP server process.",
+            "description": "Additional environment variables for the language server process.",
             "additionalProperties": {
               "type": "string"
             }
@@ -139,20 +119,41 @@
       {
         "title": "Debug",
         "properties": {
-          "graphql.debug.healthCheck.enabled": {
+          "graphql-analyzer.debug.logLevel": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warn",
+              "info",
+              "debug"
+            ],
+            "default": "info",
+            "description": "Server log verbosity in the 'graphql-analyzer Debug' output channel."
+          },
+          "graphql-analyzer.debug.healthCheck.enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Enable periodic health checks to detect when the LSP server becomes unresponsive."
+            "description": "Periodically ping the server to detect unresponsive states."
           },
-          "graphql.debug.healthCheck.interval": {
+          "graphql-analyzer.debug.healthCheck.interval": {
             "type": "number",
             "default": 10000,
-            "description": "Interval between health checks in milliseconds."
+            "description": "Milliseconds between health check pings."
           },
-          "graphql.debug.healthCheck.timeout": {
+          "graphql-analyzer.debug.healthCheck.timeout": {
             "type": "number",
             "default": 3000,
-            "description": "Timeout for health check requests in milliseconds."
+            "description": "Milliseconds before a health check ping is considered failed."
+          }
+        }
+      },
+      {
+        "title": "LSP",
+        "properties": {
+          "graphql-analyzer.lsp.trace": {
+            "type": "boolean",
+            "default": true,
+            "description": "Log LSP requests and responses to the 'graphql-analyzer LSP' output channel."
           }
         }
       }
