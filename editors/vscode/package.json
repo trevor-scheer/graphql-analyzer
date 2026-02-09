@@ -104,12 +104,12 @@
           "graphql-analyzer.server.path": {
             "type": "string",
             "default": "",
-            "description": "Path to the graphql-lsp server executable. If empty, uses the bundled binary."
+            "description": "Custom path to the graphql-lsp executable. Uses the bundled binary when empty."
           },
           "graphql-analyzer.server.env": {
             "type": "object",
             "default": {},
-            "description": "Environment variables to pass to the LSP server process.",
+            "description": "Additional environment variables for the language server process.",
             "additionalProperties": {
               "type": "string"
             }
@@ -128,29 +128,29 @@
               "debug"
             ],
             "default": "info",
-            "description": "Log level for the 'graphql-analyzer Debug' output channel (sets RUST_LOG)."
+            "description": "Server log verbosity in the 'graphql-analyzer Debug' output channel."
           },
           "graphql-analyzer.debug.healthCheck.enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Enable periodic health checks to detect when the LSP server becomes unresponsive."
+            "description": "Periodically ping the server to detect unresponsive states."
           },
           "graphql-analyzer.debug.healthCheck.interval": {
             "type": "number",
             "default": 10000,
-            "description": "Interval between health checks in milliseconds."
+            "description": "Milliseconds between health check pings."
           },
           "graphql-analyzer.debug.healthCheck.timeout": {
             "type": "number",
             "default": 3000,
-            "description": "Timeout for health check requests in milliseconds."
+            "description": "Milliseconds before a health check ping is considered failed."
           }
         }
       },
       {
-        "title": "LSP Trace",
+        "title": "LSP",
         "properties": {
-          "graphql-analyzer.trace.server": {
+          "graphql-analyzer.lsp.trace": {
             "type": "boolean",
             "default": true,
             "description": "Log LSP requests and responses to the 'graphql-analyzer LSP' output channel."

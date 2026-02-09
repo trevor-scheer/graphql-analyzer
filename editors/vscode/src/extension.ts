@@ -331,7 +331,7 @@ function syncTraceLevel(): void {
   if (!client) {
     return;
   }
-  const enabled = workspace.getConfiguration("graphql-analyzer").get<boolean>("trace.server", true);
+  const enabled = workspace.getConfiguration("graphql-analyzer").get<boolean>("lsp.trace", true);
   client.setTrace(enabled ? Trace.Verbose : Trace.Off);
 }
 
@@ -502,7 +502,7 @@ export async function activate(context: ExtensionContext) {
     // Listen for configuration changes
     context.subscriptions.push(
       workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration("graphql-analyzer.trace.server")) {
+        if (event.affectsConfiguration("graphql-analyzer.lsp.trace")) {
           syncTraceLevel();
         }
         if (event.affectsConfiguration("graphql-analyzer.debug.healthCheck")) {
