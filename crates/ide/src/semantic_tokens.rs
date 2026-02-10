@@ -51,7 +51,7 @@ pub fn semantic_tokens(
         collect_semantic_tokens_from_document(
             &doc.tree.document(),
             &doc_line_index,
-            doc.line_offset as u32,
+            doc.line_offset,
             schema_types,
             &mut tokens,
         );

@@ -66,9 +66,9 @@ pub struct ExtractedBlock {
     /// Byte offset in the original file
     pub offset: usize,
     /// Line number in the original file (0-based)
-    pub line: usize,
-    /// Column number in the original file (0-based)
-    pub column: usize,
+    pub line: u32,
+    /// Character offset in the line (0-based, UTF-16 code units)
+    pub character: u32,
 }
 
 /// A reference to a GraphQL document within a parsed file.
@@ -83,9 +83,9 @@ pub struct DocumentRef<'a> {
     /// The AST for this document (for semantic analysis)
     pub ast: &'a apollo_compiler::ast::Document,
     /// Line offset in the original file (0 for pure GraphQL files)
-    pub line_offset: usize,
+    pub line_offset: u32,
     /// Column offset in the original file (0 for pure GraphQL files)
-    pub column_offset: usize,
+    pub column_offset: u32,
     /// Byte offset in the original file (0 for pure GraphQL files)
     pub byte_offset: usize,
     /// The GraphQL source text
@@ -109,7 +109,7 @@ impl Parse {
             tree: &block.tree,
             ast: &block.ast,
             line_offset: block.line,
-            column_offset: block.column,
+            column_offset: block.character,
             byte_offset: block.offset,
             source: &block.source,
         })
@@ -191,7 +191,7 @@ fn parse_graphql(content: &str, uri: &str) -> Parse {
         ast: Arc::new(ast),
         offset: 0,
         line: 0,
-        column: 0,
+        character: 0,
     };
 
     Parse {
@@ -258,7 +258,7 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -
             ast: Arc::new(ast),
             offset: block.location.offset,
             line: block.location.range.start.line,
-            column: block.location.range.start.column,
+            character: block.location.range.start.character,
         });
     }
 
@@ -569,7 +569,7 @@ mod tests {
                     ),
                     offset: 100,
                     line: 5,
-                    column: 10,
+                    character: 10,
                 },
                 ExtractedBlock {
                     source: Arc::from("query Q2 { post { id } }"),
@@ -580,7 +580,7 @@ mod tests {
                     ),
                     offset: 200,
                     line: 10,
-                    column: 15,
+                    character: 15,
                 },
             ],
             errors: vec![],

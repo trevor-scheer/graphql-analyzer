@@ -2127,7 +2127,7 @@ impl LanguageServer for GraphQLLanguageServer {
             // For embedded GraphQL (TypeScript/JavaScript), offsets are relative to the
             // GraphQL block, not the full file. Use block context when available.
             let (line_offset, diag_line_index): (
-                usize,
+                u32,
                 std::borrow::Cow<'_, graphql_syntax::LineIndex>,
             ) = if let (Some(block_line_offset), Some(ref block_source)) =
                 (diag.block_line_offset, &diag.block_source)
@@ -2143,8 +2143,8 @@ impl LanguageServer for GraphQLLanguageServer {
             // Convert diagnostic offset to line/column
             let (diag_start_line, _) = diag_line_index.line_col(diag.offset_range.start);
             let (diag_end_line, _) = diag_line_index.line_col(diag.offset_range.end);
-            let diag_start_line = diag_start_line + line_offset;
-            let diag_end_line = diag_end_line + line_offset;
+            let diag_start_line = diag_start_line + line_offset as usize;
+            let diag_end_line = diag_end_line + line_offset as usize;
 
             // Check if diagnostic overlaps with requested range
             if diag_end_line < start_line || diag_start_line > end_line {
@@ -2162,11 +2162,11 @@ impl LanguageServer for GraphQLLanguageServer {
                     TextEdit {
                         range: lsp_types::Range {
                             start: lsp_types::Position {
-                                line: (start_line + line_offset) as u32,
+                                line: (start_line + line_offset as usize) as u32,
                                 character: start_col as u32,
                             },
                             end: lsp_types::Position {
-                                line: (end_line + line_offset) as u32,
+                                line: (end_line + line_offset as usize) as u32,
                                 character: end_col as u32,
                             },
                         },

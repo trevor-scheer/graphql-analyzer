@@ -955,7 +955,7 @@ impl AnalysisHost {
 
                                     // Check if this is a TS/JS file that needs extraction
                                     if let Some(lang) = language {
-                                        if lang.requires_parsing() {
+                                        if lang.requires_extraction() {
                                             // Extract GraphQL from TS/JS file
                                             let extract_config = self.get_extract_config();
                                             match graphql_extract::extract_from_source(
@@ -1693,7 +1693,7 @@ impl Analysis {
                 for doc in parse.documents() {
                     if let Some(ranges) = find_operation_definition_ranges(doc.tree, name) {
                         let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-                        let doc_line_offset = doc.line_offset as u32;
+                        let doc_line_offset = doc.line_offset;
                         found_range = Some(adjust_range_for_line_offset(
                             offset_range_to_range(
                                 &doc_line_index,
@@ -1975,7 +1975,7 @@ impl Analysis {
                 let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
                 let range = adjust_range_for_line_offset(
                     offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
-                    doc.line_offset as u32,
+                    doc.line_offset,
                 );
                 return Some((file_path, range));
             }

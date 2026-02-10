@@ -457,8 +457,8 @@ impl swc_core::ecma::visit::Visit for GraphQLVisitor<'_> {
 
 /// Calculate position from byte offset
 fn position_from_offset(source: &str, offset: usize) -> Position {
-    let mut line = 0;
-    let mut column = 0;
+    let mut line: u32 = 0;
+    let mut column: u32 = 0;
 
     for (idx, ch) in source.char_indices() {
         if idx >= offset {
@@ -468,7 +468,7 @@ fn position_from_offset(source: &str, offset: usize) -> Position {
             line += 1;
             column = 0;
         } else {
-            column += ch.len_utf16();
+            column += ch.len_utf16() as u32;
         }
     }
 

@@ -104,8 +104,7 @@ pub fn goto_definition(
                             ranges.name_start,
                             ranges.name_end,
                         );
-                        let adjusted_range =
-                            adjust_range_for_line_offset(range, doc.line_offset as u32);
+                        let adjusted_range = adjust_range_for_line_offset(range, doc.line_offset);
                         return Some(vec![Location::new(file_path, adjusted_range)]);
                     }
                 }
@@ -227,7 +226,7 @@ pub fn goto_definition(
                         &field_name,
                         &name,
                         &doc_line_index,
-                        doc.line_offset as u32,
+                        doc.line_offset,
                     ) {
                         return Some(vec![Location::new(file_path, range)]);
                     }

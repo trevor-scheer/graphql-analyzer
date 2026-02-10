@@ -79,7 +79,7 @@ pub struct LintDiagnostic {
     pub rule: String,
     /// For TS/JS files: line offset where the GraphQL block starts (0-based)
     /// This is used to adjust the final line position when converting to Diagnostic
-    pub block_line_offset: Option<usize>,
+    pub block_line_offset: Option<u32>,
     /// For TS/JS files: byte offset where the GraphQL block starts in the original file
     /// This is used to adjust fix edit positions when applying fixes
     pub block_byte_offset: Option<usize>,
@@ -176,7 +176,7 @@ impl LintDiagnostic {
     #[must_use]
     pub fn with_block_context(
         mut self,
-        line_offset: usize,
+        line_offset: u32,
         byte_offset: usize,
         source: std::sync::Arc<str>,
     ) -> Self {

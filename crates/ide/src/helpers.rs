@@ -114,8 +114,8 @@ pub fn find_block_for_position(
 ) -> Option<(BlockContext<'_>, Position)> {
     // Iterate through all documents to find the one containing the position
     for doc in parse.documents() {
-        let doc_start_line = doc.line_offset as u32;
-        let doc_start_col = doc.column_offset as u32;
+        let doc_start_line = doc.line_offset;
+        let doc_start_col = doc.column_offset;
         let doc_lines = doc.source.chars().filter(|&c| c == '\n').count() as u32;
 
         if position.line >= doc_start_line && position.line <= doc_start_line + doc_lines {
@@ -155,7 +155,7 @@ pub fn find_fragment_definition_in_parse(
         {
             let line_index = graphql_syntax::LineIndex::new(doc.source);
             let range = offset_range_to_range(&line_index, start_offset, end_offset);
-            return Some(adjust_range_for_line_offset(range, doc.line_offset as u32));
+            return Some(adjust_range_for_line_offset(range, doc.line_offset));
         }
     }
 
@@ -174,7 +174,7 @@ pub fn find_type_definition_in_parse(
         if let Some((start_offset, end_offset)) = find_type_definition_range(doc.tree, type_name) {
             let line_index = graphql_syntax::LineIndex::new(doc.source);
             let range = offset_range_to_range(&line_index, start_offset, end_offset);
-            return Some(adjust_range_for_line_offset(range, doc.line_offset as u32));
+            return Some(adjust_range_for_line_offset(range, doc.line_offset));
         }
     }
 
@@ -197,7 +197,7 @@ pub fn find_fragment_spreads_in_parse(
             for offset in offsets {
                 let end_offset = offset + fragment_name.len();
                 let range = offset_range_to_range(&line_index, offset, end_offset);
-                results.push(adjust_range_for_line_offset(range, doc.line_offset as u32));
+                results.push(adjust_range_for_line_offset(range, doc.line_offset));
             }
         }
     }
@@ -221,7 +221,7 @@ pub fn find_type_references_in_parse(
             for offset in offsets {
                 let end_offset = offset + type_name.len();
                 let range = offset_range_to_range(&line_index, offset, end_offset);
-                results.push(adjust_range_for_line_offset(range, doc.line_offset as u32));
+                results.push(adjust_range_for_line_offset(range, doc.line_offset));
             }
         }
     }
@@ -246,7 +246,7 @@ pub fn find_field_usages_in_parse(
         let ranges = find_field_usages_in_tree(doc.tree, type_name, field_name, schema_types);
         for (start, end) in ranges {
             let range = offset_range_to_range(&line_index, start, end);
-            results.push(adjust_range_for_line_offset(range, doc.line_offset as u32));
+            results.push(adjust_range_for_line_offset(range, doc.line_offset));
         }
     }
 

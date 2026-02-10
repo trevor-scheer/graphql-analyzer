@@ -22,7 +22,7 @@ struct FragmentInfo {
     /// Byte offset of the end of the fragment definition
     def_end: usize,
     /// Line offset for embedded GraphQL blocks (0 for pure GraphQL files)
-    line_offset: usize,
+    line_offset: u32,
     /// Byte offset for embedded GraphQL blocks (0 for pure GraphQL files)
     byte_offset: usize,
     /// Source for embedded GraphQL blocks (None for pure GraphQL files)

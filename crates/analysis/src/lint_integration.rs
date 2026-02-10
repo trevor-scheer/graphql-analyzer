@@ -434,7 +434,7 @@ fn convert_lint_diagnostics(
                         offset_end = ld.offset_range.end,
                         start_line_in_block = sl,
                         start_col_in_block = sc,
-                        final_line = sl + block_line_offset,
+                        final_line = sl + block_line_offset as usize,
                         message = %ld.message,
                         "Converting block diagnostic"
                     );
@@ -442,7 +442,7 @@ fn convert_lint_diagnostics(
                 } else {
                     let (sl, sc) = file_line_index.line_col(ld.offset_range.start);
                     let (el, ec) = file_line_index.line_col(ld.offset_range.end);
-                    (0, sl, sc, el, ec)
+                    (0u32, sl, sc, el, ec)
                 };
 
             let severity = match ld.severity {
@@ -456,11 +456,11 @@ fn convert_lint_diagnostics(
                 message: ld.message.into(),
                 range: DiagnosticRange {
                     start: Position {
-                        line: start_line as u32 + line_offset as u32,
+                        line: start_line as u32 + line_offset,
                         character: start_col as u32,
                     },
                     end: Position {
-                        line: end_line as u32 + line_offset as u32,
+                        line: end_line as u32 + line_offset,
                         character: end_col as u32,
                     },
                 },

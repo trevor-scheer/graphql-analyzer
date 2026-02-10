@@ -105,12 +105,14 @@ pub fn validate_file(
                         DiagnosticRange::default,
                         |loc_range| DiagnosticRange {
                             start: Position {
-                                line: (loc_range.start.line.saturating_sub(1) + line_offset_val)
+                                line: (loc_range.start.line.saturating_sub(1)
+                                    + line_offset_val as usize)
                                     as u32,
                                 character: loc_range.start.column.saturating_sub(1) as u32,
                             },
                             end: Position {
-                                line: (loc_range.end.line.saturating_sub(1) + line_offset_val)
+                                line: (loc_range.end.line.saturating_sub(1)
+                                    + line_offset_val as usize)
                                     as u32,
                                 character: loc_range.end.column.saturating_sub(1) as u32,
                             },
