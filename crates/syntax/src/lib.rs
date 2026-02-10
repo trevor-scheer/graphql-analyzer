@@ -311,6 +311,194 @@ pub fn content_has_schema_definitions(content: &str) -> bool {
     })
 }
 
+/// Check if GraphQL content contains executable definitions (operations or fragments).
+///
+/// Returns true if the content contains any operation definitions (query, mutation,
+/// subscription) or fragment definitions.
+#[must_use]
+pub fn content_has_executable_definitions(content: &str) -> bool {
+    use apollo_compiler::parser::Parser;
+
+    let mut parser = Parser::new();
+    let ast = parser
+        .parse_ast(content, "virtual.graphql")
+        .unwrap_or_else(|e| e.partial);
+
+    ast.definitions.iter().any(|def| {
+        matches!(
+            def,
+            apollo_compiler::ast::Definition::OperationDefinition(_)
+                | apollo_compiler::ast::Definition::FragmentDefinition(_)
+        )
+    })
+}
+
+/// Describes a mismatch between a file's expected `DocumentKind` (from config)
+/// and what was actually found in the content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContentMismatch {
+    /// Expected schema definitions, found executable definitions
+    ExpectedSchemaFoundExecutable {
+        /// Names of the executable definitions found
+        definitions: Vec<String>,
+    },
+    /// Expected executable definitions, found schema definitions
+    ExpectedExecutableFoundSchema {
+        /// Names of the schema definitions found
+        definitions: Vec<String>,
+    },
+}
+
+impl ContentMismatch {
+    /// Returns a human-readable message describing the mismatch.
+    #[must_use]
+    pub fn message(&self) -> String {
+        match self {
+            Self::ExpectedSchemaFoundExecutable { definitions } => {
+                if definitions.is_empty() {
+                    "File in schema config contains executable definitions (operations or fragments)".to_string()
+                } else {
+                    format!(
+                        "File in schema config contains executable definitions: {}",
+                        definitions.join(", ")
+                    )
+                }
+            }
+            Self::ExpectedExecutableFoundSchema { definitions } => {
+                if definitions.is_empty() {
+                    "File in documents config contains schema definitions".to_string()
+                } else {
+                    format!(
+                        "File in documents config contains schema definitions: {}",
+                        definitions.join(", ")
+                    )
+                }
+            }
+        }
+    }
+}
+
+/// Validate that GraphQL content matches the expected `DocumentKind`.
+///
+/// Returns `None` if the content is consistent with the expected kind,
+/// or `Some(ContentMismatch)` if there's a conflict.
+///
+/// # Arguments
+///
+/// * `content` - The GraphQL source content to validate
+/// * `expected` - The expected `DocumentKind` from the config
+///
+/// # Rules
+///
+/// - Schema files should NOT contain operations or fragments
+/// - Executable files should NOT contain type definitions
+/// - Empty files or files with only comments are valid for any kind
+#[must_use]
+pub fn validate_content_matches_kind(
+    content: &str,
+    expected: DocumentKind,
+) -> Option<ContentMismatch> {
+    use apollo_compiler::parser::Parser;
+
+    let mut parser = Parser::new();
+    let ast = parser
+        .parse_ast(content, "virtual.graphql")
+        .unwrap_or_else(|e| e.partial);
+
+    match expected {
+        DocumentKind::Schema => {
+            // Check for executable definitions (operations, fragments)
+            let executable_defs: Vec<String> = ast
+                .definitions
+                .iter()
+                .filter_map(|def| match def {
+                    apollo_compiler::ast::Definition::OperationDefinition(op) => {
+                        Some(op.name.as_ref().map_or_else(
+                            || format!("anonymous {}", op.operation_type),
+                            ToString::to_string,
+                        ))
+                    }
+                    apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
+                        Some(format!("fragment {}", frag.name))
+                    }
+                    _ => None,
+                })
+                .collect();
+
+            if executable_defs.is_empty() {
+                None
+            } else {
+                Some(ContentMismatch::ExpectedSchemaFoundExecutable {
+                    definitions: executable_defs,
+                })
+            }
+        }
+        DocumentKind::Executable => {
+            // Check for schema definitions
+            let schema_defs: Vec<String> = ast
+                .definitions
+                .iter()
+                .filter_map(|def| match def {
+                    apollo_compiler::ast::Definition::SchemaDefinition(_) => {
+                        Some("schema".to_string())
+                    }
+                    apollo_compiler::ast::Definition::SchemaExtension(_) => {
+                        Some("extend schema".to_string())
+                    }
+                    apollo_compiler::ast::Definition::ObjectTypeDefinition(t) => {
+                        Some(format!("type {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::ObjectTypeExtension(t) => {
+                        Some(format!("extend type {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::InterfaceTypeDefinition(t) => {
+                        Some(format!("interface {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::InterfaceTypeExtension(t) => {
+                        Some(format!("extend interface {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::UnionTypeDefinition(t) => {
+                        Some(format!("union {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::UnionTypeExtension(t) => {
+                        Some(format!("extend union {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::ScalarTypeDefinition(t) => {
+                        Some(format!("scalar {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::ScalarTypeExtension(t) => {
+                        Some(format!("extend scalar {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::EnumTypeDefinition(t) => {
+                        Some(format!("enum {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::EnumTypeExtension(t) => {
+                        Some(format!("extend enum {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::InputObjectTypeDefinition(t) => {
+                        Some(format!("input {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::InputObjectTypeExtension(t) => {
+                        Some(format!("extend input {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::DirectiveDefinition(d) => {
+                        Some(format!("directive @{}", d.name))
+                    }
+                    _ => None,
+                })
+                .collect();
+
+            if schema_defs.is_empty() {
+                None
+            } else {
+                Some(ContentMismatch::ExpectedExecutableFoundSchema {
+                    definitions: schema_defs,
+                })
+            }
+        }
+    }
+}
+
 /// Check if a path has a given extension (case-insensitive)
 fn has_extension(path: &str, ext: &str) -> bool {
     path.len() > ext.len()
@@ -500,6 +688,126 @@ mod tests {
     fn test_content_has_schema_definitions_mixed() {
         let mixed_content = "type User { id: ID! }\nquery GetUser { user { id } }";
         assert!(content_has_schema_definitions(mixed_content));
+    }
+
+    #[test]
+    fn test_content_has_executable_definitions_true() {
+        let query_content = "query GetUser { user { id } }";
+        assert!(content_has_executable_definitions(query_content));
+
+        let fragment_content = "fragment UserFields on User { id name }";
+        assert!(content_has_executable_definitions(fragment_content));
+
+        let mutation_content = "mutation UpdateUser { updateUser { id } }";
+        assert!(content_has_executable_definitions(mutation_content));
+
+        let subscription_content = "subscription OnUserChange { userChanged { id } }";
+        assert!(content_has_executable_definitions(subscription_content));
+    }
+
+    #[test]
+    fn test_content_has_executable_definitions_false() {
+        let schema_content = "type User { id: ID! }";
+        assert!(!content_has_executable_definitions(schema_content));
+
+        let interface_content = "interface Node { id: ID! }";
+        assert!(!content_has_executable_definitions(interface_content));
+
+        let enum_content = "enum Status { ACTIVE INACTIVE }";
+        assert!(!content_has_executable_definitions(enum_content));
+    }
+
+    #[test]
+    fn test_content_has_executable_definitions_mixed() {
+        // Mixed files have both schema and executable definitions
+        let mixed_content = "type User { id: ID! }\nquery GetUser { user { id } }";
+        assert!(content_has_executable_definitions(mixed_content));
+    }
+
+    #[test]
+    fn test_validate_content_matches_kind_schema_valid() {
+        // Schema file with only schema definitions - valid
+        let content = "type User { id: ID! }\ninterface Node { id: ID! }";
+        assert!(validate_content_matches_kind(content, DocumentKind::Schema).is_none());
+    }
+
+    #[test]
+    fn test_validate_content_matches_kind_schema_invalid() {
+        // Schema file with executable definitions - invalid
+        let content = "type User { id: ID! }\nquery GetUser { user { id } }";
+        let mismatch = validate_content_matches_kind(content, DocumentKind::Schema);
+        assert!(mismatch.is_some());
+
+        let mismatch = mismatch.unwrap();
+        match &mismatch {
+            ContentMismatch::ExpectedSchemaFoundExecutable { definitions } => {
+                assert!(definitions.iter().any(|d| d.contains("GetUser")));
+            }
+            ContentMismatch::ExpectedExecutableFoundSchema { .. } => {
+                panic!("Expected ExpectedSchemaFoundExecutable")
+            }
+        }
+        // Check message generation
+        assert!(mismatch.message().contains("GetUser"));
+    }
+
+    #[test]
+    fn test_validate_content_matches_kind_executable_valid() {
+        // Executable file with only operations and fragments - valid
+        let content = "query GetUser { user { id } }\nfragment UserFields on User { id }";
+        assert!(validate_content_matches_kind(content, DocumentKind::Executable).is_none());
+    }
+
+    #[test]
+    fn test_validate_content_matches_kind_executable_invalid() {
+        // Executable file with schema definitions - invalid
+        let content = "query GetUser { user { id } }\ntype User { id: ID! }";
+        let mismatch = validate_content_matches_kind(content, DocumentKind::Executable);
+        assert!(mismatch.is_some());
+
+        let mismatch = mismatch.unwrap();
+        match &mismatch {
+            ContentMismatch::ExpectedExecutableFoundSchema { definitions } => {
+                assert!(definitions.iter().any(|d| d.contains("User")));
+            }
+            ContentMismatch::ExpectedSchemaFoundExecutable { .. } => {
+                panic!("Expected ExpectedExecutableFoundSchema")
+            }
+        }
+        // Check message generation
+        assert!(mismatch.message().contains("type User"));
+    }
+
+    #[test]
+    fn test_validate_content_matches_kind_empty() {
+        // Empty content is valid for any kind
+        assert!(validate_content_matches_kind("", DocumentKind::Schema).is_none());
+        assert!(validate_content_matches_kind("", DocumentKind::Executable).is_none());
+    }
+
+    #[test]
+    fn test_validate_content_matches_kind_only_comments() {
+        // Content with only comments is valid for any kind
+        let content = "# This is a comment\n# Another comment";
+        assert!(validate_content_matches_kind(content, DocumentKind::Schema).is_none());
+        assert!(validate_content_matches_kind(content, DocumentKind::Executable).is_none());
+    }
+
+    #[test]
+    fn test_validate_content_anonymous_operation() {
+        // Anonymous operations should be detected
+        let content = "{ user { id } }";
+        let mismatch = validate_content_matches_kind(content, DocumentKind::Schema);
+        assert!(mismatch.is_some());
+
+        match mismatch.unwrap() {
+            ContentMismatch::ExpectedSchemaFoundExecutable { definitions } => {
+                assert!(definitions.iter().any(|d| d.contains("anonymous")));
+            }
+            ContentMismatch::ExpectedExecutableFoundSchema { .. } => {
+                panic!("Expected ExpectedSchemaFoundExecutable")
+            }
+        }
     }
 
     #[test]
