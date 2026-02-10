@@ -67,11 +67,11 @@ fn lint_file_impl(
     }
 
     let file_id = metadata.file_id(db);
-    let file_kind = metadata.kind(db);
+    let document_kind = metadata.document_kind(db);
 
-    tracing::debug!(uri = %uri, ?file_kind, "Checking file kind");
+    tracing::debug!(uri = %uri, ?document_kind, "Checking document kind");
 
-    if file_kind.is_document() {
+    if metadata.is_document(db) {
         tracing::debug!(uri = %uri, "Running standalone document lints");
         diagnostics.extend(standalone_document_lints(
             db,
@@ -89,7 +89,7 @@ fn lint_file_impl(
             metadata,
             project_files,
         ));
-    } else if file_kind.is_schema() {
+    } else if metadata.is_schema(db) {
         tracing::debug!(uri = %uri, "Running schema lints");
         diagnostics.extend(schema_lints(db, file_id, content, project_files));
     }
@@ -318,7 +318,6 @@ pub fn lint_file_with_fixes(
     let lint_config = db.lint_config();
     let mut all_diagnostics = Vec::new();
     let file_id = metadata.file_id(db);
-    let file_kind = metadata.kind(db);
 
     // Parse and check for errors
     let parse = graphql_syntax::parse(db, content, metadata);
@@ -326,8 +325,8 @@ pub fn lint_file_with_fixes(
         return all_diagnostics;
     }
 
-    // Run lints based on file kind
-    if file_kind.is_document() {
+    // Run lints based on document kind
+    if metadata.is_document(db) {
         // Standalone document lints
         for rule in graphql_linter::standalone_document_rules() {
             if lint_config.is_enabled(rule.name()) {

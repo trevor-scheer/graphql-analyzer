@@ -160,7 +160,7 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
 mod tests {
     use super::*;
     use crate::traits::ProjectLintRule;
-    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+    use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
     use graphql_ide_db::RootDatabase;
     use std::sync::Arc;
 
@@ -177,8 +177,13 @@ mod tests {
         for (i, (uri, source)) in documents.iter().enumerate() {
             let file_id = FileId::new(i as u32);
             let content = FileContent::new(db, Arc::from(*source));
-            let metadata =
-                FileMetadata::new(db, file_id, FileUri::new(*uri), FileKind::ExecutableGraphQL);
+            let metadata = FileMetadata::new(
+                db,
+                file_id,
+                FileUri::new(*uri),
+                Language::GraphQL,
+                DocumentKind::Executable,
+            );
 
             let entry = graphql_base_db::FileEntry::new(db, content, metadata);
             file_entries.insert(file_id, entry);

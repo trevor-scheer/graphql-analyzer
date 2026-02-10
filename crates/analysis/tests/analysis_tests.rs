@@ -7,7 +7,7 @@ use graphql_analysis::{
     merged_schema::merged_schema_with_diagnostics, validate_document_file, validate_file,
     FieldCoverageReport, TypeCoverage,
 };
-use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
 use graphql_test_utils::{create_project_files, TestDatabase, TestDatabaseWithProject};
 use std::sync::Arc;
 
@@ -25,7 +25,8 @@ fn test_file_diagnostics_empty() {
         &db,
         file_id,
         FileUri::new("file:///test.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let diagnostics = file_diagnostics(&db, content, metadata, None);
@@ -50,7 +51,8 @@ fn test_validate_file_no_schema() {
         &db,
         file_id,
         FileUri::new("query.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let project_files = create_project_files(&mut db, &[], &[]);
@@ -73,7 +75,8 @@ fn test_validate_file_with_valid_fragment() {
         &db,
         schema_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let doc_id = FileId::new(1);
@@ -82,7 +85,8 @@ fn test_validate_file_with_valid_fragment() {
         &db,
         doc_id,
         FileUri::new("fragment.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let project_files = create_project_files(
@@ -109,7 +113,8 @@ fn test_validate_file_with_invalid_fragment() {
         &db,
         schema_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let doc_id = FileId::new(1);
@@ -121,7 +126,8 @@ fn test_validate_file_with_invalid_fragment() {
         &db,
         doc_id,
         FileUri::new("fragment.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let project_files = create_project_files(
@@ -153,7 +159,8 @@ fn test_validate_file_invalid_field() {
         &db,
         schema_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let doc_id = FileId::new(1);
@@ -162,7 +169,8 @@ fn test_validate_file_invalid_field() {
         &db,
         doc_id,
         FileUri::new("query.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let project_files = create_project_files(
@@ -194,7 +202,8 @@ fn test_validate_file_valid_query() {
         &db,
         schema_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let doc_id = FileId::new(1);
@@ -203,7 +212,8 @@ fn test_validate_file_valid_query() {
         &db,
         doc_id,
         FileUri::new("query.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let project_files = create_project_files(
@@ -233,7 +243,8 @@ fn test_cross_file_fragment_resolution() {
         &db,
         schema_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let frag_id = FileId::new(1);
@@ -242,7 +253,8 @@ fn test_cross_file_fragment_resolution() {
         &db,
         frag_id,
         FileUri::new("fragments.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let query_id = FileId::new(2);
@@ -251,7 +263,8 @@ fn test_cross_file_fragment_resolution() {
         &db,
         query_id,
         FileUri::new("query.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let project_files = create_project_files(
@@ -293,7 +306,8 @@ fn test_valid_schema() {
         &db,
         file_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let project_files = create_project_files(&mut db, &[(file_id, content, metadata)], &[]);
@@ -320,7 +334,8 @@ fn test_duplicate_type_name() {
         &db,
         file_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let project_files = create_project_files(&mut db, &[(file_id, content, metadata)], &[]);
@@ -346,7 +361,8 @@ fn test_invalid_syntax() {
         &db,
         file_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let diagnostics = file_validation_diagnostics(&db, content, metadata, None);
@@ -369,7 +385,8 @@ fn test_duplicate_field_in_extension() {
         &db,
         file_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let project_files = create_project_files(&mut db, &[(file_id, content, metadata)], &[]);
@@ -402,7 +419,8 @@ fn test_unknown_variable_type() {
         &db,
         file_id,
         FileUri::new("query.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let project_files = create_project_files(&mut db, &[], &[(file_id, content, metadata)]);
@@ -430,7 +448,8 @@ fn test_fragment_unknown_type_condition() {
         &db,
         file_id,
         FileUri::new("fragment.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let project_files = create_project_files(&mut db, &[], &[(file_id, content, metadata)]);
@@ -458,7 +477,8 @@ fn test_missing_root_type() {
         &db,
         file_id,
         FileUri::new("query.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let project_files = create_project_files(&mut db, &[], &[(file_id, content, metadata)]);
@@ -490,7 +510,8 @@ fn test_valid_document() {
         &db,
         schema_file_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let doc_file_id = FileId::new(1);
@@ -505,7 +526,8 @@ fn test_valid_document() {
         &db,
         doc_file_id,
         FileUri::new("query.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let project_files = create_project_files(
@@ -534,7 +556,8 @@ fn test_merged_schema_single_file() {
         &db,
         file_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
     let schema_files = [(file_id, content, metadata)];
     let project_files = create_project_files(&mut db, &schema_files, &[]);
@@ -561,7 +584,8 @@ fn test_merged_schema_multiple_files() {
         &db,
         file1_id,
         FileUri::new("schema1.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let file2_id = FileId::new(1);
@@ -570,7 +594,8 @@ fn test_merged_schema_multiple_files() {
         &db,
         file2_id,
         FileUri::new("schema2.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let schema_files = [
@@ -606,7 +631,8 @@ fn test_merged_schema_with_extensions() {
         &db,
         file1_id,
         FileUri::new("schema1.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let file2_id = FileId::new(1);
@@ -615,7 +641,8 @@ fn test_merged_schema_with_extensions() {
         &db,
         file2_id,
         FileUri::new("schema2.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let schema_files = [
@@ -673,7 +700,8 @@ fn test_merged_schema_invalid_syntax() {
         &db,
         file_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let schema_files = [(file_id, content, metadata)];
@@ -699,7 +727,8 @@ fn test_merged_schema_validation_error() {
         &db,
         file_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let schema_files = [(file_id, content, metadata)];
@@ -731,7 +760,8 @@ fn test_interface_implementation_missing_field() {
         &db,
         file_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let schema_files = [(file_id, content, metadata)];
@@ -776,7 +806,8 @@ fn test_valid_interface_implementation() {
         &db,
         file_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let schema_files = [(file_id, content, metadata)];
@@ -813,7 +844,8 @@ fn test_schema_diagnostics_attributed_to_correct_file() {
         &db,
         file_id1,
         FileUri::new("types.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let file_id2 = FileId::new(1);
@@ -829,7 +861,8 @@ fn test_schema_diagnostics_attributed_to_correct_file() {
         &db,
         file_id2,
         FileUri::new("user.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let schema_files = [
@@ -883,7 +916,8 @@ fn test_schema_build_error_attributed_to_correct_file() {
         &db,
         file_id1,
         FileUri::new("query.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let file_id2 = FileId::new(1);
@@ -892,7 +926,8 @@ fn test_schema_build_error_attributed_to_correct_file() {
         &db,
         file_id2,
         FileUri::new("duplicate.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let schema_files = [
@@ -950,7 +985,8 @@ fn test_analyze_field_usage_basic() {
         &db,
         schema_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let doc_id = FileId::new(1);
@@ -971,7 +1007,8 @@ fn test_analyze_field_usage_basic() {
         &db,
         doc_id,
         FileUri::new("query.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let project_files = create_project_files(
@@ -1025,7 +1062,8 @@ fn test_analyze_field_usage_multiple_operations() {
         &db,
         schema_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let doc_id = FileId::new(1);
@@ -1052,7 +1090,8 @@ fn test_analyze_field_usage_multiple_operations() {
         &db,
         doc_id,
         FileUri::new("query.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let project_files = create_project_files(
@@ -1104,7 +1143,8 @@ fn test_analyze_field_usage_with_fragments() {
         &db,
         schema_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let doc_id = FileId::new(1);
@@ -1129,7 +1169,8 @@ fn test_analyze_field_usage_with_fragments() {
         &db,
         doc_id,
         FileUri::new("query.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let project_files = create_project_files(

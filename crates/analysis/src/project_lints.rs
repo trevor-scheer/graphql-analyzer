@@ -577,8 +577,8 @@ fn unwrap_type_name(type_name: &str) -> Arc<str> {
 mod tests {
     use super::*;
     use graphql_base_db::{
-        DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileKind, FileMetadata,
-        FileUri, ProjectFiles, SchemaFileIds,
+        DocumentFileIds, DocumentKind, FileContent, FileEntry, FileEntryMap, FileId, FileMetadata,
+        FileUri, Language, ProjectFiles, SchemaFileIds,
     };
 
     #[salsa::db]
@@ -669,7 +669,8 @@ mod tests {
             &db,
             schema_id,
             FileUri::new("schema.graphql"),
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let doc_id = FileId::new(1);
@@ -690,7 +691,8 @@ mod tests {
             &db,
             doc_id,
             FileUri::new("query.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         let project_files = create_project_files(
@@ -733,7 +735,8 @@ mod tests {
             &db,
             schema_id,
             FileUri::new("schema.graphql"),
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let doc_id = FileId::new(1);
@@ -759,7 +762,8 @@ mod tests {
             &db,
             doc_id,
             FileUri::new("query.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         let project_files = create_project_files(
@@ -807,7 +811,8 @@ mod tests {
             &db,
             schema_id,
             FileUri::new("schema.graphql"),
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let doc_id = FileId::new(1);
@@ -831,7 +836,8 @@ mod tests {
             &db,
             doc_id,
             FileUri::new("query.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         let project_files = create_project_files(
@@ -876,7 +882,8 @@ mod tests {
             &db,
             schema_id,
             FileUri::new("schema.graphql"),
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let doc_id = FileId::new(1);
@@ -905,7 +912,8 @@ mod tests {
             &db,
             doc_id,
             FileUri::new("query.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         let project_files = create_project_files(

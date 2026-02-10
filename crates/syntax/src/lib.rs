@@ -24,7 +24,7 @@
 //! - `line_offset`: Line number in original file (0 for pure GraphQL)
 //! - `source`: The GraphQL source text
 
-use graphql_base_db::{FileContent, FileKind, FileMetadata};
+use graphql_base_db::{DocumentKind, FileContent, FileMetadata, Language};
 use std::sync::Arc;
 
 /// A parse error with position information
@@ -149,13 +149,13 @@ pub fn parse(
     metadata: FileMetadata,
 ) -> Parse {
     let uri = metadata.uri(db);
-    match metadata.kind(db) {
-        FileKind::Schema | FileKind::ExecutableGraphQL => {
-            parse_graphql(&content.text(db), uri.as_str())
-        }
-        FileKind::TypeScript | FileKind::JavaScript => {
-            extract_and_parse(db, &content.text(db), uri.as_str())
-        }
+    let language = metadata.language(db);
+
+    // Dispatch based on language: GraphQL parses directly, others need extraction
+    if language.requires_extraction() {
+        extract_and_parse(db, &content.text(db), uri.as_str())
+    } else {
+        parse_graphql(&content.text(db), uri.as_str())
     }
 }
 
@@ -317,25 +317,38 @@ fn has_extension(path: &str, ext: &str) -> bool {
         && path.as_bytes()[path.len() - ext.len()..].eq_ignore_ascii_case(ext.as_bytes())
 }
 
-/// Determine `FileKind` for files opened/changed in the editor
+/// Determine `Language` and `DocumentKind` for files opened/changed in the editor.
 ///
-/// For TypeScript/JavaScript files, returns the appropriate `FileKind` without content inspection.
-/// For .graphql/.gql files, inspects the content to determine if it contains schema definitions
-/// (`FileKind::Schema`) or executable documents (`FileKind::ExecutableGraphQL`).
+/// For TypeScript/JavaScript files, determines Language from extension and defaults
+/// to `DocumentKind::Executable` (config can override this if schema patterns match).
+///
+/// For .graphql/.gql files, inspects the content to determine if it contains schema
+/// definitions or executable documents.
+///
+/// This is used as a fallback when no config is available or when a file is opened
+/// that doesn't match any configured patterns.
 #[must_use]
-pub fn determine_file_kind_from_content(path: &str, content: &str) -> FileKind {
-    if has_extension(path, ".ts") || has_extension(path, ".tsx") {
-        return FileKind::TypeScript;
-    }
-    if has_extension(path, ".js") || has_extension(path, ".jsx") {
-        return FileKind::JavaScript;
-    }
-
-    if content_has_schema_definitions(content) {
-        FileKind::Schema
+pub fn determine_file_kind_from_content(path: &str, content: &str) -> (Language, DocumentKind) {
+    // Determine language from extension
+    let language = if has_extension(path, ".ts") || has_extension(path, ".tsx") {
+        Language::TypeScript
+    } else if has_extension(path, ".js") || has_extension(path, ".jsx") {
+        Language::JavaScript
     } else {
-        FileKind::ExecutableGraphQL
-    }
+        Language::GraphQL
+    };
+
+    // For TS/JS files, default to Executable (operations/fragments)
+    // For GraphQL files, inspect content to determine kind
+    let document_kind = if language.requires_extraction() {
+        DocumentKind::Executable
+    } else if content_has_schema_definitions(content) {
+        DocumentKind::Schema
+    } else {
+        DocumentKind::Executable
+    };
+
+    (language, document_kind)
 }
 
 impl LineIndex {
@@ -494,11 +507,11 @@ mod tests {
         let content = "const query = gql`query { user { id } }`;";
         assert_eq!(
             determine_file_kind_from_content("file.ts", content),
-            FileKind::TypeScript
+            (Language::TypeScript, DocumentKind::Executable)
         );
         assert_eq!(
             determine_file_kind_from_content("file.tsx", content),
-            FileKind::TypeScript
+            (Language::TypeScript, DocumentKind::Executable)
         );
     }
 
@@ -507,11 +520,11 @@ mod tests {
         let content = "const query = gql`query { user { id } }`;";
         assert_eq!(
             determine_file_kind_from_content("file.js", content),
-            FileKind::JavaScript
+            (Language::JavaScript, DocumentKind::Executable)
         );
         assert_eq!(
             determine_file_kind_from_content("file.jsx", content),
-            FileKind::JavaScript
+            (Language::JavaScript, DocumentKind::Executable)
         );
     }
 
@@ -520,7 +533,7 @@ mod tests {
         let content = "type User { id: ID! }";
         assert_eq!(
             determine_file_kind_from_content("schema.graphql", content),
-            FileKind::Schema
+            (Language::GraphQL, DocumentKind::Schema)
         );
     }
 
@@ -529,7 +542,7 @@ mod tests {
         let content = "query GetUser { user { id } }";
         assert_eq!(
             determine_file_kind_from_content("query.graphql", content),
-            FileKind::ExecutableGraphQL
+            (Language::GraphQL, DocumentKind::Executable)
         );
     }
 

@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
-use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+use graphql_base_db::{
+    DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language, ProjectFiles,
+};
 use graphql_ide::AnalysisHost;
 use graphql_ide_db::RootDatabase;
 use salsa::Setter;
@@ -71,7 +73,8 @@ fn create_project_files(db: &mut RootDatabase) -> ProjectFiles {
         db,
         schema_id,
         FileUri::new("schema.graphql"),
-        FileKind::Schema,
+        Language::GraphQL,
+        DocumentKind::Schema,
     );
 
     let doc_id = FileId::new(1);
@@ -80,7 +83,8 @@ fn create_project_files(db: &mut RootDatabase) -> ProjectFiles {
         db,
         doc_id,
         FileUri::new("query.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let schema_file_ids = graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![schema_id]));
@@ -106,7 +110,8 @@ fn bench_parse_cold(c: &mut Criterion) {
                     &db,
                     FileId::new(0),
                     FileUri::new("schema.graphql"),
-                    FileKind::Schema,
+                    Language::GraphQL,
+                    DocumentKind::Schema,
                 );
                 (db, content, metadata)
             },
@@ -128,7 +133,8 @@ fn bench_parse_warm(c: &mut Criterion) {
             &db,
             FileId::new(0),
             FileUri::new("schema.graphql"),
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
         let _ = graphql_syntax::parse(&db, content, metadata);
 
@@ -190,7 +196,8 @@ fn bench_golden_invariant(c: &mut Criterion) {
                     &db,
                     schema_id,
                     FileUri::new("schema.graphql"),
-                    FileKind::Schema,
+                    Language::GraphQL,
+                    DocumentKind::Schema,
                 );
 
                 let doc_id = FileId::new(1);
@@ -199,7 +206,8 @@ fn bench_golden_invariant(c: &mut Criterion) {
                     &db,
                     doc_id,
                     FileUri::new("query.graphql"),
-                    FileKind::ExecutableGraphQL,
+                    Language::GraphQL,
+                    DocumentKind::Executable,
                 );
 
                 let schema_file_ids =
@@ -266,7 +274,8 @@ fn bench_per_file_granular_caching(c: &mut Criterion) {
                     &db,
                     schema_id,
                     FileUri::new("schema.graphql"),
-                    FileKind::Schema,
+                    Language::GraphQL,
+                    DocumentKind::Schema,
                 );
 
                 let doc1_id = FileId::new(1);
@@ -275,7 +284,8 @@ fn bench_per_file_granular_caching(c: &mut Criterion) {
                     &db,
                     doc1_id,
                     FileUri::new("query1.graphql"),
-                    FileKind::ExecutableGraphQL,
+                    Language::GraphQL,
+                    DocumentKind::Executable,
                 );
 
                 let doc2_id = FileId::new(2);
@@ -287,7 +297,8 @@ fn bench_per_file_granular_caching(c: &mut Criterion) {
                     &db,
                     doc2_id,
                     FileUri::new("query2.graphql"),
-                    FileKind::ExecutableGraphQL,
+                    Language::GraphQL,
+                    DocumentKind::Executable,
                 );
 
                 // Create granular FileEntryMap for per-file caching
@@ -348,7 +359,8 @@ fn bench_fragment_resolution_cold(c: &mut Criterion) {
                     &db,
                     schema_id,
                     FileUri::new("schema.graphql"),
-                    FileKind::Schema,
+                    Language::GraphQL,
+                    DocumentKind::Schema,
                 );
 
                 let doc_id = FileId::new(1);
@@ -357,7 +369,8 @@ fn bench_fragment_resolution_cold(c: &mut Criterion) {
                     &db,
                     doc_id,
                     FileUri::new("query.graphql"),
-                    FileKind::ExecutableGraphQL,
+                    Language::GraphQL,
+                    DocumentKind::Executable,
                 );
 
                 let schema_file_ids =
@@ -398,7 +411,8 @@ fn bench_fragment_resolution_warm(c: &mut Criterion) {
             &db,
             schema_id,
             FileUri::new("schema.graphql"),
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let doc_id = FileId::new(1);
@@ -407,7 +421,8 @@ fn bench_fragment_resolution_warm(c: &mut Criterion) {
             &db,
             doc_id,
             FileUri::new("query.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         let schema_file_ids = graphql_base_db::SchemaFileIds::new(&db, Arc::new(vec![schema_id]));
@@ -441,7 +456,12 @@ fn bench_analysis_host_add_file(c: &mut Criterion) {
             |mut host| {
                 // Measure: Add schema file
                 let path = graphql_ide::FilePath::new("schema.graphql");
-                host.add_file(&path, SAMPLE_SCHEMA, graphql_ide::FileKind::Schema);
+                host.add_file(
+                    &path,
+                    SAMPLE_SCHEMA,
+                    graphql_ide::Language::GraphQL,
+                    graphql_ide::DocumentKind::Schema,
+                );
                 black_box(());
             },
             BatchSize::SmallInput,
@@ -454,13 +474,19 @@ fn bench_analysis_host_diagnostics(c: &mut Criterion) {
         // Setup: AnalysisHost with schema and document
         let mut host = AnalysisHost::new();
         let schema_path = graphql_ide::FilePath::new("schema.graphql");
-        host.add_file(&schema_path, SAMPLE_SCHEMA, graphql_ide::FileKind::Schema);
+        host.add_file(
+            &schema_path,
+            SAMPLE_SCHEMA,
+            graphql_ide::Language::GraphQL,
+            graphql_ide::DocumentKind::Schema,
+        );
 
         let doc_path = graphql_ide::FilePath::new("query.graphql");
         host.add_file(
             &doc_path,
             SAMPLE_OPERATION,
-            graphql_ide::FileKind::ExecutableGraphQL,
+            graphql_ide::Language::GraphQL,
+            DocumentKind::Executable,
         );
         host.rebuild_project_files();
 

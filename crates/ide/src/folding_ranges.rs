@@ -348,7 +348,7 @@ fn add_multiline_range(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AnalysisHost, FileKind};
+    use crate::{AnalysisHost, DocumentKind, Language};
 
     #[test]
     fn test_folding_ranges_operation() {
@@ -358,7 +358,8 @@ mod tests {
         host.add_file(
             &schema_path,
             "type Query { user: User }\ntype User { id: ID!, name: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let query_path = FilePath::new("file:///query.graphql");
@@ -370,7 +371,8 @@ mod tests {
     name
   }
 }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         host.rebuild_project_files();
 
@@ -396,7 +398,7 @@ mod tests {
         host.add_file(
             &schema_path,
             "type Query { user: User }\ntype User { profile: Profile }\ntype Profile { avatar: String, bio: String }",
-            FileKind::Schema,
+            Language::GraphQL, DocumentKind::Schema,
         );
 
         let query_path = FilePath::new("file:///query.graphql");
@@ -410,7 +412,8 @@ mod tests {
     }
   }
 }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         host.rebuild_project_files();
 
@@ -432,7 +435,8 @@ mod tests {
         host.add_file(
             &schema_path,
             "type User { id: ID!, name: String, email: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let fragment_path = FilePath::new("file:///fragment.graphql");
@@ -443,7 +447,8 @@ mod tests {
   name
   email
 }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         host.rebuild_project_files();
 
@@ -476,7 +481,8 @@ enum Status {
   ACTIVE
   INACTIVE
 }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
         host.rebuild_project_files();
 
@@ -504,7 +510,8 @@ that spans multiple lines
 type User {
   id: ID!
 }"#,
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
         host.rebuild_project_files();
 
@@ -527,14 +534,16 @@ type User {
         host.add_file(
             &schema_path,
             "type Query { user: User }\ntype User { id: ID! }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let query_path = FilePath::new("file:///query.graphql");
         host.add_file(
             &query_path,
             r"query { user { id } }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         host.rebuild_project_files();
 

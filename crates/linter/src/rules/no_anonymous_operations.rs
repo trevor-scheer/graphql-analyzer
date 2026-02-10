@@ -151,7 +151,9 @@ fn get_operation_type(operation: &cst::OperationDefinition) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+    use graphql_base_db::{
+        DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language, ProjectFiles,
+    };
     use graphql_ide_db::RootDatabase;
     use std::sync::Arc;
 
@@ -183,7 +185,8 @@ query {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -214,7 +217,8 @@ query {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -245,7 +249,8 @@ mutation {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -278,7 +283,8 @@ subscription {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -311,7 +317,8 @@ query GetUser {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -340,7 +347,8 @@ mutation UpdateUser {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -369,7 +377,8 @@ subscription OnMessageAdded {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -409,7 +418,8 @@ query {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -450,7 +460,8 @@ query GetUser {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -480,7 +491,8 @@ query {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -511,7 +523,8 @@ query GetUserById($id: ID!) {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -540,7 +553,8 @@ query($id: ID!) {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -568,7 +582,8 @@ subscription { onUserUpdate { id } }
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 

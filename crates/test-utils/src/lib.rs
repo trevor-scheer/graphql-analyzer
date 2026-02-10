@@ -54,7 +54,9 @@ pub use project::{test_documents_only, test_project, test_schema_only, TestProje
 pub use tracking::{queries, TrackedDatabase};
 
 // Re-export common types needed for test setup
-pub use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+pub use graphql_base_db::{
+    DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language, ProjectFiles,
+};
 
 // Re-export insta for snapshot testing
 pub use insta;

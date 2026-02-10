@@ -16,8 +16,8 @@
 //! any file change would invalidate queries for ALL files.
 
 use graphql_base_db::{
-    DocumentFileIds, FileContent, FileEntry, FileEntryMap, FileId, FileKind, FileMetadata, FileUri,
-    ProjectFiles, SchemaFileIds,
+    DocumentFileIds, DocumentKind, FileContent, FileEntry, FileEntryMap, FileId, FileMetadata,
+    FileUri, Language, ProjectFiles, SchemaFileIds,
 };
 use salsa::Setter;
 use std::collections::HashMap;
@@ -73,7 +73,8 @@ impl FileRegistry {
         db: &mut DB,
         path: &FilePath,
         content: &str,
-        kind: FileKind,
+        language: Language,
+        document_kind: DocumentKind,
     ) -> (FileId, FileContent, FileMetadata, bool)
     where
         DB: salsa::Database,
@@ -92,10 +93,13 @@ impl FileRegistry {
                     existing_content.set_text(db).to(content_arc);
                 }
 
-                // Update metadata if needed (kind changed)
+                // Update metadata if needed (language or document_kind changed)
                 let metadata = self.id_to_metadata.get(&existing_id).copied().unwrap();
-                if metadata.kind(db) != kind {
-                    metadata.set_kind(db).to(kind);
+                if metadata.language(db) != language {
+                    metadata.set_language(db).to(language);
+                }
+                if metadata.document_kind(db) != document_kind {
+                    metadata.set_document_kind(db).to(document_kind);
                 }
 
                 // Note: FileEntry is NOT updated here - it still points to the same
@@ -118,7 +122,7 @@ impl FileRegistry {
 
         // Create new FileMetadata
         let uri = FileUri::new(uri_str);
-        let metadata = FileMetadata::new(db, file_id, uri, kind);
+        let metadata = FileMetadata::new(db, file_id, uri, language, document_kind);
         self.id_to_metadata.insert(file_id, metadata);
 
         // Create new FileEntry (for granular caching)
@@ -205,15 +209,14 @@ impl FileRegistry {
             })
             .collect();
 
-        // Now query kinds and categorize - this may trigger salsa queries
+        // Now query document kinds and categorize - this may trigger salsa queries
         for (file_id, metadata, entry) in file_data {
             file_entries.insert(file_id, entry);
 
-            // Categorize by kind for ID lists
-            let kind = metadata.kind(db);
-            if kind.is_schema() {
+            // Categorize by document kind for ID lists
+            if metadata.is_schema(db) {
                 schema_ids.push(file_id);
-            } else if kind.is_document() {
+            } else if metadata.is_document(db) {
                 document_ids.push(file_id);
             }
         }
@@ -307,7 +310,8 @@ mod tests {
             &mut db,
             &path,
             "type Query { hello: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Should indicate this is a new file
@@ -336,7 +340,8 @@ mod tests {
             &mut db,
             &path,
             "type Query { hello: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
         assert!(is_new1);
 
@@ -345,7 +350,8 @@ mod tests {
             &mut db,
             &path,
             "type Query { world: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Should indicate this is NOT a new file (just an update)
@@ -372,7 +378,8 @@ mod tests {
             &mut db,
             &path,
             "type Query { hello: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Remove the file
@@ -395,13 +402,15 @@ mod tests {
             &mut db,
             &path1,
             "type Query { hello: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
         let (file_id2, _, _, _) = registry.add_file(
             &mut db,
             &path2,
             "type Mutation { update: Boolean }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let all_ids = registry.all_file_ids();

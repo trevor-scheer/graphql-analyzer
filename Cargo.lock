@@ -1060,6 +1060,7 @@ dependencies = [
 name = "graphql-base-db"
 version = "0.1.0"
 dependencies = [
+ "graphql-types",
  "salsa",
 ]
 

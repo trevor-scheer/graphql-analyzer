@@ -1445,19 +1445,18 @@ impl LanguageServer for GraphQLLanguageServer {
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
 
-        let file_kind =
+        let (language, document_kind) =
             graphql_syntax::determine_file_kind_from_content(uri.path().as_str(), &content);
 
         // For TS/JS files, store the original source and let the parsing layer handle extraction.
         // This preserves block boundaries and allows proper validation of separate documents.
         let final_content = content;
-        let final_kind = file_kind;
 
         // Update file and get snapshot in one lock
         // Uses add_file_and_snapshot which properly rebuilds project files if needed
         let file_path = graphql_ide::FilePath::new(uri.to_string());
         let (is_new, snapshot) = host
-            .add_file_and_snapshot(&file_path, &final_content, final_kind)
+            .add_file_and_snapshot(&file_path, &final_content, language, document_kind)
             .await;
 
         // Only publish diagnostics if this is a new file (not already loaded during init).
@@ -1505,19 +1504,18 @@ impl LanguageServer for GraphQLLanguageServer {
                 .workspace
                 .get_or_create_host(&workspace_uri, &project_name);
 
-            let file_kind =
+            let (language, document_kind) =
                 graphql_syntax::determine_file_kind_from_content(uri.path().as_str(), &change.text);
 
             // For TS/JS files, store the original source and let the parsing layer handle extraction.
             // This preserves block boundaries and allows proper validation of separate documents.
             let final_content = change.text.clone();
-            let final_kind = file_kind;
 
             // Update file and get snapshot in one lock
             // Uses add_file_and_snapshot which properly rebuilds project files if needed
             let file_path = graphql_ide::FilePath::new(uri.to_string());
             let (_is_new, snapshot) = host
-                .add_file_and_snapshot(&file_path, &final_content, final_kind)
+                .add_file_and_snapshot(&file_path, &final_content, language, document_kind)
                 .await;
 
             // Validate using pre-acquired snapshot (no lock needed)

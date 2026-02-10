@@ -112,10 +112,11 @@ impl ProjectHost {
         &self,
         path: &graphql_ide::FilePath,
         content: &str,
-        kind: graphql_ide::FileKind,
+        language: graphql_ide::Language,
+        document_kind: graphql_ide::DocumentKind,
     ) -> (bool, graphql_ide::Analysis) {
         let mut guard = self.inner.lock().await;
-        guard.update_file_and_snapshot(path, content, kind)
+        guard.update_file_and_snapshot(path, content, language, document_kind)
     }
 }
 

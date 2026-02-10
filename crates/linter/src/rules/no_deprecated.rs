@@ -343,7 +343,7 @@ fn check_value_for_deprecated_enum(
 mod tests {
     use super::*;
     use crate::traits::DocumentSchemaLintRule;
-    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+    use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
     use graphql_ide_db::RootDatabase;
 
     fn create_test_project(
@@ -357,7 +357,8 @@ mod tests {
             db,
             schema_file_id,
             FileUri::new("file:///schema.graphql"),
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let doc_file_id = FileId::new(1);
@@ -366,7 +367,8 @@ mod tests {
             db,
             doc_file_id,
             FileUri::new("file:///query.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         let schema_file_ids =

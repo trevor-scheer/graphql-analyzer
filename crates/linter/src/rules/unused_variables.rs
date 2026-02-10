@@ -189,7 +189,9 @@ fn compute_variable_removal_fix(var: &DeclaredVariable) -> CodeFix {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+    use graphql_base_db::{
+        DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language, ProjectFiles,
+    };
     use graphql_ide_db::RootDatabase;
     use std::sync::Arc;
 
@@ -220,7 +222,8 @@ query GetUser($id: ID!, $unused: String) {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -260,7 +263,8 @@ query GetUser($id: ID!, $name: String) {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -288,7 +292,8 @@ query GetUser($id: ID!, $skip: Boolean!) {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -319,7 +324,8 @@ query GetUser($id: ID!, $postId: ID!) {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -347,7 +353,8 @@ query GetUsers($ids: [ID!]!, $id1: ID!, $id2: ID!) {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -377,7 +384,8 @@ query CreateUser($name: String!, $email: String!) {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -405,7 +413,8 @@ query GetUser($id: ID!, $unused1: String, $unused2: Int, $limit: Int) {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -440,7 +449,8 @@ query GetUser {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -469,7 +479,8 @@ mutation UpdateUser($id: ID!, $name: String!, $unused: Boolean) {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 
@@ -501,7 +512,8 @@ query GetUser($id: ID!, $include: Boolean!) {
             &db,
             file_id,
             FileUri::new("file:///test.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
 

@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result};
 use graphql_config::ProjectConfig;
-use graphql_ide::{AnalysisHost, Diagnostic, FileKind, FilePath};
+use graphql_ide::{AnalysisHost, Diagnostic, DocumentKind, FilePath, Language};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -111,27 +111,31 @@ impl CliAnalysisHost {
             let loaded_docs =
                 Self::load_document_files(documents_config, base_dir, project_config)?;
 
-            let files_to_add: Vec<(FilePath, String, FileKind)> = loaded_docs
+            let files_to_add: Vec<(FilePath, String, Language, DocumentKind)> = loaded_docs
                 .into_iter()
                 .map(|(path, content)| {
-                    let kind = match path.extension().and_then(|e| e.to_str()) {
-                        Some("ts" | "tsx") => FileKind::TypeScript,
-                        Some("js" | "jsx") => FileKind::JavaScript,
-                        _ => FileKind::ExecutableGraphQL,
+                    let (language, document_kind) = match path.extension().and_then(|e| e.to_str())
+                    {
+                        Some("ts" | "tsx") => (Language::TypeScript, DocumentKind::Executable),
+                        Some("js" | "jsx") => (Language::JavaScript, DocumentKind::Executable),
+                        _ => (Language::GraphQL, DocumentKind::Executable),
                     };
                     document_files.push(path.clone());
                     (
                         FilePath::new(path.to_string_lossy().to_string()),
                         content,
-                        kind,
+                        language,
+                        document_kind,
                     )
                 })
                 .collect();
 
             // Batch add all files for O(n) performance (instead of O(n²) with per-file add)
-            let batch_refs: Vec<(FilePath, &str, FileKind)> = files_to_add
+            let batch_refs: Vec<(FilePath, &str, Language, DocumentKind)> = files_to_add
                 .iter()
-                .map(|(path, content, kind)| (path.clone(), content.as_str(), *kind))
+                .map(|(path, content, language, document_kind)| {
+                    (path.clone(), content.as_str(), *language, *document_kind)
+                })
                 .collect();
             host.add_files_batch(&batch_refs);
         } else {
@@ -378,9 +382,16 @@ impl CliAnalysisHost {
     }
 
     /// Update a file in the analysis host (used by watch mode)
-    pub fn update_file(&mut self, path: &Path, content: &str, kind: FileKind) {
+    pub fn update_file(
+        &mut self,
+        path: &Path,
+        content: &str,
+        language: Language,
+        document_kind: DocumentKind,
+    ) {
         let file_path = FilePath::new(path.to_string_lossy().to_string());
-        self.host.add_file(&file_path, content, kind);
+        self.host
+            .add_file(&file_path, content, language, document_kind);
 
         // Update document files list if this is a new file
         let path_buf = path.to_path_buf();
