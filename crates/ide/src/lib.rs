@@ -67,8 +67,8 @@ pub use types::{
     CodeFix, CodeLens, CodeLensCommand, CodeLensInfo, CompletionItem, CompletionKind, Diagnostic,
     DiagnosticSeverity, DocumentSymbol, FilePath, FoldingRange, FoldingRangeKind,
     FragmentReference, FragmentUsage, HoverResult, InlayHint, InlayHintKind, InsertTextFormat,
-    Location, PendingIntrospection, Position, ProjectStatus, Range, SchemaLoadResult, SchemaStats,
-    SelectionRange, SymbolKind, TextEdit, WorkspaceSymbol,
+    Location, PendingIntrospection, Position, ProjectStatus, Range, SchemaContentError,
+    SchemaLoadResult, SchemaStats, SelectionRange, SymbolKind, TextEdit, WorkspaceSymbol,
 };
 
 // Re-export helpers for internal use
@@ -94,6 +94,7 @@ pub struct LoadedFile {
 
 /// File data that has been read from disk but not yet registered.
 /// Used to separate file I/O from lock acquisition.
+#[derive(Debug)]
 pub struct DiscoveredFile {
     /// The file path (as a URI string)
     pub path: FilePath,
@@ -105,16 +106,53 @@ pub struct DiscoveredFile {
     pub document_kind: DocumentKind,
 }
 
+/// A content mismatch error found during file discovery.
+///
+/// This indicates a file's content doesn't match its expected `DocumentKind`
+/// based on which config pattern matched it.
+#[derive(Debug, Clone)]
+pub struct ContentMismatchError {
+    /// The pattern that matched this file
+    pub pattern: String,
+    /// Path to the file with mismatched content
+    pub file_path: std::path::PathBuf,
+    /// What kind was expected (based on config)
+    pub expected: graphql_config::FileType,
+    /// Names of definitions that don't belong
+    pub unexpected_definitions: Vec<String>,
+}
+
+/// Result of file discovery, containing both files and any validation errors.
+#[derive(Debug, Default)]
+pub struct FileDiscoveryResult {
+    /// Successfully discovered files
+    pub files: Vec<DiscoveredFile>,
+    /// Content mismatch errors found during discovery
+    pub errors: Vec<ContentMismatchError>,
+}
+
+impl FileDiscoveryResult {
+    /// Returns true if there are any content mismatch errors.
+    #[must_use]
+    pub fn has_errors(&self) -> bool {
+        !self.errors.is_empty()
+    }
+}
+
 /// Discover and read document files from config without requiring any locks.
 ///
 /// This function performs all file I/O upfront so that lock acquisition
-/// for registration can be brief. Returns the file data ready for registration.
+/// for registration can be brief. Returns the file data ready for registration,
+/// along with any content mismatch errors found.
+///
+/// Files in the `documents` config are expected to contain executable definitions
+/// (operations, fragments). If schema definitions are found, an error is reported.
 pub fn discover_document_files(
     config: &graphql_config::ProjectConfig,
     workspace_path: &std::path::Path,
-) -> Vec<DiscoveredFile> {
+) -> FileDiscoveryResult {
     let Some(documents_config) = &config.documents else {
-        return Vec::new();
+        return FileDiscoveryResult::default();
     };
 
     let patterns: Vec<String> = documents_config
@@ -123,7 +161,7 @@ pub fn discover_document_files(
         .map(std::string::ToString::to_string)
         .collect();
 
-    let mut discovered: Vec<DiscoveredFile> = Vec::new();
+    let mut result = FileDiscoveryResult::default();
 
     for pattern in patterns {
         // Skip negation patterns
@@ -154,7 +192,43 @@ pub fn discover_document_files(
                                             determine_document_file_kind(&path_str, &content);
                                         let file_path = path_to_file_path(&path);
 
-                                        discovered.push(DiscoveredFile {
+                                        // Validate content matches expected kind (Executable)
+                                        // For TS/JS files, we need to extract GraphQL first
+                                        let graphql_content = if language.requires_extraction() {
+                                            // Extract and concatenate all GraphQL blocks
+                                            let config = graphql_extract::ExtractConfig::default();
+                                            graphql_extract::extract_from_source(
+                                                &content, language, &config,
+                                            )
+                                            .unwrap_or_default()
+                                            .iter()
+                                            .map(|block| block.source.as_str())
+                                            .collect::<Vec<_>>()
+                                            .join("\n")
+                                        } else {
+                                            content.clone()
+                                        };
+
+                                        // Check for schema definitions in document files
+                                        if let Some(mismatch) =
+                                            graphql_syntax::validate_content_matches_kind(
+                                                &graphql_content,
+                                                DocumentKind::Executable,
+                                            )
+                                        {
+                                            let definitions = match mismatch {
+                                                graphql_syntax::ContentMismatch::ExpectedExecutableFoundSchema { definitions } => definitions,
+                                                graphql_syntax::ContentMismatch::ExpectedSchemaFoundExecutable { .. } => Vec::new(),
+                                            };
+                                            result.errors.push(ContentMismatchError {
+                                                pattern: pattern.clone(),
+                                                file_path: path.clone(),
+                                                expected: graphql_config::FileType::Document,
+                                                unexpected_definitions: definitions,
+                                            });
+                                        }
+
+                                        result.files.push(DiscoveredFile {
                                             path: file_path,
                                             content,
                                             language,
@@ -184,7 +258,7 @@ pub fn discover_document_files(
         }
     }
 
-    discovered
+    result
 }
 
 /// Expand brace patterns like `{ts,tsx}` into multiple patterns
@@ -936,6 +1010,7 @@ impl AnalysisHost {
         let mut count = 1;
         let mut loaded_paths = Vec::new();
         let mut pending_introspections = Vec::new();
+        let mut content_errors = Vec::new();
 
         let patterns: Vec<String> = match &config.schema {
             graphql_config::SchemaConfig::Path(s) => vec![s.clone()],
@@ -987,12 +1062,38 @@ impl AnalysisHost {
                                                 &extract_config,
                                             ) {
                                                 Ok(blocks) => {
-                                                    for (block_idx, block) in
-                                                        blocks.iter().enumerate()
-                                                    {
+                                                    // Validate all blocks for executable definitions
+                                                    let all_sources: String = blocks
+                                                        .iter()
+                                                        .map(|b| b.source.as_str())
+                                                        .collect::<Vec<_>>()
+                                                        .join("\n");
+                                                    if let Some(mismatch) = graphql_syntax::validate_content_matches_kind(
+                                                        &all_sources,
+                                                        DocumentKind::Schema,
+                                                    ) {
+                                                        let definitions = match mismatch {
+                                                            graphql_syntax::ContentMismatch::ExpectedSchemaFoundExecutable { definitions } => definitions,
+                                                            graphql_syntax::ContentMismatch::ExpectedExecutableFoundSchema { .. } => Vec::new(),
+                                                        };
+                                                        content_errors.push(SchemaContentError {
+                                                            pattern: pattern.clone(),
+                                                            file_path: entry.clone(),
+                                                            unexpected_definitions: definitions,
+                                                        });
+                                                    }
+
+                                                    for block in &blocks {
                                                         // Create a unique file URI for each block
+                                                        // Use line range format for better error attribution
                                                         let block_uri = if blocks.len() > 1 {
-                                                            format!("{file_uri}#block{block_idx}")
+                                                            let start_line =
+                                                                block.location.range.start.line + 1;
+                                                            let end_line =
+                                                                block.location.range.end.line + 1;
+                                                            format!(
+                                                                "{file_uri}#L{start_line}-L{end_line}"
+                                                            )
                                                         } else {
                                                             file_uri.clone()
                                                         };
@@ -1026,7 +1127,25 @@ impl AnalysisHost {
                                         }
                                     }
 
-                                    // Pure GraphQL file - add directly
+                                    // Pure GraphQL file - validate and add
+                                    // Check for executable definitions (operations/fragments)
+                                    if let Some(mismatch) =
+                                        graphql_syntax::validate_content_matches_kind(
+                                            &content,
+                                            DocumentKind::Schema,
+                                        )
+                                    {
+                                        let definitions = match mismatch {
+                                            graphql_syntax::ContentMismatch::ExpectedSchemaFoundExecutable { definitions } => definitions,
+                                            graphql_syntax::ContentMismatch::ExpectedExecutableFoundSchema { .. } => Vec::new(),
+                                        };
+                                        content_errors.push(SchemaContentError {
+                                            pattern: pattern.clone(),
+                                            file_path: entry.clone(),
+                                            unexpected_definitions: definitions,
+                                        });
+                                    }
+
                                     self.add_file(
                                         &FilePath::new(file_uri),
                                         &content,
@@ -1068,6 +1187,7 @@ impl AnalysisHost {
             loaded_count: count,
             loaded_paths,
             pending_introspections,
+            content_errors,
         })
     }
 
@@ -4823,6 +4943,73 @@ export const postType = gql`
 
             let post_symbols = snapshot.workspace_symbols("Post");
             assert!(!post_symbols.is_empty(), "Post type should be found");
+        }
+
+        #[test]
+        fn test_multiple_block_uris_use_line_ranges() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            // Create a TypeScript file with multiple GraphQL blocks
+            // The blocks start at different lines to verify URI format
+            let ts_content = r#"import { gql } from 'graphql-tag';
+
+export const types = gql`
+  type Query {
+    posts: [Post!]!
+  }
+`;
+
+export const postType = gql`
+  type Post {
+    id: ID!
+    title: String!
+  }
+`;
+"#;
+            let ts_path = temp_dir.path().join("schema.ts");
+            let mut file = std::fs::File::create(&ts_path).unwrap();
+            file.write_all(ts_content.as_bytes()).unwrap();
+
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Path("schema.ts".to_string()),
+                documents: None,
+                include: None,
+                exclude: None,
+                extensions: None,
+            };
+
+            let mut host = AnalysisHost::new();
+            let _ = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            host.rebuild_project_files();
+
+            // Get all files and check their URIs
+            let files = host.files();
+            let ts_file_uri = format!("file://{}", ts_path.display());
+
+            // Find files from the TS schema
+            let block_uris: Vec<_> = files
+                .into_iter()
+                .map(|f| f.0)
+                .filter(|uri| uri.starts_with(&ts_file_uri) && uri.contains('#'))
+                .collect();
+
+            // With multiple blocks, URIs should have line-range fragments
+            assert_eq!(block_uris.len(), 2, "Should have 2 block URIs");
+
+            // Check that URIs use line-range format (#L{start}-L{end}) not block index (#block0)
+            for uri in &block_uris {
+                assert!(
+                    uri.contains("#L") && uri.contains("-L"),
+                    "Block URI should use line-range format (#L{{start}}-L{{end}}), got: {uri}"
+                );
+                assert!(
+                    !uri.contains("#block"),
+                    "Block URI should NOT use block index format, got: {uri}"
+                );
+            }
         }
 
         #[test]

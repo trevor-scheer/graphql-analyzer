@@ -363,6 +363,22 @@ impl WorkspaceManager {
     pub fn has_workspaces(&self) -> bool {
         !self.workspace_roots.is_empty()
     }
+
+    /// Get the file type (schema or document) for a file based on config patterns.
+    ///
+    /// This determines whether a file should be treated as a schema file or
+    /// a document file based on the project's configuration patterns.
+    pub fn get_file_type(
+        &self,
+        uri: &Uri,
+        workspace_uri: &str,
+        project_name: &str,
+    ) -> Option<graphql_config::FileType> {
+        let doc_path = uri.to_file_path()?;
+        let workspace_path = self.workspace_roots.get(workspace_uri)?;
+        let config = self.configs.get(workspace_uri)?;
+        config.get_file_type(&doc_path, workspace_path.value(), project_name)
+    }
 }
 
 impl Default for WorkspaceManager {

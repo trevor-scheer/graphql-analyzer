@@ -6,6 +6,7 @@ use crate::conversions::{
 };
 use crate::workspace::{ProjectHost, WorkspaceManager};
 use graphql_config::find_config;
+use graphql_ide::{DocumentKind, Language};
 use lsp_types::{
     ClientCapabilities, CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand,
     CodeActionParams, CodeActionResponse, CodeLens, CodeLensOptions, CodeLensParams,
@@ -300,6 +301,7 @@ async fn load_workspace_config_background(
                         workspace_uri,
                         workspace_path,
                         &config,
+                        &config_path,
                     )
                     .await;
                 }
@@ -337,6 +339,7 @@ async fn load_all_project_files_background(
     workspace_uri: &str,
     workspace_path: &Path,
     config: &graphql_config::GraphQLConfig,
+    config_path: &Path,
 ) {
     const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
     let start = std::time::Instant::now();
@@ -345,6 +348,9 @@ async fn load_all_project_files_background(
         "Loading files for {} project(s) in background",
         projects.len()
     );
+
+    // Collect all content mismatch errors across all projects
+    let mut content_mismatch_errors: Vec<graphql_config::ConfigValidationError> = Vec::new();
 
     for (project_name, project_config) in projects {
         let project_start = std::time::Instant::now();
@@ -388,6 +394,23 @@ async fn load_all_project_files_background(
                             result.loaded_count,
                             result.pending_introspections.len()
                         );
+                        // Convert content mismatch errors to ConfigValidationError
+                        for error in &result.content_errors {
+                            tracing::warn!(
+                                "Content mismatch in '{}': file in schema config contains executable definitions: {}",
+                                error.file_path.display(),
+                                error.unexpected_definitions.join(", ")
+                            );
+                            content_mismatch_errors.push(
+                                graphql_config::ConfigValidationError::ContentMismatch {
+                                    project: project_name.to_string(),
+                                    pattern: error.pattern.clone(),
+                                    expected: graphql_config::FileType::Schema,
+                                    file_path: error.file_path.clone(),
+                                    unexpected_definitions: error.unexpected_definitions.clone(),
+                                },
+                            );
+                        }
                         result.pending_introspections
                     }
                     Err(e) => {
@@ -429,13 +452,29 @@ async fn load_all_project_files_background(
         }
 
         // Phase 1: Discover and read files (no lock needed - just file I/O)
-        let discovered_files = graphql_ide::discover_document_files(project_config, workspace_path);
+        let discovery_result = graphql_ide::discover_document_files(project_config, workspace_path);
 
-        if discovered_files.is_empty() {
+        // Convert content mismatch errors to ConfigValidationError
+        for error in &discovery_result.errors {
+            tracing::warn!(
+                "Content mismatch in '{}': file in documents config contains schema definitions: {}",
+                error.file_path.display(),
+                error.unexpected_definitions.join(", ")
+            );
+            content_mismatch_errors.push(graphql_config::ConfigValidationError::ContentMismatch {
+                project: project_name.to_string(),
+                pattern: error.pattern.clone(),
+                expected: graphql_config::FileType::Document,
+                file_path: error.file_path.clone(),
+                unexpected_definitions: error.unexpected_definitions.clone(),
+            });
+        }
+
+        if discovery_result.files.is_empty() {
             continue;
         }
 
-        let total_files = discovered_files.len();
+        let total_files = discovery_result.files.len();
         tracing::debug!(
             "Discovered {} document files for project '{}'",
             total_files,
@@ -453,7 +492,7 @@ async fn load_all_project_files_background(
 
         // Phase 2: Register files (brief lock acquisition)
         let loaded_files = host
-            .with_write(|h| h.add_discovered_files(&discovered_files))
+            .with_write(|h| h.add_discovered_files(&discovery_result.files))
             .await;
 
         // Register files in workspace index (no lock needed)
@@ -515,6 +554,24 @@ async fn load_all_project_files_background(
         );
         tracing::info!("{}", project_msg);
         client.log_message(MessageType::INFO, &project_msg).await;
+    }
+
+    // Publish content mismatch diagnostics on the config file
+    if !content_mismatch_errors.is_empty() {
+        let config_uri =
+            Uri::from_str(&graphql_ide::path_to_file_uri(config_path)).expect("valid config path");
+        let config_content = std::fs::read_to_string(config_path).unwrap_or_default();
+        let diagnostics =
+            validation_errors_to_diagnostics(&content_mismatch_errors, &config_content);
+
+        tracing::warn!(
+            "Found {} content mismatch error(s) in config",
+            content_mismatch_errors.len()
+        );
+
+        client
+            .publish_diagnostics(config_uri, diagnostics, None)
+            .await;
     }
 
     tracing::debug!(
@@ -670,8 +727,13 @@ impl GraphQLLanguageServer {
                             .configs
                             .insert(workspace_uri.to_string(), config.clone());
 
-                        self.load_all_project_files(workspace_uri, workspace_path, &config)
-                            .await;
+                        self.load_all_project_files(
+                            workspace_uri,
+                            workspace_path,
+                            &config,
+                            &config_path,
+                        )
+                        .await;
                     }
                     Err(e) => {
                         tracing::error!("Error loading config: {}", e);
@@ -839,11 +901,15 @@ documents: "**/*.graphql"
         workspace_uri: &str,
         workspace_path: &Path,
         config: &graphql_config::GraphQLConfig,
+        config_path: &Path,
     ) {
         const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
         let start = std::time::Instant::now();
         let projects: Vec<_> = config.projects().collect();
         tracing::debug!("Loading files for {} project(s)", projects.len());
+
+        // Collect all content mismatch errors across all projects
+        let mut content_mismatch_errors: Vec<graphql_config::ConfigValidationError> = Vec::new();
 
         for (project_name, project_config) in projects {
             let project_start = std::time::Instant::now();
@@ -889,30 +955,49 @@ documents: "**/*.graphql"
             // Load local schemas AND documents in a single lock acquisition to prevent
             // race conditions where did_save could run between schema and document loading,
             // resulting in project-wide lints running with incomplete document_file_ids.
-            let (pending_introspections, loaded_files) = host
+            let (pending_introspections, loaded_files, schema_errors) = host
                 .with_write(|h| {
                     // Load schemas first
-                    let pending = match h.load_schemas_from_config(project_config, workspace_path) {
-                        Ok(result) => {
-                            tracing::debug!(
-                                "Loaded {} local schema file(s), {} remote schema(s) pending",
-                                result.loaded_count,
-                                result.pending_introspections.len()
-                            );
-                            result.pending_introspections
-                        }
-                        Err(e) => {
-                            tracing::error!("Failed to load schemas: {}", e);
-                            vec![]
-                        }
-                    };
+                    let (pending, errors) =
+                        match h.load_schemas_from_config(project_config, workspace_path) {
+                            Ok(result) => {
+                                tracing::debug!(
+                                    "Loaded {} local schema file(s), {} remote schema(s) pending",
+                                    result.loaded_count,
+                                    result.pending_introspections.len()
+                                );
+                                (result.pending_introspections, result.content_errors)
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to load schemas: {}", e);
+                                (vec![], vec![])
+                            }
+                        };
 
                     // Load documents in the same lock acquisition
                     let docs = h.load_documents_from_config(project_config, workspace_path);
 
-                    (pending, docs)
+                    (pending, docs, errors)
                 })
                 .await;
+
+            // Convert schema content mismatch errors to ConfigValidationError
+            for error in &schema_errors {
+                tracing::warn!(
+                    "Content mismatch in '{}': file in schema config contains executable definitions: {}",
+                    error.file_path.display(),
+                    error.unexpected_definitions.join(", ")
+                );
+                content_mismatch_errors.push(
+                    graphql_config::ConfigValidationError::ContentMismatch {
+                        project: project_name.to_string(),
+                        pattern: error.pattern.clone(),
+                        expected: graphql_config::FileType::Schema,
+                        file_path: error.file_path.clone(),
+                        unexpected_definitions: error.unexpected_definitions.clone(),
+                    },
+                );
+            }
 
             // Fetch remote schemas via introspection (async, outside lock)
             // This happens after both local schemas and documents are loaded,
@@ -1034,6 +1119,24 @@ documents: "**/*.graphql"
                 .await;
         }
 
+        // Publish content mismatch diagnostics on the config file
+        if !content_mismatch_errors.is_empty() {
+            let config_uri = Uri::from_str(&graphql_ide::path_to_file_uri(config_path))
+                .expect("valid config path");
+            let config_content = std::fs::read_to_string(config_path).unwrap_or_default();
+            let diagnostics =
+                validation_errors_to_diagnostics(&content_mismatch_errors, &config_content);
+
+            tracing::warn!(
+                "Found {} content mismatch error(s) in config",
+                content_mismatch_errors.len()
+            );
+
+            self.client
+                .publish_diagnostics(config_uri, diagnostics, None)
+                .await;
+        }
+
         let elapsed = start.elapsed();
         let init_message = format!(
             "Project initialization complete: {} files loaded in {:.1}s",
@@ -1133,42 +1236,6 @@ documents: "**/*.graphql"
             workspace_uri
         );
     }
-
-    /// Validate a file and publish diagnostics
-    #[tracing::instrument(skip(self), fields(path = %uri.as_str()))]
-    async fn validate_file(&self, uri: Uri) {
-        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
-        else {
-            tracing::warn!("No workspace/project found for file");
-            return;
-        };
-
-        let Some(host) = self
-            .workspace
-            .hosts
-            .get(&(workspace_uri.clone(), project_name.clone()))
-        else {
-            tracing::warn!("No analysis host found for workspace/project");
-            return;
-        };
-
-        let Some(snapshot) = host.try_snapshot().await else {
-            tracing::debug!("Could not acquire snapshot for validation");
-            return;
-        };
-        let file_path = graphql_ide::FilePath::new(uri.as_str());
-        let diagnostics = snapshot.diagnostics(&file_path);
-
-        let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-            .into_iter()
-            .map(convert_ide_diagnostic)
-            .collect();
-
-        self.client
-            .publish_diagnostics(uri, lsp_diagnostics, None)
-            .await;
-    }
-
     /// Validate a file using a pre-acquired snapshot
     ///
     /// This variant avoids acquiring the host lock again when we already have a snapshot.
@@ -1432,7 +1499,8 @@ impl LanguageServer for GraphQLLanguageServer {
 
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
         else {
-            self.validate_file(uri).await;
+            // File is not covered by any project's schema or documents patterns - ignore it
+            tracing::debug!("File not covered by any project config, ignoring");
             return;
         };
 
@@ -1445,8 +1513,18 @@ impl LanguageServer for GraphQLLanguageServer {
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
 
-        let (language, document_kind) =
-            graphql_syntax::determine_file_kind_from_content(uri.path().as_str(), &content);
+        // Determine language from file extension
+        let language =
+            Language::from_path(Path::new(uri.path().as_str())).unwrap_or(Language::GraphQL);
+
+        // Get DocumentKind from config (schema vs documents pattern)
+        let document_kind = self
+            .workspace
+            .get_file_type(&uri, &workspace_uri, &project_name)
+            .map_or(DocumentKind::Executable, |ft| match ft {
+                graphql_config::FileType::Schema => DocumentKind::Schema,
+                graphql_config::FileType::Document => DocumentKind::Executable,
+            });
 
         // For TS/JS files, store the original source and let the parsing layer handle extraction.
         // This preserves block boundaries and allows proper validation of separate documents.
@@ -1504,8 +1582,18 @@ impl LanguageServer for GraphQLLanguageServer {
                 .workspace
                 .get_or_create_host(&workspace_uri, &project_name);
 
-            let (language, document_kind) =
-                graphql_syntax::determine_file_kind_from_content(uri.path().as_str(), &change.text);
+            // Determine language from file extension
+            let language =
+                Language::from_path(Path::new(uri.path().as_str())).unwrap_or(Language::GraphQL);
+
+            // Get DocumentKind from config (schema vs documents pattern)
+            let document_kind = self
+                .workspace
+                .get_file_type(&uri, &workspace_uri, &project_name)
+                .map_or(DocumentKind::Executable, |ft| match ft {
+                    graphql_config::FileType::Schema => DocumentKind::Schema,
+                    graphql_config::FileType::Document => DocumentKind::Executable,
+                });
 
             // For TS/JS files, store the original source and let the parsing layer handle extraction.
             // This preserves block boundaries and allows proper validation of separate documents.

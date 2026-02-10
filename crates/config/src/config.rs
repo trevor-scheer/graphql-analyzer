@@ -97,7 +97,14 @@ impl GraphQLConfig {
         workspace_root: &Path,
     ) -> Option<&str> {
         match self {
-            Self::Single(_) => Some("default"),
+            Self::Single(config) => {
+                // Only return "default" if the document actually matches the project patterns
+                if Self::document_matches_project(doc_path, workspace_root, config) {
+                    Some("default")
+                } else {
+                    None
+                }
+            }
             Self::Multi { projects } => {
                 for (name, config) in projects {
                     if Self::document_matches_project(doc_path, workspace_root, config) {
@@ -107,6 +114,99 @@ impl GraphQLConfig {
                 None
             }
         }
+    }
+
+    /// Determine the file type (schema or document) for a file within a project.
+    ///
+    /// # Arguments
+    /// * `doc_path` - Absolute path to the document
+    /// * `workspace_root` - Root directory of the workspace
+    /// * `project_name` - Name of the project to check
+    ///
+    /// # Returns
+    /// The `FileType` (Schema or Document) if the file matches a pattern, or None if not found.
+    #[must_use]
+    pub fn get_file_type(
+        &self,
+        doc_path: &Path,
+        workspace_root: &Path,
+        project_name: &str,
+    ) -> Option<crate::FileType> {
+        let config = match self {
+            Self::Single(config) if project_name == "default" => config,
+            Self::Single(_) => return None, // Single config but wrong project name
+            Self::Multi { projects } => projects.get(project_name)?,
+        };
+
+        Self::get_file_type_for_project(doc_path, workspace_root, config)
+    }
+
+    /// Internal helper to determine file type for a specific project config.
+    fn get_file_type_for_project(
+        doc_path: &Path,
+        workspace_root: &Path,
+        config: &ProjectConfig,
+    ) -> Option<crate::FileType> {
+        let rel_path = doc_path.strip_prefix(workspace_root).ok()?;
+        let rel_path_str = rel_path.to_string_lossy();
+
+        // Check explicit excludes first
+        if let Some(ref excludes) = config.exclude {
+            for pattern in excludes {
+                for expanded in Self::expand_braces(pattern) {
+                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
+                        if glob_pattern.matches(&rel_path_str) {
+                            return None;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check if file is in include scope
+        let in_include_scope = config.include.as_ref().is_none_or(|includes| {
+            for pattern in includes {
+                for expanded in Self::expand_braces(pattern) {
+                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
+                        if glob_pattern.matches(&rel_path_str) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            false
+        });
+
+        if !in_include_scope {
+            return None;
+        }
+
+        // Check schema patterns first
+        let schema_patterns = config.schema.paths();
+        for pattern in &schema_patterns {
+            for expanded in Self::expand_braces(pattern) {
+                if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
+                    if glob_pattern.matches(&rel_path_str) {
+                        return Some(crate::FileType::Schema);
+                    }
+                }
+            }
+        }
+
+        // Check document patterns
+        if let Some(ref documents) = config.documents {
+            for pattern in documents.patterns() {
+                for expanded in Self::expand_braces(pattern) {
+                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
+                        if glob_pattern.matches(&rel_path_str) {
+                            return Some(crate::FileType::Document);
+                        }
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Check if a document matches a project's patterns
