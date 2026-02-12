@@ -2211,15 +2211,13 @@ impl LanguageServer for GraphQLLanguageServer {
             };
 
             // For embedded GraphQL (TypeScript/JavaScript), offsets are relative to the
-            // GraphQL block, not the full file. Use block context when available.
+            // GraphQL block, not the full file. Use block context from SourceSpan.
             let (line_offset, diag_line_index): (
                 u32,
                 std::borrow::Cow<'_, graphql_syntax::LineIndex>,
-            ) = if let (Some(block_line_offset), Some(ref block_source)) =
-                (diag.block_line_offset, &diag.block_source)
-            {
+            ) = if let Some(ref block_source) = diag.span.source {
                 (
-                    block_line_offset,
+                    diag.span.line_offset,
                     std::borrow::Cow::Owned(graphql_syntax::LineIndex::new(block_source)),
                 )
             } else {
@@ -2227,8 +2225,8 @@ impl LanguageServer for GraphQLLanguageServer {
             };
 
             // Convert diagnostic offset to line/column
-            let (diag_start_line, _) = diag_line_index.line_col(diag.offset_range.start);
-            let (diag_end_line, _) = diag_line_index.line_col(diag.offset_range.end);
+            let (diag_start_line, _) = diag_line_index.line_col(diag.span.start);
+            let (diag_end_line, _) = diag_line_index.line_col(diag.span.end);
             let diag_start_line = diag_start_line + line_offset as usize;
             let diag_end_line = diag_end_line + line_offset as usize;
 

@@ -13,6 +13,7 @@ pub use config::{LintConfig, LintRuleConfig, LintSeverity};
 pub use diagnostics::{
     CodeFix, LintDiagnostic, LintSeverity as DiagnosticSeverity, OffsetRange, TextEdit,
 };
+pub use graphql_syntax::SourceSpan;
 pub use registry::{document_schema_rules, project_rules, standalone_document_rules};
 pub use traits::{
     DocumentSchemaLintRule, LintRule, ProjectLintRule, StandaloneDocumentLintRule,

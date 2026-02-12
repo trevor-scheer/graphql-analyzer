@@ -1,5 +1,7 @@
 //! Position and range types for source locations.
 
+use std::sync::Arc;
+
 /// Byte offset range in a source file.
 ///
 /// Used internally for efficient text manipulation. Byte offsets are
@@ -123,6 +125,60 @@ impl Range {
     #[must_use]
     pub fn contains(&self, position: Position) -> bool {
         position >= self.start && position < self.end
+    }
+}
+
+/// A byte offset range within a GraphQL source block, with the block's position
+/// context for correct mapping back to the original file.
+///
+/// For pure `.graphql` files, `line_offset` and `byte_offset` are 0 and `source` is `None`.
+/// For GraphQL extracted from TS/JS template literals, these fields describe where the
+/// block starts in the original file, enabling correct line/column calculation.
+///
+/// Use [`DocumentRef::span()`](graphql_syntax::DocumentRef::span) to create spans --
+/// it automatically fills in block context from the document.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct SourceSpan {
+    /// Start byte offset within the block (inclusive)
+    pub start: usize,
+    /// End byte offset within the block (exclusive)
+    pub end: usize,
+    /// Line offset of the block in the original file (0-based, 0 for pure GraphQL)
+    pub line_offset: u32,
+    /// Byte offset of the block in the original file (0 for pure GraphQL)
+    pub byte_offset: usize,
+    /// The block's source text (None for pure GraphQL -- use the full file instead)
+    pub source: Option<Arc<str>>,
+}
+
+impl SourceSpan {
+    /// Create a span with block context from HIR or other sources.
+    ///
+    /// Prefer `DocumentRef::span()` when a `DocumentRef` is available.
+    #[must_use]
+    pub fn with_block_context(
+        start: usize,
+        end: usize,
+        line_offset: u32,
+        byte_offset: usize,
+        source: Option<Arc<str>>,
+    ) -> Self {
+        Self {
+            start,
+            end,
+            line_offset,
+            byte_offset,
+            source,
+        }
+    }
+
+    /// Returns the `OffsetRange` portion of this span.
+    #[must_use]
+    pub const fn offset_range(&self) -> OffsetRange {
+        OffsetRange {
+            start: self.start,
+            end: self.end,
+        }
     }
 }
 

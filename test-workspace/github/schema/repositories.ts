@@ -4,7 +4,7 @@ export const repositories = gql`
   """
   A repository contains the content for a project.
   """
-  type Repository implements Node & RepositoryNode & Starrabl & Subscribable & UniformResourceLocatable {
+  type Repository implements Node & RepositoryNode & Starrable & Subscribable & UniformResourceLocatable {
     """
     A list of users that can be assigned to issues in this repository.
     """

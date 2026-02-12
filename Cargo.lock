@@ -1272,6 +1272,7 @@ dependencies = [
  "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "graphql-base-db",
  "graphql-extract",
+ "graphql-types",
  "salsa",
  "tracing",
 ]

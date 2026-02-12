@@ -13,20 +13,12 @@ struct FragmentInfo {
     name: String,
     /// File where the fragment is defined
     file_id: FileId,
-    /// Byte offset of the fragment name (for diagnostic range)
-    name_start: usize,
-    /// Byte offset of the end of the fragment name
-    name_end: usize,
-    /// Byte offset of the entire fragment definition
+    /// Source span for the fragment name (carries block context for TS/JS)
+    name_span: graphql_syntax::SourceSpan,
+    /// Byte offset of the entire fragment definition (for fix range)
     def_start: usize,
-    /// Byte offset of the end of the fragment definition
+    /// Byte offset of the end of the fragment definition (for fix range)
     def_end: usize,
-    /// Line offset for embedded GraphQL blocks (0 for pure GraphQL files)
-    line_offset: u32,
-    /// Byte offset for embedded GraphQL blocks (0 for pure GraphQL files)
-    byte_offset: usize,
-    /// Source for embedded GraphQL blocks (None for pure GraphQL files)
-    block_source: Option<std::sync::Arc<str>>,
 }
 
 impl LintRule for UnusedFragmentsRuleImpl {
@@ -83,17 +75,9 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
                     all_fragments.push(FragmentInfo {
                         name,
                         file_id: *file_id,
-                        name_start: name_range.start,
-                        name_end: name_range.end,
+                        name_span: doc.span(name_range.start, name_range.end),
                         def_start: def_range.start,
                         def_end: def_range.end,
-                        line_offset: doc.line_offset,
-                        byte_offset: doc.byte_offset,
-                        block_source: if doc.byte_offset > 0 {
-                            Some(std::sync::Arc::from(doc.source))
-                        } else {
-                            None
-                        },
                     });
                 }
             }
@@ -127,22 +111,9 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
                     vec![TextEdit::delete(frag_info.def_start, frag_info.def_end)],
                 );
 
-                let mut diag = LintDiagnostic::warning(
-                    frag_info.name_start,
-                    frag_info.name_end,
-                    message,
-                    "unused_fragments",
-                )
-                .with_fix(fix);
-
-                // Add block context for embedded GraphQL
-                if let Some(block_source) = frag_info.block_source {
-                    diag = diag.with_block_context(
-                        frag_info.line_offset,
-                        frag_info.byte_offset,
-                        block_source,
-                    );
-                }
+                let diag =
+                    LintDiagnostic::warning(frag_info.name_span, message, "unused_fragments")
+                        .with_fix(fix);
 
                 diagnostics_by_file
                     .entry(frag_info.file_id)
@@ -390,7 +361,7 @@ mod tests {
 
         let diag = &file_diags[0];
         // Diagnostic range should point to the fragment name "UnusedFragment"
-        let name_text = &source[diag.offset_range.start..diag.offset_range.end];
+        let name_text = &source[diag.span.start..diag.span.end];
         assert_eq!(name_text, "UnusedFragment");
     }
 }

@@ -44,7 +44,6 @@ impl StandaloneDocumentLintRule for OperationNameSuffixRuleImpl {
         // Unified: process all documents (works for both pure GraphQL and TS/JS)
         for doc in parse.documents() {
             let doc_cst = doc.tree.document();
-            let mut doc_diagnostics = Vec::new();
 
             for definition in doc_cst.definitions() {
                 if let cst::Definition::OperationDefinition(operation) = definition {
@@ -70,9 +69,8 @@ impl StandaloneDocumentLintRule for OperationNameSuffixRuleImpl {
                             let start_offset: usize = text_range.start().into();
                             let end_offset: usize = text_range.end().into();
 
-                            doc_diagnostics.push(LintDiagnostic::warning(
-                                start_offset,
-                                end_offset,
+                            diagnostics.push(LintDiagnostic::warning(
+                                doc.span(start_offset, end_offset),
                                 format!(
                                     "Operation name '{name_text}' should end with '{expected_suffix}'. Consider renaming to '{name_text}{expected_suffix}'."
                                 ),
@@ -81,19 +79,6 @@ impl StandaloneDocumentLintRule for OperationNameSuffixRuleImpl {
                         }
                     }
                 }
-            }
-
-            // Add block context for embedded GraphQL (byte_offset > 0)
-            if doc.byte_offset > 0 {
-                for diag in doc_diagnostics {
-                    diagnostics.push(diag.with_block_context(
-                        doc.line_offset,
-                        doc.byte_offset,
-                        std::sync::Arc::from(doc.source),
-                    ));
-                }
-            } else {
-                diagnostics.extend(doc_diagnostics);
             }
         }
 

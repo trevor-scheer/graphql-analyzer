@@ -117,21 +117,7 @@ impl StandaloneDocumentLintRule for RedundantFieldsRuleImpl {
         // Unified: check all documents for redundant fields
         for doc in parse.documents() {
             let doc_cst = doc.tree.document();
-            let mut doc_diagnostics = Vec::new();
-            check_document_for_redundancy(&doc_cst, &fragments, &mut doc_diagnostics, doc.source);
-
-            // Add block context for embedded GraphQL (byte_offset > 0)
-            if doc.byte_offset > 0 {
-                for diag in doc_diagnostics {
-                    diagnostics.push(diag.with_block_context(
-                        doc.line_offset,
-                        doc.byte_offset,
-                        std::sync::Arc::from(doc.source),
-                    ));
-                }
-            } else {
-                diagnostics.extend(doc_diagnostics);
-            }
+            check_document_for_redundancy(&doc_cst, &fragments, &mut diagnostics, doc.source, &doc);
         }
 
         diagnostics
@@ -144,6 +130,7 @@ fn check_document_for_redundancy(
     fragments: &FragmentRegistry,
     diagnostics: &mut Vec<LintDiagnostic>,
     source: &str,
+    doc: &graphql_syntax::DocumentRef<'_>,
 ) {
     for definition in doc_cst.definitions() {
         match definition {
@@ -154,6 +141,7 @@ fn check_document_for_redundancy(
                         fragments,
                         diagnostics,
                         source,
+                        doc,
                     );
                 }
             }
@@ -164,6 +152,7 @@ fn check_document_for_redundancy(
                         fragments,
                         diagnostics,
                         source,
+                        doc,
                     );
                 }
             }
@@ -313,6 +302,7 @@ fn check_selection_set_for_redundancy(
     fragments: &FragmentRegistry,
     diagnostics: &mut Vec<LintDiagnostic>,
     source: &str,
+    doc: &graphql_syntax::DocumentRef<'_>,
 ) {
     let selections: Vec<_> = selection_set.selections().collect();
 
@@ -380,8 +370,7 @@ fn check_selection_set_for_redundancy(
 
                     diagnostics.push(
                         LintDiagnostic::warning(
-                            start_offset,
-                            end_offset,
+                            doc.span(start_offset, end_offset),
                             message,
                             "redundant_fields",
                         )
@@ -439,8 +428,7 @@ fn check_selection_set_for_redundancy(
 
                     diagnostics.push(
                         LintDiagnostic::warning(
-                            start_offset,
-                            end_offset,
+                            doc.span(start_offset, end_offset),
                             message,
                             "redundant_fields",
                         )
@@ -451,11 +439,23 @@ fn check_selection_set_for_redundancy(
 
             // Recursively check nested selection sets
             if let Some(nested_set) = field.selection_set() {
-                check_selection_set_for_redundancy(&nested_set, fragments, diagnostics, source);
+                check_selection_set_for_redundancy(
+                    &nested_set,
+                    fragments,
+                    diagnostics,
+                    source,
+                    doc,
+                );
             }
         } else if let cst::Selection::InlineFragment(inline_fragment) = selection {
             if let Some(nested_set) = inline_fragment.selection_set() {
-                check_selection_set_for_redundancy(&nested_set, fragments, diagnostics, source);
+                check_selection_set_for_redundancy(
+                    &nested_set,
+                    fragments,
+                    diagnostics,
+                    source,
+                    doc,
+                );
             }
         }
     }

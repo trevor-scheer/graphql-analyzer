@@ -25,6 +25,7 @@
 //! - `source`: The GraphQL source text
 
 use graphql_base_db::{DocumentKind, FileContent, FileMetadata, Language};
+pub use graphql_types::SourceSpan;
 use std::sync::Arc;
 
 /// A parse error with position information
@@ -90,6 +91,28 @@ pub struct DocumentRef<'a> {
     pub byte_offset: usize,
     /// The GraphQL source text
     pub source: &'a str,
+}
+
+impl DocumentRef<'_> {
+    /// Create a [`SourceSpan`] with the correct block context for this document.
+    ///
+    /// For pure `.graphql` files, the block context fields are zero/`None`.
+    /// For extracted TS/JS blocks, the span carries the block's position so
+    /// downstream consumers (diagnostics, fixes) automatically have correct positions.
+    #[must_use]
+    pub fn span(&self, start: usize, end: usize) -> SourceSpan {
+        SourceSpan {
+            start,
+            end,
+            line_offset: self.line_offset,
+            byte_offset: self.byte_offset,
+            source: if self.byte_offset > 0 {
+                Some(Arc::from(self.source))
+            } else {
+                None
+            },
+        }
+    }
 }
 
 impl Parse {

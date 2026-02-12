@@ -17,5 +17,5 @@ mod severity;
 
 pub use edits::{CodeFix, TextEdit};
 pub use file::{DocumentKind, FileId, FileUri, Language};
-pub use position::{OffsetRange, Position, Range};
+pub use position::{OffsetRange, Position, Range, SourceSpan};
 pub use severity::{DiagnosticSeverity, RuleSeverity};

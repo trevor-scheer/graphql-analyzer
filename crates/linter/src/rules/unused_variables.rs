@@ -54,23 +54,8 @@ impl StandaloneDocumentLintRule for UnusedVariablesRuleImpl {
 
         // Unified: check all documents (works for both pure GraphQL and TS/JS)
         for doc in parse.documents() {
-            let mut doc_diagnostics = Vec::new();
-
             for operation in doc.tree.operations() {
-                check_operation_for_unused_variables(&operation, &mut doc_diagnostics);
-            }
-
-            // Add block context for embedded GraphQL (byte_offset > 0)
-            if doc.byte_offset > 0 {
-                for diag in doc_diagnostics {
-                    diagnostics.push(diag.with_block_context(
-                        doc.line_offset,
-                        doc.byte_offset,
-                        std::sync::Arc::from(doc.source),
-                    ));
-                }
-            } else {
-                diagnostics.extend(doc_diagnostics);
+                check_operation_for_unused_variables(&operation, &doc, &mut diagnostics);
             }
         }
 
@@ -131,6 +116,7 @@ impl CstVisitor for VariableCollector {
 /// Check a single operation for unused variables
 fn check_operation_for_unused_variables(
     operation: &cst::OperationDefinition,
+    doc: &graphql_syntax::DocumentRef<'_>,
     diagnostics: &mut Vec<LintDiagnostic>,
 ) {
     // Step 1: Collect all declared variables with their ranges
@@ -173,8 +159,12 @@ fn check_operation_for_unused_variables(
             let fix = compute_variable_removal_fix(&var);
 
             diagnostics.push(
-                LintDiagnostic::warning(var.name_start, var.name_end, message, "unused_variables")
-                    .with_fix(fix),
+                LintDiagnostic::warning(
+                    doc.span(var.name_start, var.name_end),
+                    message,
+                    "unused_variables",
+                )
+                .with_fix(fix),
             );
         }
     }

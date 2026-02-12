@@ -399,11 +399,11 @@ pub fn project_lint_diagnostics_with_fixes(
 
 /// Convert `LintDiagnostic` (byte offsets) to `Diagnostic` (line/column)
 ///
-/// For TypeScript/JavaScript files with extracted blocks, each `LintDiagnostic` may have
-/// `block_line_offset` and `block_source` set. When present:
-/// - `offset_range` is relative to `block_source`, not the full file
-/// - We build a `LineIndex` from `block_source` to convert byte offsets to line/column
-/// - We add `block_line_offset` to get the correct position in the original file
+/// Each `LintDiagnostic` carries a `SourceSpan` which bundles byte offsets with block context
+/// (for embedded GraphQL in TS/JS). When block context is present:
+/// - `span.start/end` are relative to `span.source`, not the full file
+/// - We build a `LineIndex` from `span.source` to convert byte offsets to line/column
+/// - We add `span.line_offset` to get the correct position in the original file
 ///
 /// For pure GraphQL files (no block context), we use the full file's `LineIndex`.
 fn convert_lint_diagnostics(
@@ -421,26 +421,24 @@ fn convert_lint_diagnostics(
         .into_iter()
         .map(|ld| {
             let (line_offset, start_line, start_col, end_line, end_col) =
-                if let (Some(block_line_offset), Some(ref block_source)) =
-                    (ld.block_line_offset, &ld.block_source)
-                {
+                if let Some(ref block_source) = ld.span.source {
                     let block_line_index = graphql_syntax::LineIndex::new(block_source);
-                    let (sl, sc) = block_line_index.line_col(ld.offset_range.start);
-                    let (el, ec) = block_line_index.line_col(ld.offset_range.end);
+                    let (sl, sc) = block_line_index.line_col(ld.span.start);
+                    let (el, ec) = block_line_index.line_col(ld.span.end);
                     tracing::trace!(
-                        block_line_offset,
-                        offset_start = ld.offset_range.start,
-                        offset_end = ld.offset_range.end,
+                        line_offset = ld.span.line_offset,
+                        offset_start = ld.span.start,
+                        offset_end = ld.span.end,
                         start_line_in_block = sl,
                         start_col_in_block = sc,
-                        final_line = sl + block_line_offset as usize,
+                        final_line = sl + ld.span.line_offset as usize,
                         message = %ld.message,
                         "Converting block diagnostic"
                     );
-                    (block_line_offset, sl, sc, el, ec)
+                    (ld.span.line_offset, sl, sc, el, ec)
                 } else {
-                    let (sl, sc) = file_line_index.line_col(ld.offset_range.start);
-                    let (el, ec) = file_line_index.line_col(ld.offset_range.end);
+                    let (sl, sc) = file_line_index.line_col(ld.span.start);
+                    let (el, ec) = file_line_index.line_col(ld.span.end);
                     (0u32, sl, sc, el, ec)
                 };
 

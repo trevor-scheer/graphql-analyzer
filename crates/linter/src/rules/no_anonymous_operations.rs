@@ -66,25 +66,11 @@ impl StandaloneDocumentLintRule for NoAnonymousOperationsRuleImpl {
         // Unified: process all documents (works for both pure GraphQL and TS/JS)
         for doc in parse.documents() {
             let doc_cst = doc.tree.document();
-            let mut doc_diagnostics = Vec::new();
 
             for definition in doc_cst.definitions() {
                 if let cst::Definition::OperationDefinition(operation) = definition {
-                    check_operation_has_name(&operation, &mut doc_diagnostics);
+                    check_operation_has_name(&operation, &doc, &mut diagnostics);
                 }
-            }
-
-            // Add block context for embedded GraphQL (byte_offset > 0)
-            if doc.byte_offset > 0 {
-                for diag in doc_diagnostics {
-                    diagnostics.push(diag.with_block_context(
-                        doc.line_offset,
-                        doc.byte_offset,
-                        std::sync::Arc::from(doc.source),
-                    ));
-                }
-            } else {
-                diagnostics.extend(doc_diagnostics);
             }
         }
 
@@ -95,6 +81,7 @@ impl StandaloneDocumentLintRule for NoAnonymousOperationsRuleImpl {
 /// Check if an operation has a name, and report a diagnostic if it doesn't
 fn check_operation_has_name(
     operation: &cst::OperationDefinition,
+    doc: &graphql_syntax::DocumentRef<'_>,
     diagnostics: &mut Vec<LintDiagnostic>,
 ) {
     // Check if the operation has a name
@@ -128,10 +115,10 @@ fn check_operation_has_name(
         );
 
         diagnostics.push(LintDiagnostic::new(
-            crate::diagnostics::OffsetRange::new(start_offset, end_offset),
+            doc.span(start_offset, end_offset),
             LintSeverity::Error,
             message,
-            "no_anonymous_operations".to_string(),
+            "no_anonymous_operations",
         ));
     }
 }

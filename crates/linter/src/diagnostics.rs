@@ -65,27 +65,21 @@ impl CodeFix {
     }
 }
 
-/// Lint-specific diagnostic with byte offsets (not line/column)
-/// This makes it compatible with Salsa and avoids premature position conversion
+/// Lint-specific diagnostic with byte offsets (not line/column).
+///
+/// The `span` field carries both the byte offset range and block context
+/// (for embedded GraphQL in TS/JS), ensuring correct position mapping.
+/// Use [`DocumentRef::span()`](graphql_syntax::DocumentRef::span) to create spans.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LintDiagnostic {
-    /// Byte offset range in the file (or block for TS/JS files)
-    pub offset_range: OffsetRange,
+    /// Source span with byte offsets and block context for position mapping
+    pub span: graphql_syntax::SourceSpan,
     /// Severity (from rule default or config override)
     pub severity: LintSeverity,
     /// Human-readable message
     pub message: String,
     /// Rule identifier (e.g., `"deprecated_field"`)
     pub rule: String,
-    /// For TS/JS files: line offset where the GraphQL block starts (0-based)
-    /// This is used to adjust the final line position when converting to Diagnostic
-    pub block_line_offset: Option<u32>,
-    /// For TS/JS files: byte offset where the GraphQL block starts in the original file
-    /// This is used to adjust fix edit positions when applying fixes
-    pub block_byte_offset: Option<usize>,
-    /// For TS/JS files: the GraphQL block source (for building `LineIndex`)
-    /// When set, `offset_range` is relative to this source, not the full file
-    pub block_source: Option<std::sync::Arc<str>>,
     /// Optional auto-fix for this diagnostic
     pub fix: Option<CodeFix>,
 }
@@ -93,20 +87,17 @@ pub struct LintDiagnostic {
 impl LintDiagnostic {
     /// Create a new lint diagnostic
     #[must_use]
-    pub const fn new(
-        offset_range: OffsetRange,
+    pub fn new(
+        span: graphql_syntax::SourceSpan,
         severity: LintSeverity,
-        message: String,
-        rule: String,
+        message: impl Into<String>,
+        rule: impl Into<String>,
     ) -> Self {
         Self {
-            offset_range,
+            span,
             severity,
-            message,
-            rule,
-            block_line_offset: None,
-            block_byte_offset: None,
-            block_source: None,
+            message: message.into(),
+            rule: rule.into(),
             fix: None,
         }
     }
@@ -114,19 +105,15 @@ impl LintDiagnostic {
     /// Create a warning diagnostic
     #[must_use]
     pub fn warning(
-        start: usize,
-        end: usize,
+        span: graphql_syntax::SourceSpan,
         message: impl Into<String>,
         rule: impl Into<String>,
     ) -> Self {
         Self {
-            offset_range: OffsetRange::new(start, end),
+            span,
             severity: LintSeverity::Warning,
             message: message.into(),
             rule: rule.into(),
-            block_line_offset: None,
-            block_byte_offset: None,
-            block_source: None,
             fix: None,
         }
     }
@@ -134,19 +121,15 @@ impl LintDiagnostic {
     /// Create an error diagnostic
     #[must_use]
     pub fn error(
-        start: usize,
-        end: usize,
+        span: graphql_syntax::SourceSpan,
         message: impl Into<String>,
         rule: impl Into<String>,
     ) -> Self {
         Self {
-            offset_range: OffsetRange::new(start, end),
+            span,
             severity: LintSeverity::Error,
             message: message.into(),
             rule: rule.into(),
-            block_line_offset: None,
-            block_byte_offset: None,
-            block_source: None,
             fix: None,
         }
     }
@@ -154,36 +137,17 @@ impl LintDiagnostic {
     /// Create an info diagnostic
     #[must_use]
     pub fn info(
-        start: usize,
-        end: usize,
+        span: graphql_syntax::SourceSpan,
         message: impl Into<String>,
         rule: impl Into<String>,
     ) -> Self {
         Self {
-            offset_range: OffsetRange::new(start, end),
+            span,
             severity: LintSeverity::Info,
             message: message.into(),
             rule: rule.into(),
-            block_line_offset: None,
-            block_byte_offset: None,
-            block_source: None,
             fix: None,
         }
-    }
-
-    /// Set the block context for TS/JS files
-    /// This allows proper position calculation when the diagnostic is from an extracted block
-    #[must_use]
-    pub fn with_block_context(
-        mut self,
-        line_offset: u32,
-        byte_offset: usize,
-        source: std::sync::Arc<str>,
-    ) -> Self {
-        self.block_line_offset = Some(line_offset);
-        self.block_byte_offset = Some(byte_offset);
-        self.block_source = Some(source);
-        self
     }
 
     /// Add an auto-fix to this diagnostic
@@ -268,12 +232,21 @@ mod tests {
 
     #[test]
     fn test_lint_diagnostic_warning() {
-        let diag = LintDiagnostic::warning(5, 10, "Test warning", "test_rule");
+        let span = graphql_syntax::SourceSpan::default();
+        let diag = LintDiagnostic::warning(
+            graphql_syntax::SourceSpan {
+                start: 5,
+                end: 10,
+                ..span
+            },
+            "Test warning",
+            "test_rule",
+        );
         assert_eq!(diag.severity, LintSeverity::Warning);
         assert_eq!(diag.message, "Test warning");
         assert_eq!(diag.rule, "test_rule");
-        assert_eq!(diag.offset_range.start, 5);
-        assert_eq!(diag.offset_range.end, 10);
+        assert_eq!(diag.span.start, 5);
+        assert_eq!(diag.span.end, 10);
         assert!(!diag.has_fix());
     }
 
@@ -318,7 +291,12 @@ mod tests {
 
     #[test]
     fn test_diagnostic_with_fix() {
-        let diag = LintDiagnostic::warning(5, 10, "Test warning", "test_rule")
+        let span = graphql_syntax::SourceSpan {
+            start: 5,
+            end: 10,
+            ..Default::default()
+        };
+        let diag = LintDiagnostic::warning(span, "Test warning", "test_rule")
             .with_fix(CodeFix::delete("Fix it", 5, 10));
         assert!(diag.has_fix());
         assert_eq!(diag.fix.unwrap().label, "Fix it");
