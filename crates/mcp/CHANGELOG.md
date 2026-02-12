@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL MCP server will be documented in this file.
 
+## 0.1.1 (2026-02-12)
+
+### Fixes
+
+- Fix cargo audit vulnerabilities by updating dependencies (bytes, time, git2, vergen-git2, indicatif, rmcp) ([#563](https://github.com/trevor-scheer/graphql-analyzer/pull/563))
+
 ## 0.1.0 (2026-02-02)
 
 ### Features

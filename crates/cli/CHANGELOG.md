@@ -2,6 +2,32 @@
 
 All notable changes to the GraphQL CLI will be documented in this file.
 
+## 0.1.1 (2026-02-12)
+
+### Features
+
+#### Add `--watch` flag to validate, lint, and check commands for continuous validation during development ([#467](https://github.com/trevor-scheer/graphql-analyzer/pull/467))
+
+- `graphql validate --watch`: Watch mode for GraphQL spec validation
+- `graphql lint --watch`: Watch mode for custom lint rules
+- `graphql check --watch`: Watch mode for combined validation + lint (recommended)
+
+Features include:
+- Cross-platform file watching using notify crate
+- 100ms debouncing for rapid file changes
+- Human-readable output with timestamps and colored status
+- JSON streaming output for tooling integration (`--format json`)
+- Incremental revalidation via Salsa cache
+
+#### Support schema definitions in TypeScript/JavaScript files ([#561](https://github.com/trevor-scheer/graphql-analyzer/pull/561))
+
+Schema files configured via `.graphqlrc.yaml` can now be TypeScript or JavaScript files containing GraphQL schema definitions in tagged template literals (e.g. `gql\`type User { ... }\``). Diagnostics, linting, and validation all report correct line/column positions within the original TS/JS file.
+
+### Fixes
+
+- Fix cargo audit vulnerabilities by updating dependencies (bytes, time, git2, vergen-git2, indicatif, rmcp) ([#563](https://github.com/trevor-scheer/graphql-analyzer/pull/563))
+- Fix false "fragment defined multiple times" errors in TypeScript/JavaScript files with multiple gql blocks ([#594](https://github.com/trevor-scheer/graphql-analyzer/pull/594))
+
 ## 0.1.0 (2026-02-02)
 
 ### Features
