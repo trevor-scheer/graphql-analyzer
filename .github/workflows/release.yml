@@ -217,6 +217,8 @@ jobs:
 
       - name: Install knope
         uses: knope-dev/action@v2.1.0
+        with:
+          version: 0.22.2
 
       - name: Create releases
         run: knope release --verbose
