@@ -20,7 +20,7 @@ jobs:
     steps:
       # Use PAT so PR creation triggers CI workflows
       # (GITHUB_TOKEN events don't trigger other workflows)
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TOKEN }}
