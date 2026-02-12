@@ -283,7 +283,6 @@ async fn main() -> anyhow::Result<()> {
         if let Err(e) = provider.shutdown() {
             eprintln!("Error shutting down tracer provider: {e:?}");
         }
-        opentelemetry::global::shutdown_tracer_provider();
         eprintln!("OpenTelemetry shutdown complete");
     }
 
@@ -338,11 +337,11 @@ fn configure_colors(force_color: bool, no_color: bool) {
 
 /// Initialize OpenTelemetry tracing with OTLP exporter
 #[cfg(feature = "otel")]
-fn init_telemetry() -> Option<opentelemetry_sdk::trace::TracerProvider> {
+fn init_telemetry() -> Option<opentelemetry_sdk::trace::SdkTracerProvider> {
     use opentelemetry::trace::TracerProvider as _;
     use opentelemetry::KeyValue;
     use opentelemetry_otlp::WithExportConfig;
-    use opentelemetry_sdk::trace::TracerProvider;
+    use opentelemetry_sdk::trace::SdkTracerProvider;
     use opentelemetry_sdk::Resource;
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
@@ -367,15 +366,17 @@ fn init_telemetry() -> Option<opentelemetry_sdk::trace::TracerProvider> {
         .build()
         .expect("Failed to create OTLP exporter");
 
-    let resource = Resource::new(vec![KeyValue::new(
-        opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-        "graphql-cli",
-    )]);
+    let resource = Resource::builder()
+        .with_attribute(KeyValue::new(
+            opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+            "graphql-cli",
+        ))
+        .build();
 
-    // Use batch exporter for async, non-blocking trace export
-    let provider = TracerProvider::builder()
+    // Use batch exporter for non-blocking trace export
+    let provider = SdkTracerProvider::builder()
         .with_resource(resource)
-        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+        .with_batch_exporter(exporter)
         .build();
 
     opentelemetry::global::set_tracer_provider(provider.clone());
