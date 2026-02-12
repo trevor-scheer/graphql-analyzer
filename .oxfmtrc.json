@@ -7,6 +7,7 @@
     "Cargo.toml",
     "dist-workspace.toml",
     "editors/vscode/package.json",
+    "renovate.json",
     "test-workspace/starwars/src/multilineTagExample.ts"
   ]
 }
