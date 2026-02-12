@@ -2,6 +2,18 @@
 
 All notable changes to the GraphQL LSP will be documented in this file.
 
+## 0.1.1 (2026-02-12)
+
+### Features
+
+#### Support schema definitions in TypeScript/JavaScript files ([#561](https://github.com/trevor-scheer/graphql-analyzer/pull/561))
+
+Schema files configured via `.graphqlrc.yaml` can now be TypeScript or JavaScript files containing GraphQL schema definitions in tagged template literals (e.g. `gql\`type User { ... }\``). Diagnostics, linting, and validation all report correct line/column positions within the original TS/JS file.
+
+### Fixes
+
+- Fix cargo audit vulnerabilities by updating dependencies (bytes, time, git2, vergen-git2, indicatif, rmcp) ([#563](https://github.com/trevor-scheer/graphql-analyzer/pull/563))
+
 ## 0.1.0 (2026-02-02)
 
 ### Features
