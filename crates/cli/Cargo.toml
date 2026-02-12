@@ -26,6 +26,7 @@ graphql-introspect = { path = "../introspect" }
 graphql-linter = { path = "../linter" }
 graphql-lsp = { path = "../lsp" }
 graphql-mcp = { path = "../mcp" }
+graphql-syntax = { path = "../syntax" }
 
 # GraphQL
 apollo-parser = { workspace = true }
@@ -46,19 +47,19 @@ glob = { workspace = true }
 notify = { workspace = true }
 
 # Terminal UI
-colored = "2.0"
-indicatif = "0.17"
+colored = "3.0"
+indicatif = "0.18"
 
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # OpenTelemetry (optional, enabled with `otel` feature)
-opentelemetry = { version = "0.27", optional = true }
-opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"], optional = true }
-opentelemetry-otlp = { version = "0.27", features = ["default"], optional = true }
-opentelemetry-semantic-conventions = { version = "0.27", optional = true }
-tracing-opentelemetry = { version = "0.28", optional = true }
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, features = ["default"], optional = true }
+opentelemetry-semantic-conventions = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
 
 [features]
 otel = [
@@ -68,3 +69,6 @@ otel = [
   "opentelemetry-semantic-conventions",
   "tracing-opentelemetry",
 ]
+
+[dev-dependencies]
+tempfile = "3.25.0"

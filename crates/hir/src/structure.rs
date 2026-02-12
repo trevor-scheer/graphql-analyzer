@@ -91,7 +91,7 @@ pub struct OperationStructure {
     /// The text range of the entire operation
     pub operation_range: TextRange,
     /// For embedded GraphQL: line offset of the block (0-indexed)
-    pub block_line_offset: Option<usize>,
+    pub block_line_offset: Option<u32>,
     /// For embedded GraphQL: byte offset of the block in the original file
     pub block_byte_offset: Option<usize>,
     /// For embedded GraphQL: source text of the block
@@ -127,7 +127,7 @@ pub struct FragmentStructure {
     /// The text range of the entire fragment definition
     pub fragment_range: TextRange,
     /// For embedded GraphQL: line offset of the block (0-indexed)
-    pub block_line_offset: Option<usize>,
+    pub block_line_offset: Option<u32>,
     /// For embedded GraphQL: byte offset of the block in the original file
     pub block_byte_offset: Option<usize>,
     /// For embedded GraphQL: source text of the block
@@ -176,7 +176,7 @@ fn name_range(name: &apollo_compiler::Name) -> TextRange {
 #[derive(Debug, Clone)]
 struct BlockContext {
     /// Line offset in the original file (0-indexed)
-    line_offset: usize,
+    line_offset: u32,
     /// Byte offset in the original file
     byte_offset: usize,
     /// Source text of the block
@@ -194,7 +194,7 @@ impl BlockContext {
     }
 
     /// Create a new block context for embedded GraphQL
-    fn embedded(line_offset: usize, byte_offset: usize, source: Arc<str>) -> Self {
+    fn embedded(line_offset: u32, byte_offset: usize, source: Arc<str>) -> Self {
         Self {
             line_offset,
             byte_offset,

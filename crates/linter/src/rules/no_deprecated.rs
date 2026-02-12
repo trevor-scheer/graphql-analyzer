@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity, OffsetRange};
+use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::traits::{DocumentSchemaLintRule, LintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
@@ -51,21 +51,7 @@ impl DocumentSchemaLintRule for NoDeprecatedRuleImpl {
         // Unified: process all documents (works for both pure GraphQL and TS/JS)
         for doc in parse.documents() {
             let doc_cst = doc.tree.document();
-            let mut doc_diagnostics = Vec::new();
-            check_document_for_deprecated(&doc_cst, schema_types, &mut doc_diagnostics);
-
-            // Add block context for embedded GraphQL (byte_offset > 0)
-            if doc.byte_offset > 0 {
-                for diag in doc_diagnostics {
-                    diagnostics.push(diag.with_block_context(
-                        doc.line_offset,
-                        doc.byte_offset,
-                        std::sync::Arc::from(doc.source),
-                    ));
-                }
-            } else {
-                diagnostics.extend(doc_diagnostics);
-            }
+            check_document_for_deprecated(&doc_cst, schema_types, &mut diagnostics, &doc);
         }
 
         diagnostics
@@ -77,6 +63,7 @@ fn check_document_for_deprecated(
     doc_cst: &cst::Document,
     schema_types: &HashMap<Arc<str>, graphql_hir::TypeDef>,
     diagnostics: &mut Vec<LintDiagnostic>,
+    doc: &graphql_syntax::DocumentRef<'_>,
 ) {
     for definition in doc_cst.definitions() {
         match definition {
@@ -98,6 +85,7 @@ fn check_document_for_deprecated(
                         Some(root_type_name),
                         schema_types,
                         diagnostics,
+                        doc,
                     );
                 }
             }
@@ -115,6 +103,7 @@ fn check_document_for_deprecated(
                         type_name.as_deref(),
                         schema_types,
                         diagnostics,
+                        doc,
                     );
                 }
             }
@@ -131,6 +120,7 @@ fn check_selection_set(
     parent_type_name: Option<&str>,
     schema_types: &HashMap<Arc<str>, graphql_hir::TypeDef>,
     diagnostics: &mut Vec<LintDiagnostic>,
+    doc: &graphql_syntax::DocumentRef<'_>,
 ) {
     let Some(parent_type_name) = parent_type_name else {
         // Skip if we don't know the parent type
@@ -170,10 +160,10 @@ fn check_selection_set(
                             );
 
                             diagnostics.push(LintDiagnostic::new(
-                                OffsetRange::new(offset, offset + field_name.as_ref().len()),
+                                doc.span(offset, offset + field_name.as_ref().len()),
                                 LintSeverity::Warning,
                                 message,
-                                "no_deprecated".to_string(),
+                                "no_deprecated",
                             ));
                         }
 
@@ -211,13 +201,10 @@ fn check_selection_set(
                                                 );
 
                                             diagnostics.push(LintDiagnostic::new(
-                                                OffsetRange::new(
-                                                    offset,
-                                                    offset + arg_name.as_ref().len(),
-                                                ),
+                                                doc.span(offset, offset + arg_name.as_ref().len()),
                                                 LintSeverity::Warning,
                                                 message,
-                                                "no_deprecated".to_string(),
+                                                "no_deprecated",
                                             ));
                                         }
                                     }
@@ -228,6 +215,7 @@ fn check_selection_set(
                                             &value,
                                             schema_types,
                                             diagnostics,
+                                            doc,
                                         );
                                     }
                                 }
@@ -243,6 +231,7 @@ fn check_selection_set(
                                 Some(field_type_name),
                                 schema_types,
                                 diagnostics,
+                                doc,
                             );
                         }
                     }
@@ -263,7 +252,13 @@ fn check_selection_set(
                 let type_name_ref = type_name.as_deref().or(Some(parent_type_name));
 
                 if let Some(selection_set) = inline.selection_set() {
-                    check_selection_set(&selection_set, type_name_ref, schema_types, diagnostics);
+                    check_selection_set(
+                        &selection_set,
+                        type_name_ref,
+                        schema_types,
+                        diagnostics,
+                        doc,
+                    );
                 }
             }
         }
@@ -275,6 +270,7 @@ fn check_value_for_deprecated_enum(
     value: &cst::Value,
     schema_types: &HashMap<Arc<str>, graphql_hir::TypeDef>,
     diagnostics: &mut Vec<LintDiagnostic>,
+    doc: &graphql_syntax::DocumentRef<'_>,
 ) {
     match value {
         cst::Value::EnumValue(enum_value) => {
@@ -306,10 +302,10 @@ fn check_value_for_deprecated_enum(
                                 );
 
                                 diagnostics.push(LintDiagnostic::new(
-                                    OffsetRange::new(offset, offset + enum_name.as_ref().len()),
+                                    doc.span(offset, offset + enum_name.as_ref().len()),
                                     LintSeverity::Warning,
                                     message,
-                                    "no_deprecated".to_string(),
+                                    "no_deprecated",
                                 ));
                                 // Found the enum, no need to check other types
                                 break;
@@ -322,14 +318,14 @@ fn check_value_for_deprecated_enum(
         cst::Value::ListValue(list) => {
             // Recursively check list elements
             for item in list.values() {
-                check_value_for_deprecated_enum(&item, schema_types, diagnostics);
+                check_value_for_deprecated_enum(&item, schema_types, diagnostics, doc);
             }
         }
         cst::Value::ObjectValue(obj) => {
             // Recursively check object field values
             for field in obj.object_fields() {
                 if let Some(field_value) = field.value() {
-                    check_value_for_deprecated_enum(&field_value, schema_types, diagnostics);
+                    check_value_for_deprecated_enum(&field_value, schema_types, diagnostics, doc);
                 }
             }
         }
@@ -343,7 +339,7 @@ fn check_value_for_deprecated_enum(
 mod tests {
     use super::*;
     use crate::traits::DocumentSchemaLintRule;
-    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+    use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
     use graphql_ide_db::RootDatabase;
 
     fn create_test_project(
@@ -357,7 +353,8 @@ mod tests {
             db,
             schema_file_id,
             FileUri::new("file:///schema.graphql"),
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let doc_file_id = FileId::new(1);
@@ -366,7 +363,8 @@ mod tests {
             db,
             doc_file_id,
             FileUri::new("file:///query.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         let schema_file_ids =

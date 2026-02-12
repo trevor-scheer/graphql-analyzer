@@ -86,7 +86,6 @@ fn project_root() -> PathBuf {
 
 fn install(release: bool) -> Result<()> {
     let root = project_root();
-    let vscode_dir = root.join("editors/vscode");
 
     // Step 1: Build cargo
     println!("Building LSP server...");
@@ -105,35 +104,19 @@ fn install(release: bool) -> Result<()> {
         bail!("cargo build failed");
     }
 
-    // Step 2: Compile TypeScript
-    println!("Compiling VSCode extension...");
-    let status = Command::new("npm")
-        .args(["run", "compile"])
-        .current_dir(&vscode_dir)
-        .status()
-        .context("Failed to run npm compile")?;
+    // Step 2: Package extension with bundled binary
+    let binary_name = if cfg!(windows) {
+        "graphql-lsp.exe"
+    } else {
+        "graphql-lsp"
+    };
+    let profile = if release { "release" } else { "debug" };
+    let binary_path = root.join("target").join(profile).join(binary_name);
 
-    if !status.success() {
-        bail!("npm run compile failed");
-    }
-
-    // Step 3: Package extension
-    println!("Packaging extension...");
-    let status = Command::new("npm")
-        .args(["run", "package"])
-        .current_dir(&vscode_dir)
-        .status()
-        .context("Failed to run npm package")?;
-
-    if !status.success() {
-        bail!("npm run package failed");
-    }
-
-    // Step 4: Find the .vsix file
-    let vsix_file = find_vsix(&vscode_dir)?;
+    let vsix_file = package_vscode_extension(&root, Some(&binary_path), None)?;
     println!("Found package: {}", vsix_file.display());
 
-    // Step 5: Install the extension
+    // Step 3: Install the extension
     println!("Installing extension...");
     let status = Command::new("code")
         .args(["--install-extension", &vsix_file.to_string_lossy()])
@@ -209,7 +192,18 @@ fn release(opts: ReleaseOptions) -> Result<()> {
     // Step 2: Package VSCode extension
     if !opts.skip_vscode {
         println!("\n=== Packaging VSCode extension ===");
-        artifacts.push(package_vscode_extension(&root, &output_dir)?);
+        // Use the release binary built by cargo-dist (or from target/release if skipped)
+        let binary_name = if cfg!(windows) {
+            "graphql-lsp.exe"
+        } else {
+            "graphql-lsp"
+        };
+        let binary_path = root.join("target/release").join(binary_name);
+        artifacts.push(package_vscode_extension(
+            &root,
+            Some(&binary_path),
+            Some(&output_dir),
+        )?);
     }
 
     // Print summary
@@ -388,8 +382,48 @@ fn build_cargo_dist(root: &Path, output_dir: &Path, targets: &[String]) -> Resul
     Ok(collected)
 }
 
-fn package_vscode_extension(root: &Path, output_dir: &Path) -> Result<PathBuf> {
+/// Bundle the LSP binary into the `VSCode` extension's bin/ directory.
+fn bundle_binary(vscode_dir: &Path, binary_path: &Path) -> Result<()> {
+    let bin_dir = vscode_dir.join("bin");
+    std::fs::create_dir_all(&bin_dir).context("Failed to create bin directory")?;
+
+    let binary_name = if cfg!(windows) {
+        "graphql-lsp.exe"
+    } else {
+        "graphql-lsp"
+    };
+    let dest = bin_dir.join(binary_name);
+
+    std::fs::copy(binary_path, &dest).with_context(|| {
+        format!(
+            "Failed to copy binary from {} to {}",
+            binary_path.display(),
+            dest.display()
+        )
+    })?;
+    println!(
+        "Bundled binary: {} -> {}",
+        binary_path.display(),
+        dest.display()
+    );
+
+    Ok(())
+}
+
+/// Package the `VSCode` extension and return the path to the .vsix file.
+///
+/// If `binary_path` is provided, the binary will be bundled into the extension.
+fn package_vscode_extension(
+    root: &Path,
+    binary_path: Option<&Path>,
+    output_dir: Option<&Path>,
+) -> Result<PathBuf> {
     let vscode_dir = root.join("editors/vscode");
+
+    // Bundle binary if provided
+    if let Some(binary) = binary_path {
+        bundle_binary(&vscode_dir, binary)?;
+    }
 
     // Install npm dependencies if needed
     let node_modules = vscode_dir.join("node_modules");
@@ -429,15 +463,20 @@ fn package_vscode_extension(root: &Path, output_dir: &Path) -> Result<PathBuf> {
         bail!("npm run package failed");
     }
 
-    // Find and copy the .vsix file
+    // Find the .vsix file
     let vsix_file = find_vsix(&vscode_dir)?;
-    let filename = vsix_file.file_name().unwrap();
-    let dest = output_dir.join(filename);
-    std::fs::copy(&vsix_file, &dest)
-        .with_context(|| format!("Failed to copy {}", vsix_file.display()))?;
-    println!("  Copied: {}", filename.to_string_lossy());
 
-    Ok(dest)
+    // Copy to output directory if specified
+    if let Some(out_dir) = output_dir {
+        let filename = vsix_file.file_name().unwrap();
+        let dest = out_dir.join(filename);
+        std::fs::copy(&vsix_file, &dest)
+            .with_context(|| format!("Failed to copy {}", vsix_file.display()))?;
+        println!("  Copied: {}", filename.to_string_lossy());
+        return Ok(dest);
+    }
+
+    Ok(vsix_file)
 }
 
 fn publish_to_github(root: &Path, tag: &str, artifacts: &[PathBuf]) -> Result<()> {

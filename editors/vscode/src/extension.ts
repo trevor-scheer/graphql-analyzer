@@ -26,6 +26,7 @@ import {
   ServerOptions,
   Executable,
   State,
+  Trace,
   Location as LspLocation,
   Position as LspPosition,
 } from "vscode-languageclient/node";
@@ -116,6 +117,7 @@ const deprecatedDecorationType: TextEditorDecorationType = window.createTextEdit
 
 let client: LanguageClient;
 let outputChannel: OutputChannel;
+let traceOutputChannel: OutputChannel;
 let statusBarItem: StatusBarItem;
 let healthCheckInterval: NodeJS.Timeout | undefined;
 let isServerHealthy = true;
@@ -201,7 +203,7 @@ async function performHealthCheck(timeout: number): Promise<void> {
 function startHealthCheck(): void {
   stopHealthCheck();
 
-  const config = workspace.getConfiguration("graphql");
+  const config = workspace.getConfiguration("graphql-analyzer");
   const enabled = config.get<boolean>("debug.healthCheck.enabled", false);
 
   if (!enabled) {
@@ -325,10 +327,18 @@ function setupDecorationListeners(context: ExtensionContext): void {
   }
 }
 
+function syncTraceLevel(): void {
+  if (!client) {
+    return;
+  }
+  const enabled = workspace.getConfiguration("graphql-analyzer").get<boolean>("lsp.trace", true);
+  client.setTrace(enabled ? Trace.Verbose : Trace.Off);
+}
+
 async function startLanguageServer(context: ExtensionContext): Promise<void> {
-  const config = workspace.getConfiguration("graphql");
+  const config = workspace.getConfiguration("graphql-analyzer");
   const customPath = config.get<string>("server.path");
-  const logLevel = config.get<string>("server.logLevel") || "info";
+  const logLevel = config.get<string>("debug.logLevel") || "info";
 
   const serverBinary = await findServerBinary(context, outputChannel, customPath);
   outputChannel.appendLine(`Using GraphQL LSP server: ${serverBinary}`);
@@ -366,6 +376,7 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
       fileEvents: workspace.createFileSystemWatcher("**/*.{graphql,gql,ts,tsx,js,jsx}"),
     },
     outputChannel: outputChannel,
+    traceOutputChannel: traceOutputChannel,
   };
 
   outputChannel.appendLine("Creating language client...");
@@ -393,6 +404,7 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
       progress.report({ message: "Starting language server..." });
 
       await client.start();
+      syncTraceLevel();
       outputChannel.appendLine("Language client started successfully!");
 
       client.onNotification(
@@ -421,6 +433,7 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
 
 export async function activate(context: ExtensionContext) {
   outputChannel = window.createOutputChannel("graphql-analyzer Debug");
+  traceOutputChannel = window.createOutputChannel("graphql-analyzer LSP");
   outputChannel.appendLine("=== graphql-analyzer extension activating ===");
 
   statusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 100);
@@ -486,10 +499,13 @@ export async function activate(context: ExtensionContext) {
       },
     );
 
-    // Listen for configuration changes to restart health check with new settings
+    // Listen for configuration changes
     context.subscriptions.push(
       workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration("graphql.debug.healthCheck")) {
+        if (event.affectsConfiguration("graphql-analyzer.lsp.trace")) {
+          syncTraceLevel();
+        }
+        if (event.affectsConfiguration("graphql-analyzer.debug.healthCheck")) {
           outputChannel.appendLine("[Health Check] Configuration changed, restarting...");
           startHealthCheck();
         }
@@ -507,7 +523,7 @@ export async function activate(context: ExtensionContext) {
     // Don't throw - allow partial activation so restart command can still work
   }
 
-  context.subscriptions.push(outputChannel);
+  context.subscriptions.push(outputChannel, traceOutputChannel);
   outputChannel.appendLine("Extension activated!");
   console.log("=== Extension activation complete ===");
 }

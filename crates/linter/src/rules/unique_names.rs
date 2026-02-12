@@ -2,6 +2,7 @@ use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, ProjectLintRule};
 use graphql_base_db::{FileId, ProjectFiles};
 use graphql_hir::{FragmentNameInfo, OperationNameInfo};
+use graphql_syntax::SourceSpan;
 use std::collections::HashMap;
 
 /// Trait implementation for `unique_names` rule
@@ -63,31 +64,25 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
                     );
 
                     // Use the actual name range if available, otherwise fall back to start of file
-                    let offset_range = op_info.name_range.map_or_else(
-                        || crate::diagnostics::OffsetRange::new(0, name.len()),
-                        |range| {
-                            crate::diagnostics::OffsetRange::new(
-                                range.start().into(),
-                                range.end().into(),
-                            )
-                        },
+                    let (start, end) = op_info.name_range.map_or_else(
+                        || (0usize, name.len()),
+                        |range| (range.start().into(), range.end().into()),
                     );
 
-                    let mut diag = LintDiagnostic::new(
-                        offset_range,
+                    let span = SourceSpan::with_block_context(
+                        start,
+                        end,
+                        op_info.block_line_offset.unwrap_or(0),
+                        op_info.block_byte_offset.unwrap_or(0),
+                        op_info.block_source.clone(),
+                    );
+
+                    let diag = LintDiagnostic::new(
+                        span,
                         self.default_severity(),
                         message,
                         self.name().to_string(),
                     );
-
-                    // For embedded GraphQL, add block context for proper position calculation
-                    if let (Some(line_offset), Some(byte_offset), Some(source)) = (
-                        op_info.block_line_offset,
-                        op_info.block_byte_offset,
-                        &op_info.block_source,
-                    ) {
-                        diag = diag.with_block_context(line_offset, byte_offset, source.clone());
-                    }
 
                     diagnostics_by_file.entry(*file_id).or_default().push(diag);
                 }
@@ -126,26 +121,20 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
                     );
 
                     // Use the actual name range
-                    let offset_range = crate::diagnostics::OffsetRange::new(
+                    let span = SourceSpan::with_block_context(
                         frag_info.name_range.start().into(),
                         frag_info.name_range.end().into(),
+                        frag_info.block_line_offset.unwrap_or(0),
+                        frag_info.block_byte_offset.unwrap_or(0),
+                        frag_info.block_source.clone(),
                     );
 
-                    let mut diag = LintDiagnostic::new(
-                        offset_range,
+                    let diag = LintDiagnostic::new(
+                        span,
                         self.default_severity(),
                         message,
                         self.name().to_string(),
                     );
-
-                    // For embedded GraphQL, add block context for proper position calculation
-                    if let (Some(line_offset), Some(byte_offset), Some(source)) = (
-                        frag_info.block_line_offset,
-                        frag_info.block_byte_offset,
-                        &frag_info.block_source,
-                    ) {
-                        diag = diag.with_block_context(line_offset, byte_offset, source.clone());
-                    }
 
                     diagnostics_by_file.entry(*file_id).or_default().push(diag);
                 }
@@ -160,7 +149,7 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
 mod tests {
     use super::*;
     use crate::traits::ProjectLintRule;
-    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+    use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
     use graphql_ide_db::RootDatabase;
     use std::sync::Arc;
 
@@ -177,8 +166,13 @@ mod tests {
         for (i, (uri, source)) in documents.iter().enumerate() {
             let file_id = FileId::new(i as u32);
             let content = FileContent::new(db, Arc::from(*source));
-            let metadata =
-                FileMetadata::new(db, file_id, FileUri::new(*uri), FileKind::ExecutableGraphQL);
+            let metadata = FileMetadata::new(
+                db,
+                file_id,
+                FileUri::new(*uri),
+                Language::GraphQL,
+                DocumentKind::Executable,
+            );
 
             let entry = graphql_base_db::FileEntry::new(db, content, metadata);
             file_entries.insert(file_id, entry);

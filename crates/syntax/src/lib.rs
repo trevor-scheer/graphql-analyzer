@@ -24,7 +24,8 @@
 //! - `line_offset`: Line number in original file (0 for pure GraphQL)
 //! - `source`: The GraphQL source text
 
-use graphql_base_db::{FileContent, FileKind, FileMetadata};
+use graphql_base_db::{DocumentKind, FileContent, FileMetadata, Language};
+pub use graphql_types::SourceSpan;
 use std::sync::Arc;
 
 /// A parse error with position information
@@ -66,9 +67,9 @@ pub struct ExtractedBlock {
     /// Byte offset in the original file
     pub offset: usize,
     /// Line number in the original file (0-based)
-    pub line: usize,
-    /// Column number in the original file (0-based)
-    pub column: usize,
+    pub line: u32,
+    /// Character offset in the line (0-based, UTF-16 code units)
+    pub character: u32,
 }
 
 /// A reference to a GraphQL document within a parsed file.
@@ -83,13 +84,35 @@ pub struct DocumentRef<'a> {
     /// The AST for this document (for semantic analysis)
     pub ast: &'a apollo_compiler::ast::Document,
     /// Line offset in the original file (0 for pure GraphQL files)
-    pub line_offset: usize,
+    pub line_offset: u32,
     /// Column offset in the original file (0 for pure GraphQL files)
-    pub column_offset: usize,
+    pub column_offset: u32,
     /// Byte offset in the original file (0 for pure GraphQL files)
     pub byte_offset: usize,
     /// The GraphQL source text
     pub source: &'a str,
+}
+
+impl DocumentRef<'_> {
+    /// Create a [`SourceSpan`] with the correct block context for this document.
+    ///
+    /// For pure `.graphql` files, the block context fields are zero/`None`.
+    /// For extracted TS/JS blocks, the span carries the block's position so
+    /// downstream consumers (diagnostics, fixes) automatically have correct positions.
+    #[must_use]
+    pub fn span(&self, start: usize, end: usize) -> SourceSpan {
+        SourceSpan {
+            start,
+            end,
+            line_offset: self.line_offset,
+            byte_offset: self.byte_offset,
+            source: if self.byte_offset > 0 {
+                Some(Arc::from(self.source))
+            } else {
+                None
+            },
+        }
+    }
 }
 
 impl Parse {
@@ -109,7 +132,7 @@ impl Parse {
             tree: &block.tree,
             ast: &block.ast,
             line_offset: block.line,
-            column_offset: block.column,
+            column_offset: block.character,
             byte_offset: block.offset,
             source: &block.source,
         })
@@ -149,13 +172,13 @@ pub fn parse(
     metadata: FileMetadata,
 ) -> Parse {
     let uri = metadata.uri(db);
-    match metadata.kind(db) {
-        FileKind::Schema | FileKind::ExecutableGraphQL => {
-            parse_graphql(&content.text(db), uri.as_str())
-        }
-        FileKind::TypeScript | FileKind::JavaScript => {
-            extract_and_parse(db, &content.text(db), uri.as_str())
-        }
+    let language = metadata.language(db);
+
+    // Dispatch based on language: GraphQL parses directly, others need extraction
+    if language.requires_extraction() {
+        extract_and_parse(db, &content.text(db), uri.as_str())
+    } else {
+        parse_graphql(&content.text(db), uri.as_str())
     }
 }
 
@@ -191,7 +214,7 @@ fn parse_graphql(content: &str, uri: &str) -> Parse {
         ast: Arc::new(ast),
         offset: 0,
         line: 0,
-        column: 0,
+        character: 0,
     };
 
     Parse {
@@ -258,7 +281,7 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -
             ast: Arc::new(ast),
             offset: block.location.offset,
             line: block.location.range.start.line,
-            column: block.location.range.start.column,
+            character: block.location.range.start.character,
         });
     }
 
@@ -311,31 +334,232 @@ pub fn content_has_schema_definitions(content: &str) -> bool {
     })
 }
 
+/// Check if GraphQL content contains executable definitions (operations or fragments).
+///
+/// Returns true if the content contains any operation definitions (query, mutation,
+/// subscription) or fragment definitions.
+#[must_use]
+pub fn content_has_executable_definitions(content: &str) -> bool {
+    use apollo_compiler::parser::Parser;
+
+    let mut parser = Parser::new();
+    let ast = parser
+        .parse_ast(content, "virtual.graphql")
+        .unwrap_or_else(|e| e.partial);
+
+    ast.definitions.iter().any(|def| {
+        matches!(
+            def,
+            apollo_compiler::ast::Definition::OperationDefinition(_)
+                | apollo_compiler::ast::Definition::FragmentDefinition(_)
+        )
+    })
+}
+
+/// Describes a mismatch between a file's expected `DocumentKind` (from config)
+/// and what was actually found in the content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContentMismatch {
+    /// Expected schema definitions, found executable definitions
+    ExpectedSchemaFoundExecutable {
+        /// Names of the executable definitions found
+        definitions: Vec<String>,
+    },
+    /// Expected executable definitions, found schema definitions
+    ExpectedExecutableFoundSchema {
+        /// Names of the schema definitions found
+        definitions: Vec<String>,
+    },
+}
+
+impl ContentMismatch {
+    /// Returns a human-readable message describing the mismatch.
+    #[must_use]
+    pub fn message(&self) -> String {
+        match self {
+            Self::ExpectedSchemaFoundExecutable { definitions } => {
+                if definitions.is_empty() {
+                    "File in schema config contains executable definitions (operations or fragments)".to_string()
+                } else {
+                    format!(
+                        "File in schema config contains executable definitions: {}",
+                        definitions.join(", ")
+                    )
+                }
+            }
+            Self::ExpectedExecutableFoundSchema { definitions } => {
+                if definitions.is_empty() {
+                    "File in documents config contains schema definitions".to_string()
+                } else {
+                    format!(
+                        "File in documents config contains schema definitions: {}",
+                        definitions.join(", ")
+                    )
+                }
+            }
+        }
+    }
+}
+
+/// Validate that GraphQL content matches the expected `DocumentKind`.
+///
+/// Returns `None` if the content is consistent with the expected kind,
+/// or `Some(ContentMismatch)` if there's a conflict.
+///
+/// # Arguments
+///
+/// * `content` - The GraphQL source content to validate
+/// * `expected` - The expected `DocumentKind` from the config
+///
+/// # Rules
+///
+/// - Schema files should NOT contain operations or fragments
+/// - Executable files should NOT contain type definitions
+/// - Empty files or files with only comments are valid for any kind
+#[must_use]
+pub fn validate_content_matches_kind(
+    content: &str,
+    expected: DocumentKind,
+) -> Option<ContentMismatch> {
+    use apollo_compiler::parser::Parser;
+
+    let mut parser = Parser::new();
+    let ast = parser
+        .parse_ast(content, "virtual.graphql")
+        .unwrap_or_else(|e| e.partial);
+
+    match expected {
+        DocumentKind::Schema => {
+            // Check for executable definitions (operations, fragments)
+            let executable_defs: Vec<String> = ast
+                .definitions
+                .iter()
+                .filter_map(|def| match def {
+                    apollo_compiler::ast::Definition::OperationDefinition(op) => {
+                        Some(op.name.as_ref().map_or_else(
+                            || format!("anonymous {}", op.operation_type),
+                            ToString::to_string,
+                        ))
+                    }
+                    apollo_compiler::ast::Definition::FragmentDefinition(frag) => {
+                        Some(format!("fragment {}", frag.name))
+                    }
+                    _ => None,
+                })
+                .collect();
+
+            if executable_defs.is_empty() {
+                None
+            } else {
+                Some(ContentMismatch::ExpectedSchemaFoundExecutable {
+                    definitions: executable_defs,
+                })
+            }
+        }
+        DocumentKind::Executable => {
+            // Check for schema definitions
+            let schema_defs: Vec<String> = ast
+                .definitions
+                .iter()
+                .filter_map(|def| match def {
+                    apollo_compiler::ast::Definition::SchemaDefinition(_) => {
+                        Some("schema".to_string())
+                    }
+                    apollo_compiler::ast::Definition::SchemaExtension(_) => {
+                        Some("extend schema".to_string())
+                    }
+                    apollo_compiler::ast::Definition::ObjectTypeDefinition(t) => {
+                        Some(format!("type {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::ObjectTypeExtension(t) => {
+                        Some(format!("extend type {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::InterfaceTypeDefinition(t) => {
+                        Some(format!("interface {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::InterfaceTypeExtension(t) => {
+                        Some(format!("extend interface {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::UnionTypeDefinition(t) => {
+                        Some(format!("union {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::UnionTypeExtension(t) => {
+                        Some(format!("extend union {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::ScalarTypeDefinition(t) => {
+                        Some(format!("scalar {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::ScalarTypeExtension(t) => {
+                        Some(format!("extend scalar {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::EnumTypeDefinition(t) => {
+                        Some(format!("enum {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::EnumTypeExtension(t) => {
+                        Some(format!("extend enum {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::InputObjectTypeDefinition(t) => {
+                        Some(format!("input {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::InputObjectTypeExtension(t) => {
+                        Some(format!("extend input {}", t.name))
+                    }
+                    apollo_compiler::ast::Definition::DirectiveDefinition(d) => {
+                        Some(format!("directive @{}", d.name))
+                    }
+                    _ => None,
+                })
+                .collect();
+
+            if schema_defs.is_empty() {
+                None
+            } else {
+                Some(ContentMismatch::ExpectedExecutableFoundSchema {
+                    definitions: schema_defs,
+                })
+            }
+        }
+    }
+}
+
 /// Check if a path has a given extension (case-insensitive)
 fn has_extension(path: &str, ext: &str) -> bool {
     path.len() > ext.len()
         && path.as_bytes()[path.len() - ext.len()..].eq_ignore_ascii_case(ext.as_bytes())
 }
 
-/// Determine `FileKind` for files opened/changed in the editor
+/// Determine `Language` and `DocumentKind` for files opened/changed in the editor.
 ///
-/// For TypeScript/JavaScript files, returns the appropriate `FileKind` without content inspection.
-/// For .graphql/.gql files, inspects the content to determine if it contains schema definitions
-/// (`FileKind::Schema`) or executable documents (`FileKind::ExecutableGraphQL`).
+/// For TypeScript/JavaScript files, determines Language from extension and defaults
+/// to `DocumentKind::Executable` (config can override this if schema patterns match).
+///
+/// For .graphql/.gql files, inspects the content to determine if it contains schema
+/// definitions or executable documents.
+///
+/// This is used as a fallback when no config is available or when a file is opened
+/// that doesn't match any configured patterns.
 #[must_use]
-pub fn determine_file_kind_from_content(path: &str, content: &str) -> FileKind {
-    if has_extension(path, ".ts") || has_extension(path, ".tsx") {
-        return FileKind::TypeScript;
-    }
-    if has_extension(path, ".js") || has_extension(path, ".jsx") {
-        return FileKind::JavaScript;
-    }
-
-    if content_has_schema_definitions(content) {
-        FileKind::Schema
+pub fn determine_file_kind_from_content(path: &str, content: &str) -> (Language, DocumentKind) {
+    // Determine language from extension
+    let language = if has_extension(path, ".ts") || has_extension(path, ".tsx") {
+        Language::TypeScript
+    } else if has_extension(path, ".js") || has_extension(path, ".jsx") {
+        Language::JavaScript
     } else {
-        FileKind::ExecutableGraphQL
-    }
+        Language::GraphQL
+    };
+
+    // For TS/JS files, default to Executable (operations/fragments)
+    // For GraphQL files, inspect content to determine kind
+    let document_kind = if language.requires_extraction() {
+        DocumentKind::Executable
+    } else if content_has_schema_definitions(content) {
+        DocumentKind::Schema
+    } else {
+        DocumentKind::Executable
+    };
+
+    (language, document_kind)
 }
 
 impl LineIndex {
@@ -490,15 +714,135 @@ mod tests {
     }
 
     #[test]
+    fn test_content_has_executable_definitions_true() {
+        let query_content = "query GetUser { user { id } }";
+        assert!(content_has_executable_definitions(query_content));
+
+        let fragment_content = "fragment UserFields on User { id name }";
+        assert!(content_has_executable_definitions(fragment_content));
+
+        let mutation_content = "mutation UpdateUser { updateUser { id } }";
+        assert!(content_has_executable_definitions(mutation_content));
+
+        let subscription_content = "subscription OnUserChange { userChanged { id } }";
+        assert!(content_has_executable_definitions(subscription_content));
+    }
+
+    #[test]
+    fn test_content_has_executable_definitions_false() {
+        let schema_content = "type User { id: ID! }";
+        assert!(!content_has_executable_definitions(schema_content));
+
+        let interface_content = "interface Node { id: ID! }";
+        assert!(!content_has_executable_definitions(interface_content));
+
+        let enum_content = "enum Status { ACTIVE INACTIVE }";
+        assert!(!content_has_executable_definitions(enum_content));
+    }
+
+    #[test]
+    fn test_content_has_executable_definitions_mixed() {
+        // Mixed files have both schema and executable definitions
+        let mixed_content = "type User { id: ID! }\nquery GetUser { user { id } }";
+        assert!(content_has_executable_definitions(mixed_content));
+    }
+
+    #[test]
+    fn test_validate_content_matches_kind_schema_valid() {
+        // Schema file with only schema definitions - valid
+        let content = "type User { id: ID! }\ninterface Node { id: ID! }";
+        assert!(validate_content_matches_kind(content, DocumentKind::Schema).is_none());
+    }
+
+    #[test]
+    fn test_validate_content_matches_kind_schema_invalid() {
+        // Schema file with executable definitions - invalid
+        let content = "type User { id: ID! }\nquery GetUser { user { id } }";
+        let mismatch = validate_content_matches_kind(content, DocumentKind::Schema);
+        assert!(mismatch.is_some());
+
+        let mismatch = mismatch.unwrap();
+        match &mismatch {
+            ContentMismatch::ExpectedSchemaFoundExecutable { definitions } => {
+                assert!(definitions.iter().any(|d| d.contains("GetUser")));
+            }
+            ContentMismatch::ExpectedExecutableFoundSchema { .. } => {
+                panic!("Expected ExpectedSchemaFoundExecutable")
+            }
+        }
+        // Check message generation
+        assert!(mismatch.message().contains("GetUser"));
+    }
+
+    #[test]
+    fn test_validate_content_matches_kind_executable_valid() {
+        // Executable file with only operations and fragments - valid
+        let content = "query GetUser { user { id } }\nfragment UserFields on User { id }";
+        assert!(validate_content_matches_kind(content, DocumentKind::Executable).is_none());
+    }
+
+    #[test]
+    fn test_validate_content_matches_kind_executable_invalid() {
+        // Executable file with schema definitions - invalid
+        let content = "query GetUser { user { id } }\ntype User { id: ID! }";
+        let mismatch = validate_content_matches_kind(content, DocumentKind::Executable);
+        assert!(mismatch.is_some());
+
+        let mismatch = mismatch.unwrap();
+        match &mismatch {
+            ContentMismatch::ExpectedExecutableFoundSchema { definitions } => {
+                assert!(definitions.iter().any(|d| d.contains("User")));
+            }
+            ContentMismatch::ExpectedSchemaFoundExecutable { .. } => {
+                panic!("Expected ExpectedExecutableFoundSchema")
+            }
+        }
+        // Check message generation
+        assert!(mismatch.message().contains("type User"));
+    }
+
+    #[test]
+    fn test_validate_content_matches_kind_empty() {
+        // Empty content is valid for any kind
+        assert!(validate_content_matches_kind("", DocumentKind::Schema).is_none());
+        assert!(validate_content_matches_kind("", DocumentKind::Executable).is_none());
+    }
+
+    #[test]
+    fn test_validate_content_matches_kind_only_comments() {
+        // Content with only comments is valid for any kind
+        let content = "# This is a comment\n# Another comment";
+        assert!(validate_content_matches_kind(content, DocumentKind::Schema).is_none());
+        assert!(validate_content_matches_kind(content, DocumentKind::Executable).is_none());
+    }
+
+    #[test]
+    fn test_validate_content_anonymous_operation() {
+        // Anonymous operations should be detected
+        let content = "{ user { id } }";
+        let mismatch = validate_content_matches_kind(content, DocumentKind::Schema);
+        assert!(mismatch.is_some());
+
+        match mismatch.unwrap() {
+            ContentMismatch::ExpectedSchemaFoundExecutable { definitions } => {
+                assert!(definitions.iter().any(|d| d.contains("anonymous")));
+            }
+            ContentMismatch::ExpectedExecutableFoundSchema { .. } => {
+                panic!("Expected ExpectedSchemaFoundExecutable")
+            }
+        }
+    }
+
+    #[test]
     fn test_determine_file_kind_typescript() {
         let content = "const query = gql`query { user { id } }`;";
         assert_eq!(
             determine_file_kind_from_content("file.ts", content),
-            FileKind::TypeScript
+            (Language::TypeScript, DocumentKind::Executable)
         );
         assert_eq!(
             determine_file_kind_from_content("file.tsx", content),
-            FileKind::TypeScript
+            (Language::TypeScript, DocumentKind::Executable)
         );
     }
 
@@ -507,11 +851,11 @@ mod tests {
         let content = "const query = gql`query { user { id } }`;";
         assert_eq!(
             determine_file_kind_from_content("file.js", content),
-            FileKind::JavaScript
+            (Language::JavaScript, DocumentKind::Executable)
         );
         assert_eq!(
             determine_file_kind_from_content("file.jsx", content),
-            FileKind::JavaScript
+            (Language::JavaScript, DocumentKind::Executable)
         );
     }
 
@@ -520,7 +864,7 @@ mod tests {
         let content = "type User { id: ID! }";
         assert_eq!(
             determine_file_kind_from_content("schema.graphql", content),
-            FileKind::Schema
+            (Language::GraphQL, DocumentKind::Schema)
         );
     }
 
@@ -529,7 +873,7 @@ mod tests {
         let content = "query GetUser { user { id } }";
         assert_eq!(
             determine_file_kind_from_content("query.graphql", content),
-            FileKind::ExecutableGraphQL
+            (Language::GraphQL, DocumentKind::Executable)
         );
     }
 
@@ -569,7 +913,7 @@ mod tests {
                     ),
                     offset: 100,
                     line: 5,
-                    column: 10,
+                    character: 10,
                 },
                 ExtractedBlock {
                     source: Arc::from("query Q2 { post { id } }"),
@@ -580,7 +924,7 @@ mod tests {
                     ),
                     offset: 200,
                     line: 10,
-                    column: 15,
+                    character: 15,
                 },
             ],
             errors: vec![],

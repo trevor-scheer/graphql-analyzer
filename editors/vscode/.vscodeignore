@@ -4,5 +4,5 @@
 !LICENSE.md
 !language-configuration.json
 !syntaxes/**
-!out/**
+!out/extension.js
 !bin/**

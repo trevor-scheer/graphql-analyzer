@@ -1,0 +1,17 @@
+[package]
+name = "graphql-types"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+description = "Foundation types for GraphQL LSP - Language, Position, Range, Severity, etc."
+keywords = ["graphql", "types", "lsp"]
+categories = ["development-tools"]
+
+[package.metadata.dist]
+dist = false
+
+# Zero external dependencies - this is a foundation crate
+[dependencies]

@@ -1,6 +1,6 @@
 use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase, Position, Severity};
 use apollo_compiler::diagnostic::ToCliReport;
-use apollo_compiler::parser::Parser;
+use apollo_compiler::parser::{Parser, SourceOffset};
 use apollo_compiler::validation::DiagnosticList;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,7 +17,11 @@ pub struct MergedSchemaResult {
     pub diagnostics_by_file: DiagnosticsByFile,
 }
 
-/// Convert apollo-compiler diagnostics to our diagnostic format, grouped by file URI
+/// Convert apollo-compiler diagnostics to our diagnostic format, grouped by file URI.
+///
+/// When parsing TS/JS files, we use `Parser::source_offset()` to bake the line/column
+/// offset into the parser. This means apollo-compiler diagnostics already have correct
+/// positions in the original file, so no manual offset adjustment is needed here.
 fn collect_apollo_diagnostics(errors: &DiagnosticList) -> HashMap<Arc<str>, Vec<Diagnostic>> {
     let mut diagnostics_by_file: HashMap<Arc<str>, Vec<Diagnostic>> = HashMap::new();
 
@@ -95,18 +99,36 @@ pub fn merged_schema_with_diagnostics(
     }
 
     let mut builder = apollo_compiler::schema::SchemaBuilder::new();
-    let mut parser = Parser::new();
 
     for file_id in schema_ids.iter() {
         let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
         else {
             continue;
         };
-        let text = content.text(db);
         let uri = metadata.uri(db);
 
-        tracing::debug!(uri = ?uri, "Adding schema file to merge");
-        parser.parse_into_schema_builder(text.as_ref(), uri.as_str(), &mut builder);
+        if metadata.requires_extraction(db) {
+            // For TS/JS files, extract GraphQL blocks and parse each with source_offset.
+            // source_offset bakes the line/column offset into the parser so all diagnostics
+            // from apollo-compiler automatically have correct positions in the original file.
+            let parse = graphql_syntax::parse(db, content, metadata);
+
+            for doc in parse.documents() {
+                tracing::debug!(uri = ?uri, line_offset = doc.line_offset, column_offset = doc.column_offset, "Adding extracted schema document to merge");
+                let mut parser = Parser::new().source_offset(SourceOffset {
+                    line: doc.line_offset as usize + 1,
+                    column: doc.column_offset as usize + 1,
+                });
+                parser.parse_into_schema_builder(doc.source, uri.as_str(), &mut builder);
+            }
+        } else {
+            // For pure GraphQL files, use the original approach with parse_into_schema_builder.
+            // This properly handles syntax errors and maintains existing behavior.
+            let text = content.text(db);
+            tracing::debug!(uri = ?uri, "Adding schema file to merge");
+            let mut parser = Parser::new();
+            parser.parse_into_schema_builder(text.as_ref(), uri.as_str(), &mut builder);
+        }
     }
 
     match builder.build() {

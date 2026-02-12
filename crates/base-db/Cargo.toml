@@ -10,4 +10,5 @@ keywords = ["graphql", "salsa", "incremental"]
 categories = ["development-tools"]
 
 [dependencies]
+graphql-types = { path = "../types" }
 salsa = { workspace = true }

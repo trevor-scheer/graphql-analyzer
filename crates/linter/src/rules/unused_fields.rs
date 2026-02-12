@@ -30,10 +30,8 @@ struct FieldInfo {
     field_name: String,
     /// File where the field is defined
     file_id: FileId,
-    /// Byte offset of the field name (for diagnostic range)
-    name_start: usize,
-    /// Byte offset of the end of the field name
-    name_end: usize,
+    /// Source span for the field name (carries block context for TS/JS)
+    span: graphql_syntax::SourceSpan,
 }
 
 impl ProjectLintRule for UnusedFieldsRuleImpl {
@@ -64,7 +62,7 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
 
             // Iterate over all GraphQL documents (unified API)
             for doc in parse.documents() {
-                collect_schema_fields(&doc.tree.document(), *file_id, &mut all_fields);
+                collect_schema_fields(&doc.tree.document(), *file_id, &doc, &mut all_fields);
             }
         }
 
@@ -125,12 +123,8 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
                     field_info.type_name, field_info.field_name
                 );
 
-                let diag = LintDiagnostic::warning(
-                    field_info.name_start,
-                    field_info.name_end,
-                    message,
-                    "unused_fields",
-                );
+                let diag =
+                    LintDiagnostic::warning(field_info.span.clone(), message, "unused_fields");
 
                 diagnostics_by_file
                     .entry(field_info.file_id)
@@ -144,8 +138,13 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
 }
 
 /// Collect schema field definitions from a CST document with their positions
-fn collect_schema_fields(doc: &cst::Document, file_id: FileId, fields: &mut Vec<FieldInfo>) {
-    for definition in doc.definitions() {
+fn collect_schema_fields(
+    cst_doc: &cst::Document,
+    file_id: FileId,
+    doc: &graphql_syntax::DocumentRef<'_>,
+    fields: &mut Vec<FieldInfo>,
+) {
+    for definition in cst_doc.definitions() {
         match definition {
             cst::Definition::ObjectTypeDefinition(obj) => {
                 let Some(type_name) = obj.name() else {
@@ -154,7 +153,7 @@ fn collect_schema_fields(doc: &cst::Document, file_id: FileId, fields: &mut Vec<
                 let type_name_str = type_name.text().to_string();
 
                 if let Some(fields_def) = obj.fields_definition() {
-                    collect_field_definitions(&type_name_str, file_id, &fields_def, fields);
+                    collect_field_definitions(&type_name_str, file_id, doc, &fields_def, fields);
                 }
             }
             cst::Definition::InterfaceTypeDefinition(iface) => {
@@ -164,7 +163,7 @@ fn collect_schema_fields(doc: &cst::Document, file_id: FileId, fields: &mut Vec<
                 let type_name_str = type_name.text().to_string();
 
                 if let Some(fields_def) = iface.fields_definition() {
-                    collect_field_definitions(&type_name_str, file_id, &fields_def, fields);
+                    collect_field_definitions(&type_name_str, file_id, doc, &fields_def, fields);
                 }
             }
             cst::Definition::ObjectTypeExtension(ext) => {
@@ -174,7 +173,7 @@ fn collect_schema_fields(doc: &cst::Document, file_id: FileId, fields: &mut Vec<
                 let type_name_str = type_name.text().to_string();
 
                 if let Some(fields_def) = ext.fields_definition() {
-                    collect_field_definitions(&type_name_str, file_id, &fields_def, fields);
+                    collect_field_definitions(&type_name_str, file_id, doc, &fields_def, fields);
                 }
             }
             cst::Definition::InterfaceTypeExtension(ext) => {
@@ -184,7 +183,7 @@ fn collect_schema_fields(doc: &cst::Document, file_id: FileId, fields: &mut Vec<
                 let type_name_str = type_name.text().to_string();
 
                 if let Some(fields_def) = ext.fields_definition() {
-                    collect_field_definitions(&type_name_str, file_id, &fields_def, fields);
+                    collect_field_definitions(&type_name_str, file_id, doc, &fields_def, fields);
                 }
             }
             _ => {}
@@ -196,6 +195,7 @@ fn collect_schema_fields(doc: &cst::Document, file_id: FileId, fields: &mut Vec<
 fn collect_field_definitions(
     type_name: &str,
     file_id: FileId,
+    doc: &graphql_syntax::DocumentRef<'_>,
     fields_def: &cst::FieldsDefinition,
     fields: &mut Vec<FieldInfo>,
 ) {
@@ -212,8 +212,7 @@ fn collect_field_definitions(
             type_name: type_name.to_string(),
             field_name: name.text().to_string(),
             file_id,
-            name_start,
-            name_end,
+            span: doc.span(name_start, name_end),
         });
     }
 }
@@ -242,7 +241,7 @@ fn is_introspection_field(field_name: &str) -> bool {
 mod tests {
     use super::*;
     use crate::traits::ProjectLintRule;
-    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+    use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
     use graphql_ide_db::RootDatabase;
     use std::sync::Arc;
 
@@ -257,7 +256,8 @@ mod tests {
             db,
             schema_file_id,
             FileUri::new("file:///schema.graphql"),
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let doc_file_id = FileId::new(1);
@@ -266,7 +266,8 @@ mod tests {
             db,
             doc_file_id,
             FileUri::new("file:///query.graphql"),
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         let schema_file_ids =

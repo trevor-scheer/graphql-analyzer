@@ -48,6 +48,22 @@ pub enum ConfigValidationError {
         /// Needed when the same pattern appears under multiple projects.
         occurrence: usize,
     },
+    /// A file's content doesn't match its expected type from the config.
+    ///
+    /// For example, a file matched by a `schema` pattern contains operations
+    /// or fragments, or a file matched by `documents` contains type definitions.
+    ContentMismatch {
+        /// The project name (empty string for single-project configs).
+        project: String,
+        /// The pattern that matched this file.
+        pattern: String,
+        /// Whether the file was expected to be schema or document.
+        expected: FileType,
+        /// Path to the file with mismatched content.
+        file_path: PathBuf,
+        /// Names of definitions that don't belong.
+        unexpected_definitions: Vec<String>,
+    },
 }
 
 impl ConfigValidationError {
@@ -56,6 +72,7 @@ impl ConfigValidationError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::OverlappingPattern { .. } => "overlapping-files",
+            Self::ContentMismatch { .. } => "content-mismatch",
         }
     }
 
@@ -79,6 +96,29 @@ impl ConfigValidationError {
                     format!("This {file_type} pattern causes {count} files to belong to multiple projects")
                 }
             }
+            Self::ContentMismatch {
+                expected,
+                file_path,
+                unexpected_definitions,
+                ..
+            } => {
+                let file_name = file_path.file_name().map_or_else(
+                    || file_path.display().to_string(),
+                    |n| n.to_string_lossy().into_owned(),
+                );
+
+                let opposite = match expected {
+                    FileType::Schema => "executable definitions (operations/fragments)",
+                    FileType::Document => "schema definitions (types/interfaces/etc.)",
+                };
+
+                if unexpected_definitions.is_empty() {
+                    format!("File '{file_name}' in {expected} config contains {opposite}")
+                } else {
+                    let defs = unexpected_definitions.join(", ");
+                    format!("File '{file_name}' in {expected} config contains {opposite}: {defs}")
+                }
+            }
         }
     }
 
@@ -91,6 +131,10 @@ impl ConfigValidationError {
                 occurrence,
                 ..
             } => find_pattern_location(config_content, pattern, *occurrence),
+            Self::ContentMismatch { pattern, .. } => {
+                // Find the first occurrence of this pattern in the config
+                find_pattern_location(config_content, pattern, 0)
+            }
         }
     }
 }

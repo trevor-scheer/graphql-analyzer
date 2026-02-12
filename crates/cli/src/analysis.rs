@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result};
 use graphql_config::ProjectConfig;
-use graphql_ide::{AnalysisHost, Diagnostic, FileKind, FilePath};
+use graphql_ide::{AnalysisHost, Diagnostic, DocumentKind, FilePath, Language};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -105,33 +105,120 @@ impl CliAnalysisHost {
         }
 
         let schema_result = host.load_schemas_from_config(project_config, base_dir)?;
+
+        // Check for content mismatch errors (schema files containing executable definitions)
+        if !schema_result.content_errors.is_empty() {
+            use std::fmt::Write;
+            let mut error_msg = String::from("Content mismatch in schema configuration:\n");
+            for error in &schema_result.content_errors {
+                let _ = write!(
+                    error_msg,
+                    "\n  File '{}' matched by pattern '{}' contains executable definitions:\n",
+                    error.file_path.display(),
+                    error.pattern
+                );
+                for def in &error.unexpected_definitions {
+                    let _ = writeln!(error_msg, "    - {def}");
+                }
+            }
+            error_msg.push_str(
+                "\nMove these files to the documents config or remove the executable definitions.",
+            );
+            return Err(anyhow::anyhow!("{error_msg}"));
+        }
+
         schema_files.extend(schema_result.loaded_paths);
 
         if let Some(ref documents_config) = project_config.documents {
             let loaded_docs =
                 Self::load_document_files(documents_config, base_dir, project_config)?;
 
-            let files_to_add: Vec<(FilePath, String, FileKind)> = loaded_docs
+            // Validate document files for schema definitions (content mismatch)
+            let mut content_errors: Vec<(PathBuf, Vec<String>)> = Vec::new();
+            for (path, content) in &loaded_docs {
+                let (language, _) = match path.extension().and_then(|e| e.to_str()) {
+                    Some("ts" | "tsx") => (Language::TypeScript, DocumentKind::Executable),
+                    Some("js" | "jsx") => (Language::JavaScript, DocumentKind::Executable),
+                    _ => (Language::GraphQL, DocumentKind::Executable),
+                };
+
+                // For TS/JS files, extract GraphQL first
+                let graphql_content = if language.requires_extraction() {
+                    let extract_config = graphql_extract::ExtractConfig::default();
+                    graphql_extract::extract_from_source(content, language, &extract_config)
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|block| block.source.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                } else {
+                    content.clone()
+                };
+
+                // Check for schema definitions in document files
+                if let Some(mismatch) = graphql_syntax::validate_content_matches_kind(
+                    &graphql_content,
+                    DocumentKind::Executable,
+                ) {
+                    let definitions = match mismatch {
+                        graphql_syntax::ContentMismatch::ExpectedExecutableFoundSchema {
+                            definitions,
+                        } => definitions,
+                        graphql_syntax::ContentMismatch::ExpectedSchemaFoundExecutable {
+                            ..
+                        } => Vec::new(),
+                    };
+                    if !definitions.is_empty() {
+                        content_errors.push((path.clone(), definitions));
+                    }
+                }
+            }
+
+            // Fail fast if document files contain schema definitions
+            if !content_errors.is_empty() {
+                use std::fmt::Write;
+                let mut error_msg = String::from("Content mismatch in documents configuration:\n");
+                for (path, definitions) in &content_errors {
+                    let _ = write!(
+                        error_msg,
+                        "\n  File '{}' contains schema definitions:\n",
+                        path.display()
+                    );
+                    for def in definitions {
+                        let _ = writeln!(error_msg, "    - {def}");
+                    }
+                }
+                error_msg.push_str(
+                    "\nMove these files to the schema config or remove the schema definitions.",
+                );
+                return Err(anyhow::anyhow!("{error_msg}"));
+            }
+
+            let files_to_add: Vec<(FilePath, String, Language, DocumentKind)> = loaded_docs
                 .into_iter()
                 .map(|(path, content)| {
-                    let kind = match path.extension().and_then(|e| e.to_str()) {
-                        Some("ts" | "tsx") => FileKind::TypeScript,
-                        Some("js" | "jsx") => FileKind::JavaScript,
-                        _ => FileKind::ExecutableGraphQL,
+                    let (language, document_kind) = match path.extension().and_then(|e| e.to_str())
+                    {
+                        Some("ts" | "tsx") => (Language::TypeScript, DocumentKind::Executable),
+                        Some("js" | "jsx") => (Language::JavaScript, DocumentKind::Executable),
+                        _ => (Language::GraphQL, DocumentKind::Executable),
                     };
                     document_files.push(path.clone());
                     (
                         FilePath::new(path.to_string_lossy().to_string()),
                         content,
-                        kind,
+                        language,
+                        document_kind,
                     )
                 })
                 .collect();
 
             // Batch add all files for O(n) performance (instead of O(n²) with per-file add)
-            let batch_refs: Vec<(FilePath, &str, FileKind)> = files_to_add
+            let batch_refs: Vec<(FilePath, &str, Language, DocumentKind)> = files_to_add
                 .iter()
-                .map(|(path, content, kind)| (path.clone(), content.as_str(), *kind))
+                .map(|(path, content, language, document_kind)| {
+                    (path.clone(), content.as_str(), *language, *document_kind)
+                })
                 .collect();
             host.add_files_batch(&batch_refs);
         } else {
@@ -378,9 +465,16 @@ impl CliAnalysisHost {
     }
 
     /// Update a file in the analysis host (used by watch mode)
-    pub fn update_file(&mut self, path: &Path, content: &str, kind: FileKind) {
+    pub fn update_file(
+        &mut self,
+        path: &Path,
+        content: &str,
+        language: Language,
+        document_kind: DocumentKind,
+    ) {
         let file_path = FilePath::new(path.to_string_lossy().to_string());
-        self.host.add_file(&file_path, content, kind);
+        self.host
+            .add_file(&file_path, content, language, document_kind);
 
         // Update document files list if this is a new file
         let path_buf = path.to_path_buf();
@@ -541,5 +635,145 @@ mod tests {
     fn test_expand_braces_single_option() {
         let result = CliAnalysisHost::expand_braces("src/**/*.{graphql}");
         assert_eq!(result, vec!["src/**/*.graphql"]);
+    }
+
+    #[test]
+    fn test_schema_file_with_executable_definitions_fails() {
+        use graphql_config::{ProjectConfig, SchemaConfig};
+        use std::io::Write;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        // Create a schema directory with a file containing executable definitions
+        let schema_dir = workspace_path.join("schema");
+        std::fs::create_dir(&schema_dir).unwrap();
+
+        let mut schema_file = std::fs::File::create(schema_dir.join("bad.graphql")).unwrap();
+        writeln!(
+            schema_file,
+            "# This file has executable definitions in schema config"
+        )
+        .unwrap();
+        writeln!(schema_file, "query GetUser {{ user {{ id }} }}").unwrap();
+        writeln!(schema_file, "fragment UserFields on User {{ id name }}").unwrap();
+
+        let project_config = ProjectConfig {
+            schema: SchemaConfig::Path("schema/*.graphql".to_string()),
+            documents: None,
+            include: None,
+            exclude: None,
+            extensions: None,
+        };
+
+        let result = CliAnalysisHost::from_project_config(&project_config, workspace_path);
+
+        // Should fail with a content mismatch error
+        assert!(result.is_err());
+        let error = result.err().unwrap();
+        let error_msg = error.to_string();
+        assert!(
+            error_msg.contains("Content mismatch"),
+            "Expected 'Content mismatch' in error: {error_msg}"
+        );
+        assert!(
+            error_msg.contains("executable definitions"),
+            "Expected 'executable definitions' in error: {error_msg}"
+        );
+    }
+
+    #[test]
+    fn test_document_file_with_schema_definitions_fails() {
+        use graphql_config::{DocumentsConfig, ProjectConfig, SchemaConfig};
+        use std::io::Write;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        // Create a valid schema file
+        let schema_dir = workspace_path.join("schema");
+        std::fs::create_dir(&schema_dir).unwrap();
+        let mut schema_file = std::fs::File::create(schema_dir.join("schema.graphql")).unwrap();
+        writeln!(schema_file, "type Query {{ user: User }}").unwrap();
+        writeln!(schema_file, "type User {{ id: ID! }}").unwrap();
+
+        // Create a documents directory with a file containing schema definitions
+        let docs_dir = workspace_path.join("docs");
+        std::fs::create_dir(&docs_dir).unwrap();
+
+        let mut bad_doc_file = std::fs::File::create(docs_dir.join("bad.graphql")).unwrap();
+        writeln!(
+            bad_doc_file,
+            "# This file has schema definitions in documents config"
+        )
+        .unwrap();
+        writeln!(bad_doc_file, "type BadType {{ id: ID! }}").unwrap();
+        writeln!(bad_doc_file, "interface BadInterface {{ name: String }}").unwrap();
+
+        let project_config = ProjectConfig {
+            schema: SchemaConfig::Path("schema/*.graphql".to_string()),
+            documents: Some(DocumentsConfig::Pattern("docs/*.graphql".to_string())),
+            include: None,
+            exclude: None,
+            extensions: None,
+        };
+
+        let result = CliAnalysisHost::from_project_config(&project_config, workspace_path);
+
+        // Should fail with a content mismatch error
+        assert!(result.is_err());
+        let error = result.err().unwrap();
+        let error_msg = error.to_string();
+        assert!(
+            error_msg.contains("Content mismatch"),
+            "Expected 'Content mismatch' in error: {error_msg}"
+        );
+        assert!(
+            error_msg.contains("schema definitions"),
+            "Expected 'schema definitions' in error: {error_msg}"
+        );
+    }
+
+    #[test]
+    fn test_valid_files_load_successfully() {
+        use graphql_config::{DocumentsConfig, ProjectConfig, SchemaConfig};
+        use std::io::Write;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        // Create a valid schema file
+        let schema_dir = workspace_path.join("schema");
+        std::fs::create_dir(&schema_dir).unwrap();
+        let mut schema_file = std::fs::File::create(schema_dir.join("schema.graphql")).unwrap();
+        writeln!(schema_file, "type Query {{ user: User }}").unwrap();
+        writeln!(schema_file, "type User {{ id: ID!, name: String }}").unwrap();
+
+        // Create a valid document file
+        let docs_dir = workspace_path.join("docs");
+        std::fs::create_dir(&docs_dir).unwrap();
+        let mut doc_file = std::fs::File::create(docs_dir.join("queries.graphql")).unwrap();
+        writeln!(doc_file, "query GetUser {{ user {{ id }} }}").unwrap();
+        writeln!(doc_file, "fragment UserFields on User {{ id name }}").unwrap();
+
+        let project_config = ProjectConfig {
+            schema: SchemaConfig::Path("schema/*.graphql".to_string()),
+            documents: Some(DocumentsConfig::Pattern("docs/*.graphql".to_string())),
+            include: None,
+            exclude: None,
+            extensions: None,
+        };
+
+        let result = CliAnalysisHost::from_project_config(&project_config, workspace_path);
+
+        // Should succeed
+        assert!(
+            result.is_ok(),
+            "Expected success but got error: {}",
+            result.err().unwrap()
+        );
     }
 }

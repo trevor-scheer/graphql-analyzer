@@ -1,3 +1,4 @@
+use graphql_types::Language;
 use std::io;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -17,5 +18,5 @@ pub enum ExtractError {
     Parse { path: PathBuf, message: String },
 
     #[error("Language not supported: {0:?}")]
-    UnsupportedLanguage(crate::Language),
+    UnsupportedLanguage(Language),
 }

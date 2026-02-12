@@ -46,7 +46,7 @@ pub fn document_symbols(
 
     for doc in parse.documents() {
         let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-        let doc_line_offset = doc.line_offset as u32;
+        let doc_line_offset = doc.line_offset;
 
         let definitions = extract_all_definitions(doc.tree);
         let field_ranges_map = extract_all_field_ranges(doc.tree);
@@ -341,7 +341,7 @@ fn get_type_location(
             let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
             let range = adjust_range_for_line_offset(
                 offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
-                doc.line_offset as u32,
+                doc.line_offset,
             );
             return Some(Location::new(file_path, range));
         }
@@ -367,7 +367,7 @@ fn get_fragment_location(
             let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
             let range = adjust_range_for_line_offset(
                 offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
-                doc.line_offset as u32,
+                doc.line_offset,
             );
             return Some(Location::new(file_path, range));
         }
@@ -395,7 +395,7 @@ fn get_operation_location(
             let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
             let range = adjust_range_for_line_offset(
                 offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
-                doc.line_offset as u32,
+                doc.line_offset,
             );
             return Some(Location::new(file_path, range));
         }

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "ignorePaths": [
+    "test-workspace/**"
+  ],
+  "packageRules": [
+    {
+      "description": "Group all non-major updates for stable (>= 1.0) packages",
+      "matchCurrentVersion": ">=1.0.0",
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "all non-major"
+    },
+    {
+      "description": "Group only patch updates for v0.x packages (minor is breaking in 0.x)",
+      "matchCurrentVersion": "<1.0.0",
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "groupName": "v0.x patch updates"
+    },
+    {
+      "description": "SWC crates are tightly coupled and must update together",
+      "groupName": "swc monorepo",
+      "matchPackageNames": [
+        "/^swc_/"
+      ]
+    }
+  ]
+}

@@ -12,6 +12,7 @@ categories = ["parser-implementations", "development-tools"]
 [dependencies]
 graphql-base-db = { path = "../base-db" }
 graphql-extract = { path = "../extract" }
+graphql-types = { path = "../types" }
 salsa = { workspace = true }
 apollo-parser = { workspace = true }
 apollo-compiler = { workspace = true }

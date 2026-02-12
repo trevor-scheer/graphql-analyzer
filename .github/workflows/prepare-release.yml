@@ -20,7 +20,7 @@ jobs:
     steps:
       # Use PAT so PR creation triggers CI workflows
       # (GITHUB_TOKEN events don't trigger other workflows)
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TOKEN }}
@@ -47,7 +47,7 @@ jobs:
 
       - name: Install knope
         if: steps.check.outputs.changeset_count > 0
-        uses: knope-dev/action@v2.1.0
+        uses: knope-dev/action@v2.1.1
 
       - name: Configure git
         if: steps.check.outputs.changeset_count > 0

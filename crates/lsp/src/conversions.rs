@@ -25,6 +25,7 @@ use lsp_types::{
     CodeLens, Command, Diagnostic, DiagnosticSeverity, FoldingRange, FoldingRangeKind, InlayHint,
     InlayHintKind, InlayHintLabel, Location, Position, Range, Uri,
 };
+use tower_lsp_server::ls_types as lsp_types;
 
 // =============================================================================
 // Extension Traits
