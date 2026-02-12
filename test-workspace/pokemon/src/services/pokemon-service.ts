@@ -71,7 +71,7 @@ export const GET_POKEMON_EVOLUTIONS = gql`
       }
     }
   }
-  
+
   query GetEvolutionChain($id: ID!) {
     pokemon(id: $id) {
       ...EvolutionChain
