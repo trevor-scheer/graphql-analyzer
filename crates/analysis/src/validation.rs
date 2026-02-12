@@ -59,7 +59,13 @@ pub fn validate_file(
 
         // This ensures that changing fragment A only invalidates files that actually use A
         // Using fragment_ast instead of fragment_source avoids re-parsing
-        let mut added_fragments = std::collections::HashSet::new();
+        //
+        // IMPORTANT: Track added AST blocks by pointer identity, not by fragment name.
+        // Multiple fragments (e.g., RepoCardBasic, RepoCardStats) may be defined in the
+        // same gql block, so fragment_ast() returns the same Arc<Document> for each.
+        // Without pointer tracking, we'd add the same AST multiple times, causing
+        // "fragment defined multiple times" errors.
+        let mut added_ast_ptrs: std::collections::HashSet<usize> = std::collections::HashSet::new();
         for fragment_name in &referenced_fragments {
             // Skip fragments that are already in the current document block
             // This prevents duplicate definition errors when fragments in the same file
@@ -68,13 +74,15 @@ pub fn validate_file(
                 continue;
             }
             let key: Arc<str> = Arc::from(fragment_name.as_str());
-            if !added_fragments.insert(key.clone()) {
-                continue;
-            }
             // Fine-grained query: only creates dependency on this specific fragment
             // Uses cached AST instead of re-parsing source text
             if let Some(fragment_ast) = graphql_hir::fragment_ast(db, project_files, key) {
-                builder.add_ast_document(&fragment_ast, false);
+                // Use Arc pointer address to deduplicate - multiple fragments from the
+                // same gql block share the same Arc<Document>
+                let ptr = Arc::as_ptr(&fragment_ast) as usize;
+                if added_ast_ptrs.insert(ptr) {
+                    builder.add_ast_document(&fragment_ast, false);
+                }
             }
         }
 

@@ -1302,3 +1302,104 @@ export const schema = gql`
         diag
     );
 }
+
+/// Test that TypeScript files with multiple gql blocks where fragments are
+/// shared between blocks don't produce false "fragment defined multiple times" errors.
+///
+/// This is a regression test for a bug where:
+/// 1. Block A defines fragments F1, F2, F3
+/// 2. Block B defines fragment F4 which spreads ...F1, ...F2, ...F3
+/// 3. When validating Block B, we add F1's AST, F2's AST, F3's AST to the builder
+/// 4. But F1, F2, F3 are all in the SAME AST (Block A), so we'd add it 3 times
+/// 5. Apollo-compiler then reports "fragment defined multiple times"
+#[test]
+fn test_typescript_multi_block_no_duplicate_fragment_errors() {
+    let mut db = TestDatabase::default();
+
+    // Schema with types needed for the fragments
+    let schema_content = r"
+        type Query { repository(owner: String!, name: String!): Repository }
+        type Repository {
+            id: ID!
+            name: String!
+            stargazerCount: Int!
+            forkCount: Int!
+        }
+    ";
+    let schema_id = FileId::new(0);
+    let schema_fc = FileContent::new(&db, Arc::from(schema_content));
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    // TypeScript file with multiple gql blocks
+    // Block 1: Defines RepoBasic, RepoStats fragments
+    // Block 2: Defines RepoFull fragment that spreads ...RepoBasic, ...RepoStats
+    // Block 3: Query that uses ...RepoFull
+    let ts_content = r#"import { gql } from "@apollo/client";
+
+export const REPO_FRAGMENTS = gql`
+  fragment RepoBasic on Repository {
+    id
+    name
+  }
+
+  fragment RepoStats on Repository {
+    stargazerCount
+    forkCount
+  }
+`;
+
+export const REPO_FULL = gql`
+  fragment RepoFull on Repository {
+    ...RepoBasic
+    ...RepoStats
+  }
+`;
+
+export const GET_REPO = gql`
+  query GetRepo($owner: String!, $name: String!) {
+    repository(owner: $owner, name: $name) {
+      ...RepoFull
+    }
+  }
+`;
+"#;
+
+    let doc_id = FileId::new(1);
+    let doc_content = FileContent::new(&db, Arc::from(ts_content));
+    let doc_metadata = FileMetadata::new(
+        &db,
+        doc_id,
+        FileUri::new("file:///components/Repo.tsx"),
+        Language::TypeScript,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_project_files(
+        &mut db,
+        &[(schema_id, schema_fc, schema_metadata)],
+        &[(doc_id, doc_content, doc_metadata)],
+    );
+
+    let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
+
+    // Filter for "defined multiple times" errors
+    let duplicate_errors: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.message.contains("defined multiple times"))
+        .collect();
+
+    assert!(
+        duplicate_errors.is_empty(),
+        "Should not have 'fragment defined multiple times' errors when fragments are \
+         defined once but referenced from multiple blocks in the same file. \
+         Got {} duplicate errors: {:?}",
+        duplicate_errors.len(),
+        duplicate_errors
+    );
+}
