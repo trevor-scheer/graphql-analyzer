@@ -1216,3 +1216,89 @@ fn test_type_coverage_percentage() {
 
     assert!((coverage.coverage_percentage() - 80.0).abs() < 0.01);
 }
+
+// ============================================================================
+// TypeScript schema file tests
+// ============================================================================
+
+/// Test that diagnostics from TypeScript schema files have correct line offsets.
+///
+/// When GraphQL is embedded in TypeScript template literals, diagnostics should
+/// report positions relative to the original file, not the extracted GraphQL content.
+#[test]
+fn test_typescript_schema_diagnostics_have_correct_line_offset() {
+    let mut db = TestDatabase::default();
+
+    // TypeScript file with GraphQL starting on line 3 (0-indexed: line 2)
+    // The GraphQL content itself starts on line 4 (0-indexed: line 3)
+    let ts_content = r#"import { gql } from "graphql-tag";
+
+export const schema = gql`
+  type Query {
+    user: User
+  }
+
+  type User implements Node {
+    id: ID!
+  }
+`;
+"#;
+
+    let file_id = FileId::new(0);
+    let content = FileContent::new(&db, Arc::from(ts_content));
+    let metadata = FileMetadata::new(
+        &db,
+        file_id,
+        FileUri::new("file:///schema.ts"),
+        Language::TypeScript,
+        DocumentKind::Schema,
+    );
+
+    let schema_files = [(file_id, content, metadata)];
+    let project_files = create_project_files(&mut db, &schema_files, &[]);
+
+    let result = merged_schema_with_diagnostics(&db, project_files);
+
+    // Should have diagnostics for "User implements Node" - Node is not defined
+    assert!(
+        !result.diagnostics_by_file.is_empty(),
+        "Expected diagnostics for missing Node interface"
+    );
+
+    // Get diagnostics for this file
+    let file_diagnostics = result
+        .diagnostics_by_file
+        .get("file:///schema.ts")
+        .expect("Expected diagnostics for schema.ts");
+
+    assert!(
+        !file_diagnostics.is_empty(),
+        "Expected at least one diagnostic"
+    );
+
+    // The error should be on line 7 (0-indexed) where "type User implements Node" is
+    // In the original TS file:
+    // Line 0: import { gql } from "graphql-tag";
+    // Line 1: (empty)
+    // Line 2: export const schema = gql`
+    // Line 3:   type Query {
+    // Line 4:     user: User
+    // Line 5:   }
+    // Line 6:   (empty)
+    // Line 7:   type User implements Node {
+    // Line 8:     id: ID!
+    // Line 9:   }
+    // Line 10: `;
+
+    let diag = &file_diagnostics[0];
+    // The diagnostic should point to line 7 (0-indexed) in the original TS file,
+    // NOT line 4 (which would be the position in the extracted GraphQL content)
+    assert!(
+        diag.range.start.line >= 7,
+        "Diagnostic line should be >= 7 (in original TS file), got line {}. \
+         If this is ~4-5, the line offset from extraction is not being applied. \
+         Diagnostic: {:?}",
+        diag.range.start.line,
+        diag
+    );
+}

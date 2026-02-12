@@ -34,6 +34,12 @@ struct FieldInfo {
     name_start: usize,
     /// Byte offset of the end of the field name
     name_end: usize,
+    /// For TS/JS files: line offset where the GraphQL block starts (0-based)
+    block_line_offset: u32,
+    /// For TS/JS files: byte offset where the GraphQL block starts
+    block_byte_offset: usize,
+    /// For TS/JS files: the GraphQL block source text
+    block_source: Option<std::sync::Arc<str>>,
 }
 
 impl ProjectLintRule for UnusedFieldsRuleImpl {
@@ -64,7 +70,19 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
 
             // Iterate over all GraphQL documents (unified API)
             for doc in parse.documents() {
-                collect_schema_fields(&doc.tree.document(), *file_id, &mut all_fields);
+                let block_source = if doc.byte_offset > 0 {
+                    Some(std::sync::Arc::from(doc.source))
+                } else {
+                    None
+                };
+                collect_schema_fields(
+                    &doc.tree.document(),
+                    *file_id,
+                    doc.line_offset,
+                    doc.byte_offset,
+                    block_source.as_ref(),
+                    &mut all_fields,
+                );
             }
         }
 
@@ -125,12 +143,20 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
                     field_info.type_name, field_info.field_name
                 );
 
-                let diag = LintDiagnostic::warning(
+                let mut diag = LintDiagnostic::warning(
                     field_info.name_start,
                     field_info.name_end,
                     message,
                     "unused_fields",
                 );
+
+                if let Some(ref block_source) = field_info.block_source {
+                    diag = diag.with_block_context(
+                        field_info.block_line_offset,
+                        field_info.block_byte_offset,
+                        block_source.clone(),
+                    );
+                }
 
                 diagnostics_by_file
                     .entry(field_info.file_id)
@@ -144,7 +170,14 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
 }
 
 /// Collect schema field definitions from a CST document with their positions
-fn collect_schema_fields(doc: &cst::Document, file_id: FileId, fields: &mut Vec<FieldInfo>) {
+fn collect_schema_fields(
+    doc: &cst::Document,
+    file_id: FileId,
+    block_line_offset: u32,
+    block_byte_offset: usize,
+    block_source: Option<&std::sync::Arc<str>>,
+    fields: &mut Vec<FieldInfo>,
+) {
     for definition in doc.definitions() {
         match definition {
             cst::Definition::ObjectTypeDefinition(obj) => {
@@ -154,7 +187,15 @@ fn collect_schema_fields(doc: &cst::Document, file_id: FileId, fields: &mut Vec<
                 let type_name_str = type_name.text().to_string();
 
                 if let Some(fields_def) = obj.fields_definition() {
-                    collect_field_definitions(&type_name_str, file_id, &fields_def, fields);
+                    collect_field_definitions(
+                        &type_name_str,
+                        file_id,
+                        block_line_offset,
+                        block_byte_offset,
+                        block_source,
+                        &fields_def,
+                        fields,
+                    );
                 }
             }
             cst::Definition::InterfaceTypeDefinition(iface) => {
@@ -164,7 +205,15 @@ fn collect_schema_fields(doc: &cst::Document, file_id: FileId, fields: &mut Vec<
                 let type_name_str = type_name.text().to_string();
 
                 if let Some(fields_def) = iface.fields_definition() {
-                    collect_field_definitions(&type_name_str, file_id, &fields_def, fields);
+                    collect_field_definitions(
+                        &type_name_str,
+                        file_id,
+                        block_line_offset,
+                        block_byte_offset,
+                        block_source,
+                        &fields_def,
+                        fields,
+                    );
                 }
             }
             cst::Definition::ObjectTypeExtension(ext) => {
@@ -174,7 +223,15 @@ fn collect_schema_fields(doc: &cst::Document, file_id: FileId, fields: &mut Vec<
                 let type_name_str = type_name.text().to_string();
 
                 if let Some(fields_def) = ext.fields_definition() {
-                    collect_field_definitions(&type_name_str, file_id, &fields_def, fields);
+                    collect_field_definitions(
+                        &type_name_str,
+                        file_id,
+                        block_line_offset,
+                        block_byte_offset,
+                        block_source,
+                        &fields_def,
+                        fields,
+                    );
                 }
             }
             cst::Definition::InterfaceTypeExtension(ext) => {
@@ -184,7 +241,15 @@ fn collect_schema_fields(doc: &cst::Document, file_id: FileId, fields: &mut Vec<
                 let type_name_str = type_name.text().to_string();
 
                 if let Some(fields_def) = ext.fields_definition() {
-                    collect_field_definitions(&type_name_str, file_id, &fields_def, fields);
+                    collect_field_definitions(
+                        &type_name_str,
+                        file_id,
+                        block_line_offset,
+                        block_byte_offset,
+                        block_source,
+                        &fields_def,
+                        fields,
+                    );
                 }
             }
             _ => {}
@@ -196,6 +261,9 @@ fn collect_schema_fields(doc: &cst::Document, file_id: FileId, fields: &mut Vec<
 fn collect_field_definitions(
     type_name: &str,
     file_id: FileId,
+    block_line_offset: u32,
+    block_byte_offset: usize,
+    block_source: Option<&std::sync::Arc<str>>,
     fields_def: &cst::FieldsDefinition,
     fields: &mut Vec<FieldInfo>,
 ) {
@@ -214,6 +282,9 @@ fn collect_field_definitions(
             file_id,
             name_start,
             name_end,
+            block_line_offset,
+            block_byte_offset,
+            block_source: block_source.cloned(),
         });
     }
 }

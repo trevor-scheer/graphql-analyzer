@@ -1083,28 +1083,37 @@ impl AnalysisHost {
                                                         });
                                                     }
 
-                                                    for block in &blocks {
-                                                        // Create a unique file URI for each block
-                                                        // Use line range format for better error attribution
-                                                        let block_uri = if blocks.len() > 1 {
+                                                    if blocks.len() == 1 {
+                                                        // Single block: store original TS/JS content
+                                                        // so the syntax crate can handle extraction
+                                                        // with proper line offsets
+                                                        self.add_file(
+                                                            &FilePath::new(file_uri.clone()),
+                                                            &content,
+                                                            lang,
+                                                            DocumentKind::Schema,
+                                                        );
+                                                        count += 1;
+                                                    } else {
+                                                        // Multiple blocks: create separate entries
+                                                        // with line range URIs for each block
+                                                        for block in &blocks {
                                                             let start_line =
                                                                 block.location.range.start.line + 1;
                                                             let end_line =
                                                                 block.location.range.end.line + 1;
-                                                            format!(
+                                                            let block_uri = format!(
                                                                 "{file_uri}#L{start_line}-L{end_line}"
-                                                            )
-                                                        } else {
-                                                            file_uri.clone()
-                                                        };
+                                                            );
 
-                                                        self.add_file(
-                                                            &FilePath::new(block_uri),
-                                                            &block.source,
-                                                            Language::GraphQL,
-                                                            DocumentKind::Schema,
-                                                        );
-                                                        count += 1;
+                                                            self.add_file(
+                                                                &FilePath::new(block_uri),
+                                                                &block.source,
+                                                                Language::GraphQL,
+                                                                DocumentKind::Schema,
+                                                            );
+                                                            count += 1;
+                                                        }
                                                     }
                                                     if blocks.is_empty() {
                                                         tracing::debug!(
