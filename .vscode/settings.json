@@ -37,10 +37,9 @@
     "**/target/**": true,
     "**/node_modules/**": true
   },
-  "graphql.server.path": "/Users/trevor/Repositories/graphql-lsp/target/debug",
   "editor.formatOnSave": true,
   "editor.defaultFormatter": "oxc.oxc-vscode",
-  "[typescriptreact]": {
-    "editor.defaultFormatter": "oxc.oxc-vscode"
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
   }
 }
