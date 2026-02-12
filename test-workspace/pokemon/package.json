@@ -11,7 +11,7 @@
     "graphql:validate": "../target/debug/graphql validate"
   },
   "dependencies": {
-    "@apollo/client": "^3.11.8",
+    "@apollo/client": "^4.0.0",
     "graphql": "^16.9.0",
     "graphql-tag": "^2.12.6",
     "react": "^19.0.0"
