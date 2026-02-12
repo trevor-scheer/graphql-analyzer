@@ -15,7 +15,7 @@ export const repositories = gql`
       before: String
       query: String
     ): UserConnection!
-  
+
     """
     A list of branch protection rules for this repository.
     """
@@ -25,12 +25,12 @@ export const repositories = gql`
       last: Int
       before: String
     ): BranchProtectionRuleConnection!
-  
+
     """
     Returns the code of conduct for this repository.
     """
     codeOfConduct: CodeOfConduct
-  
+
     """
     A list of collaborators associated with the repository.
     """
@@ -42,37 +42,37 @@ export const repositories = gql`
       affiliation: CollaboratorAffiliation
       query: String
     ): RepositoryCollaboratorConnection
-  
+
     """
     A list of commit comments associated with the repository.
     """
     commitComments(first: Int, after: String, last: Int, before: String): CommitCommentConnection!
-  
+
     """
     Identifies the date and time when the object was created.
     """
     createdAt: DateTime!
-  
+
     """
     Identifies the primary key from the database.
     """
     databaseId: Int
-  
+
     """
     The Ref associated with the repository's default branch.
     """
     defaultBranchRef: Ref
-  
+
     """
     Whether delete branch on merge is enabled.
     """
     deleteBranchOnMerge: Boolean!
-  
+
     """
     A list of deploy keys for the repository.
     """
     deployKeys(first: Int, after: String, last: Int, before: String): DeployKeyConnection!
-  
+
     """
     Deployments associated with the repository.
     """
@@ -84,22 +84,22 @@ export const repositories = gql`
       environments: [String!]
       orderBy: DeploymentOrder
     ): DeploymentConnection!
-  
+
     """
     The description of the repository.
     """
     description: String
-  
+
     """
     The description of the repository as HTML.
     """
     descriptionHTML: HTML!
-  
+
     """
     Returns a single discussion from the current repository.
     """
     discussion(number: Int!): Discussion
-  
+
     """
     A list of discussion categories for the repository.
     """
@@ -110,7 +110,7 @@ export const repositories = gql`
       before: String
       filterByAssignable: Boolean
     ): DiscussionCategoryConnection!
-  
+
     """
     A list of discussions for the repository.
     """
@@ -123,27 +123,27 @@ export const repositories = gql`
       orderBy: DiscussionOrder
       states: [DiscussionState!]
     ): DiscussionConnection!
-  
+
     """
     The number of kilobytes this repository occupies on disk.
     """
     diskUsage: Int
-  
+
     """
     Returns how many forks there are of this repository.
     """
     forkCount: Int!
-  
+
     """
     Whether the repository is a fork.
     """
     isFork: Boolean!
-  
+
     """
     Whether fork syncing is enabled.
     """
     forkingAllowed: Boolean!
-  
+
     """
     A list of forks associated with the repository.
     """
@@ -157,79 +157,79 @@ export const repositories = gql`
       isLocked: Boolean
       privacy: RepositoryPrivacy
     ): RepositoryConnection!
-  
+
     """
     Whether the repository has issues enabled.
     """
     hasIssuesEnabled: Boolean!
-  
+
     """
     Whether the repository has projects enabled.
     """
     hasProjectsEnabled: Boolean!
-  
+
     """
     Whether the repository has wiki enabled.
     """
     hasWikiEnabled: Boolean!
-  
+
     """
     The repository's URL.
     """
     homepageUrl: URI
-  
+
     id: ID!
-  
+
     """
     Whether the repository is archived.
     """
     isArchived: Boolean!
-  
+
     """
     Whether the repository is blank.
     """
     isBlankIssuesEnabled: Boolean!
-  
+
     """
     Whether the repository is disabled.
     """
     isDisabled: Boolean!
-  
+
     """
     Whether the repository is empty.
     """
     isEmpty: Boolean!
-  
+
     """
     Whether the repository is locked.
     """
     isLocked: Boolean!
-  
+
     """
     Whether the repository is a mirror.
     """
     isMirror: Boolean!
-  
+
     """
     Whether the repository is private.
     """
     isPrivate: Boolean!
-  
+
     """
     Whether the repository is a template.
     """
     isTemplate: Boolean!
-  
+
     """
     Returns a single issue from the current repository.
     """
     issue(number: Int!): Issue
-  
+
     """
     Returns a single issue or pull request from the current repository.
     """
     issueOrPullRequest(number: Int!): IssueOrPullRequest
-  
+
     """
     A list of issues associated with the repository.
     """
@@ -243,12 +243,12 @@ export const repositories = gql`
       orderBy: IssueOrder
       filterBy: IssueFilters
     ): IssueConnection!
-  
+
     """
     Returns a single label by name.
     """
     label(name: String!): Label
-  
+
     """
     A list of labels for the repository.
     """
@@ -260,7 +260,7 @@ export const repositories = gql`
       orderBy: LabelOrder
       query: String
     ): LabelConnection
-  
+
     """
     A list of languages for the repository.
     """
@@ -271,17 +271,17 @@ export const repositories = gql`
       before: String
       orderBy: LanguageOrder
     ): LanguageConnection
-  
+
     """
     The license for the repository.
     """
     licenseInfo: License
-  
+
     """
     The reason the repository has been locked.
     """
     lockReason: RepositoryLockReason
-  
+
     """
     A list of users who have starred this repository.
     """
@@ -292,27 +292,27 @@ export const repositories = gql`
       before: String
       query: String
     ): UserConnection!
-  
+
     """
     Whether to merge pull requests with a commit.
     """
     mergeCommitAllowed: Boolean!
-  
+
     """
     Whether to merge pull requests with a merge commit.
     """
     mergeCommitMessage: MergeCommitMessage!
-  
+
     """
     Whether to merge pull requests with a merge commit.
     """
     mergeCommitTitle: MergeCommitTitle!
-  
+
     """
     Returns a single milestone from the current repository.
     """
     milestone(number: Int!): Milestone
-  
+
     """
     A list of milestones for the repository.
     """
@@ -325,42 +325,42 @@ export const repositories = gql`
       orderBy: MilestoneOrder
       query: String
     ): MilestoneConnection
-  
+
     """
     The name of the repository.
     """
     name: String!
-  
+
     """
     The repository's name with owner.
     """
     nameWithOwner: String!
-  
+
     """
     A Git object in the repository.
     """
     object(oid: GitObjectID, expression: String): GitObject
-  
+
     """
     The owner of the repository.
     """
     owner: RepositoryOwner!
-  
+
     """
     The repository parent, if this is a fork.
     """
     parent: Repository
-  
+
     """
     The primary language of the repository.
     """
     primaryLanguage: Language
-  
+
     """
     Returns a single project from the current repository.
     """
     projectV2(number: Int!): ProjectV2
-  
+
     """
     A list of projects for the repository.
     """
@@ -372,12 +372,12 @@ export const repositories = gql`
       orderBy: ProjectV2Order
       query: String
     ): ProjectV2Connection!
-  
+
     """
     Returns a single pull request from the current repository.
     """
     pullRequest(number: Int!): PullRequest
-  
+
     """
     A list of pull requests associated with the repository.
     """
@@ -392,22 +392,22 @@ export const repositories = gql`
       baseRefName: String
       orderBy: IssueOrder
     ): PullRequestConnection!
-  
+
     """
     Identifies when the repository was last pushed to.
     """
     pushedAt: DateTime
-  
+
     """
     Whether rebase merge is allowed.
     """
     rebaseMergeAllowed: Boolean!
-  
+
     """
     The Ref associated with a name.
     """
     ref(qualifiedName: String!): Ref
-  
+
     """
     A list of refs for the repository.
     """
@@ -421,12 +421,12 @@ export const repositories = gql`
       orderBy: RefOrder
       query: String
     ): RefConnection
-  
+
     """
     Returns a single release from the current repository.
     """
     release(tagName: String!): Release
-  
+
     """
     A list of releases for the repository.
     """
@@ -437,47 +437,47 @@ export const repositories = gql`
       before: String
       orderBy: ReleaseOrder
     ): ReleaseConnection!
-  
+
     """
     The repository this repository was forked from.
     """
     repository: Repository!
-  
+
     """
     The HTTP path for the repository.
     """
     resourcePath: URI!
-  
+
     """
     A description of the repository.
     """
     shortDescriptionHTML(limit: Int = 200): HTML!
-  
+
     """
     Whether squash merge is allowed.
     """
     squashMergeAllowed: Boolean!
-  
+
     """
     The default commit message for squash merges.
     """
     squashMergeCommitMessage: SquashMergeCommitMessage!
-  
+
     """
     The default commit title for squash merges.
     """
     squashMergeCommitTitle: SquashMergeCommitTitle!
-  
+
     """
     The SSH URL to clone this repository.
     """
     sshUrl: GitSSHRemote!
-  
+
     """
     Number of stars on this repository.
     """
     stargazerCount: Int!
-  
+
     """
     A list of users who have starred the repository.
     """
@@ -488,108 +488,108 @@ export const repositories = gql`
       before: String
       orderBy: StarOrder
     ): StargazerConnection!
-  
+
     """
     Returns a list of all submodules in this repository.
     """
     submodules(first: Int, after: String, last: Int, before: String): SubmoduleConnection!
-  
+
     """
     Temporary clone token for the repository.
     """
     tempCloneToken: String
-  
+
     """
     The repository from which this repository was templated.
     """
     templateRepository: Repository
-  
+
     """
     A list of topics associated with the repository.
     """
     topics(first: Int, after: String, last: Int, before: String): RepositoryTopicConnection!
-  
+
     """
     Identifies the date and time when the object was last updated.
     """
     updatedAt: DateTime!
-  
+
     """
     The HTTP URL for the repository.
     """
     url: URI!
-  
+
     """
     Whether the repository has branch protection.
     """
     usesCustomOpenGraphImage: Boolean!
-  
+
     """
     Whether the viewer can administer the repository.
     """
     viewerCanAdminister: Boolean!
-  
+
     """
     Whether the viewer can create projects in the repository.
     """
     viewerCanCreateProjects: Boolean!
-  
+
     """
     Whether the viewer can subscribe to the repository.
     """
     viewerCanSubscribe: Boolean!
-  
+
     """
     Whether the viewer can update topics.
     """
     viewerCanUpdateTopics: Boolean!
-  
+
     """
     The viewer's default merge method.
     """
     viewerDefaultCommitEmail: String
-  
+
     """
     The viewer's default merge method.
     """
     viewerDefaultMergeMethod: PullRequestMergeMethod!
-  
+
     """
     Whether the viewer has starred the repository.
     """
     viewerHasStarred: Boolean!
-  
+
     """
     The viewer's permission on the repository.
     """
     viewerPermission: RepositoryPermission
-  
+
     """
     A list of emails the viewer can commit with.
     """
     viewerPossibleCommitEmails: [String!]
-  
+
     """
     The viewer's subscription state.
     """
     viewerSubscription: SubscriptionState
-  
+
     """
     The visibility of the repository.
     """
     visibility: RepositoryVisibility!
-  
+
     """
     A list of users watching the repository.
     """
     watchers(first: Int, after: String, last: Int, before: String): UserConnection!
-  
+
     """
     A list of workflows for the repository.
     """
     workflows(first: Int, after: String, last: Int, before: String): WorkflowConnection!
   }
-  
+
   """
   A Git reference.
   """
@@ -608,45 +608,45 @@ export const repositories = gql`
       baseRefName: String
       orderBy: IssueOrder
     ): PullRequestConnection!
-  
+
     """
     Branch protection rules for this ref.
     """
     branchProtectionRule: BranchProtectionRule
-  
+
     """
     Compares the current ref to another ref.
     """
     compare(headRef: String!): Comparison
-  
+
     id: ID!
-  
+
     """
     The ref name.
     """
     name: String!
-  
+
     """
     The ref prefix.
     """
     prefix: String!
-  
+
     """
     The ref name without the prefix.
     """
     refUpdateRule: RefUpdateRule
-  
+
     """
     The repository the ref belongs to.
     """
     repository: Repository!
-  
+
     """
     The object the ref points to.
     """
     target: GitObject
   }
-  
+
   """
   A comparison between two refs.
   """
@@ -655,33 +655,33 @@ export const repositories = gql`
     The number of commits ahead.
     """
     aheadBy: Int!
-  
+
     """
     The number of commits behind.
     """
     behindBy: Int!
-  
+
     """
     The base ref.
     """
     baseTarget: GitObject!
-  
+
     """
     The head ref.
     """
     headTarget: GitObject!
-  
+
     """
     The commits between the base and head.
     """
     commits(first: Int, after: String, last: Int, before: String): CommitConnection!
-  
+
     """
     The comparison status.
     """
     status: ComparisonStatus!
   }
-  
+
   """
   The status of a comparison.
   """
@@ -690,23 +690,23 @@ export const repositories = gql`
     The head is ahead of the base.
     """
     AHEAD
-  
+
     """
     The head is behind the base.
     """
     BEHIND
-  
+
     """
     The head and base have diverged.
     """
     DIVERGED
-  
+
     """
     The head and base are identical.
     """
     IDENTICAL
   }
-  
+
   """
   A branch protection rule.
   """
@@ -720,85 +720,85 @@ export const repositories = gql`
       last: Int
       before: String
     ): BranchProtectionRuleConflictConnection!
-  
+
     """
     The actor who created this rule.
     """
     creator: Actor
-  
+
     """
     Identifies the primary key from the database.
     """
     databaseId: Int
-  
+
     """
     Will new commits pushed to matching branches dismiss pull request reviews.
     """
     dismissesStaleReviews: Boolean!
-  
+
     id: ID!
-  
+
     """
     Can admins override rules.
     """
     isAdminEnforced: Boolean!
-  
+
     """
     The ref name pattern.
     """
     pattern: String!
-  
+
     """
     Whether commits on matching branches require a signature.
     """
     requiresCommitSignatures: Boolean!
-  
+
     """
     Are reviews required on matching branches.
     """
     requiresApprovingReviews: Boolean!
-  
+
     """
     The number of reviews required.
     """
     requiredApprovingReviewCount: Int
-  
+
     """
     List of required status check contexts.
     """
     requiredStatusCheckContexts: [String]
-  
+
     """
     Whether status checks are required.
     """
     requiresStatusChecks: Boolean!
-  
+
     """
     Whether branches must be up to date before merging.
     """
     requiresStrictStatusChecks: Boolean!
-  
+
     """
     Whether conversations must be resolved.
     """
     requiresConversationResolution: Boolean!
-  
+
     """
     Whether linear history is required.
     """
     requiresLinearHistory: Boolean!
-  
+
     """
     Whether pushing is restricted.
     """
     restrictsPushes: Boolean!
-  
+
     """
     Whether review dismissals are restricted.
     """
     restrictsReviewDismissals: Boolean!
   }
-  
+
   """
   The connection type for BranchProtectionRule.
   """
@@ -808,30 +808,30 @@ export const repositories = gql`
     pageInfo: PageInfo!
     totalCount: Int!
   }
-  
+
   type BranchProtectionRuleEdge {
     cursor: String!
     node: BranchProtectionRule
   }
-  
+
   type BranchProtectionRuleConflictConnection {
     edges: [BranchProtectionRuleConflictEdge]
     nodes: [BranchProtectionRuleConflict]
     pageInfo: PageInfo!
     totalCount: Int!
   }
-  
+
   type BranchProtectionRuleConflictEdge {
     cursor: String!
     node: BranchProtectionRuleConflict
   }
-  
+
   type BranchProtectionRuleConflict {
     branchProtectionRule: BranchProtectionRule
     conflictingBranchProtectionRule: BranchProtectionRule
     ref: Ref
   }
-  
+
   """
   A label for categorizing objects.
   """
@@ -840,24 +840,24 @@ export const repositories = gql`
     Identifies the label color.
     """
     color: String!
-  
+
     """
     Identifies the date and time when the label was created.
     """
     createdAt: DateTime
-  
+
     """
     A brief description of this label.
     """
     description: String
-  
+
     id: ID!
-  
+
     """
     Whether this label is a default.
     """
     isDefault: Boolean!
-  
+
     """
     A list of issues with this label.
     """
@@ -871,12 +871,12 @@ export const repositories = gql`
       orderBy: IssueOrder
       filterBy: IssueFilters
     ): IssueConnection!
-  
+
     """
     The label name.
     """
     name: String!
-  
+
     """
     A list of pull requests with this label.
     """
@@ -891,28 +891,28 @@ export const repositories = gql`
       baseRefName: String
       orderBy: IssueOrder
     ): PullRequestConnection!
-  
+
     """
     The repository this label belongs to.
     """
     repository: Repository!
-  
+
     """
     The HTTP path for the label.
     """
     resourcePath: URI!
-  
+
     """
     Identifies the date and time when the label was last updated.
     """
     updatedAt: DateTime
-  
+
     """
     The HTTP URL for the label.
     """
     url: URI!
   }
-  
+
   """
   A milestone within a repository.
   """
@@ -921,34 +921,34 @@ export const repositories = gql`
     Whether the milestone is closed.
     """
     closed: Boolean!
-  
+
     """
     Identifies the date and time when the object was closed.
     """
     closedAt: DateTime
-  
+
     """
     Identifies the date and time when the object was created.
     """
     createdAt: DateTime!
-  
+
     """
     The actor who created this milestone.
     """
     creator: Actor
-  
+
     """
     A description for the milestone.
     """
     description: String
-  
+
     """
     The due date for the milestone.
     """
     dueOn: DateTime
-  
+
     id: ID!
-  
+
     """
     A list of issues with this milestone.
     """
@@ -962,17 +962,17 @@ export const repositories = gql`
       orderBy: IssueOrder
       filterBy: IssueFilters
     ): IssueConnection!
-  
+
     """
     The milestone number.
     """
     number: Int!
-  
+
     """
     The percentage of issues and pull requests closed.
     """
     progressPercentage: Float!
-  
+
     """
     A list of pull requests with this milestone.
     """
@@ -987,38 +987,38 @@ export const repositories = gql`
       baseRefName: String
       orderBy: IssueOrder
     ): PullRequestConnection!
-  
+
     """
     The repository this milestone belongs to.
     """
     repository: Repository!
-  
+
     """
     The HTTP path for the milestone.
     """
     resourcePath: URI!
-  
+
     """
     The state of the milestone.
     """
     state: MilestoneState!
-  
+
     """
     The milestone title.
     """
     title: String!
-  
+
     """
     Identifies the date and time when the object was last updated.
     """
     updatedAt: DateTime!
-  
+
     """
     The HTTP URL for the milestone.
     """
     url: URI!
   }
-  
+
   """
   The connection type for RepositoryCollaborator.
   """
@@ -1028,22 +1028,22 @@ export const repositories = gql`
     pageInfo: PageInfo!
     totalCount: Int!
   }
-  
+
   type RepositoryCollaboratorEdge {
     cursor: String!
     node: User!
     permission: RepositoryPermission!
     permissionSources: [PermissionSource!]
   }
-  
+
   type PermissionSource {
     organization: Organization!
     permission: DefaultRepositoryPermissionField!
     source: PermissionGranter!
   }
-  
+
   union PermissionGranter = Organization | Repository | Team
-  
+
   """
   Collaborator affiliation.
   """
@@ -1052,7 +1052,7 @@ export const repositories = gql`
     DIRECT
     ALL
   }
-  
+
   """
   A code of conduct for a repository.
   """
@@ -1064,7 +1064,7 @@ export const repositories = gql`
     resourcePath: URI
     url: URI
   }
-  
+
   """
   A deploy key.
   """
@@ -1076,19 +1076,19 @@ export const repositories = gql`
     title: String!
     verified: Boolean!
   }
-  
+
   type DeployKeyConnection {
     edges: [DeployKeyEdge]
     nodes: [DeployKey]
     pageInfo: PageInfo!
     totalCount: Int!
   }
-  
+
   type DeployKeyEdge {
     cursor: String!
     node: DeployKey
   }
-  
+
   """
   A language.
   """
@@ -1097,7 +1097,7 @@ export const repositories = gql`
     id: ID!
     name: String!
   }
-  
+
   type LanguageConnection {
     edges: [LanguageEdge]
     nodes: [Language]
@@ -1105,13 +1105,13 @@ export const repositories = gql`
     totalCount: Int!
     totalSize: Int!
   }
-  
+
   type LanguageEdge {
     cursor: String!
     node: Language!
     size: Int!
   }
-  
+
   """
   A repository license.
   """
@@ -1132,13 +1132,13 @@ export const repositories = gql`
     spdxId: String
     url: URI
   }
-  
+
   type LicenseRule {
     description: String!
     key: String!
     label: String!
   }
-  
+
   """
   The reason a repository is locked.
   """
@@ -1149,7 +1149,7 @@ export const repositories = gql`
     RENAME
     TRADE_RESTRICTION
   }
-  
+
   """
   The merge commit message.
   """
@@ -1158,7 +1158,7 @@ export const repositories = gql`
     PR_BODY
     BLANK
   }
-  
+
   """
   The merge commit title.
   """
@@ -1166,7 +1166,7 @@ export const repositories = gql`
     PR_TITLE
     MERGE_MESSAGE
   }
-  
+
   """
   The squash merge commit message.
   """
@@ -1175,7 +1175,7 @@ export const repositories = gql`
     COMMIT_MESSAGES
     BLANK
   }
-  
+
   """
   The squash merge commit title.
   """
@@ -1183,12 +1183,12 @@ export const repositories = gql`
     PR_TITLE
     COMMIT_OR_PR_TITLE
   }
-  
+
   """
   A Git SSH remote.
   """
   scalar GitSSHRemote
-  
+
   """
   A repository submodule.
   """
@@ -1199,19 +1199,19 @@ export const repositories = gql`
     path: String!
     subprojectCommitOid: GitObjectID
   }
-  
+
   type SubmoduleConnection {
     edges: [SubmoduleEdge]
     nodes: [Submodule]
     pageInfo: PageInfo!
     totalCount: Int!
   }
-  
+
   type SubmoduleEdge {
     cursor: String!
     node: Submodule
   }
-  
+
   """
   A repository topic.
   """
@@ -1229,26 +1229,26 @@ export const repositories = gql`
     ): StargazerConnection!
     viewerHasStarred: Boolean!
   }
-  
+
   type RepositoryTopic implements Node & UniformResourceLocatable {
     id: ID!
     resourcePath: URI!
     topic: Topic!
     url: URI!
   }
-  
+
   type RepositoryTopicConnection {
     edges: [RepositoryTopicEdge]
     nodes: [RepositoryTopic]
     pageInfo: PageInfo!
     totalCount: Int!
   }
-  
+
   type RepositoryTopicEdge {
     cursor: String!
     node: RepositoryTopic
   }
-  
+
   input IssueFilters {
     assignee: String
     createdBy: String
@@ -1260,17 +1260,17 @@ export const repositories = gql`
     states: [IssueState!]
     viewerSubscribed: Boolean
   }
-  
+
   input DiscussionOrder {
     field: DiscussionOrderField!
     direction: OrderDirection!
   }
-  
+
   enum DiscussionOrderField {
     CREATED_AT
     UPDATED_AT
   }
-  
+
   type DiscussionCategory implements Node {
     createdAt: DateTime!
     description: String
@@ -1283,50 +1283,50 @@ export const repositories = gql`
     slug: String!
     updatedAt: DateTime!
   }
-  
+
   type DiscussionCategoryConnection {
     edges: [DiscussionCategoryEdge]
     nodes: [DiscussionCategory]
     pageInfo: PageInfo!
     totalCount: Int!
   }
-  
+
   type DiscussionCategoryEdge {
     cursor: String!
     node: DiscussionCategory
   }
-  
+
   input DeploymentOrder {
     field: DeploymentOrderField!
     direction: OrderDirection!
   }
-  
+
   enum DeploymentOrderField {
     CREATED_AT
   }
-  
+
   input RefOrder {
     field: RefOrderField!
     direction: OrderDirection!
   }
-  
+
   enum RefOrderField {
     TAG_COMMIT_DATE
     ALPHABETICAL
   }
-  
+
   input ProjectV2Order {
     field: ProjectV2OrderField!
     direction: OrderDirection!
   }
-  
+
   enum ProjectV2OrderField {
     TITLE
     NUMBER
     UPDATED_AT
     CREATED_AT
   }
-  
+
   type CommitComment implements Node & Comment & Reactable & RepositoryNode & UniformResourceLocatable {
     author: Actor
     authorAssociation: CommentAuthorAssociation!
@@ -1364,19 +1364,19 @@ export const repositories = gql`
     viewerCanUpdate: Boolean!
     viewerDidAuthor: Boolean!
   }
-  
+
   type CommitCommentConnection {
     edges: [CommitCommentEdge]
     nodes: [CommitComment]
     pageInfo: PageInfo!
     totalCount: Int!
   }
-  
+
   type CommitCommentEdge {
     cursor: String!
     node: CommitComment
   }
-  
+
   enum CommentAuthorAssociation {
     MEMBER
     OWNER

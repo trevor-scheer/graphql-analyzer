@@ -15,7 +15,7 @@ export const REPO_CARD_FRAGMENTS = gql`
     isFork
     isArchived
   }
-  
+
   fragment RepoCardStats on Repository {
     stargazerCount
     forkCount
@@ -29,7 +29,7 @@ export const REPO_CARD_FRAGMENTS = gql`
       totalCount
     }
   }
-  
+
   fragment RepoCardLanguage on Repository {
     primaryLanguage {
       name
