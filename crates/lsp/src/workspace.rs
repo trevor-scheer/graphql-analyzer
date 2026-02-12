@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
-use tower_lsp_server::UriExt;
+use tower_lsp_server::ls_types as lsp_types;
 
 /// Default timeout for acquiring host locks during LSP requests.
 const LOCK_TIMEOUT: Duration = Duration::from_millis(500);

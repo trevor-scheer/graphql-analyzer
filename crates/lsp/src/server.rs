@@ -22,9 +22,9 @@ use lsp_types::{
     SelectionRangeProviderCapability, SemanticToken, SemanticTokenModifier, SemanticTokenType,
     SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
     SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
-    ServerCapabilities, ServerInfo, ShowDocumentParams, SymbolInformation,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri, WorkDoneProgressOptions,
-    WorkspaceEdit, WorkspaceSymbol, WorkspaceSymbolParams,
+    ServerCapabilities, ServerInfo, ShowDocumentParams, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextEdit, Uri, WorkDoneProgressOptions, WorkspaceEdit,
+    WorkspaceSymbolParams,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -33,7 +33,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tower_lsp_server::jsonrpc::Result;
-use tower_lsp_server::{Client, LanguageServer, UriExt};
+use tower_lsp_server::ls_types as lsp_types;
+use tower_lsp_server::{Client, LanguageServer};
 
 /// Parameters for the `graphql/virtualFileContent` custom request.
 ///
@@ -1892,7 +1893,7 @@ impl LanguageServer for GraphQLLanguageServer {
     async fn symbol(
         &self,
         params: WorkspaceSymbolParams,
-    ) -> Result<Option<OneOf<Vec<SymbolInformation>, Vec<WorkspaceSymbol>>>> {
+    ) -> Result<Option<lsp_types::WorkspaceSymbolResponse>> {
         tracing::debug!("Workspace symbols requested: {}", params.query);
 
         let mut all_symbols = Vec::new();
@@ -1916,7 +1917,9 @@ impl LanguageServer for GraphQLLanguageServer {
         }
 
         tracing::debug!("Returning {} workspace symbols", all_symbols.len());
-        Ok(Some(OneOf::Right(all_symbols)))
+        Ok(Some(lsp_types::WorkspaceSymbolResponse::Nested(
+            all_symbols,
+        )))
     }
 
     async fn semantic_tokens_full(
