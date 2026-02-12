@@ -67,8 +67,8 @@ pub use types::{
     CodeFix, CodeLens, CodeLensCommand, CodeLensInfo, CompletionItem, CompletionKind, Diagnostic,
     DiagnosticSeverity, DocumentSymbol, FilePath, FoldingRange, FoldingRangeKind,
     FragmentReference, FragmentUsage, HoverResult, InlayHint, InlayHintKind, InsertTextFormat,
-    Location, PendingIntrospection, Position, ProjectStatus, Range, SchemaLoadResult, SchemaStats,
-    SelectionRange, SymbolKind, TextEdit, WorkspaceSymbol,
+    Location, PendingIntrospection, Position, ProjectStatus, Range, SchemaContentError,
+    SchemaLoadResult, SchemaStats, SelectionRange, SymbolKind, TextEdit, WorkspaceSymbol,
 };
 
 // Re-export helpers for internal use
@@ -79,38 +79,80 @@ pub use helpers::{path_to_file_uri, unwrap_type_to_name};
 use symbol::{find_fragment_definition_full_range, find_operation_definition_ranges};
 
 // Re-export database types that IDE layer needs
-pub use graphql_base_db::FileKind;
+pub use graphql_base_db::{DocumentKind, Language};
 
 /// Information about a loaded file from document discovery
 #[derive(Debug, Clone)]
 pub struct LoadedFile {
     /// The file path (as a URI string)
     pub path: FilePath,
-    /// The determined file kind
-    pub kind: FileKind,
+    /// The source language
+    pub language: Language,
+    /// The document kind
+    pub document_kind: DocumentKind,
 }
 
 /// File data that has been read from disk but not yet registered.
 /// Used to separate file I/O from lock acquisition.
+#[derive(Debug)]
 pub struct DiscoveredFile {
     /// The file path (as a URI string)
     pub path: FilePath,
     /// The file content
     pub content: String,
-    /// The determined file kind
-    pub kind: FileKind,
+    /// The source language
+    pub language: Language,
+    /// The document kind
+    pub document_kind: DocumentKind,
+}
+
+/// A content mismatch error found during file discovery.
+///
+/// This indicates a file's content doesn't match its expected `DocumentKind`
+/// based on which config pattern matched it.
+#[derive(Debug, Clone)]
+pub struct ContentMismatchError {
+    /// The pattern that matched this file
+    pub pattern: String,
+    /// Path to the file with mismatched content
+    pub file_path: std::path::PathBuf,
+    /// What kind was expected (based on config)
+    pub expected: graphql_config::FileType,
+    /// Names of definitions that don't belong
+    pub unexpected_definitions: Vec<String>,
+}
+
+/// Result of file discovery, containing both files and any validation errors.
+#[derive(Debug, Default)]
+pub struct FileDiscoveryResult {
+    /// Successfully discovered files
+    pub files: Vec<DiscoveredFile>,
+    /// Content mismatch errors found during discovery
+    pub errors: Vec<ContentMismatchError>,
+}
+
+impl FileDiscoveryResult {
+    /// Returns true if there are any content mismatch errors.
+    #[must_use]
+    pub fn has_errors(&self) -> bool {
+        !self.errors.is_empty()
+    }
 }
 
 /// Discover and read document files from config without requiring any locks.
 ///
 /// This function performs all file I/O upfront so that lock acquisition
-/// for registration can be brief. Returns the file data ready for registration.
+/// for registration can be brief. Returns the file data ready for registration,
+/// along with any content mismatch errors found.
+///
+/// Files in the `documents` config are expected to contain executable definitions
+/// (operations, fragments). If schema definitions are found, an error is reported.
 pub fn discover_document_files(
     config: &graphql_config::ProjectConfig,
     workspace_path: &std::path::Path,
-) -> Vec<DiscoveredFile> {
+) -> FileDiscoveryResult {
     let Some(documents_config) = &config.documents else {
-        return Vec::new();
+        return FileDiscoveryResult::default();
     };
 
     let patterns: Vec<String> = documents_config
@@ -119,7 +161,7 @@ pub fn discover_document_files(
         .map(std::string::ToString::to_string)
         .collect();
 
-    let mut discovered: Vec<DiscoveredFile> = Vec::new();
+    let mut result = FileDiscoveryResult::default();
 
     for pattern in patterns {
         // Skip negation patterns
@@ -146,14 +188,51 @@ pub fn discover_document_files(
                                 match std::fs::read_to_string(&path) {
                                     Ok(content) => {
                                         let path_str = path.display().to_string();
-                                        let file_kind =
+                                        let (language, document_kind) =
                                             determine_document_file_kind(&path_str, &content);
                                         let file_path = path_to_file_path(&path);
 
-                                        discovered.push(DiscoveredFile {
+                                        // Validate content matches expected kind (Executable)
+                                        // For TS/JS files, we need to extract GraphQL first
+                                        let graphql_content = if language.requires_extraction() {
+                                            // Extract and concatenate all GraphQL blocks
+                                            let config = graphql_extract::ExtractConfig::default();
+                                            graphql_extract::extract_from_source(
+                                                &content, language, &config,
+                                            )
+                                            .unwrap_or_default()
+                                            .iter()
+                                            .map(|block| block.source.as_str())
+                                            .collect::<Vec<_>>()
+                                            .join("\n")
+                                        } else {
+                                            content.clone()
+                                        };
+
+                                        // Check for schema definitions in document files
+                                        if let Some(mismatch) =
+                                            graphql_syntax::validate_content_matches_kind(
+                                                &graphql_content,
+                                                DocumentKind::Executable,
+                                            )
+                                        {
+                                            let definitions = match mismatch {
+                                                graphql_syntax::ContentMismatch::ExpectedExecutableFoundSchema { definitions } => definitions,
+                                                graphql_syntax::ContentMismatch::ExpectedSchemaFoundExecutable { .. } => Vec::new(),
+                                            };
+                                            result.errors.push(ContentMismatchError {
+                                                pattern: pattern.clone(),
+                                                file_path: path.clone(),
+                                                expected: graphql_config::FileType::Document,
+                                                unexpected_definitions: definitions,
+                                            });
+                                        }
+
+                                        result.files.push(DiscoveredFile {
                                             path: file_path,
                                             content,
-                                            kind: file_kind,
+                                            language,
+                                            document_kind,
                                         });
                                     }
                                     Err(e) => {
@@ -179,7 +258,7 @@ pub fn discover_document_files(
         }
     }
 
-    discovered
+    result
 }
 
 /// Expand brace patterns like `{ts,tsx}` into multiple patterns
@@ -216,15 +295,15 @@ fn has_extension(path: &str, ext: &str) -> bool {
 /// - `.js`/`.jsx` files → JavaScript
 /// - `.graphql`/`.gql` files → `ExecutableGraphQL`
 ///
-/// Note: Files from the `schema` configuration are always `FileKind::Schema`,
+/// Note: Files from the `schema` configuration are always `Language::GraphQL, DocumentKind::Schema`,
 /// regardless of their extension.
-fn determine_document_file_kind(path: &str, _content: &str) -> FileKind {
+fn determine_document_file_kind(path: &str, _content: &str) -> (Language, DocumentKind) {
     if has_extension(path, ".ts") || has_extension(path, ".tsx") {
-        FileKind::TypeScript
+        (Language::TypeScript, DocumentKind::Executable)
     } else if has_extension(path, ".js") || has_extension(path, ".jsx") {
-        FileKind::JavaScript
+        (Language::JavaScript, DocumentKind::Executable)
     } else {
-        FileKind::ExecutableGraphQL
+        (Language::GraphQL, DocumentKind::Executable)
     }
 }
 
@@ -748,9 +827,16 @@ impl AnalysisHost {
     ///
     /// **IMPORTANT**: Only call `rebuild_project_files()` when this returns `true` (new file).
     /// Content-only updates do NOT require rebuilding the project index.
-    pub fn add_file(&mut self, path: &FilePath, content: &str, kind: FileKind) -> bool {
+    pub fn add_file(
+        &mut self,
+        path: &FilePath,
+        content: &str,
+        language: Language,
+        document_kind: DocumentKind,
+    ) -> bool {
         let mut registry = self.registry.write();
-        let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, kind);
+        let (_, _, _, is_new) =
+            registry.add_file(&mut self.db, path, content, language, document_kind);
         is_new
     }
 
@@ -766,10 +852,17 @@ impl AnalysisHost {
         let mut loaded = Vec::with_capacity(files.len());
 
         for file in files {
-            registry.add_file(&mut self.db, &file.path, &file.content, file.kind);
+            registry.add_file(
+                &mut self.db,
+                &file.path,
+                &file.content,
+                file.language,
+                file.document_kind,
+            );
             loaded.push(LoadedFile {
                 path: file.path.clone(),
-                kind: file.kind,
+                language: file.language,
+                document_kind: file.document_kind,
             });
         }
 
@@ -805,21 +898,22 @@ impl AnalysisHost {
     /// # Example
     ///
     /// ```ignore
-    /// use graphql_ide::{AnalysisHost, FilePath, FileKind};
+    /// use graphql_ide::{AnalysisHost, FilePath, Language, DocumentKind};
     ///
     /// let mut host = AnalysisHost::new();
     /// let files = vec![
-    ///     (FilePath::new("file:///schema.graphql"), "type Query { hello: String }", FileKind::Schema),
-    ///     (FilePath::new("file:///query.graphql"), "query { hello }", FileKind::ExecutableGraphQL),
+    ///     (FilePath::new("file:///schema.graphql"), "type Query { hello: String }", Language::GraphQL, DocumentKind::Schema),
+    ///     (FilePath::new("file:///query.graphql"), "query { hello }", Language::GraphQL, DocumentKind::Executable),
     /// ];
     /// host.add_files_batch(&files);
     /// ```
-    pub fn add_files_batch(&mut self, files: &[(FilePath, &str, FileKind)]) {
+    pub fn add_files_batch(&mut self, files: &[(FilePath, &str, Language, DocumentKind)]) {
         let mut registry = self.registry.write();
         let mut any_new = false;
 
-        for (path, content, kind) in files {
-            let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, *kind);
+        for (path, content, language, document_kind) in files {
+            let (_, _, _, is_new) =
+                registry.add_file(&mut self.db, path, content, *language, *document_kind);
             any_new = any_new || is_new;
         }
 
@@ -845,11 +939,13 @@ impl AnalysisHost {
         &mut self,
         path: &FilePath,
         content: &str,
-        kind: FileKind,
+        language: Language,
+        document_kind: DocumentKind,
     ) -> (bool, Analysis) {
         // Single lock acquisition for both operations
         let mut registry = self.registry.write();
-        let (_, _, _, is_new) = registry.add_file(&mut self.db, path, content, kind);
+        let (_, _, _, is_new) =
+            registry.add_file(&mut self.db, path, content, language, document_kind);
 
         // If this is a new file, rebuild the index before creating snapshot
         // This also syncs project_files to self.db.project_files_input
@@ -908,11 +1004,13 @@ impl AnalysisHost {
         self.add_file(
             &FilePath::new("apollo_client_builtins.graphql".to_string()),
             APOLLO_CLIENT_BUILTINS,
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
         let mut count = 1;
         let mut loaded_paths = Vec::new();
         let mut pending_introspections = Vec::new();
+        let mut content_errors = Vec::new();
 
         let patterns: Vec<String> = match &config.schema {
             graphql_config::SchemaConfig::Path(s) => vec![s.clone()],
@@ -955,7 +1053,7 @@ impl AnalysisHost {
 
                                     // Check if this is a TS/JS file that needs extraction
                                     if let Some(lang) = language {
-                                        if lang.requires_parsing() {
+                                        if lang.requires_extraction() {
                                             // Extract GraphQL from TS/JS file
                                             let extract_config = self.get_extract_config();
                                             match graphql_extract::extract_from_source(
@@ -964,22 +1062,58 @@ impl AnalysisHost {
                                                 &extract_config,
                                             ) {
                                                 Ok(blocks) => {
-                                                    for (block_idx, block) in
-                                                        blocks.iter().enumerate()
-                                                    {
-                                                        // Create a unique file URI for each block
-                                                        let block_uri = if blocks.len() > 1 {
-                                                            format!("{file_uri}#block{block_idx}")
-                                                        } else {
-                                                            file_uri.clone()
+                                                    // Validate all blocks for executable definitions
+                                                    let all_sources: String = blocks
+                                                        .iter()
+                                                        .map(|b| b.source.as_str())
+                                                        .collect::<Vec<_>>()
+                                                        .join("\n");
+                                                    if let Some(mismatch) = graphql_syntax::validate_content_matches_kind(
+                                                        &all_sources,
+                                                        DocumentKind::Schema,
+                                                    ) {
+                                                        let definitions = match mismatch {
+                                                            graphql_syntax::ContentMismatch::ExpectedSchemaFoundExecutable { definitions } => definitions,
+                                                            graphql_syntax::ContentMismatch::ExpectedExecutableFoundSchema { .. } => Vec::new(),
                                                         };
+                                                        content_errors.push(SchemaContentError {
+                                                            pattern: pattern.clone(),
+                                                            file_path: entry.clone(),
+                                                            unexpected_definitions: definitions,
+                                                        });
+                                                    }
 
+                                                    if blocks.len() == 1 {
+                                                        // Single block: store original TS/JS content
+                                                        // so the syntax crate can handle extraction
+                                                        // with proper line offsets
                                                         self.add_file(
-                                                            &FilePath::new(block_uri),
-                                                            &block.source,
-                                                            FileKind::Schema,
+                                                            &FilePath::new(file_uri.clone()),
+                                                            &content,
+                                                            lang,
+                                                            DocumentKind::Schema,
                                                         );
                                                         count += 1;
+                                                    } else {
+                                                        // Multiple blocks: create separate entries
+                                                        // with line range URIs for each block
+                                                        for block in &blocks {
+                                                            let start_line =
+                                                                block.location.range.start.line + 1;
+                                                            let end_line =
+                                                                block.location.range.end.line + 1;
+                                                            let block_uri = format!(
+                                                                "{file_uri}#L{start_line}-L{end_line}"
+                                                            );
+
+                                                            self.add_file(
+                                                                &FilePath::new(block_uri),
+                                                                &block.source,
+                                                                Language::GraphQL,
+                                                                DocumentKind::Schema,
+                                                            );
+                                                            count += 1;
+                                                        }
                                                     }
                                                     if blocks.is_empty() {
                                                         tracing::debug!(
@@ -1002,11 +1136,30 @@ impl AnalysisHost {
                                         }
                                     }
 
-                                    // Pure GraphQL file - add directly
+                                    // Pure GraphQL file - validate and add
+                                    // Check for executable definitions (operations/fragments)
+                                    if let Some(mismatch) =
+                                        graphql_syntax::validate_content_matches_kind(
+                                            &content,
+                                            DocumentKind::Schema,
+                                        )
+                                    {
+                                        let definitions = match mismatch {
+                                            graphql_syntax::ContentMismatch::ExpectedSchemaFoundExecutable { definitions } => definitions,
+                                            graphql_syntax::ContentMismatch::ExpectedExecutableFoundSchema { .. } => Vec::new(),
+                                        };
+                                        content_errors.push(SchemaContentError {
+                                            pattern: pattern.clone(),
+                                            file_path: entry.clone(),
+                                            unexpected_definitions: definitions,
+                                        });
+                                    }
+
                                     self.add_file(
                                         &FilePath::new(file_uri),
                                         &content,
-                                        FileKind::Schema,
+                                        Language::GraphQL,
+                                        DocumentKind::Schema,
                                     );
                                     loaded_paths.push(entry.clone());
                                     count += 1;
@@ -1043,6 +1196,7 @@ impl AnalysisHost {
             loaded_count: count,
             loaded_paths,
             pending_introspections,
+            content_errors,
         })
     }
 
@@ -1068,7 +1222,12 @@ impl AnalysisHost {
                 .trim_start_matches("http://")
         );
         tracing::info!("Adding introspected schema from {} as {}", url, virtual_uri);
-        self.add_file(&FilePath::new(virtual_uri.clone()), sdl, FileKind::Schema);
+        self.add_file(
+            &FilePath::new(virtual_uri.clone()),
+            sdl,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
         virtual_uri
     }
 
@@ -1141,7 +1300,7 @@ impl AnalysisHost {
             .collect();
 
         let mut loaded_files: Vec<LoadedFile> = Vec::new();
-        let mut files_to_add: Vec<(FilePath, String, FileKind)> = Vec::new();
+        let mut files_to_add: Vec<(FilePath, String, Language, DocumentKind)> = Vec::new();
 
         for pattern in patterns {
             // Skip negation patterns
@@ -1168,17 +1327,23 @@ impl AnalysisHost {
                                     match std::fs::read_to_string(&path) {
                                         Ok(content) => {
                                             let path_str = path.display().to_string();
-                                            let file_kind =
+                                            let (language, document_kind) =
                                                 determine_document_file_kind(&path_str, &content);
 
                                             let file_path = path_to_file_path(&path);
 
                                             loaded_files.push(LoadedFile {
                                                 path: file_path.clone(),
-                                                kind: file_kind,
+                                                language,
+                                                document_kind,
                                             });
 
-                                            files_to_add.push((file_path, content, file_kind));
+                                            files_to_add.push((
+                                                file_path,
+                                                content,
+                                                language,
+                                                document_kind,
+                                            ));
                                         }
                                         Err(e) => {
                                             tracing::warn!(
@@ -1205,9 +1370,11 @@ impl AnalysisHost {
 
         // Batch add all files using add_files_batch for O(n) performance
         // Convert owned strings to borrowed for the batch API
-        let batch_refs: Vec<(FilePath, &str, FileKind)> = files_to_add
+        let batch_refs: Vec<(FilePath, &str, Language, DocumentKind)> = files_to_add
             .iter()
-            .map(|(path, content, kind)| (path.clone(), content.as_str(), *kind))
+            .map(|(path, content, language, document_kind)| {
+                (path.clone(), content.as_str(), *language, *document_kind)
+            })
             .collect();
         self.add_files_batch(&batch_refs);
 
@@ -1693,7 +1860,7 @@ impl Analysis {
                 for doc in parse.documents() {
                     if let Some(ranges) = find_operation_definition_ranges(doc.tree, name) {
                         let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-                        let doc_line_offset = doc.line_offset as u32;
+                        let doc_line_offset = doc.line_offset;
                         found_range = Some(adjust_range_for_line_offset(
                             offset_range_to_range(
                                 &doc_line_index,
@@ -1975,7 +2142,7 @@ impl Analysis {
                 let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
                 let range = adjust_range_for_line_offset(
                     offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
-                    doc.line_offset as u32,
+                    doc.line_offset,
                 );
                 return Some((file_path, range));
             }
@@ -2287,7 +2454,12 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a valid schema file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
+        host.add_file(
+            &path,
+            "type Query { hello: String }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
         host.rebuild_project_files();
 
         // Get diagnostics
@@ -2331,7 +2503,12 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
+        host.add_file(
+            &path,
+            "type Query { hello: String }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
 
         // Get initial diagnostics - snapshot is scoped to this block
         let diagnostics1 = {
@@ -2340,7 +2517,12 @@ fragment AttackActionInfo on AttackAction {
         }; // snapshot dropped here, before mutation
 
         // Update the file - safe because no snapshots exist
-        host.add_file(&path, "type Query { world: Int }", FileKind::Schema);
+        host.add_file(
+            &path,
+            "type Query { world: Int }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
 
         // Get new diagnostics - new snapshot for updated content
         let diagnostics2 = {
@@ -2427,7 +2609,12 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a schema file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
+        host.add_file(
+            &path,
+            "type Query { hello: String }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
         host.rebuild_project_files();
 
         // Get hover at a position
@@ -2459,7 +2646,12 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a file with syntax errors (missing closing brace)
         let path = FilePath::new("file:///invalid.graphql");
-        host.add_file(&path, "type Query {", FileKind::Schema);
+        host.add_file(
+            &path,
+            "type Query {",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
         host.rebuild_project_files();
 
         // Get hover on the Query type name (position 5 is in "Query")
@@ -2483,7 +2675,8 @@ fragment AttackActionInfo on AttackAction {
         host.add_file(
             &schema_path,
             "type Pokemon {\n  name: String!\n  level: Int!\n}",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add a document that uses this field
@@ -2491,7 +2684,8 @@ fragment AttackActionInfo on AttackAction {
         host.add_file(
             &doc_path,
             "query GetPokemon { pokemon { name } }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -2522,7 +2716,8 @@ fragment AttackActionInfo on AttackAction {
         host.add_file(
             &schema_path,
             "type Pokemon {\n  name: String!\n  level: Int!\n}",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         host.rebuild_project_files();
@@ -2548,14 +2743,19 @@ fragment AttackActionInfo on AttackAction {
         host.add_file(
             &schema_file,
             "type Query { battleParticipant(id: ID!): BattleParticipant }\ninterface BattleParticipant { id: ID! name: String! displayName: String! }\ntype BattlePokemon implements BattleParticipant { id: ID! name: String! displayName: String! currentHP: Int! }",
-            FileKind::Schema,
+            Language::GraphQL, DocumentKind::Schema,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         let (query_text, cursor_pos) = extract_cursor(
             "query { battleParticipant(id: \"1\") { id name ... on BattlePokemon { current*HP } } }",
         );
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &query_file,
+            &query_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2608,7 +2808,12 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a schema file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
+        host.add_file(
+            &path,
+            "type Query { hello: String }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
 
         // Get completions at a position
         let snapshot = host.snapshot();
@@ -2637,7 +2842,12 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a file with syntax errors
         let path = FilePath::new("file:///invalid.graphql");
-        host.add_file(&path, "type Query {", FileKind::Schema);
+        host.add_file(
+            &path,
+            "type Query {",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
 
         host.rebuild_project_files();
 
@@ -2656,7 +2866,12 @@ fragment AttackActionInfo on AttackAction {
 
         // Add a schema file
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type Query { hello: String }", FileKind::Schema);
+        host.add_file(
+            &path,
+            "type Query { hello: String }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
 
         // Get goto definition at a position (may not find anything, but shouldn't crash)
         let snapshot = host.snapshot();
@@ -2687,7 +2902,8 @@ fragment AttackActionInfo on AttackAction {
         host.add_file(
             &schema_file,
             "type User { id: ID! name: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add a fragment definition
@@ -2695,13 +2911,19 @@ fragment AttackActionInfo on AttackAction {
         host.add_file(
             &fragment_file,
             "fragment UserFields on User { id name }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         // Add a query that uses the fragment
         let query_file = FilePath::new("file:///query.graphql");
         let query_text = "query { ...UserFields }";
-        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &query_file,
+            query_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
         host.rebuild_project_files();
 
         // Get goto definition for the fragment spread (position at "UserFields")
@@ -2733,13 +2955,19 @@ fragment AttackActionInfo on AttackAction {
         host.add_file(
             &schema_file,
             "type Query { user: User }\ntype User { id: ID }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add a fragment that references User
         let fragment_file = FilePath::new("file:///fragment.graphql");
         let (fragment_text, cursor_pos) = extract_cursor("fragment F on U*ser { id }");
-        host.add_file(&fragment_file, &fragment_text, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &fragment_file,
+            &fragment_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2760,13 +2988,19 @@ fragment AttackActionInfo on AttackAction {
         host.add_file(
             &schema_file,
             "type Query { user: User }\ntype User { id: ID! }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         let (query_text, cursor_pos) = extract_cursor("query { u*ser }");
         dbg!(&query_text);
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &query_file,
+            &query_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2788,12 +3022,18 @@ fragment AttackActionInfo on AttackAction {
         host.add_file(
             &schema_file,
             "type Query { user: User }\ntype User { name: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         let (query_text, cursor_pos) = extract_cursor("query { user { na*me } }");
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &query_file,
+            &query_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2814,7 +3054,12 @@ fragment AttackActionInfo on AttackAction {
         let schema_file = FilePath::new("file:///schema.graphql");
         let (schema_text, cursor_pos) =
             extract_cursor("type Query { user: U*ser }\ntype User { id: ID! }");
-        host.add_file(&schema_file, &schema_text, FileKind::Schema);
+        host.add_file(
+            &schema_file,
+            &schema_text,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2840,7 +3085,12 @@ fragment AttackActionInfo on AttackAction {
         let schema_file = FilePath::new("file:///schema.graphql");
         let (schema_text, cursor_pos) =
             extract_cursor("type User {\n  na*me: String!\n  age: Int!\n}");
-        host.add_file(&schema_file, &schema_text, FileKind::Schema);
+        host.add_file(
+            &schema_file,
+            &schema_text,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2865,14 +3115,19 @@ fragment AttackActionInfo on AttackAction {
         host.add_file(
             &schema_file,
             "type Query { battleParticipant(id: ID!): BattleParticipant }\ninterface BattleParticipant { id: ID! name: String! displayName: String! }\ntype BattlePokemon implements BattleParticipant { id: ID! name: String! displayName: String! currentHP: Int! }",
-            FileKind::Schema,
+            Language::GraphQL, DocumentKind::Schema,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         let (query_text, cursor_pos) = extract_cursor(
             "query { battleParticipant(id: \"1\") { id name ... on BattlePokemon { current*HP } } }",
         );
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &query_file,
+            &query_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2897,14 +3152,20 @@ fragment AttackActionInfo on AttackAction {
         host.add_file(
             &schema_file,
             "type Query { user(id: ID!): User }\ntype User { id: ID! name: String! }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         // Cursor on $id in the argument value
         let (query_text, cursor_pos) =
             extract_cursor("query GetUser($id: ID!) { user(id: $i*d) { name } }");
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &query_file,
+            &query_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2931,13 +3192,19 @@ fragment AttackActionInfo on AttackAction {
         host.add_file(
             &schema_file,
             "type Query { user(id: ID!, name: String): User }\ntype User { id: ID! }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         // Cursor on "id" argument name in the query
         let (query_text, cursor_pos) = extract_cursor("query { user(i*d: \"123\") { id } }");
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &query_file,
+            &query_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2962,13 +3229,19 @@ fragment AttackActionInfo on AttackAction {
         host.add_file(
             &schema_file,
             "type Query { hello: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         // Cursor on the operation name "GetHello"
         let (query_text, cursor_pos) = extract_cursor("query GetH*ello { hello }");
-        host.add_file(&query_file, &query_text, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &query_file,
+            &query_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -2991,7 +3264,12 @@ fragment AttackActionInfo on AttackAction {
         let schema_file = FilePath::new("file:///schema.graphql");
         let (schema_text, cursor_pos) =
             extract_cursor("interface Node { id: ID! }\ntype User implements No*de { id: ID! }");
-        host.add_file(&schema_file, &schema_text, FileKind::Schema);
+        host.add_file(
+            &schema_file,
+            &schema_text,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3017,7 +3295,12 @@ fragment AttackActionInfo on AttackAction {
         let schema_text = r#"interface Node { id: ID! }
 interface Timestamped { createdAt: String! }
 type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
-        host.add_file(&schema_file, schema_text, FileKind::Schema);
+        host.add_file(
+            &schema_file,
+            schema_text,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3048,7 +3331,12 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         let (schema_text, cursor_pos) = extract_cursor(
             "interface Node { id: ID! }\ninterface Entity implements No*de { id: ID!, name: String }",
         );
-        host.add_file(&schema_file, &schema_text, FileKind::Schema);
+        host.add_file(
+            &schema_file,
+            &schema_text,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3074,7 +3362,12 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         let (schema_text, cursor_pos) = extract_cursor(
             "interface Node { id: ID! }\ntype User { name: String }\nextend type User implements No*de",
         );
-        host.add_file(&schema_file, &schema_text, FileKind::Schema);
+        host.add_file(
+            &schema_file,
+            &schema_text,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3100,15 +3393,26 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &fragment_file,
             "fragment F on User { id }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         // Add queries that use the fragment
         let query1_file = FilePath::new("file:///query1.graphql");
-        host.add_file(&query1_file, "query { ...F }", FileKind::ExecutableGraphQL);
+        host.add_file(
+            &query1_file,
+            "query { ...F }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         let query2_file = FilePath::new("file:///query2.graphql");
-        host.add_file(&query2_file, "query { ...F }", FileKind::ExecutableGraphQL);
+        host.add_file(
+            &query2_file,
+            "query { ...F }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
         host.rebuild_project_files();
 
         // Find references to the fragment (position at "F" in fragment definition)
@@ -3131,12 +3435,18 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &fragment_file,
             "fragment F on User { id }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         // Add a query that uses the fragment
         let query_file = FilePath::new("file:///query.graphql");
-        host.add_file(&query_file, "query { ...F }", FileKind::ExecutableGraphQL);
+        host.add_file(
+            &query_file,
+            "query { ...F }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
         host.rebuild_project_files();
 
         // Find references including declaration
@@ -3156,17 +3466,28 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
 
         // Add a type definition
         let user_file = FilePath::new("file:///user.graphql");
-        host.add_file(&user_file, "type User { id: ID }", FileKind::Schema);
+        host.add_file(
+            &user_file,
+            "type User { id: ID }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
 
         // Add types that reference User
         let query_file = FilePath::new("file:///query.graphql");
-        host.add_file(&query_file, "type Query { user: User }", FileKind::Schema);
+        host.add_file(
+            &query_file,
+            "type Query { user: User }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
 
         let mutation_file = FilePath::new("file:///mutation.graphql");
         host.add_file(
             &mutation_file,
             "type Mutation { u: User }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
         host.rebuild_project_files();
 
@@ -3188,11 +3509,21 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
 
         // Add a type definition
         let user_file = FilePath::new("file:///user.graphql");
-        host.add_file(&user_file, "type User { id: ID }", FileKind::Schema);
+        host.add_file(
+            &user_file,
+            "type User { id: ID }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
 
         // Add a type that references User
         let query_file = FilePath::new("file:///query.graphql");
-        host.add_file(&query_file, "type Query { user: User }", FileKind::Schema);
+        host.add_file(
+            &query_file,
+            "type Query { user: User }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
         host.rebuild_project_files();
 
         // Find references including declaration
@@ -3215,7 +3546,8 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &schema_file,
             "type Query { user: User }\ntype User { id: ID! name: String! }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add a query that uses the name field
@@ -3223,7 +3555,8 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &query_file,
             "query { user { id name } }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         // Add a fragment that also uses the name field
@@ -3231,7 +3564,8 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &fragment_file,
             "fragment UserFields on User { name }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -3264,14 +3598,16 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &schema_file,
             "type Query { user: User }\ntype User { name: String! }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         host.add_file(
             &query_file,
             "query { user { name } }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -3307,14 +3643,15 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &schema_file,
             "type Query { user: User }\ntype User { profile: Profile }\ntype Profile { bio: String! }",
-            FileKind::Schema,
+            Language::GraphQL, DocumentKind::Schema,
         );
 
         let query_file = FilePath::new("file:///query.graphql");
         host.add_file(
             &query_file,
             "query { user { profile { bio } } }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -3338,7 +3675,7 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &schema_file,
             "type Query { node: Node }\ninterface Node { id: ID! }\ntype User implements Node { id: ID! name: String }",
-            FileKind::Schema,
+            Language::GraphQL, DocumentKind::Schema,
         );
 
         // Query that uses the field on the implementing type
@@ -3346,7 +3683,8 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &query_file,
             "query { node { ... on User { id } } }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -3378,7 +3716,8 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add a fragment definition
@@ -3386,14 +3725,20 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &fragment_file,
             "fragment UserFields on User { id name }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         // Add a query with cursor in selection set
         let query_file = FilePath::new("file:///query.graphql");
         let query_text = "query { user { id } }";
         //                                 ^ cursor here at position 15 (right after { before id)
-        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &query_file,
+            query_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
         host.rebuild_project_files();
 
         // Get completions inside the selection set (simulating user about to type)
@@ -3442,7 +3787,8 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add a fragment definition
@@ -3450,14 +3796,20 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &fragment_file,
             "fragment UserFields on User { id name }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         // Add a query with cursor OUTSIDE any selection set (at document level)
         let query_file = FilePath::new("file:///query.graphql");
         let query_text = "query { user { id } }\n";
         //                                       ^ cursor at end (position 22 on line 0)
-        host.add_file(&query_file, query_text, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &query_file,
+            query_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         // Get completions at document level (NOT in a selection set)
         let snapshot = host.snapshot();
@@ -3483,7 +3835,7 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &schema_file,
             "type Mutation { forfeitBattle(battleId: ID!, trainerId: ID!): Battle } type Battle { id: ID! status: String winner: String }",
-            FileKind::Schema,
+            Language::GraphQL, DocumentKind::Schema,
         );
 
         // Add a fragment definition
@@ -3491,7 +3843,8 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &fragment_file,
             "fragment BattleDetailed on Battle { id status }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         // Add a mutation with cursor after fragment spread
@@ -3502,7 +3855,12 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
 
   }
 }";
-        host.add_file(&mutation_file, mutation_text, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &mutation_file,
+            mutation_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
         host.rebuild_project_files();
 
         // Get completions after the fragment spread (line 3, position 4 - after newline)
@@ -3539,7 +3897,7 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &schema_file,
             "type Mutation { forfeitBattle(battleId: ID!, trainerId: ID!): Battle startBattle(trainerId: ID!): Battle } type Battle { id: ID! status: String winner: String }",
-            FileKind::Schema,
+            Language::GraphQL, DocumentKind::Schema,
         );
 
         // Add a fragment definition
@@ -3547,7 +3905,8 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         host.add_file(
             &fragment_file,
             "fragment BattleDetailed on Battle { id status }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         // Add multiple mutations in the same file
@@ -3565,7 +3924,12 @@ mutation ForfeitBattle($battleId: ID!, $trainerId: ID!) {
 
   }
 }";
-        host.add_file(&mutation_file, mutation_text, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &mutation_file,
+            mutation_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
         host.rebuild_project_files();
 
         // Get completions in the second mutation after the fragment spread (line 10, position 4)
@@ -3639,9 +4003,19 @@ type Move {
 
         let mut host = AnalysisHost::new();
         let schema_path = FilePath::new("file:///schema.graphql");
-        host.add_file(&schema_path, schema, FileKind::Schema);
+        host.add_file(
+            &schema_path,
+            schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
         let gql_path = FilePath::new("file:///battle.graphql");
-        host.add_file(&gql_path, &graphql, FileKind::ExecutableGraphQL);
+        host.add_file(
+            &gql_path,
+            &graphql,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -3708,7 +4082,12 @@ enum Region { KANTO JOHTO }
         {
             let mut host = AnalysisHost::new();
             let schema_path = FilePath::new("file:///schema.graphql");
-            host.add_file(&schema_path, schema, FileKind::Schema);
+            host.add_file(
+                &schema_path,
+                schema,
+                Language::GraphQL,
+                DocumentKind::Schema,
+            );
 
             let (graphql1, pos1) = extract_cursor(
                 r#"
@@ -3734,7 +4113,12 @@ enum Region { KANTO JOHTO }
 "#,
             );
             let ts_path1 = FilePath::new("file:///test1.graphql");
-            host.add_file(&ts_path1, &graphql1, FileKind::ExecutableGraphQL);
+            host.add_file(
+                &ts_path1,
+                &graphql1,
+                Language::GraphQL,
+                DocumentKind::Executable,
+            );
             host.rebuild_project_files();
 
             let snapshot = host.snapshot();
@@ -3758,7 +4142,12 @@ enum Region { KANTO JOHTO }
         {
             let mut host = AnalysisHost::new();
             let schema_path = FilePath::new("file:///schema.graphql");
-            host.add_file(&schema_path, schema, FileKind::Schema);
+            host.add_file(
+                &schema_path,
+                schema,
+                Language::GraphQL,
+                DocumentKind::Schema,
+            );
 
             let (graphql2, pos2) = extract_cursor(
                 r#"
@@ -3784,7 +4173,12 @@ enum Region { KANTO JOHTO }
 "#,
             );
             let ts_path2 = FilePath::new("file:///test2.graphql");
-            host.add_file(&ts_path2, &graphql2, FileKind::ExecutableGraphQL);
+            host.add_file(
+                &ts_path2,
+                &graphql2,
+                Language::GraphQL,
+                DocumentKind::Executable,
+            );
             host.rebuild_project_files();
 
             let snapshot = host.snapshot();
@@ -3836,7 +4230,12 @@ enum Region { KANTO JOHTO }
         {
             let mut host = AnalysisHost::new();
             let schema_path = FilePath::new("file:///schema.graphql");
-            host.add_file(&schema_path, schema, FileKind::Schema);
+            host.add_file(
+                &schema_path,
+                schema,
+                Language::GraphQL,
+                DocumentKind::Schema,
+            );
 
             let (graphql1, pos1) = extract_cursor(
                 r#"
@@ -3857,7 +4256,12 @@ enum Region { KANTO JOHTO }
 "#,
             );
             let path1 = FilePath::new("file:///test1.graphql");
-            host.add_file(&path1, &graphql1, FileKind::ExecutableGraphQL);
+            host.add_file(
+                &path1,
+                &graphql1,
+                Language::GraphQL,
+                DocumentKind::Executable,
+            );
             host.rebuild_project_files();
 
             let snapshot = host.snapshot();
@@ -3873,7 +4277,12 @@ enum Region { KANTO JOHTO }
         {
             let mut host = AnalysisHost::new();
             let schema_path = FilePath::new("file:///schema.graphql");
-            host.add_file(&schema_path, schema, FileKind::Schema);
+            host.add_file(
+                &schema_path,
+                schema,
+                Language::GraphQL,
+                DocumentKind::Schema,
+            );
 
             let (graphql2, pos2) = extract_cursor(
                 r#"
@@ -3894,7 +4303,12 @@ enum Region { KANTO JOHTO }
 "#,
             );
             let path2 = FilePath::new("file:///test2.graphql");
-            host.add_file(&path2, &graphql2, FileKind::ExecutableGraphQL);
+            host.add_file(
+                &path2,
+                &graphql2,
+                Language::GraphQL,
+                DocumentKind::Executable,
+            );
             host.rebuild_project_files();
 
             let snapshot = host.snapshot();
@@ -3914,7 +4328,12 @@ enum Region { KANTO JOHTO }
         {
             let mut host = AnalysisHost::new();
             let schema_path = FilePath::new("file:///schema.graphql");
-            host.add_file(&schema_path, schema, FileKind::Schema);
+            host.add_file(
+                &schema_path,
+                schema,
+                Language::GraphQL,
+                DocumentKind::Schema,
+            );
 
             let (graphql3, pos3) = extract_cursor(
                 r#"
@@ -3936,7 +4355,12 @@ enum Region { KANTO JOHTO }
 "#,
             );
             let path3 = FilePath::new("file:///test3.graphql");
-            host.add_file(&path3, &graphql3, FileKind::ExecutableGraphQL);
+            host.add_file(
+                &path3,
+                &graphql3,
+                Language::GraphQL,
+                DocumentKind::Executable,
+            );
             host.rebuild_project_files();
 
             let snapshot = host.snapshot();
@@ -3968,7 +4392,12 @@ type Item { id: ID! name: String! }
 
         let mut host = AnalysisHost::new();
         let schema_path = FilePath::new("file:///schema.graphql");
-        host.add_file(&schema_path, schema, FileKind::Schema);
+        host.add_file(
+            &schema_path,
+            schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
 
         let (graphql, pos) = extract_cursor(
             r#"
@@ -3982,7 +4411,7 @@ query TestEvolution {
 "#,
         );
         let path = FilePath::new("file:///test.graphql");
-        host.add_file(&path, &graphql, FileKind::ExecutableGraphQL);
+        host.add_file(&path, &graphql, Language::GraphQL, DocumentKind::Executable);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -4073,7 +4502,12 @@ type Item { id: ID! name: String! }
 
         let mut host = AnalysisHost::new();
         let schema_path = FilePath::new("file:///schema.graphql");
-        host.add_file(&schema_path, schema, FileKind::Schema);
+        host.add_file(
+            &schema_path,
+            schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
 
         let (graphql, pos) = extract_cursor(
             r#"
@@ -4087,7 +4521,7 @@ query TestEvolution {
 "#,
         );
         let path = FilePath::new("file:///test.graphql");
-        host.add_file(&path, &graphql, FileKind::ExecutableGraphQL);
+        host.add_file(&path, &graphql, Language::GraphQL, DocumentKind::Executable);
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -4230,7 +4664,8 @@ export const GET_POKEMON = gql`
         host.add_file(
             &path,
             "type User {\n  id: ID!\n  name: String\n  email: String!\n}",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
         host.rebuild_project_files();
 
@@ -4267,14 +4702,16 @@ export const GET_POKEMON = gql`
         host.add_file(
             &schema_path,
             "type Query { user: String }\ntype Mutation { createUser: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let path = FilePath::new("file:///queries.graphql");
         host.add_file(
             &path,
             "query GetUser { user }\nmutation CreateUser { createUser }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         host.rebuild_project_files();
 
@@ -4301,14 +4738,16 @@ export const GET_POKEMON = gql`
         host.add_file(
             &schema_path,
             "type User { id: ID! name: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let path = FilePath::new("file:///fragments.graphql");
         host.add_file(
             &path,
             "fragment UserFields on User { id name }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         host.rebuild_project_files();
 
@@ -4330,7 +4769,8 @@ export const GET_POKEMON = gql`
         host.add_file(
             &schema_path,
             "type Query { user: User }\ntype User { id: ID! }\ntype Post { title: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add operations
@@ -4338,7 +4778,8 @@ export const GET_POKEMON = gql`
         host.add_file(
             &queries_path,
             "query GetUser { user { id } }\nquery GetUsers { user { id } }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         host.rebuild_project_files();
 
@@ -4367,7 +4808,12 @@ export const GET_POKEMON = gql`
         let mut host = AnalysisHost::new();
 
         let path = FilePath::new("file:///schema.graphql");
-        host.add_file(&path, "type UserProfile { id: ID! }", FileKind::Schema);
+        host.add_file(
+            &path,
+            "type UserProfile { id: ID! }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -4506,6 +4952,73 @@ export const postType = gql`
 
             let post_symbols = snapshot.workspace_symbols("Post");
             assert!(!post_symbols.is_empty(), "Post type should be found");
+        }
+
+        #[test]
+        fn test_multiple_block_uris_use_line_ranges() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            // Create a TypeScript file with multiple GraphQL blocks
+            // The blocks start at different lines to verify URI format
+            let ts_content = r#"import { gql } from 'graphql-tag';
+
+export const types = gql`
+  type Query {
+    posts: [Post!]!
+  }
+`;
+
+export const postType = gql`
+  type Post {
+    id: ID!
+    title: String!
+  }
+`;
+"#;
+            let ts_path = temp_dir.path().join("schema.ts");
+            let mut file = std::fs::File::create(&ts_path).unwrap();
+            file.write_all(ts_content.as_bytes()).unwrap();
+
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Path("schema.ts".to_string()),
+                documents: None,
+                include: None,
+                exclude: None,
+                extensions: None,
+            };
+
+            let mut host = AnalysisHost::new();
+            let _ = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            host.rebuild_project_files();
+
+            // Get all files and check their URIs
+            let files = host.files();
+            let ts_file_uri = path_to_file_uri(&ts_path);
+
+            // Find files from the TS schema
+            let block_uris: Vec<_> = files
+                .into_iter()
+                .map(|f| f.0)
+                .filter(|uri| uri.starts_with(&ts_file_uri) && uri.contains('#'))
+                .collect();
+
+            // With multiple blocks, URIs should have line-range fragments
+            assert_eq!(block_uris.len(), 2, "Should have 2 block URIs");
+
+            // Check that URIs use line-range format (#L{start}-L{end}) not block index (#block0)
+            for uri in &block_uris {
+                assert!(
+                    uri.contains("#L") && uri.contains("-L"),
+                    "Block URI should use line-range format (#L{{start}}-L{{end}}), got: {uri}"
+                );
+                assert!(
+                    !uri.contains("#block"),
+                    "Block URI should NOT use block index format, got: {uri}"
+                );
+            }
         }
 
         #[test]
@@ -4797,7 +5310,8 @@ export const typeDefs = gql`
         host.add_file(
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add a fragment file with a single fragment
@@ -4805,7 +5319,8 @@ export const typeDefs = gql`
         host.add_file(
             &fragment_file,
             "fragment UserFields on User { id name }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -4843,7 +5358,8 @@ export const typeDefs = gql`
         host.add_file(
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add fragment file
@@ -4851,7 +5367,8 @@ export const typeDefs = gql`
         host.add_file(
             &fragment_file,
             "fragment UserFields on User { id }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         host.rebuild_project_files();
 
@@ -4859,7 +5376,8 @@ export const typeDefs = gql`
         host.add_file(
             &fragment_file,
             "fragment UserFields on User { id name }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         // Note: rebuild_project_files is NOT called here since is_new=false
 
@@ -4899,7 +5417,8 @@ export const typeDefs = gql`
         host.add_file(
             &schema_file,
             "type Query { user: User } type User { id: ID! name: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add fragment file with one URI format (simulating glob discovery)
@@ -4907,7 +5426,8 @@ export const typeDefs = gql`
         host.add_file(
             &fragment_file_glob,
             "fragment UserFields on User { id name }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         host.rebuild_project_files();
 
@@ -4922,7 +5442,8 @@ export const typeDefs = gql`
         let is_new = host.add_file(
             &fragment_file_glob,
             "fragment UserFields on User { id name }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         assert!(
             !is_new,
@@ -5001,12 +5522,13 @@ query GetUser {
             .unwrap();
 
         // Manually add the document file
-        let doc_uri = format!("file://{}", doc_path.display());
+        let doc_uri = path_to_file_uri(&doc_path);
         let file_path = FilePath::new(&doc_uri);
         host.add_file(
             &file_path,
             doc_content.trim(),
-            graphql_base_db::FileKind::ExecutableGraphQL,
+            graphql_base_db::Language::GraphQL,
+            DocumentKind::Executable,
         );
         host.rebuild_project_files();
 
@@ -5055,7 +5577,8 @@ query GetUser {
             r#"type Query { pokemon(id: ID!): Pokemon }
 type Pokemon { id: ID! name: String! }
 "#,
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add a TypeScript file with embedded GraphQL
@@ -5071,7 +5594,12 @@ export const GET_POKEMON = gql`
   }
 `;
 "#;
-        host.add_file(&ts_file, ts_content, FileKind::TypeScript);
+        host.add_file(
+            &ts_file,
+            ts_content,
+            Language::TypeScript,
+            DocumentKind::Executable,
+        );
         host.rebuild_project_files();
 
         let snapshot = host.snapshot();
@@ -5116,7 +5644,8 @@ type User {
     name: String!
     legacyId: String @deprecated(reason: "Use id instead")
 }"#,
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add a document that uses the deprecated field
@@ -5130,7 +5659,8 @@ type User {
         legacyId
     }
 }"#,
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -5176,7 +5706,8 @@ type User {
     name: String!
     legacyId: String @deprecated(reason: "Use id instead")
 }"#,
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add a document that does NOT use the deprecated field
@@ -5189,7 +5720,8 @@ type User {
         name
     }
 }"#,
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -5229,7 +5761,8 @@ type User {
     id: ID!
     legacyId: String @deprecated
 }"#,
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add multiple documents using the deprecated field
@@ -5241,7 +5774,8 @@ type User {
         legacyId
     }
 }"#,
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         let doc_path2 = FilePath::new("file:///query2.graphql");
@@ -5252,7 +5786,8 @@ type User {
         legacyId
     }
 }"#,
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -5278,7 +5813,8 @@ type User {
         host.add_file(
             &schema_path,
             "type Query { user: User }\ntype User { id: ID! @deprecated }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add a document file
@@ -5286,7 +5822,8 @@ type User {
         host.add_file(
             &doc_path,
             "query { user { id } }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -5335,7 +5872,8 @@ type Comment {
         host.add_file(
             &FilePath::new("file:///schema.graphql"),
             schema,
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add operation
@@ -5354,7 +5892,8 @@ query GetUser {
         host.add_file(
             &FilePath::new("file:///query.graphql"),
             query,
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -5389,7 +5928,8 @@ type Post {
         host.add_file(
             &FilePath::new("file:///schema.graphql"),
             schema,
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add operation with list field
@@ -5404,7 +5944,8 @@ query GetPosts {
         host.add_file(
             &FilePath::new("file:///query.graphql"),
             query,
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -5451,7 +5992,8 @@ type PageInfo {
         host.add_file(
             &FilePath::new("file:///schema.graphql"),
             schema,
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add operation with connection pattern
@@ -5470,7 +6012,8 @@ query GetUsers {
         host.add_file(
             &FilePath::new("file:///query.graphql"),
             query,
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -5495,17 +6038,20 @@ query GetUsers {
             (
                 FilePath::new("file:///schema.graphql"),
                 "type Query { user: User } type User { id: ID! name: String! }",
-                FileKind::Schema,
+                Language::GraphQL,
+                DocumentKind::Schema,
             ),
             (
                 FilePath::new("file:///query1.graphql"),
                 "query GetUser { user { id name } }",
-                FileKind::ExecutableGraphQL,
+                Language::GraphQL,
+                DocumentKind::Executable,
             ),
             (
                 FilePath::new("file:///query2.graphql"),
                 "query GetUserName { user { name } }",
-                FileKind::ExecutableGraphQL,
+                Language::GraphQL,
+                DocumentKind::Executable,
             ),
         ];
 
@@ -5529,7 +6075,7 @@ query GetUsers {
         let mut host = AnalysisHost::new();
 
         // Add empty batch should not panic
-        let files: Vec<(FilePath, &str, FileKind)> = vec![];
+        let files: Vec<(FilePath, &str, Language, DocumentKind)> = vec![];
         host.add_files_batch(&files);
 
         // Should still be able to get snapshot
@@ -5544,7 +6090,8 @@ query GetUsers {
         let files1 = vec![(
             FilePath::new("file:///schema.graphql"),
             "type Query { hello: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         )];
         host.add_files_batch(&files1);
 
@@ -5553,12 +6100,14 @@ query GetUsers {
             (
                 FilePath::new("file:///schema.graphql"),
                 "type Query { hello: String world: String }",
-                FileKind::Schema,
+                Language::GraphQL,
+                DocumentKind::Schema,
             ),
             (
                 FilePath::new("file:///query.graphql"),
                 "query { hello }",
-                FileKind::ExecutableGraphQL,
+                Language::GraphQL,
+                DocumentKind::Executable,
             ),
         ];
         host.add_files_batch(&files2);
@@ -5580,7 +6129,8 @@ query GetUsers {
         let schema = (
             FilePath::new("file:///schema.graphql"),
             "type Query { user: User } type User { id: ID! name: String! }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let mut files = vec![schema];
@@ -5588,13 +6138,16 @@ query GetUsers {
             files.push((
                 FilePath::new(format!("file:///query{i}.graphql")),
                 "query GetUser { user { id name } }",
-                FileKind::ExecutableGraphQL,
+                Language::GraphQL,
+                DocumentKind::Executable,
             ));
         }
 
         // Convert to borrowed form for add_files_batch
-        let files_borrowed: Vec<(FilePath, &str, FileKind)> =
-            files.iter().map(|(p, c, k)| (p.clone(), *c, *k)).collect();
+        let files_borrowed: Vec<(FilePath, &str, Language, DocumentKind)> = files
+            .iter()
+            .map(|(p, c, l, k)| (p.clone(), *c, *l, *k))
+            .collect();
 
         // This should complete quickly (O(n) not O(n²))
         let start = std::time::Instant::now();
@@ -5633,7 +6186,8 @@ query GetUsers {
                     nodeCount: Int!
                 }
             "#,
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Add a TypeScript file with embedded GraphQL that uses the fields
@@ -5653,7 +6207,8 @@ export const RATE_LIMIT_QUERY = gql`
   }
 `;
             "#,
-            FileKind::TypeScript,
+            Language::TypeScript,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -5865,8 +6420,12 @@ export const RATE_LIMIT_QUERY = gql`
         // Now simulate did_open for the schema file (as if user navigated to it)
         // Use path_to_file_uri for consistent path handling across platforms
         let schema_file_path = FilePath::new(crate::helpers::path_to_file_uri(&schema_path));
-        let (is_new, snapshot) =
-            host.update_file_and_snapshot(&schema_file_path, schema_content, FileKind::Schema);
+        let (is_new, snapshot) = host.update_file_and_snapshot(
+            &schema_file_path,
+            schema_content,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
 
         // Schema should NOT be new (already loaded from config)
         assert!(
@@ -5924,14 +6483,16 @@ export const RATE_LIMIT_QUERY = gql`
                     unusedField: String
                 }
             "#,
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let doc_file = FilePath::new("file:///query.graphql");
         host.add_file(
             &doc_file,
             "query { user { id } }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -5961,14 +6522,16 @@ export const RATE_LIMIT_QUERY = gql`
         host.add_file(
             &schema_path,
             "type Query { user: User }\ntype User { name: String! level: Int! }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let doc_path = FilePath::new("file:///query.graphql");
         host.add_file(
             &doc_path,
             "query GetUser {\n  user {\n    name\n    level\n  }\n}",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -6014,14 +6577,16 @@ export const RATE_LIMIT_QUERY = gql`
         host.add_file(
             &schema_path,
             "type Query { user: User }\ntype User { name: String! level: Int! }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let doc_path = FilePath::new("file:///query.graphql");
         host.add_file(
             &doc_path,
             "query GetUser {\n  user {\n    name\n    level\n  }\n}",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -6053,7 +6618,8 @@ export const RATE_LIMIT_QUERY = gql`
         host.add_file(
             &doc_path,
             "query GetUser { user { name } }",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
         // Don't call rebuild_project_files()
 
@@ -6083,7 +6649,8 @@ type Post {
   title: String!
   content: String
 }"#,
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let doc_path = FilePath::new("file:///query.graphql");
@@ -6098,7 +6665,8 @@ type Post {
     }
   }
 }"#,
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -6131,14 +6699,16 @@ type Post {
         host.add_file(
             &schema_path,
             "type Query { user: User }\ntype User { name: String! age: Int! }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let doc_path = FilePath::new("file:///query.graphql");
         host.add_file(
             &doc_path,
             "fragment UserFields on User {\n  name\n  age\n}",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -6172,14 +6742,16 @@ type Post {
         host.add_file(
             &schema_path,
             "type Query { user: User }\ntype User { name: String! email: String! }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let doc_path = FilePath::new("file:///query.graphql");
         host.add_file(
             &doc_path,
             "query GetUser {\n  user {\n    userName: name\n    userEmail: email\n  }\n}",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();
@@ -6210,14 +6782,16 @@ type Post {
         host.add_file(
             &schema_path,
             "type Query { user: User }\ntype User { name: String! }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let doc_path = FilePath::new("file:///query.graphql");
         host.add_file(
             &doc_path,
             "query GetUser {\n  user {\n    __typename\n    name\n  }\n}",
-            FileKind::ExecutableGraphQL,
+            Language::GraphQL,
+            DocumentKind::Executable,
         );
 
         host.rebuild_project_files();

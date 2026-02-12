@@ -67,11 +67,11 @@ fn lint_file_impl(
     }
 
     let file_id = metadata.file_id(db);
-    let file_kind = metadata.kind(db);
+    let document_kind = metadata.document_kind(db);
 
-    tracing::debug!(uri = %uri, ?file_kind, "Checking file kind");
+    tracing::debug!(uri = %uri, ?document_kind, "Checking document kind");
 
-    if file_kind.is_document() {
+    if metadata.is_document(db) {
         tracing::debug!(uri = %uri, "Running standalone document lints");
         diagnostics.extend(standalone_document_lints(
             db,
@@ -89,7 +89,7 @@ fn lint_file_impl(
             metadata,
             project_files,
         ));
-    } else if file_kind.is_schema() {
+    } else if metadata.is_schema(db) {
         tracing::debug!(uri = %uri, "Running schema lints");
         diagnostics.extend(schema_lints(db, file_id, content, project_files));
     }
@@ -318,7 +318,6 @@ pub fn lint_file_with_fixes(
     let lint_config = db.lint_config();
     let mut all_diagnostics = Vec::new();
     let file_id = metadata.file_id(db);
-    let file_kind = metadata.kind(db);
 
     // Parse and check for errors
     let parse = graphql_syntax::parse(db, content, metadata);
@@ -326,8 +325,8 @@ pub fn lint_file_with_fixes(
         return all_diagnostics;
     }
 
-    // Run lints based on file kind
-    if file_kind.is_document() {
+    // Run lints based on document kind
+    if metadata.is_document(db) {
         // Standalone document lints
         for rule in graphql_linter::standalone_document_rules() {
             if lint_config.is_enabled(rule.name()) {
@@ -400,11 +399,11 @@ pub fn project_lint_diagnostics_with_fixes(
 
 /// Convert `LintDiagnostic` (byte offsets) to `Diagnostic` (line/column)
 ///
-/// For TypeScript/JavaScript files with extracted blocks, each `LintDiagnostic` may have
-/// `block_line_offset` and `block_source` set. When present:
-/// - `offset_range` is relative to `block_source`, not the full file
-/// - We build a `LineIndex` from `block_source` to convert byte offsets to line/column
-/// - We add `block_line_offset` to get the correct position in the original file
+/// Each `LintDiagnostic` carries a `SourceSpan` which bundles byte offsets with block context
+/// (for embedded GraphQL in TS/JS). When block context is present:
+/// - `span.start/end` are relative to `span.source`, not the full file
+/// - We build a `LineIndex` from `span.source` to convert byte offsets to line/column
+/// - We add `span.line_offset` to get the correct position in the original file
 ///
 /// For pure GraphQL files (no block context), we use the full file's `LineIndex`.
 fn convert_lint_diagnostics(
@@ -422,27 +421,25 @@ fn convert_lint_diagnostics(
         .into_iter()
         .map(|ld| {
             let (line_offset, start_line, start_col, end_line, end_col) =
-                if let (Some(block_line_offset), Some(ref block_source)) =
-                    (ld.block_line_offset, &ld.block_source)
-                {
+                if let Some(ref block_source) = ld.span.source {
                     let block_line_index = graphql_syntax::LineIndex::new(block_source);
-                    let (sl, sc) = block_line_index.line_col(ld.offset_range.start);
-                    let (el, ec) = block_line_index.line_col(ld.offset_range.end);
+                    let (sl, sc) = block_line_index.line_col(ld.span.start);
+                    let (el, ec) = block_line_index.line_col(ld.span.end);
                     tracing::trace!(
-                        block_line_offset,
-                        offset_start = ld.offset_range.start,
-                        offset_end = ld.offset_range.end,
+                        line_offset = ld.span.line_offset,
+                        offset_start = ld.span.start,
+                        offset_end = ld.span.end,
                         start_line_in_block = sl,
                         start_col_in_block = sc,
-                        final_line = sl + block_line_offset,
+                        final_line = sl + ld.span.line_offset as usize,
                         message = %ld.message,
                         "Converting block diagnostic"
                     );
-                    (block_line_offset, sl, sc, el, ec)
+                    (ld.span.line_offset, sl, sc, el, ec)
                 } else {
-                    let (sl, sc) = file_line_index.line_col(ld.offset_range.start);
-                    let (el, ec) = file_line_index.line_col(ld.offset_range.end);
-                    (0, sl, sc, el, ec)
+                    let (sl, sc) = file_line_index.line_col(ld.span.start);
+                    let (el, ec) = file_line_index.line_col(ld.span.end);
+                    (0u32, sl, sc, el, ec)
                 };
 
             let severity = match ld.severity {
@@ -456,11 +453,11 @@ fn convert_lint_diagnostics(
                 message: ld.message.into(),
                 range: DiagnosticRange {
                     start: Position {
-                        line: start_line as u32 + line_offset as u32,
+                        line: start_line as u32 + line_offset,
                         character: start_col as u32,
                     },
                     end: Position {
-                        line: end_line as u32 + line_offset as u32,
+                        line: end_line as u32 + line_offset,
                         character: end_col as u32,
                     },
                 },

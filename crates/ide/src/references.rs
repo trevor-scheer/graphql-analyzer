@@ -247,8 +247,7 @@ pub fn find_field_references(
                     let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
                     let range =
                         offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end);
-                    let adjusted_range =
-                        adjust_range_for_line_offset(range, doc.line_offset as u32);
+                    let adjusted_range = adjust_range_for_line_offset(range, doc.line_offset);
                     locations.push(Location::new(file_path, adjusted_range));
                     break 'schema_search;
                 }

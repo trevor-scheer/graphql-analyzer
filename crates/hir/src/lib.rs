@@ -606,7 +606,7 @@ pub struct FragmentNameInfo {
     /// The text range of the fragment name
     pub name_range: TextRange,
     /// For embedded GraphQL: line offset of the block (0-indexed)
-    pub block_line_offset: Option<usize>,
+    pub block_line_offset: Option<u32>,
     /// For embedded GraphQL: byte offset of the block in the original file
     pub block_byte_offset: Option<usize>,
     /// For embedded GraphQL: source text of the block
@@ -649,7 +649,7 @@ pub struct OperationNameInfo {
     /// The text range of the operation name
     pub name_range: Option<TextRange>,
     /// For embedded GraphQL: line offset of the block (0-indexed)
-    pub block_line_offset: Option<usize>,
+    pub block_line_offset: Option<u32>,
     /// For embedded GraphQL: byte offset of the block in the original file
     pub block_byte_offset: Option<usize>,
     /// For embedded GraphQL: source text of the block

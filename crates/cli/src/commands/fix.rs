@@ -80,8 +80,8 @@ pub fn display_dry_run(fixes: &[FileFix], format: OutputFormat) {
                             "file": file_fix.path.to_string_lossy(),
                             "rule": diag.rule,
                             "fix": fix.label,
-                            "offset_start": diag.offset_range.start,
-                            "offset_end": diag.offset_range.end,
+                            "offset_start": diag.span.start,
+                            "offset_end": diag.span.end,
                         })
                     );
                 }
@@ -123,7 +123,7 @@ fn apply_file_fixes(file_fix: &FileFix, format: OutputFormat) -> Result<()> {
 
     for diag in &file_fix.diagnostics {
         let Some(fix) = &diag.fix else { continue };
-        let block_offset = diag.block_byte_offset.unwrap_or(0);
+        let block_offset = diag.span.byte_offset;
 
         for edit in &fix.edits {
             all_edits.push(FileRelativeEdit {

@@ -2,7 +2,7 @@
 //!
 //! These tests verify operation and fragment body extraction functionality.
 
-use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
 use graphql_hir::{fragment_body, operation_body, operation_transitive_fragments};
 use graphql_test_utils::{create_project_files, TestDatabase};
 use std::sync::Arc;
@@ -16,7 +16,8 @@ fn test_operation_body_extraction() {
         &db,
         file_id,
         FileUri::new("test.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let body = operation_body(&db, content, metadata, 0);
@@ -33,7 +34,8 @@ fn test_operation_body_with_fragment_spread() {
         &db,
         file_id,
         FileUri::new("test.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let body = operation_body(&db, content, metadata, 0);
@@ -53,7 +55,8 @@ fn test_fragment_body_extraction() {
         &db,
         file_id,
         FileUri::new("test.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let body = fragment_body(&db, content, metadata, Arc::from("UserFields"));
@@ -73,7 +76,8 @@ fn test_fragment_body_with_nested_spread() {
         &db,
         file_id,
         FileUri::new("test.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let body = fragment_body(&db, content, metadata, Arc::from("UserFields"));
@@ -93,7 +97,8 @@ fn test_variable_usage_extraction() {
         &db,
         file_id,
         FileUri::new("test.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let body = operation_body(&db, content, metadata, 0);
@@ -119,7 +124,8 @@ fn test_transitive_fragments() {
         &db,
         file_id,
         FileUri::new("test.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
 
     let project_files = create_project_files(&mut db, &[], &[(file_id, content, metadata)]);

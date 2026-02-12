@@ -55,7 +55,7 @@ pub fn code_lenses(
                 let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
                 let range = adjust_range_for_line_offset(
                     offset_range_to_range(&doc_line_index, ranges.def_start, ranges.def_start),
-                    doc.line_offset as u32,
+                    doc.line_offset,
                 );
 
                 let title = if usage_count == 1 {

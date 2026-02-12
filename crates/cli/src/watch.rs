@@ -9,7 +9,7 @@ use crate::OutputFormat;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use graphql_config::ProjectConfig;
-use graphql_ide::{Diagnostic, DiagnosticSeverity, FileKind};
+use graphql_ide::{Diagnostic, DiagnosticSeverity, DocumentKind, Language};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -232,13 +232,14 @@ impl FileWatcher {
                 let content = std::fs::read_to_string(path)
                     .with_context(|| format!("Failed to read file: {}", path.display()))?;
 
-                let kind = match path.extension().and_then(|e| e.to_str()) {
-                    Some("ts" | "tsx") => FileKind::TypeScript,
-                    Some("js" | "jsx") => FileKind::JavaScript,
-                    _ => FileKind::ExecutableGraphQL,
+                let (language, document_kind) = match path.extension().and_then(|e| e.to_str()) {
+                    Some("ts" | "tsx") => (Language::TypeScript, DocumentKind::Executable),
+                    Some("js" | "jsx") => (Language::JavaScript, DocumentKind::Executable),
+                    _ => (Language::GraphQL, DocumentKind::Executable),
                 };
 
-                self.host.update_file(path, &content, kind);
+                self.host
+                    .update_file(path, &content, language, document_kind);
             }
         }
 

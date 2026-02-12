@@ -115,14 +115,14 @@ fn file_validation_diagnostics_impl(
         });
     }
 
-    let file_kind = metadata.kind(db);
+    let document_kind = metadata.document_kind(db);
     tracing::debug!(
         uri = ?metadata.uri(db),
-        ?file_kind,
+        ?document_kind,
         "Determining validation path for file"
     );
 
-    if file_kind.is_schema() {
+    if metadata.is_schema(db) {
         // Schema files only need syntax validation (handled above) plus merged schema diagnostics.
         // Individual schema files don't need to be spec-valid on their own - only the
         // merged schema needs spec validation. Filter to only show errors from this file.
@@ -130,7 +130,7 @@ fn file_validation_diagnostics_impl(
         let schema_diagnostics =
             merged_schema::merged_schema_diagnostics_for_file(db, project_files, file_uri.as_str());
         diagnostics.extend(schema_diagnostics);
-    } else if file_kind.is_document() {
+    } else if metadata.is_document(db) {
         tracing::debug!("Running document validation");
         let doc_diagnostics = validation::validate_file(db, content, metadata, project_files);
         tracing::debug!(

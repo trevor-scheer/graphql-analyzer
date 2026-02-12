@@ -26,6 +26,7 @@ graphql-introspect = { path = "../introspect" }
 graphql-linter = { path = "../linter" }
 graphql-lsp = { path = "../lsp" }
 graphql-mcp = { path = "../mcp" }
+graphql-syntax = { path = "../syntax" }
 
 # GraphQL
 apollo-parser = { workspace = true }
@@ -68,3 +69,6 @@ otel = [
   "opentelemetry-semantic-conventions",
   "tracing-opentelemetry",
 ]
+
+[dev-dependencies]
+tempfile = "3.25.0"

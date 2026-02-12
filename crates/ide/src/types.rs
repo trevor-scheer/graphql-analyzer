@@ -641,7 +641,7 @@ impl InlayHint {
 ///
 /// This type captures both the successfully loaded local schemas and any
 /// remote introspection configurations that require async fetching.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SchemaLoadResult {
     /// Number of schema files successfully loaded (includes Apollo client builtins)
     pub loaded_count: usize,
@@ -651,6 +651,21 @@ pub struct SchemaLoadResult {
     /// These require network access and should be handled asynchronously
     /// by the calling layer (e.g., LSP server).
     pub pending_introspections: Vec<PendingIntrospection>,
+    /// Content mismatch errors found during schema loading.
+    /// These indicate files that contain executable definitions
+    /// (operations/fragments) instead of schema definitions.
+    pub content_errors: Vec<SchemaContentError>,
+}
+
+/// A content mismatch error found during schema loading.
+#[derive(Debug, Clone)]
+pub struct SchemaContentError {
+    /// The pattern that matched this file
+    pub pattern: String,
+    /// Path to the file with mismatched content
+    pub file_path: std::path::PathBuf,
+    /// Names of executable definitions found (shouldn't be in schema files)
+    pub unexpected_definitions: Vec<String>,
 }
 
 /// A pending remote schema introspection request.

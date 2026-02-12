@@ -55,7 +55,7 @@ pub fn inlay_hints(
 
     for doc in parse.documents() {
         let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-        let line_offset = doc.line_offset as u32;
+        let line_offset = doc.line_offset;
 
         collect_hints_from_tree(
             doc.tree,

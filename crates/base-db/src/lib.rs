@@ -1,77 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Input file identifier in the project
-/// We use a simple u32-based ID for now
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FileId(u32);
-
-impl FileId {
-    #[must_use]
-    pub const fn new(id: u32) -> Self {
-        Self(id)
-    }
-
-    #[must_use]
-    pub const fn as_u32(self) -> u32 {
-        self.0
-    }
-}
-
-/// A URI string (file:// or relative path)
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FileUri(Arc<str>);
-
-impl FileUri {
-    #[must_use]
-    pub fn new(uri: impl Into<Arc<str>>) -> Self {
-        Self(uri.into())
-    }
-
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl std::fmt::Display for FileUri {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-/// File kind discriminator
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum FileKind {
-    /// GraphQL schema file (.graphql, .gql with type definitions)
-    Schema,
-    /// Pure executable GraphQL file (.graphql, .gql with operations/fragments)
-    ExecutableGraphQL,
-    /// TypeScript file with embedded GraphQL
-    TypeScript,
-    /// JavaScript file with embedded GraphQL
-    JavaScript,
-}
-
-impl FileKind {
-    /// Returns true if this is a schema file
-    #[must_use]
-    pub const fn is_schema(self) -> bool {
-        matches!(self, Self::Schema)
-    }
-
-    /// Returns true if this is a document file (operations/fragments)
-    ///
-    /// This includes pure GraphQL executable files and TypeScript/JavaScript
-    /// files with embedded GraphQL.
-    #[must_use]
-    pub const fn is_document(self) -> bool {
-        matches!(
-            self,
-            Self::ExecutableGraphQL | Self::TypeScript | Self::JavaScript
-        )
-    }
-}
+// Re-export types from graphql-types
+pub use graphql_types::{DocumentKind, FileId, FileUri, Language};
 
 /// Input: Content of a file
 /// This is set by the LSP layer when files are opened/changed
@@ -82,11 +13,35 @@ pub struct FileContent {
 
 /// Input: Metadata about a file
 /// This is set by the LSP layer when files are added to the project
+///
+/// Files are classified along two orthogonal dimensions:
+/// - `language`: How to parse the file (GraphQL, TypeScript, JavaScript, etc.)
+/// - `document_kind`: What the content represents (Schema or Executable)
 #[salsa::input]
 pub struct FileMetadata {
     pub file_id: FileId,
     pub uri: FileUri,
-    pub kind: FileKind,
+    /// Source language - determines parsing strategy
+    pub language: Language,
+    /// Document kind - determines semantic processing
+    pub document_kind: DocumentKind,
+}
+
+impl FileMetadata {
+    /// Returns true if this is a schema file
+    pub fn is_schema(&self, db: &dyn salsa::Database) -> bool {
+        self.document_kind(db).is_schema()
+    }
+
+    /// Returns true if this is a document file (operations/fragments)
+    pub fn is_document(&self, db: &dyn salsa::Database) -> bool {
+        self.document_kind(db).is_executable()
+    }
+
+    /// Returns true if this file requires extraction (TS/JS files)
+    pub fn requires_extraction(&self, db: &dyn salsa::Database) -> bool {
+        self.language(db).requires_extraction()
+    }
 }
 
 /// Input: Schema file ID list (identity only)
@@ -203,23 +158,17 @@ mod tests {
     }
 
     #[test]
-    fn test_file_kind() {
-        let kinds = [
-            FileKind::Schema,
-            FileKind::ExecutableGraphQL,
-            FileKind::TypeScript,
-            FileKind::JavaScript,
-        ];
+    fn test_language_and_document_kind() {
+        // Test Language variants
+        assert!(!Language::GraphQL.requires_extraction());
+        assert!(Language::TypeScript.requires_extraction());
+        assert!(Language::JavaScript.requires_extraction());
 
-        for (i, kind1) in kinds.iter().enumerate() {
-            for (j, kind2) in kinds.iter().enumerate() {
-                if i == j {
-                    assert_eq!(kind1, kind2);
-                } else {
-                    assert_ne!(kind1, kind2);
-                }
-            }
-        }
+        // Test DocumentKind variants
+        assert!(DocumentKind::Schema.is_schema());
+        assert!(!DocumentKind::Schema.is_executable());
+        assert!(!DocumentKind::Executable.is_schema());
+        assert!(DocumentKind::Executable.is_executable());
     }
 
     #[test]
@@ -239,13 +188,43 @@ mod tests {
         let db = TestDatabase::default();
         let file_id = FileId::new(0);
         let uri = FileUri::new("file:///test.graphql");
-        let kind = FileKind::Schema;
 
-        let metadata = FileMetadata::new(&db, file_id, uri.clone(), kind);
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            uri.clone(),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
 
         assert_eq!(metadata.file_id(&db), file_id);
         assert_eq!(metadata.uri(&db), uri);
-        assert_eq!(metadata.kind(&db), kind);
+        assert_eq!(metadata.language(&db), Language::GraphQL);
+        assert_eq!(metadata.document_kind(&db), DocumentKind::Schema);
+        assert!(metadata.is_schema(&db));
+        assert!(!metadata.is_document(&db));
+        assert!(!metadata.requires_extraction(&db));
+    }
+
+    #[test]
+    fn test_file_metadata_typescript() {
+        let db = TestDatabase::default();
+        let file_id = FileId::new(1);
+        let uri = FileUri::new("file:///test.ts");
+
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            uri.clone(),
+            Language::TypeScript,
+            DocumentKind::Executable,
+        );
+
+        assert_eq!(metadata.language(&db), Language::TypeScript);
+        assert_eq!(metadata.document_kind(&db), DocumentKind::Executable);
+        assert!(!metadata.is_schema(&db));
+        assert!(metadata.is_document(&db));
+        assert!(metadata.requires_extraction(&db));
     }
 
     #[test]

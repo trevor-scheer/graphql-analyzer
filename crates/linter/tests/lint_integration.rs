@@ -3,7 +3,7 @@
 //! These tests verify end-to-end linting functionality across
 //! the graphql-linter, graphql-hir, and graphql-syntax crates.
 
-use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri};
+use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
 use graphql_ide_db::RootDatabase;
 use graphql_linter::{standalone_document_rules, LintConfig};
 use std::sync::Arc;
@@ -29,7 +29,8 @@ fn run_standalone_rules(
         db,
         file_id,
         FileUri::new("test.graphql"),
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
     let project_files = create_empty_project_files(db);
 

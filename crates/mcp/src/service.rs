@@ -9,7 +9,7 @@ use crate::types::{
 };
 use crate::McpPreloadConfig;
 use anyhow::{Context, Result};
-use graphql_ide::{Analysis, AnalysisHost, FileKind, FilePath};
+use graphql_ide::{Analysis, AnalysisHost, DocumentKind, FilePath, Language};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -141,7 +141,7 @@ impl McpService {
             // Load documents if configured
             if let Some(ref documents_config) = project_config.documents {
                 let patterns: Vec<_> = documents_config.patterns().into_iter().collect();
-                let mut files_to_add: Vec<(FilePath, String, FileKind)> = Vec::new();
+                let mut files_to_add: Vec<(FilePath, String, Language, DocumentKind)> = Vec::new();
 
                 for pattern in patterns {
                     let full_pattern = base_dir.join(pattern).display().to_string();
@@ -152,12 +152,22 @@ impl McpService {
                                 if let Ok(content) = std::fs::read_to_string(&entry) {
                                     let file_path =
                                         FilePath::new(entry.to_string_lossy().to_string());
-                                    let kind = match entry.extension().and_then(|e| e.to_str()) {
-                                        Some("ts" | "tsx") => FileKind::TypeScript,
-                                        Some("js" | "jsx") => FileKind::JavaScript,
-                                        _ => FileKind::ExecutableGraphQL,
-                                    };
-                                    files_to_add.push((file_path, content, kind));
+                                    let (language, document_kind) =
+                                        match entry.extension().and_then(|e| e.to_str()) {
+                                            Some("ts" | "tsx") => {
+                                                (Language::TypeScript, DocumentKind::Executable)
+                                            }
+                                            Some("js" | "jsx") => {
+                                                (Language::JavaScript, DocumentKind::Executable)
+                                            }
+                                            _ => (Language::GraphQL, DocumentKind::Executable),
+                                        };
+                                    files_to_add.push((
+                                        file_path,
+                                        content,
+                                        language,
+                                        document_kind,
+                                    ));
                                 }
                             }
                         }
@@ -165,9 +175,11 @@ impl McpService {
                 }
 
                 // Batch add all files for O(n) performance
-                let batch_refs: Vec<(FilePath, &str, FileKind)> = files_to_add
+                let batch_refs: Vec<(FilePath, &str, Language, DocumentKind)> = files_to_add
                     .iter()
-                    .map(|(path, content, kind)| (path.clone(), content.as_str(), *kind))
+                    .map(|(path, content, language, document_kind)| {
+                        (path.clone(), content.as_str(), *language, *document_kind)
+                    })
                     .collect();
                 host.add_files_batch(&batch_refs);
             } else {
@@ -319,7 +331,7 @@ impl McpService {
         // Load documents if configured
         if let Some(ref documents_config) = project_config.documents {
             let patterns: Vec<_> = documents_config.patterns().into_iter().collect();
-            let mut files_to_add: Vec<(FilePath, String, FileKind)> = Vec::new();
+            let mut files_to_add: Vec<(FilePath, String, Language, DocumentKind)> = Vec::new();
 
             for pattern in patterns {
                 let full_pattern = base_dir.join(pattern).display().to_string();
@@ -329,12 +341,17 @@ impl McpService {
                         if entry.is_file() {
                             if let Ok(content) = std::fs::read_to_string(&entry) {
                                 let file_path = FilePath::new(entry.to_string_lossy().to_string());
-                                let kind = match entry.extension().and_then(|e| e.to_str()) {
-                                    Some("ts" | "tsx") => FileKind::TypeScript,
-                                    Some("js" | "jsx") => FileKind::JavaScript,
-                                    _ => FileKind::ExecutableGraphQL,
-                                };
-                                files_to_add.push((file_path, content, kind));
+                                let (language, document_kind) =
+                                    match entry.extension().and_then(|e| e.to_str()) {
+                                        Some("ts" | "tsx") => {
+                                            (Language::TypeScript, DocumentKind::Executable)
+                                        }
+                                        Some("js" | "jsx") => {
+                                            (Language::JavaScript, DocumentKind::Executable)
+                                        }
+                                        _ => (Language::GraphQL, DocumentKind::Executable),
+                                    };
+                                files_to_add.push((file_path, content, language, document_kind));
                             }
                         }
                     }
@@ -342,9 +359,11 @@ impl McpService {
             }
 
             // Batch add all files for O(n) performance
-            let batch_refs: Vec<(FilePath, &str, FileKind)> = files_to_add
+            let batch_refs: Vec<(FilePath, &str, Language, DocumentKind)> = files_to_add
                 .iter()
-                .map(|(path, content, kind)| (path.clone(), content.as_str(), *kind))
+                .map(|(path, content, language, document_kind)| {
+                    (path.clone(), content.as_str(), *language, *document_kind)
+                })
                 .collect();
             host.add_files_batch(&batch_refs);
         } else {
@@ -380,7 +399,12 @@ impl McpService {
         // Add the document to the appropriate host
         if let Some(host) = self.hosts.get_mut(&project_name) {
             let fp = FilePath::new(file_path.clone());
-            host.add_file(&fp, &params.document, FileKind::ExecutableGraphQL);
+            host.add_file(
+                &fp,
+                &params.document,
+                Language::GraphQL,
+                DocumentKind::Executable,
+            );
             host.rebuild_project_files();
         }
 
@@ -441,7 +465,7 @@ impl McpService {
         // Add the document to the appropriate host
         if let Some(host) = self.hosts.get_mut(&project_name) {
             let fp = FilePath::new(file_path.to_string());
-            host.add_file(&fp, document, FileKind::ExecutableGraphQL);
+            host.add_file(&fp, document, Language::GraphQL, DocumentKind::Executable);
             host.rebuild_project_files();
         }
 
@@ -503,7 +527,8 @@ mod tests {
         host.add_file(
             &FilePath::new("schema.graphql".to_string()),
             schema,
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
         host.rebuild_project_files();
         service
@@ -560,7 +585,8 @@ mod tests {
         host1.add_file(
             &FilePath::new("schema.graphql".to_string()),
             "type Query { users: [User] } type User { id: ID! }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
         host1.rebuild_project_files();
 
@@ -568,7 +594,8 @@ mod tests {
         host2.add_file(
             &FilePath::new("schema.graphql".to_string()),
             "type Query { posts: [Post] } type Post { title: String }",
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
         host2.rebuild_project_files();
 

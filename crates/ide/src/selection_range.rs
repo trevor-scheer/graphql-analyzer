@@ -1190,7 +1190,7 @@ fn syntax_range_to_ide_range(
 mod tests {
     use super::*;
     use crate::AnalysisHost;
-    use graphql_base_db::FileKind;
+    use graphql_base_db::{DocumentKind, Language};
 
     fn test_selection_ranges(
         source: &str,
@@ -1199,7 +1199,7 @@ mod tests {
     ) -> Option<SelectionRange> {
         let mut host = AnalysisHost::new();
         let path = FilePath::new("file:///test.graphql");
-        host.add_file(&path, source, FileKind::ExecutableGraphQL);
+        host.add_file(&path, source, Language::GraphQL, DocumentKind::Executable);
 
         let analysis = host.snapshot();
         let position = Position::new(cursor_line, cursor_col);

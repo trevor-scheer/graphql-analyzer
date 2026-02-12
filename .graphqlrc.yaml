@@ -22,7 +22,9 @@ projects:
           requireIdField: warn
 
   github:
-    schema: "test-workspace/github/schema/*.graphql"
+    schema:
+      - "test-workspace/github/schema/*.graphql"
+      - "test-workspace/github/schema/*.ts"
     documents:
       - "test-workspace/github/src/**/*.graphql"
       - "test-workspace/github/src/**/*.ts"

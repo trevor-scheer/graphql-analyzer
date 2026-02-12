@@ -123,28 +123,15 @@ impl DocumentSchemaLintRule for RequireIdFieldRuleImpl {
         // Unified: check all documents (works for both pure GraphQL and TS/JS)
         for doc in parse.documents() {
             let doc_cst = doc.tree.document();
-            let mut doc_diagnostics = Vec::new();
             check_document(
                 &doc_cst,
                 query_type.as_deref(),
                 mutation_type.as_deref(),
                 subscription_type.as_deref(),
                 &check_context,
-                &mut doc_diagnostics,
+                &mut diagnostics,
+                &doc,
             );
-
-            // Add block context for embedded GraphQL (byte_offset > 0)
-            if doc.byte_offset > 0 {
-                for diag in doc_diagnostics {
-                    diagnostics.push(diag.with_block_context(
-                        doc.line_offset,
-                        doc.byte_offset,
-                        std::sync::Arc::from(doc.source),
-                    ));
-                }
-            } else {
-                diagnostics.extend(doc_diagnostics);
-            }
         }
 
         diagnostics
@@ -159,6 +146,7 @@ fn check_document(
     subscription_type: Option<&str>,
     check_context: &CheckContext,
     diagnostics: &mut Vec<LintDiagnostic>,
+    doc: &graphql_syntax::DocumentRef<'_>,
 ) {
     for definition in doc_cst.definitions() {
         match definition {
@@ -203,6 +191,7 @@ fn check_document(
                         check_context,
                         &mut visited_fragments,
                         diagnostics,
+                        doc,
                     );
                 }
             }
@@ -238,6 +227,7 @@ fn check_document(
                         check_context,
                         &mut visited_fragments,
                         diagnostics,
+                        doc,
                     );
                 }
             }
@@ -271,6 +261,7 @@ fn check_selection_set(
     context: &CheckContext,
     visited_fragments: &mut HashSet<String>,
     diagnostics: &mut Vec<LintDiagnostic>,
+    doc: &graphql_syntax::DocumentRef<'_>,
 ) {
     // Get required fields for this type (only those that exist on the type)
     let required_fields = context
@@ -313,6 +304,7 @@ fn check_selection_set(
                                 context,
                                 visited_fragments,
                                 diagnostics,
+                                doc,
                             );
                         }
                     }
@@ -385,6 +377,7 @@ fn check_selection_set(
                                                 context,
                                                 visited_fragments,
                                                 diagnostics,
+                                                doc,
                                             );
                                         }
                                     }
@@ -455,8 +448,7 @@ fn check_selection_set(
 
             diagnostics.push(
                 LintDiagnostic::warning(
-                    parent_location.start,
-                    parent_location.end,
+                    doc.span(parent_location.start, parent_location.end),
                     format!(
                         "Selection set on type '{parent_type_name}' should include the '{required_field}' field"
                     ),
@@ -653,7 +645,9 @@ fn check_fragment_selection_for_field(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphql_base_db::{FileContent, FileId, FileKind, FileMetadata, FileUri, ProjectFiles};
+    use graphql_base_db::{
+        DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language, ProjectFiles,
+    };
     use graphql_hir::GraphQLHirDatabase;
     use graphql_ide_db::RootDatabase;
 
@@ -662,7 +656,8 @@ mod tests {
         db: &dyn GraphQLHirDatabase,
         schema_source: &str,
         document_source: &str,
-        document_kind: FileKind,
+        language: Language,
+        document_kind: DocumentKind,
     ) -> (FileId, FileContent, FileMetadata, ProjectFiles) {
         // Create schema file
         let schema_file_id = FileId::new(0);
@@ -671,7 +666,8 @@ mod tests {
             db,
             schema_file_id,
             FileUri::new("file:///schema.graphql"),
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         // Create document file
@@ -681,6 +677,7 @@ mod tests {
             db,
             doc_file_id,
             FileUri::new("file:///query.graphql"),
+            language,
             document_kind,
         );
 
@@ -747,8 +744,13 @@ query GetUser {
 }
 "#;
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            TEST_SCHEMA,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -773,8 +775,13 @@ query GetUser {
 }
 "#;
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            TEST_SCHEMA,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -801,8 +808,13 @@ query GetUserPosts {
 }
 "#;
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            TEST_SCHEMA,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -836,8 +848,13 @@ query GetUserPostComments {
 }
 "#;
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            TEST_SCHEMA,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -874,8 +891,13 @@ query GetStats {
 }
 ";
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            schema,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -901,8 +923,13 @@ const GET_USER = gql`
 `;
 "#;
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, TEST_SCHEMA, source, FileKind::TypeScript);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            TEST_SCHEMA,
+            source,
+            Language::TypeScript,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -944,8 +971,13 @@ const GET_POSTS = gql`
 `;
 "#;
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, TEST_SCHEMA, source, FileKind::TypeScript);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            TEST_SCHEMA,
+            source,
+            Language::TypeScript,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -981,8 +1013,13 @@ const QUERY = gql`
 `;
 ";
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, TEST_SCHEMA, source, FileKind::TypeScript);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            TEST_SCHEMA,
+            source,
+            Language::TypeScript,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -1013,8 +1050,13 @@ query GetUser {
 }
 "#;
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            TEST_SCHEMA,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -1040,8 +1082,13 @@ query GetUser {
 }
 "#;
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            TEST_SCHEMA,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -1055,7 +1102,7 @@ query GetUser {
     fn create_multi_file_project(
         db: &dyn GraphQLHirDatabase,
         schema_source: &str,
-        documents: &[(&str, &str, FileKind)], // (uri, source, kind)
+        documents: &[(&str, &str, Language, DocumentKind)], // (uri, source, language, kind)
     ) -> (FileId, FileContent, FileMetadata, ProjectFiles) {
         // Create schema file
         let schema_file_id = FileId::new(0);
@@ -1064,7 +1111,8 @@ query GetUser {
             db,
             schema_file_id,
             FileUri::new("file:///schema.graphql"),
-            FileKind::Schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
         );
 
         let mut file_entries = std::collections::HashMap::new();
@@ -1074,10 +1122,10 @@ query GetUser {
         let mut doc_file_ids = Vec::new();
         let mut first_doc: Option<(FileId, FileContent, FileMetadata)> = None;
 
-        for (i, (uri, source, kind)) in documents.iter().enumerate() {
+        for (i, (uri, source, language, kind)) in documents.iter().enumerate() {
             let file_id = FileId::new((i + 1) as u32);
             let content = FileContent::new(db, Arc::from(*source));
-            let metadata = FileMetadata::new(db, file_id, FileUri::new(*uri), *kind);
+            let metadata = FileMetadata::new(db, file_id, FileUri::new(*uri), *language, *kind);
 
             let entry = graphql_base_db::FileEntry::new(db, content, metadata);
             file_entries.insert(file_id, entry);
@@ -1124,12 +1172,14 @@ query GetUser {
             (
                 "file:///fragments.graphql",
                 fragment_source,
-                FileKind::ExecutableGraphQL,
+                Language::GraphQL,
+                DocumentKind::Executable,
             ),
             (
                 "file:///query.graphql",
                 query_source,
-                FileKind::ExecutableGraphQL,
+                Language::GraphQL,
+                DocumentKind::Executable,
             ),
         ];
 
@@ -1183,12 +1233,14 @@ query GetUser {
             (
                 "file:///fragments.graphql",
                 fragment_source,
-                FileKind::ExecutableGraphQL,
+                Language::GraphQL,
+                DocumentKind::Executable,
             ),
             (
                 "file:///query.graphql",
                 query_source,
-                FileKind::ExecutableGraphQL,
+                Language::GraphQL,
+                DocumentKind::Executable,
             ),
         ];
 
@@ -1246,9 +1298,15 @@ export const GET_USER = gql`
             (
                 "file:///fragments.graphql",
                 fragment_source,
-                FileKind::ExecutableGraphQL,
+                Language::GraphQL,
+                DocumentKind::Executable,
             ),
-            ("file:///query.ts", ts_source, FileKind::TypeScript),
+            (
+                "file:///query.ts",
+                ts_source,
+                Language::TypeScript,
+                DocumentKind::Executable,
+            ),
         ];
 
         let (_, _, _, project_files) = create_multi_file_project(&db, TEST_SCHEMA, &documents);
@@ -1300,8 +1358,13 @@ query GetPost {
 }
 "#;
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            TEST_SCHEMA,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -1349,8 +1412,13 @@ fragment BattleDetailed on Battle {
 }
 ";
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            schema,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -1411,12 +1479,14 @@ fragment BattleDetailed on Battle {
             (
                 "file:///trainer-fragments.graphql",
                 trainer_fragment_source,
-                FileKind::ExecutableGraphQL,
+                Language::GraphQL,
+                DocumentKind::Executable,
             ),
             (
                 "file:///battle-fragments.graphql",
                 battle_fragment_source,
-                FileKind::ExecutableGraphQL,
+                Language::GraphQL,
+                DocumentKind::Executable,
             ),
         ];
 
@@ -1495,8 +1565,13 @@ fragment BattleDetailed on Battle {
 }
 ";
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            schema,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -1553,8 +1628,13 @@ fragment BattleDetailed on Battle {
 }
 ";
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            schema,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -1608,8 +1688,13 @@ fragment TrainerBasic on Trainer {
 }
 ";
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            schema,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -1667,8 +1752,13 @@ export const BATTLE_FRAGMENT = gql`
 `;
 ";
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, schema, ts_source, FileKind::TypeScript);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            schema,
+            ts_source,
+            Language::TypeScript,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -1724,8 +1814,13 @@ fragment BattleDetailed on Battle {
 }
 ";
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            schema,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -1771,8 +1866,13 @@ query GetUser {
 }
 "#;
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            schema,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         // With default options (fields: ["id"]), no warning because User doesn't have "id"
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
@@ -1827,8 +1927,13 @@ query GetUser {
 }
 "#;
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            schema,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         // With options requiring both "id" and "uuid", should warn about missing "uuid"
         let options = serde_json::json!({ "fields": ["id", "uuid"] });
@@ -1878,8 +1983,13 @@ query GetUser {
 }
 "#;
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, schema, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            schema,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         // With options requiring "nodeId", no warning because fragment contains it
         let options = serde_json::json!({ "fields": ["nodeId"] });
@@ -1913,8 +2023,13 @@ query GetUser {
 }
 "#;
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, TEST_SCHEMA, source, FileKind::ExecutableGraphQL);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            TEST_SCHEMA,
+            source,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
 
         // With empty fields list, no warnings
         let options = serde_json::json!({ "fields": [] });
@@ -1956,8 +2071,13 @@ const GET_USER = gql`
 `;
 "#;
 
-        let (file_id, content, metadata, project_files) =
-            create_test_project(&db, TEST_SCHEMA, source, FileKind::TypeScript);
+        let (file_id, content, metadata, project_files) = create_test_project(
+            &db,
+            TEST_SCHEMA,
+            source,
+            Language::TypeScript,
+            DocumentKind::Executable,
+        );
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
@@ -1966,18 +2086,18 @@ const GET_USER = gql`
 
         let diag = &diagnostics[0];
 
-        // Verify block context is set for embedded GraphQL
+        // Verify block context is set for embedded GraphQL via SourceSpan
         assert!(
-            diag.block_line_offset.is_some(),
-            "block_line_offset should be set for embedded GraphQL"
+            diag.span.line_offset > 0,
+            "line_offset should be non-zero for embedded GraphQL"
         );
         assert!(
-            diag.block_byte_offset.is_some(),
-            "block_byte_offset should be set for embedded GraphQL"
+            diag.span.byte_offset > 0,
+            "byte_offset should be non-zero for embedded GraphQL"
         );
         assert!(
-            diag.block_source.is_some(),
-            "block_source should be set for embedded GraphQL"
+            diag.span.source.is_some(),
+            "source should be set for embedded GraphQL"
         );
 
         // Verify the diagnostic has a fix
@@ -1987,12 +2107,12 @@ const GET_USER = gql`
         assert!(!fix.edits.is_empty(), "Fix should have edits");
 
         // The fix edit positions should be relative to the block (small values)
-        // not the full file. When block_byte_offset is added, they become file-relative.
+        // not the full file. When byte_offset is added, they become file-relative.
         let edit = &fix.edits[0];
-        let block_offset = diag.block_byte_offset.unwrap();
+        let block_offset = diag.span.byte_offset;
 
         // The edit position within the block should be reasonable (less than block size)
-        let block_source = diag.block_source.as_ref().unwrap();
+        let block_source = diag.span.source.as_ref().unwrap();
         assert!(
             edit.offset_range.start < block_source.len(),
             "Edit start {} should be within block (size {})",
@@ -2010,7 +2130,7 @@ const GET_USER = gql`
         );
 
         // The file-relative position should be after "gql`" (around byte 58+)
-        // This ensures the block_byte_offset correctly points to the GraphQL content
+        // This ensures the byte_offset correctly points to the GraphQL content
         let gql_tag_pos = source.find("gql`").expect("Should find gql tag");
         assert!(
             file_relative_pos > gql_tag_pos,

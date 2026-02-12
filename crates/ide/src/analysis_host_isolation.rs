@@ -8,7 +8,7 @@
 //! on the database. All snapshots MUST be dropped before any mutating operation (`add_file`,
 //! `rebuild_project_files`, etc.) or the mutation will hang waiting for the read locks.
 
-use super::{AnalysisHost, DiagnosticSeverity, FileKind, FilePath};
+use super::{AnalysisHost, DiagnosticSeverity, DocumentKind, FilePath, Language};
 
 #[test]
 #[allow(clippy::similar_names)]
@@ -16,7 +16,12 @@ fn test_analysis_host_isolation_between_projects() {
     // Project 1: StarWars
     let mut host1 = AnalysisHost::new();
     let path1 = FilePath::new("file:///starwars/schema.graphql");
-    host1.add_file(&path1, "type Query { hero: String }", FileKind::Schema);
+    host1.add_file(
+        &path1,
+        "type Query { hero: String }",
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
     host1.rebuild_project_files();
 
     // Scope the snapshot so it's dropped before the next mutation
@@ -31,7 +36,12 @@ fn test_analysis_host_isolation_between_projects() {
     // Project 2: Pokemon
     let mut host2 = AnalysisHost::new();
     let path2 = FilePath::new("file:///pokemon/schema.graphql");
-    host2.add_file(&path2, "type Query { pokemon: String }", FileKind::Schema);
+    host2.add_file(
+        &path2,
+        "type Query { pokemon: String }",
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
     host2.rebuild_project_files();
 
     {
@@ -44,7 +54,12 @@ fn test_analysis_host_isolation_between_projects() {
 
     // Add a file to project 1 that would be invalid in project 2
     let file1 = FilePath::new("file:///starwars/query.graphql");
-    host1.add_file(&file1, "query { hero }", FileKind::ExecutableGraphQL);
+    host1.add_file(
+        &file1,
+        "query { hero }",
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
     host1.rebuild_project_files();
 
     {
@@ -57,7 +72,12 @@ fn test_analysis_host_isolation_between_projects() {
 
     // Add a file to project 2 that would be invalid in project 1
     let file2 = FilePath::new("file:///pokemon/query.graphql");
-    host2.add_file(&file2, "query { pokemon }", FileKind::ExecutableGraphQL);
+    host2.add_file(
+        &file2,
+        "query { pokemon }",
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
     host2.rebuild_project_files();
 
     {
@@ -73,7 +93,8 @@ fn test_analysis_host_isolation_between_projects() {
     host1.add_file(
         &file1_invalid,
         "query { pokemon }",
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
     host1.rebuild_project_files();
 
@@ -89,7 +110,8 @@ fn test_analysis_host_isolation_between_projects() {
     host2.add_file(
         &file2_invalid,
         "query { hero }",
-        FileKind::ExecutableGraphQL,
+        Language::GraphQL,
+        DocumentKind::Executable,
     );
     host2.rebuild_project_files();
 
