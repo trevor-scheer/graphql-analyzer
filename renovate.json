@@ -1,12 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
+  "postUpdateOptions": ["cargoLockUpdate"],
   "packageRules": [
-    {
-      "description": "SWC crates are tightly coupled and must update together",
-      "matchPackagePatterns": ["^swc_"],
-      "groupName": "swc monorepo"
-    },
     {
       "description": "Group all non-major updates for stable (>= 1.0) packages",
       "matchCurrentVersion": ">=1.0.0",
@@ -18,6 +14,11 @@
       "matchCurrentVersion": "<1.0.0",
       "matchUpdateTypes": ["patch"],
       "groupName": "v0.x patch updates"
+    },
+    {
+      "description": "SWC crates are tightly coupled and must update together",
+      "matchPackagePatterns": ["^swc_"],
+      "groupName": "swc monorepo"
     }
   ]
 }
