@@ -4996,7 +4996,7 @@ export const postType = gql`
 
             // Get all files and check their URIs
             let files = host.files();
-            let ts_file_uri = format!("file://{}", ts_path.display());
+            let ts_file_uri = path_to_file_uri(&ts_path);
 
             // Find files from the TS schema
             let block_uris: Vec<_> = files
@@ -5522,7 +5522,7 @@ query GetUser {
             .unwrap();
 
         // Manually add the document file
-        let doc_uri = format!("file://{}", doc_path.display());
+        let doc_uri = path_to_file_uri(&doc_path);
         let file_path = FilePath::new(&doc_uri);
         host.add_file(
             &file_path,
