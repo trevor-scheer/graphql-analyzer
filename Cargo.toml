@@ -49,7 +49,7 @@ apollo-compiler = { git = "https://github.com/trevor-scheer/apollo-rs.git", bran
 tokio = { version = "1.48", features = ["full"] }
 
 # LSP
-tower-lsp-server = "0.22"
+tower-lsp-server = "0.23"
 lsp-types = "0.97"
 
 # CLI
