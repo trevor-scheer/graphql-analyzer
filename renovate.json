@@ -3,6 +3,11 @@
   "extends": ["config:recommended"],
   "packageRules": [
     {
+      "description": "SWC crates are tightly coupled and must update together",
+      "matchPackagePatterns": ["^swc_"],
+      "groupName": "swc monorepo"
+    },
+    {
       "description": "Group all non-major updates for stable (>= 1.0) packages",
       "matchCurrentVersion": ">=1.0.0",
       "matchUpdateTypes": ["minor", "patch"],
