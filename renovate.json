@@ -1,6 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
+  "postUpdateOptions": ["cargoLockUpdate"],
   "packageRules": [
     {
       "description": "Group all non-major updates for stable (>= 1.0) packages",
