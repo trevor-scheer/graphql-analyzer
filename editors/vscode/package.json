@@ -9,6 +9,7 @@
   "license": "SEE LICENSE IN LICENSE.md",
   "repository": "https://github.com/trevor-scheer/graphql-analyzer",
   "publisher": "trevor-scheer",
+  "icon": "icon.png",
   "main": "./out/extension.js",
   "scripts": {
     "vscode:prepublish": "npm run compile -- --production",
