@@ -240,3 +240,42 @@ jobs:
               gh release edit "$TAG" --notes "${CURRENT_BODY}${INSTALL_LINK}"
             fi
           done
+
+  # Publish VS Code extension to marketplace
+  publish-vscode:
+    needs: [check-release, build-vscode, release]
+    if: needs.check-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install dependencies
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Download all VSIX artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: vscode-extension-*
+          path: vsix-artifacts
+          merge-multiple: true
+
+      - name: List VSIX files
+        run: find vsix-artifacts -name "*.vsix" -type f
+
+      - name: Publish to VS Code Marketplace
+        working-directory: editors/vscode
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PUBLISH_PAT }}
+        run: |
+          for vsix in ../../vsix-artifacts/*.vsix; do
+            echo "Publishing $vsix"
+            npx vsce publish --packagePath "$vsix"
+          done
