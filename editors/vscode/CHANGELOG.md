@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.1.2 (2026-02-13)
+
+### Fixes
+
+- Add automated VS Code Marketplace publishing to release workflow ([#596](https://github.com/trevor-scheer/graphql-analyzer/pull/596))
+
 ## 0.1.1 (2026-02-12)
 
 ### Features
