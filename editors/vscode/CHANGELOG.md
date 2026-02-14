@@ -2,6 +2,13 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.1.3 (2026-02-14)
+
+### Fixes
+
+- Include the extension icon in the VS Code Marketplace by adding it to the .vscodeignore file.
+- Add extension icon for VS Code Marketplace
+
 ## 0.1.2 (2026-02-13)
 
 ### Fixes
