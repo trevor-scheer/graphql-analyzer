@@ -47,7 +47,7 @@ jobs:
 
       - name: Install knope
         if: steps.check.outputs.changeset_count > 0
-        uses: knope-dev/action@v2.1.1
+        uses: knope-dev/action@v2.1.2
 
       - name: Configure git
         if: steps.check.outputs.changeset_count > 0

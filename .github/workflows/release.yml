@@ -216,7 +216,7 @@ jobs:
         run: find artifacts -type f
 
       - name: Install knope
-        uses: knope-dev/action@v2.1.1
+        uses: knope-dev/action@v2.1.2
 
       - name: Create releases
         run: knope release --verbose
