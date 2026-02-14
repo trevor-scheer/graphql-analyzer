@@ -3,6 +3,7 @@
 !README.md
 !LICENSE.md
 !language-configuration.json
+!icon.png
 !syntaxes/**
 !out/extension.js
 !bin/**
