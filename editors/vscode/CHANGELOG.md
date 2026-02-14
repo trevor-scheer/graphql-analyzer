@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.1.4 (2026-02-14)
+
+### Fixes
+
+- Fix VS Code Marketplace publisher ID
+
 ## 0.1.3 (2026-02-14)
 
 ### Fixes
