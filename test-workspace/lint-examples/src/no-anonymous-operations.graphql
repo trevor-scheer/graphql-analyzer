@@ -1,0 +1,9 @@
+# Demonstrates: noAnonymousOperations
+# Operations should be named for better debugging and tooling support.
+
+{
+  users {
+    id
+    name
+  }
+}

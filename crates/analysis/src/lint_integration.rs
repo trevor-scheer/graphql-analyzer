@@ -198,22 +198,56 @@ fn document_schema_lints(
 }
 
 /// Run schema lint rules
-#[allow(clippy::unnecessary_wraps)] // Future schema rules will return diagnostics
 fn schema_lints(
     db: &dyn GraphQLAnalysisDatabase,
-    _file_id: FileId,
-    _content: FileContent,
-    _project_files: ProjectFiles,
+    file_id: FileId,
+    content: FileContent,
+    project_files: ProjectFiles,
 ) -> Vec<Diagnostic> {
-    let _lint_config = db.lint_config();
-    let diagnostics = Vec::new();
+    let lint_config = db.lint_config();
+    let mut diagnostics = Vec::new();
+    let mut enabled_count = 0;
 
-    // Placeholder for future schema design rules (naming conventions, descriptions, etc.)
+    for rule in graphql_linter::standalone_schema_rules() {
+        let enabled = lint_config.is_enabled(rule.name());
+        tracing::debug!(
+            rule = rule.name(),
+            enabled = enabled,
+            "Checking schema rule"
+        );
 
-    tracing::debug!(
-        enabled_rules = 0,
-        "Schema linting complete (no schema rules available yet)"
-    );
+        if !enabled {
+            continue;
+        }
+
+        enabled_count += 1;
+        let options = lint_config.get_options(rule.name());
+        let lint_diags = rule.check(db, project_files, options);
+
+        // Only process diagnostics for the current file
+        if let Some(file_lint_diags) = lint_diags.get(&file_id) {
+            if !file_lint_diags.is_empty() {
+                tracing::debug!(
+                    rule = rule.name(),
+                    count = file_lint_diags.len(),
+                    "Found schema lint issues"
+                );
+            }
+
+            let severity = lint_config
+                .get_severity(rule.name())
+                .map_or(Severity::Warning, convert_severity);
+            diagnostics.extend(convert_lint_diagnostics(
+                db,
+                content,
+                file_lint_diags.clone(),
+                rule.name(),
+                severity,
+            ));
+        }
+    }
+
+    tracing::debug!(enabled_rules = enabled_count, "Schema linting complete");
 
     diagnostics
 }
@@ -357,7 +391,18 @@ pub fn lint_file_with_fixes(
             }
         }
     }
-    // Schema lints (none currently)
+    // Schema lints
+    if metadata.is_schema(db) {
+        for rule in graphql_linter::standalone_schema_rules() {
+            if lint_config.is_enabled(rule.name()) {
+                let options = lint_config.get_options(rule.name());
+                let lint_diags = rule.check(db, project_files, options);
+                if let Some(file_lint_diags) = lint_diags.get(&file_id) {
+                    all_diagnostics.extend(file_lint_diags.iter().cloned());
+                }
+            }
+        }
+    }
 
     all_diagnostics
 }

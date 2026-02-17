@@ -63,3 +63,40 @@ projects:
         rules:
           uniqueNames: error
           requireIdField: warn
+
+  lint-examples:
+    schema: "test-workspace/lint-examples/schema/**/*.graphql"
+    documents: "test-workspace/lint-examples/src/**/*.graphql"
+    extensions:
+      lint:
+        rules:
+          # Document rules
+          noAnonymousOperations: warn
+          operationNameSuffix: warn
+          redundantFields: warn
+          unusedVariables: warn
+          noDuplicateFields: warn
+          selectionSetDepth: [warn, { maxDepth: 3 }]
+          namingConvention: warn
+          alphabetize: [warn, { selections: true, arguments: true, variables: true }]
+          loneExecutableDefinition: warn
+          # Document + schema rules
+          noDeprecated: warn
+          requireIdField: warn
+          # Project rules
+          uniqueNames: warn
+          unusedFields: warn
+          unusedFragments: warn
+          noOnePlaceFragments: warn
+          # Schema rules
+          requireDescription: warn
+          requireDeprecationReason: warn
+          noHashtagDescription: warn
+          strictIdInTypes: warn
+          noTypenamePrefix: warn
+          inputName: warn
+          descriptionStyle: warn
+          noUnreachableTypes: warn
+          uniqueEnumValueNames: warn
+          noScalarResultTypeOnMutation: warn
+          requireFieldOfTypeQueryInMutationResult: warn

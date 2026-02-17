@@ -1,0 +1,13 @@
+# Demonstrates: noScalarResultTypeOnMutation
+# Mutation fields should return object types, not scalars.
+
+extend type Mutation {
+  """
+  Returns a scalar - this is an anti-pattern
+  """
+  deleteItem(id: ID!): Boolean!
+  """
+  Also returns a scalar
+  """
+  updateCounter(delta: Int!): Int!
+}

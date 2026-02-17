@@ -1,0 +1,11 @@
+# Demonstrates: noDuplicateFields
+# Fields selected more than once in the same selection set.
+
+query DuplicateFieldsQuery {
+  user(id: "1") {
+    id
+    name
+    email
+    name
+  }
+}

@@ -1,0 +1,17 @@
+# Demonstrates: unusedFragments
+# Fragments defined but never spread in any operation.
+
+query UsersQuery {
+  users {
+    id
+    name
+  }
+}
+
+fragment UnusedUserFields on User {
+  id
+  email
+  profile {
+    bio
+  }
+}

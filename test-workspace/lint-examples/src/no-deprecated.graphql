@@ -1,0 +1,9 @@
+# Demonstrates: noDeprecated
+# Using deprecated fields triggers a warning.
+
+query DeprecatedFieldQuery {
+  user(id: "1") {
+    id
+    username
+  }
+}

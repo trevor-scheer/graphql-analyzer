@@ -1,0 +1,19 @@
+# Demonstrates: descriptionStyle
+# Default expects block descriptions ("""..."""). These use inline style ("...").
+
+"A category for organizing items"
+type Category {
+  """
+  Unique identifier
+  """
+  id: ID!
+  "The category label"
+  label: String!
+}
+
+"Available color options"
+enum Color {
+  RED
+  GREEN
+  BLUE
+}

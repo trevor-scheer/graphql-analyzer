@@ -1,0 +1,48 @@
+# Demonstrates: requireFieldOfTypeQueryInMutationResult
+# Mutation result types should include a field that returns the Query type
+# so clients can refetch data in a single round trip.
+
+"""
+Result type without a Query field
+"""
+type UpdatePostResult {
+  """
+  The updated post
+  """
+  post: Post!
+}
+
+"""
+An item
+"""
+type Item {
+  """
+  Unique identifier
+  """
+  id: ID!
+  """
+  Item name
+  """
+  name: String!
+}
+
+"""
+Result type also without a Query field
+"""
+type CreateItemResult {
+  """
+  The created item
+  """
+  item: Item!
+}
+
+extend type Mutation {
+  """
+  Result type lacks Query field
+  """
+  updatePost(id: ID!, title: String!): UpdatePostResult!
+  """
+  Result type lacks Query field
+  """
+  createItem(name: String!): CreateItemResult!
+}

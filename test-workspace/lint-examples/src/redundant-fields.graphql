@@ -1,0 +1,16 @@
+# Demonstrates: redundantFields
+# Fields that appear both directly and inside a fragment spread are redundant.
+
+query RedundantQuery {
+  user(id: "1") {
+    id
+    name
+    ...UserBasics
+  }
+}
+
+fragment UserBasics on User {
+  id
+  name
+  email
+}
