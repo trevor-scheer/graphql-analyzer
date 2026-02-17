@@ -31,7 +31,7 @@ use crate::FilePath;
 /// - Each file has its own `FileEntry` Salsa input
 /// - Content updates only invalidate that specific file's queries
 /// - The `HashMap` structure remains stable across content changes
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct FileRegistry {
     next_id: u32,
     uri_to_id: HashMap<String, FileId>,
