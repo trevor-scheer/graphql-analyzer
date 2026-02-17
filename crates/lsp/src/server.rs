@@ -508,16 +508,31 @@ async fn load_all_project_files_background(
         host.with_write(graphql_ide::AnalysisHost::rebuild_project_files)
             .await;
 
-        // Compute and publish diagnostics
-        // Use try_snapshot since this is a background task - if we can't get the lock, just skip diagnostics
-        let Some(snapshot) = host.try_snapshot().await else {
-            tracing::warn!("Could not get snapshot for diagnostics in background load");
-            continue;
-        };
+        // Compute diagnostics and prewarm caches, then drop the snapshot before
+        // publishing. This minimizes how long the Salsa reader exists, allowing
+        // concurrent did_open/did_change handlers to proceed sooner.
         let loaded_file_paths: Vec<graphql_ide::FilePath> =
             loaded_files.iter().map(|f| f.path.clone()).collect();
 
-        let all_diagnostics_map = snapshot.all_diagnostics_for_files(&loaded_file_paths);
+        let all_diagnostics_map = {
+            let Some(snapshot) = host.try_snapshot().await else {
+                tracing::warn!("Could not get snapshot for diagnostics in background load");
+                continue;
+            };
+
+            let diagnostics = snapshot.all_diagnostics_for_files(&loaded_file_paths);
+
+            // Prewarm field coverage analysis - this triggers operation_body() for all operations,
+            // so the first hover doesn't block on a project-wide query
+            let prewarm_start = std::time::Instant::now();
+            let _ = snapshot.field_coverage();
+            tracing::debug!(
+                "Prewarmed field coverage in {:.2}ms",
+                prewarm_start.elapsed().as_secs_f64() * 1000.0
+            );
+
+            diagnostics
+        }; // snapshot dropped here, before any awaits
 
         tracing::debug!(
             "Publishing diagnostics for {} files with issues",
@@ -537,15 +552,6 @@ async fn load_all_project_files_background(
                 .publish_diagnostics(file_uri, lsp_diagnostics, None)
                 .await;
         }
-
-        // Prewarm field coverage analysis - this triggers operation_body() for all operations,
-        // so the first hover doesn't block on a project-wide query
-        let prewarm_start = std::time::Instant::now();
-        let _ = snapshot.field_coverage();
-        tracing::debug!(
-            "Prewarmed field coverage in {:.2}ms",
-            prewarm_start.elapsed().as_secs_f64() * 1000.0
-        );
 
         let project_msg = format!(
             "Project '{}' loaded: {} files in {:.1}s",
@@ -1244,12 +1250,16 @@ documents: "**/*.graphql"
     #[tracing::instrument(skip(self, snapshot), fields(path = %uri.as_str()))]
     async fn validate_file_with_snapshot(&self, uri: &Uri, snapshot: graphql_ide::Analysis) {
         let file_path = graphql_ide::FilePath::new(uri.as_str());
-        let diagnostics = snapshot.diagnostics(&file_path);
 
-        let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-            .into_iter()
-            .map(convert_ide_diagnostic)
-            .collect();
+        // Compute diagnostics then drop the snapshot before the await
+        let lsp_diagnostics: Vec<Diagnostic> = {
+            let diagnostics = snapshot.diagnostics(&file_path);
+            drop(snapshot);
+            diagnostics
+                .into_iter()
+                .map(convert_ide_diagnostic)
+                .collect()
+        };
 
         self.client
             .publish_diagnostics(uri.clone(), lsp_diagnostics, None)
@@ -1542,12 +1552,15 @@ impl LanguageServer for GraphQLLanguageServer {
         // Files loaded during init already have diagnostics published (including project-wide).
         // Re-publishing here would overwrite project-wide diagnostics with only per-file ones.
         if is_new {
-            // Use all_diagnostics_for_file to include project-wide diagnostics
-            let diagnostics = snapshot.all_diagnostics_for_file(&file_path);
-            let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-                .into_iter()
-                .map(convert_ide_diagnostic)
-                .collect();
+            // Compute diagnostics then drop the snapshot before the await
+            let lsp_diagnostics: Vec<Diagnostic> = {
+                let diagnostics = snapshot.all_diagnostics_for_file(&file_path);
+                drop(snapshot);
+                diagnostics
+                    .into_iter()
+                    .map(convert_ide_diagnostic)
+                    .collect()
+            };
             self.client
                 .publish_diagnostics(uri, lsp_diagnostics, None)
                 .await;
@@ -1635,36 +1648,40 @@ impl LanguageServer for GraphQLLanguageServer {
             return;
         };
 
-        // Run project-wide lints on save (these are expensive, so we don't run them on every change)
-        let Some(snapshot) = host.try_snapshot().await else {
-            tracing::debug!("Could not acquire snapshot for project-wide lints");
-            return;
-        };
-        let project_diagnostics = snapshot.project_lint_diagnostics();
-
-        tracing::debug!(
-            "Running project-wide lints on save, found diagnostics for {} files",
-            project_diagnostics.len()
-        );
-
-        // Publish project-wide diagnostics for each affected file
-        for (file_path, diagnostics) in project_diagnostics {
-            // file_path.as_str() is already a URI string (e.g., "file:///path/to/file.tsx")
-            let Ok(file_uri) = Uri::from_str(file_path.as_str()) else {
-                tracing::warn!("Invalid URI in project diagnostics: {}", file_path.as_str());
-                continue;
+        // Run project-wide lints on save (these are expensive, so we don't run them on every change).
+        // Compute all diagnostics inside a scoped snapshot, then drop it before publishing.
+        // This minimizes how long the Salsa reader exists.
+        let diagnostics_to_publish: Vec<(Uri, Vec<Diagnostic>)> = {
+            let Some(snapshot) = host.try_snapshot().await else {
+                tracing::debug!("Could not acquire snapshot for project-wide lints");
+                return;
             };
+            let project_diagnostics = snapshot.project_lint_diagnostics();
 
-            // Get existing per-file diagnostics and merge with project-wide diagnostics
-            let per_file_diagnostics = snapshot.diagnostics(&file_path);
-            let mut all_diagnostics: Vec<Diagnostic> = per_file_diagnostics
+            tracing::debug!(
+                "Running project-wide lints on save, found diagnostics for {} files",
+                project_diagnostics.len()
+            );
+
+            project_diagnostics
                 .into_iter()
-                .map(convert_ide_diagnostic)
-                .collect();
+                .filter_map(|(file_path, diagnostics)| {
+                    let file_uri = Uri::from_str(file_path.as_str()).ok()?;
 
-            // Add project-wide diagnostics
-            all_diagnostics.extend(diagnostics.into_iter().map(convert_ide_diagnostic));
+                    // Get existing per-file diagnostics and merge with project-wide diagnostics
+                    let per_file_diagnostics = snapshot.diagnostics(&file_path);
+                    let mut all_diagnostics: Vec<Diagnostic> = per_file_diagnostics
+                        .into_iter()
+                        .map(convert_ide_diagnostic)
+                        .collect();
+                    all_diagnostics.extend(diagnostics.into_iter().map(convert_ide_diagnostic));
 
+                    Some((file_uri, all_diagnostics))
+                })
+                .collect()
+        }; // snapshot dropped here, before any awaits
+
+        for (file_uri, all_diagnostics) in diagnostics_to_publish {
             self.client
                 .publish_diagnostics(file_uri, all_diagnostics, None)
                 .await;
