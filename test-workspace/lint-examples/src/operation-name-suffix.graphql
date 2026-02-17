@@ -1,0 +1,9 @@
+# Demonstrates: operationNameSuffix
+# Operation names should end with their type (Query, Mutation, Subscription).
+
+query Users {
+  users {
+    id
+    name
+  }
+}

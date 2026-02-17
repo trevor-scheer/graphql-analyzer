@@ -1,0 +1,9 @@
+# Demonstrates: unusedVariables
+# Variables declared but never used in the operation.
+
+query UnusedVarsQuery($userId: ID!, $unused: String) {
+  user(id: $userId) {
+    id
+    name
+  }
+}

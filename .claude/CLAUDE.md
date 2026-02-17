@@ -235,6 +235,15 @@ gh issue view 123 --repo trevor-scheer/graphql-analyzer
 - Don't create markdown files unless asked
 - Don't manually edit `.github/workflows/release.yml`
 
+### Lint Rule Test Workspace
+
+The `test-workspace/lint-examples/` project demonstrates all lint rules in action. When adding, removing, or changing lint rules:
+
+1. **Adding a rule**: Create a new `.graphql` file in `schema/` (for schema rules) or `src/` (for document/operation rules) named after the rule (e.g., `no-typename-prefix.graphql`). The file should contain GraphQL that triggers the rule.
+2. **Removing a rule**: Delete the corresponding demo file and remove the rule from the `lint-examples` project in `.graphqlrc.yaml`.
+3. **Changing a rule**: Update the corresponding demo file to reflect the new behavior, and update the rule config in `.graphqlrc.yaml` if options changed.
+4. **Config**: The `lint-examples` project in `.graphqlrc.yaml` must list all lint rules explicitly (no `extends: recommended`).
+
 ### Things to Always Do
 
 - Read relevant READMEs before starting
@@ -242,6 +251,7 @@ gh issue view 123 --repo trevor-scheer/graphql-analyzer
 - Write tests for new functionality
 - Create changesets for user-facing changes
 - Build and test after changes
+- Update `test-workspace/lint-examples/` when lint rules change
 - Ask when uncertain
 
 ---

@@ -1,0 +1,10 @@
+# Demonstrates: uniqueNames (part 2 of 2)
+# Operation names must be unique across all files.
+# This file and unique-names-1.graphql both define "DuplicateNameQuery".
+
+query DuplicateNameQuery {
+  posts {
+    id
+    title
+  }
+}

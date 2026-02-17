@@ -1,0 +1,9 @@
+# Demonstrates: requireIdField
+# Selections on types that have an ID field should include it.
+
+query MissingIdQuery {
+  user(id: "1") {
+    name
+    email
+  }
+}

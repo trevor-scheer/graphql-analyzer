@@ -1,0 +1,26 @@
+# Demonstrates: noHashtagDescription
+# The rule flags # comments used as type descriptions (they won't show in introspection).
+
+# A widget in the system
+type Widget {
+  """
+  Unique identifier
+  """
+  id: ID!
+  """
+  Widget name
+  """
+  name: String!
+}
+
+# Tracks inventory levels
+type Inventory {
+  """
+  Unique identifier
+  """
+  id: ID!
+  """
+  Item count
+  """
+  count: Int!
+}

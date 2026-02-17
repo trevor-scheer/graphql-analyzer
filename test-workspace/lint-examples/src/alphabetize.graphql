@@ -1,0 +1,10 @@
+# Demonstrates: alphabetize
+# Fields should be in alphabetical order within selection sets.
+
+query AlphabetizeQuery {
+  user(id: "1") {
+    name
+    id
+    email
+  }
+}

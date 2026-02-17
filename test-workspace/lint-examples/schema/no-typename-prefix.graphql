@@ -1,0 +1,24 @@
+# Demonstrates: noTypenamePrefix
+# These fields are prefixed with their parent type name, which is redundant.
+
+"""
+A product in the catalog
+"""
+type Product {
+  """
+  Unique identifier
+  """
+  id: ID!
+  """
+  Bad: prefixed with type name
+  """
+  productName: String!
+  """
+  Bad: prefixed with type name
+  """
+  productPrice: Float!
+  """
+  Bad: prefixed with type name
+  """
+  productCategory: String
+}
