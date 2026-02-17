@@ -54,9 +54,9 @@ if [[ "$has_user_facing_changes" = "false" ]]; then
   exit 0
 fi
 
-# Check if a changeset already exists
-changeset_count=$(find .changeset -name '*.md' ! -name 'README*' 2>/dev/null | wc -l)
-if [[ "$changeset_count" -gt 0 ]]; then
+# Check if a new changeset was added in this branch's diff
+new_changeset=$(echo "$changed_files" | grep -E '^\.changeset/.*\.md$' | grep -v 'README')
+if [[ -n "$new_changeset" ]]; then
   exit 0
 fi
 
