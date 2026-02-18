@@ -71,13 +71,41 @@ impl CodeFix {
     }
 }
 
-/// File path (can be URI or file path)
+/// File path (stored as URI internally)
+///
+/// All files are stored and looked up using URIs for consistency.
+/// Use `from_path` to convert filesystem paths to proper file:// URIs.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FilePath(pub String);
 
 impl FilePath {
-    pub fn new(path: impl Into<String>) -> Self {
-        Self(path.into())
+    /// Create a `FilePath` from a string that is already a URI
+    pub fn new(uri: impl Into<String>) -> Self {
+        Self(uri.into())
+    }
+
+    /// Create a `FilePath` from a filesystem path, converting to file:// URI
+    ///
+    /// This handles:
+    /// - Already-URI strings (file://, schema://, https://) - passed through unchanged
+    /// - Unix absolute paths (/home/user/file.graphql) - converted to file:// URI
+    /// - Other paths - prefixed with file:///
+    #[must_use]
+    pub fn from_path(path: &std::path::Path) -> Self {
+        let path_str = path.to_string_lossy();
+
+        // Already a URI - pass through
+        if path_str.starts_with("file://") || path_str.contains("://") {
+            return Self(path_str.to_string());
+        }
+
+        // Unix absolute path
+        if path_str.starts_with('/') {
+            return Self(format!("file://{path_str}"));
+        }
+
+        // Windows or relative path
+        Self(format!("file:///{path_str}"))
     }
 
     #[must_use]
@@ -821,6 +849,30 @@ mod tests {
 
         let path2: FilePath = "test.graphql".into();
         assert_eq!(path2.as_str(), "test.graphql");
+    }
+
+    #[test]
+    fn test_file_path_from_path_unix_absolute() {
+        let path = FilePath::from_path(std::path::Path::new("/home/user/file.graphql"));
+        assert_eq!(path.as_str(), "file:///home/user/file.graphql");
+    }
+
+    #[test]
+    fn test_file_path_from_path_already_file_uri() {
+        let path = FilePath::from_path(std::path::Path::new("file:///home/user/file.graphql"));
+        assert_eq!(path.as_str(), "file:///home/user/file.graphql");
+    }
+
+    #[test]
+    fn test_file_path_from_path_other_scheme() {
+        let path = FilePath::from_path(std::path::Path::new("https://example.com/schema.graphql"));
+        assert_eq!(path.as_str(), "https://example.com/schema.graphql");
+    }
+
+    #[test]
+    fn test_file_path_from_path_relative() {
+        let path = FilePath::from_path(std::path::Path::new("src/schema.graphql"));
+        assert_eq!(path.as_str(), "file:///src/schema.graphql");
     }
 
     #[test]
