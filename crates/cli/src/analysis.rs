@@ -10,21 +10,6 @@ use graphql_ide::{AnalysisHost, Diagnostic, DocumentKind, FilePath, Language};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Convert a filesystem path to a file:// URI
-fn path_to_file_uri(path: &Path) -> String {
-    let path_str = path.to_string_lossy();
-
-    if path_str.starts_with("file://") || path_str.contains("://") {
-        return path_str.to_string();
-    }
-
-    if path_str.starts_with('/') {
-        return format!("file://{path_str}");
-    }
-
-    format!("file:///{path_str}")
-}
-
 /// CLI adapter for `AnalysisHost`
 ///
 /// Wraps `graphql-ide::AnalysisHost` and provides CLI-specific conveniences:
@@ -204,12 +189,7 @@ impl CliAnalysisHost {
                         _ => (Language::GraphQL, DocumentKind::Executable),
                     };
                     document_files.push(path.clone());
-                    (
-                        FilePath::new(path.to_string_lossy().to_string()),
-                        content,
-                        language,
-                        document_kind,
-                    )
+                    (FilePath::from_path(&path), content, language, document_kind)
                 })
                 .collect();
 
@@ -309,7 +289,7 @@ impl CliAnalysisHost {
         let mut results = HashMap::new();
 
         for path in &self.schema_files {
-            let file_path = FilePath::new(path_to_file_uri(path));
+            let file_path = FilePath::from_path(path);
             let diagnostics = snapshot.validation_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {
@@ -318,7 +298,7 @@ impl CliAnalysisHost {
         }
 
         for path in &self.document_files {
-            let file_path = FilePath::new(path_to_file_uri(path));
+            let file_path = FilePath::from_path(path);
             let diagnostics = snapshot.validation_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {
@@ -351,7 +331,7 @@ impl CliAnalysisHost {
                 progress = format!("{}/{}", idx + 1, self.document_files.len()),
                 "Checking file for lint issues"
             );
-            let file_path = FilePath::new(path.to_string_lossy());
+            let file_path = FilePath::from_path(path);
             let diagnostics = snapshot.lint_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {
@@ -472,7 +452,7 @@ impl CliAnalysisHost {
         language: Language,
         document_kind: DocumentKind,
     ) {
-        let file_path = FilePath::new(path.to_string_lossy().to_string());
+        let file_path = FilePath::from_path(path);
         self.host
             .add_file(&file_path, content, language, document_kind);
 
@@ -495,7 +475,7 @@ impl CliAnalysisHost {
 
         // Get file-level lint diagnostics with fixes
         for path in &self.document_files {
-            let file_path = FilePath::new(path.to_string_lossy().to_string());
+            let file_path = FilePath::from_path(path);
             let diagnostics = snapshot.lint_diagnostics_with_fixes(&file_path);
 
             if !diagnostics.is_empty() {
@@ -582,30 +562,6 @@ fn count_fragment_spreads_in_selection_set(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_path_to_file_uri_absolute_unix_path() {
-        let result = path_to_file_uri(std::path::Path::new("/home/user/file.graphql"));
-        assert_eq!(result, "file:///home/user/file.graphql");
-    }
-
-    #[test]
-    fn test_path_to_file_uri_already_file_uri() {
-        let result = path_to_file_uri(std::path::Path::new("file:///home/user/file.graphql"));
-        assert_eq!(result, "file:///home/user/file.graphql");
-    }
-
-    #[test]
-    fn test_path_to_file_uri_other_scheme() {
-        let result = path_to_file_uri(std::path::Path::new("https://example.com/schema.graphql"));
-        assert_eq!(result, "https://example.com/schema.graphql");
-    }
-
-    #[test]
-    fn test_path_to_file_uri_relative_path() {
-        let result = path_to_file_uri(std::path::Path::new("src/schema.graphql"));
-        assert_eq!(result, "file:///src/schema.graphql");
-    }
 
     #[test]
     fn test_expand_braces_single_brace_group() {

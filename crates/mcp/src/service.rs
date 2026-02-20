@@ -150,8 +150,7 @@ impl McpService {
                         for entry in paths.flatten() {
                             if entry.is_file() {
                                 if let Ok(content) = std::fs::read_to_string(&entry) {
-                                    let file_path =
-                                        FilePath::new(entry.to_string_lossy().to_string());
+                                    let file_path = FilePath::from_path(&entry);
                                     let (language, document_kind) =
                                         match entry.extension().and_then(|e| e.to_str()) {
                                             Some("ts" | "tsx") => {
@@ -340,7 +339,7 @@ impl McpService {
                     for entry in paths.flatten() {
                         if entry.is_file() {
                             if let Ok(content) = std::fs::read_to_string(&entry) {
-                                let file_path = FilePath::new(entry.to_string_lossy().to_string());
+                                let file_path = FilePath::from_path(&entry);
                                 let (language, document_kind) =
                                     match entry.extension().and_then(|e| e.to_str()) {
                                         Some("ts" | "tsx") => {
