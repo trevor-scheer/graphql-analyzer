@@ -7,14 +7,14 @@ use std::fmt::Write;
 const BUILTIN_SCALARS: &[&str] = &["Int", "Float", "String", "Boolean", "ID"];
 
 /// Built-in GraphQL directives that should not be included in generated SDL.
-const BUILTIN_DIRECTIVES: &[&str] = &["skip", "include", "deprecated", "specifiedBy"];
+const BUILTIN_DIRECTIVES: &[&str] = &["skip", "include", "deprecated", "specifiedBy", "oneOf"];
 
 /// Converts a GraphQL introspection response to SDL (Schema Definition Language).
 ///
 /// This function generates clean, readable SDL from an introspection response by:
 /// - Filtering out built-in scalar types (Int, Float, String, Boolean, ID)
 /// - Filtering out introspection types (types starting with `__`)
-/// - Filtering out built-in directives (@skip, @include, @deprecated, @specifiedBy)
+/// - Filtering out built-in directives (@skip, @include, @deprecated, @specifiedBy, @oneOf)
 /// - Preserving descriptions, deprecation information, and custom directives
 /// - Formatting with proper indentation and GraphQL syntax
 ///
@@ -178,7 +178,11 @@ fn write_type(sdl: &mut String, type_def: &IntrospectionType) {
         }
         IntrospectionType::InputObject(t) => {
             write_description(sdl, t.description.as_ref(), 0);
-            writeln!(sdl, "input {} {{", t.name).unwrap();
+            if t.is_one_of == Some(true) {
+                writeln!(sdl, "input {} @oneOf {{", t.name).unwrap();
+            } else {
+                writeln!(sdl, "input {} {{", t.name).unwrap();
+            }
             for field in &t.input_fields {
                 write_description(sdl, field.description.as_ref(), 1);
                 write!(sdl, "  {}: {}", field.name, field.type_ref.to_type_string()).unwrap();
