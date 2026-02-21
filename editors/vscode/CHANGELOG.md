@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.1.5 (2026-02-21)
+
+### Fixes
+
+- Fix language server restart failing on first attempt when server is unresponsive ([#611](https://github.com/trevor-scheer/graphql-analyzer/pull/611))
+
 ## 0.1.4 (2026-02-14)
 
 ### Fixes
