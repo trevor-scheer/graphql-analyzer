@@ -106,7 +106,14 @@ pub fn run(
 
     // Report project loaded successfully
     if matches!(format, OutputFormat::Human) && output_opts.show_info {
-        println!("{}", "✓ Schema loaded successfully".green());
+        if host.schema_loaded() {
+            println!("{}", "✓ Schema loaded successfully".green());
+        } else {
+            println!(
+                "{}",
+                "! No schema files found matching configured patterns. Schema validation will be skipped.".yellow()
+            );
+        }
         println!("{}", "✓ Documents loaded successfully".green());
     }
 
@@ -289,6 +296,7 @@ pub fn run(
 
             let output = serde_json::json!({
                 "success": total_errors == 0,
+                "schema_loaded": host.schema_loaded(),
                 "files": files,
                 "stats": {
                     "total_files": total_files,

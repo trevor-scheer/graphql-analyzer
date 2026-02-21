@@ -211,6 +211,41 @@ fn validation_errors_to_diagnostics(
         .collect()
 }
 
+/// Find the range of the `schema:` key in the config file for a given project.
+///
+/// Searches for the `schema:` key, optionally scoped under the project name
+/// in multi-project configs. Returns a default range if the key is not found.
+fn find_schema_key_range(config_content: &str, project_name: &str) -> lsp_types::Range {
+    let mut in_project = project_name == "default";
+    for (line_num, line) in config_content.lines().enumerate() {
+        let trimmed = line.trim();
+
+        // Check if we've entered the right project section
+        if !in_project {
+            if trimmed.starts_with(&format!("{project_name}:"))
+                || trimmed.starts_with(&format!("\"{project_name}\":"))
+            {
+                in_project = true;
+            }
+            continue;
+        }
+
+        if let Some(col) = line.find("schema:") {
+            return lsp_types::Range {
+                start: lsp_types::Position {
+                    line: line_num as u32,
+                    character: col as u32,
+                },
+                end: lsp_types::Position {
+                    line: line_num as u32,
+                    character: (col + "schema:".len()) as u32,
+                },
+            };
+        }
+    }
+    lsp_types::Range::default()
+}
+
 /// Load a single workspace config in the background
 async fn load_workspace_config_background(
     client: &Client,
@@ -352,6 +387,8 @@ async fn load_all_project_files_background(
 
     // Collect all content mismatch errors across all projects
     let mut content_mismatch_errors: Vec<graphql_config::ConfigValidationError> = Vec::new();
+    // Track projects where no user schema files were found
+    let mut no_schema_projects: Vec<String> = Vec::new();
 
     for (project_name, project_config) in projects {
         let project_start = std::time::Instant::now();
@@ -386,7 +423,7 @@ async fn load_all_project_files_background(
         .await;
 
         // Load schemas
-        let pending_introspections = host
+        let (pending_introspections, no_user_schema) = host
             .with_write(
                 |h| match h.load_schemas_from_config(project_config, workspace_path) {
                     Ok(result) => {
@@ -395,6 +432,7 @@ async fn load_all_project_files_background(
                             result.loaded_count,
                             result.pending_introspections.len()
                         );
+                        let no_schema = result.has_no_user_schema();
                         // Convert content mismatch errors to ConfigValidationError
                         for error in &result.content_errors {
                             tracing::warn!(
@@ -412,15 +450,29 @@ async fn load_all_project_files_background(
                                 },
                             );
                         }
-                        result.pending_introspections
+                        (result.pending_introspections, no_schema)
                     }
                     Err(e) => {
                         tracing::error!("Failed to load schemas: {}", e);
-                        vec![]
+                        (vec![], true)
                     }
                 },
             )
             .await;
+
+        if no_user_schema {
+            tracing::warn!(
+                "Project '{}': no schema files found matching configured patterns",
+                project_name
+            );
+            no_schema_projects.push(project_name.to_string());
+            client
+                .show_message(
+                    MessageType::WARNING,
+                    format!("GraphQL: No schema files found for project '{project_name}'. Schema validation will be skipped."),
+                )
+                .await;
+        }
 
         // Fetch remote schemas (if any)
         for pending in &pending_introspections {
@@ -557,18 +609,38 @@ async fn load_all_project_files_background(
         client.log_message(MessageType::INFO, &project_msg).await;
     }
 
-    // Publish content mismatch diagnostics on the config file
-    if !content_mismatch_errors.is_empty() {
+    // Publish config file diagnostics (content mismatches and missing schema warnings)
+    if !content_mismatch_errors.is_empty() || !no_schema_projects.is_empty() {
         let config_uri =
             Uri::from_str(&graphql_ide::path_to_file_uri(config_path)).expect("valid config path");
         let config_content = std::fs::read_to_string(config_path).unwrap_or_default();
-        let diagnostics =
+
+        let mut diagnostics =
             validation_errors_to_diagnostics(&content_mismatch_errors, &config_content);
 
-        tracing::warn!(
-            "Found {} content mismatch error(s) in config",
-            content_mismatch_errors.len()
-        );
+        // Add warnings for projects with no schema files found
+        for project_name in &no_schema_projects {
+            let range = find_schema_key_range(&config_content, project_name);
+            diagnostics.push(Diagnostic {
+                range,
+                severity: Some(lsp_types::DiagnosticSeverity::WARNING),
+                code: Some(lsp_types::NumberOrString::String(
+                    "no-schema-files".to_string(),
+                )),
+                source: Some("graphql-config".to_string()),
+                message: format!(
+                    "No schema files found matching this pattern. Schema validation will be skipped for project '{project_name}'."
+                ),
+                ..Default::default()
+            });
+        }
+
+        if !content_mismatch_errors.is_empty() {
+            tracing::warn!(
+                "Found {} content mismatch error(s) in config",
+                content_mismatch_errors.len()
+            );
+        }
 
         client
             .publish_diagnostics(config_uri, diagnostics, None)
@@ -911,6 +983,7 @@ documents: "**/*.graphql"
 
         // Collect all content mismatch errors across all projects
         let mut content_mismatch_errors: Vec<graphql_config::ConfigValidationError> = Vec::new();
+        let mut no_schema_projects: Vec<String> = Vec::new();
 
         for (project_name, project_config) in projects {
             let project_start = std::time::Instant::now();
@@ -956,10 +1029,10 @@ documents: "**/*.graphql"
             // Load local schemas AND documents in a single lock acquisition to prevent
             // race conditions where did_save could run between schema and document loading,
             // resulting in project-wide lints running with incomplete document_file_ids.
-            let (pending_introspections, loaded_files, schema_errors) = host
+            let (pending_introspections, loaded_files, schema_errors, no_user_schema) = host
                 .with_write(|h| {
                     // Load schemas first
-                    let (pending, errors) =
+                    let (pending, errors, no_schema) =
                         match h.load_schemas_from_config(project_config, workspace_path) {
                             Ok(result) => {
                                 tracing::debug!(
@@ -967,20 +1040,39 @@ documents: "**/*.graphql"
                                     result.loaded_count,
                                     result.pending_introspections.len()
                                 );
-                                (result.pending_introspections, result.content_errors)
+                                let no_schema = result.has_no_user_schema();
+                                (
+                                    result.pending_introspections,
+                                    result.content_errors,
+                                    no_schema,
+                                )
                             }
                             Err(e) => {
                                 tracing::error!("Failed to load schemas: {}", e);
-                                (vec![], vec![])
+                                (vec![], vec![], true)
                             }
                         };
 
                     // Load documents in the same lock acquisition
                     let docs = h.load_documents_from_config(project_config, workspace_path);
 
-                    (pending, docs, errors)
+                    (pending, docs, errors, no_schema)
                 })
                 .await;
+
+            if no_user_schema {
+                tracing::warn!(
+                    "Project '{}': no schema files found matching configured patterns",
+                    project_name
+                );
+                no_schema_projects.push(project_name.to_string());
+                self.client
+                    .show_message(
+                        MessageType::WARNING,
+                        format!("GraphQL: No schema files found for project '{project_name}'. Schema validation will be skipped."),
+                    )
+                    .await;
+            }
 
             // Convert schema content mismatch errors to ConfigValidationError
             for error in &schema_errors {
@@ -1120,18 +1212,37 @@ documents: "**/*.graphql"
                 .await;
         }
 
-        // Publish content mismatch diagnostics on the config file
-        if !content_mismatch_errors.is_empty() {
+        // Publish config file diagnostics (content mismatches and missing schema warnings)
+        if !content_mismatch_errors.is_empty() || !no_schema_projects.is_empty() {
             let config_uri = Uri::from_str(&graphql_ide::path_to_file_uri(config_path))
                 .expect("valid config path");
             let config_content = std::fs::read_to_string(config_path).unwrap_or_default();
-            let diagnostics =
+
+            let mut diagnostics =
                 validation_errors_to_diagnostics(&content_mismatch_errors, &config_content);
 
-            tracing::warn!(
-                "Found {} content mismatch error(s) in config",
-                content_mismatch_errors.len()
-            );
+            for project_name in &no_schema_projects {
+                let range = find_schema_key_range(&config_content, project_name);
+                diagnostics.push(Diagnostic {
+                    range,
+                    severity: Some(lsp_types::DiagnosticSeverity::WARNING),
+                    code: Some(lsp_types::NumberOrString::String(
+                        "no-schema-files".to_string(),
+                    )),
+                    source: Some("graphql-config".to_string()),
+                    message: format!(
+                        "No schema files found matching this pattern. Schema validation will be skipped for project '{project_name}'."
+                    ),
+                    ..Default::default()
+                });
+            }
+
+            if !content_mismatch_errors.is_empty() {
+                tracing::warn!(
+                    "Found {} content mismatch error(s) in config",
+                    content_mismatch_errors.len()
+                );
+            }
 
             self.client
                 .publish_diagnostics(config_uri, diagnostics, None)
@@ -2455,5 +2566,35 @@ impl LanguageServer for GraphQLLanguageServer {
 
         tracing::debug!("Returning {} inlay hints for {:?}", lsp_hints.len(), uri);
         Ok(Some(lsp_hints))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_schema_key_range_single_project() {
+        let config = "schema: \"schema.graphql\"\ndocuments: \"src/**/*.graphql\"\n";
+        let range = find_schema_key_range(config, "default");
+        assert_eq!(range.start.line, 0);
+        assert_eq!(range.start.character, 0);
+        assert_eq!(range.end.character, 7);
+    }
+
+    #[test]
+    fn test_find_schema_key_range_multi_project() {
+        let config = "projects:\n  myapp:\n    schema: \"schema.graphql\"\n    documents: \"src/**/*.graphql\"\n";
+        let range = find_schema_key_range(config, "myapp");
+        assert_eq!(range.start.line, 2);
+        assert_eq!(range.start.character, 4);
+        assert_eq!(range.end.character, 11);
+    }
+
+    #[test]
+    fn test_find_schema_key_range_not_found() {
+        let config = "documents: \"src/**/*.graphql\"\n";
+        let range = find_schema_key_range(config, "default");
+        assert_eq!(range, lsp_types::Range::default());
     }
 }

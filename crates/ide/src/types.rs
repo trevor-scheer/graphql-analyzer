@@ -685,6 +685,16 @@ pub struct SchemaLoadResult {
     pub content_errors: Vec<SchemaContentError>,
 }
 
+impl SchemaLoadResult {
+    /// Returns true if no user schema files were loaded and no remote
+    /// introspection is pending. The Apollo Client builtins are always
+    /// loaded and don't count as user schemas.
+    #[must_use]
+    pub fn has_no_user_schema(&self) -> bool {
+        self.loaded_paths.is_empty() && self.pending_introspections.is_empty()
+    }
+}
+
 /// A content mismatch error found during schema loading.
 #[derive(Debug, Clone)]
 pub struct SchemaContentError {
@@ -936,5 +946,38 @@ mod tests {
         assert_eq!(status.document_file_count, 0);
         assert_eq!(status.total_files(), 0);
         assert!(!status.has_schema());
+    }
+
+    #[test]
+    fn test_schema_load_result_has_no_user_schema_empty() {
+        let result = SchemaLoadResult::default();
+        assert!(result.has_no_user_schema());
+    }
+
+    #[test]
+    fn test_schema_load_result_has_no_user_schema_with_paths() {
+        let result = SchemaLoadResult {
+            loaded_count: 2,
+            loaded_paths: vec![std::path::PathBuf::from("schema.graphql")],
+            pending_introspections: vec![],
+            content_errors: vec![],
+        };
+        assert!(!result.has_no_user_schema());
+    }
+
+    #[test]
+    fn test_schema_load_result_has_no_user_schema_with_introspection() {
+        let result = SchemaLoadResult {
+            loaded_count: 1,
+            loaded_paths: vec![],
+            pending_introspections: vec![PendingIntrospection {
+                url: "http://localhost:4000/graphql".to_string(),
+                headers: None,
+                timeout: None,
+                retry: None,
+            }],
+            content_errors: vec![],
+        };
+        assert!(!result.has_no_user_schema());
     }
 }
