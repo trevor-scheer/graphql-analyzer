@@ -1,5 +1,5 @@
 # GraphQL LSP Project Configuration
-# yaml-language-server: $schema=crates/graphql-config/schema/graphqlrc.schema.json
+# yaml-language-server: $schema=crates/config/schema/graphqlrc.schema.json
 projects:
   pokemon:
     schema: test-workspace/pokemon/schema.graphql
@@ -12,7 +12,7 @@ projects:
           requireIdField: warn
 
   starwars:
-    schema: test-workspace/starwars/schema.graphql
+    schema: "test-workspace/starwars/schema.graphql"
     documents: "test-workspace/starwars/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
     extensions:
       lint:
@@ -63,3 +63,13 @@ projects:
         rules:
           uniqueNames: error
           requireIdField: warn
+
+  misconfigured-schema:
+    # expect 2 errors: schema file does not exist, and documents file does not exist
+    schema: "test-workspace/misconfigured-schema/schema.graphql"
+    documents: "test-workspace/misconfigured-schema/query.graphql"
+
+  misconfigured-documents:
+    # expect 2 errors: schema file does not exist, and documents file does not exist
+    schema: "test-workspace/misconfigured-documents/schema.graphql"
+    documents: "test-workspace/misconfigured-documents/query.graphql"

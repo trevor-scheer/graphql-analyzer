@@ -1,12 +1,20 @@
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
-import { ExtensionContext, OutputChannel } from "vscode";
+import { ExtensionContext, OutputChannel, workspace } from "vscode";
 
-function expandTilde(inputPath: string): string {
+function expandPath(inputPath: string): string {
   if (!inputPath) return inputPath;
+  // Expand ~ to home directory
   if (inputPath.startsWith("~")) {
     return path.join(os.homedir(), inputPath.slice(1));
+  }
+  // Resolve relative paths against workspace folder
+  if (!path.isAbsolute(inputPath)) {
+    const workspaceFolder = workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (workspaceFolder) {
+      return path.join(workspaceFolder, inputPath);
+    }
   }
   return inputPath;
 }
@@ -41,7 +49,7 @@ export async function findServerBinary(
 
   // 1. Check custom path from settings
   if (customPath && customPath.trim() !== "") {
-    const expandedCustomPath = expandTilde(customPath.trim());
+    const expandedCustomPath = expandPath(customPath.trim());
     outputChannel.appendLine(`Checking custom path: ${expandedCustomPath}`);
     if (fs.existsSync(expandedCustomPath)) {
       const stats = fs.statSync(expandedCustomPath);
