@@ -2,7 +2,7 @@
 import { gql } from "graphql-tag";
 
 export const GET_PLANETS = gql`
-  query AllPlanets {
+  query GetPlanets {
     planets {
       id
       name
