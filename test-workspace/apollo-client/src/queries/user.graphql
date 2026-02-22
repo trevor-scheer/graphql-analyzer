@@ -1,7 +1,0 @@
-# Demonstrates @export to pass field values as variables
-query GetViewerAndPosts {
-  viewer {
-    id @export(as: "viewerId")
-    ...UserProfile
-  }
-}
