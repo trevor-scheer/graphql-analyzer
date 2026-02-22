@@ -1,0 +1,36 @@
+# Queries that exercise fields from schema extensions.
+# All fields below should have hover, goto-def, and inlay hints.
+
+query GetPosts {
+  posts {
+    id
+    title
+    body
+  }
+  version
+}
+
+query GetUser($id: ID!) {
+  user(id: $id) {
+    id
+    name
+    createdAt
+  }
+}
+
+query Search($q: String!) {
+  search(query: $q) {
+    ... on User {
+      name
+    }
+    ... on Post {
+      title
+    }
+  }
+}
+
+mutation CreateUser($input: CreateUserInput!) {
+  createUser(input: $input) {
+    id
+  }
+}

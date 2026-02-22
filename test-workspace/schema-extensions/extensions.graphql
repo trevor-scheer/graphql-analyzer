@@ -1,0 +1,38 @@
+# Demonstrates all schema extension types.
+# Each of these should have full IDE support:
+# hover, goto-definition, inlay hints, document symbols.
+
+type Post {
+  id: ID!
+  title: String!
+  body: String!
+}
+
+# Object type extension: add fields
+extend type Query {
+  posts: [Post!]!
+  version: String!
+}
+
+# Object type extension: add interface implementation
+extend type User implements Node
+
+# Interface extension: add fields
+extend interface Node {
+  createdAt: String!
+}
+
+# Union extension: add member
+extend union SearchResult = Post
+
+# Enum extension: add values
+extend enum Role {
+  MODERATOR
+  GUEST
+}
+
+# Input extension: add fields
+extend input CreateUserInput {
+  role: Role
+  avatar: String
+}
