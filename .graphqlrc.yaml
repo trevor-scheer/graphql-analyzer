@@ -76,9 +76,11 @@ projects:
     extensions:
       client: none
 
-  apollo-client:
-    schema: test-workspace/apollo-client/schema.graphql
-    documents: "test-workspace/apollo-client/src/**/*.{graphql,gql,ts,tsx}"
+  apollo-app:
+    schema:
+      - test-workspace/apollo-app/schema.graphql
+      - test-workspace/apollo-app/client-schema.graphql
+    documents: "test-workspace/apollo-app/src/**/*.{graphql,gql,ts,tsx}"
     extensions:
       client: apollo
       lint:
