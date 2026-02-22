@@ -63,6 +63,11 @@ enum Commands {
         /// Watch mode - re-validate on file changes
         #[arg(short, long)]
         watch: bool,
+
+        /// Skip schema validation and only check document syntax.
+        /// By default, validate requires a schema and will fail if none is configured.
+        #[arg(long)]
+        syntax_only: bool,
     },
 
     /// Run custom lint rules on GraphQL documents
@@ -217,11 +222,16 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let result = match cli.command {
-        Commands::Validate { format, watch } => commands::validate::run(
+        Commands::Validate {
+            format,
+            watch,
+            syntax_only,
+        } => commands::validate::run(
             cli.config,
             cli.project.as_deref(),
             format,
             watch,
+            syntax_only,
             output_opts,
         ),
         Commands::Lint {

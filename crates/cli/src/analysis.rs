@@ -22,6 +22,8 @@ pub struct CliAnalysisHost {
     schema_files: Vec<PathBuf>,
     /// Track document files for diagnostics collection
     document_files: Vec<PathBuf>,
+    /// Whether any user schema files were loaded (excludes builtins)
+    schema_loaded: bool,
 }
 
 impl CliAnalysisHost {
@@ -90,6 +92,8 @@ impl CliAnalysisHost {
         }
 
         let schema_result = host.load_schemas_from_config(project_config, base_dir)?;
+
+        let schema_loaded = !schema_result.has_no_user_schema();
 
         // Check for content mismatch errors (schema files containing executable definitions)
         if !schema_result.content_errors.is_empty() {
@@ -210,6 +214,7 @@ impl CliAnalysisHost {
             host,
             schema_files,
             document_files,
+            schema_loaded,
         })
     }
 
@@ -374,9 +379,19 @@ impl CliAnalysisHost {
         self.host.snapshot()
     }
 
+    /// Returns true if user schema files were loaded (excludes Apollo Client builtins).
+    pub fn schema_loaded(&self) -> bool {
+        self.schema_loaded
+    }
+
     /// Get file count
     pub fn file_count(&self) -> usize {
         self.schema_files.len() + self.document_files.len()
+    }
+
+    /// Returns the number of document files loaded.
+    pub fn document_count(&self) -> usize {
+        self.document_files.len()
     }
 
     /// Get schema statistics using HIR data
@@ -731,5 +746,52 @@ mod tests {
             "Expected success but got error: {}",
             result.err().unwrap()
         );
+    }
+
+    #[test]
+    fn test_schema_loaded_true_when_schema_files_exist() {
+        use graphql_config::{ProjectConfig, SchemaConfig};
+        use std::io::Write;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        let schema_dir = workspace_path.join("schema");
+        std::fs::create_dir(&schema_dir).unwrap();
+        let mut schema_file = std::fs::File::create(schema_dir.join("schema.graphql")).unwrap();
+        writeln!(schema_file, "type Query {{ hello: String }}").unwrap();
+
+        let project_config = ProjectConfig {
+            schema: SchemaConfig::Path("schema/*.graphql".to_string()),
+            documents: None,
+            include: None,
+            exclude: None,
+            extensions: None,
+        };
+
+        let host = CliAnalysisHost::from_project_config(&project_config, workspace_path).unwrap();
+        assert!(host.schema_loaded());
+    }
+
+    #[test]
+    fn test_schema_loaded_false_when_no_schema_files_match() {
+        use graphql_config::{ProjectConfig, SchemaConfig};
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        // Point at a pattern that matches nothing
+        let project_config = ProjectConfig {
+            schema: SchemaConfig::Path("nonexistent/*.graphql".to_string()),
+            documents: None,
+            include: None,
+            exclude: None,
+            extensions: None,
+        };
+
+        let host = CliAnalysisHost::from_project_config(&project_config, workspace_path).unwrap();
+        assert!(!host.schema_loaded());
     }
 }
