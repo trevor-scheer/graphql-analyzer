@@ -211,12 +211,14 @@ fn validation_errors_to_diagnostics(
         .collect()
 }
 
-/// Find the range of the `schema:` key in the config file for a given project.
+/// Find the range of a key (like `schema:` or `documents:`) in the config file for a given project.
 ///
-/// Searches for the `schema:` key, optionally scoped under the project name
+/// Searches for the key, optionally scoped under the project name
 /// in multi-project configs. Returns a default range if the key is not found.
-fn find_schema_key_range(config_content: &str, project_name: &str) -> lsp_types::Range {
+fn find_key_range(config_content: &str, project_name: &str, key: &str) -> lsp_types::Range {
     let mut in_project = project_name == "default";
+    let key_with_colon = format!("{key}:");
+
     for (line_num, line) in config_content.lines().enumerate() {
         let trimmed = line.trim();
 
@@ -230,7 +232,7 @@ fn find_schema_key_range(config_content: &str, project_name: &str) -> lsp_types:
             continue;
         }
 
-        if let Some(col) = line.find("schema:") {
+        if let Some(col) = line.find(&key_with_colon) {
             return lsp_types::Range {
                 start: lsp_types::Position {
                     line: line_num as u32,
@@ -239,12 +241,24 @@ fn find_schema_key_range(config_content: &str, project_name: &str) -> lsp_types:
                 end: lsp_types::Position {
                     line: line_num as u32,
                     // Exclude the colon from the range
-                    character: (col + "schema".len()) as u32,
+                    character: (col + key.len()) as u32,
                 },
             };
         }
     }
     lsp_types::Range::default()
+}
+
+/// Find the range of the `schema:` key in the config file for a given project.
+#[inline]
+fn find_schema_key_range(config_content: &str, project_name: &str) -> lsp_types::Range {
+    find_key_range(config_content, project_name, "schema")
+}
+
+/// Find the range of the `documents:` key in the config file for a given project.
+#[inline]
+fn find_documents_key_range(config_content: &str, project_name: &str) -> lsp_types::Range {
+    find_key_range(config_content, project_name, "documents")
 }
 
 /// Find the range of a specific pattern value in the config file.
@@ -478,6 +492,9 @@ async fn load_all_project_files_background(
     // Track projects and their unmatched schema patterns
     // Each tuple is (project_name, unmatched_patterns, has_no_schema)
     let mut schema_pattern_results: Vec<(String, Vec<String>, bool)> = Vec::new();
+    // Track projects and their unmatched document patterns
+    // Each tuple is (project_name, unmatched_patterns, has_no_documents)
+    let mut documents_pattern_results: Vec<(String, Vec<String>, bool)> = Vec::new();
 
     for (project_name, project_config) in projects {
         let project_start = std::time::Instant::now();
@@ -620,7 +637,26 @@ async fn load_all_project_files_background(
             });
         }
 
-        if discovery_result.files.is_empty() {
+        // Track unmatched document patterns for diagnostics
+        let has_no_documents = discovery_result.files.is_empty();
+        if !discovery_result.unmatched_patterns.is_empty() || has_no_documents {
+            // Only track if documents config exists
+            if project_config.documents.is_some() {
+                documents_pattern_results.push((
+                    project_name.to_string(),
+                    discovery_result.unmatched_patterns.clone(),
+                    has_no_documents,
+                ));
+            }
+        }
+
+        if has_no_documents {
+            if project_config.documents.is_some() {
+                tracing::warn!(
+                    "Project '{}': no document files found matching configured patterns",
+                    project_name
+                );
+            }
             continue;
         }
 
@@ -706,8 +742,11 @@ async fn load_all_project_files_background(
         client.log_message(MessageType::INFO, &project_msg).await;
     }
 
-    // Publish config file diagnostics (content mismatches and missing schema warnings)
-    if !content_mismatch_errors.is_empty() || !schema_pattern_results.is_empty() {
+    // Publish config file diagnostics (content mismatches and missing schema/documents warnings)
+    if !content_mismatch_errors.is_empty()
+        || !schema_pattern_results.is_empty()
+        || !documents_pattern_results.is_empty()
+    {
         let config_uri =
             Uri::from_str(&graphql_ide::path_to_file_uri(config_path)).expect("valid config path");
         let config_content = std::fs::read_to_string(config_path).unwrap_or_default();
@@ -715,7 +754,7 @@ async fn load_all_project_files_background(
         let mut diagnostics =
             validation_errors_to_diagnostics(&content_mismatch_errors, &config_content);
 
-        // Add warnings for projects with unmatched schema patterns
+        // Add errors for projects with unmatched schema patterns
         for (project_name, unmatched_patterns, has_no_schema) in &schema_pattern_results {
             // Create a diagnostic for each unmatched pattern
             for pattern in unmatched_patterns {
@@ -723,7 +762,7 @@ async fn load_all_project_files_background(
                     find_pattern_value_range(&config_content, project_name, pattern, "schema");
                 diagnostics.push(Diagnostic {
                     range,
-                    severity: Some(lsp_types::DiagnosticSeverity::WARNING),
+                    severity: Some(lsp_types::DiagnosticSeverity::ERROR),
                     code: Some(lsp_types::NumberOrString::String(
                         "unmatched-pattern".to_string(),
                     )),
@@ -738,14 +777,46 @@ async fn load_all_project_files_background(
                 let range = find_schema_key_range(&config_content, project_name);
                 diagnostics.push(Diagnostic {
                     range,
-                    severity: Some(lsp_types::DiagnosticSeverity::WARNING),
+                    severity: Some(lsp_types::DiagnosticSeverity::ERROR),
                     code: Some(lsp_types::NumberOrString::String(
                         "no-schema-files".to_string(),
                     )),
                     source: Some("graphql-config".to_string()),
-                    message: format!(
-                        "No schema files found. Schema validation will be skipped for project '{project_name}'."
-                    ),
+                    message: format!("No schema files found for project '{project_name}'."),
+                    ..Default::default()
+                });
+            }
+        }
+
+        // Add errors for projects with unmatched document patterns
+        for (project_name, unmatched_patterns, has_no_documents) in &documents_pattern_results {
+            // Create a diagnostic for each unmatched pattern
+            for pattern in unmatched_patterns {
+                let range =
+                    find_pattern_value_range(&config_content, project_name, pattern, "documents");
+                diagnostics.push(Diagnostic {
+                    range,
+                    severity: Some(lsp_types::DiagnosticSeverity::ERROR),
+                    code: Some(lsp_types::NumberOrString::String(
+                        "unmatched-pattern".to_string(),
+                    )),
+                    source: Some("graphql-config".to_string()),
+                    message: format!("Pattern '{pattern}' matched no files."),
+                    ..Default::default()
+                });
+            }
+
+            // If no documents were loaded at all, add a summary diagnostic on the documents key
+            if *has_no_documents {
+                let range = find_documents_key_range(&config_content, project_name);
+                diagnostics.push(Diagnostic {
+                    range,
+                    severity: Some(lsp_types::DiagnosticSeverity::ERROR),
+                    code: Some(lsp_types::NumberOrString::String(
+                        "no-document-files".to_string(),
+                    )),
+                    source: Some("graphql-config".to_string()),
+                    message: format!("No document files found for project '{project_name}'."),
                     ..Default::default()
                 });
             }
@@ -2783,5 +2854,34 @@ mod tests {
         assert_eq!(range.start.line, 0);
         assert_eq!(range.start.character, 0);
         assert_eq!(range.end.character, 6);
+    }
+
+    #[test]
+    fn test_find_documents_key_range_single_project() {
+        let config = "schema: \"schema.graphql\"\ndocuments: \"src/**/*.graphql\"\n";
+        let range = find_documents_key_range(config, "default");
+        assert_eq!(range.start.line, 1);
+        assert_eq!(range.start.character, 0);
+        // "documents" = 9 chars
+        assert_eq!(range.end.character, 9);
+    }
+
+    #[test]
+    fn test_find_documents_key_range_multi_project() {
+        let config = "projects:\n  myapp:\n    schema: \"schema.graphql\"\n    documents: \"src/**/*.graphql\"\n";
+        let range = find_documents_key_range(config, "myapp");
+        assert_eq!(range.start.line, 3);
+        assert_eq!(range.start.character, 4);
+        // 4 + "documents".len() = 4 + 9 = 13
+        assert_eq!(range.end.character, 13);
+    }
+
+    #[test]
+    fn test_find_pattern_value_range_documents() {
+        let config = "schema: \"schema.graphql\"\ndocuments: \"src/**/*.graphql\"\n";
+        let range = find_pattern_value_range(config, "default", "src/**/*.graphql", "documents");
+        assert_eq!(range.start.line, 1);
+        assert_eq!(range.start.character, 12); // After 'documents: "'
+        assert_eq!(range.end.character, 12 + 16); // "src/**/*.graphql".len()
     }
 }

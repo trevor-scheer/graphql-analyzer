@@ -3,7 +3,7 @@ graphql-analyzer-cli: minor
 graphql-analyzer-lsp: patch
 ---
 
-Strict validation mode and schema pattern diagnostics ([#620](https://github.com/trevor-scheer/graphql-analyzer/pull/620))
+Strict validation mode and pattern diagnostics ([#620](https://github.com/trevor-scheer/graphql-analyzer/pull/620))
 
 **CLI Changes:**
 
@@ -13,6 +13,6 @@ Strict validation mode and schema pattern diagnostics ([#620](https://github.com
 
 **LSP Changes:**
 
-- Added per-pattern diagnostics: each schema pattern that matches no files now shows a warning on the specific pattern in the config
-- Added summary diagnostic on `schema` key when ALL patterns fail to match
-- Diagnostics now underline just the pattern text instead of the entire `schema:` line
+- Added per-pattern error diagnostics for both `schema` and `documents`: each pattern that matches no files shows an error on the specific pattern in the config
+- Added summary error diagnostic on `schema`/`documents` key when ALL patterns fail to match
+- Diagnostics now underline just the key name (not the colon)

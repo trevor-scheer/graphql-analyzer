@@ -68,3 +68,8 @@ projects:
     # expect 2 errors: schema file does not exist, and documents file does not exist
     schema: "test-workspace/misconfigured-schema/schema.graphql"
     documents: "test-workspace/misconfigured-schema/query.graphql"
+
+  misconfigured-documents:
+    # expect 2 errors: schema file does not exist, and documents file does not exist
+    schema: "test-workspace/misconfigured-documents/schema.graphql"
+    documents: "test-workspace/misconfigured-documents/query.graphql"
