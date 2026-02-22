@@ -12,7 +12,8 @@
   "icon": "icon.png",
   "main": "./out/extension.js",
   "scripts": {
-    "vscode:prepublish": "npm run compile -- --production",
+    "vscode:prepublish": "npm run copy-schema && npm run compile -- --production",
+    "copy-schema": "./scripts/copy-schema.sh",
     "compile": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "lint": "oxlint src",
@@ -157,6 +158,26 @@
             "description": "Log LSP requests and responses to the 'graphql-analyzer LSP' output channel."
           }
         }
+      }
+    ],
+    "jsonValidation": [
+      {
+        "fileMatch": [
+          ".graphqlrc",
+          ".graphqlrc.json"
+        ],
+        "url": "./schema/graphqlrc.schema.json"
+      }
+    ],
+    "yamlValidation": [
+      {
+        "fileMatch": [
+          ".graphqlrc.yaml",
+          ".graphqlrc.yml",
+          "graphql.config.yaml",
+          "graphql.config.yml"
+        ],
+        "url": "./schema/graphqlrc.schema.json"
       }
     ],
     "keybindings": [

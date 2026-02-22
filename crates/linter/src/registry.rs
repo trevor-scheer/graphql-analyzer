@@ -145,4 +145,86 @@ mod tests {
             assert!(!rule.description().is_empty());
         }
     }
+
+    /// Convert `snake_case` to `camelCase` (e.g., `no_deprecated` -> `noDeprecated`)
+    fn snake_to_camel(s: &str) -> String {
+        let mut result = String::with_capacity(s.len());
+        let mut capitalize_next = false;
+        for c in s.chars() {
+            if c == '_' {
+                capitalize_next = true;
+            } else if capitalize_next {
+                result.push(c.to_ascii_uppercase());
+                capitalize_next = false;
+            } else {
+                result.push(c);
+            }
+        }
+        result
+    }
+
+    /// Test that all lint rules are documented in the JSON schema for autocomplete.
+    ///
+    /// When you add a new lint rule, you must also add it to the schema at:
+    /// `crates/config/schema/graphqlrc.schema.json` under
+    /// `definitions.FullLintConfig.properties.rules.properties`
+    #[test]
+    fn test_schema_includes_all_rules() {
+        // Load the JSON schema
+        let schema_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../config/schema/graphqlrc.schema.json"
+        );
+        let schema_str = std::fs::read_to_string(schema_path).expect("Failed to read schema file");
+        let schema: serde_json::Value =
+            serde_json::from_str(&schema_str).expect("Failed to parse schema JSON");
+
+        // Extract rule names from schema (camelCase)
+        let schema_rules: std::collections::HashSet<String> = schema
+            .get("definitions")
+            .and_then(|d| d.get("FullLintConfig"))
+            .and_then(|f| f.get("properties"))
+            .and_then(|p| p.get("rules"))
+            .and_then(|r| r.get("properties"))
+            .and_then(|p| p.as_object())
+            .map(|obj| obj.keys().cloned().collect())
+            .unwrap_or_default();
+
+        // Get all rule names from registry (snake_case) and convert to camelCase
+        let registry_rules: std::collections::HashSet<String> =
+            all_rule_names().into_iter().map(snake_to_camel).collect();
+
+        // Find rules missing from schema
+        let missing_from_schema: Vec<_> = registry_rules.difference(&schema_rules).collect();
+
+        // Find rules in schema that don't exist in registry (stale entries)
+        let stale_in_schema: Vec<_> = schema_rules.difference(&registry_rules).collect();
+
+        assert!(
+            missing_from_schema.is_empty() && stale_in_schema.is_empty(),
+            "JSON schema is out of sync with lint rule registry!\n\n\
+             Missing from schema (add these to graphqlrc.schema.json):\n  {}\n\n\
+             Stale in schema (remove these from graphqlrc.schema.json):\n  {}\n\n\
+             Schema location: crates/config/schema/graphqlrc.schema.json\n\
+             Path: definitions.FullLintConfig.properties.rules.properties",
+            if missing_from_schema.is_empty() {
+                "(none)".to_string()
+            } else {
+                missing_from_schema
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            },
+            if stale_in_schema.is_empty() {
+                "(none)".to_string()
+            } else {
+                stale_in_schema
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+        );
+    }
 }

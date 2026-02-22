@@ -898,3 +898,227 @@ schema:
         assert!(local.introspection_config().is_none());
     }
 }
+
+/// Tests that validate the JSON schema stays in sync with Rust types.
+///
+/// These tests parse sample configs through both:
+/// 1. Serde deserialization (the Rust types)
+/// 2. JSON Schema validation
+///
+/// If they disagree on validity, the schema needs updating.
+#[cfg(test)]
+mod schema_sync_tests {
+    use super::*;
+
+    /// Load the JSON schema from disk
+    fn load_schema() -> serde_json::Value {
+        let schema_path = concat!(env!("CARGO_MANIFEST_DIR"), "/schema/graphqlrc.schema.json");
+        let schema_str = std::fs::read_to_string(schema_path)
+            .expect("Failed to read schema file - ensure schema/graphqlrc.schema.json exists");
+        serde_json::from_str(&schema_str).expect("Failed to parse schema JSON")
+    }
+
+    /// Validate a YAML config string against both serde and JSON schema
+    fn validate_config(yaml: &str) -> (bool, bool, String) {
+        // Try serde deserialization
+        let serde_result = serde_yaml::from_str::<GraphQLConfig>(yaml);
+        let serde_valid = serde_result.is_ok();
+
+        // Convert to JSON for schema validation
+        let json_value: Result<serde_json::Value, _> = serde_yaml::from_str(yaml);
+        let schema_valid = if let Ok(value) = json_value {
+            let schema = load_schema();
+            let compiled = jsonschema::draft7::new(&schema).expect("Failed to compile JSON schema");
+            compiled.validate(&value).is_ok()
+        } else {
+            false // Invalid YAML
+        };
+
+        let serde_error = serde_result
+            .err()
+            .map_or_else(String::new, |e| e.to_string());
+        (serde_valid, schema_valid, serde_error)
+    }
+
+    /// Assert that serde and JSON schema agree on validity
+    fn assert_sync(yaml: &str, description: &str) {
+        let (serde_valid, schema_valid, serde_error) = validate_config(yaml);
+        assert_eq!(
+            serde_valid, schema_valid,
+            "Schema sync mismatch for '{description}':\n\
+             - Serde valid: {serde_valid}\n\
+             - JSON Schema valid: {schema_valid}\n\
+             - Serde error: {serde_error}\n\
+             - Config:\n{yaml}"
+        );
+    }
+
+    // ==========================================================================
+    // Valid configs - both serde and schema should accept these
+    // ==========================================================================
+
+    #[test]
+    fn sync_single_project_minimal() {
+        assert_sync(
+            r"
+schema: schema.graphql
+",
+            "minimal single project",
+        );
+    }
+
+    #[test]
+    fn sync_single_project_with_documents() {
+        assert_sync(
+            r#"
+schema: schema.graphql
+documents: "src/**/*.graphql"
+"#,
+            "single project with documents",
+        );
+    }
+
+    #[test]
+    fn sync_multi_project() {
+        assert_sync(
+            r#"
+projects:
+  frontend:
+    schema: frontend/schema.graphql
+    documents: "frontend/**/*.ts"
+  backend:
+    schema: backend/schema.graphql
+"#,
+            "multi-project config",
+        );
+    }
+
+    #[test]
+    fn sync_introspection_schema() {
+        assert_sync(
+            r"
+schema:
+  url: https://api.example.com/graphql
+  headers:
+    Authorization: Bearer token
+  timeout: 30
+  retry: 2
+",
+            "introspection schema config",
+        );
+    }
+
+    #[test]
+    fn sync_lint_preset_string() {
+        assert_sync(
+            r"
+schema: schema.graphql
+extensions:
+  lint: recommended
+",
+            "lint preset as string",
+        );
+    }
+
+    #[test]
+    fn sync_lint_preset_array() {
+        assert_sync(
+            r"
+schema: schema.graphql
+extensions:
+  lint: [recommended]
+",
+            "lint preset as array",
+        );
+    }
+
+    #[test]
+    fn sync_lint_extends_with_rules() {
+        assert_sync(
+            r"
+schema: schema.graphql
+extensions:
+  lint:
+    extends: recommended
+    rules:
+      noDeprecated: warn
+      uniqueNames: error
+",
+            "lint extends with rules",
+        );
+    }
+
+    #[test]
+    fn sync_lint_eslint_array_style() {
+        assert_sync(
+            r#"
+schema: schema.graphql
+extensions:
+  lint:
+    rules:
+      requireIdField: [warn, { fields: ["id", "nodeId"] }]
+"#,
+            "lint ESLint array style",
+        );
+    }
+
+    #[test]
+    fn sync_lint_object_style_with_options() {
+        assert_sync(
+            r#"
+schema: schema.graphql
+extensions:
+  lint:
+    rules:
+      requireIdField:
+        severity: error
+        options:
+          fields: ["id"]
+"#,
+            "lint object style with options",
+        );
+    }
+
+    #[test]
+    fn sync_extract_config() {
+        assert_sync(
+            r#"
+schema: schema.graphql
+extensions:
+  extractConfig:
+    tagIdentifiers: ["gql", "graphql"]
+    modules: ["@apollo/client"]
+    allowGlobalIdentifiers: true
+"#,
+            "extract config",
+        );
+    }
+
+    #[test]
+    fn sync_arbitrary_extensions() {
+        // extensions should allow arbitrary keys
+        assert_sync(
+            r"
+schema: schema.graphql
+extensions:
+  lint: recommended
+  customTool:
+    setting: value
+",
+            "arbitrary extensions",
+        );
+    }
+
+    // ==========================================================================
+    // Integration test with real .graphqlrc.yaml from project root
+    // ==========================================================================
+
+    #[test]
+    fn sync_project_root_config() {
+        let config_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../.graphqlrc.yaml");
+        if let Ok(config_str) = std::fs::read_to_string(config_path) {
+            assert_sync(&config_str, "project root .graphqlrc.yaml");
+        }
+        // Skip if file doesn't exist (e.g., in CI without full repo)
+    }
+}
