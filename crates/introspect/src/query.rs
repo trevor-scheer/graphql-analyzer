@@ -52,6 +52,7 @@ fragment FullType on __Type {
   inputFields {
     ...InputValue
   }
+  isOneOf
   interfaces {
     ...TypeRef
   }

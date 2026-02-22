@@ -1,0 +1,13 @@
+# GraphQL specification built-in directives
+# These directives are defined by the GraphQL specification and should be
+# available in every schema without being explicitly defined.
+#
+# Note: @skip, @include, @deprecated, and @specifiedBy are already provided
+# by the parser (apollo-parser). This file covers newer spec directives that
+# the parser doesn't yet include as built-ins.
+
+"""
+Indicates an Input Object is a OneOf Input Object (and thus requires
+exactly one of its field be provided)
+"""
+directive @oneOf on INPUT_OBJECT

@@ -999,15 +999,25 @@ impl AnalysisHost {
         config: &graphql_config::ProjectConfig,
         base_dir: &std::path::Path,
     ) -> anyhow::Result<SchemaLoadResult> {
-        // Always include Apollo Client built-in directives first
+        const SCHEMA_BUILTINS: &str = include_str!("schema_builtins.graphql");
         const APOLLO_CLIENT_BUILTINS: &str = include_str!("apollo_client_builtins.graphql");
+
+        // Always include GraphQL spec built-in directives first (e.g., @oneOf)
+        self.add_file(
+            &FilePath::new("schema_builtins.graphql".to_string()),
+            SCHEMA_BUILTINS,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Always include Apollo Client built-in directives
         self.add_file(
             &FilePath::new("apollo_client_builtins.graphql".to_string()),
             APOLLO_CLIENT_BUILTINS,
             Language::GraphQL,
             DocumentKind::Schema,
         );
-        let mut count = 1;
+        let mut count = 2;
         let mut loaded_paths = Vec::new();
         let mut pending_introspections = Vec::new();
         let mut content_errors = Vec::new();
@@ -2057,10 +2067,13 @@ impl Analysis {
                 continue;
             };
 
-            // Skip the built-in Apollo Client directives file
+            // Skip built-in directive files
             let registry = self.registry.read();
             if let Some(path) = registry.get_path(*file_id) {
-                if path.as_str() == "apollo_client_builtins.graphql" {
+                let path_str = path.as_str();
+                if path_str == "apollo_client_builtins.graphql"
+                    || path_str == "schema_builtins.graphql"
+                {
                     drop(registry);
                     continue;
                 }
@@ -4879,10 +4892,10 @@ export const typeDefs = gql`
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
-            // Should load: 1 Apollo client builtins + 1 extracted schema from TS
+            // Should load: 1 schema builtins + 1 Apollo client builtins + 1 extracted schema from TS
             assert_eq!(
-                result.loaded_count, 2,
-                "Should load 2 schema files (builtins + extracted)"
+                result.loaded_count, 3,
+                "Should load 3 schema files (builtins + extracted)"
             );
             assert!(
                 result.pending_introspections.is_empty(),
@@ -4937,10 +4950,10 @@ export const postType = gql`
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
-            // Should load: 1 Apollo client builtins + 2 extracted blocks
+            // Should load: 1 schema builtins + 1 Apollo client builtins + 2 extracted blocks
             assert_eq!(
-                result.loaded_count, 3,
-                "Should load 3 schema files (builtins + 2 blocks)"
+                result.loaded_count, 4,
+                "Should load 4 schema files (builtins + 2 blocks)"
             );
 
             host.rebuild_project_files();
@@ -5067,8 +5080,8 @@ export const typeDefs = gql`
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
-            // Should load: 1 Apollo client builtins + 1 GraphQL file + 1 TS extraction
-            assert_eq!(result.loaded_count, 3, "Should load 3 schema files");
+            // Should load: 1 schema builtins + 1 Apollo client builtins + 1 GraphQL file + 1 TS extraction
+            assert_eq!(result.loaded_count, 4, "Should load 4 schema files");
 
             host.rebuild_project_files();
             let snapshot = host.snapshot();
@@ -5112,9 +5125,9 @@ export function greet(name: string) {
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
-            // Should only load Apollo client builtins (no GraphQL found in TS file)
+            // Should only load schema builtins + Apollo client builtins (no GraphQL found in TS file)
             assert_eq!(
-                result.loaded_count, 1,
+                result.loaded_count, 2,
                 "Should only load builtins when no GraphQL found"
             );
         }
@@ -5156,10 +5169,10 @@ export const typeDefs = gql`
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
-            // Should load: 1 Apollo client builtins + 1 extracted schema from JS
+            // Should load: 1 schema builtins + 1 Apollo client builtins + 1 extracted schema from JS
             assert_eq!(
-                result.loaded_count, 2,
-                "Should load 2 schema files (builtins + extracted)"
+                result.loaded_count, 3,
+                "Should load 3 schema files (builtins + extracted)"
             );
 
             host.rebuild_project_files();
@@ -5199,9 +5212,9 @@ export const typeDefs = gql`
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
-            // Should only load Apollo client builtins (introspection needs async fetch)
+            // Should only load builtins (introspection needs async fetch)
             assert_eq!(
-                result.loaded_count, 1,
+                result.loaded_count, 2,
                 "Should load builtins, introspection is async"
             );
 
@@ -5245,9 +5258,9 @@ export const typeDefs = gql`
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
-            // Should only load Apollo client builtins
+            // Should only load builtins
             assert_eq!(
-                result.loaded_count, 1,
+                result.loaded_count, 2,
                 "Should load builtins, URL schema is async"
             );
 
