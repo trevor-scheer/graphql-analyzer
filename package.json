@@ -5,11 +5,13 @@
   "description": "Development tools for graphql-lsp",
   "workspaces": [
     "editors/vscode",
+    "test-workspace/apollo-app",
     "test-workspace/countries",
     "test-workspace/github",
     "test-workspace/misconfigured-documents",
     "test-workspace/misconfigured-schema",
     "test-workspace/pokemon",
+    "test-workspace/relay-app",
     "test-workspace/starwars"
   ],
   "scripts": {

@@ -1,0 +1,18 @@
+{
+  "name": "graphql-lsp-test-workspace-apollo-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Apollo Client test workspace for GraphQL LSP development",
+  "type": "module",
+  "dependencies": {
+    "@apollo/client": "^4.0.0",
+    "graphql": "^16.9.0",
+    "graphql-tag": "^2.12.6",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "typescript": "^5.7.2"
+  }
+}

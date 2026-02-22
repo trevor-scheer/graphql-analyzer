@@ -3,8 +3,10 @@
   "references": [
     { "path": "editors/vscode" },
     { "path": "editors/vscode/e2e" },
+    { "path": "test-workspace/apollo-app" },
+    { "path": "test-workspace/github" },
     { "path": "test-workspace/pokemon" },
-    { "path": "test-workspace/starwars" },
-    { "path": "test-workspace/github" }
+    { "path": "test-workspace/relay-app" },
+    { "path": "test-workspace/starwars" }
   ]
 }

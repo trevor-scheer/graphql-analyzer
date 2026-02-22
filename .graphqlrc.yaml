@@ -92,7 +92,6 @@ projects:
         rules:
           uniqueNames: error
 
-
   relay-app:
     schema: test-workspace/relay-app/schema.graphql
     documents: "test-workspace/relay-app/src/**/*.{graphql,gql,ts,tsx}"
