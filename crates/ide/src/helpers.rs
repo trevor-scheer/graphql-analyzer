@@ -470,6 +470,8 @@ pub fn find_argument_definition_in_tree(
         let (name_node, fields_def) = match &definition {
             Definition::ObjectTypeDefinition(obj) => (obj.name(), obj.fields_definition()),
             Definition::InterfaceTypeDefinition(iface) => (iface.name(), iface.fields_definition()),
+            Definition::ObjectTypeExtension(ext) => (ext.name(), ext.fields_definition()),
+            Definition::InterfaceTypeExtension(ext) => (ext.name(), ext.fields_definition()),
             _ => continue,
         };
 

@@ -391,6 +391,37 @@ pub fn find_schema_field_parent_type(
                     }
                 }
             }
+            // Type extensions
+            cst::Definition::ObjectTypeExtension(ext) => {
+                if let Some(fields) = ext.fields_definition() {
+                    let range = fields.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+                    if byte_offset >= start && byte_offset <= end {
+                        return ext.name().map(|n| n.text().to_string());
+                    }
+                }
+            }
+            cst::Definition::InterfaceTypeExtension(ext) => {
+                if let Some(fields) = ext.fields_definition() {
+                    let range = fields.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+                    if byte_offset >= start && byte_offset <= end {
+                        return ext.name().map(|n| n.text().to_string());
+                    }
+                }
+            }
+            cst::Definition::InputObjectTypeExtension(ext) => {
+                if let Some(fields) = ext.input_fields_definition() {
+                    let range = fields.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+                    if byte_offset >= start && byte_offset <= end {
+                        return ext.name().map(|n| n.text().to_string());
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -1561,6 +1592,87 @@ pub fn extract_all_definitions(
                     results.push((
                         name.text().to_string(),
                         "fragment",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            // Type extensions
+            cst::Definition::ObjectTypeExtension(ext) => {
+                if let Some(name) = ext.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = ext.syntax().text_range();
+                    results.push((
+                        format!("extend {}", name.text()),
+                        "object",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            cst::Definition::InterfaceTypeExtension(ext) => {
+                if let Some(name) = ext.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = ext.syntax().text_range();
+                    results.push((
+                        format!("extend {}", name.text()),
+                        "interface",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            cst::Definition::UnionTypeExtension(ext) => {
+                if let Some(name) = ext.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = ext.syntax().text_range();
+                    results.push((
+                        format!("extend {}", name.text()),
+                        "union",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            cst::Definition::EnumTypeExtension(ext) => {
+                if let Some(name) = ext.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = ext.syntax().text_range();
+                    results.push((
+                        format!("extend {}", name.text()),
+                        "enum",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            cst::Definition::InputObjectTypeExtension(ext) => {
+                if let Some(name) = ext.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = ext.syntax().text_range();
+                    results.push((
+                        format!("extend {}", name.text()),
+                        "input",
                         SymbolRanges {
                             name_start: name_range.start().into(),
                             name_end: name_range.end().into(),
