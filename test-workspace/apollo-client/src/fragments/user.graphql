@@ -1,0 +1,14 @@
+fragment UserBasic on User {
+  id
+  name
+  avatar
+}
+
+fragment UserProfile on User {
+  ...UserBasic
+  email
+  bookmarks {
+    id
+    title
+  }
+}

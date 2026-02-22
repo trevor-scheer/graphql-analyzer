@@ -68,11 +68,9 @@ projects:
           uniqueNames: error
           requireIdField: warn
 
-  apollo-app:
-    schema:
-      - test-workspace/apollo-app/schema.graphql
-      - test-workspace/apollo-app/client-schema.graphql
-    documents: "test-workspace/apollo-app/src/**/*.{graphql,gql,ts,tsx}"
+  apollo-client:
+    schema: test-workspace/apollo-client/schema.graphql
+    documents: "test-workspace/apollo-client/src/**/*.{graphql,gql,ts,tsx}"
     extensions:
       client: apollo
       lint:
@@ -91,6 +89,7 @@ projects:
         extends: recommended
         rules:
           uniqueNames: error
+
 
   relay-app:
     schema: test-workspace/relay-app/schema.graphql

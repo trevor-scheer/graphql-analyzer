@@ -1,0 +1,102 @@
+# Apollo Client schema for testing client directives
+
+type Query {
+  viewer: User!
+  user(id: ID!): User
+  users(first: Int, after: String): UserConnection!
+  post(id: ID!): Post
+  feed(first: Int, after: String): PostConnection!
+  settings: Settings!
+}
+
+type Mutation {
+  updateUser(input: UpdateUserInput!): User!
+  createPost(input: CreatePostInput!): Post!
+  toggleBookmark(postId: ID!): Post!
+}
+
+type User {
+  id: ID!
+  name: String!
+  email: String!
+  avatar: String
+  posts(first: Int, after: String): PostConnection!
+  bookmarks: [Post!]!
+}
+
+type Post {
+  id: ID!
+  title: String!
+  body: String!
+  author: User!
+  comments(first: Int, after: String): CommentConnection!
+  isBookmarked: Boolean!
+  createdAt: String!
+}
+
+type Comment {
+  id: ID!
+  text: String!
+  author: User!
+  createdAt: String!
+}
+
+type Settings {
+  theme: Theme!
+  notifications: Boolean!
+  language: String!
+}
+
+enum Theme {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+type UserConnection {
+  edges: [UserEdge!]!
+  pageInfo: PageInfo!
+}
+
+type UserEdge {
+  node: User!
+  cursor: String!
+}
+
+type PostConnection {
+  edges: [PostEdge!]!
+  pageInfo: PageInfo!
+}
+
+type PostEdge {
+  node: Post!
+  cursor: String!
+}
+
+type CommentConnection {
+  edges: [CommentEdge!]!
+  pageInfo: PageInfo!
+}
+
+type CommentEdge {
+  node: Comment!
+  cursor: String!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+input UpdateUserInput {
+  name: String
+  email: String
+  avatar: String
+}
+
+input CreatePostInput {
+  title: String!
+  body: String!
+}
