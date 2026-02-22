@@ -2,6 +2,20 @@
 
 All notable changes to the GraphQL MCP server will be documented in this file.
 
+## 0.1.2 (2026-02-21)
+
+### Fixes
+
+#### Fix validate command not reporting errors from document files ([#617](https://github.com/trevor-scheer/graphql-analyzer/pull/617))
+
+The CLI and MCP validate commands were silently ignoring validation errors from document files (TypeScript, JavaScript, GraphQL) due to a path format mismatch. Files were registered with raw filesystem paths but looked up with file:// URIs, causing lookups to fail.
+
+## 0.1.1 (2026-02-12)
+
+### Fixes
+
+- Fix cargo audit vulnerabilities by updating dependencies (bytes, time, git2, vergen-git2, indicatif, rmcp) ([#563](https://github.com/trevor-scheer/graphql-analyzer/pull/563))
+
 ## 0.1.0 (2026-02-02)
 
 ### Features

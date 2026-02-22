@@ -71,13 +71,41 @@ impl CodeFix {
     }
 }
 
-/// File path (can be URI or file path)
+/// File path (stored as URI internally)
+///
+/// All files are stored and looked up using URIs for consistency.
+/// Use `from_path` to convert filesystem paths to proper file:// URIs.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FilePath(pub String);
 
 impl FilePath {
-    pub fn new(path: impl Into<String>) -> Self {
-        Self(path.into())
+    /// Create a `FilePath` from a string that is already a URI
+    pub fn new(uri: impl Into<String>) -> Self {
+        Self(uri.into())
+    }
+
+    /// Create a `FilePath` from a filesystem path, converting to file:// URI
+    ///
+    /// This handles:
+    /// - Already-URI strings (file://, schema://, https://) - passed through unchanged
+    /// - Unix absolute paths (/home/user/file.graphql) - converted to file:// URI
+    /// - Other paths - prefixed with file:///
+    #[must_use]
+    pub fn from_path(path: &std::path::Path) -> Self {
+        let path_str = path.to_string_lossy();
+
+        // Already a URI - pass through
+        if path_str.starts_with("file://") || path_str.contains("://") {
+            return Self(path_str.to_string());
+        }
+
+        // Unix absolute path
+        if path_str.starts_with('/') {
+            return Self(format!("file://{path_str}"));
+        }
+
+        // Windows or relative path
+        Self(format!("file:///{path_str}"))
     }
 
     #[must_use]
@@ -655,6 +683,40 @@ pub struct SchemaLoadResult {
     /// These indicate files that contain executable definitions
     /// (operations/fragments) instead of schema definitions.
     pub content_errors: Vec<SchemaContentError>,
+    /// Schema patterns that matched no files on disk.
+    /// Each entry is the original pattern string from the config.
+    pub unmatched_patterns: Vec<String>,
+}
+
+impl SchemaLoadResult {
+    /// Returns true if no user schema files were loaded and no remote
+    /// introspection is pending. The Apollo Client builtins are always
+    /// loaded and don't count as user schemas.
+    #[must_use]
+    pub fn has_no_user_schema(&self) -> bool {
+        self.loaded_paths.is_empty() && self.pending_introspections.is_empty()
+    }
+}
+
+/// Result of loading documents from configuration.
+///
+/// This type captures both the successfully loaded document files and any
+/// patterns that matched no files on disk.
+#[derive(Debug, Clone, Default)]
+pub struct DocumentLoadResult {
+    /// Number of document files successfully loaded
+    pub loaded_count: usize,
+    /// Document patterns that matched no files on disk.
+    /// Each entry is the original pattern string from the config.
+    pub unmatched_patterns: Vec<String>,
+}
+
+impl DocumentLoadResult {
+    /// Returns true if no document files were loaded.
+    #[must_use]
+    pub fn has_no_documents(&self) -> bool {
+        self.loaded_count == 0
+    }
 }
 
 /// A content mismatch error found during schema loading.
@@ -824,6 +886,30 @@ mod tests {
     }
 
     #[test]
+    fn test_file_path_from_path_unix_absolute() {
+        let path = FilePath::from_path(std::path::Path::new("/home/user/file.graphql"));
+        assert_eq!(path.as_str(), "file:///home/user/file.graphql");
+    }
+
+    #[test]
+    fn test_file_path_from_path_already_file_uri() {
+        let path = FilePath::from_path(std::path::Path::new("file:///home/user/file.graphql"));
+        assert_eq!(path.as_str(), "file:///home/user/file.graphql");
+    }
+
+    #[test]
+    fn test_file_path_from_path_other_scheme() {
+        let path = FilePath::from_path(std::path::Path::new("https://example.com/schema.graphql"));
+        assert_eq!(path.as_str(), "https://example.com/schema.graphql");
+    }
+
+    #[test]
+    fn test_file_path_from_path_relative() {
+        let path = FilePath::from_path(std::path::Path::new("src/schema.graphql"));
+        assert_eq!(path.as_str(), "file:///src/schema.graphql");
+    }
+
+    #[test]
     fn test_completion_item_builder() {
         let item = CompletionItem::new("fieldName", CompletionKind::Field)
             .with_detail("String!")
@@ -884,5 +970,40 @@ mod tests {
         assert_eq!(status.document_file_count, 0);
         assert_eq!(status.total_files(), 0);
         assert!(!status.has_schema());
+    }
+
+    #[test]
+    fn test_schema_load_result_has_no_user_schema_empty() {
+        let result = SchemaLoadResult::default();
+        assert!(result.has_no_user_schema());
+    }
+
+    #[test]
+    fn test_schema_load_result_has_no_user_schema_with_paths() {
+        let result = SchemaLoadResult {
+            loaded_count: 2,
+            loaded_paths: vec![std::path::PathBuf::from("schema.graphql")],
+            pending_introspections: vec![],
+            content_errors: vec![],
+            unmatched_patterns: vec![],
+        };
+        assert!(!result.has_no_user_schema());
+    }
+
+    #[test]
+    fn test_schema_load_result_has_no_user_schema_with_introspection() {
+        let result = SchemaLoadResult {
+            loaded_count: 1,
+            loaded_paths: vec![],
+            pending_introspections: vec![PendingIntrospection {
+                url: "http://localhost:4000/graphql".to_string(),
+                headers: None,
+                timeout: None,
+                retry: None,
+            }],
+            content_errors: vec![],
+            unmatched_patterns: vec![],
+        };
+        assert!(!result.has_no_user_schema());
     }
 }

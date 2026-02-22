@@ -464,8 +464,16 @@ export async function activate(context: ExtensionContext) {
 
         if (client) {
           outputChannel.appendLine("Stopping existing client...");
-          await client.stop();
-          outputChannel.appendLine("Client stopped");
+          try {
+            await client.stop(4000);
+            outputChannel.appendLine("Client stopped");
+          } catch (stopError) {
+            // If the server is hung, stop() will timeout and reject.
+            // We still want to proceed with starting a new server.
+            outputChannel.appendLine(
+              `Warning: Client did not stop cleanly: ${stopError}. Proceeding with restart...`,
+            );
+          }
         }
 
         await startLanguageServer(context);

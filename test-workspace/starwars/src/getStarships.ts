@@ -2,7 +2,7 @@
 import { gql } from "graphql-tag";
 
 export const GET_STARSHIPS = gql`
-  query AllStarships {
+  query GetStarships {
     starships {
       id
       name

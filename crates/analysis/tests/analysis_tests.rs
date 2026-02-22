@@ -1403,3 +1403,67 @@ export const GET_REPO = gql`
         duplicate_errors
     );
 }
+
+/// Regression test: CLI validates document files correctly.
+///
+/// This tests that `file_validation_diagnostics` (used by CLI's validate command)
+/// correctly reports validation errors from document files. Previously, there was
+/// a bug where document files were registered with raw paths but looked up with
+/// file:// URIs, causing all document validation to silently fail.
+///
+/// Uses a nullable variable for a non-nullable argument as an example validation error.
+#[test]
+fn test_cli_validates_document_files() {
+    let mut db = TestDatabase::default();
+
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from("type Query { user(id: ID!): User }\ntype User { id: ID! name: String! }"),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    let doc_id = FileId::new(1);
+    // TypeScript file with embedded GraphQL containing a validation error
+    // (nullable variable $id: ID used where non-nullable ID! is required)
+    let ts_content = r#"import { gql } from "@apollo/client";
+
+export const GET_USER = gql`
+  query GetUser($id: ID) {
+    user(id: $id) {
+      id
+      name
+    }
+  }
+`;
+"#;
+    let doc_content = FileContent::new(&db, Arc::from(ts_content));
+    let doc_metadata = FileMetadata::new(
+        &db,
+        doc_id,
+        FileUri::new("file:///components/UserPanel.tsx"),
+        Language::TypeScript,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_project_files(
+        &mut db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[(doc_id, doc_content, doc_metadata)],
+    );
+
+    // file_validation_diagnostics is what CLI's validate command uses
+    let diagnostics =
+        file_validation_diagnostics(&db, doc_content, doc_metadata, Some(project_files));
+
+    assert!(
+        !diagnostics.is_empty(),
+        "CLI validate should report validation errors from document files. Got none."
+    );
+}

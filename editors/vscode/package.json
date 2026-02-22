@@ -1,14 +1,15 @@
 {
   "name": "graphql-analyzer",
   "displayName": "graphql-analyzer",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "description": "GraphQL language support for VS Code",
   "categories": [
     "Programming Languages"
   ],
   "license": "SEE LICENSE IN LICENSE.md",
   "repository": "https://github.com/trevor-scheer/graphql-analyzer",
-  "publisher": "trevor-scheer",
+  "publisher": "graphql-analyzer",
+  "icon": "icon.png",
   "main": "./out/extension.js",
   "scripts": {
     "vscode:prepublish": "npm run compile -- --production",

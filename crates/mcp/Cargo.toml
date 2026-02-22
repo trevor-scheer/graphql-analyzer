@@ -1,6 +1,6 @@
 [package]
 name = "graphql-mcp"
-version = "0.1.0"
+version = "0.1.2"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -22,7 +22,7 @@ graphql-introspect = { path = "../introspect" }
 graphql-linter = { path = "../linter" }
 
 # MCP SDK - need server + macros + transport-io features
-rmcp = { version = "0.15", features = ["server", "macros", "transport-io"] }
+rmcp = { version = "0.16", features = ["server", "macros", "transport-io"] }
 
 # Async
 tokio = { workspace = true }

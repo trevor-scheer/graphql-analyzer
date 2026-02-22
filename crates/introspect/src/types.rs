@@ -99,6 +99,8 @@ pub struct IntrospectionInputObjectType {
     pub name: String,
     pub description: Option<String>,
     pub input_fields: Vec<IntrospectionInputValue>,
+    #[serde(default)]
+    pub is_one_of: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

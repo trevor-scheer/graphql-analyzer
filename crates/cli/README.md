@@ -124,13 +124,23 @@ graphql validate [OPTIONS]
 
 - `--format <FORMAT>` - Output format: `human` (default), `json`, `github`
 - `--watch` - Watch for file changes and re-validate
+- `--syntax-only` - Skip schema validation, only check document syntax
+
+**Behavior:**
+
+By default, `validate` requires a schema to be configured and will fail with exit code 2 if:
+
+- No schema files are found matching the configured patterns
+- No document files are found matching the configured patterns
+
+Use `--syntax-only` to skip schema validation when you only need to verify GraphQL syntax.
 
 **Exit codes:** See [Exit Codes](#exit-codes) for the full list.
 
 **Examples:**
 
 ```bash
-# Basic validation
+# Basic validation (requires schema)
 graphql validate
 
 # JSON output for CI
@@ -138,6 +148,9 @@ graphql validate --format json
 
 # Watch mode for development
 graphql validate --watch
+
+# Only check syntax, skip schema validation
+graphql validate --syntax-only
 
 # Specific project
 graphql --project backend validate

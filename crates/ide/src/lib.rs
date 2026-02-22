@@ -65,10 +65,11 @@ mod symbols;
 // Re-export types from the types module
 pub use types::{
     CodeFix, CodeLens, CodeLensCommand, CodeLensInfo, CompletionItem, CompletionKind, Diagnostic,
-    DiagnosticSeverity, DocumentSymbol, FilePath, FoldingRange, FoldingRangeKind,
-    FragmentReference, FragmentUsage, HoverResult, InlayHint, InlayHintKind, InsertTextFormat,
-    Location, PendingIntrospection, Position, ProjectStatus, Range, SchemaContentError,
-    SchemaLoadResult, SchemaStats, SelectionRange, SymbolKind, TextEdit, WorkspaceSymbol,
+    DiagnosticSeverity, DocumentLoadResult, DocumentSymbol, FilePath, FoldingRange,
+    FoldingRangeKind, FragmentReference, FragmentUsage, HoverResult, InlayHint, InlayHintKind,
+    InsertTextFormat, Location, PendingIntrospection, Position, ProjectStatus, Range,
+    SchemaContentError, SchemaLoadResult, SchemaStats, SelectionRange, SymbolKind, TextEdit,
+    WorkspaceSymbol,
 };
 
 // Re-export helpers for internal use
@@ -129,6 +130,8 @@ pub struct FileDiscoveryResult {
     pub files: Vec<DiscoveredFile>,
     /// Content mismatch errors found during discovery
     pub errors: Vec<ContentMismatchError>,
+    /// Patterns that matched no files on disk
+    pub unmatched_patterns: Vec<String>,
 }
 
 impl FileDiscoveryResult {
@@ -170,6 +173,7 @@ pub fn discover_document_files(
         }
 
         let expanded_patterns = expand_braces(&pattern);
+        let mut pattern_matched_any_files = false;
 
         for expanded_pattern in expanded_patterns {
             let full_pattern = workspace_path.join(&expanded_pattern);
@@ -228,6 +232,7 @@ pub fn discover_document_files(
                                             });
                                         }
 
+                                        pattern_matched_any_files = true;
                                         result.files.push(DiscoveredFile {
                                             path: file_path,
                                             content,
@@ -255,6 +260,11 @@ pub fn discover_document_files(
                     tracing::error!("Invalid glob pattern '{}': {}", expanded_pattern, e);
                 }
             }
+        }
+
+        if !pattern_matched_any_files {
+            tracing::debug!("Document pattern matched no files: {}", pattern);
+            result.unmatched_patterns.push(pattern.clone());
         }
     }
 
@@ -999,18 +1009,29 @@ impl AnalysisHost {
         config: &graphql_config::ProjectConfig,
         base_dir: &std::path::Path,
     ) -> anyhow::Result<SchemaLoadResult> {
-        // Always include Apollo Client built-in directives first
+        const SCHEMA_BUILTINS: &str = include_str!("schema_builtins.graphql");
         const APOLLO_CLIENT_BUILTINS: &str = include_str!("apollo_client_builtins.graphql");
+
+        // Always include GraphQL spec built-in directives first (e.g., @oneOf)
+        self.add_file(
+            &FilePath::new("schema_builtins.graphql".to_string()),
+            SCHEMA_BUILTINS,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Always include Apollo Client built-in directives
         self.add_file(
             &FilePath::new("apollo_client_builtins.graphql".to_string()),
             APOLLO_CLIENT_BUILTINS,
             Language::GraphQL,
             DocumentKind::Schema,
         );
-        let mut count = 1;
+        let mut count = 2;
         let mut loaded_paths = Vec::new();
         let mut pending_introspections = Vec::new();
         let mut content_errors = Vec::new();
+        let mut unmatched_patterns = Vec::new();
 
         let patterns: Vec<String> = match &config.schema {
             graphql_config::SchemaConfig::Path(s) => vec![s.clone()],
@@ -1044,8 +1065,10 @@ impl AnalysisHost {
 
             match glob::glob(&full_pattern) {
                 Ok(paths) => {
+                    let mut pattern_matched_files = false;
                     for entry in paths.flatten() {
                         if entry.is_file() {
+                            pattern_matched_files = true;
                             match std::fs::read_to_string(&entry) {
                                 Ok(content) => {
                                     let file_uri = path_to_file_uri(&entry);
@@ -1176,6 +1199,14 @@ impl AnalysisHost {
                             }
                         }
                     }
+                    if !pattern_matched_files {
+                        tracing::debug!(
+                            "Schema pattern matched no files: {} (expanded: {})",
+                            pattern,
+                            full_pattern
+                        );
+                        unmatched_patterns.push(pattern.clone());
+                    }
                 }
                 Err(e) => {
                     tracing::error!("Failed to expand glob pattern {full_pattern}: {e}");
@@ -1197,6 +1228,7 @@ impl AnalysisHost {
             loaded_paths,
             pending_introspections,
             content_errors,
+            unmatched_patterns,
         })
     }
 
@@ -1288,9 +1320,9 @@ impl AnalysisHost {
         &mut self,
         config: &graphql_config::ProjectConfig,
         workspace_path: &std::path::Path,
-    ) -> Vec<LoadedFile> {
+    ) -> (Vec<LoadedFile>, DocumentLoadResult) {
         let Some(documents_config) = &config.documents else {
-            return Vec::new();
+            return (Vec::new(), DocumentLoadResult::default());
         };
 
         let patterns: Vec<String> = documents_config
@@ -1301,6 +1333,7 @@ impl AnalysisHost {
 
         let mut loaded_files: Vec<LoadedFile> = Vec::new();
         let mut files_to_add: Vec<(FilePath, String, Language, DocumentKind)> = Vec::new();
+        let mut unmatched_patterns: Vec<String> = Vec::new();
 
         for pattern in patterns {
             // Skip negation patterns
@@ -1309,6 +1342,7 @@ impl AnalysisHost {
             }
 
             let expanded_patterns = expand_braces(&pattern);
+            let mut pattern_matched_any_files = false;
 
             for expanded_pattern in expanded_patterns {
                 let full_pattern = workspace_path.join(&expanded_pattern);
@@ -1332,6 +1366,7 @@ impl AnalysisHost {
 
                                             let file_path = path_to_file_path(&path);
 
+                                            pattern_matched_any_files = true;
                                             loaded_files.push(LoadedFile {
                                                 path: file_path.clone(),
                                                 language,
@@ -1366,6 +1401,11 @@ impl AnalysisHost {
                     }
                 }
             }
+
+            if !pattern_matched_any_files {
+                tracing::debug!("Document pattern matched no files: {}", pattern);
+                unmatched_patterns.push(pattern.clone());
+            }
         }
 
         // Batch add all files using add_files_batch for O(n) performance
@@ -1378,7 +1418,12 @@ impl AnalysisHost {
             .collect();
         self.add_files_batch(&batch_refs);
 
-        loaded_files
+        let result = DocumentLoadResult {
+            loaded_count: loaded_files.len(),
+            unmatched_patterns,
+        };
+
+        (loaded_files, result)
     }
 
     /// Iterate over all files in the host
@@ -2057,10 +2102,13 @@ impl Analysis {
                 continue;
             };
 
-            // Skip the built-in Apollo Client directives file
+            // Skip built-in directive files
             let registry = self.registry.read();
             if let Some(path) = registry.get_path(*file_id) {
-                if path.as_str() == "apollo_client_builtins.graphql" {
+                let path_str = path.as_str();
+                if path_str == "apollo_client_builtins.graphql"
+                    || path_str == "schema_builtins.graphql"
+                {
                     drop(registry);
                     continue;
                 }
@@ -4879,10 +4927,10 @@ export const typeDefs = gql`
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
-            // Should load: 1 Apollo client builtins + 1 extracted schema from TS
+            // Should load: 1 schema builtins + 1 Apollo client builtins + 1 extracted schema from TS
             assert_eq!(
-                result.loaded_count, 2,
-                "Should load 2 schema files (builtins + extracted)"
+                result.loaded_count, 3,
+                "Should load 3 schema files (builtins + extracted)"
             );
             assert!(
                 result.pending_introspections.is_empty(),
@@ -4937,10 +4985,10 @@ export const postType = gql`
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
-            // Should load: 1 Apollo client builtins + 2 extracted blocks
+            // Should load: 1 schema builtins + 1 Apollo client builtins + 2 extracted blocks
             assert_eq!(
-                result.loaded_count, 3,
-                "Should load 3 schema files (builtins + 2 blocks)"
+                result.loaded_count, 4,
+                "Should load 4 schema files (builtins + 2 blocks)"
             );
 
             host.rebuild_project_files();
@@ -5067,8 +5115,8 @@ export const typeDefs = gql`
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
-            // Should load: 1 Apollo client builtins + 1 GraphQL file + 1 TS extraction
-            assert_eq!(result.loaded_count, 3, "Should load 3 schema files");
+            // Should load: 1 schema builtins + 1 Apollo client builtins + 1 GraphQL file + 1 TS extraction
+            assert_eq!(result.loaded_count, 4, "Should load 4 schema files");
 
             host.rebuild_project_files();
             let snapshot = host.snapshot();
@@ -5112,9 +5160,9 @@ export function greet(name: string) {
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
-            // Should only load Apollo client builtins (no GraphQL found in TS file)
+            // Should only load schema builtins + Apollo client builtins (no GraphQL found in TS file)
             assert_eq!(
-                result.loaded_count, 1,
+                result.loaded_count, 2,
                 "Should only load builtins when no GraphQL found"
             );
         }
@@ -5156,10 +5204,10 @@ export const typeDefs = gql`
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
-            // Should load: 1 Apollo client builtins + 1 extracted schema from JS
+            // Should load: 1 schema builtins + 1 Apollo client builtins + 1 extracted schema from JS
             assert_eq!(
-                result.loaded_count, 2,
-                "Should load 2 schema files (builtins + extracted)"
+                result.loaded_count, 3,
+                "Should load 3 schema files (builtins + extracted)"
             );
 
             host.rebuild_project_files();
@@ -5199,9 +5247,9 @@ export const typeDefs = gql`
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
-            // Should only load Apollo client builtins (introspection needs async fetch)
+            // Should only load builtins (introspection needs async fetch)
             assert_eq!(
-                result.loaded_count, 1,
+                result.loaded_count, 2,
                 "Should load builtins, introspection is async"
             );
 
@@ -5245,9 +5293,9 @@ export const typeDefs = gql`
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();
 
-            // Should only load Apollo client builtins
+            // Should only load builtins
             assert_eq!(
-                result.loaded_count, 1,
+                result.loaded_count, 2,
                 "Should load builtins, URL schema is async"
             );
 
@@ -6310,7 +6358,7 @@ export const RATE_LIMIT_QUERY = gql`
         // Load schema
         let _ = host.load_schemas_from_config(&config, temp_dir.path());
         // Load documents (including TS files)
-        host.load_documents_from_config(&config, temp_dir.path());
+        let _ = host.load_documents_from_config(&config, temp_dir.path());
 
         // Rebuild project files to update indices (this happens in LSP initialization)
         host.rebuild_project_files();
@@ -6399,7 +6447,7 @@ export const RATE_LIMIT_QUERY = gql`
         // Load schema
         let _ = host.load_schemas_from_config(&config, temp_dir.path());
         // Load documents (including TS files)
-        let loaded_docs = host.load_documents_from_config(&config, temp_dir.path());
+        let (loaded_docs, _doc_result) = host.load_documents_from_config(&config, temp_dir.path());
 
         // Verify the TS file was loaded
         assert!(

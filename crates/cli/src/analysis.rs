@@ -10,21 +10,6 @@ use graphql_ide::{AnalysisHost, Diagnostic, DocumentKind, FilePath, Language};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Convert a filesystem path to a file:// URI
-fn path_to_file_uri(path: &Path) -> String {
-    let path_str = path.to_string_lossy();
-
-    if path_str.starts_with("file://") || path_str.contains("://") {
-        return path_str.to_string();
-    }
-
-    if path_str.starts_with('/') {
-        return format!("file://{path_str}");
-    }
-
-    format!("file:///{path_str}")
-}
-
 /// CLI adapter for `AnalysisHost`
 ///
 /// Wraps `graphql-ide::AnalysisHost` and provides CLI-specific conveniences:
@@ -37,6 +22,8 @@ pub struct CliAnalysisHost {
     schema_files: Vec<PathBuf>,
     /// Track document files for diagnostics collection
     document_files: Vec<PathBuf>,
+    /// Whether any user schema files were loaded (excludes builtins)
+    schema_loaded: bool,
 }
 
 impl CliAnalysisHost {
@@ -105,6 +92,8 @@ impl CliAnalysisHost {
         }
 
         let schema_result = host.load_schemas_from_config(project_config, base_dir)?;
+
+        let schema_loaded = !schema_result.has_no_user_schema();
 
         // Check for content mismatch errors (schema files containing executable definitions)
         if !schema_result.content_errors.is_empty() {
@@ -204,12 +193,7 @@ impl CliAnalysisHost {
                         _ => (Language::GraphQL, DocumentKind::Executable),
                     };
                     document_files.push(path.clone());
-                    (
-                        FilePath::new(path.to_string_lossy().to_string()),
-                        content,
-                        language,
-                        document_kind,
-                    )
+                    (FilePath::from_path(&path), content, language, document_kind)
                 })
                 .collect();
 
@@ -230,6 +214,7 @@ impl CliAnalysisHost {
             host,
             schema_files,
             document_files,
+            schema_loaded,
         })
     }
 
@@ -309,7 +294,7 @@ impl CliAnalysisHost {
         let mut results = HashMap::new();
 
         for path in &self.schema_files {
-            let file_path = FilePath::new(path_to_file_uri(path));
+            let file_path = FilePath::from_path(path);
             let diagnostics = snapshot.validation_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {
@@ -318,7 +303,7 @@ impl CliAnalysisHost {
         }
 
         for path in &self.document_files {
-            let file_path = FilePath::new(path_to_file_uri(path));
+            let file_path = FilePath::from_path(path);
             let diagnostics = snapshot.validation_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {
@@ -351,7 +336,7 @@ impl CliAnalysisHost {
                 progress = format!("{}/{}", idx + 1, self.document_files.len()),
                 "Checking file for lint issues"
             );
-            let file_path = FilePath::new(path.to_string_lossy());
+            let file_path = FilePath::from_path(path);
             let diagnostics = snapshot.lint_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {
@@ -394,9 +379,19 @@ impl CliAnalysisHost {
         self.host.snapshot()
     }
 
+    /// Returns true if user schema files were loaded (excludes Apollo Client builtins).
+    pub fn schema_loaded(&self) -> bool {
+        self.schema_loaded
+    }
+
     /// Get file count
     pub fn file_count(&self) -> usize {
         self.schema_files.len() + self.document_files.len()
+    }
+
+    /// Returns the number of document files loaded.
+    pub fn document_count(&self) -> usize {
+        self.document_files.len()
     }
 
     /// Get schema statistics using HIR data
@@ -472,7 +467,7 @@ impl CliAnalysisHost {
         language: Language,
         document_kind: DocumentKind,
     ) {
-        let file_path = FilePath::new(path.to_string_lossy().to_string());
+        let file_path = FilePath::from_path(path);
         self.host
             .add_file(&file_path, content, language, document_kind);
 
@@ -495,7 +490,7 @@ impl CliAnalysisHost {
 
         // Get file-level lint diagnostics with fixes
         for path in &self.document_files {
-            let file_path = FilePath::new(path.to_string_lossy().to_string());
+            let file_path = FilePath::from_path(path);
             let diagnostics = snapshot.lint_diagnostics_with_fixes(&file_path);
 
             if !diagnostics.is_empty() {
@@ -582,30 +577,6 @@ fn count_fragment_spreads_in_selection_set(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_path_to_file_uri_absolute_unix_path() {
-        let result = path_to_file_uri(std::path::Path::new("/home/user/file.graphql"));
-        assert_eq!(result, "file:///home/user/file.graphql");
-    }
-
-    #[test]
-    fn test_path_to_file_uri_already_file_uri() {
-        let result = path_to_file_uri(std::path::Path::new("file:///home/user/file.graphql"));
-        assert_eq!(result, "file:///home/user/file.graphql");
-    }
-
-    #[test]
-    fn test_path_to_file_uri_other_scheme() {
-        let result = path_to_file_uri(std::path::Path::new("https://example.com/schema.graphql"));
-        assert_eq!(result, "https://example.com/schema.graphql");
-    }
-
-    #[test]
-    fn test_path_to_file_uri_relative_path() {
-        let result = path_to_file_uri(std::path::Path::new("src/schema.graphql"));
-        assert_eq!(result, "file:///src/schema.graphql");
-    }
 
     #[test]
     fn test_expand_braces_single_brace_group() {
@@ -775,5 +746,52 @@ mod tests {
             "Expected success but got error: {}",
             result.err().unwrap()
         );
+    }
+
+    #[test]
+    fn test_schema_loaded_true_when_schema_files_exist() {
+        use graphql_config::{ProjectConfig, SchemaConfig};
+        use std::io::Write;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        let schema_dir = workspace_path.join("schema");
+        std::fs::create_dir(&schema_dir).unwrap();
+        let mut schema_file = std::fs::File::create(schema_dir.join("schema.graphql")).unwrap();
+        writeln!(schema_file, "type Query {{ hello: String }}").unwrap();
+
+        let project_config = ProjectConfig {
+            schema: SchemaConfig::Path("schema/*.graphql".to_string()),
+            documents: None,
+            include: None,
+            exclude: None,
+            extensions: None,
+        };
+
+        let host = CliAnalysisHost::from_project_config(&project_config, workspace_path).unwrap();
+        assert!(host.schema_loaded());
+    }
+
+    #[test]
+    fn test_schema_loaded_false_when_no_schema_files_match() {
+        use graphql_config::{ProjectConfig, SchemaConfig};
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        // Point at a pattern that matches nothing
+        let project_config = ProjectConfig {
+            schema: SchemaConfig::Path("nonexistent/*.graphql".to_string()),
+            documents: None,
+            include: None,
+            exclude: None,
+            extensions: None,
+        };
+
+        let host = CliAnalysisHost::from_project_config(&project_config, workspace_path).unwrap();
+        assert!(!host.schema_loaded());
     }
 }

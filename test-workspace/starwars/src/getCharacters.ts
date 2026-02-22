@@ -2,7 +2,7 @@
 import { gql } from "graphql-tag";
 
 export const GET_CHARACTERS = gql`
-  query AllCharacters {
+  query GetCharacters {
     characters {
       id
       name

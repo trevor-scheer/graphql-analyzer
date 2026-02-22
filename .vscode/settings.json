@@ -10,18 +10,12 @@
 
   // GraphQL configuration schema
   "yaml.schemas": {
-    "./crates/graphql-config/schema/graphqlrc.schema.json": [
-      ".graphqlrc",
-      ".graphqlrc.yaml",
-      ".graphqlrc.yml",
-      "graphql.config.yaml",
-      "graphql.config.yml"
-    ]
+    "./crates/config/schema/graphqlrc.schema.json": "{.graphqlrc,.graphqlrc.yaml,.graphqlrc.yml,graphql.config.yaml,graphql.config.yml}"
   },
   "json.schemas": [
     {
       "fileMatch": [".graphqlrc.json", ".graphqlrc"],
-      "url": "./crates/graphql-config/schema/graphqlrc.schema.json"
+      "url": "./crates/config/schema/graphqlrc.schema.json"
     }
   ],
 
@@ -41,5 +35,6 @@
   "editor.defaultFormatter": "oxc.oxc-vscode",
   "[rust]": {
     "editor.defaultFormatter": "rust-lang.rust-analyzer"
-  }
+  },
+  "graphql-analyzer.server.path": "target/debug/graphql-lsp"
 }
