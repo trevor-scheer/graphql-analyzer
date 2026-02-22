@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://graphql-lsp.dev/schemas/graphqlrc.json",
+  "$id": "https://graphql-analyzer.dev/schemas/graphqlrc.json",
   "title": "GraphQL Configuration",
   "description": "Configuration file for GraphQL LSP and related tools",
   "oneOf": [
