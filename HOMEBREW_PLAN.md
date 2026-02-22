@@ -10,8 +10,16 @@ requires significant install volume before a formula is accepted there.
 Users will install with:
 
 ```sh
-brew install trevor-scheer/graphql-analyzer/graphql-analyzer
+brew tap trevor-scheer/graphql-analyzer
+brew install graphql-analyzer
 ```
+
+After the one-time `tap`, subsequent upgrades are just `brew upgrade graphql-analyzer`.
+The long-form `brew install trevor-scheer/graphql-analyzer/graphql-analyzer` also works
+without tapping first (useful for one-liner install scripts).
+
+The goal is eventually `brew install graphql-analyzer` with no tap step, which requires
+acceptance into homebrew-core. See the [homebrew-core path](#homebrew-core-path) section.
 
 ---
 
@@ -194,7 +202,8 @@ Homebrew first (for macOS/Linux users) with the shell script as the fallback:
 ### Homebrew (macOS and Linux)
 
 ```sh
-brew install trevor-scheer/graphql-analyzer/graphql-analyzer
+brew tap trevor-scheer/graphql-analyzer
+brew install graphql-analyzer
 ```
 ````
 
@@ -204,7 +213,7 @@ Upgrade with `brew upgrade graphql-analyzer`.
 
 ...existing content...
 
-```
+````
 
 ---
 
@@ -215,7 +224,7 @@ Upgrade with `brew upgrade graphql-analyzer`.
 - [ ] **Write update script** — `scripts/update-homebrew-formula.py` to reliably replace version and SHA256 values in the formula.
 - [ ] **Add release job** — `update-homebrew-formula` job in `release.yml`.
 - [ ] **Update README** — Add Homebrew to the Installation section.
-- [ ] **End-to-end test** — Do a release (or dry run) and verify `brew install trevor-scheer/graphql-analyzer/graphql-analyzer` works and installs the right binary.
+- [ ] **End-to-end test** — Tap locally and verify `brew install graphql-analyzer` installs a working binary.
 
 ---
 
@@ -226,8 +235,45 @@ extension but could also be distributed via a separate `graphql-analyzer-lsp`
 formula for users of Neovim, Helix, or other editors. Low priority for now;
 document as a follow-up once the CLI formula is stable.
 
-**homebrew-core someday?** homebrew-core requires a formula to have
-significant install numbers and meet strict audit requirements. The custom tap
-is the right home until that bar is met. `brew audit --strict
-Formula/graphql-analyzer.rb` should be run periodically to track compliance.
-```
+---
+
+## Homebrew-Core Path
+
+This is how you get to a true zero-tap `brew install graphql-analyzer`.
+
+homebrew-core is the default Homebrew tap that ships with every Homebrew
+installation. Formulae there are available to all users without any `brew tap`
+step. Getting in requires:
+
+1. **Meaningful install volume.** The homebrew-core maintainers look at
+   download counts. There's no hard threshold but single-digit weekly installs
+   will be rejected. Build the user base on the custom tap first.
+
+2. **Stable release history.** At least a few tagged releases with a proper
+   changelog. The project's existing Knope + GitHub releases workflow already
+   satisfies this.
+
+3. **`brew audit --strict` must pass.** Run this locally against the formula
+   before submitting:
+   ```sh
+   brew audit --strict --online Formula/graphql-analyzer.rb
+````
+
+Common issues: missing `desc` (already have it), license mismatch, formula
+class name not matching formula filename, missing `test` block (already
+have it).
+
+4. **Submit a PR to homebrew-core.** The process:
+   - Fork `Homebrew/homebrew-core`
+   - Add `Formula/g/graphql-analyzer.rb` (formulae are organized by first
+     letter)
+   - Open a PR; automated CI runs `brew audit` and `brew test`
+   - A homebrew-core maintainer reviews; expect back-and-forth
+
+5. **Maintain it.** homebrew-core formulae need to be kept up to date.
+   The automated formula update job (Step 2 above) should be adapted to also
+   open PRs against homebrew-core for each new release, or the
+   `brew bump-formula-pr` command can be used to automate that.
+
+**Timeline expectation:** plan on 6–12 months of custom tap usage before the
+install numbers are high enough to make a credible homebrew-core submission.
