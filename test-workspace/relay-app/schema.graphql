@@ -1,0 +1,143 @@
+# Relay app schema for testing client directives
+
+interface Node {
+  id: ID!
+}
+
+type Query {
+  node(id: ID!): Node
+  viewer: Viewer!
+  search(query: String!, first: Int, after: String): SearchResultConnection!
+}
+
+type Mutation {
+  updateProfile(input: UpdateProfileInput!): UpdateProfilePayload!
+  addComment(input: AddCommentInput!): AddCommentPayload!
+}
+
+type Viewer {
+  id: ID!
+  user: User!
+  notifications(first: Int, after: String): NotificationConnection!
+}
+
+type User implements Node {
+  id: ID!
+  name: String!
+  username: String!
+  bio: String
+  avatarUrl: String
+  followers(first: Int, after: String): UserConnection!
+  following(first: Int, after: String): UserConnection!
+  posts(first: Int, after: String, orderBy: PostOrder): PostConnection!
+}
+
+type Post implements Node {
+  id: ID!
+  title: String!
+  content: String!
+  author: User!
+  comments(first: Int, after: String): CommentConnection!
+  likeCount: Int!
+  viewerHasLiked: Boolean!
+  createdAt: String!
+}
+
+type Comment implements Node {
+  id: ID!
+  body: String!
+  author: User!
+  createdAt: String!
+}
+
+type Notification implements Node {
+  id: ID!
+  message: String!
+  isRead: Boolean!
+  createdAt: String!
+}
+
+union SearchResult = User | Post
+
+type UserConnection {
+  edges: [UserEdge!]!
+  pageInfo: PageInfo!
+}
+
+type UserEdge {
+  node: User!
+  cursor: String!
+}
+
+type PostConnection {
+  edges: [PostEdge!]!
+  pageInfo: PageInfo!
+}
+
+type PostEdge {
+  node: Post!
+  cursor: String!
+}
+
+type CommentConnection {
+  edges: [CommentEdge!]!
+  pageInfo: PageInfo!
+}
+
+type CommentEdge {
+  node: Comment!
+  cursor: String!
+}
+
+type NotificationConnection {
+  edges: [NotificationEdge!]!
+  pageInfo: PageInfo!
+}
+
+type NotificationEdge {
+  node: Notification!
+  cursor: String!
+}
+
+type SearchResultConnection {
+  edges: [SearchResultEdge!]!
+  pageInfo: PageInfo!
+}
+
+type SearchResultEdge {
+  node: SearchResult!
+  cursor: String!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+enum PostOrder {
+  NEWEST
+  OLDEST
+  MOST_LIKED
+}
+
+input UpdateProfileInput {
+  name: String
+  bio: String
+  avatarUrl: String
+}
+
+type UpdateProfilePayload {
+  user: User!
+}
+
+input AddCommentInput {
+  postId: ID!
+  body: String!
+}
+
+type AddCommentPayload {
+  comment: Comment!
+  post: Post!
+}

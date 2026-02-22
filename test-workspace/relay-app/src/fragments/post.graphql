@@ -1,0 +1,52 @@
+fragment PostSummary_post on Post {
+  id
+  title
+  content
+  likeCount
+  viewerHasLiked
+  createdAt
+  author {
+    ...UserCard_user
+  }
+}
+
+# Demonstrates @refetchable on a Node-implementing type
+fragment PostDetail_post on Post @refetchable(queryName: "PostDetailRefetchQuery") {
+  id
+  title
+  content
+  likeCount
+  viewerHasLiked
+  createdAt
+  author {
+    ...UserCard_user
+  }
+  comments(first: 10) @connection(key: "PostDetail_comments") {
+    edges {
+      node {
+        id
+        body
+        createdAt
+        author {
+          ...UserCard_user
+        }
+      }
+    }
+  }
+}
+
+# Demonstrates @connection for pagination
+fragment UserPosts_user on User
+@argumentDefinitions(
+  count: { type: "Int", defaultValue: 10 }
+  orderBy: { type: "PostOrder", defaultValue: NEWEST }
+) {
+  posts(first: $count, orderBy: $orderBy)
+    @connection(key: "UserPosts_posts", filters: ["orderBy"]) {
+    edges {
+      node {
+        ...PostSummary_post
+      }
+    }
+  }
+}

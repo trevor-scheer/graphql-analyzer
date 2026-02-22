@@ -1,0 +1,40 @@
+# Demonstrates @arguments to pass values to fragments with @argumentDefinitions
+query ViewerQuery {
+  viewer {
+    id
+    user {
+      ...UserProfile_user @arguments(showPosts: true, postCount: 10)
+    }
+  }
+}
+
+# Demonstrates @required for null handling
+query ViewerProfileQuery {
+  viewer {
+    id
+    user {
+      id
+      name @required(action: LOG)
+      username @required(action: LOG)
+      bio
+      avatarUrl
+    }
+  }
+}
+
+# Demonstrates @throwOnFieldError
+query ViewerNotificationsQuery @throwOnFieldError {
+  viewer {
+    id
+    notifications(first: 20) @connection(key: "Viewer_notifications") {
+      edges {
+        node {
+          id
+          message
+          isRead
+          createdAt
+        }
+      }
+    }
+  }
+}

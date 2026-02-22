@@ -75,6 +75,22 @@ projects:
     documents: "test-workspace/schema-extensions/src/**/*.graphql"
     extensions:
       client: none
+
+  apollo-client:
+    schema: test-workspace/apollo-client/schema.graphql
+    documents: "test-workspace/apollo-client/src/**/*.{graphql,gql,ts,tsx}"
+    extensions:
+      client: apollo
+      lint:
+        extends: recommended
+        rules:
+          uniqueNames: error
+
+  relay-app:
+    schema: test-workspace/relay-app/schema.graphql
+    documents: "test-workspace/relay-app/src/**/*.{graphql,gql,ts,tsx}"
+    extensions:
+      client: relay
       lint:
         extends: recommended
         rules:
