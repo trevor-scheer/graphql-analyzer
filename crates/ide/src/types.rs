@@ -683,6 +683,9 @@ pub struct SchemaLoadResult {
     /// These indicate files that contain executable definitions
     /// (operations/fragments) instead of schema definitions.
     pub content_errors: Vec<SchemaContentError>,
+    /// Schema patterns that matched no files on disk.
+    /// Each entry is the original pattern string from the config.
+    pub unmatched_patterns: Vec<String>,
 }
 
 impl SchemaLoadResult {
@@ -692,6 +695,27 @@ impl SchemaLoadResult {
     #[must_use]
     pub fn has_no_user_schema(&self) -> bool {
         self.loaded_paths.is_empty() && self.pending_introspections.is_empty()
+    }
+}
+
+/// Result of loading documents from configuration.
+///
+/// This type captures both the successfully loaded document files and any
+/// patterns that matched no files on disk.
+#[derive(Debug, Clone, Default)]
+pub struct DocumentLoadResult {
+    /// Number of document files successfully loaded
+    pub loaded_count: usize,
+    /// Document patterns that matched no files on disk.
+    /// Each entry is the original pattern string from the config.
+    pub unmatched_patterns: Vec<String>,
+}
+
+impl DocumentLoadResult {
+    /// Returns true if no document files were loaded.
+    #[must_use]
+    pub fn has_no_documents(&self) -> bool {
+        self.loaded_count == 0
     }
 }
 
@@ -961,6 +985,7 @@ mod tests {
             loaded_paths: vec![std::path::PathBuf::from("schema.graphql")],
             pending_introspections: vec![],
             content_errors: vec![],
+            unmatched_patterns: vec![],
         };
         assert!(!result.has_no_user_schema());
     }
@@ -977,6 +1002,7 @@ mod tests {
                 retry: None,
             }],
             content_errors: vec![],
+            unmatched_patterns: vec![],
         };
         assert!(!result.has_no_user_schema());
     }

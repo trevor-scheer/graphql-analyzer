@@ -90,8 +90,18 @@ pub fn merged_schema_with_diagnostics(
     let schema_ids = project_files.schema_file_ids(db).ids(db);
     tracing::debug!(schema_file_count = schema_ids.len(), "Found schema files");
 
-    if schema_ids.is_empty() {
-        tracing::debug!("No schema files found in project - returning empty result");
+    // Check if we have any user schema files (excluding builtins)
+    let has_user_schema = schema_ids.iter().any(|file_id| {
+        if let Some((_, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id) {
+            let uri = metadata.uri(db);
+            !uri.as_str().ends_with("apollo_client_builtins.graphql")
+        } else {
+            false
+        }
+    });
+
+    if !has_user_schema {
+        tracing::debug!("No user schema files found in project - returning empty result");
         return MergedSchemaResult {
             schema: None,
             diagnostics_by_file: Arc::new(HashMap::new()),

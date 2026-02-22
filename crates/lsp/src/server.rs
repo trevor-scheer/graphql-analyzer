@@ -246,6 +246,93 @@ fn find_schema_key_range(config_content: &str, project_name: &str) -> lsp_types:
     lsp_types::Range::default()
 }
 
+/// Find the range of a specific pattern value in the config file.
+///
+/// Searches for the pattern string within the project's schema or documents section.
+/// Handles both inline values (`schema: "pattern"`) and list items (`- "pattern"`).
+/// Returns a default range if the pattern is not found.
+fn find_pattern_value_range(
+    config_content: &str,
+    project_name: &str,
+    pattern: &str,
+    key: &str,
+) -> lsp_types::Range {
+    let mut in_project = project_name == "default";
+    let mut in_key_section = false;
+    let key_prefix = format!("{key}:");
+
+    for (line_num, line) in config_content.lines().enumerate() {
+        let trimmed = line.trim();
+
+        // Check if we've entered the right project section
+        if !in_project {
+            if trimmed.starts_with(&format!("{project_name}:"))
+                || trimmed.starts_with(&format!("\"{project_name}\":"))
+            {
+                in_project = true;
+            }
+            continue;
+        }
+
+        // Check if we're entering a different top-level key (exit schema section)
+        // This handles when we're in the default project or need to detect section changes
+        if in_key_section && !trimmed.is_empty() && !trimmed.starts_with('-') {
+            // Check if this line has less indentation than a list item would
+            // or is a new key (contains ':' at the start after trimming)
+            if trimmed.contains(':')
+                && !trimmed.starts_with('"')
+                && !trimmed.starts_with('\'')
+                && !trimmed.starts_with('-')
+            {
+                in_key_section = false;
+            }
+        }
+
+        // Check if we're entering the key section (schema: or documents:)
+        if trimmed.starts_with(&key_prefix) {
+            in_key_section = true;
+
+            // Check for inline value: `schema: "pattern"` or `schema: pattern`
+            let after_key = trimmed[key_prefix.len()..].trim();
+            if !after_key.is_empty() && !after_key.starts_with('[') {
+                // Look for the pattern in this line
+                if let Some(pattern_start) = line.find(pattern) {
+                    return lsp_types::Range {
+                        start: lsp_types::Position {
+                            line: line_num as u32,
+                            character: pattern_start as u32,
+                        },
+                        end: lsp_types::Position {
+                            line: line_num as u32,
+                            character: (pattern_start + pattern.len()) as u32,
+                        },
+                    };
+                }
+            }
+            continue;
+        }
+
+        // Look for the pattern in list items within the key section
+        if in_key_section {
+            if let Some(pattern_start) = line.find(pattern) {
+                return lsp_types::Range {
+                    start: lsp_types::Position {
+                        line: line_num as u32,
+                        character: pattern_start as u32,
+                    },
+                    end: lsp_types::Position {
+                        line: line_num as u32,
+                        character: (pattern_start + pattern.len()) as u32,
+                    },
+                };
+            }
+        }
+    }
+
+    // Fall back to the key range if pattern not found
+    find_schema_key_range(config_content, project_name)
+}
+
 /// Load a single workspace config in the background
 async fn load_workspace_config_background(
     client: &Client,
@@ -387,8 +474,9 @@ async fn load_all_project_files_background(
 
     // Collect all content mismatch errors across all projects
     let mut content_mismatch_errors: Vec<graphql_config::ConfigValidationError> = Vec::new();
-    // Track projects where no user schema files were found
-    let mut no_schema_projects: Vec<String> = Vec::new();
+    // Track projects and their unmatched schema patterns
+    // Each tuple is (project_name, unmatched_patterns, has_no_schema)
+    let mut schema_pattern_results: Vec<(String, Vec<String>, bool)> = Vec::new();
 
     for (project_name, project_config) in projects {
         let project_start = std::time::Instant::now();
@@ -423,7 +511,7 @@ async fn load_all_project_files_background(
         .await;
 
         // Load schemas
-        let (pending_introspections, no_user_schema) = host
+        let (pending_introspections, no_user_schema, unmatched_patterns) = host
             .with_write(
                 |h| match h.load_schemas_from_config(project_config, workspace_path) {
                     Ok(result) => {
@@ -450,22 +538,30 @@ async fn load_all_project_files_background(
                                 },
                             );
                         }
-                        (result.pending_introspections, no_schema)
+                        (result.pending_introspections, no_schema, result.unmatched_patterns)
                     }
                     Err(e) => {
                         tracing::error!("Failed to load schemas: {}", e);
-                        (vec![], true)
+                        (vec![], true, vec![])
                     }
                 },
             )
             .await;
+
+        // Track unmatched patterns for diagnostics
+        if !unmatched_patterns.is_empty() || no_user_schema {
+            schema_pattern_results.push((
+                project_name.to_string(),
+                unmatched_patterns.clone(),
+                no_user_schema,
+            ));
+        }
 
         if no_user_schema {
             tracing::warn!(
                 "Project '{}': no schema files found matching configured patterns",
                 project_name
             );
-            no_schema_projects.push(project_name.to_string());
             client
                 .show_message(
                     MessageType::WARNING,
@@ -610,7 +706,7 @@ async fn load_all_project_files_background(
     }
 
     // Publish config file diagnostics (content mismatches and missing schema warnings)
-    if !content_mismatch_errors.is_empty() || !no_schema_projects.is_empty() {
+    if !content_mismatch_errors.is_empty() || !schema_pattern_results.is_empty() {
         let config_uri =
             Uri::from_str(&graphql_ide::path_to_file_uri(config_path)).expect("valid config path");
         let config_content = std::fs::read_to_string(config_path).unwrap_or_default();
@@ -618,21 +714,40 @@ async fn load_all_project_files_background(
         let mut diagnostics =
             validation_errors_to_diagnostics(&content_mismatch_errors, &config_content);
 
-        // Add warnings for projects with no schema files found
-        for project_name in &no_schema_projects {
-            let range = find_schema_key_range(&config_content, project_name);
-            diagnostics.push(Diagnostic {
-                range,
-                severity: Some(lsp_types::DiagnosticSeverity::WARNING),
-                code: Some(lsp_types::NumberOrString::String(
-                    "no-schema-files".to_string(),
-                )),
-                source: Some("graphql-config".to_string()),
-                message: format!(
-                    "No schema files found matching this pattern. Schema validation will be skipped for project '{project_name}'."
-                ),
-                ..Default::default()
-            });
+        // Add warnings for projects with unmatched schema patterns
+        for (project_name, unmatched_patterns, has_no_schema) in &schema_pattern_results {
+            // Create a diagnostic for each unmatched pattern
+            for pattern in unmatched_patterns {
+                let range =
+                    find_pattern_value_range(&config_content, project_name, pattern, "schema");
+                diagnostics.push(Diagnostic {
+                    range,
+                    severity: Some(lsp_types::DiagnosticSeverity::WARNING),
+                    code: Some(lsp_types::NumberOrString::String(
+                        "unmatched-pattern".to_string(),
+                    )),
+                    source: Some("graphql-config".to_string()),
+                    message: format!("Pattern '{pattern}' matched no files."),
+                    ..Default::default()
+                });
+            }
+
+            // If no schema was loaded at all, add a summary diagnostic on the schema key
+            if *has_no_schema {
+                let range = find_schema_key_range(&config_content, project_name);
+                diagnostics.push(Diagnostic {
+                    range,
+                    severity: Some(lsp_types::DiagnosticSeverity::WARNING),
+                    code: Some(lsp_types::NumberOrString::String(
+                        "no-schema-files".to_string(),
+                    )),
+                    source: Some("graphql-config".to_string()),
+                    message: format!(
+                        "No schema files found. Schema validation will be skipped for project '{project_name}'."
+                    ),
+                    ..Default::default()
+                });
+            }
         }
 
         if !content_mismatch_errors.is_empty() {
@@ -983,7 +1098,9 @@ documents: "**/*.graphql"
 
         // Collect all content mismatch errors across all projects
         let mut content_mismatch_errors: Vec<graphql_config::ConfigValidationError> = Vec::new();
-        let mut no_schema_projects: Vec<String> = Vec::new();
+        // Track projects and their unmatched schema patterns
+        // Each tuple is (project_name, unmatched_patterns, has_no_schema)
+        let mut schema_pattern_results: Vec<(String, Vec<String>, bool)> = Vec::new();
 
         for (project_name, project_config) in projects {
             let project_start = std::time::Instant::now();
@@ -1029,10 +1146,10 @@ documents: "**/*.graphql"
             // Load local schemas AND documents in a single lock acquisition to prevent
             // race conditions where did_save could run between schema and document loading,
             // resulting in project-wide lints running with incomplete document_file_ids.
-            let (pending_introspections, loaded_files, schema_errors, no_user_schema) = host
+            let (schema_result, loaded_files, _doc_result) = host
                 .with_write(|h| {
                     // Load schemas first
-                    let (pending, errors, no_schema) =
+                    let schema_result =
                         match h.load_schemas_from_config(project_config, workspace_path) {
                             Ok(result) => {
                                 tracing::debug!(
@@ -1040,32 +1157,41 @@ documents: "**/*.graphql"
                                     result.loaded_count,
                                     result.pending_introspections.len()
                                 );
-                                let no_schema = result.has_no_user_schema();
-                                (
-                                    result.pending_introspections,
-                                    result.content_errors,
-                                    no_schema,
-                                )
+                                result
                             }
                             Err(e) => {
                                 tracing::error!("Failed to load schemas: {}", e);
-                                (vec![], vec![], true)
+                                graphql_ide::SchemaLoadResult::default()
                             }
                         };
 
                     // Load documents in the same lock acquisition
-                    let docs = h.load_documents_from_config(project_config, workspace_path);
+                    let (docs, doc_result) =
+                        h.load_documents_from_config(project_config, workspace_path);
 
-                    (pending, docs, errors, no_schema)
+                    (schema_result, docs, doc_result)
                 })
                 .await;
+
+            let no_user_schema = schema_result.has_no_user_schema();
+            let pending_introspections = schema_result.pending_introspections.clone();
+            let schema_errors = schema_result.content_errors.clone();
+            let unmatched_patterns = schema_result.unmatched_patterns.clone();
+
+            // Track unmatched patterns for diagnostics
+            if !unmatched_patterns.is_empty() || no_user_schema {
+                schema_pattern_results.push((
+                    project_name.to_string(),
+                    unmatched_patterns,
+                    no_user_schema,
+                ));
+            }
 
             if no_user_schema {
                 tracing::warn!(
                     "Project '{}': no schema files found matching configured patterns",
                     project_name
                 );
-                no_schema_projects.push(project_name.to_string());
                 self.client
                     .show_message(
                         MessageType::WARNING,
@@ -1213,7 +1339,7 @@ documents: "**/*.graphql"
         }
 
         // Publish config file diagnostics (content mismatches and missing schema warnings)
-        if !content_mismatch_errors.is_empty() || !no_schema_projects.is_empty() {
+        if !content_mismatch_errors.is_empty() || !schema_pattern_results.is_empty() {
             let config_uri = Uri::from_str(&graphql_ide::path_to_file_uri(config_path))
                 .expect("valid config path");
             let config_content = std::fs::read_to_string(config_path).unwrap_or_default();
@@ -1221,20 +1347,40 @@ documents: "**/*.graphql"
             let mut diagnostics =
                 validation_errors_to_diagnostics(&content_mismatch_errors, &config_content);
 
-            for project_name in &no_schema_projects {
-                let range = find_schema_key_range(&config_content, project_name);
-                diagnostics.push(Diagnostic {
-                    range,
-                    severity: Some(lsp_types::DiagnosticSeverity::WARNING),
-                    code: Some(lsp_types::NumberOrString::String(
-                        "no-schema-files".to_string(),
-                    )),
-                    source: Some("graphql-config".to_string()),
-                    message: format!(
-                        "No schema files found matching this pattern. Schema validation will be skipped for project '{project_name}'."
-                    ),
-                    ..Default::default()
-                });
+            // Add warnings for projects with unmatched schema patterns
+            for (project_name, unmatched_patterns, has_no_schema) in &schema_pattern_results {
+                // Create a diagnostic for each unmatched pattern
+                for pattern in unmatched_patterns {
+                    let range =
+                        find_pattern_value_range(&config_content, project_name, pattern, "schema");
+                    diagnostics.push(Diagnostic {
+                        range,
+                        severity: Some(lsp_types::DiagnosticSeverity::WARNING),
+                        code: Some(lsp_types::NumberOrString::String(
+                            "unmatched-pattern".to_string(),
+                        )),
+                        source: Some("graphql-config".to_string()),
+                        message: format!("Pattern '{pattern}' matched no files."),
+                        ..Default::default()
+                    });
+                }
+
+                // If no schema was loaded at all, add a summary diagnostic on the schema key
+                if *has_no_schema {
+                    let range = find_schema_key_range(&config_content, project_name);
+                    diagnostics.push(Diagnostic {
+                        range,
+                        severity: Some(lsp_types::DiagnosticSeverity::WARNING),
+                        code: Some(lsp_types::NumberOrString::String(
+                            "no-schema-files".to_string(),
+                        )),
+                        source: Some("graphql-config".to_string()),
+                        message: format!(
+                            "No schema files found. Schema validation will be skipped for project '{project_name}'."
+                        ),
+                        ..Default::default()
+                    });
+                }
             }
 
             if !content_mismatch_errors.is_empty() {
@@ -2596,5 +2742,43 @@ mod tests {
         let config = "documents: \"src/**/*.graphql\"\n";
         let range = find_schema_key_range(config, "default");
         assert_eq!(range, lsp_types::Range::default());
+    }
+
+    #[test]
+    fn test_find_pattern_value_range_inline() {
+        let config = "schema: \"schema.graphql\"\ndocuments: \"src/**/*.graphql\"\n";
+        let range = find_pattern_value_range(config, "default", "schema.graphql", "schema");
+        assert_eq!(range.start.line, 0);
+        assert_eq!(range.start.character, 9); // After 'schema: "'
+        assert_eq!(range.end.line, 0);
+        assert_eq!(range.end.character, 9 + 14); // "schema.graphql".len()
+    }
+
+    #[test]
+    fn test_find_pattern_value_range_list() {
+        let config = "schema:\n  - \"schema1.graphql\"\n  - \"schema2.graphql\"\n";
+        let range = find_pattern_value_range(config, "default", "schema2.graphql", "schema");
+        assert_eq!(range.start.line, 2);
+        assert_eq!(range.start.character, 5); // After "  - \""
+        assert_eq!(range.end.character, 5 + 15); // "schema2.graphql".len()
+    }
+
+    #[test]
+    fn test_find_pattern_value_range_multi_project() {
+        let config = "projects:\n  myapp:\n    schema:\n      - \"schema.graphql\"\n    documents: \"src/**/*.graphql\"\n";
+        let range = find_pattern_value_range(config, "myapp", "schema.graphql", "schema");
+        assert_eq!(range.start.line, 3);
+        assert_eq!(range.start.character, 9); // After "      - \""
+        assert_eq!(range.end.character, 9 + 14);
+    }
+
+    #[test]
+    fn test_find_pattern_value_range_not_found_falls_back_to_key() {
+        let config = "schema: \"schema.graphql\"\n";
+        let range = find_pattern_value_range(config, "default", "nonexistent.graphql", "schema");
+        // Should fall back to the schema key range
+        assert_eq!(range.start.line, 0);
+        assert_eq!(range.start.character, 0);
+        assert_eq!(range.end.character, 7);
     }
 }
