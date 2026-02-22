@@ -238,7 +238,8 @@ fn find_schema_key_range(config_content: &str, project_name: &str) -> lsp_types:
                 },
                 end: lsp_types::Position {
                     line: line_num as u32,
-                    character: (col + "schema:".len()) as u32,
+                    // Exclude the colon from the range
+                    character: (col + "schema".len()) as u32,
                 },
             };
         }
@@ -2725,7 +2726,8 @@ mod tests {
         let range = find_schema_key_range(config, "default");
         assert_eq!(range.start.line, 0);
         assert_eq!(range.start.character, 0);
-        assert_eq!(range.end.character, 7);
+        // Excludes the colon, so just "schema" (6 chars)
+        assert_eq!(range.end.character, 6);
     }
 
     #[test]
@@ -2734,7 +2736,8 @@ mod tests {
         let range = find_schema_key_range(config, "myapp");
         assert_eq!(range.start.line, 2);
         assert_eq!(range.start.character, 4);
-        assert_eq!(range.end.character, 11);
+        // Excludes the colon: 4 + "schema".len() = 4 + 6 = 10
+        assert_eq!(range.end.character, 10);
     }
 
     #[test]
@@ -2776,9 +2779,9 @@ mod tests {
     fn test_find_pattern_value_range_not_found_falls_back_to_key() {
         let config = "schema: \"schema.graphql\"\n";
         let range = find_pattern_value_range(config, "default", "nonexistent.graphql", "schema");
-        // Should fall back to the schema key range
+        // Should fall back to the schema key range (excludes colon)
         assert_eq!(range.start.line, 0);
         assert_eq!(range.start.character, 0);
-        assert_eq!(range.end.character, 7);
+        assert_eq!(range.end.character, 6);
     }
 }

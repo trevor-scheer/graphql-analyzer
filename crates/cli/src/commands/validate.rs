@@ -14,6 +14,7 @@ pub fn run(
     project_name: Option<&str>,
     format: OutputFormat,
     watch: bool,
+    syntax_only: bool,
     output_opts: OutputOptions,
 ) -> Result<()> {
     // Define diagnostic output structure for collecting errors
@@ -69,14 +70,65 @@ pub fn run(
 
     let load_duration = load_start.elapsed();
 
+    // Strict mode: fail if no schema loaded (unless --syntax-only is set)
+    if !host.schema_loaded() && !syntax_only {
+        if matches!(format, OutputFormat::Human) {
+            eprintln!(
+                "{} {}",
+                "✗".red().bold(),
+                "No schema files found. Cannot validate documents against schema.".red()
+            );
+            eprintln!(
+                "  {}",
+                "Use --syntax-only to skip schema validation and only check document syntax."
+                    .dimmed()
+            );
+        } else if matches!(format, OutputFormat::Json) {
+            eprintln!(
+                "{}",
+                serde_json::json!({
+                    "error": "No schema files found",
+                    "hint": "Use --syntax-only to skip schema validation"
+                })
+            );
+        } else {
+            // GitHub Actions format
+            eprintln!(
+                "::error ::No schema files found. Use --syntax-only to skip schema validation."
+            );
+        }
+        ExitCode::ConfigError.exit();
+    }
+
+    // Check if any documents were loaded
+    if host.document_count() == 0 {
+        if matches!(format, OutputFormat::Human) {
+            eprintln!(
+                "{} {}",
+                "✗".red().bold(),
+                "No document files found matching configured patterns.".red()
+            );
+        } else if matches!(format, OutputFormat::Json) {
+            eprintln!(
+                "{}",
+                serde_json::json!({
+                    "error": "No document files found matching configured patterns"
+                })
+            );
+        } else {
+            eprintln!("::error ::No document files found matching configured patterns.");
+        }
+        ExitCode::ConfigError.exit();
+    }
+
     // Report project loaded successfully
     if matches!(format, OutputFormat::Human) && output_opts.show_info {
         if host.schema_loaded() {
             println!("{}", "✓ Schema loaded successfully".green());
-        } else {
+        } else if syntax_only {
             println!(
                 "{}",
-                "! No schema files found matching configured patterns. Schema validation will be skipped.".yellow()
+                "! Syntax-only mode: schema validation skipped".yellow()
             );
         }
         println!("{}", "✓ Documents loaded successfully".green());

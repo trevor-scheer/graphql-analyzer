@@ -389,6 +389,11 @@ impl CliAnalysisHost {
         self.schema_files.len() + self.document_files.len()
     }
 
+    /// Returns the number of document files loaded.
+    pub fn document_count(&self) -> usize {
+        self.document_files.len()
+    }
+
     /// Get schema statistics using HIR data
     pub fn schema_stats(&self) -> graphql_ide::SchemaStats {
         self.host.snapshot().schema_stats()
