@@ -106,7 +106,7 @@
           "graphql-analyzer.server.path": {
             "type": "string",
             "default": "",
-            "description": "Custom path to the graphql-analyzer executable. Uses the bundled binary when empty."
+            "description": "Custom path to the graphql-lsp executable. Uses the bundled binary when empty."
           },
           "graphql-analyzer.server.env": {
             "type": "object",
