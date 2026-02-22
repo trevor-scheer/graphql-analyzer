@@ -1352,6 +1352,67 @@ pub fn find_field_definition_full_range(
                     }
                 }
             }
+            // Type extensions - fields can also be defined in extend type declarations
+            cst::Definition::ObjectTypeExtension(ext) => {
+                if ext.name().is_some_and(|n| n.text() == type_name) {
+                    if let Some(fields) = ext.fields_definition() {
+                        for field in fields.field_definitions() {
+                            if let Some(name) = field.name() {
+                                if name.text() == field_name {
+                                    let name_range = name.syntax().text_range();
+                                    let def_range = field.syntax().text_range();
+                                    return Some(SymbolRanges {
+                                        name_start: name_range.start().into(),
+                                        name_end: name_range.end().into(),
+                                        def_start: def_range.start().into(),
+                                        def_end: def_range.end().into(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            cst::Definition::InterfaceTypeExtension(ext) => {
+                if ext.name().is_some_and(|n| n.text() == type_name) {
+                    if let Some(fields) = ext.fields_definition() {
+                        for field in fields.field_definitions() {
+                            if let Some(name) = field.name() {
+                                if name.text() == field_name {
+                                    let name_range = name.syntax().text_range();
+                                    let def_range = field.syntax().text_range();
+                                    return Some(SymbolRanges {
+                                        name_start: name_range.start().into(),
+                                        name_end: name_range.end().into(),
+                                        def_start: def_range.start().into(),
+                                        def_end: def_range.end().into(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            cst::Definition::InputObjectTypeExtension(ext) => {
+                if ext.name().is_some_and(|n| n.text() == type_name) {
+                    if let Some(fields) = ext.input_fields_definition() {
+                        for field in fields.input_value_definitions() {
+                            if let Some(name) = field.name() {
+                                if name.text() == field_name {
+                                    let name_range = name.syntax().text_range();
+                                    let def_range = field.syntax().text_range();
+                                    return Some(SymbolRanges {
+                                        name_start: name_range.start().into(),
+                                        name_end: name_range.end().into(),
+                                        def_start: def_range.start().into(),
+                                        def_end: def_range.end().into(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }

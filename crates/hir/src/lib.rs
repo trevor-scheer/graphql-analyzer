@@ -163,7 +163,7 @@ pub fn schema_types(
     project_files: graphql_base_db::ProjectFiles,
 ) -> TypeDefMap {
     let schema_ids = project_files.schema_file_ids(db).ids(db);
-    let mut types = HashMap::new();
+    let mut types: HashMap<Arc<str>, TypeDef> = HashMap::new();
 
     for file_id in schema_ids.iter() {
         // Use per-file lookup for granular caching
@@ -171,7 +171,35 @@ pub fn schema_types(
         {
             let file_types = file_type_defs(db, *file_id, content, metadata);
             for type_def in file_types.iter() {
-                types.insert(type_def.name.clone(), type_def.clone());
+                // Merge type extensions with base types
+                if let Some(existing) = types.get_mut(&type_def.name) {
+                    // Merge fields from extension into existing type
+                    for field in &type_def.fields {
+                        if !existing.fields.iter().any(|f| f.name == field.name) {
+                            existing.fields.push(field.clone());
+                        }
+                    }
+                    // Merge implements interfaces
+                    for iface in &type_def.implements {
+                        if !existing.implements.contains(iface) {
+                            existing.implements.push(iface.clone());
+                        }
+                    }
+                    // Merge union members
+                    for member in &type_def.union_members {
+                        if !existing.union_members.contains(member) {
+                            existing.union_members.push(member.clone());
+                        }
+                    }
+                    // Merge enum values
+                    for value in &type_def.enum_values {
+                        if !existing.enum_values.iter().any(|v| v.name == value.name) {
+                            existing.enum_values.push(value.clone());
+                        }
+                    }
+                } else {
+                    types.insert(type_def.name.clone(), type_def.clone());
+                }
             }
         }
     }
