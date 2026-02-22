@@ -159,6 +159,26 @@
         }
       }
     ],
+    "jsonValidation": [
+      {
+        "fileMatch": [
+          ".graphqlrc",
+          ".graphqlrc.json"
+        ],
+        "url": "./schema/graphqlrc.schema.json"
+      }
+    ],
+    "yamlValidation": [
+      {
+        "fileMatch": [
+          ".graphqlrc.yaml",
+          ".graphqlrc.yml",
+          "graphql.config.yaml",
+          "graphql.config.yml"
+        ],
+        "url": "./schema/graphqlrc.schema.json"
+      }
+    ],
     "keybindings": [
       {
         "command": "graphql-analyzer.restartServer",

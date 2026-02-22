@@ -7,3 +7,4 @@
 !syntaxes/**
 !out/extension.js
 !bin/**
+!schema/**
