@@ -1,5 +1,4 @@
 # GraphQL LSP Project Configuration
-# yaml-language-server: $schema=crates/config/schema/graphqlrc.schema.json
 projects:
   pokemon:
     schema: test-workspace/pokemon/schema.graphql

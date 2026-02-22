@@ -68,19 +68,13 @@
           "type": "object",
           "description": "Tool-specific extensions",
           "properties": {
+            "lint": {
+              "$ref": "#/definitions/LintConfig",
+              "description": "Linting configuration for GraphQL documents"
+            },
             "extractConfig": {
               "$ref": "#/definitions/ExtractConfig",
               "description": "Configuration for extracting GraphQL from TypeScript/JavaScript files"
-            },
-            "project": {
-              "type": "object",
-              "description": "Project-level settings for GraphQL LSP",
-              "properties": {
-                "lint": {
-                  "$ref": "#/definitions/LintConfig",
-                  "description": "Linting configuration"
-                }
-              }
             }
           },
           "additionalProperties": true
@@ -197,27 +191,92 @@
         {
           "type": "string",
           "enum": ["recommended"],
-          "description": "Use the recommended preset with default rule configuration"
+          "description": "Use a preset: lint: recommended"
         },
         {
+          "type": "array",
+          "description": "Use multiple presets: lint: [recommended]",
+          "items": {
+            "type": "string",
+            "enum": ["recommended"]
+          }
+        },
+        {
+          "$ref": "#/definitions/FullLintConfig",
+          "description": "Full configuration with extends and rules"
+        }
+      ]
+    },
+    "FullLintConfig": {
+      "type": "object",
+      "description": "Full lint configuration with optional extends and rules",
+      "properties": {
+        "extends": {
+          "$ref": "#/definitions/ExtendsConfig",
+          "description": "Preset(s) to extend"
+        },
+        "rules": {
           "type": "object",
-          "description": "Custom lint rule configuration",
+          "description": "Rule configurations (camelCase names)",
           "properties": {
-            "recommended": {
-              "$ref": "#/definitions/LintSeverity",
-              "description": "Enable recommended rules with this severity, can be overridden per rule"
+            "noDeprecated": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Warn about usage of deprecated fields and enum values"
             },
-            "unique_names": {
+            "noAnonymousOperations": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Require all operations to have names"
+            },
+            "uniqueNames": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Ensure operation and fragment names are unique across the project"
             },
-            "no_deprecated": {
+            "requireIdField": {
               "$ref": "#/definitions/LintRuleConfig",
-              "description": "Warn about usage of deprecated fields"
+              "description": "Require selection of ID fields on object types"
+            },
+            "unusedFragments": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Warn about fragments that are defined but never used"
+            },
+            "unusedFields": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Warn about fields that are selected but unused"
+            },
+            "redundantFields": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Warn about redundant field selections"
+            },
+            "unusedVariables": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Warn about variables that are declared but never used"
+            },
+            "operationNameSuffix": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Require operation names to have a specific suffix (Query, Mutation, Subscription)"
             }
           },
           "additionalProperties": {
             "$ref": "#/definitions/LintRuleConfig"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ExtendsConfig": {
+      "description": "Preset(s) to extend",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["recommended"],
+          "description": "Single preset: extends: recommended"
+        },
+        {
+          "type": "array",
+          "description": "Multiple presets: extends: [recommended]",
+          "items": {
+            "type": "string",
+            "enum": ["recommended"]
           }
         }
       ]
@@ -226,17 +285,35 @@
       "description": "Configuration for a single lint rule",
       "oneOf": [
         {
-          "$ref": "#/definitions/LintSeverity"
+          "$ref": "#/definitions/LintSeverity",
+          "description": "Simple severity: warn"
+        },
+        {
+          "type": "array",
+          "description": "ESLint-style array: [warn, { options }]",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": [
+            {
+              "$ref": "#/definitions/LintSeverity"
+            },
+            {
+              "type": "object",
+              "description": "Rule-specific options"
+            }
+          ]
         },
         {
           "type": "object",
+          "description": "Object style: { severity: warn, options: {...} }",
           "required": ["severity"],
           "properties": {
             "severity": {
               "$ref": "#/definitions/LintSeverity"
             },
             "options": {
-              "description": "Rule-specific options (future use)"
+              "type": "object",
+              "description": "Rule-specific options"
             }
           }
         }
