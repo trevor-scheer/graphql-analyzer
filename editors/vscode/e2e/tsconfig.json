@@ -8,7 +8,9 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "composite": true
   },
-  "include": ["./**/*.ts"]
+  "include": ["./**/*.ts", "../playwright.config.ts"],
+  "references": [{ "path": ".." }]
 }

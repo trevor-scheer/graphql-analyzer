@@ -1,0 +1,6 @@
+{
+  "name": "graphql-lsp-test-workspace-misconfigured-schema",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Misconfigured schema test workspace for GraphQL LSP development"
+}
