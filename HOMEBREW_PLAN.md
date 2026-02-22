@@ -15,47 +15,7 @@ brew install trevor-scheer/graphql-analyzer/graphql-analyzer
 
 ---
 
-## Step 1: Rename the Binary (`graphql` → `graphql-analyzer`)
-
-**This is a prerequisite for everything else.**
-
-The CLI binary is currently named `graphql`, which is too generic and will
-conflict with other tools users may have installed (e.g., a future official
-GraphQL Foundation CLI). The Homebrew formula will be named `graphql-analyzer`
-and the binary should match.
-
-**Change in `crates/cli/Cargo.toml`:**
-
-```toml
-# Before
-[[bin]]
-name = "graphql"
-path = "src/main.rs"
-
-# After
-[[bin]]
-name = "graphql-analyzer"
-path = "src/main.rs"
-```
-
-Also remove/update `default-run = "graphql"` in the same file.
-
-**Cascading changes required:**
-
-| File                            | Change                                                                                              |
-| ------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `crates/cli/Cargo.toml`         | Rename `[[bin]]` from `graphql` to `graphql-analyzer`                                               |
-| `.github/workflows/release.yml` | Update packaging steps: `cp .../graphql dist/` → `cp .../graphql-analyzer dist/` and archive rename |
-| `scripts/install.sh`            | Update the binary name referenced after extraction                                                  |
-| `scripts/install.ps1`           | Same for Windows                                                                                    |
-| Root `README.md`                | Update usage examples: `graphql validate` → `graphql-analyzer validate`                             |
-
-This is a **breaking change**. The changeset for `graphql-analyzer-cli` should
-call it out explicitly so it lands in the CHANGELOG.
-
----
-
-## Step 2: Create the Homebrew Tap Repository
+## Step 1: Create the Homebrew Tap Repository
 
 Create a new GitHub repository: **`trevor-scheer/homebrew-graphql-analyzer`**
 
@@ -108,29 +68,32 @@ class GraphqlAnalyzer < Formula
   end
 
   def install
-    bin.install "graphql-analyzer"
+    bin.install "graphql"
   end
 
   test do
-    system "#{bin}/graphql-analyzer", "--version"
+    system "#{bin}/graphql", "--version"
   end
 end
 ```
 
 **Notes on the formula:**
 
+- The formula is named `graphql-analyzer` (for `brew install`) but installs
+  the binary as `graphql` so users just type `graphql validate`. Homebrew
+  doesn't require them to match.
 - The `%2F` in the URL is the URL-encoded `/` in the release tag
   `graphql-analyzer-cli/v0.1.3`. GitHub release asset URLs encode slashes
   in tag names this way.
 - No `bottle` block is needed. Bottles are for formulae that build from
   source — we're distributing pre-built binaries, so the formula is
   inherently "portable".
-- The archive contains a single binary at the root. After step 1 renames
-  the binary, `bin.install "graphql-analyzer"` will work as written.
+- The archive contains a single binary at the root named `graphql`.
+  `bin.install "graphql"` installs it exactly as-is.
 
 ---
 
-## Step 3: Automate Formula Updates in the Release Workflow
+## Step 2: Automate Formula Updates in the Release Workflow
 
 Every CLI release should automatically update the tap formula. Add a new job
 to `.github/workflows/release.yml` that runs after the existing `release` job.
@@ -220,7 +183,7 @@ The script does a targeted replacement of the `version` line and the four
 
 ---
 
-## Step 4: Update README Installation Section
+## Step 3: Update README Installation Section
 
 Replace or augment the current "Installation" section in `README.md` to list
 Homebrew first (for macOS/Linux users) with the shell script as the fallback:
@@ -247,7 +210,6 @@ Upgrade with `brew upgrade graphql-analyzer`.
 
 ## Implementation Checklist
 
-- [ ] **Rename binary** — `crates/cli/Cargo.toml` + `release.yml` packaging + `scripts/` + `README.md`. Write a breaking-change changeset for `graphql-analyzer-cli`.
 - [ ] **Create tap repo** — `trevor-scheer/homebrew-graphql-analyzer` with initial `Formula/graphql-analyzer.rb` (placeholders for first version, then replaced on next release).
 - [ ] **Create PAT** — Fine-grained token with write access to the tap repo. Add as `HOMEBREW_TAP_TOKEN` secret in the main repo.
 - [ ] **Write update script** — `scripts/update-homebrew-formula.py` to reliably replace version and SHA256 values in the formula.
