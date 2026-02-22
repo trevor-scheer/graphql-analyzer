@@ -293,7 +293,7 @@
           "description": "ESLint-style array: [warn, { options }]",
           "minItems": 1,
           "maxItems": 2,
-          "items": [
+          "prefixItems": [
             {
               "$ref": "#/definitions/LintSeverity"
             },
@@ -301,7 +301,8 @@
               "type": "object",
               "description": "Rule-specific options"
             }
-          ]
+          ],
+          "items": false
         },
         {
           "type": "object",
