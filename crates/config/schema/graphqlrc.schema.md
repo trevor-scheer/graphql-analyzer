@@ -62,6 +62,7 @@ Or configure it globally in your VS Code settings (`.vscode/settings.json`):
 schema: schema.graphql
 documents: "**/*.{graphql,gql,ts,tsx,js,jsx}"
 extensions:
+  client: apollo
   lint: recommended
 ```
 
@@ -73,6 +74,7 @@ projects:
     schema: api/schema.graphql
     documents: "api/**/*.graphql"
     extensions:
+      client: none
       lint:
         extends: recommended
         rules:
@@ -82,6 +84,7 @@ projects:
     schema: client/schema.graphql
     documents: "client/**/*.{ts,tsx}"
     extensions:
+      client: apollo
       extractConfig:
         tagIdentifiers: ["gql"]
         modules: ["@apollo/client"]
@@ -94,6 +97,7 @@ projects:
 schema: schema.graphql
 documents: "**/*.ts"
 extensions:
+  client: apollo
   extractConfig:
     magicComment: "MyGraphQL"
     tagIdentifiers: ["myGql", "graphql"]
@@ -107,6 +111,7 @@ extensions:
 schema: schema.graphql
 documents: "**/*.graphql"
 extensions:
+  client: none
   lint:
     extends: recommended
     rules:
@@ -122,6 +127,7 @@ extensions:
 schema: schema.graphql
 documents: "**/*.graphql"
 extensions:
+  client: none
   lint:
     extends: recommended
     rules:
@@ -149,6 +155,23 @@ The schema provides:
 - `projects`: Object mapping project names to project configurations (for multi-project setups)
 
 ### Extensions
+
+#### `extensions.client` (required)
+
+Specifies the GraphQL client library used in the project. This determines which client-side directives are available for validation.
+
+Values: `apollo`, `relay`, `none`
+
+| Value    | Directives                                                                    |
+| -------- | ----------------------------------------------------------------------------- |
+| `apollo` | `@client`, `@connection`, `@defer`, `@export`, `@nonreactive`, `@unmask`      |
+| `relay`  | `@arguments`, `@argumentDefinitions`, `@connection`, `@refetchable`, and more |
+| `none`   | No client directives (server-only validation)                                 |
+
+```yaml
+extensions:
+  client: apollo
+```
 
 #### `extensions.lint`
 

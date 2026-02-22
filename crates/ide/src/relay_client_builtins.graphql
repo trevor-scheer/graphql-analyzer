@@ -1,0 +1,79 @@
+# Relay client built-in directives
+# These directives are processed by the Relay compiler and stripped before
+# sending queries to the server. They don't need to be in the server schema.
+#
+# Note: @arguments and @argumentDefinitions accept dynamic arguments that
+# depend on fragment definitions, so they are defined without fixed arguments.
+
+enum RequiredFieldAction {
+  NONE
+  LOG
+  THROW
+}
+
+enum CatchFieldTo {
+  RESULT
+  NULL
+}
+
+directive @arguments on FRAGMENT_SPREAD
+
+directive @argumentDefinitions on FRAGMENT_DEFINITION
+
+directive @catch(
+  """
+  How to handle the caught error.
+  """
+  to: CatchFieldTo
+) on FIELD
+
+directive @connection(
+  """
+  A unique identifier for this connection instance used as a store key.
+  """
+  key: String!
+
+  """
+  An optional array of query argument names to include in the connection key.
+  """
+  filter: [String]
+) on FIELD
+
+directive @refetchable(
+  """
+  The name of the auto-generated refetch query.
+  """
+  queryName: String!
+) on FRAGMENT_DEFINITION
+
+directive @relay(
+  """
+  If true, the fragment result will be a list of items instead of a single item.
+  """
+  plural: Boolean
+
+  """
+  If false, disables data masking for this fragment.
+  """
+  mask: Boolean
+) on FRAGMENT_DEFINITION | FRAGMENT_SPREAD
+
+directive @required(
+  """
+  The action to take when the field is null.
+  """
+  action: RequiredFieldAction!
+) on FIELD
+
+directive @throwOnFieldError on QUERY | MUTATION | SUBSCRIPTION | FRAGMENT_DEFINITION
+
+directive @inline on FRAGMENT_DEFINITION
+
+directive @waterfall on FIELD
+
+directive @alias(
+  """
+  An alias for the fragment spread or inline fragment.
+  """
+  as: String
+) on FRAGMENT_SPREAD | INLINE_FRAGMENT
