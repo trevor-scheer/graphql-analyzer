@@ -12,7 +12,8 @@
   "icon": "icon.png",
   "main": "./out/extension.js",
   "scripts": {
-    "vscode:prepublish": "npm run compile -- --production",
+    "vscode:prepublish": "npm run copy-schema && npm run compile -- --production",
+    "copy-schema": "node -e \"require('fs').mkdirSync('schema', {recursive:true}); require('fs').copyFileSync('../../crates/config/schema/graphqlrc.schema.json', 'schema/graphqlrc.schema.json')\"",
     "compile": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "lint": "oxlint src",

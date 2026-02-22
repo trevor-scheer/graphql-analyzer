@@ -1,5 +1,6 @@
 node_modules/
 out/
+schema/
 out-e2e/
 bin/
 *.vsix
