@@ -777,6 +777,147 @@ fn extract_scalar_type_extension(ext: &Node<ast::ScalarTypeExtension>, file_id: 
     }
 }
 
+// =============================================================================
+// Type Extension Extraction
+// =============================================================================
+
+fn extract_object_type_extension(ext: &Node<ast::ObjectTypeExtension>, file_id: FileId) -> TypeDef {
+    let name = Arc::from(ext.name.as_str());
+
+    let fields = ext
+        .fields
+        .iter()
+        .map(|f| extract_field_signature(f))
+        .collect();
+
+    let implements = ext
+        .implements_interfaces
+        .iter()
+        .map(|t| Arc::from(t.as_str()))
+        .collect();
+
+    TypeDef {
+        name,
+        kind: TypeDefKind::Object,
+        fields,
+        implements,
+        union_members: Vec::new(),
+        enum_values: Vec::new(),
+        description: None, // Extensions don't have descriptions
+        file_id,
+        name_range: name_range(&ext.name),
+        definition_range: node_range(ext),
+    }
+}
+
+fn extract_interface_type_extension(
+    ext: &Node<ast::InterfaceTypeExtension>,
+    file_id: FileId,
+) -> TypeDef {
+    let name = Arc::from(ext.name.as_str());
+
+    let fields = ext
+        .fields
+        .iter()
+        .map(|f| extract_field_signature(f))
+        .collect();
+
+    let implements = ext
+        .implements_interfaces
+        .iter()
+        .map(|t| Arc::from(t.as_str()))
+        .collect();
+
+    TypeDef {
+        name,
+        kind: TypeDefKind::Interface,
+        fields,
+        implements,
+        union_members: Vec::new(),
+        enum_values: Vec::new(),
+        description: None,
+        file_id,
+        name_range: name_range(&ext.name),
+        definition_range: node_range(ext),
+    }
+}
+
+fn extract_union_type_extension(ext: &Node<ast::UnionTypeExtension>, file_id: FileId) -> TypeDef {
+    let name = Arc::from(ext.name.as_str());
+
+    let union_members = ext.members.iter().map(|t| Arc::from(t.as_str())).collect();
+
+    TypeDef {
+        name,
+        kind: TypeDefKind::Union,
+        fields: Vec::new(),
+        implements: Vec::new(),
+        union_members,
+        enum_values: Vec::new(),
+        description: None,
+        file_id,
+        name_range: name_range(&ext.name),
+        definition_range: node_range(ext),
+    }
+}
+
+fn extract_enum_type_extension(ext: &Node<ast::EnumTypeExtension>, file_id: FileId) -> TypeDef {
+    let name = Arc::from(ext.name.as_str());
+
+    let enum_values = ext
+        .values
+        .iter()
+        .map(|v| {
+            let (is_deprecated, deprecation_reason) = extract_deprecation(&v.directives);
+            EnumValue {
+                name: Arc::from(v.value.as_str()),
+                description: v.description.as_ref().map(|d| Arc::from(d.as_str())),
+                is_deprecated,
+                deprecation_reason,
+            }
+        })
+        .collect();
+
+    TypeDef {
+        name,
+        kind: TypeDefKind::Enum,
+        fields: Vec::new(),
+        implements: Vec::new(),
+        union_members: Vec::new(),
+        enum_values,
+        description: None,
+        file_id,
+        name_range: name_range(&ext.name),
+        definition_range: node_range(ext),
+    }
+}
+
+fn extract_input_object_type_extension(
+    ext: &Node<ast::InputObjectTypeExtension>,
+    file_id: FileId,
+) -> TypeDef {
+    let name = Arc::from(ext.name.as_str());
+
+    let fields = ext
+        .fields
+        .iter()
+        .map(|f| extract_input_field_signature(f))
+        .collect();
+
+    TypeDef {
+        name,
+        kind: TypeDefKind::InputObject,
+        fields,
+        implements: Vec::new(),
+        union_members: Vec::new(),
+        enum_values: Vec::new(),
+        description: None,
+        file_id,
+        name_range: name_range(&ext.name),
+        definition_range: node_range(ext),
+    }
+}
+
 fn extract_field_signature(field: &ast::FieldDefinition) -> FieldSignature {
     let name = Arc::from(field.name.as_str());
     let type_ref = extract_type_ref(&field.ty);
