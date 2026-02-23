@@ -1305,4 +1305,38 @@ mod directive_tests {
         assert_eq!(query_type.directives[1].arguments[0].name.as_ref(), "max");
         assert_eq!(query_type.directives[1].arguments[0].value.as_ref(), "100");
     }
+
+    #[test]
+    fn test_repeatable_directives_preserved() {
+        // Repeatable directives (e.g. @tag) can appear multiple times with
+        // different arguments. Merging must not deduplicate by name.
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                r#"type Query @tag(name: "public") { hello: String }"#,
+            )
+            .with_schema("ext.graphql", r#"extend type Query @tag(name: "internal")"#)
+            .build();
+
+        let types = schema_types(&db, project);
+        let query_type = types.get("Query").expect("Query type should exist");
+
+        let tag_directives: Vec<_> = query_type
+            .directives
+            .iter()
+            .filter(|d| d.name.as_ref() == "tag")
+            .collect();
+        assert_eq!(
+            tag_directives.len(),
+            2,
+            "Both @tag usages should be preserved for repeatable directives"
+        );
+
+        let tag_values: Vec<&str> = tag_directives
+            .iter()
+            .map(|d| d.arguments[0].value.as_ref())
+            .collect();
+        assert!(tag_values.contains(&r#""public""#));
+        assert!(tag_values.contains(&r#""internal""#));
+    }
 }

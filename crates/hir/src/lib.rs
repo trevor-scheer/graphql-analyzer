@@ -203,11 +203,7 @@ pub fn schema_types(
                                 existing.enum_values.push(value);
                             }
                         }
-                        for directive in ext_directives {
-                            if !existing.directives.iter().any(|d| d.name == directive.name) {
-                                existing.directives.push(directive);
-                            }
-                        }
+                        existing.directives.extend(ext_directives);
                     } else {
                         for field in &type_def.fields {
                             if !existing.fields.iter().any(|f| f.name == field.name) {
@@ -229,11 +225,9 @@ pub fn schema_types(
                                 existing.enum_values.push(value.clone());
                             }
                         }
-                        for directive in &type_def.directives {
-                            if !existing.directives.iter().any(|d| d.name == directive.name) {
-                                existing.directives.push(directive.clone());
-                            }
-                        }
+                        existing
+                            .directives
+                            .extend(type_def.directives.iter().cloned());
                     }
                 } else {
                     types.insert(type_def.name.clone(), type_def.clone());
