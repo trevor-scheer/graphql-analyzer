@@ -18,6 +18,7 @@ pub struct TypeDef {
     pub union_members: Vec<Arc<str>>,
     pub enum_values: Vec<EnumValue>,
     pub description: Option<Arc<str>>,
+    pub directives: Vec<DirectiveUsage>,
     pub file_id: FileId,
     /// The text range of the type name
     pub name_range: TextRange,
@@ -47,6 +48,7 @@ pub struct FieldSignature {
     pub description: Option<Arc<str>>,
     pub is_deprecated: bool,
     pub deprecation_reason: Option<Arc<str>>,
+    pub directives: Vec<DirectiveUsage>,
     /// The text range of the field name
     pub name_range: TextRange,
 }
@@ -69,6 +71,7 @@ pub struct ArgumentDef {
     pub description: Option<Arc<str>>,
     pub is_deprecated: bool,
     pub deprecation_reason: Option<Arc<str>>,
+    pub directives: Vec<DirectiveUsage>,
 }
 
 /// Enum value definition
@@ -78,6 +81,22 @@ pub struct EnumValue {
     pub description: Option<Arc<str>>,
     pub is_deprecated: bool,
     pub deprecation_reason: Option<Arc<str>>,
+    pub directives: Vec<DirectiveUsage>,
+}
+
+/// A directive applied to a schema element
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DirectiveUsage {
+    pub name: Arc<str>,
+    pub arguments: Vec<DirectiveArgument>,
+}
+
+/// An argument passed to a directive
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DirectiveArgument {
+    pub name: Arc<str>,
+    /// Serialized value (e.g. `"hello"`, `true`, `ENUM_VALUE`)
+    pub value: Arc<str>,
 }
 
 /// Operation structure (name and variables, no selection set details)
@@ -308,7 +327,9 @@ fn extract_from_document(
             ast::Definition::InputObjectTypeExtension(ext) => {
                 type_defs.push(extract_input_object_type_extension(ext, file_id));
             }
-            // ScalarTypeExtension only adds directives, no fields - skip for now
+            ast::Definition::ScalarTypeExtension(ext) => {
+                type_defs.push(extract_scalar_type_extension(ext, file_id));
+            }
             _ => {}
         }
     }
@@ -432,6 +453,7 @@ fn extract_object_type(obj: &Node<ast::ObjectTypeDefinition>, file_id: FileId) -
         union_members: Vec::new(),
         enum_values: Vec::new(),
         description,
+        directives: extract_directives(&obj.directives),
         file_id,
         name_range: name_range(&obj.name),
         definition_range: node_range(obj),
@@ -463,6 +485,7 @@ fn extract_interface_type(iface: &Node<ast::InterfaceTypeDefinition>, file_id: F
         union_members: Vec::new(),
         enum_values: Vec::new(),
         description,
+        directives: extract_directives(&iface.directives),
         file_id,
         name_range: name_range(&iface.name),
         definition_range: node_range(iface),
@@ -491,6 +514,7 @@ fn extract_union_type(union_def: &Node<ast::UnionTypeDefinition>, file_id: FileI
         union_members,
         enum_values: Vec::new(),
         description,
+        directives: extract_directives(&union_def.directives),
         file_id,
         name_range: name_range(&union_def.name),
         definition_range: node_range(union_def),
@@ -512,6 +536,7 @@ fn extract_enum_type(enum_def: &Node<ast::EnumTypeDefinition>, file_id: FileId) 
                 description: v.description.as_ref().map(|d| Arc::from(d.as_str())),
                 is_deprecated,
                 deprecation_reason,
+                directives: extract_directives(&v.directives),
             }
         })
         .collect();
@@ -524,6 +549,7 @@ fn extract_enum_type(enum_def: &Node<ast::EnumTypeDefinition>, file_id: FileId) 
         union_members: Vec::new(),
         enum_values,
         description,
+        directives: extract_directives(&enum_def.directives),
         file_id,
         name_range: name_range(&enum_def.name),
         definition_range: node_range(enum_def),
@@ -543,6 +569,7 @@ fn extract_scalar_type(scalar: &Node<ast::ScalarTypeDefinition>, file_id: FileId
         union_members: Vec::new(),
         enum_values: Vec::new(),
         description,
+        directives: extract_directives(&scalar.directives),
         file_id,
         name_range: name_range(&scalar.name),
         definition_range: node_range(scalar),
@@ -571,6 +598,7 @@ fn extract_input_object_type(
         union_members: Vec::new(),
         enum_values: Vec::new(),
         description,
+        directives: extract_directives(&input.directives),
         file_id,
         name_range: name_range(&input.name),
         definition_range: node_range(input),
@@ -605,6 +633,7 @@ fn extract_object_type_extension(ext: &Node<ast::ObjectTypeExtension>, file_id: 
         union_members: Vec::new(),
         enum_values: Vec::new(),
         description: None,
+        directives: extract_directives(&ext.directives),
         file_id,
         name_range: name_range(&ext.name),
         definition_range: node_range(ext),
@@ -638,6 +667,7 @@ fn extract_interface_type_extension(
         union_members: Vec::new(),
         enum_values: Vec::new(),
         description: None,
+        directives: extract_directives(&ext.directives),
         file_id,
         name_range: name_range(&ext.name),
         definition_range: node_range(ext),
@@ -658,6 +688,7 @@ fn extract_union_type_extension(ext: &Node<ast::UnionTypeExtension>, file_id: Fi
         union_members,
         enum_values: Vec::new(),
         description: None,
+        directives: extract_directives(&ext.directives),
         file_id,
         name_range: name_range(&ext.name),
         definition_range: node_range(ext),
@@ -678,6 +709,7 @@ fn extract_enum_type_extension(ext: &Node<ast::EnumTypeExtension>, file_id: File
                 description: v.description.as_ref().map(|d| Arc::from(d.as_str())),
                 is_deprecated,
                 deprecation_reason,
+                directives: extract_directives(&v.directives),
             }
         })
         .collect();
@@ -690,6 +722,7 @@ fn extract_enum_type_extension(ext: &Node<ast::EnumTypeExtension>, file_id: File
         union_members: Vec::new(),
         enum_values,
         description: None,
+        directives: extract_directives(&ext.directives),
         file_id,
         name_range: name_range(&ext.name),
         definition_range: node_range(ext),
@@ -717,6 +750,26 @@ fn extract_input_object_type_extension(
         union_members: Vec::new(),
         enum_values: Vec::new(),
         description: None,
+        directives: extract_directives(&ext.directives),
+        file_id,
+        name_range: name_range(&ext.name),
+        definition_range: node_range(ext),
+        is_extension: true,
+    }
+}
+
+fn extract_scalar_type_extension(ext: &Node<ast::ScalarTypeExtension>, file_id: FileId) -> TypeDef {
+    let name = Arc::from(ext.name.as_str());
+
+    TypeDef {
+        name,
+        kind: TypeDefKind::Scalar,
+        fields: Vec::new(),
+        implements: Vec::new(),
+        union_members: Vec::new(),
+        enum_values: Vec::new(),
+        description: None,
+        directives: extract_directives(&ext.directives),
         file_id,
         name_range: name_range(&ext.name),
         definition_range: node_range(ext),
@@ -744,6 +797,7 @@ fn extract_field_signature(field: &ast::FieldDefinition) -> FieldSignature {
         description,
         is_deprecated,
         deprecation_reason,
+        directives: extract_directives(&field.directives),
         name_range: name_range(&field.name),
     }
 }
@@ -762,6 +816,7 @@ fn extract_input_field_signature(field: &ast::InputValueDefinition) -> FieldSign
         description,
         is_deprecated,
         deprecation_reason,
+        directives: extract_directives(&field.directives),
         name_range: name_range(&field.name),
     }
 }
@@ -784,6 +839,7 @@ fn extract_argument_def(arg: &ast::InputValueDefinition) -> ArgumentDef {
         description,
         is_deprecated,
         deprecation_reason,
+        directives: extract_directives(&arg.directives),
     }
 }
 
@@ -808,6 +864,24 @@ fn extract_deprecation(
         }
     }
     (false, None)
+}
+
+/// Extract all directives from a directive list
+fn extract_directives(directives: &apollo_compiler::ast::DirectiveList) -> Vec<DirectiveUsage> {
+    directives
+        .iter()
+        .map(|directive| DirectiveUsage {
+            name: Arc::from(directive.name.as_str()),
+            arguments: directive
+                .arguments
+                .iter()
+                .map(|arg| DirectiveArgument {
+                    name: Arc::from(arg.name.as_str()),
+                    value: Arc::from(arg.value.to_string().as_str()),
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 fn extract_type_ref(ty: &ast::Type) -> TypeRef {

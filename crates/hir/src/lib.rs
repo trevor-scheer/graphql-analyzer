@@ -179,6 +179,7 @@ pub fn schema_types(
                         let ext_implements = std::mem::take(&mut existing.implements);
                         let ext_union_members = std::mem::take(&mut existing.union_members);
                         let ext_enum_values = std::mem::take(&mut existing.enum_values);
+                        let ext_directives = std::mem::take(&mut existing.directives);
 
                         *existing = type_def.clone();
 
@@ -202,6 +203,11 @@ pub fn schema_types(
                                 existing.enum_values.push(value);
                             }
                         }
+                        for directive in ext_directives {
+                            if !existing.directives.iter().any(|d| d.name == directive.name) {
+                                existing.directives.push(directive);
+                            }
+                        }
                     } else {
                         for field in &type_def.fields {
                             if !existing.fields.iter().any(|f| f.name == field.name) {
@@ -221,6 +227,11 @@ pub fn schema_types(
                         for value in &type_def.enum_values {
                             if !existing.enum_values.iter().any(|v| v.name == value.name) {
                                 existing.enum_values.push(value.clone());
+                            }
+                        }
+                        for directive in &type_def.directives {
+                            if !existing.directives.iter().any(|d| d.name == directive.name) {
+                                existing.directives.push(directive.clone());
                             }
                         }
                     }

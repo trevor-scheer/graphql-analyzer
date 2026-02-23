@@ -1095,3 +1095,214 @@ mod caching_tests {
         );
     }
 }
+
+// ============================================================================
+// Directive extraction tests
+// ============================================================================
+
+mod directive_tests {
+    use graphql_hir::{file_structure, schema_types, TypeDefKind};
+    use graphql_test_utils::TestProjectBuilder;
+
+    #[test]
+    fn test_type_directives_extracted() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                r"type Query @auth(requires: ADMIN) { hello: String }",
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let query_type = types.get("Query").expect("Query type should exist");
+
+        assert_eq!(query_type.directives.len(), 1);
+        assert_eq!(query_type.directives[0].name.as_ref(), "auth");
+        assert_eq!(query_type.directives[0].arguments.len(), 1);
+        assert_eq!(
+            query_type.directives[0].arguments[0].name.as_ref(),
+            "requires"
+        );
+        assert_eq!(
+            query_type.directives[0].arguments[0].value.as_ref(),
+            "ADMIN"
+        );
+    }
+
+    #[test]
+    fn test_field_directives_extracted() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                r#"type Query { secret: String @deprecated(reason: "use newSecret") }"#,
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let query_type = types.get("Query").expect("Query type should exist");
+        let field = &query_type.fields[0];
+
+        assert!(field.is_deprecated);
+        assert_eq!(field.directives.len(), 1);
+        assert_eq!(field.directives[0].name.as_ref(), "deprecated");
+    }
+
+    #[test]
+    fn test_enum_value_directives_extracted() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                r#"enum Status { ACTIVE INACTIVE @deprecated(reason: "no longer used") }"#,
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let status = types.get("Status").expect("Status type should exist");
+
+        let inactive = status
+            .enum_values
+            .iter()
+            .find(|v| v.name.as_ref() == "INACTIVE")
+            .expect("INACTIVE should exist");
+
+        assert!(inactive.is_deprecated);
+        assert_eq!(inactive.directives.len(), 1);
+        assert_eq!(inactive.directives[0].name.as_ref(), "deprecated");
+    }
+
+    #[test]
+    fn test_argument_directives_extracted() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                r"type Query { users(limit: Int @deprecated): [String] }",
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let query_type = types.get("Query").expect("Query type should exist");
+        let arg = &query_type.fields[0].arguments[0];
+
+        assert!(arg.is_deprecated);
+        assert_eq!(arg.directives.len(), 1);
+        assert_eq!(arg.directives[0].name.as_ref(), "deprecated");
+    }
+
+    #[test]
+    fn test_scalar_type_directives_extracted() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                r#"scalar DateTime @specifiedBy(url: "https://scalars.graphql.org/andimarek/date-time")"#,
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let datetime = types.get("DateTime").expect("DateTime type should exist");
+
+        assert_eq!(datetime.kind, TypeDefKind::Scalar);
+        assert_eq!(datetime.directives.len(), 1);
+        assert_eq!(datetime.directives[0].name.as_ref(), "specifiedBy");
+    }
+
+    #[test]
+    fn test_extension_directives_merged() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema("schema.graphql", r"type Query @auth { hello: String }")
+            .with_schema(
+                "ext.graphql",
+                r"extend type Query @rateLimit { world: String }",
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let query_type = types.get("Query").expect("Query type should exist");
+
+        let directive_names: Vec<&str> = query_type
+            .directives
+            .iter()
+            .map(|d| d.name.as_ref())
+            .collect();
+        assert!(
+            directive_names.contains(&"auth"),
+            "Should have base directive"
+        );
+        assert!(
+            directive_names.contains(&"rateLimit"),
+            "Should have extension directive"
+        );
+    }
+
+    #[test]
+    fn test_scalar_extension_extracted() {
+        use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
+
+        let db = graphql_test_utils::TestDatabase::default();
+        let file_id = FileId::new(0);
+        let content = FileContent::new(
+            &db,
+            std::sync::Arc::from("extend scalar JSON @specifiedBy(url: \"https://json.org\")"),
+        );
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("ext.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let structure = file_structure(&db, file_id, content, metadata);
+        assert_eq!(structure.type_defs.len(), 1);
+        assert_eq!(structure.type_defs[0].name.as_ref(), "JSON");
+        assert_eq!(structure.type_defs[0].kind, TypeDefKind::Scalar);
+        assert!(structure.type_defs[0].is_extension);
+        assert_eq!(structure.type_defs[0].directives.len(), 1);
+        assert_eq!(
+            structure.type_defs[0].directives[0].name.as_ref(),
+            "specifiedBy"
+        );
+    }
+
+    #[test]
+    fn test_scalar_extension_merges_directives() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema("schema.graphql", r"scalar JSON")
+            .with_schema(
+                "ext.graphql",
+                r#"extend scalar JSON @specifiedBy(url: "https://json.org")"#,
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let json_type = types.get("JSON").expect("JSON type should exist");
+
+        assert_eq!(json_type.kind, TypeDefKind::Scalar);
+        assert!(
+            !json_type.is_extension,
+            "Merged type should be the base type"
+        );
+        assert_eq!(json_type.directives.len(), 1);
+        assert_eq!(json_type.directives[0].name.as_ref(), "specifiedBy");
+    }
+
+    #[test]
+    fn test_multiple_directives_on_type() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                r"type Query @auth @rateLimit(max: 100) { hello: String }",
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let query_type = types.get("Query").expect("Query type should exist");
+
+        assert_eq!(query_type.directives.len(), 2);
+        assert_eq!(query_type.directives[0].name.as_ref(), "auth");
+        assert_eq!(query_type.directives[0].arguments.len(), 0);
+        assert_eq!(query_type.directives[1].name.as_ref(), "rateLimit");
+        assert_eq!(query_type.directives[1].arguments.len(), 1);
+        assert_eq!(query_type.directives[1].arguments[0].name.as_ref(), "max");
+        assert_eq!(query_type.directives[1].arguments[0].value.as_ref(), "100");
+    }
+}

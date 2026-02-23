@@ -531,6 +531,9 @@ fn check_definition(definition: &cst::Definition, byte_offset: usize) -> Option<
         cst::Definition::ScalarTypeDefinition(scalar) => {
             check_type_definition_name(scalar.name(), byte_offset)
         }
+        cst::Definition::ScalarTypeExtension(ext) => {
+            check_type_definition_name(ext.name(), byte_offset)
+        }
         cst::Definition::InputObjectTypeDefinition(input) => {
             check_type_definition_name(input.name(), byte_offset).or_else(|| {
                 check_input_fields_definition(input.input_fields_definition(), byte_offset)
@@ -858,6 +861,7 @@ pub fn find_type_definition_range(
             cst::Definition::UnionTypeExtension(ext) => ext.name(),
             cst::Definition::EnumTypeExtension(ext) => ext.name(),
             cst::Definition::InputObjectTypeExtension(ext) => ext.name(),
+            cst::Definition::ScalarTypeExtension(ext) => ext.name(),
             _ => None,
         };
 
@@ -1247,6 +1251,7 @@ pub fn find_type_definition_full_range(
             cst::Definition::UnionTypeExtension(ext) => (ext.name(), ext.syntax()),
             cst::Definition::EnumTypeExtension(ext) => (ext.name(), ext.syntax()),
             cst::Definition::InputObjectTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::ScalarTypeExtension(ext) => (ext.name(), ext.syntax()),
             _ => continue,
         };
 
@@ -1289,6 +1294,7 @@ pub fn find_all_type_definitions_full_range(
             cst::Definition::UnionTypeExtension(ext) => (ext.name(), ext.syntax()),
             cst::Definition::EnumTypeExtension(ext) => (ext.name(), ext.syntax()),
             cst::Definition::InputObjectTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::ScalarTypeExtension(ext) => (ext.name(), ext.syntax()),
             _ => continue,
         };
 
@@ -1727,6 +1733,22 @@ pub fn extract_all_definitions(
                     results.push((
                         format!("extend input {}", name.text()),
                         "input",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            cst::Definition::ScalarTypeExtension(ext) => {
+                if let Some(name) = ext.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = ext.syntax().text_range();
+                    results.push((
+                        format!("extend scalar {}", name.text()),
+                        "scalar",
                         SymbolRanges {
                             name_start: name_range.start().into(),
                             name_end: name_range.end().into(),
