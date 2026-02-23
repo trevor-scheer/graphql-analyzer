@@ -36,7 +36,7 @@ directive @connection(
   """
   An optional array of query argument names to include in the connection key.
   """
-  filter: [String]
+  filters: [String]
 ) on FIELD
 
 directive @refetchable(

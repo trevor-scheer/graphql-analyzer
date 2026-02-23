@@ -67,7 +67,6 @@
         "extensions": {
           "type": "object",
           "description": "Tool-specific extensions",
-          "required": ["client"],
           "properties": {
             "client": {
               "$ref": "#/definitions/ClientConfig",

@@ -41,4 +41,5 @@ graphql-extract = { path = "../extract" }
 
 [dev-dependencies]
 tempfile = "3.0"
+serde_json = { workspace = true }
 graphql-ide-db = { path = "../ide-db" }

@@ -413,10 +413,17 @@ impl ProjectConfig {
     /// ```
     #[must_use]
     pub fn client(&self) -> Option<ClientConfig> {
-        self.extensions
-            .as_ref()
-            .and_then(|ext| ext.get("client"))
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
+        let value = self.extensions.as_ref().and_then(|ext| ext.get("client"))?;
+
+        if let Ok(config) = serde_json::from_value(value.clone()) {
+            Some(config)
+        } else {
+            tracing::warn!(
+                "Unrecognized client config value: {}. Expected one of: apollo, relay, none",
+                value
+            );
+            None
+        }
     }
 }
 

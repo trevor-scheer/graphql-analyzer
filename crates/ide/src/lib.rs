@@ -5359,6 +5359,112 @@ export const typeDefs = gql`
             let user_symbols = snapshot.workspace_symbols("User");
             assert!(!user_symbols.is_empty(), "User type should be found");
         }
+
+        #[test]
+        fn test_load_schema_with_apollo_client_builtins() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            let schema_content = "type Query { hello: String }";
+            let schema_path = temp_dir.path().join("schema.graphql");
+            std::fs::write(&schema_path, schema_content).unwrap();
+
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+                documents: None,
+                include: None,
+                exclude: None,
+                extensions: Some(HashMap::from([(
+                    "client".to_string(),
+                    serde_json::Value::String("apollo".to_string()),
+                )])),
+            };
+
+            let mut host = AnalysisHost::new();
+            let result = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            // Should load: 1 schema builtins + 1 client builtins + 1 schema file
+            assert_eq!(
+                result.loaded_count, 3,
+                "Should load schema builtins + Apollo client builtins + schema file"
+            );
+
+            host.rebuild_project_files();
+            let snapshot = host.snapshot();
+
+            // Apollo @client directive should be recognized
+            let symbols = snapshot.workspace_symbols("Query");
+            assert!(!symbols.is_empty(), "Query type should be found");
+        }
+
+        #[test]
+        fn test_load_schema_with_relay_client_builtins() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            let schema_content = "type Query { hello: String }";
+            let schema_path = temp_dir.path().join("schema.graphql");
+            std::fs::write(&schema_path, schema_content).unwrap();
+
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+                documents: None,
+                include: None,
+                exclude: None,
+                extensions: Some(HashMap::from([(
+                    "client".to_string(),
+                    serde_json::Value::String("relay".to_string()),
+                )])),
+            };
+
+            let mut host = AnalysisHost::new();
+            let result = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            // Should load: 1 schema builtins + 1 client builtins + 1 schema file
+            assert_eq!(
+                result.loaded_count, 3,
+                "Should load schema builtins + Relay client builtins + schema file"
+            );
+
+            host.rebuild_project_files();
+            let snapshot = host.snapshot();
+
+            let symbols = snapshot.workspace_symbols("Query");
+            assert!(!symbols.is_empty(), "Query type should be found");
+        }
+
+        #[test]
+        fn test_load_schema_with_client_none_no_builtins() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            let schema_content = "type Query { hello: String }";
+            let schema_path = temp_dir.path().join("schema.graphql");
+            std::fs::write(&schema_path, schema_content).unwrap();
+
+            let config = graphql_config::ProjectConfig {
+                schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+                documents: None,
+                include: None,
+                exclude: None,
+                extensions: Some(HashMap::from([(
+                    "client".to_string(),
+                    serde_json::Value::String("none".to_string()),
+                )])),
+            };
+
+            let mut host = AnalysisHost::new();
+            let result = host
+                .load_schemas_from_config(&config, temp_dir.path())
+                .unwrap();
+
+            // Should load: 1 schema builtins + 1 schema file (no client builtins)
+            assert_eq!(
+                result.loaded_count, 2,
+                "Should load schema builtins + schema file only (no client builtins)"
+            );
+        }
     }
 
     #[test]
