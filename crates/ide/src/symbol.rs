@@ -852,6 +852,12 @@ pub fn find_type_definition_range(
             cst::Definition::EnumTypeDefinition(enum_def) => enum_def.name(),
             cst::Definition::ScalarTypeDefinition(scalar) => scalar.name(),
             cst::Definition::InputObjectTypeDefinition(input) => input.name(),
+            // Type extensions
+            cst::Definition::ObjectTypeExtension(ext) => ext.name(),
+            cst::Definition::InterfaceTypeExtension(ext) => ext.name(),
+            cst::Definition::UnionTypeExtension(ext) => ext.name(),
+            cst::Definition::EnumTypeExtension(ext) => ext.name(),
+            cst::Definition::InputObjectTypeExtension(ext) => ext.name(),
             _ => None,
         };
 
@@ -1235,6 +1241,12 @@ pub fn find_type_definition_full_range(
             cst::Definition::EnumTypeDefinition(enum_def) => (enum_def.name(), enum_def.syntax()),
             cst::Definition::ScalarTypeDefinition(scalar) => (scalar.name(), scalar.syntax()),
             cst::Definition::InputObjectTypeDefinition(input) => (input.name(), input.syntax()),
+            // Type extensions
+            cst::Definition::ObjectTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::InterfaceTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::UnionTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::EnumTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::InputObjectTypeExtension(ext) => (ext.name(), ext.syntax()),
             _ => continue,
         };
 
@@ -1253,6 +1265,48 @@ pub fn find_type_definition_full_range(
     }
 
     None
+}
+
+/// Find ALL type definitions and extensions matching a name in a single tree.
+/// Returns all matches (base types and extensions) for multi-location goto-def.
+pub fn find_all_type_definitions_full_range(
+    tree: &apollo_parser::SyntaxTree,
+    type_name: &str,
+) -> Vec<SymbolRanges> {
+    let doc = tree.document();
+    let mut results = Vec::new();
+
+    for definition in doc.definitions() {
+        let (name_node, def_syntax) = match &definition {
+            cst::Definition::ObjectTypeDefinition(obj) => (obj.name(), obj.syntax()),
+            cst::Definition::InterfaceTypeDefinition(iface) => (iface.name(), iface.syntax()),
+            cst::Definition::UnionTypeDefinition(union) => (union.name(), union.syntax()),
+            cst::Definition::EnumTypeDefinition(enum_def) => (enum_def.name(), enum_def.syntax()),
+            cst::Definition::ScalarTypeDefinition(scalar) => (scalar.name(), scalar.syntax()),
+            cst::Definition::InputObjectTypeDefinition(input) => (input.name(), input.syntax()),
+            cst::Definition::ObjectTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::InterfaceTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::UnionTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::EnumTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::InputObjectTypeExtension(ext) => (ext.name(), ext.syntax()),
+            _ => continue,
+        };
+
+        if let Some(name) = name_node {
+            if name.text() == type_name {
+                let name_range = name.syntax().text_range();
+                let def_range = def_syntax.text_range();
+                results.push(SymbolRanges {
+                    name_start: name_range.start().into(),
+                    name_end: name_range.end().into(),
+                    def_start: def_range.start().into(),
+                    def_end: def_range.end().into(),
+                });
+            }
+        }
+    }
+
+    results
 }
 
 /// Find the byte offset ranges of a fragment definition by name
@@ -1607,7 +1661,7 @@ pub fn extract_all_definitions(
                     let name_range = name.syntax().text_range();
                     let def_range = ext.syntax().text_range();
                     results.push((
-                        format!("extend {}", name.text()),
+                        format!("extend type {}", name.text()),
                         "object",
                         SymbolRanges {
                             name_start: name_range.start().into(),
@@ -1623,7 +1677,7 @@ pub fn extract_all_definitions(
                     let name_range = name.syntax().text_range();
                     let def_range = ext.syntax().text_range();
                     results.push((
-                        format!("extend {}", name.text()),
+                        format!("extend interface {}", name.text()),
                         "interface",
                         SymbolRanges {
                             name_start: name_range.start().into(),
@@ -1639,7 +1693,7 @@ pub fn extract_all_definitions(
                     let name_range = name.syntax().text_range();
                     let def_range = ext.syntax().text_range();
                     results.push((
-                        format!("extend {}", name.text()),
+                        format!("extend union {}", name.text()),
                         "union",
                         SymbolRanges {
                             name_start: name_range.start().into(),
@@ -1655,7 +1709,7 @@ pub fn extract_all_definitions(
                     let name_range = name.syntax().text_range();
                     let def_range = ext.syntax().text_range();
                     results.push((
-                        format!("extend {}", name.text()),
+                        format!("extend enum {}", name.text()),
                         "enum",
                         SymbolRanges {
                             name_start: name_range.start().into(),
@@ -1671,7 +1725,7 @@ pub fn extract_all_definitions(
                     let name_range = name.syntax().text_range();
                     let def_range = ext.syntax().text_range();
                     results.push((
-                        format!("extend {}", name.text()),
+                        format!("extend input {}", name.text()),
                         "input",
                         SymbolRanges {
                             name_start: name_range.start().into(),

@@ -23,6 +23,8 @@ pub struct TypeDef {
     pub name_range: TextRange,
     /// The text range of the entire type definition
     pub definition_range: TextRange,
+    /// Whether this type was extracted from a type extension (extend type)
+    pub is_extension: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -433,6 +435,7 @@ fn extract_object_type(obj: &Node<ast::ObjectTypeDefinition>, file_id: FileId) -
         file_id,
         name_range: name_range(&obj.name),
         definition_range: node_range(obj),
+        is_extension: false,
     }
 }
 
@@ -463,6 +466,7 @@ fn extract_interface_type(iface: &Node<ast::InterfaceTypeDefinition>, file_id: F
         file_id,
         name_range: name_range(&iface.name),
         definition_range: node_range(iface),
+        is_extension: false,
     }
 }
 
@@ -490,6 +494,7 @@ fn extract_union_type(union_def: &Node<ast::UnionTypeDefinition>, file_id: FileI
         file_id,
         name_range: name_range(&union_def.name),
         definition_range: node_range(union_def),
+        is_extension: false,
     }
 }
 
@@ -522,6 +527,7 @@ fn extract_enum_type(enum_def: &Node<ast::EnumTypeDefinition>, file_id: FileId) 
         file_id,
         name_range: name_range(&enum_def.name),
         definition_range: node_range(enum_def),
+        is_extension: false,
     }
 }
 
@@ -540,6 +546,7 @@ fn extract_scalar_type(scalar: &Node<ast::ScalarTypeDefinition>, file_id: FileId
         file_id,
         name_range: name_range(&scalar.name),
         definition_range: node_range(scalar),
+        is_extension: false,
     }
 }
 
@@ -567,6 +574,7 @@ fn extract_input_object_type(
         file_id,
         name_range: name_range(&input.name),
         definition_range: node_range(input),
+        is_extension: false,
     }
 }
 
@@ -596,10 +604,11 @@ fn extract_object_type_extension(ext: &Node<ast::ObjectTypeExtension>, file_id: 
         implements,
         union_members: Vec::new(),
         enum_values: Vec::new(),
-        description: None, // Extensions don't have descriptions
+        description: None,
         file_id,
         name_range: name_range(&ext.name),
         definition_range: node_range(ext),
+        is_extension: true,
     }
 }
 
@@ -632,6 +641,7 @@ fn extract_interface_type_extension(
         file_id,
         name_range: name_range(&ext.name),
         definition_range: node_range(ext),
+        is_extension: true,
     }
 }
 
@@ -651,6 +661,7 @@ fn extract_union_type_extension(ext: &Node<ast::UnionTypeExtension>, file_id: Fi
         file_id,
         name_range: name_range(&ext.name),
         definition_range: node_range(ext),
+        is_extension: true,
     }
 }
 
@@ -682,6 +693,7 @@ fn extract_enum_type_extension(ext: &Node<ast::EnumTypeExtension>, file_id: File
         file_id,
         name_range: name_range(&ext.name),
         definition_range: node_range(ext),
+        is_extension: true,
     }
 }
 
@@ -708,6 +720,7 @@ fn extract_input_object_type_extension(
         file_id,
         name_range: name_range(&ext.name),
         definition_range: node_range(ext),
+        is_extension: true,
     }
 }
 

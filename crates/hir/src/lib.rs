@@ -171,30 +171,57 @@ pub fn schema_types(
         {
             let file_types = file_type_defs(db, *file_id, content, metadata);
             for type_def in file_types.iter() {
-                // Merge type extensions with base types
                 if let Some(existing) = types.get_mut(&type_def.name) {
-                    // Merge fields from extension into existing type
-                    for field in &type_def.fields {
-                        if !existing.fields.iter().any(|f| f.name == field.name) {
-                            existing.fields.push(field.clone());
+                    // When a base type arrives and the existing entry is an extension,
+                    // promote the base type to primary (keeps its file_id, ranges, description)
+                    if existing.is_extension && !type_def.is_extension {
+                        let ext_fields = std::mem::take(&mut existing.fields);
+                        let ext_implements = std::mem::take(&mut existing.implements);
+                        let ext_union_members = std::mem::take(&mut existing.union_members);
+                        let ext_enum_values = std::mem::take(&mut existing.enum_values);
+
+                        *existing = type_def.clone();
+
+                        for field in ext_fields {
+                            if !existing.fields.iter().any(|f| f.name == field.name) {
+                                existing.fields.push(field);
+                            }
                         }
-                    }
-                    // Merge implements interfaces
-                    for iface in &type_def.implements {
-                        if !existing.implements.contains(iface) {
-                            existing.implements.push(iface.clone());
+                        for iface in ext_implements {
+                            if !existing.implements.contains(&iface) {
+                                existing.implements.push(iface);
+                            }
                         }
-                    }
-                    // Merge union members
-                    for member in &type_def.union_members {
-                        if !existing.union_members.contains(member) {
-                            existing.union_members.push(member.clone());
+                        for member in ext_union_members {
+                            if !existing.union_members.contains(&member) {
+                                existing.union_members.push(member);
+                            }
                         }
-                    }
-                    // Merge enum values
-                    for value in &type_def.enum_values {
-                        if !existing.enum_values.iter().any(|v| v.name == value.name) {
-                            existing.enum_values.push(value.clone());
+                        for value in ext_enum_values {
+                            if !existing.enum_values.iter().any(|v| v.name == value.name) {
+                                existing.enum_values.push(value);
+                            }
+                        }
+                    } else {
+                        for field in &type_def.fields {
+                            if !existing.fields.iter().any(|f| f.name == field.name) {
+                                existing.fields.push(field.clone());
+                            }
+                        }
+                        for iface in &type_def.implements {
+                            if !existing.implements.contains(iface) {
+                                existing.implements.push(iface.clone());
+                            }
+                        }
+                        for member in &type_def.union_members {
+                            if !existing.union_members.contains(member) {
+                                existing.union_members.push(member.clone());
+                            }
+                        }
+                        for value in &type_def.enum_values {
+                            if !existing.enum_values.iter().any(|v| v.name == value.name) {
+                                existing.enum_values.push(value.clone());
+                            }
                         }
                     }
                 } else {

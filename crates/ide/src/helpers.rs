@@ -181,6 +181,25 @@ pub fn find_type_definition_in_parse(
     None
 }
 
+/// Find all type definitions and extensions matching a name in a parsed file.
+/// Returns all matching ranges for multi-location goto-def.
+pub fn find_all_type_definitions_in_parse(
+    parse: &graphql_syntax::Parse,
+    type_name: &str,
+) -> Vec<Range> {
+    use crate::symbol::find_all_type_definitions_full_range;
+
+    let mut results = Vec::new();
+    for doc in parse.documents() {
+        for ranges in find_all_type_definitions_full_range(doc.tree, type_name) {
+            let line_index = graphql_syntax::LineIndex::new(doc.source);
+            let range = offset_range_to_range(&line_index, ranges.name_start, ranges.name_end);
+            results.push(adjust_range_for_line_offset(range, doc.line_offset));
+        }
+    }
+    results
+}
+
 /// Find all fragment spreads in a parsed file, handling all document types uniformly
 #[allow(unused_variables)]
 pub fn find_fragment_spreads_in_parse(
