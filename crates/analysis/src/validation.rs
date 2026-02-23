@@ -30,6 +30,21 @@ pub fn validate_file(
         return Arc::new(diagnostics);
     };
 
+    // Detect Relay's @arguments/@argumentDefinitions directives which accept
+    // dynamic arguments that can't be statically defined in the schema.
+    // When these directives are defined with no arguments, suppress
+    // "argument X is not supported" errors for them.
+    let relay_dynamic_arg_directives: Vec<&str> = ["arguments", "argumentDefinitions"]
+        .iter()
+        .filter(|name| {
+            schema
+                .directive_definitions
+                .get(**name)
+                .is_some_and(|def| def.arguments.is_empty())
+        })
+        .copied()
+        .collect();
+
     let parse = graphql_syntax::parse(db, content, metadata);
     let doc_uri = metadata.uri(db);
 
@@ -128,6 +143,15 @@ pub fn validate_file(
                     );
                     let message: Arc<str> = Arc::from(apollo_diag.error.to_string());
                     if message.contains("must be used in an operation") {
+                        continue;
+                    }
+                    // Relay's @arguments/@argumentDefinitions accept dynamic args
+                    // that mirror the target fragment's definitions, so they can't
+                    // be statically declared in the directive definition.
+                    if relay_dynamic_arg_directives
+                        .iter()
+                        .any(|d| message.contains(&format!("is not supported by `@{d}`")))
+                    {
                         continue;
                     }
                     diagnostics.push(Diagnostic {
