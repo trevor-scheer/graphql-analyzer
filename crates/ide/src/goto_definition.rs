@@ -9,9 +9,9 @@
 //! - Operation definitions
 
 use crate::helpers::{
-    adjust_range_for_line_offset, find_argument_definition_in_tree,
-    find_fragment_definition_in_parse, find_operation_definition_in_tree,
-    find_type_definition_in_parse, find_variable_definition_in_tree, offset_range_to_range,
+    adjust_range_for_line_offset, find_all_type_definitions_in_parse,
+    find_argument_definition_in_tree, find_fragment_definition_in_parse,
+    find_operation_definition_in_tree, find_variable_definition_in_tree, offset_range_to_range,
     position_to_offset,
 };
 use crate::symbol::{
@@ -151,6 +151,7 @@ pub fn goto_definition(
         }
         Symbol::TypeName { name } => {
             let schema_ids = project_files.schema_file_ids(db).ids(db);
+            let mut locations = Vec::new();
 
             for file_id in schema_ids.iter() {
                 let Some(schema_content) = registry.get_content(*file_id) else {
@@ -165,14 +166,16 @@ pub fn goto_definition(
 
                 let schema_parse = graphql_syntax::parse(db, schema_content, schema_metadata);
 
-                if let Some(range) =
-                    find_type_definition_in_parse(&schema_parse, &name, schema_content, db)
-                {
-                    return Some(vec![Location::new(file_path, range)]);
+                for range in find_all_type_definitions_in_parse(&schema_parse, &name) {
+                    locations.push(Location::new(file_path.clone(), range));
                 }
             }
 
-            None
+            if locations.is_empty() {
+                None
+            } else {
+                Some(locations)
+            }
         }
         Symbol::VariableReference { name } => {
             let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);

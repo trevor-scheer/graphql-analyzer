@@ -63,6 +63,18 @@ projects:
           uniqueNames: error
           requireIdField: warn
 
+  schema-extensions:
+    schema:
+      - test-workspace/schema-extensions/schema.graphql
+      - test-workspace/schema-extensions/extensions.graphql
+    documents: "test-workspace/schema-extensions/src/**/*.graphql"
+    extensions:
+      client: none
+      lint:
+        extends: recommended
+        rules:
+          uniqueNames: error
+
   misconfigured-schema:
     # expect 2 errors: schema file does not exist, and documents file does not exist
     schema: "test-workspace/misconfigured-schema/schema.graphql"

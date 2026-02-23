@@ -163,7 +163,7 @@ pub fn schema_types(
     project_files: graphql_base_db::ProjectFiles,
 ) -> TypeDefMap {
     let schema_ids = project_files.schema_file_ids(db).ids(db);
-    let mut types = HashMap::new();
+    let mut types: HashMap<Arc<str>, TypeDef> = HashMap::new();
 
     for file_id in schema_ids.iter() {
         // Use per-file lookup for granular caching
@@ -171,7 +171,67 @@ pub fn schema_types(
         {
             let file_types = file_type_defs(db, *file_id, content, metadata);
             for type_def in file_types.iter() {
-                types.insert(type_def.name.clone(), type_def.clone());
+                if let Some(existing) = types.get_mut(&type_def.name) {
+                    // When a base type arrives and the existing entry is an extension,
+                    // promote the base type to primary (keeps its file_id, ranges, description)
+                    if existing.is_extension && !type_def.is_extension {
+                        let ext_fields = std::mem::take(&mut existing.fields);
+                        let ext_implements = std::mem::take(&mut existing.implements);
+                        let ext_union_members = std::mem::take(&mut existing.union_members);
+                        let ext_enum_values = std::mem::take(&mut existing.enum_values);
+                        let ext_directives = std::mem::take(&mut existing.directives);
+
+                        *existing = type_def.clone();
+
+                        for field in ext_fields {
+                            if !existing.fields.iter().any(|f| f.name == field.name) {
+                                existing.fields.push(field);
+                            }
+                        }
+                        for iface in ext_implements {
+                            if !existing.implements.contains(&iface) {
+                                existing.implements.push(iface);
+                            }
+                        }
+                        for member in ext_union_members {
+                            if !existing.union_members.contains(&member) {
+                                existing.union_members.push(member);
+                            }
+                        }
+                        for value in ext_enum_values {
+                            if !existing.enum_values.iter().any(|v| v.name == value.name) {
+                                existing.enum_values.push(value);
+                            }
+                        }
+                        existing.directives.extend(ext_directives);
+                    } else {
+                        for field in &type_def.fields {
+                            if !existing.fields.iter().any(|f| f.name == field.name) {
+                                existing.fields.push(field.clone());
+                            }
+                        }
+                        for iface in &type_def.implements {
+                            if !existing.implements.contains(iface) {
+                                existing.implements.push(iface.clone());
+                            }
+                        }
+                        for member in &type_def.union_members {
+                            if !existing.union_members.contains(member) {
+                                existing.union_members.push(member.clone());
+                            }
+                        }
+                        for value in &type_def.enum_values {
+                            if !existing.enum_values.iter().any(|v| v.name == value.name) {
+                                existing.enum_values.push(value.clone());
+                            }
+                        }
+                        existing
+                            .directives
+                            .extend(type_def.directives.iter().cloned());
+                    }
+                } else {
+                    types.insert(type_def.name.clone(), type_def.clone());
+                }
             }
         }
     }

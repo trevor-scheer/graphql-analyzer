@@ -6862,4 +6862,359 @@ type Post {
             "Expected __typename hint with 'String!' type"
         );
     }
+
+    // =============================================================================
+    // Schema Extension Tests (extend type)
+    // These test that fields from "extend type X" are merged with the base type
+    // =============================================================================
+
+    #[test]
+    fn test_hover_on_field_from_schema_extension() {
+        // Fields defined in "extend type Query" should have hover info
+        let mut host = AnalysisHost::new();
+
+        // Base schema with Query type
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query {\n  user: User\n}\n\ntype User {\n  id: ID!\n  name: String!\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Client schema that extends Query with local-only fields
+        let client_schema_path = FilePath::new("file:///client-schema.graphql");
+        host.add_file(
+            &client_schema_path,
+            "extend type Query {\n  isLoggedIn: Boolean!\n  cartItems: Int!\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Document that uses the extended field
+        let doc_path = FilePath::new("file:///query.graphql");
+        let (query_text, cursor_pos) =
+            extract_cursor("query GetState {\n  isLogged*In\n  cartItems\n}");
+        host.add_file(
+            &doc_path,
+            &query_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let hover = snapshot.hover(&doc_path, cursor_pos);
+
+        // Should return hover information for the field from the extension
+        assert!(
+            hover.is_some(),
+            "Expected hover info for field from schema extension"
+        );
+        let hover = hover.unwrap();
+        assert!(
+            hover.contents.contains("isLoggedIn"),
+            "Hover should contain field name 'isLoggedIn'"
+        );
+        assert!(
+            hover.contents.contains("Boolean"),
+            "Hover should contain type 'Boolean'"
+        );
+    }
+
+    #[test]
+    fn test_goto_definition_on_field_from_schema_extension() {
+        // Goto definition on a field from "extend type Query" should jump to extension
+        let mut host = AnalysisHost::new();
+
+        // Base schema
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query {\n  user: User\n}\n\ntype User {\n  id: ID!\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Client schema extension
+        let client_schema_path = FilePath::new("file:///client-schema.graphql");
+        host.add_file(
+            &client_schema_path,
+            "extend type Query {\n  isLoggedIn: Boolean!\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Document using the extended field
+        let doc_path = FilePath::new("file:///query.graphql");
+        let (query_text, cursor_pos) = extract_cursor("query GetState {\n  isLogged*In\n}");
+        host.add_file(
+            &doc_path,
+            &query_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&doc_path, cursor_pos);
+
+        // Should find the definition in the client schema extension
+        assert!(
+            locations.is_some(),
+            "Expected goto definition to find field from schema extension"
+        );
+        let locations = locations.unwrap();
+        assert!(
+            !locations.is_empty(),
+            "Expected at least one definition location"
+        );
+        assert_eq!(
+            locations[0].file.as_str(),
+            "file:///client-schema.graphql",
+            "Definition should be in client-schema.graphql"
+        );
+    }
+
+    #[test]
+    fn test_inlay_hints_on_field_from_schema_extension() {
+        // Inlay hints should show type for fields from "extend type Query"
+        let mut host = AnalysisHost::new();
+
+        // Base schema
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query {\n  user: User\n}\n\ntype User {\n  id: ID!\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Client schema extension
+        let client_schema_path = FilePath::new("file:///client-schema.graphql");
+        host.add_file(
+            &client_schema_path,
+            "extend type Query {\n  isLoggedIn: Boolean!\n  cartItems: Int!\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Document using the extended fields
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "query GetState {\n  isLoggedIn\n  cartItems\n}",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let hints = snapshot.inlay_hints(&doc_path, None);
+
+        // Should have inlay hints for both extension fields
+        assert!(
+            hints.len() >= 2,
+            "Expected at least 2 inlay hints for extension fields, got {}",
+            hints.len()
+        );
+
+        let boolean_hint = hints.iter().find(|h| h.label.contains("Boolean"));
+        assert!(
+            boolean_hint.is_some(),
+            "Expected inlay hint with 'Boolean' type for isLoggedIn"
+        );
+
+        let int_hint = hints.iter().find(|h| h.label.contains("Int"));
+        assert!(
+            int_hint.is_some(),
+            "Expected inlay hint with 'Int' type for cartItems"
+        );
+    }
+
+    #[test]
+    fn test_goto_definition_type_name_returns_base_and_extensions() {
+        // Goto-def on a type name should return both the base type and any extensions
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query {\n  user: User\n}\n\ntype User {\n  id: ID!\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let client_schema_path = FilePath::new("file:///client-schema.graphql");
+        host.add_file(
+            &client_schema_path,
+            "extend type Query {\n  isLoggedIn: Boolean!\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Cursor on "Query" in the type condition
+        let doc_path = FilePath::new("file:///query.graphql");
+        let (query_text, cursor_pos) =
+            extract_cursor("query GetUser {\n  ... on Que*ry {\n    user { id }\n  }\n}");
+        host.add_file(
+            &doc_path,
+            &query_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&doc_path, cursor_pos);
+
+        assert!(locations.is_some(), "Expected goto-def to find type Query");
+        let locations = locations.unwrap();
+        assert_eq!(
+            locations.len(),
+            2,
+            "Expected 2 locations (base type + extension), got {}",
+            locations.len()
+        );
+
+        let files: Vec<&str> = locations.iter().map(|l| l.file.as_str()).collect();
+        assert!(
+            files.contains(&"file:///schema.graphql"),
+            "Should include base type definition"
+        );
+        assert!(
+            files.contains(&"file:///client-schema.graphql"),
+            "Should include type extension"
+        );
+    }
+
+    #[test]
+    fn test_goto_definition_type_name_extension_only() {
+        // Goto-def on a type that only exists as an extension (no base type in scope)
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "extend type Query {\n  isLoggedIn: Boolean!\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let doc_path = FilePath::new("file:///query.graphql");
+        let (query_text, cursor_pos) =
+            extract_cursor("query GetState {\n  ... on Que*ry {\n    isLoggedIn\n  }\n}");
+        host.add_file(
+            &doc_path,
+            &query_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&doc_path, cursor_pos);
+
+        assert!(
+            locations.is_some(),
+            "Expected goto-def to find extension-only type Query"
+        );
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), "file:///schema.graphql");
+    }
+
+    #[test]
+    fn test_document_symbols_extension_labels() {
+        // Document symbols should show proper "extend type Query" labels
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query {\n  user: User\n}\n\nextend type Query {\n  isLoggedIn: Boolean!\n}\n\nextend interface Node {\n  createdAt: String\n}\n\nextend union SearchResult = Post\n\nextend enum Status {\n  ARCHIVED\n}\n\nextend input CreateUserInput {\n  role: String\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let symbols = snapshot.document_symbols(&schema_path);
+
+        let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"Query"), "Should have base type Query");
+        assert!(
+            names.contains(&"extend type Query"),
+            "Should have 'extend type Query', got {names:?}",
+        );
+        assert!(
+            names.contains(&"extend interface Node"),
+            "Should have 'extend interface Node', got {names:?}",
+        );
+        assert!(
+            names.contains(&"extend union SearchResult"),
+            "Should have 'extend union SearchResult', got {names:?}",
+        );
+        assert!(
+            names.contains(&"extend enum Status"),
+            "Should have 'extend enum Status', got {names:?}",
+        );
+        assert!(
+            names.contains(&"extend input CreateUserInput"),
+            "Should have 'extend input CreateUserInput', got {names:?}",
+        );
+    }
+
+    #[test]
+    fn test_schema_types_base_type_wins_primary_slot() {
+        // When extension is processed before base type, base type should still win primary slot
+        let mut host = AnalysisHost::new();
+
+        // Add extension file first (gets lower FileId)
+        let ext_path = FilePath::new("file:///a-extensions.graphql");
+        host.add_file(
+            &ext_path,
+            "extend type Query {\n  clientField: Boolean!\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Add base type file second (gets higher FileId)
+        let schema_path = FilePath::new("file:///b-schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query {\n  user: User\n}\n\ntype User {\n  id: ID!\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let doc_path = FilePath::new("file:///query.graphql");
+        let (query_text, cursor_pos) =
+            extract_cursor("query GetState {\n  ... on Que*ry { user { id } }\n}");
+        host.add_file(
+            &doc_path,
+            &query_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&doc_path, cursor_pos);
+
+        assert!(locations.is_some());
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 2, "Should find both base and extension");
+
+        // Both files should be represented
+        let files: Vec<&str> = locations.iter().map(|l| l.file.as_str()).collect();
+        assert!(files.contains(&"file:///a-extensions.graphql"));
+        assert!(files.contains(&"file:///b-schema.graphql"));
+    }
 }

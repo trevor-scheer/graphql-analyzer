@@ -458,6 +458,234 @@ mod schema_coordinates_tests {
     }
 }
 
+// ============================================================================
+// Schema type extension tests
+// ============================================================================
+
+mod type_extension_tests {
+    use graphql_hir::{schema_types, TypeDefKind};
+    use graphql_test_utils::TestProjectBuilder;
+
+    #[test]
+    fn test_object_type_extension_merges_fields() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                "type Query {\n  user: User\n}\ntype User {\n  id: ID!\n}",
+            )
+            .with_schema(
+                "client-schema.graphql",
+                "extend type Query {\n  isLoggedIn: Boolean!\n  cartItems: Int!\n}",
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let query_type = types.get("Query").expect("Query type should exist");
+
+        assert_eq!(query_type.kind, TypeDefKind::Object);
+        let field_names: Vec<&str> = query_type.fields.iter().map(|f| f.name.as_ref()).collect();
+        assert!(
+            field_names.contains(&"user"),
+            "Should have base field 'user'"
+        );
+        assert!(
+            field_names.contains(&"isLoggedIn"),
+            "Should have extension field 'isLoggedIn'"
+        );
+        assert!(
+            field_names.contains(&"cartItems"),
+            "Should have extension field 'cartItems'"
+        );
+        assert_eq!(field_names.len(), 3, "Should have exactly 3 fields");
+    }
+
+    #[test]
+    fn test_interface_type_extension_merges_fields() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema("schema.graphql", "interface Node {\n  id: ID!\n}")
+            .with_schema(
+                "ext.graphql",
+                "extend interface Node {\n  createdAt: String!\n}",
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let node_type = types.get("Node").expect("Node type should exist");
+
+        assert_eq!(node_type.kind, TypeDefKind::Interface);
+        let field_names: Vec<&str> = node_type.fields.iter().map(|f| f.name.as_ref()).collect();
+        assert!(field_names.contains(&"id"), "Should have base field 'id'");
+        assert!(
+            field_names.contains(&"createdAt"),
+            "Should have extension field 'createdAt'"
+        );
+    }
+
+    #[test]
+    fn test_enum_type_extension_merges_values() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema("schema.graphql", "enum Status {\n  ACTIVE\n  INACTIVE\n}")
+            .with_schema(
+                "ext.graphql",
+                "extend enum Status {\n  PENDING\n  ARCHIVED\n}",
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let status_type = types.get("Status").expect("Status type should exist");
+
+        assert_eq!(status_type.kind, TypeDefKind::Enum);
+        let value_names: Vec<&str> = status_type
+            .enum_values
+            .iter()
+            .map(|v| v.name.as_ref())
+            .collect();
+        assert!(value_names.contains(&"ACTIVE"), "Should have base value");
+        assert!(value_names.contains(&"INACTIVE"), "Should have base value");
+        assert!(
+            value_names.contains(&"PENDING"),
+            "Should have extension value 'PENDING'"
+        );
+        assert!(
+            value_names.contains(&"ARCHIVED"),
+            "Should have extension value 'ARCHIVED'"
+        );
+        assert_eq!(value_names.len(), 4, "Should have exactly 4 values");
+    }
+
+    #[test]
+    fn test_union_type_extension_merges_members() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                "type Cat { name: String! }\ntype Dog { name: String! }\ntype Bird { name: String! }\nunion Animal = Cat | Dog",
+            )
+            .with_schema("ext.graphql", "extend union Animal = Bird")
+            .build();
+
+        let types = schema_types(&db, project);
+        let animal_type = types.get("Animal").expect("Animal type should exist");
+
+        assert_eq!(animal_type.kind, TypeDefKind::Union);
+        let member_names: Vec<&str> = animal_type
+            .union_members
+            .iter()
+            .map(AsRef::as_ref)
+            .collect();
+        assert!(member_names.contains(&"Cat"), "Should have base member");
+        assert!(member_names.contains(&"Dog"), "Should have base member");
+        assert!(
+            member_names.contains(&"Bird"),
+            "Should have extension member 'Bird'"
+        );
+        assert_eq!(member_names.len(), 3, "Should have exactly 3 members");
+    }
+
+    #[test]
+    fn test_input_object_type_extension_merges_fields() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                "input CreateUserInput {\n  name: String!\n  email: String!\n}",
+            )
+            .with_schema(
+                "ext.graphql",
+                "extend input CreateUserInput {\n  avatar: String\n}",
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let input_type = types
+            .get("CreateUserInput")
+            .expect("CreateUserInput type should exist");
+
+        assert_eq!(input_type.kind, TypeDefKind::InputObject);
+        let field_names: Vec<&str> = input_type.fields.iter().map(|f| f.name.as_ref()).collect();
+        assert!(field_names.contains(&"name"), "Should have base field");
+        assert!(field_names.contains(&"email"), "Should have base field");
+        assert!(
+            field_names.contains(&"avatar"),
+            "Should have extension field 'avatar'"
+        );
+        assert_eq!(field_names.len(), 3, "Should have exactly 3 fields");
+    }
+
+    #[test]
+    fn test_extension_implements_interface() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                "interface Node { id: ID! }\ntype User { id: ID! name: String! }",
+            )
+            .with_schema("ext.graphql", "extend type User implements Node")
+            .build();
+
+        let types = schema_types(&db, project);
+        let user_type = types.get("User").expect("User type should exist");
+
+        assert!(
+            user_type.implements.iter().any(|i| i.as_ref() == "Node"),
+            "User should implement Node via extension"
+        );
+    }
+
+    #[test]
+    fn test_extension_without_base_type_creates_standalone() {
+        // Extension without a base type definition - should still appear in schema_types
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema("ext.graphql", "extend type Query {\n  hello: String!\n}")
+            .build();
+
+        let types = schema_types(&db, project);
+        let query_type = types
+            .get("Query")
+            .expect("Query should exist from extension");
+
+        assert_eq!(query_type.fields.len(), 1);
+        assert_eq!(query_type.fields[0].name.as_ref(), "hello");
+    }
+
+    #[test]
+    fn test_multiple_extensions_for_same_type() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema("schema.graphql", "type Query {\n  user: String\n}")
+            .with_schema(
+                "ext1.graphql",
+                "extend type Query {\n  isLoggedIn: Boolean!\n}",
+            )
+            .with_schema("ext2.graphql", "extend type Query {\n  cartItems: Int!\n}")
+            .build();
+
+        let types = schema_types(&db, project);
+        let query_type = types.get("Query").expect("Query should exist");
+
+        let field_names: Vec<&str> = query_type.fields.iter().map(|f| f.name.as_ref()).collect();
+        assert!(field_names.contains(&"user"));
+        assert!(field_names.contains(&"isLoggedIn"));
+        assert!(field_names.contains(&"cartItems"));
+        assert_eq!(field_names.len(), 3);
+    }
+
+    #[test]
+    fn test_duplicate_extension_field_not_doubled() {
+        // If an extension duplicates a base field name, it should not be added twice
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema("schema.graphql", "type Query {\n  user: String\n}")
+            .with_schema("ext.graphql", "extend type Query {\n  user: Int\n}")
+            .build();
+
+        let types = schema_types(&db, project);
+        let query_type = types.get("Query").expect("Query should exist");
+
+        let user_fields: Vec<_> = query_type
+            .fields
+            .iter()
+            .filter(|f| f.name.as_ref() == "user")
+            .collect();
+        assert_eq!(user_fields.len(), 1, "Should not duplicate field 'user'");
+    }
+}
+
 mod caching_tests {
     use super::*;
     use graphql_test_utils::tracking::{queries, TrackedDatabase};
@@ -865,5 +1093,250 @@ mod caching_tests {
             has_schema_types,
             "Executions should include schema_types: {executions:?}"
         );
+    }
+}
+
+// ============================================================================
+// Directive extraction tests
+// ============================================================================
+
+mod directive_tests {
+    use graphql_hir::{file_structure, schema_types, TypeDefKind};
+    use graphql_test_utils::TestProjectBuilder;
+
+    #[test]
+    fn test_type_directives_extracted() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                r"type Query @auth(requires: ADMIN) { hello: String }",
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let query_type = types.get("Query").expect("Query type should exist");
+
+        assert_eq!(query_type.directives.len(), 1);
+        assert_eq!(query_type.directives[0].name.as_ref(), "auth");
+        assert_eq!(query_type.directives[0].arguments.len(), 1);
+        assert_eq!(
+            query_type.directives[0].arguments[0].name.as_ref(),
+            "requires"
+        );
+        assert_eq!(
+            query_type.directives[0].arguments[0].value.as_ref(),
+            "ADMIN"
+        );
+    }
+
+    #[test]
+    fn test_field_directives_extracted() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                r#"type Query { secret: String @deprecated(reason: "use newSecret") }"#,
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let query_type = types.get("Query").expect("Query type should exist");
+        let field = &query_type.fields[0];
+
+        assert!(field.is_deprecated);
+        assert_eq!(field.directives.len(), 1);
+        assert_eq!(field.directives[0].name.as_ref(), "deprecated");
+    }
+
+    #[test]
+    fn test_enum_value_directives_extracted() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                r#"enum Status { ACTIVE INACTIVE @deprecated(reason: "no longer used") }"#,
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let status = types.get("Status").expect("Status type should exist");
+
+        let inactive = status
+            .enum_values
+            .iter()
+            .find(|v| v.name.as_ref() == "INACTIVE")
+            .expect("INACTIVE should exist");
+
+        assert!(inactive.is_deprecated);
+        assert_eq!(inactive.directives.len(), 1);
+        assert_eq!(inactive.directives[0].name.as_ref(), "deprecated");
+    }
+
+    #[test]
+    fn test_argument_directives_extracted() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                r"type Query { users(limit: Int @deprecated): [String] }",
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let query_type = types.get("Query").expect("Query type should exist");
+        let arg = &query_type.fields[0].arguments[0];
+
+        assert!(arg.is_deprecated);
+        assert_eq!(arg.directives.len(), 1);
+        assert_eq!(arg.directives[0].name.as_ref(), "deprecated");
+    }
+
+    #[test]
+    fn test_scalar_type_directives_extracted() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                r#"scalar DateTime @specifiedBy(url: "https://scalars.graphql.org/andimarek/date-time")"#,
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let datetime = types.get("DateTime").expect("DateTime type should exist");
+
+        assert_eq!(datetime.kind, TypeDefKind::Scalar);
+        assert_eq!(datetime.directives.len(), 1);
+        assert_eq!(datetime.directives[0].name.as_ref(), "specifiedBy");
+    }
+
+    #[test]
+    fn test_extension_directives_merged() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema("schema.graphql", r"type Query @auth { hello: String }")
+            .with_schema(
+                "ext.graphql",
+                r"extend type Query @rateLimit { world: String }",
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let query_type = types.get("Query").expect("Query type should exist");
+
+        let directive_names: Vec<&str> = query_type
+            .directives
+            .iter()
+            .map(|d| d.name.as_ref())
+            .collect();
+        assert!(
+            directive_names.contains(&"auth"),
+            "Should have base directive"
+        );
+        assert!(
+            directive_names.contains(&"rateLimit"),
+            "Should have extension directive"
+        );
+    }
+
+    #[test]
+    fn test_scalar_extension_extracted() {
+        use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
+
+        let db = graphql_test_utils::TestDatabase::default();
+        let file_id = FileId::new(0);
+        let content = FileContent::new(
+            &db,
+            std::sync::Arc::from("extend scalar JSON @specifiedBy(url: \"https://json.org\")"),
+        );
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("ext.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let structure = file_structure(&db, file_id, content, metadata);
+        assert_eq!(structure.type_defs.len(), 1);
+        assert_eq!(structure.type_defs[0].name.as_ref(), "JSON");
+        assert_eq!(structure.type_defs[0].kind, TypeDefKind::Scalar);
+        assert!(structure.type_defs[0].is_extension);
+        assert_eq!(structure.type_defs[0].directives.len(), 1);
+        assert_eq!(
+            structure.type_defs[0].directives[0].name.as_ref(),
+            "specifiedBy"
+        );
+    }
+
+    #[test]
+    fn test_scalar_extension_merges_directives() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema("schema.graphql", r"scalar JSON")
+            .with_schema(
+                "ext.graphql",
+                r#"extend scalar JSON @specifiedBy(url: "https://json.org")"#,
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let json_type = types.get("JSON").expect("JSON type should exist");
+
+        assert_eq!(json_type.kind, TypeDefKind::Scalar);
+        assert!(
+            !json_type.is_extension,
+            "Merged type should be the base type"
+        );
+        assert_eq!(json_type.directives.len(), 1);
+        assert_eq!(json_type.directives[0].name.as_ref(), "specifiedBy");
+    }
+
+    #[test]
+    fn test_multiple_directives_on_type() {
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                r"type Query @auth @rateLimit(max: 100) { hello: String }",
+            )
+            .build();
+
+        let types = schema_types(&db, project);
+        let query_type = types.get("Query").expect("Query type should exist");
+
+        assert_eq!(query_type.directives.len(), 2);
+        assert_eq!(query_type.directives[0].name.as_ref(), "auth");
+        assert_eq!(query_type.directives[0].arguments.len(), 0);
+        assert_eq!(query_type.directives[1].name.as_ref(), "rateLimit");
+        assert_eq!(query_type.directives[1].arguments.len(), 1);
+        assert_eq!(query_type.directives[1].arguments[0].name.as_ref(), "max");
+        assert_eq!(query_type.directives[1].arguments[0].value.as_ref(), "100");
+    }
+
+    #[test]
+    fn test_repeatable_directives_preserved() {
+        // Repeatable directives (e.g. @tag) can appear multiple times with
+        // different arguments. Merging must not deduplicate by name.
+        let (db, project) = TestProjectBuilder::new()
+            .with_schema(
+                "schema.graphql",
+                r#"type Query @tag(name: "public") { hello: String }"#,
+            )
+            .with_schema("ext.graphql", r#"extend type Query @tag(name: "internal")"#)
+            .build();
+
+        let types = schema_types(&db, project);
+        let query_type = types.get("Query").expect("Query type should exist");
+
+        let tag_directives: Vec<_> = query_type
+            .directives
+            .iter()
+            .filter(|d| d.name.as_ref() == "tag")
+            .collect();
+        assert_eq!(
+            tag_directives.len(),
+            2,
+            "Both @tag usages should be preserved for repeatable directives"
+        );
+
+        let tag_values: Vec<&str> = tag_directives
+            .iter()
+            .map(|d| d.arguments[0].value.as_ref())
+            .collect();
+        assert!(tag_values.contains(&r#""public""#));
+        assert!(tag_values.contains(&r#""internal""#));
     }
 }

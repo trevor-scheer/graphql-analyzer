@@ -391,6 +391,37 @@ pub fn find_schema_field_parent_type(
                     }
                 }
             }
+            // Type extensions
+            cst::Definition::ObjectTypeExtension(ext) => {
+                if let Some(fields) = ext.fields_definition() {
+                    let range = fields.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+                    if byte_offset >= start && byte_offset <= end {
+                        return ext.name().map(|n| n.text().to_string());
+                    }
+                }
+            }
+            cst::Definition::InterfaceTypeExtension(ext) => {
+                if let Some(fields) = ext.fields_definition() {
+                    let range = fields.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+                    if byte_offset >= start && byte_offset <= end {
+                        return ext.name().map(|n| n.text().to_string());
+                    }
+                }
+            }
+            cst::Definition::InputObjectTypeExtension(ext) => {
+                if let Some(fields) = ext.input_fields_definition() {
+                    let range = fields.syntax().text_range();
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
+                    if byte_offset >= start && byte_offset <= end {
+                        return ext.name().map(|n| n.text().to_string());
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -499,6 +530,9 @@ fn check_definition(definition: &cst::Definition, byte_offset: usize) -> Option<
         }
         cst::Definition::ScalarTypeDefinition(scalar) => {
             check_type_definition_name(scalar.name(), byte_offset)
+        }
+        cst::Definition::ScalarTypeExtension(ext) => {
+            check_type_definition_name(ext.name(), byte_offset)
         }
         cst::Definition::InputObjectTypeDefinition(input) => {
             check_type_definition_name(input.name(), byte_offset).or_else(|| {
@@ -821,6 +855,13 @@ pub fn find_type_definition_range(
             cst::Definition::EnumTypeDefinition(enum_def) => enum_def.name(),
             cst::Definition::ScalarTypeDefinition(scalar) => scalar.name(),
             cst::Definition::InputObjectTypeDefinition(input) => input.name(),
+            // Type extensions
+            cst::Definition::ObjectTypeExtension(ext) => ext.name(),
+            cst::Definition::InterfaceTypeExtension(ext) => ext.name(),
+            cst::Definition::UnionTypeExtension(ext) => ext.name(),
+            cst::Definition::EnumTypeExtension(ext) => ext.name(),
+            cst::Definition::InputObjectTypeExtension(ext) => ext.name(),
+            cst::Definition::ScalarTypeExtension(ext) => ext.name(),
             _ => None,
         };
 
@@ -1204,6 +1245,13 @@ pub fn find_type_definition_full_range(
             cst::Definition::EnumTypeDefinition(enum_def) => (enum_def.name(), enum_def.syntax()),
             cst::Definition::ScalarTypeDefinition(scalar) => (scalar.name(), scalar.syntax()),
             cst::Definition::InputObjectTypeDefinition(input) => (input.name(), input.syntax()),
+            // Type extensions
+            cst::Definition::ObjectTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::InterfaceTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::UnionTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::EnumTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::InputObjectTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::ScalarTypeExtension(ext) => (ext.name(), ext.syntax()),
             _ => continue,
         };
 
@@ -1222,6 +1270,49 @@ pub fn find_type_definition_full_range(
     }
 
     None
+}
+
+/// Find ALL type definitions and extensions matching a name in a single tree.
+/// Returns all matches (base types and extensions) for multi-location goto-def.
+pub fn find_all_type_definitions_full_range(
+    tree: &apollo_parser::SyntaxTree,
+    type_name: &str,
+) -> Vec<SymbolRanges> {
+    let doc = tree.document();
+    let mut results = Vec::new();
+
+    for definition in doc.definitions() {
+        let (name_node, def_syntax) = match &definition {
+            cst::Definition::ObjectTypeDefinition(obj) => (obj.name(), obj.syntax()),
+            cst::Definition::InterfaceTypeDefinition(iface) => (iface.name(), iface.syntax()),
+            cst::Definition::UnionTypeDefinition(union) => (union.name(), union.syntax()),
+            cst::Definition::EnumTypeDefinition(enum_def) => (enum_def.name(), enum_def.syntax()),
+            cst::Definition::ScalarTypeDefinition(scalar) => (scalar.name(), scalar.syntax()),
+            cst::Definition::InputObjectTypeDefinition(input) => (input.name(), input.syntax()),
+            cst::Definition::ObjectTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::InterfaceTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::UnionTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::EnumTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::InputObjectTypeExtension(ext) => (ext.name(), ext.syntax()),
+            cst::Definition::ScalarTypeExtension(ext) => (ext.name(), ext.syntax()),
+            _ => continue,
+        };
+
+        if let Some(name) = name_node {
+            if name.text() == type_name {
+                let name_range = name.syntax().text_range();
+                let def_range = def_syntax.text_range();
+                results.push(SymbolRanges {
+                    name_start: name_range.start().into(),
+                    name_end: name_range.end().into(),
+                    def_start: def_range.start().into(),
+                    def_end: def_range.end().into(),
+                });
+            }
+        }
+    }
+
+    results
 }
 
 /// Find the byte offset ranges of a fragment definition by name
@@ -1335,6 +1426,67 @@ pub fn find_field_definition_full_range(
             cst::Definition::InputObjectTypeDefinition(input) => {
                 if input.name().is_some_and(|n| n.text() == type_name) {
                     if let Some(fields) = input.input_fields_definition() {
+                        for field in fields.input_value_definitions() {
+                            if let Some(name) = field.name() {
+                                if name.text() == field_name {
+                                    let name_range = name.syntax().text_range();
+                                    let def_range = field.syntax().text_range();
+                                    return Some(SymbolRanges {
+                                        name_start: name_range.start().into(),
+                                        name_end: name_range.end().into(),
+                                        def_start: def_range.start().into(),
+                                        def_end: def_range.end().into(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Type extensions - fields can also be defined in extend type declarations
+            cst::Definition::ObjectTypeExtension(ext) => {
+                if ext.name().is_some_and(|n| n.text() == type_name) {
+                    if let Some(fields) = ext.fields_definition() {
+                        for field in fields.field_definitions() {
+                            if let Some(name) = field.name() {
+                                if name.text() == field_name {
+                                    let name_range = name.syntax().text_range();
+                                    let def_range = field.syntax().text_range();
+                                    return Some(SymbolRanges {
+                                        name_start: name_range.start().into(),
+                                        name_end: name_range.end().into(),
+                                        def_start: def_range.start().into(),
+                                        def_end: def_range.end().into(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            cst::Definition::InterfaceTypeExtension(ext) => {
+                if ext.name().is_some_and(|n| n.text() == type_name) {
+                    if let Some(fields) = ext.fields_definition() {
+                        for field in fields.field_definitions() {
+                            if let Some(name) = field.name() {
+                                if name.text() == field_name {
+                                    let name_range = name.syntax().text_range();
+                                    let def_range = field.syntax().text_range();
+                                    return Some(SymbolRanges {
+                                        name_start: name_range.start().into(),
+                                        name_end: name_range.end().into(),
+                                        def_start: def_range.start().into(),
+                                        def_end: def_range.end().into(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            cst::Definition::InputObjectTypeExtension(ext) => {
+                if ext.name().is_some_and(|n| n.text() == type_name) {
+                    if let Some(fields) = ext.input_fields_definition() {
                         for field in fields.input_value_definitions() {
                             if let Some(name) = field.name() {
                                 if name.text() == field_name {
@@ -1500,6 +1652,103 @@ pub fn extract_all_definitions(
                     results.push((
                         name.text().to_string(),
                         "fragment",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            // Type extensions
+            cst::Definition::ObjectTypeExtension(ext) => {
+                if let Some(name) = ext.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = ext.syntax().text_range();
+                    results.push((
+                        format!("extend type {}", name.text()),
+                        "object",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            cst::Definition::InterfaceTypeExtension(ext) => {
+                if let Some(name) = ext.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = ext.syntax().text_range();
+                    results.push((
+                        format!("extend interface {}", name.text()),
+                        "interface",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            cst::Definition::UnionTypeExtension(ext) => {
+                if let Some(name) = ext.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = ext.syntax().text_range();
+                    results.push((
+                        format!("extend union {}", name.text()),
+                        "union",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            cst::Definition::EnumTypeExtension(ext) => {
+                if let Some(name) = ext.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = ext.syntax().text_range();
+                    results.push((
+                        format!("extend enum {}", name.text()),
+                        "enum",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            cst::Definition::InputObjectTypeExtension(ext) => {
+                if let Some(name) = ext.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = ext.syntax().text_range();
+                    results.push((
+                        format!("extend input {}", name.text()),
+                        "input",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
+            cst::Definition::ScalarTypeExtension(ext) => {
+                if let Some(name) = ext.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = ext.syntax().text_range();
+                    results.push((
+                        format!("extend scalar {}", name.text()),
+                        "scalar",
                         SymbolRanges {
                             name_start: name_range.start().into(),
                             name_end: name_range.end().into(),

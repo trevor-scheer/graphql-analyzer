@@ -1,0 +1,26 @@
+type Query {
+  user(id: ID!): User
+  search(query: String!): SearchResult
+}
+
+type User {
+  id: ID!
+  name: String!
+  email: String!
+}
+
+interface Node {
+  id: ID!
+}
+
+union SearchResult = User
+
+enum Role {
+  ADMIN
+  USER
+}
+
+input CreateUserInput {
+  name: String!
+  email: String!
+}
