@@ -52,6 +52,11 @@
         "command": "graphql-analyzer.checkStatus",
         "title": "Check Status",
         "category": "graphql-analyzer"
+      },
+      {
+        "command": "graphql-analyzer.reportIssue",
+        "title": "Report Issue",
+        "category": "graphql-analyzer"
       }
     ],
     "languages": [

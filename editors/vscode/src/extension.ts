@@ -19,6 +19,8 @@ import {
   Position,
   Range,
   ThemeColor,
+  env,
+  version,
 } from "vscode";
 import {
   LanguageClient,
@@ -507,6 +509,44 @@ export async function activate(context: ExtensionContext) {
       },
     );
 
+    const reportIssueCommand = commands.registerCommand(
+      "graphql-analyzer.reportIssue",
+      async () => {
+        const extensionVersion = context.extension.packageJSON.version || "unknown";
+
+        let serverState = "not started";
+        if (client) {
+          switch (client.state) {
+            case State.Running:
+              serverState = isServerHealthy ? "running" : "running (unhealthy)";
+              break;
+            case State.Starting:
+              serverState = "starting";
+              break;
+            case State.Stopped:
+              serverState = "stopped";
+              break;
+          }
+        }
+
+        const body = [
+          "## Description\n",
+          "<!-- Describe the issue here -->\n",
+          "## Environment\n",
+          `- Extension version: ${extensionVersion}`,
+          `- VS Code version: ${version}`,
+          `- OS: ${process.platform} (${process.arch})`,
+          `- Server state: ${serverState}`,
+        ].join("\n");
+
+        const url = Uri.parse(
+          `https://github.com/trevor-scheer/graphql-analyzer/issues/new?${new URLSearchParams({ body })}`,
+        );
+
+        await env.openExternal(url);
+      },
+    );
+
     // Listen for configuration changes
     context.subscriptions.push(
       workspace.onDidChangeConfiguration((event) => {
@@ -520,7 +560,7 @@ export async function activate(context: ExtensionContext) {
       }),
     );
 
-    context.subscriptions.push(reloadCommand, showReferencesCommand);
+    context.subscriptions.push(reloadCommand, showReferencesCommand, reportIssueCommand);
   } catch (error) {
     const errorMessage = `Failed to start graphql-analyzer: ${error}`;
     outputChannel.appendLine(errorMessage);
