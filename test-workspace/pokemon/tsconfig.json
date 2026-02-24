@@ -1,19 +1,9 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "resolveJsonModule": true,
-    "allowJs": true,
-    "checkJs": false,
-    "jsx": "react",
+    "jsx": "react-jsx",
     "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-    "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true
+    "noUnusedParameters": true
   },
   "include": ["src/**/*"]
 }

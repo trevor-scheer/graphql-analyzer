@@ -6,12 +6,12 @@
   "type": "module",
   "dependencies": {
     "graphql": "^16.9.0",
-    "react": "^18.0.0",
-    "react-relay": "^18.0.0"
+    "react": "^19.0.0",
+    "react-relay": "^19.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "@types/react": "^18.0.0",
+    "@types/react": "^19.0.0",
     "@types/react-relay": "^18.0.0",
     "typescript": "^5.7.2"
   }
