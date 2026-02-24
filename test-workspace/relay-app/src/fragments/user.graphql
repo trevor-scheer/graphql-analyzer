@@ -1,0 +1,35 @@
+# Demonstrates @argumentDefinitions and @refetchable
+fragment UserProfile_user on User
+@argumentDefinitions(
+  showPosts: { type: "Boolean!", defaultValue: false }
+  postCount: { type: "Int", defaultValue: 5 }
+)
+@refetchable(queryName: "UserProfileRefetchQuery") {
+  id
+  name
+  username
+  bio
+  avatarUrl
+  posts(first: $postCount) @include(if: $showPosts) {
+    edges {
+      node {
+        ...PostSummary_post
+      }
+    }
+  }
+}
+
+fragment UserCard_user on User {
+  id
+  name
+  username
+  avatarUrl
+}
+
+# Demonstrates @inline for reading data outside of render
+fragment UserData_user on User @inline {
+  id
+  name
+  username
+  bio
+}

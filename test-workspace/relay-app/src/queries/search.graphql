@@ -1,0 +1,19 @@
+# Demonstrates @alias for inline fragment aliasing
+query SearchQuery($query: String!, $first: Int = 20) {
+  search(query: $query, first: $first) @connection(key: "Search_results") {
+    edges {
+      node {
+        ... on User @alias(as: "userResult") {
+          ...UserCard_user
+        }
+        ... on Post @alias(as: "postResult") {
+          ...PostSummary_post
+        }
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}

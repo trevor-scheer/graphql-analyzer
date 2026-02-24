@@ -1467,3 +1467,162 @@ export const GET_USER = gql`
         "CLI validate should report validation errors from document files. Got none."
     );
 }
+
+#[test]
+fn test_relay_arguments_directive_errors_suppressed() {
+    // Relay's @arguments and @argumentDefinitions accept dynamic arguments
+    // that mirror the target fragment's definitions. These can't be statically
+    // declared, so we suppress "argument X is not supported by @arguments" errors.
+    let mut db = TestDatabase::default();
+
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from("type Query { viewer: Viewer }\ntype Viewer { user: User }\ntype User { id: ID! name: String }"),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("file:///schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    // Add Relay's @arguments directive with no arguments (dynamic)
+    let builtins_id = FileId::new(1);
+    let builtins_content = FileContent::new(
+        &db,
+        Arc::from("directive @arguments on FRAGMENT_SPREAD\ndirective @argumentDefinitions on FRAGMENT_DEFINITION"),
+    );
+    let builtins_metadata = FileMetadata::new(
+        &db,
+        builtins_id,
+        FileUri::new("file:///builtins.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    // Fragment definition (needed for the spread)
+    let frag_id = FileId::new(2);
+    let frag_content = FileContent::new(
+        &db,
+        Arc::from("fragment UserFields on User @argumentDefinitions(showName: {type: \"Boolean\", defaultValue: true}) { id }"),
+    );
+    let frag_metadata = FileMetadata::new(
+        &db,
+        frag_id,
+        FileUri::new("file:///fragment.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    // Query using @arguments with dynamic args
+    let doc_id = FileId::new(3);
+    let doc_content = FileContent::new(
+        &db,
+        Arc::from("query Test { viewer { user { ...UserFields @arguments(showName: false) } } }"),
+    );
+    let doc_metadata = FileMetadata::new(
+        &db,
+        doc_id,
+        FileUri::new("file:///query.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_project_files(
+        &mut db,
+        &[
+            (schema_id, schema_content, schema_metadata),
+            (builtins_id, builtins_content, builtins_metadata),
+        ],
+        &[
+            (frag_id, frag_content, frag_metadata),
+            (doc_id, doc_content, doc_metadata),
+        ],
+    );
+
+    let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
+
+    // Should NOT contain "is not supported by @arguments" errors
+    let arg_errors: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.message.contains("is not supported by `@arguments`"))
+        .collect();
+
+    assert!(
+        arg_errors.is_empty(),
+        "Relay @arguments dynamic args should be suppressed, but got: {:?}",
+        arg_errors.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+
+    // Also verify @argumentDefinitions suppression on the fragment file
+    let frag_diagnostics = validate_file(&db, frag_content, frag_metadata, project_files);
+
+    let arg_def_errors: Vec<_> = frag_diagnostics
+        .iter()
+        .filter(|d| {
+            d.message
+                .contains("is not supported by `@argumentDefinitions`")
+        })
+        .collect();
+
+    assert!(
+        arg_def_errors.is_empty(),
+        "Relay @argumentDefinitions dynamic args should be suppressed, but got: {:?}",
+        arg_def_errors
+            .iter()
+            .map(|d| &d.message)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_non_relay_unknown_directive_args_still_reported() {
+    // Without Relay builtins, unknown directive args should still be reported
+    let mut db = TestDatabase::default();
+
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from("type Query { user: User }\ntype User { id: ID! name: String }"),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("file:///schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    let doc_id = FileId::new(1);
+    let doc_content = FileContent::new(
+        &db,
+        Arc::from("query Test { user { name @skip(badArg: true) } }"),
+    );
+    let doc_metadata = FileMetadata::new(
+        &db,
+        doc_id,
+        FileUri::new("file:///query.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_project_files(
+        &mut db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[(doc_id, doc_content, doc_metadata)],
+    );
+
+    let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
+
+    let arg_errors: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.message.contains("is not supported by `@skip`"))
+        .collect();
+
+    assert!(
+        !arg_errors.is_empty(),
+        "Unknown args on non-Relay directives should still be reported"
+    );
+}

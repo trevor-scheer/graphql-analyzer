@@ -94,7 +94,7 @@ pub fn merged_schema_with_diagnostics(
     let has_user_schema = schema_ids.iter().any(|file_id| {
         if let Some((_, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id) {
             let uri = metadata.uri(db);
-            !uri.as_str().ends_with("apollo_client_builtins.graphql")
+            !uri.as_str().ends_with("client_builtins.graphql")
                 && !uri.as_str().ends_with("schema_builtins.graphql")
         } else {
             false

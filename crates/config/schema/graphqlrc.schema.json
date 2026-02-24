@@ -68,6 +68,10 @@
           "type": "object",
           "description": "Tool-specific extensions",
           "properties": {
+            "client": {
+              "$ref": "#/definitions/ClientConfig",
+              "description": "GraphQL client library used in this project, determines available client-side directives"
+            },
             "lint": {
               "$ref": "#/definitions/LintConfig",
               "description": "Linting configuration for GraphQL documents"
@@ -145,6 +149,11 @@
           }
         }
       ]
+    },
+    "ClientConfig": {
+      "type": "string",
+      "description": "GraphQL client library. Determines which client-side directives are available for validation.",
+      "enum": ["apollo", "relay", "none"]
     },
     "ExtractConfig": {
       "type": "object",

@@ -1,0 +1,7 @@
+# Client-side schema extensions for Apollo Client local state.
+# These fields are resolved locally and never sent to the server.
+
+extend type Query {
+  isLoggedIn: Boolean!
+  cartItems: Int!
+}

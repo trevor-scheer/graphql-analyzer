@@ -1,0 +1,25 @@
+fragment PostSummary on Post {
+  id
+  title
+  createdAt
+  author {
+    ...UserBasic
+  }
+}
+
+fragment PostDetail on Post {
+  ...PostSummary
+  body
+  isBookmarked
+  comments(first: 10) {
+    edges {
+      node {
+        id
+        text
+        author {
+          ...UserBasic
+        }
+      }
+    }
+  }
+}

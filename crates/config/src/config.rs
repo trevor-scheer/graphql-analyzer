@@ -402,6 +402,45 @@ impl ProjectConfig {
     pub fn lint(&self) -> Option<&serde_json::Value> {
         self.extensions.as_ref().and_then(|ext| ext.get("lint"))
     }
+
+    /// Get the client configuration from extensions.
+    ///
+    /// Client configuration specifies which GraphQL client library is being used,
+    /// which determines the built-in client directives available for validation:
+    /// ```yaml
+    /// extensions:
+    ///   client: apollo
+    /// ```
+    #[must_use]
+    pub fn client(&self) -> Option<ClientConfig> {
+        let value = self.extensions.as_ref().and_then(|ext| ext.get("client"))?;
+
+        if let Ok(config) = serde_json::from_value(value.clone()) {
+            Some(config)
+        } else {
+            tracing::warn!(
+                "Unrecognized client config value: {}. Expected one of: apollo, relay, none",
+                value
+            );
+            None
+        }
+    }
+}
+
+/// GraphQL client library configuration.
+///
+/// Different clients provide built-in client-side directives that should be
+/// recognized during validation. Specifying the client ensures the correct
+/// directives are available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ClientConfig {
+    /// Apollo Client directives: @client, @connection, @defer, @export, @nonreactive, @unmask
+    Apollo,
+    /// Relay directives: @arguments, @argumentDefinitions, @connection, @refetchable, etc.
+    Relay,
+    /// No client directives - for server-only validation
+    None,
 }
 
 /// Schema source configuration
@@ -585,6 +624,48 @@ mod tests {
         let multiple =
             DocumentsConfig::Patterns(vec!["**/*.graphql".to_string(), "**/*.ts".to_string()]);
         assert_eq!(multiple.patterns(), vec!["**/*.graphql", "**/*.ts"]);
+    }
+
+    #[test]
+    fn test_client_config_apollo() {
+        let yaml = r"
+schema: schema.graphql
+extensions:
+  client: apollo
+";
+        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.client(), Some(ClientConfig::Apollo));
+    }
+
+    #[test]
+    fn test_client_config_relay() {
+        let yaml = r"
+schema: schema.graphql
+extensions:
+  client: relay
+";
+        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.client(), Some(ClientConfig::Relay));
+    }
+
+    #[test]
+    fn test_client_config_none() {
+        let yaml = r"
+schema: schema.graphql
+extensions:
+  client: none
+";
+        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.client(), Some(ClientConfig::None));
+    }
+
+    #[test]
+    fn test_client_config_missing() {
+        let yaml = r"
+schema: schema.graphql
+";
+        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.client(), None);
     }
 
     #[test]
@@ -1009,11 +1090,48 @@ schema:
     }
 
     #[test]
+    fn sync_client_apollo() {
+        assert_sync(
+            r"
+schema: schema.graphql
+extensions:
+  client: apollo
+",
+            "client: apollo",
+        );
+    }
+
+    #[test]
+    fn sync_client_relay() {
+        assert_sync(
+            r"
+schema: schema.graphql
+extensions:
+  client: relay
+",
+            "client: relay",
+        );
+    }
+
+    #[test]
+    fn sync_client_none() {
+        assert_sync(
+            r"
+schema: schema.graphql
+extensions:
+  client: none
+",
+            "client: none",
+        );
+    }
+
+    #[test]
     fn sync_lint_preset_string() {
         assert_sync(
             r"
 schema: schema.graphql
 extensions:
+  client: apollo
   lint: recommended
 ",
             "lint preset as string",
@@ -1026,6 +1144,7 @@ extensions:
             r"
 schema: schema.graphql
 extensions:
+  client: relay
   lint: [recommended]
 ",
             "lint preset as array",
@@ -1038,6 +1157,7 @@ extensions:
             r"
 schema: schema.graphql
 extensions:
+  client: none
   lint:
     extends: recommended
     rules:
@@ -1054,6 +1174,7 @@ extensions:
             r#"
 schema: schema.graphql
 extensions:
+  client: apollo
   lint:
     rules:
       requireIdField: [warn, { fields: ["id", "nodeId"] }]
@@ -1068,6 +1189,7 @@ extensions:
             r#"
 schema: schema.graphql
 extensions:
+  client: apollo
   lint:
     rules:
       requireIdField:
@@ -1085,6 +1207,7 @@ extensions:
             r#"
 schema: schema.graphql
 extensions:
+  client: apollo
   extractConfig:
     tagIdentifiers: ["gql", "graphql"]
     modules: ["@apollo/client"]
@@ -1101,6 +1224,7 @@ extensions:
             r"
 schema: schema.graphql
 extensions:
+  client: none
   lint: recommended
   customTool:
     setting: value

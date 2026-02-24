@@ -4,6 +4,7 @@ projects:
     schema: test-workspace/pokemon/schema.graphql
     documents: "test-workspace/pokemon/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
     extensions:
+      client: apollo
       lint:
         extends: recommended
         rules:
@@ -14,6 +15,7 @@ projects:
     schema: "test-workspace/starwars/schema.graphql"
     documents: "test-workspace/starwars/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
     extensions:
+      client: apollo
       lint:
         extends: recommended
         rules:
@@ -29,6 +31,7 @@ projects:
       - "test-workspace/github/src/**/*.ts"
       - "test-workspace/github/src/**/*.tsx"
     extensions:
+      client: apollo
       lint:
         extends: recommended
         rules:
@@ -40,6 +43,7 @@ projects:
     schema: "test-workspace/github/admin/schema/*.graphql"
     documents: "test-workspace/github/admin/src/**/*.graphql"
     extensions:
+      client: apollo
       lint:
         extends: recommended
         rules:
@@ -57,11 +61,24 @@ projects:
       retry: 2
     documents: "test-workspace/countries/src/**/*.{graphql,ts}"
     extensions:
+      client: none
       lint:
         extends: recommended
         rules:
           uniqueNames: error
           requireIdField: warn
+
+  apollo-app:
+    schema:
+      - test-workspace/apollo-app/schema.graphql
+      - test-workspace/apollo-app/client-schema.graphql
+    documents: "test-workspace/apollo-app/src/**/*.{graphql,gql,ts,tsx}"
+    extensions:
+      client: apollo
+      lint:
+        extends: recommended
+        rules:
+          uniqueNames: error
 
   schema-extensions:
     schema:
@@ -75,12 +92,26 @@ projects:
         rules:
           uniqueNames: error
 
+  relay-app:
+    schema: test-workspace/relay-app/schema.graphql
+    documents: "test-workspace/relay-app/src/**/*.{graphql,gql,ts,tsx}"
+    extensions:
+      client: relay
+      lint:
+        extends: recommended
+        rules:
+          uniqueNames: error
+
   misconfigured-schema:
     # expect 2 errors: schema file does not exist, and documents file does not exist
     schema: "test-workspace/misconfigured-schema/schema.graphql"
     documents: "test-workspace/misconfigured-schema/query.graphql"
+    extensions:
+      client: none
 
   misconfigured-documents:
     # expect 2 errors: schema file does not exist, and documents file does not exist
     schema: "test-workspace/misconfigured-documents/schema.graphql"
     documents: "test-workspace/misconfigured-documents/query.graphql"
+    extensions:
+      client: none
