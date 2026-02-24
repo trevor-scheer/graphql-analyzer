@@ -1,0 +1,6 @@
+{
+  "name": "graphql-lsp-test-workspace-misconfigured-documents",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Misconfigured documents test workspace for GraphQL LSP development"
+}

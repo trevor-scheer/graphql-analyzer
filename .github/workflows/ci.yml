@@ -179,10 +179,6 @@ jobs:
         working-directory: editors/vscode
         run: npm run lint
 
-      - name: TypeScript type check
-        working-directory: editors/vscode
-        run: npx tsc --noEmit
-
       - name: Build extension
         working-directory: editors/vscode
         run: npm run compile
@@ -213,6 +209,9 @@ jobs:
 
       - name: Check formatting
         run: npm run fmt:check
+
+      - name: TypeScript type check
+        run: npm run typecheck
 
   ci-success:
     name: CI Success

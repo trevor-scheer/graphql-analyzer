@@ -1,0 +1,16 @@
+{
+  "name": "graphql-lsp-test-workspace-github",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GitHub test workspace for GraphQL LSP development",
+  "type": "module",
+  "dependencies": {
+    "@apollo/client": "^4.0.0",
+    "graphql": "^16.9.0",
+    "graphql-tag": "^2.12.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.2"
+  }
+}

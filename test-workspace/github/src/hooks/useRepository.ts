@@ -1,7 +1,8 @@
 // TypeScript hooks file with embedded GraphQL
 // Tests extraction from .ts files (not .tsx)
 
-import { gql, useQuery, useMutation } from "@apollo/client";
+import { gql } from "@apollo/client";
+import { useQuery, useMutation } from "@apollo/client/react";
 
 // Query for repository data
 const REPOSITORY_QUERY = gql`

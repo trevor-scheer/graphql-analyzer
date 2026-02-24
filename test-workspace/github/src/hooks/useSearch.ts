@@ -1,7 +1,8 @@
 // TypeScript hooks for search functionality
 // Tests multiple queries in a hook file
 
-import { gql, useLazyQuery } from "@apollo/client";
+import { gql } from "@apollo/client";
+import { useLazyQuery } from "@apollo/client/react";
 
 // Search queries for different types
 const SEARCH_REPOS = gql`

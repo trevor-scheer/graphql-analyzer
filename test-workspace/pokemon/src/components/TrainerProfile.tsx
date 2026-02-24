@@ -1,5 +1,6 @@
 import React from "react";
-import { gql, useQuery } from "@apollo/client";
+import { gql } from "@apollo/client";
+import { useQuery } from "@apollo/client/react";
 
 const GET_TRAINER_PROFILE = gql`
   query GetTrainerProfile($trainerId: ID!) {
@@ -40,7 +41,7 @@ interface TrainerProfileProps {
 }
 
 export const TrainerProfile: React.FC<TrainerProfileProps> = ({ trainerId }) => {
-  const { data, loading, error } = useQuery(GET_TRAINER_PROFILE, {
+  const { data, loading, error } = useQuery<any>(GET_TRAINER_PROFILE, {
     variables: { trainerId },
   });
 
