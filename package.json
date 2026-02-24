@@ -20,6 +20,7 @@
     "typecheck": "tsc -b",
     "lint": "npm run lint --workspace=editors/vscode",
     "package": "npm run package --workspace=editors/vscode",
+    "test:unit": "npm run test:unit --workspace=editors/vscode",
     "test:e2e": "npm run test:e2e --workspace=editors/vscode",
     "fmt": "oxfmt --write .",
     "fmt:check": "oxfmt --check ."

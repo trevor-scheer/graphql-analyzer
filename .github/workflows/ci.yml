@@ -179,6 +179,10 @@ jobs:
         working-directory: editors/vscode
         run: npm run lint
 
+      - name: Unit tests
+        working-directory: editors/vscode
+        run: npm run test:unit
+
       - name: Build extension
         working-directory: editors/vscode
         run: npm run compile
