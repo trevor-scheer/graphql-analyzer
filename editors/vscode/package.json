@@ -17,7 +17,7 @@
     "compile": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "lint": "oxlint src",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "package": "vsce package",
     "package:darwin-arm64": "vsce package --target darwin-arm64",
     "package:darwin-x64": "vsce package --target darwin-x64",
@@ -39,7 +39,7 @@
     "@vscode/vsce": "^3.2.1",
     "esbuild": "^0.27.3",
     "oxlint": "^1.30.0",
-    "typescript": "^5.0.0"
+    "@typescript/native-preview": "^7.0.0-dev"
   },
   "contributes": {
     "commands": [
