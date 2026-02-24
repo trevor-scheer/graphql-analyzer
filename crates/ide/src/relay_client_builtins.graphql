@@ -4,22 +4,45 @@
 #
 # Note: @arguments and @argumentDefinitions accept dynamic arguments that
 # depend on fragment definitions, so they are defined without fixed arguments.
+#
+# Source: https://relay.dev/docs/api-reference/graphql-and-directives/
 
+"""
+The action to take when a @required field is null at runtime.
+"""
 enum RequiredFieldAction {
+  "This field is expected to be null sometimes."
   NONE
+  "Not expected to be null, but the component can still render if it is. A field logger event is emitted."
   LOG
+  "Must not be null. The component cannot render without this value and will throw during render."
   THROW
 }
 
+"""
+How to handle caught field-level errors at runtime.
+"""
 enum CatchFieldTo {
+  "Return errors as a Result type for explicit error handling."
   RESULT
+  "Replace errors with null."
   NULL
 }
 
+"""
+Pass arguments to a fragment defined with @argumentDefinitions.
+"""
 directive @arguments on FRAGMENT_SPREAD
 
+"""
+Define the arguments accepted by a fragment, including type and default value.
+"""
 directive @argumentDefinitions on FRAGMENT_DEFINITION
 
+"""
+Declare how field-level errors are handled at runtime, surfacing errors as
+data instead of null or exceptions.
+"""
 directive @catch(
   """
   How to handle the caught error.
@@ -27,6 +50,9 @@ directive @catch(
   to: CatchFieldTo
 ) on FIELD
 
+"""
+Mark a connection field for use with Relay pagination APIs.
+"""
 directive @connection(
   """
   A unique identifier for this connection instance used as a store key.
@@ -39,6 +65,10 @@ directive @connection(
   filters: [String]
 ) on FIELD
 
+"""
+Autogenerate a refetch query for this fragment. Can only be added to fragments
+on Viewer, Query, or types that implement Node.
+"""
 directive @refetchable(
   """
   The name of the auto-generated refetch query.
@@ -46,6 +76,9 @@ directive @refetchable(
   queryName: String!
 ) on FRAGMENT_DEFINITION
 
+"""
+Configure fragment behavior: `plural` for list fragments, `mask` for data masking control.
+"""
 directive @relay(
   """
   If true, the fragment result will be a list of items instead of a single item.
@@ -58,6 +91,10 @@ directive @relay(
   mask: Boolean
 ) on FRAGMENT_DEFINITION | FRAGMENT_SPREAD
 
+"""
+Declare how null values are handled at runtime. Annotated fields become non-nullable
+in generated types. If a @required field is null, Relay bubbles the null up to the parent.
+"""
 directive @required(
   """
   The action to take when the field is null.
@@ -65,12 +102,24 @@ directive @required(
   action: RequiredFieldAction!
 ) on FIELD
 
+"""
+Throw if any field errors are encountered when reading this query or fragment.
+"""
 directive @throwOnFieldError on QUERY | MUTATION | SUBSCRIPTION | FRAGMENT_DEFINITION
 
+"""
+Allow reading this fragment's data outside of the React render phase using readInlineData.
+"""
 directive @inline on FRAGMENT_DEFINITION
 
+"""
+Mark a client-to-server edge field that requires a lazy network roundtrip to resolve.
+"""
 directive @waterfall on FIELD
 
+"""
+Give a fragment spread or inline fragment a named alias for improved type safety.
+"""
 directive @alias(
   """
   An alias for the fragment spread or inline fragment.

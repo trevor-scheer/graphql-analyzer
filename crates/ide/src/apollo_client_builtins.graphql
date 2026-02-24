@@ -1,45 +1,78 @@
 # Apollo Client built-in directives
-# These directives are available on the client side and don't need to be in the server schema
+# These directives are available on the client side and don't need to be in the server schema.
+#
+# Sources:
+# - https://github.com/apollographql/vscode-graphql/blob/main/src/language-server/project/defaultClientSchema.ts
+# - https://www.apollographql.com/docs/react/data/directives
 
+"""
+Direct the client to resolve this field locally, either from the cache or local resolvers.
+"""
 directive @client(
   """
-  When true, the resolver will always be called with an empty object as the parent value,
-  regardless of what the resolver for the field's parent returns.
+  When true, the client will never use the cache for this value. See
+  https://www.apollographql.com/docs/react/essentials/local-state/#forcing-resolvers-with-clientalways-true
   """
   always: Boolean
 ) on FIELD | INLINE_FRAGMENT
 
+"""
+Specify a custom store key for this result. See
+https://www.apollographql.com/docs/react/advanced/caching/#the-connection-directive
+"""
 directive @connection(
   """
-  Specify a custom store key for the paginated query's results.
+  Specify the store key.
   """
   key: String!
 
   """
-  An optional array of query argument names to include in the generated store key.
+  An array of query argument names to include in the generated custom store key.
   """
   filter: [String!]
 ) on FIELD
 
+"""
+Receive data for specific fields incrementally, instead of receiving all field data at the same time.
+This is helpful whenever some fields in a query take much longer to resolve than others.
+"""
 directive @defer(
   """
-  If false, the @defer is not applied and the data will be delivered as if it were not deferred.
+  When true fragment may be deferred, if omitted defaults to true.
   """
   if: Boolean
 
   """
-  A label to identify the deferred fragment.
+  A unique label across all @defer and @stream directives in an operation.
   """
   label: String
 ) on FRAGMENT_SPREAD | INLINE_FRAGMENT
 
+"""
+Export this locally resolved field as a variable to be used in the remainder of this query. See
+https://www.apollographql.com/docs/react/essentials/local-state/#using-client-fields-as-variables
+"""
 directive @export(
   """
-  The name of the variable to export this field as.
+  The variable name to export this field as.
   """
   as: String!
 ) on FIELD
 
-directive @nonreactive on FIELD
+"""
+Indicates that changes to the data contained within the subtrees marked @nonreactive
+should not trigger rerendering. This allows parent components to fetch data to be
+rendered by their children without rerendering themselves when that data changes.
+"""
+directive @nonreactive on FIELD | FRAGMENT_SPREAD
 
-directive @unmask on FRAGMENT_SPREAD | INLINE_FRAGMENT
+"""
+Make fragment data available when using data masking. Primarily used to incrementally
+adopt data masking in an existing application.
+"""
+directive @unmask(
+  """
+  When set to "migrate", provides development-only warnings when accessing would-be masked fields.
+  """
+  mode: String
+) on FRAGMENT_SPREAD | INLINE_FRAGMENT
