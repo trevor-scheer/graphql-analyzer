@@ -47,7 +47,7 @@ directive @catch(
   """
   How to handle the caught error.
   """
-  to: CatchFieldTo
+  to: CatchFieldTo!
 ) on FIELD
 
 """

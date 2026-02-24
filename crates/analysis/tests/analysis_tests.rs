@@ -1555,6 +1555,26 @@ fn test_relay_arguments_directive_errors_suppressed() {
         "Relay @arguments dynamic args should be suppressed, but got: {:?}",
         arg_errors.iter().map(|d| &d.message).collect::<Vec<_>>()
     );
+
+    // Also verify @argumentDefinitions suppression on the fragment file
+    let frag_diagnostics = validate_file(&db, frag_content, frag_metadata, project_files);
+
+    let arg_def_errors: Vec<_> = frag_diagnostics
+        .iter()
+        .filter(|d| {
+            d.message
+                .contains("is not supported by `@argumentDefinitions`")
+        })
+        .collect();
+
+    assert!(
+        arg_def_errors.is_empty(),
+        "Relay @argumentDefinitions dynamic args should be suppressed, but got: {:?}",
+        arg_def_errors
+            .iter()
+            .map(|d| &d.message)
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]
