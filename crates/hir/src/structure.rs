@@ -49,6 +49,8 @@ pub struct FieldSignature {
     pub is_deprecated: bool,
     pub deprecation_reason: Option<Arc<str>>,
     pub directives: Vec<DirectiveUsage>,
+    /// The file this field was defined in
+    pub file_id: FileId,
     /// The text range of the field name
     pub name_range: TextRange,
 }
@@ -436,7 +438,7 @@ fn extract_object_type(obj: &Node<ast::ObjectTypeDefinition>, file_id: FileId) -
     let fields = obj
         .fields
         .iter()
-        .map(|f| extract_field_signature(f))
+        .map(|f| extract_field_signature(f, file_id))
         .collect();
 
     let implements = obj
@@ -468,7 +470,7 @@ fn extract_interface_type(iface: &Node<ast::InterfaceTypeDefinition>, file_id: F
     let fields = iface
         .fields
         .iter()
-        .map(|f| extract_field_signature(f))
+        .map(|f| extract_field_signature(f, file_id))
         .collect();
 
     let implements = iface
@@ -587,7 +589,7 @@ fn extract_input_object_type(
     let fields = input
         .fields
         .iter()
-        .map(|f| extract_input_field_signature(f))
+        .map(|f| extract_input_field_signature(f, file_id))
         .collect();
 
     TypeDef {
@@ -616,7 +618,7 @@ fn extract_object_type_extension(ext: &Node<ast::ObjectTypeExtension>, file_id: 
     let fields = ext
         .fields
         .iter()
-        .map(|f| extract_field_signature(f))
+        .map(|f| extract_field_signature(f, file_id))
         .collect();
 
     let implements = ext
@@ -650,7 +652,7 @@ fn extract_interface_type_extension(
     let fields = ext
         .fields
         .iter()
-        .map(|f| extract_field_signature(f))
+        .map(|f| extract_field_signature(f, file_id))
         .collect();
 
     let implements = ext
@@ -739,7 +741,7 @@ fn extract_input_object_type_extension(
     let fields = ext
         .fields
         .iter()
-        .map(|f| extract_input_field_signature(f))
+        .map(|f| extract_input_field_signature(f, file_id))
         .collect();
 
     TypeDef {
@@ -777,7 +779,7 @@ fn extract_scalar_type_extension(ext: &Node<ast::ScalarTypeExtension>, file_id: 
     }
 }
 
-fn extract_field_signature(field: &ast::FieldDefinition) -> FieldSignature {
+fn extract_field_signature(field: &ast::FieldDefinition, file_id: FileId) -> FieldSignature {
     let name = Arc::from(field.name.as_str());
     let type_ref = extract_type_ref(&field.ty);
     let description = field.description.as_ref().map(|d| Arc::from(d.as_str()));
@@ -798,11 +800,15 @@ fn extract_field_signature(field: &ast::FieldDefinition) -> FieldSignature {
         is_deprecated,
         deprecation_reason,
         directives: extract_directives(&field.directives),
+        file_id,
         name_range: name_range(&field.name),
     }
 }
 
-fn extract_input_field_signature(field: &ast::InputValueDefinition) -> FieldSignature {
+fn extract_input_field_signature(
+    field: &ast::InputValueDefinition,
+    file_id: FileId,
+) -> FieldSignature {
     let name = Arc::from(field.name.as_str());
     let type_ref = extract_type_ref(&field.ty);
     let description = field.description.as_ref().map(|d| Arc::from(d.as_str()));
@@ -817,6 +823,7 @@ fn extract_input_field_signature(field: &ast::InputValueDefinition) -> FieldSign
         is_deprecated,
         deprecation_reason,
         directives: extract_directives(&field.directives),
+        file_id,
         name_range: name_range(&field.name),
     }
 }

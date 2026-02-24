@@ -2124,16 +2124,22 @@ impl LanguageServer for GraphQLLanguageServer {
         let host = self
             .workspace
             .get_or_create_host(&workspace_uri, &project_name);
+        tracing::debug!("Goto definition: acquiring snapshot");
         let Some(analysis) = host.try_snapshot().await else {
+            tracing::debug!("Goto definition: snapshot acquisition timed out");
             return Ok(None);
         };
+        tracing::debug!("Goto definition: snapshot acquired");
 
         let position = convert_lsp_position(lsp_position);
         let file_path = graphql_ide::FilePath::new(uri.to_string());
 
+        tracing::debug!("Goto definition: calling analysis.goto_definition");
         let Some(locations) = analysis.goto_definition(&file_path, position) else {
+            tracing::debug!("Goto definition: no results");
             return Ok(None);
         };
+        tracing::debug!("Goto definition: got {} results", locations.len());
 
         let lsp_locations: Vec<Location> = locations.iter().map(convert_ide_location).collect();
 

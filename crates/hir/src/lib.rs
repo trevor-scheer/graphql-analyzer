@@ -917,3 +917,52 @@ pub fn file_schema_coordinates(
 
     Arc::new(ctx.coordinates)
 }
+
+// ============================================================================
+// Definition location indexes for goto-definition
+// These pre-compute source locations so goto-definition can do O(1) lookups
+// instead of iterating all schema files.
+// ============================================================================
+
+/// Location of a type definition in the schema (base or extension).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TypeDefLocation {
+    pub file_id: graphql_base_db::FileId,
+    pub name_range: TextRange,
+    pub is_extension: bool,
+}
+
+/// Index mapping type names to all their definition locations (base + extensions).
+///
+/// Unlike `schema_types()` which merges extensions into a single `TypeDef`,
+/// this preserves all individual definition locations for goto-definition
+/// to return multiple results (e.g. base type + extensions).
+///
+/// Uses granular per-file caching via `file_type_defs`.
+#[salsa::tracked]
+pub fn type_definition_locations(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, Vec<TypeDefLocation>>> {
+    let schema_ids = project_files.schema_file_ids(db).ids(db);
+    let mut locations: HashMap<Arc<str>, Vec<TypeDefLocation>> = HashMap::new();
+
+    for file_id in schema_ids.iter() {
+        if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        {
+            let type_defs = file_type_defs(db, *file_id, content, metadata);
+            for type_def in type_defs.iter() {
+                locations
+                    .entry(type_def.name.clone())
+                    .or_default()
+                    .push(TypeDefLocation {
+                        file_id: type_def.file_id,
+                        name_range: type_def.name_range,
+                        is_extension: type_def.is_extension,
+                    });
+            }
+        }
+    }
+
+    Arc::new(locations)
+}
