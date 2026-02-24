@@ -7,16 +7,16 @@
 //! - Variable definitions
 //! - Argument definitions
 //! - Operation definitions
+//!
+//! Performance: Uses pre-computed HIR indexes (`schema_types`, `type_definition_locations`)
+//! so that each lookup parses at most one file instead of iterating all schema files.
 
 use crate::helpers::{
-    adjust_range_for_line_offset, find_all_type_definitions_in_parse,
-    find_argument_definition_in_tree, find_fragment_definition_in_parse,
-    find_operation_definition_in_tree, find_variable_definition_in_tree, offset_range_to_range,
-    position_to_offset,
+    adjust_range_for_line_offset, find_argument_definition_in_tree,
+    find_fragment_definition_in_parse, find_operation_definition_in_tree,
+    find_variable_definition_in_tree, offset_range_to_range, position_to_offset,
 };
-use crate::symbol::{
-    find_field_definition_full_range, find_parent_type_at_offset, find_symbol_at_offset, Symbol,
-};
+use crate::symbol::{find_parent_type_at_offset, find_symbol_at_offset, Symbol};
 use crate::types::{FilePath, Location, Position};
 use crate::{helpers::find_block_for_position, symbol, FileRegistry};
 
@@ -77,36 +77,28 @@ pub fn goto_definition(
                 parent_type_name
             );
 
-            schema_types.get(parent_type_name.as_str())?;
+            // Look up the field in the merged schema types - O(1) HashMap lookup
+            let type_def = schema_types.get(parent_type_name.as_str())?;
+            let field = type_def.fields.iter().find(|f| f.name.as_ref() == name)?;
 
-            let schema_file_ids = project_files.schema_file_ids(db).ids(db);
+            // Use the field's file_id to parse only the single file containing this field
+            let file_path = registry.get_path(field.file_id)?;
+            let field_content = registry.get_content(field.file_id)?;
+            let field_metadata = registry.get_metadata(field.file_id)?;
 
-            for file_id in schema_file_ids.iter() {
-                let Some(schema_content) = registry.get_content(*file_id) else {
-                    continue;
-                };
-                let Some(schema_metadata) = registry.get_metadata(*file_id) else {
-                    continue;
-                };
-                let Some(file_path) = registry.get_path(*file_id) else {
-                    continue;
-                };
+            let field_parse = graphql_syntax::parse(db, field_content, field_metadata);
 
-                let schema_parse = graphql_syntax::parse(db, schema_content, schema_metadata);
-
-                for doc in schema_parse.documents() {
-                    if let Some(ranges) =
-                        find_field_definition_full_range(doc.tree, &parent_type_name, &name)
-                    {
-                        let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-                        let range = offset_range_to_range(
-                            &doc_line_index,
-                            ranges.name_start,
-                            ranges.name_end,
-                        );
-                        let adjusted_range = adjust_range_for_line_offset(range, doc.line_offset);
-                        return Some(vec![Location::new(file_path, adjusted_range)]);
-                    }
+            for doc in field_parse.documents() {
+                if let Some(ranges) = crate::symbol::find_field_definition_full_range(
+                    doc.tree,
+                    &parent_type_name,
+                    &name,
+                ) {
+                    let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                    let range =
+                        offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end);
+                    let adjusted_range = adjust_range_for_line_offset(range, doc.line_offset);
+                    return Some(vec![Location::new(file_path, adjusted_range)]);
                 }
             }
 
@@ -150,23 +142,28 @@ pub fn goto_definition(
             Some(vec![Location::new(file_path, range)])
         }
         Symbol::TypeName { name } => {
-            let schema_ids = project_files.schema_file_ids(db).ids(db);
+            // Use the pre-computed type definition location index - O(1) lookup
+            let locations_index = graphql_hir::type_definition_locations(db, project_files);
+            let type_locations = locations_index.get(name.as_str())?;
+
             let mut locations = Vec::new();
 
-            for file_id in schema_ids.iter() {
-                let Some(schema_content) = registry.get_content(*file_id) else {
+            for type_loc in type_locations {
+                let Some(file_path) = registry.get_path(type_loc.file_id) else {
                     continue;
                 };
-                let Some(schema_metadata) = registry.get_metadata(*file_id) else {
+                let Some(type_content) = registry.get_content(type_loc.file_id) else {
                     continue;
                 };
-                let Some(file_path) = registry.get_path(*file_id) else {
+                let Some(type_metadata) = registry.get_metadata(type_loc.file_id) else {
                     continue;
                 };
 
-                let schema_parse = graphql_syntax::parse(db, schema_content, schema_metadata);
+                // Parse only the file that contains this type definition
+                let type_parse = graphql_syntax::parse(db, type_content, type_metadata);
 
-                for range in find_all_type_definitions_in_parse(&schema_parse, &name) {
+                for range in crate::helpers::find_all_type_definitions_in_parse(&type_parse, &name)
+                {
                     locations.push(Location::new(file_path.clone(), range));
                 }
             }
@@ -206,33 +203,31 @@ pub fn goto_definition(
                 &parent_context.root_type,
             )?;
 
-            let schema_file_ids = project_files.schema_file_ids(db).ids(db);
+            // Use schema_types to find the field and its file_id - O(1) lookup
+            let type_def = schema_types.get(parent_type_name.as_str())?;
+            let field = type_def
+                .fields
+                .iter()
+                .find(|f| f.name.as_ref() == field_name)?;
 
-            for file_id in schema_file_ids.iter() {
-                let Some(schema_content) = registry.get_content(*file_id) else {
-                    continue;
-                };
-                let Some(schema_metadata) = registry.get_metadata(*file_id) else {
-                    continue;
-                };
-                let Some(file_path) = registry.get_path(*file_id) else {
-                    continue;
-                };
+            // Parse only the single file containing this field definition
+            let file_path = registry.get_path(field.file_id)?;
+            let field_content = registry.get_content(field.file_id)?;
+            let field_metadata = registry.get_metadata(field.file_id)?;
 
-                let schema_parse = graphql_syntax::parse(db, schema_content, schema_metadata);
+            let field_parse = graphql_syntax::parse(db, field_content, field_metadata);
 
-                for doc in schema_parse.documents() {
-                    let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-                    if let Some(range) = find_argument_definition_in_tree(
-                        doc.tree,
-                        &parent_type_name,
-                        &field_name,
-                        &name,
-                        &doc_line_index,
-                        doc.line_offset,
-                    ) {
-                        return Some(vec![Location::new(file_path, range)]);
-                    }
+            for doc in field_parse.documents() {
+                let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+                if let Some(range) = find_argument_definition_in_tree(
+                    doc.tree,
+                    &parent_type_name,
+                    &field_name,
+                    &name,
+                    &doc_line_index,
+                    doc.line_offset,
+                ) {
+                    return Some(vec![Location::new(file_path, range)]);
                 }
             }
             None
