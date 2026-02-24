@@ -2,6 +2,30 @@
 
 All notable changes to the GraphQL CLI will be documented in this file.
 
+## 0.1.3 (2026-02-24)
+
+### Features
+
+- Add configurable client directive support for Apollo and Relay via extensions.client config option ([#626](https://github.com/trevor-scheer/graphql-analyzer/pull/626))
+
+#### Strict validation mode and pattern diagnostics ([#620](https://github.com/trevor-scheer/graphql-analyzer/pull/620))
+
+**CLI Changes:**
+
+- `validate` now fails by default if no schema files are found (exit code 2)
+- Added `--syntax-only` flag to skip schema validation and only check document syntax
+- Fails if no document files are found matching configured patterns
+
+**LSP Changes:**
+
+- Added per-pattern error diagnostics for both `schema` and `documents`: each pattern that matches no files shows an error on the specific pattern in the config
+- Added summary error diagnostic on `schema`/`documents` key when ALL patterns fail to match
+- Diagnostics now underline just the key name (not the colon)
+
+### Fixes
+
+- Add @oneOf directive to schema builtins so it is recognized in all schemas without being explicitly defined ([#621](https://github.com/trevor-scheer/graphql-analyzer/pull/621))
+
 ## 0.1.2 (2026-02-21)
 
 ### Fixes

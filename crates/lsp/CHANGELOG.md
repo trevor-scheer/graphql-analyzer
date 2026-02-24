@@ -2,6 +2,32 @@
 
 All notable changes to the GraphQL LSP will be documented in this file.
 
+## 0.1.2 (2026-02-24)
+
+### Features
+
+- Add configurable client directive support for Apollo and Relay via extensions.client config option ([#626](https://github.com/trevor-scheer/graphql-analyzer/pull/626))
+
+### Fixes
+
+- Add @oneOf directive to schema builtins so it is recognized in all schemas without being explicitly defined ([#621](https://github.com/trevor-scheer/graphql-analyzer/pull/621))
+- Fix spurious validation errors for projects with no schema ([#625](https://github.com/trevor-scheer/graphql-analyzer/pull/625))
+- Full IDE support for schema type extensions: multi-location goto-def on type names shows both base type and extensions, correct document symbol labels, order-independent extension merging, directive tracking on all schema elements, and scalar type extension support ([#633](https://github.com/trevor-scheer/graphql-analyzer/pull/633))
+
+#### Strict validation mode and pattern diagnostics ([#620](https://github.com/trevor-scheer/graphql-analyzer/pull/620))
+
+**CLI Changes:**
+
+- `validate` now fails by default if no schema files are found (exit code 2)
+- Added `--syntax-only` flag to skip schema validation and only check document syntax
+- Fails if no document files are found matching configured patterns
+
+**LSP Changes:**
+
+- Added per-pattern error diagnostics for both `schema` and `documents`: each pattern that matches no files shows an error on the specific pattern in the config
+- Added summary error diagnostic on `schema`/`documents` key when ALL patterns fail to match
+- Diagnostics now underline just the key name (not the colon)
+
 ## 0.1.1 (2026-02-12)
 
 ### Features

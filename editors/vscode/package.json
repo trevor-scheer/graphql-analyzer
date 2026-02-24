@@ -1,7 +1,7 @@
 {
   "name": "graphql-analyzer",
   "displayName": "graphql-analyzer",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "GraphQL language support for VS Code",
   "categories": [
     "Programming Languages"
