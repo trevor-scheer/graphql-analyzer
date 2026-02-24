@@ -1,4 +1,15 @@
 {
+  "extraKnownMarketplaces": {
+    "project-tools": {
+      "source": {
+        "source": "directory",
+        "path": ".claude/plugins"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "tsgo-lsp@project-tools": true
+  },
   "permissions": {
     "allow": [
       "Bash(cargo clippy:*)",
