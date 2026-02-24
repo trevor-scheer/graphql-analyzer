@@ -57,7 +57,9 @@ pub fn goto_definition(
 
     match symbol {
         Symbol::FieldName { name } => {
+            tracing::debug!("Goto definition: FieldName '{}', querying schema_types", name);
             let schema_types = graphql_hir::schema_types(db, project_files);
+            tracing::debug!("Goto definition: schema_types query complete");
 
             let parent_type_name =
                 if let Some(parent_ctx) = find_parent_type_at_offset(block_context.tree, offset) {
@@ -80,12 +82,29 @@ pub fn goto_definition(
             // Look up the field in the merged schema types - O(1) HashMap lookup
             let type_def = schema_types.get(parent_type_name.as_str())?;
             let field = type_def.fields.iter().find(|f| f.name.as_ref() == name)?;
+            let field_file_id = field.file_id;
+
+            tracing::debug!(
+                "Field '{}.{}' defined in FileId {:?}, looking up in registry",
+                parent_type_name,
+                name,
+                field_file_id
+            );
 
             // Use the field's file_id to parse only the single file containing this field
-            let file_path = registry.get_path(field.file_id)?;
-            let field_content = registry.get_content(field.file_id)?;
-            let field_metadata = registry.get_metadata(field.file_id)?;
+            let Some(file_path) = registry.get_path(field_file_id) else {
+                tracing::error!(
+                    "FileId {:?} not found in registry for field '{}.{}'",
+                    field_file_id,
+                    parent_type_name,
+                    name
+                );
+                return None;
+            };
+            let field_content = registry.get_content(field_file_id)?;
+            let field_metadata = registry.get_metadata(field_file_id)?;
 
+            tracing::debug!("Parsing file for field definition lookup");
             let field_parse = graphql_syntax::parse(db, field_content, field_metadata);
 
             for doc in field_parse.documents() {
@@ -98,10 +117,17 @@ pub fn goto_definition(
                     let range =
                         offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end);
                     let adjusted_range = adjust_range_for_line_offset(range, doc.line_offset);
+                    tracing::debug!("Found field definition at {:?}", adjusted_range);
                     return Some(vec![Location::new(file_path, adjusted_range)]);
                 }
             }
 
+            tracing::debug!(
+                "Field '{}.{}' not found via CST search in FileId {:?}",
+                parent_type_name,
+                name,
+                field_file_id
+            );
             None
         }
         Symbol::FragmentSpread { name } => {
