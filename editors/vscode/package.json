@@ -17,13 +17,14 @@
     "compile": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "lint": "oxlint src",
-    "typecheck": "tsgo --noEmit",
-    "package": "vsce package",
-    "package:darwin-arm64": "vsce package --target darwin-arm64",
-    "package:darwin-x64": "vsce package --target darwin-x64",
-    "package:linux-arm64": "vsce package --target linux-arm64",
-    "package:linux-x64": "vsce package --target linux-x64",
-    "package:win32-x64": "vsce package --target win32-x64",
+    "typecheck": "tsgo -b",
+    "package": "vsce package --no-dependencies",
+    "package:darwin-arm64": "vsce package --no-dependencies --target darwin-arm64",
+    "package:darwin-x64": "vsce package --no-dependencies --target darwin-x64",
+    "package:linux-arm64": "vsce package --no-dependencies --target linux-arm64",
+    "package:linux-x64": "vsce package --no-dependencies --target linux-x64",
+    "package:win32-x64": "vsce package --no-dependencies --target win32-x64",
+    "test:unit": "vitest run",
     "test:e2e": "npm run compile && npx playwright test",
     "test:e2e:headed": "npm run compile && npx playwright test --headed",
     "test:e2e:debug": "npm run compile && npx playwright test --debug"
@@ -35,11 +36,14 @@
     "@playwright/test": "^1.57.0",
     "@types/node": "^24.10.1",
     "@types/vscode": "^1.75.0",
+    "@typescript/native-preview": "^7.0.0-dev",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.2.1",
     "esbuild": "^0.27.3",
     "oxlint": "^1.30.0",
-    "@typescript/native-preview": "^7.0.0-dev"
+    "vitest": "^4.0.18",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   },
   "contributes": {
     "commands": [
@@ -199,5 +203,8 @@
   ],
   "engines": {
     "vscode": "^1.75.0"
+  },
+  "vsce": {
+    "dependencies": false
   }
 }

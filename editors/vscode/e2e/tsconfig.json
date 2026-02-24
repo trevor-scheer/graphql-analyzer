@@ -1,15 +1,16 @@
 {
   "compilerOptions": {
-    "module": "commonjs",
-    "target": "ES2020",
-    "outDir": "../out-e2e",
-    "lib": ["ES2020"],
-    "sourceMap": true,
+    "module": "ESNext",
+    "target": "ES2022",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "composite": true
+    "composite": true,
+    "emitDeclarationOnly": true,
+    "declarationDir": "../out-e2e/.declarations"
   },
   "include": ["./**/*.ts"],
   "references": [{ "path": ".." }]
