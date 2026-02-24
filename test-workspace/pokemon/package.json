@@ -5,8 +5,8 @@
   "description": "Test workspace for GraphQL LSP development",
   "type": "module",
   "scripts": {
-    "build": "tsc",
-    "type-check": "tsc --noEmit",
+    "build": "tsgo",
+    "type-check": "tsgo --noEmit",
     "lint": "eslint src/**/*.ts",
     "graphql:validate": "../target/debug/graphql validate"
   },
@@ -21,7 +21,7 @@
     "@types/react": "^19.0.0",
     "@typescript-eslint/eslint-plugin": "^8.15.0",
     "@typescript-eslint/parser": "^8.15.0",
-    "eslint": "^9.15.0",
-    "typescript": "^5.7.2"
+    "@typescript/native-preview": "^7.0.0-dev",
+    "eslint": "^9.15.0"
   }
 }
