@@ -1,5 +1,6 @@
 import React from "react";
-import { gql, useQuery } from "@apollo/client";
+import { gql } from "@apollo/client";
+import { useQuery } from "@apollo/client/react";
 
 const GET_POKEMON_CARD = gql`
   query GetPokemonCard($id: ID!) {
@@ -30,7 +31,7 @@ interface PokemonCardProps {
 }
 
 export const PokemonCard: React.FC<PokemonCardProps> = ({ pokemonId }) => {
-  const { data, loading, error } = useQuery(GET_POKEMON_CARD, {
+  const { data, loading, error } = useQuery<any>(GET_POKEMON_CARD, {
     variables: { id: pokemonId },
   });
 

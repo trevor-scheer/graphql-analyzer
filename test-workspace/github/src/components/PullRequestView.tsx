@@ -1,7 +1,8 @@
 // TypeScript file with embedded GraphQL for PR views
 // Tests various template literal patterns
 
-import { gql, useQuery, useMutation } from "@apollo/client";
+import { gql } from "@apollo/client";
+import { useQuery, useMutation } from "@apollo/client/react";
 
 // Using graphql-tag style
 export const PR_TIMELINE_QUERY = gql`

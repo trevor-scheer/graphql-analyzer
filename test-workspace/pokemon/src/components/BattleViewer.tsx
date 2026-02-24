@@ -1,5 +1,6 @@
 import React from "react";
-import { gql, useQuery, useSubscription } from "@apollo/client";
+import { gql } from "@apollo/client";
+import { useQuery, useSubscription } from "@apollo/client/react";
 
 const GET_BATTLE = gql`
   query GetBattleDetails($battleId: ID!) {
@@ -96,11 +97,11 @@ interface BattleViewerProps {
 }
 
 export const BattleViewer: React.FC<BattleViewerProps> = ({ battleId }) => {
-  const { data, loading, error } = useQuery(GET_BATTLE, {
+  const { data, loading, error } = useQuery<any>(GET_BATTLE, {
     variables: { battleId },
   });
 
-  const { data: subscriptionData } = useSubscription(BATTLE_UPDATED, {
+  const { data: subscriptionData } = useSubscription<any>(BATTLE_UPDATED, {
     variables: { battleId },
   });
 

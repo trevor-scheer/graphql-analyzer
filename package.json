@@ -17,7 +17,7 @@
   "scripts": {
     "compile": "npm run compile --workspace=editors/vscode",
     "watch": "npm run watch --workspace=editors/vscode",
-    "typecheck": "npm run typecheck --workspace=editors/vscode",
+    "typecheck": "tsc -b",
     "lint": "npm run lint --workspace=editors/vscode",
     "package": "npm run package --workspace=editors/vscode",
     "test:e2e": "npm run test:e2e --workspace=editors/vscode",

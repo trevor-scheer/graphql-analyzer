@@ -1,4 +1,5 @@
-import { gql, useQuery, useMutation } from "@apollo/client";
+import { gql } from "@apollo/client";
+import { useQuery } from "@apollo/client/react";
 
 // Demonstrates @client for local-only fields
 const GET_SETTINGS = gql`
@@ -14,7 +15,7 @@ const GET_SETTINGS = gql`
 `;
 
 // Demonstrates @nonreactive to prevent re-renders
-const GET_POST_WITH_STATIC_AUTHOR = gql`
+export const GET_POST_WITH_STATIC_AUTHOR = gql`
   query GetPostWithStaticAuthor($id: ID!) {
     post(id: $id) {
       id

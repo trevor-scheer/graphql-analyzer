@@ -27,6 +27,7 @@ node_modules/
 *.so
 *.dylib
 /dist/
+*.tsbuildinfo
 
 # Test artifacts
 *.profraw

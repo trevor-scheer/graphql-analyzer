@@ -134,7 +134,7 @@ export const SWITCH_POKEMON_IN_BATTLE = gql`
   }
 `;
 
-const frag = gql`
+export const frag = gql`
   fragment PokemonName on Pokemon {
     name
   }

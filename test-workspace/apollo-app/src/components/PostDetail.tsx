@@ -1,4 +1,5 @@
-import { gql, useQuery } from "@apollo/client";
+import { gql } from "@apollo/client";
+import { useQuery } from "@apollo/client/react";
 
 // Demonstrates @defer for incremental delivery of comments
 const GET_POST_DETAIL = gql`
