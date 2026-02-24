@@ -12,5 +12,5 @@
     "forceConsistentCasingInFileNames": true,
     "composite": true
   },
-  "exclude": ["node_modules", ".vscode-test", "e2e", "playwright.config.ts"]
+  "exclude": ["node_modules", ".vscode-test", "e2e", "tests", "playwright.config.ts"]
 }
