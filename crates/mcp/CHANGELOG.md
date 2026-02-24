@@ -2,6 +2,16 @@
 
 All notable changes to the GraphQL MCP server will be documented in this file.
 
+## 0.1.3 (2026-02-24)
+
+### Features
+
+- Add configurable client directive support for Apollo and Relay via extensions.client config option ([#626](https://github.com/trevor-scheer/graphql-analyzer/pull/626))
+
+### Fixes
+
+- Add @oneOf directive to schema builtins so it is recognized in all schemas without being explicitly defined ([#621](https://github.com/trevor-scheer/graphql-analyzer/pull/621))
+
 ## 0.1.2 (2026-02-21)
 
 ### Fixes

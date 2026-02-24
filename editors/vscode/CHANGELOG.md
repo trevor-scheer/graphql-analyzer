@@ -2,6 +2,21 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.1.6 (2026-02-24)
+
+### Features
+
+- Add configurable client directive support for Apollo and Relay via extensions.client config option ([#626](https://github.com/trevor-scheer/graphql-analyzer/pull/626))
+- Add "Report Issue" command that opens GitHub with pre-filled environment diagnostics ([#639](https://github.com/trevor-scheer/graphql-analyzer/pull/639))
+
+### Fixes
+
+- Add @oneOf directive to schema builtins so it is recognized in all schemas without being explicitly defined ([#621](https://github.com/trevor-scheer/graphql-analyzer/pull/621))
+- Fix TextMate grammar for body-less type extensions (e.g. `extend type User implements Node`) breaking syntax highlighting on subsequent lines ([#638](https://github.com/trevor-scheer/graphql-analyzer/pull/638))
+- Fix VSIX packaging including entire monorepo due to npm workspace dependency resolution ([#638](https://github.com/trevor-scheer/graphql-analyzer/pull/638))
+- Contribute GraphQL config schema for automatic JSON/YAML validation in VS Code ([#623](https://github.com/trevor-scheer/graphql-analyzer/pull/623))
+- Support relative paths in `graphql-analyzer.server.path` setting, resolved against the workspace folder ([#620](https://github.com/trevor-scheer/graphql-analyzer/pull/620))
+
 ## 0.1.5 (2026-02-21)
 
 ### Fixes
