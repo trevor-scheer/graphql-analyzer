@@ -4617,15 +4617,15 @@ query TestEvolution {
             "Should suggest 3 inline fragment types: got {labels:?}"
         );
 
-        // Should only suggest fields from the interface itself, not implementing types
+        // Should only suggest fields from the interface itself (plus __typename), not implementing types
         let field_completions: Vec<_> = items
             .iter()
             .filter(|i| i.kind == CompletionKind::Field)
             .collect();
         assert_eq!(
             field_completions.len(),
-            1,
-            "Should have 1 field completion from interface: got {labels:?}"
+            2, // Interface field "description" + "__typename"
+            "Should have 2 field completions from interface (description + __typename): got {labels:?}"
         );
 
         // Check interface field is suggested
