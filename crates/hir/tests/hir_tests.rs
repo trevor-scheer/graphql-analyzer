@@ -1887,6 +1887,7 @@ mod issue_646_per_file_linting {
 mod issue_648_find_references_prefiltering {
     use super::*;
 
+    #[allow(clippy::similar_names)]
     #[test]
     fn test_file_used_fragment_names_reports_correct_files() {
         let mut db = TestDatabase::default();
@@ -1959,6 +1960,7 @@ mod issue_648_find_references_prefiltering {
         assert!(!c_frags.contains(&Arc::from("F") as &Arc<str>));
     }
 
+    #[allow(clippy::similar_names)]
     #[test]
     fn test_file_schema_coordinates_reports_correct_files() {
         let mut db = TestDatabase::default();
@@ -1967,7 +1969,7 @@ mod issue_648_find_references_prefiltering {
         let schema_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 type Query {
                     user: User
                     post: Post
@@ -1980,7 +1982,7 @@ mod issue_648_find_references_prefiltering {
                     id: ID!
                     title: String!
                 }
-                "#,
+                ",
             ),
         );
         let schema_metadata = FileMetadata::new(
