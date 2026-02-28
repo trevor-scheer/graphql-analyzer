@@ -532,6 +532,28 @@ pub fn fragment_spreads_index(
     Arc::new(index)
 }
 
+/// Map from interface name to types that implement it.
+/// Cached via Salsa - only recomputed when schema types change.
+///
+/// This provides O(implementors) lookup instead of O(total types) when finding
+/// which types implement a given interface, used by completion and other features.
+#[salsa::tracked]
+pub fn interface_implementors(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, Vec<Arc<str>>>> {
+    let types = schema_types(db, project_files);
+    let mut map: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::new();
+    for (type_name, type_def) in types {
+        for iface in &type_def.implements {
+            map.entry(Arc::clone(iface))
+                .or_default()
+                .push(Arc::clone(type_name));
+        }
+    }
+    Arc::new(map)
+}
+
 /// Get all operations in the project
 /// Uses granular per-file caching for efficient invalidation.
 #[salsa::tracked]

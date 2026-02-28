@@ -1094,6 +1094,59 @@ mod caching_tests {
             "Executions should include schema_types: {executions:?}"
         );
     }
+
+    #[test]
+    fn test_issue_649_interface_implementors_cached() {
+        let db = TrackedDatabase::new();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+            interface Node {
+                id: ID!
+            }
+
+            type User implements Node {
+                id: ID!
+                name: String!
+            }
+
+            type Post implements Node {
+                id: ID!
+                title: String!
+            }
+            ",
+            ),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let project_files =
+            create_tracked_project_files(&db, &[(schema_id, schema_content, schema_metadata)], &[]);
+
+        // First call should execute
+        let implementors = graphql_hir::interface_implementors(&db, project_files);
+        assert!(implementors.contains_key(&Arc::from("Node") as &Arc<str>));
+        let node_impls = implementors.get(&Arc::from("Node") as &Arc<str>).unwrap();
+        assert_eq!(node_impls.len(), 2);
+
+        let checkpoint = db.checkpoint();
+
+        // Second call should be cached (no re-execution)
+        let _implementors2 = graphql_hir::interface_implementors(&db, project_files);
+        let exec_count = db.count_since(queries::INTERFACE_IMPLEMENTORS, checkpoint);
+        assert_eq!(
+            exec_count, 0,
+            "interface_implementors should be cached on second call"
+        );
+    }
 }
 
 // ============================================================================

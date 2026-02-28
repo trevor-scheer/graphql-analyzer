@@ -97,26 +97,22 @@ pub fn completions(
                             .collect();
 
                         if parent_type.kind == graphql_hir::TypeDefKind::Interface {
-                            for type_def in types.values() {
-                                if type_def.implements.contains(&parent_type.name) {
-                                    let type_name = &type_def.name;
+                            let implementors =
+                                graphql_hir::interface_implementors(db, project_files);
+                            if let Some(impl_types) = implementors.get(&parent_type.name) {
+                                for type_name in impl_types {
                                     let inline_fragment_label = format!("... on {type_name}");
-                                    if !items
-                                        .iter()
-                                        .any(|i| i.label.as_str() == inline_fragment_label)
-                                    {
-                                        items.push(
-                                            CompletionItem::new(
-                                                inline_fragment_label,
-                                                CompletionKind::Type,
-                                            )
-                                            .with_insert_text(format!(
-                                                "... on {type_name} {{\n  $0\n}}"
-                                            ))
-                                            .with_insert_text_format(InsertTextFormat::Snippet)
-                                            .with_sort_text(format!("z_{type_name}")),
-                                        );
-                                    }
+                                    items.push(
+                                        CompletionItem::new(
+                                            inline_fragment_label,
+                                            CompletionKind::Type,
+                                        )
+                                        .with_insert_text(format!(
+                                            "... on {type_name} {{\n  $0\n}}"
+                                        ))
+                                        .with_insert_text_format(InsertTextFormat::Snippet)
+                                        .with_sort_text(format!("z_{type_name}")),
+                                    );
                                 }
                             }
                         }
