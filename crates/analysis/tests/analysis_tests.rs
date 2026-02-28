@@ -3,7 +3,7 @@
 //! These tests verify validation, schema merging, and document validation.
 
 use graphql_analysis::{
-    analyze_field_usage, file_diagnostics, file_validation_diagnostics,
+    analyze_field_usage, file_diagnostics, file_validation_diagnostics, find_unused_fields,
     merged_schema::merged_schema_with_diagnostics, validate_document_file, validate_file,
     FieldCoverageReport, TypeCoverage,
 };
@@ -2021,5 +2021,120 @@ fn test_issue_650_linear_lookup_in_field_usage() {
     assert_eq!(
         user_coverage.total_fields, 3,
         "User type should have 3 fields total"
+    );
+}
+
+// ============================================================================
+// Issue #646: Per-file aggregation for linting
+// ============================================================================
+
+#[test]
+#[allow(clippy::similar_names)]
+fn test_issue_646_find_unused_fields_avoids_full_reanalysis() {
+    use graphql_base_db::{DocumentFileIds, FileEntry, FileEntryMap, SchemaFileIds};
+    use graphql_test_utils::tracking::{queries, TrackedDatabase};
+    use salsa::Setter;
+    use std::collections::HashMap;
+
+    fn create_tracked_project_files(
+        db: &TrackedDatabase,
+        schema_files: &[(FileId, FileContent, FileMetadata)],
+        document_files: &[(FileId, FileContent, FileMetadata)],
+    ) -> graphql_base_db::ProjectFiles {
+        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
+        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
+
+        let mut entries = HashMap::new();
+        for (id, content, metadata) in schema_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+        for (id, content, metadata) in document_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+
+        let schema_file_ids = SchemaFileIds::new(db, Arc::new(schema_ids));
+        let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
+        let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
+
+        graphql_base_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+    }
+
+    let mut db = TrackedDatabase::new();
+
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from("type Query { hello: String, world: String }"),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    let doc_a_id = FileId::new(1);
+    let doc_a_content = FileContent::new(&db, Arc::from("query A { hello }"));
+    let doc_a_metadata = FileMetadata::new(
+        &db,
+        doc_a_id,
+        FileUri::new("a.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let doc_b_id = FileId::new(2);
+    let doc_b_content = FileContent::new(&db, Arc::from("query B { world }"));
+    let doc_b_metadata = FileMetadata::new(
+        &db,
+        doc_b_id,
+        FileUri::new("b.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_tracked_project_files(
+        &db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[
+            (doc_a_id, doc_a_content, doc_a_metadata),
+            (doc_b_id, doc_b_content, doc_b_metadata),
+        ],
+    );
+
+    // Initial call to populate cache
+    let _unused = find_unused_fields(&db, project_files);
+
+    let checkpoint = db.checkpoint();
+
+    // Edit file A only
+    doc_a_content
+        .set_text(&mut db)
+        .to(Arc::from("query A { hello world }"));
+
+    // Re-query after editing file A
+    let _unused2 = find_unused_fields(&db, project_files);
+
+    // After the fix, find_unused_fields should use per-file aggregation,
+    // so operation_body for file B should NOT be re-fetched.
+    // This test FAILS on the current code because find_unused_fields
+    // manually walks all operations and fetches operation_body for each.
+    let body_b = db.count_since(queries::OPERATION_BODY, checkpoint);
+
+    // The current (buggy) code calls operation_body for ALL files on re-query.
+    // After the fix, operation_body should not be called at all because the
+    // new implementation uses per-file aggregation queries instead.
+    // We check that operation_body is NOT re-executed for the unchanged file.
+    // Since the tracking counts all operation_body calls (not per-file), we need
+    // a different approach: the fixed code should call operation_body ZERO times
+    // because it uses all_used_schema_coordinates instead.
+    assert_eq!(
+        body_b, 0,
+        "find_unused_fields should NOT call operation_body after fix. \
+         Current code walks all operations directly instead of using per-file aggregation. \
+         Got {body_b} operation_body call(s)."
     );
 }
