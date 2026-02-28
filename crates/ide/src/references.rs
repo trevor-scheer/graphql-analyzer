@@ -5,6 +5,8 @@
 //! - Type references (in schema and documents)
 //! - Field references (definitions and usages)
 
+use std::sync::Arc;
+
 use crate::helpers::{
     find_block_for_position, find_field_usages_in_parse, find_fragment_definition_in_parse,
     find_fragment_spreads_in_parse, find_type_definition_in_parse, find_type_references_in_parse,
@@ -256,8 +258,8 @@ pub fn find_field_references(
 
     // Build target coordinates for pre-filtering document files.
     // For interface fields, expand targets to include implementing types.
-    let field_name_arc: std::sync::Arc<str> = std::sync::Arc::from(field_name);
-    let type_name_arc: std::sync::Arc<str> = std::sync::Arc::from(type_name);
+    let field_name_arc: Arc<str> = Arc::from(field_name);
+    let type_name_arc: Arc<str> = Arc::from(type_name);
     let mut target_coords = vec![graphql_hir::SchemaCoordinate {
         type_name: type_name_arc.clone(),
         field_name: field_name_arc.clone(),
