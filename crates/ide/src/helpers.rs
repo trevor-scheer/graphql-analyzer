@@ -181,26 +181,6 @@ pub fn find_type_definition_in_parse(
     None
 }
 
-/// Find all type definitions and extensions matching a name in a parsed file.
-/// Returns all matching ranges for multi-location goto-def.
-#[allow(dead_code)]
-pub fn find_all_type_definitions_in_parse(
-    parse: &graphql_syntax::Parse,
-    type_name: &str,
-) -> Vec<Range> {
-    use crate::symbol::find_all_type_definitions_full_range;
-
-    let mut results = Vec::new();
-    for doc in parse.documents() {
-        for ranges in find_all_type_definitions_full_range(doc.tree, type_name) {
-            let line_index = graphql_syntax::LineIndex::new(doc.source);
-            let range = offset_range_to_range(&line_index, ranges.name_start, ranges.name_end);
-            results.push(adjust_range_for_line_offset(range, doc.line_offset));
-        }
-    }
-    results
-}
-
 /// Find all fragment spreads in a parsed file, handling all document types uniformly
 #[allow(unused_variables)]
 pub fn find_fragment_spreads_in_parse(
@@ -467,58 +447,6 @@ pub fn find_operation_definition_in_tree(
                     let end: usize = range.end().into();
                     let pos_range = offset_range_to_range(line_index, start, end);
                     return Some(adjust_range_for_line_offset(pos_range, line_offset));
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Find argument definition in schema type's field
-#[allow(dead_code)]
-pub fn find_argument_definition_in_tree(
-    tree: &apollo_parser::SyntaxTree,
-    type_name: &str,
-    field_name: &str,
-    arg_name: &str,
-    line_index: &graphql_syntax::LineIndex,
-    line_offset: u32,
-) -> Option<Range> {
-    use apollo_parser::cst::{CstNode, Definition};
-
-    let doc = tree.document();
-    for definition in doc.definitions() {
-        let (name_node, fields_def) = match &definition {
-            Definition::ObjectTypeDefinition(obj) => (obj.name(), obj.fields_definition()),
-            Definition::InterfaceTypeDefinition(iface) => (iface.name(), iface.fields_definition()),
-            Definition::ObjectTypeExtension(ext) => (ext.name(), ext.fields_definition()),
-            Definition::InterfaceTypeExtension(ext) => (ext.name(), ext.fields_definition()),
-            _ => continue,
-        };
-
-        let Some(name) = name_node else { continue };
-        if name.text() != type_name {
-            continue;
-        }
-
-        let Some(fields) = fields_def else { continue };
-        for field in fields.field_definitions() {
-            let Some(fname) = field.name() else { continue };
-            if fname.text() != field_name {
-                continue;
-            }
-
-            if let Some(args_def) = field.arguments_definition() {
-                for input_val in args_def.input_value_definitions() {
-                    if let Some(aname) = input_val.name() {
-                        if aname.text() == arg_name {
-                            let range = aname.syntax().text_range();
-                            let start: usize = range.start().into();
-                            let end: usize = range.end().into();
-                            let pos_range = offset_range_to_range(line_index, start, end);
-                            return Some(adjust_range_for_line_offset(pos_range, line_offset));
-                        }
-                    }
                 }
             }
         }

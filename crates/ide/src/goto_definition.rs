@@ -190,8 +190,8 @@ pub fn goto_definition(
                 .find(|f| f.name.as_ref() == field_name)?;
             let arg = field.arguments.iter().find(|a| a.name.as_ref() == name)?;
 
-            let file_path = registry.get_path(field.file_id)?;
-            let content = registry.get_content(field.file_id)?;
+            let file_path = registry.get_path(arg.file_id)?;
+            let content = registry.get_content(arg.file_id)?;
             let line_index = graphql_syntax::line_index(db, content);
             let start: usize = arg.name_range.start().into();
             let end: usize = arg.name_range.end().into();
