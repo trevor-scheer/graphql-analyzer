@@ -90,15 +90,14 @@ pub fn find_unused_fields(
     // Step 2: Collect all used fields by walking operations and fragments
     let mut used_fields: HashSet<(Arc<str>, Arc<str>)> = HashSet::new();
     let doc_ids = project_files.document_file_ids(db).ids(db);
-    let document_files: Vec<(
+    let document_files: HashMap<
         graphql_base_db::FileId,
-        graphql_base_db::FileContent,
-        graphql_base_db::FileMetadata,
-    )> = doc_ids
+        (graphql_base_db::FileContent, graphql_base_db::FileMetadata),
+    > = doc_ids
         .iter()
         .filter_map(|file_id| {
             graphql_base_db::file_lookup(db, project_files, *file_id)
-                .map(|(content, metadata)| (*file_id, content, metadata))
+                .map(|(content, metadata)| (*file_id, (content, metadata)))
         })
         .collect();
 
@@ -111,10 +110,7 @@ pub fn find_unused_fields(
             _ => "Query", // fallback for future operation types
         };
 
-        if let Some((_, content, metadata)) = document_files
-            .iter()
-            .find(|(fid, _, _)| *fid == operation.file_id)
-        {
+        if let Some((content, metadata)) = document_files.get(&operation.file_id) {
             let body = graphql_hir::operation_body(db, *content, *metadata, operation.index);
 
             let root_type = Arc::from(root_type_name);
@@ -220,17 +216,16 @@ pub fn analyze_field_usage(
     let operations = graphql_hir::all_operations(db, project_files);
     let all_fragments = graphql_hir::all_fragments(db, project_files);
 
-    // Build document files lookup
+    // Build document files lookup for O(1) access by FileId
     let doc_ids = project_files.document_file_ids(db).ids(db);
-    let document_files: Vec<(
+    let document_files: HashMap<
         graphql_base_db::FileId,
-        graphql_base_db::FileContent,
-        graphql_base_db::FileMetadata,
-    )> = doc_ids
+        (graphql_base_db::FileContent, graphql_base_db::FileMetadata),
+    > = doc_ids
         .iter()
         .filter_map(|file_id| {
             graphql_base_db::file_lookup(db, project_files, *file_id)
-                .map(|(content, metadata)| (*file_id, content, metadata))
+                .map(|(content, metadata)| (*file_id, (content, metadata)))
         })
         .collect();
 
@@ -288,10 +283,7 @@ pub fn analyze_field_usage(
             .as_ref()
             .map_or_else(|| Arc::from("<anonymous>"), Arc::clone);
 
-        if let Some((_, content, metadata)) = document_files
-            .iter()
-            .find(|(fid, _, _)| *fid == operation.file_id)
-        {
+        if let Some((content, metadata)) = document_files.get(&operation.file_id) {
             let body = graphql_hir::operation_body(db, *content, *metadata, operation.index);
 
             // Collect fields used in this operation
@@ -348,11 +340,10 @@ fn collect_field_usages_from_selections(
     schema: &HashMap<Arc<str>, graphql_hir::TypeDef>,
     all_fragments: &HashMap<Arc<str>, graphql_hir::FragmentStructure>,
     db: &dyn GraphQLAnalysisDatabase,
-    document_files: &[(
+    document_files: &HashMap<
         graphql_base_db::FileId,
-        graphql_base_db::FileContent,
-        graphql_base_db::FileMetadata,
-    )],
+        (graphql_base_db::FileContent, graphql_base_db::FileMetadata),
+    >,
     used_fields: &mut HashSet<(Arc<str>, Arc<str>)>,
     visited_fragments: &mut HashSet<Arc<str>>,
 ) {
@@ -395,10 +386,7 @@ fn collect_field_usages_from_selections(
                 visited_fragments.insert(fragment_name.clone());
 
                 if let Some(fragment) = all_fragments.get(fragment_name) {
-                    if let Some((_, content, metadata)) = document_files
-                        .iter()
-                        .find(|(fid, _, _)| *fid == fragment.file_id)
-                    {
+                    if let Some((content, metadata)) = document_files.get(&fragment.file_id) {
                         let fragment_body = graphql_hir::fragment_body(
                             db,
                             *content,
@@ -473,11 +461,10 @@ fn collect_used_fields_from_selections(
     schema: &HashMap<Arc<str>, graphql_hir::TypeDef>,
     all_fragments: &HashMap<Arc<str>, graphql_hir::FragmentStructure>,
     db: &dyn GraphQLAnalysisDatabase,
-    document_files: &[(
+    document_files: &HashMap<
         graphql_base_db::FileId,
-        graphql_base_db::FileContent,
-        graphql_base_db::FileMetadata,
-    )],
+        (graphql_base_db::FileContent, graphql_base_db::FileMetadata),
+    >,
     used_fields: &mut HashSet<(Arc<str>, Arc<str>)>,
     visited_fragments: &mut HashSet<Arc<str>>,
 ) {
@@ -522,10 +509,7 @@ fn collect_used_fields_from_selections(
                 visited_fragments.insert(fragment_name.clone());
 
                 if let Some(fragment) = all_fragments.get(fragment_name) {
-                    if let Some((_, content, metadata)) = document_files
-                        .iter()
-                        .find(|(fid, _, _)| *fid == fragment.file_id)
-                    {
+                    if let Some((content, metadata)) = document_files.get(&fragment.file_id) {
                         let fragment_body = graphql_hir::fragment_body(
                             db,
                             *content,

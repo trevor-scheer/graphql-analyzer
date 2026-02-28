@@ -1914,3 +1914,112 @@ fn test_issue_644_operation_name_change_does_not_cascade_to_fragment_only_file()
          Expected 0 re-validations for file A, got {total_revalidations}"
     );
 }
+
+// ============================================================================
+// HashMap-based lookup tests (issue #650)
+// ============================================================================
+
+#[test]
+fn test_issue_650_linear_lookup_in_field_usage() {
+    // This test verifies that analyze_field_usage works correctly with
+    // HashMap-based document_files lookup instead of linear Vec scan.
+    // The HashMap provides O(1) file lookup vs O(n) linear scan.
+    let mut db = TestDatabaseWithProject::default();
+
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from(
+            r"
+            type Query {
+                user: User
+            }
+
+            type User {
+                id: ID!
+                name: String!
+                email: String!
+            }
+            ",
+        ),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    // Create multiple document files to exercise the lookup
+    let doc1_id = FileId::new(1);
+    let doc1_content = FileContent::new(
+        &db,
+        Arc::from(
+            r"
+            query GetUser {
+                user {
+                    id
+                    name
+                }
+            }
+            ",
+        ),
+    );
+    let doc1_metadata = FileMetadata::new(
+        &db,
+        doc1_id,
+        FileUri::new("query1.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let doc2_id = FileId::new(2);
+    let doc2_content = FileContent::new(
+        &db,
+        Arc::from(
+            r"
+            query GetUserEmail {
+                user {
+                    email
+                }
+            }
+            ",
+        ),
+    );
+    let doc2_metadata = FileMetadata::new(
+        &db,
+        doc2_id,
+        FileUri::new("query2.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_project_files(
+        &mut db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[
+            (doc1_id, doc1_content, doc1_metadata),
+            (doc2_id, doc2_content, doc2_metadata),
+        ],
+    );
+    db.set_project_files(Some(project_files));
+
+    let report = analyze_field_usage(&db, project_files);
+
+    // All User fields should have usage data
+    let user_coverage = report
+        .type_coverage
+        .get(&Arc::from("User") as &Arc<str>)
+        .expect("User type coverage should exist");
+
+    // id and name are used in query1, email in query2
+    assert_eq!(
+        user_coverage.used_fields, 3,
+        "All three User fields should be covered"
+    );
+    assert_eq!(
+        user_coverage.total_fields, 3,
+        "User type should have 3 fields total"
+    );
+}
