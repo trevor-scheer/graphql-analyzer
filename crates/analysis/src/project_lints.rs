@@ -169,15 +169,92 @@ pub fn field_usage_for_type(
     project_files: graphql_base_db::ProjectFiles,
     type_name: Arc<str>,
 ) -> Arc<HashMap<Arc<str>, FieldUsage>> {
-    // UNOPTIMIZED: delegates to full project analysis and filters
-    let full_report = analyze_field_usage(db, project_files);
-    let mut result = HashMap::new();
-    for ((tn, field_name), usage) in &full_report.field_usages {
-        if tn.as_ref() == type_name.as_ref() {
-            result.insert(field_name.clone(), usage.clone());
+    let schema = graphql_hir::schema_types(db, project_files);
+    let Some(type_def) = schema.get(&type_name) else {
+        return Arc::new(HashMap::new());
+    };
+
+    if !matches!(
+        type_def.kind,
+        graphql_hir::TypeDefKind::Object | graphql_hir::TypeDefKind::Interface
+    ) {
+        return Arc::new(HashMap::new());
+    }
+
+    let mut field_usages: HashMap<Arc<str>, FieldUsage> = HashMap::new();
+    for field in &type_def.fields {
+        field_usages.insert(
+            field.name.clone(),
+            FieldUsage {
+                type_name: type_name.clone(),
+                field_name: field.name.clone(),
+                usage_count: 0,
+                operations: Vec::new(),
+            },
+        );
+    }
+
+    let operations = graphql_hir::all_operations(db, project_files);
+    let all_fragments = graphql_hir::all_fragments(db, project_files);
+    let doc_ids = project_files.document_file_ids(db).ids(db);
+    let document_files: Vec<(
+        graphql_base_db::FileId,
+        graphql_base_db::FileContent,
+        graphql_base_db::FileMetadata,
+    )> = doc_ids
+        .iter()
+        .filter_map(|file_id| {
+            graphql_base_db::file_lookup(db, project_files, *file_id)
+                .map(|(content, metadata)| (*file_id, content, metadata))
+        })
+        .collect();
+
+    for operation in operations.iter() {
+        #[allow(clippy::match_same_arms)]
+        let root_type_name = match operation.operation_type {
+            graphql_hir::OperationType::Query => "Query",
+            graphql_hir::OperationType::Mutation => "Mutation",
+            graphql_hir::OperationType::Subscription => "Subscription",
+            _ => "Query",
+        };
+
+        let operation_name = operation
+            .name
+            .as_ref()
+            .map_or_else(|| Arc::from("<anonymous>"), Arc::clone);
+
+        if let Some((_, content, metadata)) = document_files
+            .iter()
+            .find(|(fid, _, _)| *fid == operation.file_id)
+        {
+            let body = graphql_hir::operation_body(db, *content, *metadata, operation.index);
+
+            let mut operation_fields: HashSet<Arc<str>> = HashSet::new();
+            let root_type = Arc::from(root_type_name);
+            collect_type_field_usages(
+                &body.selections,
+                &root_type,
+                &type_name,
+                schema,
+                all_fragments,
+                db,
+                &document_files,
+                &mut operation_fields,
+                &mut HashSet::new(),
+            );
+
+            for field_name in operation_fields {
+                if let Some(usage) = field_usages.get_mut(&field_name) {
+                    usage.usage_count += 1;
+                    if !usage.operations.contains(&operation_name) {
+                        usage.operations.push(operation_name.clone());
+                    }
+                }
+            }
         }
     }
-    Arc::new(result)
+
+    Arc::new(field_usages)
 }
 
 /// Analyze field usage across all operations in the project
@@ -404,6 +481,113 @@ fn collect_field_usages_from_selections(
         }
     }
 }
+
+/// Helper to collect field usages for a specific target type only.
+/// Unlike `collect_field_usages_from_selections` which records all fields,
+/// this only records fields belonging to the target type.
+#[allow(clippy::too_many_arguments)]
+fn collect_type_field_usages(
+    selections: &[graphql_hir::Selection],
+    current_type: &Arc<str>,
+    target_type: &Arc<str>,
+    schema: &HashMap<Arc<str>, graphql_hir::TypeDef>,
+    all_fragments: &HashMap<Arc<str>, graphql_hir::FragmentStructure>,
+    db: &dyn GraphQLAnalysisDatabase,
+    document_files: &[(
+        graphql_base_db::FileId,
+        graphql_base_db::FileContent,
+        graphql_base_db::FileMetadata,
+    )],
+    used_fields: &mut HashSet<Arc<str>>,
+    visited_fragments: &mut HashSet<Arc<str>>,
+) {
+    for selection in selections {
+        match selection {
+            graphql_hir::Selection::Field {
+                name,
+                selection_set,
+                ..
+            } => {
+                if current_type == target_type {
+                    used_fields.insert(name.clone());
+                }
+
+                if let Some(type_def) = schema.get(current_type) {
+                    if let Some(field) = type_def.fields.iter().find(|f| f.name == *name) {
+                        let field_type = unwrap_type_name(&field.type_ref.name);
+
+                        if !selection_set.is_empty() {
+                            collect_type_field_usages(
+                                selection_set,
+                                &field_type,
+                                target_type,
+                                schema,
+                                all_fragments,
+                                db,
+                                document_files,
+                                used_fields,
+                                visited_fragments,
+                            );
+                        }
+                    }
+                }
+            }
+            graphql_hir::Selection::FragmentSpread {
+                name: fragment_name,
+            } => {
+                if visited_fragments.contains(fragment_name) {
+                    continue;
+                }
+                visited_fragments.insert(fragment_name.clone());
+
+                if let Some(fragment) = all_fragments.get(fragment_name) {
+                    if let Some((_, content, metadata)) = document_files
+                        .iter()
+                        .find(|(fid, _, _)| *fid == fragment.file_id)
+                    {
+                        let fragment_body = graphql_hir::fragment_body(
+                            db,
+                            *content,
+                            *metadata,
+                            fragment_name.clone(),
+                        );
+
+                        collect_type_field_usages(
+                            &fragment_body.selections,
+                            &fragment.type_condition,
+                            target_type,
+                            schema,
+                            all_fragments,
+                            db,
+                            document_files,
+                            used_fields,
+                            visited_fragments,
+                        );
+                    }
+                }
+            }
+            graphql_hir::Selection::InlineFragment {
+                type_condition,
+                selection_set,
+            } => {
+                let fragment_type = type_condition.as_ref().unwrap_or(current_type);
+
+                collect_type_field_usages(
+                    selection_set,
+                    fragment_type,
+                    target_type,
+                    schema,
+                    all_fragments,
+                    db,
+                    document_files,
+                    used_fields,
+                    visited_fragments,
+                );
+            }
+        }
+    }
+}
+
 
 /// Unwrap a type name (remove list/non-null wrappers)
 fn unwrap_type_name(type_name: &str) -> Arc<str> {

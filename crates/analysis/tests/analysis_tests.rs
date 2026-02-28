@@ -2182,8 +2182,7 @@ fn test_issue_645_field_usage_for_type_is_targeted() {
     );
 
     // Query usage for User type only
-    let user_usage =
-        graphql_analysis::field_usage_for_type(&db, project_files, Arc::from("User"));
+    let user_usage = graphql_analysis::field_usage_for_type(&db, project_files, Arc::from("User"));
     assert_eq!(user_usage.len(), 2); // id and name
 
     // Take a checkpoint, then edit the document and re-query just User.
@@ -2193,17 +2192,15 @@ fn test_issue_645_field_usage_for_type_is_targeted() {
     let checkpoint = db.checkpoint();
 
     // Edit the document and re-query just User
-    doc_content
-        .set_text(&mut db)
-        .to(Arc::from(
-            r"
+    doc_content.set_text(&mut db).to(Arc::from(
+        r"
             query GetUser {
                 user {
                     id
                 }
             }
             ",
-        ));
+    ));
 
     let _user_usage2 =
         graphql_analysis::field_usage_for_type(&db, project_files, Arc::from("User"));
