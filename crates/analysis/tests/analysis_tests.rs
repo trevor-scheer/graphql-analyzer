@@ -1631,39 +1631,41 @@ fn test_non_relay_unknown_directive_args_still_reported() {
 // Conditional index dependency tests (issue #644)
 // ============================================================================
 
+/// Helper for issue #644 tests: creates `ProjectFiles` using the `TrackedDatabase`
+/// so that Salsa query execution counts can be observed.
+fn create_tracked_project_files(
+    db: &graphql_test_utils::tracking::TrackedDatabase,
+    schema_files: &[(FileId, FileContent, FileMetadata)],
+    document_files: &[(FileId, FileContent, FileMetadata)],
+) -> graphql_base_db::ProjectFiles {
+    use graphql_base_db::{DocumentFileIds, FileEntry, FileEntryMap, SchemaFileIds};
+    use std::collections::HashMap;
+
+    let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
+    let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
+
+    let mut entries = HashMap::new();
+    for (id, content, metadata) in schema_files {
+        let entry = FileEntry::new(db, *content, *metadata);
+        entries.insert(*id, entry);
+    }
+    for (id, content, metadata) in document_files {
+        let entry = FileEntry::new(db, *content, *metadata);
+        entries.insert(*id, entry);
+    }
+
+    let schema_file_ids = SchemaFileIds::new(db, Arc::new(schema_ids));
+    let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
+    let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
+
+    graphql_base_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+}
+
 #[test]
 #[allow(clippy::similar_names)]
 fn test_issue_644_body_edit_does_not_revalidate_other_files() {
     use graphql_test_utils::tracking::{queries, TrackedDatabase};
     use salsa::Setter;
-
-    fn create_tracked_project_files(
-        db: &TrackedDatabase,
-        schema_files: &[(FileId, FileContent, FileMetadata)],
-        document_files: &[(FileId, FileContent, FileMetadata)],
-    ) -> graphql_base_db::ProjectFiles {
-        use graphql_base_db::{DocumentFileIds, FileEntry, FileEntryMap, SchemaFileIds};
-        use std::collections::HashMap;
-
-        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
-        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
-
-        let mut entries = HashMap::new();
-        for (id, content, metadata) in schema_files {
-            let entry = FileEntry::new(db, *content, *metadata);
-            entries.insert(*id, entry);
-        }
-        for (id, content, metadata) in document_files {
-            let entry = FileEntry::new(db, *content, *metadata);
-            entries.insert(*id, entry);
-        }
-
-        let schema_file_ids = SchemaFileIds::new(db, Arc::new(schema_ids));
-        let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
-        let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
-
-        graphql_base_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
-    }
 
     let mut db = TrackedDatabase::default();
 
@@ -1725,16 +1727,16 @@ fn test_issue_644_body_edit_does_not_revalidate_other_files() {
     // Re-validate file B - should NOT re-execute (body edit in A doesn't affect B)
     let _diag_b2 = validate_document_file(&db, file_b_content, file_b_metadata, project_files);
 
-    let validate_b_count = db.count_since(queries::VALIDATE_DOCUMENT_FILE, checkpoint);
+    let total_revalidations = db.count_since(queries::VALIDATE_DOCUMENT_FILE, checkpoint);
     // We expect at most 1 execution (for file A). File B should be cached.
     // count_since tracks all executions of the query, so we check that
     // file A was re-validated but the total is low (ideally 1, just file A).
     // A more precise check: we re-validate A, then B. If B was cached,
     // validate_document_file executed only once (for A).
     assert!(
-        validate_b_count <= 1,
+        total_revalidations <= 1,
         "File B should not be re-validated when file A's body changes. \
-         Expected at most 1 validate_document_file execution (for file A), got {validate_b_count}"
+         Expected at most 1 validate_document_file execution (for file A), got {total_revalidations}"
     );
 }
 
@@ -1743,34 +1745,6 @@ fn test_issue_644_body_edit_does_not_revalidate_other_files() {
 fn test_issue_644_structural_edit_only_affects_dependent_files() {
     use graphql_test_utils::tracking::{queries, TrackedDatabase};
     use salsa::Setter;
-
-    fn create_tracked_project_files(
-        db: &TrackedDatabase,
-        schema_files: &[(FileId, FileContent, FileMetadata)],
-        document_files: &[(FileId, FileContent, FileMetadata)],
-    ) -> graphql_base_db::ProjectFiles {
-        use graphql_base_db::{DocumentFileIds, FileEntry, FileEntryMap, SchemaFileIds};
-        use std::collections::HashMap;
-
-        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
-        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
-
-        let mut entries = HashMap::new();
-        for (id, content, metadata) in schema_files {
-            let entry = FileEntry::new(db, *content, *metadata);
-            entries.insert(*id, entry);
-        }
-        for (id, content, metadata) in document_files {
-            let entry = FileEntry::new(db, *content, *metadata);
-            entries.insert(*id, entry);
-        }
-
-        let schema_file_ids = SchemaFileIds::new(db, Arc::new(schema_ids));
-        let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
-        let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
-
-        graphql_base_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
-    }
 
     let mut db = TrackedDatabase::default();
 
@@ -1864,5 +1838,79 @@ fn test_issue_644_structural_edit_only_affects_dependent_files() {
         total_revalidations >= 2,
         "Files B (edited) and C (has fragments) should be re-validated. \
          Expected at least 2 re-validations, got {total_revalidations}"
+    );
+}
+
+#[test]
+#[allow(clippy::similar_names)]
+fn test_issue_644_operation_name_change_does_not_cascade_to_fragment_only_file() {
+    use graphql_test_utils::tracking::{queries, TrackedDatabase};
+    use salsa::Setter;
+
+    let mut db = TrackedDatabase::default();
+
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    // File A: only a fragment definition (no operations)
+    let file_a_id = FileId::new(1);
+    let file_a_content = FileContent::new(&db, Arc::from("fragment F on Query { hello }"));
+    let file_a_metadata = FileMetadata::new(
+        &db,
+        file_a_id,
+        FileUri::new("a.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    // File B: a named operation
+    let file_b_id = FileId::new(2);
+    let file_b_content = FileContent::new(&db, Arc::from("query GetHello { hello }"));
+    let file_b_metadata = FileMetadata::new(
+        &db,
+        file_b_id,
+        FileUri::new("b.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_tracked_project_files(
+        &db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[
+            (file_a_id, file_a_content, file_a_metadata),
+            (file_b_id, file_b_content, file_b_metadata),
+        ],
+    );
+
+    // Initial validation
+    let _diag_a = validate_document_file(&db, file_a_content, file_a_metadata, project_files);
+    let _diag_b = validate_document_file(&db, file_b_content, file_b_metadata, project_files);
+
+    let checkpoint = db.checkpoint();
+
+    // Structural edit to file B: rename the operation (changes operation name index)
+    file_b_content
+        .set_text(&mut db)
+        .to(Arc::from("query GetWorld { hello }"));
+
+    // Re-validate file A only
+    let _diag_a2 = validate_document_file(&db, file_a_content, file_a_metadata, project_files);
+
+    let total_revalidations = db.count_since(queries::VALIDATE_DOCUMENT_FILE, checkpoint);
+
+    // File A has no operations, so it should not depend on the operation name index.
+    // Renaming an operation in file B should not cause file A to be re-validated.
+    assert_eq!(
+        total_revalidations, 0,
+        "File A (fragment-only) should not be re-validated when operation names change. \
+         Expected 0 re-validations for file A, got {total_revalidations}"
     );
 }
