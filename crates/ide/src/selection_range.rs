@@ -65,7 +65,6 @@ fn selection_range_at_position(
 /// Find all ancestor ranges at the given offset.
 ///
 /// Returns ranges from outermost (document) to innermost (token at cursor).
-#[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
 fn find_ancestor_ranges(
     tree: &apollo_parser::SyntaxTree,
     line_index: &graphql_syntax::LineIndex,
@@ -335,7 +334,6 @@ fn collect_fragment_ranges(
 }
 
 /// Collect ranges within a selection set (recursive for nested fields)
-#[allow(clippy::too_many_lines)]
 fn collect_selection_set_ranges(
     selection_set: &cst::SelectionSet,
     byte_offset: usize,
@@ -1157,7 +1155,6 @@ fn contains_offset(node: &apollo_parser::SyntaxNode, offset: usize) -> bool {
 }
 
 /// Convert a syntax node's range to an IDE range
-#[allow(clippy::cast_possible_truncation)]
 fn syntax_range_to_ide_range(
     node: &apollo_parser::SyntaxNode,
     line_index: &graphql_syntax::LineIndex,

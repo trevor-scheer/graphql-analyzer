@@ -11,7 +11,6 @@
 use super::{AnalysisHost, DiagnosticSeverity, DocumentKind, FilePath, Language};
 
 #[test]
-#[allow(clippy::similar_names)]
 fn test_analysis_host_isolation_between_projects() {
     // Project 1: StarWars
     let mut host1 = AnalysisHost::new();
