@@ -14,9 +14,8 @@ rustflags = [
   "-Aclippy::missing_panics_doc",
   # Cargo
   "-Aclippy::multiple_crate_versions",
-  # Pedantic - not useful for this project:
-  # - too_many_lines: IDE/LSP handlers legitimately handle many cases sequentially
-  # - cast_possible_truncation: All uses are safe usize→u32 for line/column numbers
+  # Pedantic - not useful for this project
   "-Aclippy::too_many_lines",
   "-Aclippy::cast_possible_truncation",
+  "-Aclippy::similar_names",
 ]
