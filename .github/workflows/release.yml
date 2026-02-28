@@ -114,7 +114,7 @@ jobs:
           Remove-Item dist/graphql-mcp.exe
 
       - name: Upload binary artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: binaries-${{ matrix.target }}
           path: dist/*
@@ -122,14 +122,14 @@ jobs:
       # Also upload raw LSP binary for VS Code extension bundling
       - name: Upload raw LSP binary (Unix)
         if: runner.os != 'Windows'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: lsp-raw-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/graphql-lsp
 
       - name: Upload raw LSP binary (Windows)
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: lsp-raw-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/graphql-lsp.exe
@@ -169,7 +169,7 @@ jobs:
           cache-dependency-path: editors/vscode/package-lock.json
 
       - name: Download LSP binary
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: lsp-raw-${{ matrix.rust_target }}
           path: editors/vscode/bin
@@ -191,7 +191,7 @@ jobs:
         run: npx vsce package --target ${{ matrix.vscode_target }}
 
       - name: Upload extension artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: vscode-extension-${{ matrix.vscode_target }}
           path: editors/vscode/*.vsix
@@ -207,7 +207,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -261,7 +261,7 @@ jobs:
         run: npm ci
 
       - name: Download all VSIX artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: vscode-extension-*
           path: vsix-artifacts

@@ -70,14 +70,14 @@ jobs:
 
       - name: Upload LSP binary (Unix)
         if: runner.os != 'Windows'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: lsp-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/graphql-lsp
 
       - name: Upload LSP binary (Windows)
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: lsp-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/graphql-lsp.exe
@@ -116,7 +116,7 @@ jobs:
           cache-dependency-path: editors/vscode/package-lock.json
 
       - name: Download LSP binary
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: lsp-${{ matrix.rust_target }}
           path: editors/vscode/bin
@@ -138,7 +138,7 @@ jobs:
         run: npx vsce package --target ${{ matrix.vscode_target }}
 
       - name: Upload VSIX
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: vsix-${{ matrix.vscode_target }}
           path: editors/vscode/*.vsix
