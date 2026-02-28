@@ -1409,11 +1409,11 @@ mod source_location_tests {
         let schema1_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 type Query {
                     user: User
                 }
-                "#,
+                ",
             ),
         );
         let schema1_metadata = FileMetadata::new(
@@ -1428,12 +1428,12 @@ mod source_location_tests {
         let schema2_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
                 type User {
                     id: ID!
                     name: String!
                 }
-                "#,
+                ",
             ),
         );
         let schema2_metadata = FileMetadata::new(
