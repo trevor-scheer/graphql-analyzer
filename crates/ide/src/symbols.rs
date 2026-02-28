@@ -191,16 +191,16 @@ pub fn workspace_symbols(
 
 /// Extract field ranges for all type definitions in a single AST pass.
 ///
-/// Returns a map of type name to field name/range pairs. This avoids the
-/// per-field AST walk that causes O(n^3) behavior and hangs the LSP on
-/// large generated schema files.
+/// Returns a `HashMap` of type name to inner `HashMap` of field name to
+/// `SymbolRanges`. This avoids the per-field AST walk that causes O(n^3)
+/// behavior and hangs the LSP on large generated schema files.
 fn extract_all_field_ranges(
     tree: &apollo_parser::SyntaxTree,
-) -> HashMap<String, Vec<(String, SymbolRanges)>> {
+) -> HashMap<String, HashMap<String, SymbolRanges>> {
     use apollo_parser::cst::{self, CstNode};
 
     let doc = tree.document();
-    let mut map: HashMap<String, Vec<(String, SymbolRanges)>> = HashMap::new();
+    let mut map: HashMap<String, HashMap<String, SymbolRanges>> = HashMap::new();
 
     for definition in doc.definitions() {
         match &definition {
@@ -224,7 +224,7 @@ fn extract_all_field_ranges(
                 if let (Some(name), Some(fields_def)) =
                     (input.name(), input.input_fields_definition())
                 {
-                    let field_ranges: Vec<(String, SymbolRanges)> = fields_def
+                    let field_ranges: HashMap<String, SymbolRanges> = fields_def
                         .input_value_definitions()
                         .filter_map(|field| {
                             let field_name = field.name()?;
@@ -251,10 +251,10 @@ fn extract_all_field_ranges(
     map
 }
 
-/// Collect field name/range pairs from a `FieldDefinition` iterator.
+/// Collect field name to `SymbolRanges` `HashMap` from a `FieldDefinition` iterator.
 fn collect_field_ranges(
     fields: impl Iterator<Item = apollo_parser::cst::FieldDefinition>,
-) -> Vec<(String, SymbolRanges)> {
+) -> HashMap<String, SymbolRanges> {
     use apollo_parser::cst::CstNode;
 
     fields
@@ -279,7 +279,7 @@ fn collect_field_ranges(
 fn get_field_children_from_map(
     structure: &graphql_hir::FileStructureData,
     type_name: &str,
-    field_ranges_map: &HashMap<String, Vec<(String, SymbolRanges)>>,
+    field_ranges_map: &HashMap<String, HashMap<String, SymbolRanges>>,
     line_index: &graphql_syntax::LineIndex,
     line_offset: u32,
 ) -> Vec<DocumentSymbol> {
@@ -298,7 +298,7 @@ fn get_field_children_from_map(
     let mut children = Vec::new();
 
     for field in &type_def.fields {
-        if let Some((_, ranges)) = field_ranges.iter().find(|(n, _)| n == field.name.as_ref()) {
+        if let Some(ranges) = field_ranges.get(field.name.as_ref()) {
             let range = adjust_range_for_line_offset(
                 offset_range_to_range(line_index, ranges.def_start, ranges.def_end),
                 line_offset,
