@@ -2015,5 +2015,6 @@ fn test_issue_650_linear_lookup_in_field_usage() {
         .expect("User type coverage should exist");
 
     // id and name are used in query1, email in query2
-    assert!(user_coverage.used_fields > 0, "Should find covered fields");
+    assert_eq!(user_coverage.used_fields, 3, "All three User fields should be covered");
+    assert_eq!(user_coverage.total_fields, 3, "User type should have 3 fields total");
 }
