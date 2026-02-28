@@ -35,6 +35,8 @@
 /// - Feature types: [`CompletionItem`], [`HoverResult`], [`Diagnostic`]
 #[cfg(test)]
 mod analysis_host_isolation;
+#[cfg(test)]
+mod diagnostics_for_change_tests;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1547,6 +1549,52 @@ impl Analysis {
             .iter()
             .map(convert_diagnostic)
             .collect()
+    }
+
+    /// Get diagnostics for all files affected by a change.
+    ///
+    /// Always includes diagnostics for the changed file itself.
+    /// If the changed file is a schema file, also re-computes diagnostics for all
+    /// document (executable) files, since they validate against the schema.
+    pub fn diagnostics_for_change(
+        &self,
+        changed_file: &FilePath,
+    ) -> HashMap<FilePath, Vec<Diagnostic>> {
+        let mut result = HashMap::new();
+
+        // Always include diagnostics for the changed file
+        result.insert(changed_file.clone(), self.diagnostics(changed_file));
+
+        // If the changed file is a schema file, re-validate all document files
+        let is_schema = {
+            let registry = self.registry.read();
+            registry
+                .get_file_id(changed_file)
+                .and_then(|id| registry.get_metadata(id))
+                .is_some_and(|metadata| metadata.is_schema(&self.db))
+        };
+
+        if is_schema {
+            let document_files: Vec<FilePath> = {
+                let registry = self.registry.read();
+                registry
+                    .all_file_ids()
+                    .into_iter()
+                    .filter(|&id| {
+                        registry
+                            .get_metadata(id)
+                            .is_some_and(|m| m.is_document(&self.db))
+                    })
+                    .filter_map(|id| registry.get_path(id))
+                    .collect()
+            };
+
+            for doc_file in document_files {
+                result.insert(doc_file.clone(), self.diagnostics(&doc_file));
+            }
+        }
+
+        result
     }
 
     /// Get only validation diagnostics for a file (excludes custom lint rules)

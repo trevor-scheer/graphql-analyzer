@@ -1566,24 +1566,6 @@ documents: "**/*.graphql"
             workspace_uri
         );
     }
-    /// Validate a file using a pre-acquired snapshot
-    ///
-    /// This variant avoids acquiring the host lock again when we already have a snapshot.
-    /// Used by `did_change` after updating a file to avoid double-locking.
-    #[tracing::instrument(skip(self, snapshot), fields(path = %uri.as_str()))]
-    async fn validate_file_with_snapshot(&self, uri: &Uri, snapshot: graphql_ide::Analysis) {
-        let file_path = graphql_ide::FilePath::new(uri.as_str());
-        let diagnostics = snapshot.diagnostics(&file_path);
-
-        let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-            .into_iter()
-            .map(convert_ide_diagnostic)
-            .collect();
-
-        self.client
-            .publish_diagnostics(uri.clone(), lsp_diagnostics, None)
-            .await;
-    }
 }
 
 impl LanguageServer for GraphQLLanguageServer {
@@ -1936,8 +1918,20 @@ impl LanguageServer for GraphQLLanguageServer {
                 .add_file_and_snapshot(&file_path, &final_content, language, document_kind)
                 .await;
 
-            // Validate using pre-acquired snapshot (no lock needed)
-            self.validate_file_with_snapshot(&uri, snapshot).await;
+            // Compute diagnostics for the changed file and any dependents
+            let all_diagnostics = snapshot.diagnostics_for_change(&file_path);
+            for (diag_file_path, diagnostics) in all_diagnostics {
+                let Ok(file_uri) = Uri::from_str(diag_file_path.as_str()) else {
+                    continue;
+                };
+                let lsp_diagnostics: Vec<Diagnostic> = diagnostics
+                    .into_iter()
+                    .map(convert_ide_diagnostic)
+                    .collect();
+                self.client
+                    .publish_diagnostics(file_uri, lsp_diagnostics, None)
+                    .await;
+            }
         }
     }
 
