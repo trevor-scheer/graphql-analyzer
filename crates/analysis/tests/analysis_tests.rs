@@ -1632,6 +1632,7 @@ fn test_non_relay_unknown_directive_args_still_reported() {
 // ============================================================================
 
 #[test]
+#[allow(clippy::similar_names)]
 fn test_issue_644_body_edit_does_not_revalidate_other_files() {
     use graphql_test_utils::tracking::{queries, TrackedDatabase};
     use salsa::Setter;
@@ -1738,6 +1739,7 @@ fn test_issue_644_body_edit_does_not_revalidate_other_files() {
 }
 
 #[test]
+#[allow(clippy::similar_names)]
 fn test_issue_644_structural_edit_only_affects_dependent_files() {
     use graphql_test_utils::tracking::{queries, TrackedDatabase};
     use salsa::Setter;
