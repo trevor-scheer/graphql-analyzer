@@ -2031,35 +2031,8 @@ fn test_issue_650_linear_lookup_in_field_usage() {
 #[test]
 #[allow(clippy::similar_names)]
 fn test_issue_646_find_unused_fields_avoids_full_reanalysis() {
-    use graphql_base_db::{DocumentFileIds, FileEntry, FileEntryMap, SchemaFileIds};
     use graphql_test_utils::tracking::{queries, TrackedDatabase};
     use salsa::Setter;
-    use std::collections::HashMap;
-
-    fn create_tracked_project_files(
-        db: &TrackedDatabase,
-        schema_files: &[(FileId, FileContent, FileMetadata)],
-        document_files: &[(FileId, FileContent, FileMetadata)],
-    ) -> graphql_base_db::ProjectFiles {
-        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
-        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
-
-        let mut entries = HashMap::new();
-        for (id, content, metadata) in schema_files {
-            let entry = FileEntry::new(db, *content, *metadata);
-            entries.insert(*id, entry);
-        }
-        for (id, content, metadata) in document_files {
-            let entry = FileEntry::new(db, *content, *metadata);
-            entries.insert(*id, entry);
-        }
-
-        let schema_file_ids = SchemaFileIds::new(db, Arc::new(schema_ids));
-        let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
-        let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
-
-        graphql_base_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
-    }
 
     let mut db = TrackedDatabase::new();
 
@@ -2136,5 +2109,126 @@ fn test_issue_646_find_unused_fields_avoids_full_reanalysis() {
         "find_unused_fields should NOT call operation_body after fix. \
          Current code walks all operations directly instead of using per-file aggregation. \
          Got {body_b} operation_body call(s)."
+    );
+}
+
+// ============================================================================
+// Issue #645: Targeted field_usage_for_type
+// ============================================================================
+
+#[test]
+fn test_issue_645_field_usage_for_type_is_targeted() {
+    use graphql_test_utils::tracking::{queries, TrackedDatabase};
+    use salsa::Setter;
+
+    let mut db = TrackedDatabase::default();
+
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from(
+            r"
+            type Query {
+                user: User
+                post: Post
+            }
+
+            type User {
+                id: ID!
+                name: String!
+            }
+
+            type Post {
+                id: ID!
+                title: String!
+            }
+            ",
+        ),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    let doc_id = FileId::new(1);
+    let doc_content = FileContent::new(
+        &db,
+        Arc::from(
+            r"
+            query GetUser {
+                user {
+                    id
+                    name
+                }
+            }
+            ",
+        ),
+    );
+    let doc_metadata = FileMetadata::new(
+        &db,
+        doc_id,
+        FileUri::new("query.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_tracked_project_files(
+        &db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[(doc_id, doc_content, doc_metadata)],
+    );
+
+    // Query usage for User type only
+    let user_usage = graphql_analysis::field_usage_for_type(&db, project_files, Arc::from("User"));
+    assert_eq!(user_usage.len(), 2); // id and name
+
+    // Take a checkpoint, then edit the document and re-query just User.
+    // The targeted function should NOT call analyze_field_usage
+    // (the whole-project analysis). If it does, the function is not truly
+    // targeted and is doing unnecessary work for hover.
+    let checkpoint = db.checkpoint();
+
+    // Edit the document and re-query just User
+    doc_content.set_text(&mut db).to(Arc::from(
+        r"
+            query GetUser {
+                user {
+                    id
+                }
+            }
+            ",
+    ));
+
+    let user_usage2 = graphql_analysis::field_usage_for_type(&db, project_files, Arc::from("User"));
+
+    // After removing `name` from the query, its usage_count should be 0
+    assert_eq!(
+        user_usage2
+            .get(&Arc::<str>::from("name"))
+            .unwrap()
+            .usage_count,
+        0,
+        "name field should have usage_count of 0 after being removed from the query"
+    );
+    // `id` is still selected, so its usage_count should be > 0
+    assert!(
+        user_usage2
+            .get(&Arc::<str>::from("id"))
+            .unwrap()
+            .usage_count
+            > 0,
+        "id field should still have usage_count > 0"
+    );
+
+    // After the fix, field_usage_for_type should NOT call analyze_field_usage.
+    // This fails in the stub because the stub delegates to the full analysis.
+    let full_analysis_count = db.count_since(queries::ANALYZE_FIELD_USAGE, checkpoint);
+    assert_eq!(
+        full_analysis_count, 0,
+        "field_usage_for_type should NOT trigger full analyze_field_usage. \
+         It should use its own targeted analysis that only examines the target type."
     );
 }

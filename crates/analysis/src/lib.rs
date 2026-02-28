@@ -18,8 +18,8 @@ pub use merged_schema::{
     MergedSchemaResult,
 };
 pub use project_lints::{
-    analyze_field_usage, find_unused_fields, find_unused_fragments, FieldCoverageReport,
-    FieldUsage, TypeCoverage,
+    analyze_field_usage, field_usage_for_type, find_unused_fields, find_unused_fragments,
+    FieldCoverageReport, FieldUsage, TypeCoverage,
 };
 pub use validation::validate_file;
 

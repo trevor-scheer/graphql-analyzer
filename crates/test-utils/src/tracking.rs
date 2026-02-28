@@ -48,6 +48,7 @@ pub mod queries {
     pub const OPERATION_BODY: &str = "operation_body";
     pub const ALL_USED_SCHEMA_COORDINATES: &str = "all_used_schema_coordinates";
     pub const ALL_USED_FRAGMENT_NAMES: &str = "all_used_fragment_names";
+    pub const ANALYZE_FIELD_USAGE: &str = "analyze_field_usage";
 }
 
 #[derive(Default)]
