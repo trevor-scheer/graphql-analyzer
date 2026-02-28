@@ -1393,3 +1393,319 @@ mod directive_tests {
         assert!(tag_values.contains(&r#""internal""#));
     }
 }
+
+// ============================================================================
+// Source location tests
+// ============================================================================
+
+mod source_location_tests {
+    use super::*;
+
+    #[test]
+    fn test_schema_types_have_correct_file_ids_across_files() {
+        let mut db = TestDatabase::default();
+
+        let schema1_id = FileId::new(0);
+        let schema1_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                type Query {
+                    user: User
+                }
+                ",
+            ),
+        );
+        let schema1_metadata = FileMetadata::new(
+            &db,
+            schema1_id,
+            FileUri::new("schema1.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let schema2_id = FileId::new(1);
+        let schema2_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                type User {
+                    id: ID!
+                    name: String!
+                }
+                ",
+            ),
+        );
+        let schema2_metadata = FileMetadata::new(
+            &db,
+            schema2_id,
+            FileUri::new("schema2.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let project_files = create_project_files(
+            &mut db,
+            &[
+                (schema1_id, schema1_content, schema1_metadata),
+                (schema2_id, schema2_content, schema2_metadata),
+            ],
+            &[],
+        );
+
+        let types = graphql_hir::schema_types(&db, project_files);
+
+        let query_type = types.get("Query").expect("Query type should exist");
+        assert_eq!(query_type.file_id, schema1_id, "Query should be in schema1");
+
+        let user_type = types.get("User").expect("User type should exist");
+        assert_eq!(user_type.file_id, schema2_id, "User should be in schema2");
+    }
+
+    #[test]
+    fn test_type_def_name_range_is_nonzero() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let project_files = create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[],
+        );
+
+        let types = graphql_hir::schema_types(&db, project_files);
+        let query_type = types.get("Query").expect("Query type should exist");
+
+        assert!(
+            !query_type.name_range.is_empty(),
+            "Type name range should be non-empty"
+        );
+
+        let source: &str = &schema_content.text(&db);
+        let start = u32::from(query_type.name_range.start()) as usize;
+        let end = u32::from(query_type.name_range.end()) as usize;
+        assert_eq!(
+            &source[start..end],
+            "Query",
+            "Name range should point to 'Query'"
+        );
+    }
+
+    #[test]
+    fn test_field_name_range_is_nonzero() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let project_files = create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[],
+        );
+
+        let types = graphql_hir::schema_types(&db, project_files);
+        let query_type = types.get("Query").expect("Query type should exist");
+        let hello_field = query_type
+            .fields
+            .iter()
+            .find(|f| f.name.as_ref() == "hello")
+            .expect("hello field should exist");
+
+        assert!(
+            !hello_field.name_range.is_empty(),
+            "Field name range should be non-empty"
+        );
+
+        let source: &str = &schema_content.text(&db);
+        let start = u32::from(hello_field.name_range.start()) as usize;
+        let end = u32::from(hello_field.name_range.end()) as usize;
+        assert_eq!(
+            &source[start..end],
+            "hello",
+            "Name range should point to 'hello'"
+        );
+    }
+
+    #[test]
+    fn test_field_has_correct_file_id_from_extension() {
+        let mut db = TestDatabase::default();
+
+        let schema1_id = FileId::new(0);
+        let schema1_content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
+        let schema1_metadata = FileMetadata::new(
+            &db,
+            schema1_id,
+            FileUri::new("schema1.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let schema2_id = FileId::new(1);
+        let schema2_content =
+            FileContent::new(&db, Arc::from("extend type Query { world: String }"));
+        let schema2_metadata = FileMetadata::new(
+            &db,
+            schema2_id,
+            FileUri::new("schema2.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let project_files = create_project_files(
+            &mut db,
+            &[
+                (schema1_id, schema1_content, schema1_metadata),
+                (schema2_id, schema2_content, schema2_metadata),
+            ],
+            &[],
+        );
+
+        let types = graphql_hir::schema_types(&db, project_files);
+        let query_type = types.get("Query").expect("Query type should exist");
+
+        let hello_field = query_type
+            .fields
+            .iter()
+            .find(|f| f.name.as_ref() == "hello")
+            .expect("hello field should exist");
+        assert_eq!(
+            hello_field.file_id, schema1_id,
+            "hello should be from schema1"
+        );
+
+        let world_field = query_type
+            .fields
+            .iter()
+            .find(|f| f.name.as_ref() == "world")
+            .expect("world field should exist");
+        assert_eq!(
+            world_field.file_id, schema2_id,
+            "world should be from schema2"
+        );
+    }
+
+    #[test]
+    fn test_argument_def_name_range_is_nonzero() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from("type Query { hello(name: String!): String }"),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let project_files = create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[],
+        );
+
+        let types = graphql_hir::schema_types(&db, project_files);
+        let query_type = types.get("Query").expect("Query type should exist");
+        let hello_field = query_type
+            .fields
+            .iter()
+            .find(|f| f.name.as_ref() == "hello")
+            .expect("hello field should exist");
+        let name_arg = hello_field
+            .arguments
+            .iter()
+            .find(|a| a.name.as_ref() == "name")
+            .expect("name argument should exist");
+
+        assert!(
+            !name_arg.name_range.is_empty(),
+            "Argument name range should be non-empty"
+        );
+
+        let source: &str = &schema_content.text(&db);
+        let start = u32::from(name_arg.name_range.start()) as usize;
+        let end = u32::from(name_arg.name_range.end()) as usize;
+        assert_eq!(
+            &source[start..end],
+            "name",
+            "Name range should point to 'name'"
+        );
+    }
+
+    #[test]
+    fn test_source_locations_enable_direct_lookup() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let source_text =
+            "type Query { users(limit: Int): [User] }\n\ntype User { id: ID! name: String! }";
+        let schema_content = FileContent::new(&db, Arc::from(source_text));
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let project_files = create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[],
+        );
+
+        let types = graphql_hir::schema_types(&db, project_files);
+
+        // Simulate goto-definition for User.name
+        let user_type = types.get("User").expect("User type should exist");
+        let name_field = user_type
+            .fields
+            .iter()
+            .find(|f| f.name.as_ref() == "name")
+            .expect("name field should exist");
+
+        // Direct O(1) lookup via HIR source locations
+        assert_eq!(name_field.file_id, schema_id);
+        let start = u32::from(name_field.name_range.start()) as usize;
+        let end = u32::from(name_field.name_range.end()) as usize;
+        assert_eq!(&source_text[start..end], "name");
+
+        // Simulate goto-definition for Query.users(limit:)
+        let query_type = types.get("Query").expect("Query type should exist");
+        let users_field = query_type
+            .fields
+            .iter()
+            .find(|f| f.name.as_ref() == "users")
+            .expect("users field should exist");
+        let limit_arg = users_field
+            .arguments
+            .iter()
+            .find(|a| a.name.as_ref() == "limit")
+            .expect("limit argument should exist");
+
+        assert_eq!(limit_arg.file_id, schema_id);
+        let arg_start = u32::from(limit_arg.name_range.start()) as usize;
+        let arg_end = u32::from(limit_arg.name_range.end()) as usize;
+        assert_eq!(&source_text[arg_start..arg_end], "limit");
+    }
+}
