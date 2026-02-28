@@ -1931,7 +1931,7 @@ fn test_issue_650_linear_lookup_in_field_usage() {
     let schema_content = FileContent::new(
         &db,
         Arc::from(
-            r#"
+            r"
             type Query {
                 user: User
             }
@@ -1941,7 +1941,7 @@ fn test_issue_650_linear_lookup_in_field_usage() {
                 name: String!
                 email: String!
             }
-            "#,
+            ",
         ),
     );
     let schema_metadata = FileMetadata::new(
@@ -1957,14 +1957,14 @@ fn test_issue_650_linear_lookup_in_field_usage() {
     let doc1_content = FileContent::new(
         &db,
         Arc::from(
-            r#"
+            r"
             query GetUser {
                 user {
                     id
                     name
                 }
             }
-            "#,
+            ",
         ),
     );
     let doc1_metadata = FileMetadata::new(
@@ -1979,13 +1979,13 @@ fn test_issue_650_linear_lookup_in_field_usage() {
     let doc2_content = FileContent::new(
         &db,
         Arc::from(
-            r#"
+            r"
             query GetUserEmail {
                 user {
                     email
                 }
             }
-            "#,
+            ",
         ),
     );
     let doc2_metadata = FileMetadata::new(
