@@ -1274,6 +1274,10 @@ pub fn find_type_definition_full_range(
 
 /// Find ALL type definitions and extensions matching a name in a single tree.
 /// Returns all matches (base types and extensions) for multi-location goto-def.
+///
+/// Note: goto-definition now uses HIR source locations for O(1) lookups,
+/// but this function is retained for potential use in references features.
+#[allow(dead_code)]
 pub fn find_all_type_definitions_full_range(
     tree: &apollo_parser::SyntaxTree,
     type_name: &str,
@@ -1374,6 +1378,7 @@ pub fn find_operation_definition_ranges(
 
 /// Find the byte offset ranges of a field definition within a type
 /// Returns both name range (for selection) and full field definition range
+#[allow(dead_code)]
 pub fn find_field_definition_full_range(
     tree: &apollo_parser::SyntaxTree,
     type_name: &str,

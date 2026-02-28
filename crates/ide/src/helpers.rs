@@ -183,6 +183,10 @@ pub fn find_type_definition_in_parse(
 
 /// Find all type definitions and extensions matching a name in a parsed file.
 /// Returns all matching ranges for multi-location goto-def.
+///
+/// Note: goto-definition now uses HIR source locations for O(1) lookups,
+/// but this function is retained for use in references/find-all-references.
+#[allow(dead_code)]
 pub fn find_all_type_definitions_in_parse(
     parse: &graphql_syntax::Parse,
     type_name: &str,
@@ -474,6 +478,10 @@ pub fn find_operation_definition_in_tree(
 }
 
 /// Find argument definition in schema type's field
+///
+/// Note: goto-definition now uses HIR source locations for O(1) lookups,
+/// but this function is retained for potential use in references features.
+#[allow(dead_code)]
 pub fn find_argument_definition_in_tree(
     tree: &apollo_parser::SyntaxTree,
     type_name: &str,

@@ -6,14 +6,11 @@
 //! - Field references (definitions and usages)
 
 use crate::helpers::{
-    adjust_range_for_line_offset, find_block_for_position, find_field_usages_in_parse,
-    find_fragment_definition_in_parse, find_fragment_spreads_in_parse,
-    find_type_definition_in_parse, find_type_references_in_parse, offset_range_to_range,
-    position_to_offset,
+    find_block_for_position, find_field_usages_in_parse, find_fragment_definition_in_parse,
+    find_fragment_spreads_in_parse, find_type_definition_in_parse, find_type_references_in_parse,
+    offset_range_to_range, position_to_offset,
 };
-use crate::symbol::{
-    find_field_definition_full_range, find_schema_field_parent_type, find_symbol_at_offset, Symbol,
-};
+use crate::symbol::{find_schema_field_parent_type, find_symbol_at_offset, Symbol};
 use crate::types::{FilePath, Location, Position};
 use crate::FileRegistry;
 
@@ -125,6 +122,14 @@ pub fn find_fragment_references(
             continue;
         };
 
+        // Pre-filter: skip files that don't reference this fragment.
+        // file_used_fragment_names is a cached per-file query, avoiding
+        // expensive parse + CST scan for files that don't use the fragment.
+        let used_names = graphql_hir::file_used_fragment_names(db, *file_id, content, metadata);
+        if !used_names.contains(fragment_name) {
+            continue;
+        }
+
         let file_path = registry.get_path(*file_id);
 
         let Some(file_path) = file_path else {
@@ -223,45 +228,70 @@ pub fn find_field_references(
     let schema_types = graphql_hir::schema_types(db, project_files);
 
     if include_declaration {
-        let schema_ids = project_files.schema_file_ids(db).ids(db);
+        // Use HIR source locations for O(1) declaration lookup instead of
+        // scanning all schema files. FieldSignature carries file_id and name_range.
+        if let Some(type_def) = schema_types.get(type_name) {
+            if let Some(field_sig) = type_def
+                .fields
+                .iter()
+                .find(|f| f.name.as_ref() == field_name)
+            {
+                let field_file_id = type_def.file_id;
+                let file_path = registry.get_path(field_file_id);
 
-        for file_id in schema_ids.iter() {
-            let Some((content, metadata)) =
-                graphql_base_db::file_lookup(db, project_files, *file_id)
-            else {
-                continue;
-            };
-
-            let file_path = registry.get_path(*file_id);
-
-            let Some(file_path) = file_path else {
-                continue;
-            };
-
-            let parse = graphql_syntax::parse(db, content, metadata);
-
-            'schema_search: for doc in parse.documents() {
-                if let Some(ranges) =
-                    find_field_definition_full_range(doc.tree, type_name, field_name)
-                {
-                    let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-                    let range =
-                        offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end);
-                    let adjusted_range = adjust_range_for_line_offset(range, doc.line_offset);
-                    locations.push(Location::new(file_path, adjusted_range));
-                    break 'schema_search;
+                if let (Some(file_path), Some((content, _metadata))) = (
+                    file_path,
+                    graphql_base_db::file_lookup(db, project_files, field_file_id),
+                ) {
+                    let source_text: &str = &content.text(db);
+                    let line_index = graphql_syntax::LineIndex::new(source_text);
+                    let start = u32::from(field_sig.name_range.start()) as usize;
+                    let end = u32::from(field_sig.name_range.end()) as usize;
+                    let range = offset_range_to_range(&line_index, start, end);
+                    locations.push(Location::new(file_path, range));
                 }
             }
         }
     }
 
+    // Pre-filter document files using cached per-file schema coordinates.
+    // For interface types, also check implementing types since operations
+    // may reference the field via a concrete type (e.g. ... on User { id }
+    // matches Node.id when User implements Node).
     let doc_ids = project_files.document_file_ids(db).ids(db);
+    let field_name_arc: std::sync::Arc<str> = std::sync::Arc::from(field_name);
+    let type_name_arc: std::sync::Arc<str> = std::sync::Arc::from(type_name);
+    let mut target_coords = vec![graphql_hir::SchemaCoordinate {
+        type_name: type_name_arc.clone(),
+        field_name: field_name_arc.clone(),
+    }];
+    // If the type is an interface, also match implementors
+    if let Some(type_def) = schema_types.get(type_name) {
+        if type_def.kind == graphql_hir::TypeDefKind::Interface {
+            let implementors = graphql_hir::interface_implementors(db, project_files);
+            if let Some(impl_types) = implementors.get(&type_name_arc) {
+                for impl_type in impl_types {
+                    target_coords.push(graphql_hir::SchemaCoordinate {
+                        type_name: impl_type.clone(),
+                        field_name: field_name_arc.clone(),
+                    });
+                }
+            }
+        }
+    }
 
     for file_id in doc_ids.iter() {
         let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
         else {
             continue;
         };
+
+        // Skip files that don't reference this type.field (or implementor.field)
+        let file_coords =
+            graphql_hir::file_schema_coordinates(db, *file_id, content, metadata, project_files);
+        if !target_coords.iter().any(|tc| file_coords.contains(tc)) {
+            continue;
+        }
 
         let file_path = registry.get_path(*file_id);
 

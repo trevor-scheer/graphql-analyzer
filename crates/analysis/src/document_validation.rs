@@ -49,24 +49,34 @@ pub fn validate_document_file(
     let mut diagnostics = Vec::new();
     let schema = graphql_hir::schema_types(db, project_files);
 
-    // Use the operation name index for O(1) lookup instead of iterating all operations
-    let op_name_index = graphql_hir::project_operation_name_index(db, project_files);
+    // Only query the operation name index when this file has named operations.
+    // This avoids creating a Salsa dependency on the project-wide index for files
+    // without named operations, preventing unnecessary re-validation when other
+    // files' operation names change.
+    let has_named_operations = structure.operations.iter().any(|op| op.name.is_some());
+    let op_name_index = if has_named_operations {
+        Some(graphql_hir::project_operation_name_index(db, project_files))
+    } else {
+        None
+    };
 
     for op_structure in structure.operations.iter() {
         if let Some(name) = &op_structure.name {
-            // O(1) lookup instead of O(n) iteration
-            let count = op_name_index.get(name).copied().unwrap_or(0);
+            if let Some(ref index) = op_name_index {
+                // O(1) lookup instead of O(n) iteration
+                let count = index.get(name).copied().unwrap_or(0);
 
-            if count > 1 {
-                // Use the name range if available, otherwise fall back to operation range
-                let range = op_structure
-                    .name_range
-                    .map(|r| text_range_to_diagnostic_range(db, content, r))
-                    .unwrap_or_default();
-                diagnostics.push(Diagnostic::error(
-                    format!("Operation name '{name}' is not unique"),
-                    range,
-                ));
+                if count > 1 {
+                    // Use the name range if available, otherwise fall back to operation range
+                    let range = op_structure
+                        .name_range
+                        .map(|r| text_range_to_diagnostic_range(db, content, r))
+                        .unwrap_or_default();
+                    diagnostics.push(Diagnostic::error(
+                        format!("Operation name '{name}' is not unique"),
+                        range,
+                    ));
+                }
             }
         }
 
@@ -91,38 +101,39 @@ pub fn validate_document_file(
                 range,
             ));
         }
-        // NOTE: Full body validation (field selections, arguments, fragment spreads)
-        // is complex and best handled by apollo-compiler's validation.
-        // For now, we rely on the structural checks above.
-        // A future enhancement would be to integrate apollo-compiler's validator here.
     }
 
-    // Use the fragment name index for O(1) lookup instead of iterating all fragments
-    let frag_name_index = graphql_hir::project_fragment_name_index(db, project_files);
+    // Only query the fragment name index when this file defines fragments.
+    // This avoids creating a Salsa dependency on the project-wide fragment
+    // name index for files without fragments, preventing unnecessary
+    // re-validation when other files' fragment names change (#644).
+    if !structure.fragments.is_empty() {
+        let frag_name_index = graphql_hir::project_fragment_name_index(db, project_files);
 
-    for frag_structure in structure.fragments.iter() {
-        // O(1) lookup instead of O(n) iteration
-        let count = frag_name_index
-            .get(&frag_structure.name)
-            .copied()
-            .unwrap_or(0);
+        for frag_structure in structure.fragments.iter() {
+            // O(1) lookup instead of O(n) iteration
+            let count = frag_name_index
+                .get(&frag_structure.name)
+                .copied()
+                .unwrap_or(0);
 
-        if count > 1 {
-            let range = text_range_to_diagnostic_range(db, content, frag_structure.name_range);
-            diagnostics.push(Diagnostic::error(
-                format!("Fragment name '{}' is not unique", frag_structure.name),
-                range,
-            ));
+            if count > 1 {
+                let range = text_range_to_diagnostic_range(db, content, frag_structure.name_range);
+                diagnostics.push(Diagnostic::error(
+                    format!("Fragment name '{}' is not unique", frag_structure.name),
+                    range,
+                ));
+            }
+
+            let type_condition_range =
+                text_range_to_diagnostic_range(db, content, frag_structure.type_condition_range);
+            validate_fragment_type_condition(
+                frag_structure,
+                schema,
+                type_condition_range,
+                &mut diagnostics,
+            );
         }
-
-        let type_condition_range =
-            text_range_to_diagnostic_range(db, content, frag_structure.type_condition_range);
-        validate_fragment_type_condition(
-            frag_structure,
-            schema,
-            type_condition_range,
-            &mut diagnostics,
-        );
     }
 
     Arc::new(diagnostics)
