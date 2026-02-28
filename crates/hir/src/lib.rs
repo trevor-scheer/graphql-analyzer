@@ -149,6 +149,28 @@ pub fn file_operations(
 // They depend on file IDs (stable) and call per-file queries (granular caching)
 // ============================================================================
 
+/// Map from interface name to types that implement it.
+/// Cached via Salsa - only recomputed when schema types change.
+///
+/// This provides O(implementors) lookup instead of O(total types) when finding
+/// which types implement a given interface, used by completion and other features.
+#[salsa::tracked]
+pub fn interface_implementors(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, Vec<Arc<str>>>> {
+    let types = schema_types(db, project_files);
+    let mut map: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::new();
+    for (type_name, type_def) in types {
+        for iface in &type_def.implements {
+            map.entry(Arc::clone(iface))
+                .or_default()
+                .push(Arc::clone(type_name));
+        }
+    }
+    Arc::new(map)
+}
+
 /// Get all types in the schema
 ///
 /// This query uses granular dependencies:
@@ -916,4 +938,60 @@ pub fn file_schema_coordinates(
     }
 
     Arc::new(ctx.coordinates)
+}
+
+// ============================================================================
+// Aggregation queries for project-wide lint rules
+// These combine per-file contributions for fine-grained invalidation.
+// When a single file changes, only that file's per-file query re-executes;
+// the aggregation query then merges the (mostly cached) per-file results.
+// ============================================================================
+
+/// Aggregate all schema coordinates used across all document files.
+/// Uses per-file `file_schema_coordinates` contributions for fine-grained caching.
+///
+/// When file A changes, only `file_schema_coordinates(A)` re-executes.
+/// All other files' coordinates come from Salsa's cache.
+#[salsa::tracked]
+pub fn all_used_schema_coordinates(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+) -> Arc<std::collections::HashSet<SchemaCoordinate>> {
+    let doc_ids = project_files.document_file_ids(db).ids(db);
+    let mut all_coords = std::collections::HashSet::new();
+
+    for file_id in doc_ids.iter() {
+        if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        {
+            let file_coords =
+                file_schema_coordinates(db, *file_id, content, metadata, project_files);
+            all_coords.extend(file_coords.iter().cloned());
+        }
+    }
+
+    Arc::new(all_coords)
+}
+
+/// Aggregate all used fragment names across all document files.
+/// Uses per-file `file_used_fragment_names` contributions for fine-grained caching.
+///
+/// When file A changes, only `file_used_fragment_names(A)` re-executes.
+/// All other files' fragment names come from Salsa's cache.
+#[salsa::tracked]
+pub fn all_used_fragment_names(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+) -> Arc<std::collections::HashSet<Arc<str>>> {
+    let doc_ids = project_files.document_file_ids(db).ids(db);
+    let mut all_used = std::collections::HashSet::new();
+
+    for file_id in doc_ids.iter() {
+        if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        {
+            let file_used = file_used_fragment_names(db, *file_id, content, metadata);
+            all_used.extend(file_used.iter().cloned());
+        }
+    }
+
+    Arc::new(all_used)
 }

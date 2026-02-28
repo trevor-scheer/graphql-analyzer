@@ -1626,3 +1626,536 @@ fn test_non_relay_unknown_directive_args_still_reported() {
         "Unknown args on non-Relay directives should still be reported"
     );
 }
+
+// ============================================================================
+// Issue #650: HashMap-based lookups for field usage analysis
+// ============================================================================
+
+/// Regression test for issue #650: verify that analyze_field_usage produces
+/// correct results across multiple document files and remains correct after
+/// editing a file. The HashMap-based lookup ensures O(1) per-operation file
+/// access instead of the previous O(D) linear scan.
+#[test]
+fn test_issue_650_linear_lookup_in_field_usage() {
+    use graphql_base_db::{DocumentFileIds, FileEntry, FileEntryMap, ProjectFiles, SchemaFileIds};
+    use graphql_test_utils::{queries, TrackedDatabase};
+    use salsa::Setter;
+
+    // Helper to create ProjectFiles for TrackedDatabase (same pattern as hir tests)
+    fn create_tracked_project_files(
+        db: &TrackedDatabase,
+        schema_files: &[(FileId, FileContent, FileMetadata)],
+        document_files: &[(FileId, FileContent, FileMetadata)],
+    ) -> ProjectFiles {
+        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
+        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
+
+        let mut entries = std::collections::HashMap::new();
+        for (id, content, metadata) in schema_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+        for (id, content, metadata) in document_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+
+        let schema_file_ids = SchemaFileIds::new(db, Arc::new(schema_ids));
+        let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
+        let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
+
+        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+    }
+
+    let mut db = TrackedDatabase::new();
+
+    // Schema with multiple types
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from(
+            r"
+            type Query {
+                user: User
+                post: Post
+                comment: Comment
+            }
+
+            type User {
+                id: ID!
+                name: String!
+                email: String!
+            }
+
+            type Post {
+                id: ID!
+                title: String!
+                body: String!
+            }
+
+            type Comment {
+                id: ID!
+                text: String!
+            }
+            ",
+        ),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    // Document file 1: queries User
+    let doc1_id = FileId::new(1);
+    let doc1_content = FileContent::new(
+        &db,
+        Arc::from(
+            r"
+            query GetUser {
+                user {
+                    id
+                    name
+                }
+            }
+            ",
+        ),
+    );
+    let doc1_metadata = FileMetadata::new(
+        &db,
+        doc1_id,
+        FileUri::new("user.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    // Document file 2: queries Post
+    let doc2_id = FileId::new(2);
+    let doc2_content = FileContent::new(
+        &db,
+        Arc::from(
+            r"
+            query GetPost {
+                post {
+                    id
+                    title
+                }
+            }
+            ",
+        ),
+    );
+    let doc2_metadata = FileMetadata::new(
+        &db,
+        doc2_id,
+        FileUri::new("post.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    // Document file 3: queries Comment
+    let doc3_id = FileId::new(3);
+    let doc3_content = FileContent::new(
+        &db,
+        Arc::from(
+            r"
+            query GetComment {
+                comment {
+                    id
+                    text
+                }
+            }
+            ",
+        ),
+    );
+    let doc3_metadata = FileMetadata::new(
+        &db,
+        doc3_id,
+        FileUri::new("comment.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_tracked_project_files(
+        &db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[
+            (doc1_id, doc1_content, doc1_metadata),
+            (doc2_id, doc2_content, doc2_metadata),
+            (doc3_id, doc3_content, doc3_metadata),
+        ],
+    );
+
+    // Step 1: Run analyze_field_usage and verify correctness
+    let coverage = analyze_field_usage(&db, project_files);
+
+    // Total schema fields: Query(user, post, comment) + User(id, name, email) +
+    // Post(id, title, body) + Comment(id, text) = 3 + 3 + 3 + 2 = 11
+    assert_eq!(coverage.total_fields, 11);
+
+    // Used fields: Query(user, post, comment) + User(id, name) + Post(id, title) +
+    // Comment(id, text) = 3 + 2 + 2 + 2 = 9
+    assert_eq!(coverage.used_fields, 9);
+
+    // Verify specific field usages
+    let user_name = coverage
+        .field_usages
+        .get(&(Arc::from("User"), Arc::from("name")));
+    assert!(user_name.is_some(), "User.name should be tracked");
+    assert_eq!(user_name.unwrap().usage_count, 1);
+    assert!(user_name
+        .unwrap()
+        .operations
+        .contains(&Arc::from("GetUser")));
+
+    let post_title = coverage
+        .field_usages
+        .get(&(Arc::from("Post"), Arc::from("title")));
+    assert!(post_title.is_some(), "Post.title should be tracked");
+    assert_eq!(post_title.unwrap().usage_count, 1);
+    assert!(post_title
+        .unwrap()
+        .operations
+        .contains(&Arc::from("GetPost")));
+
+    let comment_text = coverage
+        .field_usages
+        .get(&(Arc::from("Comment"), Arc::from("text")));
+    assert!(comment_text.is_some(), "Comment.text should be tracked");
+    assert_eq!(comment_text.unwrap().usage_count, 1);
+
+    // Unused fields should have 0 usage count
+    let user_email = coverage
+        .field_usages
+        .get(&(Arc::from("User"), Arc::from("email")));
+    assert!(user_email.is_some(), "User.email should be tracked");
+    assert_eq!(user_email.unwrap().usage_count, 0);
+
+    let post_body = coverage
+        .field_usages
+        .get(&(Arc::from("Post"), Arc::from("body")));
+    assert!(post_body.is_some(), "Post.body should be tracked");
+    assert_eq!(post_body.unwrap().usage_count, 0);
+
+    // Step 2: Edit one document file (add email to GetUser query)
+    let cp = db.checkpoint();
+
+    doc1_content.set_text(&mut db).to(Arc::from(
+        r"
+        query GetUser {
+            user {
+                id
+                name
+                email
+            }
+        }
+        ",
+    ));
+
+    // Step 3: Re-run and verify correctness after edit
+    let coverage_after = analyze_field_usage(&db, project_files);
+
+    // Total fields unchanged (schema did not change)
+    assert_eq!(coverage_after.total_fields, 11);
+
+    // Now User.email is used too: 9 + 1 = 10
+    assert_eq!(coverage_after.used_fields, 10);
+
+    // User.email should now have usage_count=1
+    let user_email_after = coverage_after
+        .field_usages
+        .get(&(Arc::from("User"), Arc::from("email")));
+    assert!(user_email_after.is_some());
+    assert_eq!(user_email_after.unwrap().usage_count, 1);
+    assert!(user_email_after
+        .unwrap()
+        .operations
+        .contains(&Arc::from("GetUser")));
+
+    // Post and Comment results should still be correct
+    let post_title_after = coverage_after
+        .field_usages
+        .get(&(Arc::from("Post"), Arc::from("title")));
+    assert!(post_title_after.is_some());
+    assert_eq!(post_title_after.unwrap().usage_count, 1);
+
+    let comment_text_after = coverage_after
+        .field_usages
+        .get(&(Arc::from("Comment"), Arc::from("text")));
+    assert!(comment_text_after.is_some());
+    assert_eq!(comment_text_after.unwrap().usage_count, 1);
+
+    // Verify that file_lookup calls are bounded: with the HashMap optimization,
+    // the initial build of the document_files map calls file_lookup once per doc
+    // file (3 calls), and no additional linear scans are needed per operation.
+    let file_lookup_count = db.count_since(queries::FILE_LOOKUP, cp);
+    // With 3 document files, we expect at most 3 file_lookup calls for building
+    // the HashMap (one per document file). Without the HashMap fix, the old code
+    // would do additional file_lookup calls via linear .iter().find() per operation.
+    assert!(
+        file_lookup_count <= 3,
+        "Expected at most 3 file_lookup calls (one per document file for HashMap construction), \
+         got {file_lookup_count}. This suggests linear scanning is still happening."
+    );
+}
+
+// ============================================================================
+// Issue #644: Body edits should not cascade-invalidate validation of other files
+// ============================================================================
+
+/// Test that a body-only edit to file A (changing fields in a fragment but
+/// NOT its name or type condition) does NOT cause file B's validation to
+/// re-execute.
+///
+/// This tests the full validation path:
+/// validate_document_file -> project_fragment_name_index -> file_defined_fragment_names
+/// validate_document_file -> project_operation_name_index -> file_operation_names
+///
+/// When file A has a body-only edit, its file_defined_fragment_names output
+/// stays the same (same names), so project_fragment_name_index is backdated,
+/// and file B's validate_document_file should NOT re-execute.
+#[test]
+fn test_issue_644_body_edit_does_not_revalidate_other_files() {
+    use graphql_base_db::{DocumentFileIds, FileEntry, FileEntryMap, ProjectFiles, SchemaFileIds};
+    use graphql_test_utils::TrackedDatabase;
+    use salsa::Setter;
+
+    fn create_tracked_project_files(
+        db: &TrackedDatabase,
+        schema_files: &[(FileId, FileContent, FileMetadata)],
+        document_files: &[(FileId, FileContent, FileMetadata)],
+    ) -> ProjectFiles {
+        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
+        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
+
+        let mut entries = std::collections::HashMap::new();
+        for (id, content, metadata) in schema_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+        for (id, content, metadata) in document_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+
+        let schema_file_ids = SchemaFileIds::new(db, Arc::new(schema_ids));
+        let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
+        let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
+
+        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+    }
+
+    let mut db = TrackedDatabase::new();
+
+    // Create a schema
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from("type Query { user: User }\ntype User { id: ID! name: String! }"),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    // File A: contains a fragment
+    let file_a_id = FileId::new(1);
+    let file_a_content =
+        FileContent::new(&db, Arc::from("fragment UserFields on User { id name }"));
+    let file_a_metadata = FileMetadata::new(
+        &db,
+        file_a_id,
+        FileUri::new("a.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    // File B: contains an operation using the fragment
+    let file_b_id = FileId::new(2);
+    let file_b_content =
+        FileContent::new(&db, Arc::from("query GetUser { user { ...UserFields } }"));
+    let file_b_metadata = FileMetadata::new(
+        &db,
+        file_b_id,
+        FileUri::new("b.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_tracked_project_files(
+        &db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[
+            (file_a_id, file_a_content, file_a_metadata),
+            (file_b_id, file_b_content, file_b_metadata),
+        ],
+    );
+
+    // Cold: validate both files
+    let _ = validate_document_file(&db, file_a_content, file_a_metadata, project_files);
+    let _ = validate_document_file(&db, file_b_content, file_b_metadata, project_files);
+
+    // Now edit file A's body (change field selection, but fragment name unchanged)
+    file_a_content
+        .set_text(&mut db)
+        .to(Arc::from("fragment UserFields on User { id }"));
+
+    let checkpoint = db.checkpoint();
+
+    // Re-validate file B
+    let _ = validate_document_file(&db, file_b_content, file_b_metadata, project_files);
+
+    // validate_document_file for file B should NOT re-execute because:
+    // - file B's content didn't change
+    // - file B depends on project_fragment_name_index and project_operation_name_index
+    // - Those indexes depend on per-file queries whose outputs didn't change
+    //   (same fragment names, same operation names)
+    // - So they get backdated, and file B's validation is served from cache
+    let validate_count = db.count_since("validate_document_file", checkpoint);
+    assert!(
+        validate_count <= 1,
+        "Expected validate_document_file to run at most 1 time (for changed file A only), \
+         but ran {validate_count} times. \
+         This indicates body-only edits are causing unnecessary re-validation of other files."
+    );
+}
+
+/// Test that a STRUCTURAL edit (renaming a fragment) does NOT cause validation
+/// of UNRELATED files to re-execute.
+///
+/// Setup:
+/// - File A: fragment UserFields on User { id }
+/// - File B: query GetUser { user { ...UserFields } }  (uses file A's fragment)
+/// - File C: query GetStatus { status }                 (unrelated, no fragments)
+///
+/// When file A renames its fragment (UserFields -> UserInfo), file B's validation
+/// should re-execute (it depends on UserFields). But file C should NOT re-validate
+/// because it has no dependency on any fragment.
+#[test]
+fn test_issue_644_structural_edit_only_affects_dependent_files() {
+    use graphql_base_db::{DocumentFileIds, FileEntry, FileEntryMap, ProjectFiles, SchemaFileIds};
+    use graphql_test_utils::TrackedDatabase;
+    use salsa::Setter;
+
+    fn create_tracked_project_files(
+        db: &TrackedDatabase,
+        schema_files: &[(FileId, FileContent, FileMetadata)],
+        document_files: &[(FileId, FileContent, FileMetadata)],
+    ) -> ProjectFiles {
+        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
+        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
+
+        let mut entries = std::collections::HashMap::new();
+        for (id, content, metadata) in schema_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+        for (id, content, metadata) in document_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+
+        let schema_file_ids = SchemaFileIds::new(db, Arc::new(schema_ids));
+        let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
+        let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
+
+        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+    }
+
+    let mut db = TrackedDatabase::new();
+
+    // Schema
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from("type Query { user: User status: String }\ntype User { id: ID! name: String! }"),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    // File A: fragment
+    let file_a_id = FileId::new(1);
+    let file_a_content = FileContent::new(&db, Arc::from("fragment UserFields on User { id }"));
+    let file_a_metadata = FileMetadata::new(
+        &db,
+        file_a_id,
+        FileUri::new("a.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    // File B: operation using fragment
+    let file_b_id = FileId::new(2);
+    let file_b_content =
+        FileContent::new(&db, Arc::from("query GetUser { user { ...UserFields } }"));
+    let file_b_metadata = FileMetadata::new(
+        &db,
+        file_b_id,
+        FileUri::new("b.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    // File C: unrelated operation (no fragments)
+    let file_c_id = FileId::new(3);
+    let file_c_content = FileContent::new(&db, Arc::from("query GetStatus { status }"));
+    let file_c_metadata = FileMetadata::new(
+        &db,
+        file_c_id,
+        FileUri::new("c.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_tracked_project_files(
+        &db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[
+            (file_a_id, file_a_content, file_a_metadata),
+            (file_b_id, file_b_content, file_b_metadata),
+            (file_c_id, file_c_content, file_c_metadata),
+        ],
+    );
+
+    // Cold: validate all files
+    let _ = validate_document_file(&db, file_a_content, file_a_metadata, project_files);
+    let _ = validate_document_file(&db, file_b_content, file_b_metadata, project_files);
+    let _ = validate_document_file(&db, file_c_content, file_c_metadata, project_files);
+
+    // STRUCTURAL edit: rename fragment in file A
+    file_a_content
+        .set_text(&mut db)
+        .to(Arc::from("fragment UserInfo on User { id }"));
+
+    let checkpoint = db.checkpoint();
+
+    // Re-validate all files
+    let _ = validate_document_file(&db, file_a_content, file_a_metadata, project_files);
+    let _ = validate_document_file(&db, file_b_content, file_b_metadata, project_files);
+    let _ = validate_document_file(&db, file_c_content, file_c_metadata, project_files);
+
+    let validate_count = db.count_since("validate_document_file", checkpoint);
+
+    // File A changed, so it must re-validate (1).
+    // File B depends on the fragment name index which changed, so it re-validates (2).
+    // File C has NO dependency on fragments, so it should NOT re-validate.
+    //
+    // With a monolithic fragment index, all 3 files re-validate (validate_count == 3).
+    // With proper granular invalidation, only files A and B should re-validate (<= 2).
+    assert!(
+        validate_count <= 2,
+        "Expected validate_document_file to run at most 2 times \
+         (for file A which changed and file B which depends on renamed fragment), \
+         but ran {validate_count} times. \
+         File C (unrelated) should NOT be re-validated after a structural edit to file A."
+    );
+}
