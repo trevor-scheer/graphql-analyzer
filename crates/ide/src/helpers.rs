@@ -183,6 +183,7 @@ pub fn find_type_definition_in_parse(
 
 /// Find all type definitions and extensions matching a name in a parsed file.
 /// Returns all matching ranges for multi-location goto-def.
+#[allow(dead_code)]
 pub fn find_all_type_definitions_in_parse(
     parse: &graphql_syntax::Parse,
     type_name: &str,
@@ -474,6 +475,7 @@ pub fn find_operation_definition_in_tree(
 }
 
 /// Find argument definition in schema type's field
+#[allow(dead_code)]
 pub fn find_argument_definition_in_tree(
     tree: &apollo_parser::SyntaxTree,
     type_name: &str,

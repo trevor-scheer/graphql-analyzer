@@ -9,14 +9,10 @@
 //! - Operation definitions
 
 use crate::helpers::{
-    adjust_range_for_line_offset, find_all_type_definitions_in_parse,
-    find_argument_definition_in_tree, find_fragment_definition_in_parse,
-    find_operation_definition_in_tree, find_variable_definition_in_tree, offset_range_to_range,
-    position_to_offset,
+    find_fragment_definition_in_parse, find_operation_definition_in_tree,
+    find_variable_definition_in_tree, offset_range_to_range, position_to_offset,
 };
-use crate::symbol::{
-    find_field_definition_full_range, find_parent_type_at_offset, find_symbol_at_offset, Symbol,
-};
+use crate::symbol::{find_parent_type_at_offset, find_symbol_at_offset, Symbol};
 use crate::types::{FilePath, Location, Position};
 use crate::{helpers::find_block_for_position, symbol, FileRegistry};
 
@@ -77,40 +73,17 @@ pub fn goto_definition(
                 parent_type_name
             );
 
-            schema_types.get(parent_type_name.as_str())?;
+            let type_def = schema_types.get(parent_type_name.as_str())?;
+            let field = type_def.fields.iter().find(|f| f.name.as_ref() == name)?;
 
-            let schema_file_ids = project_files.schema_file_ids(db).ids(db);
+            let file_path = registry.get_path(field.file_id)?;
+            let content = registry.get_content(field.file_id)?;
+            let line_index = graphql_syntax::line_index(db, content);
+            let start: usize = field.name_range.start().into();
+            let end: usize = field.name_range.end().into();
+            let range = offset_range_to_range(&line_index, start, end);
 
-            for file_id in schema_file_ids.iter() {
-                let Some(schema_content) = registry.get_content(*file_id) else {
-                    continue;
-                };
-                let Some(schema_metadata) = registry.get_metadata(*file_id) else {
-                    continue;
-                };
-                let Some(file_path) = registry.get_path(*file_id) else {
-                    continue;
-                };
-
-                let schema_parse = graphql_syntax::parse(db, schema_content, schema_metadata);
-
-                for doc in schema_parse.documents() {
-                    if let Some(ranges) =
-                        find_field_definition_full_range(doc.tree, &parent_type_name, &name)
-                    {
-                        let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-                        let range = offset_range_to_range(
-                            &doc_line_index,
-                            ranges.name_start,
-                            ranges.name_end,
-                        );
-                        let adjusted_range = adjust_range_for_line_offset(range, doc.line_offset);
-                        return Some(vec![Location::new(file_path, adjusted_range)]);
-                    }
-                }
-            }
-
-            None
+            Some(vec![Location::new(file_path, range)])
         }
         Symbol::FragmentSpread { name } => {
             let fragments = graphql_hir::all_fragments(db, project_files);
@@ -150,24 +123,28 @@ pub fn goto_definition(
             Some(vec![Location::new(file_path, range)])
         }
         Symbol::TypeName { name } => {
-            let schema_ids = project_files.schema_file_ids(db).ids(db);
+            let schema_file_ids = project_files.schema_file_ids(db).ids(db);
             let mut locations = Vec::new();
 
-            for file_id in schema_ids.iter() {
-                let Some(schema_content) = registry.get_content(*file_id) else {
+            for file_id in schema_file_ids.iter() {
+                let Some((file_content, file_metadata)) =
+                    graphql_base_db::file_lookup(db, project_files, *file_id)
+                else {
                     continue;
                 };
-                let Some(schema_metadata) = registry.get_metadata(*file_id) else {
-                    continue;
-                };
-                let Some(file_path) = registry.get_path(*file_id) else {
-                    continue;
-                };
-
-                let schema_parse = graphql_syntax::parse(db, schema_content, schema_metadata);
-
-                for range in find_all_type_definitions_in_parse(&schema_parse, &name) {
-                    locations.push(Location::new(file_path.clone(), range));
+                let type_defs =
+                    graphql_hir::file_type_defs(db, *file_id, file_content, file_metadata);
+                for type_def in type_defs.iter() {
+                    if type_def.name.as_ref() == name {
+                        if let Some(file_path) = registry.get_path(type_def.file_id) {
+                            let content = registry.get_content(type_def.file_id)?;
+                            let line_index = graphql_syntax::line_index(db, content);
+                            let start: usize = type_def.name_range.start().into();
+                            let end: usize = type_def.name_range.end().into();
+                            let range = offset_range_to_range(&line_index, start, end);
+                            locations.push(Location::new(file_path, range));
+                        }
+                    }
                 }
             }
 
@@ -206,36 +183,21 @@ pub fn goto_definition(
                 &parent_context.root_type,
             )?;
 
-            let schema_file_ids = project_files.schema_file_ids(db).ids(db);
+            let type_def = schema_types.get(parent_type_name.as_str())?;
+            let field = type_def
+                .fields
+                .iter()
+                .find(|f| f.name.as_ref() == field_name)?;
+            let arg = field.arguments.iter().find(|a| a.name.as_ref() == name)?;
 
-            for file_id in schema_file_ids.iter() {
-                let Some(schema_content) = registry.get_content(*file_id) else {
-                    continue;
-                };
-                let Some(schema_metadata) = registry.get_metadata(*file_id) else {
-                    continue;
-                };
-                let Some(file_path) = registry.get_path(*file_id) else {
-                    continue;
-                };
+            let file_path = registry.get_path(field.file_id)?;
+            let content = registry.get_content(field.file_id)?;
+            let line_index = graphql_syntax::line_index(db, content);
+            let start: usize = arg.name_range.start().into();
+            let end: usize = arg.name_range.end().into();
+            let range = offset_range_to_range(&line_index, start, end);
 
-                let schema_parse = graphql_syntax::parse(db, schema_content, schema_metadata);
-
-                for doc in schema_parse.documents() {
-                    let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
-                    if let Some(range) = find_argument_definition_in_tree(
-                        doc.tree,
-                        &parent_type_name,
-                        &field_name,
-                        &name,
-                        &doc_line_index,
-                        doc.line_offset,
-                    ) {
-                        return Some(vec![Location::new(file_path, range)]);
-                    }
-                }
-            }
-            None
+            Some(vec![Location::new(file_path, range)])
         }
         Symbol::OperationName { name } => {
             let block_line_index = graphql_syntax::LineIndex::new(block_context.block_source);

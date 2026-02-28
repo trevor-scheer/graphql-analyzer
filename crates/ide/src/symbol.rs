@@ -1274,6 +1274,7 @@ pub fn find_type_definition_full_range(
 
 /// Find ALL type definitions and extensions matching a name in a single tree.
 /// Returns all matches (base types and extensions) for multi-location goto-def.
+#[allow(dead_code)]
 pub fn find_all_type_definitions_full_range(
     tree: &apollo_parser::SyntaxTree,
     type_name: &str,
