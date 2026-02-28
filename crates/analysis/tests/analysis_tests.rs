@@ -2202,8 +2202,26 @@ fn test_issue_645_field_usage_for_type_is_targeted() {
             ",
     ));
 
-    let _user_usage2 =
-        graphql_analysis::field_usage_for_type(&db, project_files, Arc::from("User"));
+    let user_usage2 = graphql_analysis::field_usage_for_type(&db, project_files, Arc::from("User"));
+
+    // After removing `name` from the query, its usage_count should be 0
+    assert_eq!(
+        user_usage2
+            .get(&Arc::<str>::from("name"))
+            .unwrap()
+            .usage_count,
+        0,
+        "name field should have usage_count of 0 after being removed from the query"
+    );
+    // `id` is still selected, so its usage_count should be > 0
+    assert!(
+        user_usage2
+            .get(&Arc::<str>::from("id"))
+            .unwrap()
+            .usage_count
+            > 0,
+        "id field should still have usage_count > 0"
+    );
 
     // After the fix, field_usage_for_type should NOT call analyze_field_usage.
     // This fails in the stub because the stub delegates to the full analysis.

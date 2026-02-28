@@ -588,7 +588,6 @@ fn collect_type_field_usages(
     }
 }
 
-
 /// Unwrap a type name (remove list/non-null wrappers)
 fn unwrap_type_name(type_name: &str) -> Arc<str> {
     Arc::from(type_name.trim_matches(|c| c == '[' || c == ']' || c == '!'))
