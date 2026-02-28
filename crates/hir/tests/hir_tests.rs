@@ -1993,8 +1993,7 @@ mod issue_648_find_references_prefiltering {
 
         // File A queries User fields
         let doc_a_id = FileId::new(1);
-        let doc_a_content =
-            FileContent::new(&db, Arc::from("query A { user { id name } }"));
+        let doc_a_content = FileContent::new(&db, Arc::from("query A { user { id name } }"));
         let doc_a_metadata = FileMetadata::new(
             &db,
             doc_a_id,
@@ -2005,8 +2004,7 @@ mod issue_648_find_references_prefiltering {
 
         // File B queries Post fields
         let doc_b_id = FileId::new(2);
-        let doc_b_content =
-            FileContent::new(&db, Arc::from("query B { post { id title } }"));
+        let doc_b_content = FileContent::new(&db, Arc::from("query B { post { id title } }"));
         let doc_b_metadata = FileMetadata::new(
             &db,
             doc_b_id,
@@ -2024,13 +2022,8 @@ mod issue_648_find_references_prefiltering {
             ],
         );
 
-        let a_coords = file_schema_coordinates(
-            &db,
-            doc_a_id,
-            doc_a_content,
-            doc_a_metadata,
-            project_files,
-        );
+        let a_coords =
+            file_schema_coordinates(&db, doc_a_id, doc_a_content, doc_a_metadata, project_files);
 
         // File A should have User.id and User.name
         let user_id = SchemaCoordinate {
@@ -2057,13 +2050,8 @@ mod issue_648_find_references_prefiltering {
         );
 
         // File B should have Post coordinates but not User
-        let b_coords = file_schema_coordinates(
-            &db,
-            doc_b_id,
-            doc_b_content,
-            doc_b_metadata,
-            project_files,
-        );
+        let b_coords =
+            file_schema_coordinates(&db, doc_b_id, doc_b_content, doc_b_metadata, project_files);
         assert!(
             b_coords.contains(&post_title),
             "File B should contain Post.title"
