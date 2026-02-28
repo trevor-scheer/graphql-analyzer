@@ -159,6 +159,27 @@ pub fn find_unused_fragments(
     Arc::new(unused)
 }
 
+/// Analyze field usage for a specific type only.
+/// This is more efficient than `analyze_field_usage` for hover,
+/// which only needs usage info for one type at a time.
+#[salsa::tracked]
+#[allow(clippy::needless_pass_by_value)] // Arc<str> needed for Salsa tracking
+pub fn field_usage_for_type(
+    db: &dyn GraphQLAnalysisDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+    type_name: Arc<str>,
+) -> Arc<HashMap<Arc<str>, FieldUsage>> {
+    // UNOPTIMIZED: delegates to full project analysis and filters
+    let full_report = analyze_field_usage(db, project_files);
+    let mut result = HashMap::new();
+    for ((tn, field_name), usage) in &full_report.field_usages {
+        if tn.as_ref() == type_name.as_ref() {
+            result.insert(field_name.clone(), usage.clone());
+        }
+    }
+    Arc::new(result)
+}
+
 /// Analyze field usage across all operations in the project
 ///
 /// Returns detailed usage information for every schema field,
