@@ -1915,7 +1915,6 @@ fn test_issue_644_operation_name_change_does_not_cascade_to_fragment_only_file()
     );
 }
 
-
 // ============================================================================
 // HashMap-based lookup tests (issue #650)
 // ============================================================================
@@ -2015,6 +2014,12 @@ fn test_issue_650_linear_lookup_in_field_usage() {
         .expect("User type coverage should exist");
 
     // id and name are used in query1, email in query2
-    assert_eq!(user_coverage.used_fields, 3, "All three User fields should be covered");
-    assert_eq!(user_coverage.total_fields, 3, "User type should have 3 fields total");
+    assert_eq!(
+        user_coverage.used_fields, 3,
+        "All three User fields should be covered"
+    );
+    assert_eq!(
+        user_coverage.total_fields, 3,
+        "User type should have 3 fields total"
+    );
 }
