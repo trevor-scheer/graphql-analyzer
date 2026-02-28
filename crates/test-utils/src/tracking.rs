@@ -43,6 +43,7 @@ pub mod queries {
     pub const FILE_DEFINED_FRAGMENT_NAMES: &str = "file_defined_fragment_names";
     pub const FILE_OPERATION_NAMES: &str = "file_operation_names";
     pub const FILE_SCHEMA_COORDINATES: &str = "file_schema_coordinates";
+    pub const INTERFACE_IMPLEMENTORS: &str = "interface_implementors";
 }
 
 #[derive(Default)]
