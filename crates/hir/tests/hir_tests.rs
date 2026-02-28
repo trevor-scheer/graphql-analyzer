@@ -6,7 +6,8 @@
 use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
 use graphql_hir::{
     all_fragments, all_used_schema_coordinates, file_defined_fragment_names, file_operation_names,
-    file_structure, file_used_fragment_names, fragment_source, schema_types,
+    file_schema_coordinates, file_structure, file_used_fragment_names, fragment_source,
+    schema_types, SchemaCoordinate,
 };
 use graphql_test_utils::{create_project_files, TestDatabase};
 use salsa::Setter;
@@ -1875,6 +1876,191 @@ mod issue_646_per_file_linting {
         assert_eq!(
             exec_count, 0,
             "file_used_fragment_names should be cached on second call"
+        );
+    }
+}
+
+// ============================================================================
+// Issue #648: Find references pre-filtering tests
+// ============================================================================
+
+mod issue_648_find_references_prefiltering {
+    use super::*;
+
+    #[allow(clippy::similar_names)]
+    #[test]
+    fn test_file_used_fragment_names_reports_correct_files() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // File A uses fragment F
+        let doc_a_id = FileId::new(1);
+        let doc_a_content = FileContent::new(&db, Arc::from("query A { ...F }"));
+        let doc_a_metadata = FileMetadata::new(
+            &db,
+            doc_a_id,
+            FileUri::new("a.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        // File B does NOT use any fragments
+        let doc_b_id = FileId::new(2);
+        let doc_b_content = FileContent::new(&db, Arc::from("query B { hello }"));
+        let doc_b_metadata = FileMetadata::new(
+            &db,
+            doc_b_id,
+            FileUri::new("b.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        // File C uses fragment G (different fragment)
+        let doc_c_id = FileId::new(3);
+        let doc_c_content = FileContent::new(&db, Arc::from("query C { ...G }"));
+        let doc_c_metadata = FileMetadata::new(
+            &db,
+            doc_c_id,
+            FileUri::new("c.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let _project_files = create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[
+                (doc_a_id, doc_a_content, doc_a_metadata),
+                (doc_b_id, doc_b_content, doc_b_metadata),
+                (doc_c_id, doc_c_content, doc_c_metadata),
+            ],
+        );
+
+        // File A should report using fragment F
+        let a_frags = file_used_fragment_names(&db, doc_a_id, doc_a_content, doc_a_metadata);
+        assert!(a_frags.contains(&Arc::from("F") as &Arc<str>));
+        assert!(!a_frags.contains(&Arc::from("G") as &Arc<str>));
+
+        // File B should report no fragments
+        let b_frags = file_used_fragment_names(&db, doc_b_id, doc_b_content, doc_b_metadata);
+        assert!(b_frags.is_empty());
+
+        // File C should report using fragment G
+        let c_frags = file_used_fragment_names(&db, doc_c_id, doc_c_content, doc_c_metadata);
+        assert!(c_frags.contains(&Arc::from("G") as &Arc<str>));
+        assert!(!c_frags.contains(&Arc::from("F") as &Arc<str>));
+    }
+
+    #[allow(clippy::similar_names)]
+    #[test]
+    fn test_file_schema_coordinates_reports_correct_files() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                type Query {
+                    user: User
+                    post: Post
+                }
+                type User {
+                    id: ID!
+                    name: String!
+                }
+                type Post {
+                    id: ID!
+                    title: String!
+                }
+                ",
+            ),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // File A queries User fields
+        let doc_a_id = FileId::new(1);
+        let doc_a_content = FileContent::new(&db, Arc::from("query A { user { id name } }"));
+        let doc_a_metadata = FileMetadata::new(
+            &db,
+            doc_a_id,
+            FileUri::new("a.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        // File B queries Post fields
+        let doc_b_id = FileId::new(2);
+        let doc_b_content = FileContent::new(&db, Arc::from("query B { post { id title } }"));
+        let doc_b_metadata = FileMetadata::new(
+            &db,
+            doc_b_id,
+            FileUri::new("b.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let project_files = create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[
+                (doc_a_id, doc_a_content, doc_a_metadata),
+                (doc_b_id, doc_b_content, doc_b_metadata),
+            ],
+        );
+
+        let a_coords =
+            file_schema_coordinates(&db, doc_a_id, doc_a_content, doc_a_metadata, project_files);
+
+        // File A should have User.id and User.name
+        let user_id = SchemaCoordinate {
+            type_name: Arc::from("User"),
+            field_name: Arc::from("id"),
+        };
+        let user_name = SchemaCoordinate {
+            type_name: Arc::from("User"),
+            field_name: Arc::from("name"),
+        };
+        let post_title = SchemaCoordinate {
+            type_name: Arc::from("Post"),
+            field_name: Arc::from("title"),
+        };
+
+        assert!(a_coords.contains(&user_id), "File A should contain User.id");
+        assert!(
+            a_coords.contains(&user_name),
+            "File A should contain User.name"
+        );
+        assert!(
+            !a_coords.contains(&post_title),
+            "File A should NOT contain Post.title"
+        );
+
+        // File B should have Post coordinates but not User
+        let b_coords =
+            file_schema_coordinates(&db, doc_b_id, doc_b_content, doc_b_metadata, project_files);
+        assert!(
+            b_coords.contains(&post_title),
+            "File B should contain Post.title"
+        );
+        assert!(
+            !b_coords.contains(&user_name),
+            "File B should NOT contain User.name"
         );
     }
 }
