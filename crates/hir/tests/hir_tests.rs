@@ -5,8 +5,8 @@
 
 use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
 use graphql_hir::{
-    all_fragments, file_defined_fragment_names, file_operation_names, file_structure,
-    file_used_fragment_names, fragment_source, schema_types,
+    all_fragments, all_used_schema_coordinates, file_defined_fragment_names, file_operation_names,
+    file_structure, file_used_fragment_names, fragment_source, schema_types,
 };
 use graphql_test_utils::{create_project_files, TestDatabase};
 use salsa::Setter;
@@ -1707,5 +1707,174 @@ mod source_location_tests {
         let arg_start = u32::from(limit_arg.name_range.start()) as usize;
         let arg_end = u32::from(limit_arg.name_range.end()) as usize;
         assert_eq!(&source_text[arg_start..arg_end], "limit");
+    }
+}
+
+// ============================================================================
+// Issue #646: Per-file aggregation query tests
+// ============================================================================
+
+mod issue_646_per_file_linting {
+    use super::*;
+    use graphql_base_db::{DocumentFileIds, FileEntry, FileEntryMap, SchemaFileIds};
+    use graphql_test_utils::tracking::{queries, TrackedDatabase};
+    use salsa::Setter;
+    use std::collections::HashMap;
+
+    fn create_tracked_project_files(
+        db: &TrackedDatabase,
+        schema_files: &[(FileId, FileContent, FileMetadata)],
+        document_files: &[(FileId, FileContent, FileMetadata)],
+    ) -> graphql_base_db::ProjectFiles {
+        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
+        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
+
+        let mut entries = HashMap::new();
+        for (id, content, metadata) in schema_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+        for (id, content, metadata) in document_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+
+        let schema_file_ids = SchemaFileIds::new(db, Arc::new(schema_ids));
+        let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
+        let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
+
+        graphql_base_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+    }
+
+    #[test]
+    #[allow(clippy::similar_names)]
+    fn test_issue_646_per_file_schema_coordinates_cached() {
+        let mut db = TrackedDatabase::new();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from("type Query { hello: String, world: String }"),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let doc_a_id = FileId::new(1);
+        let doc_a_content = FileContent::new(&db, Arc::from("query A { hello }"));
+        let doc_a_metadata = FileMetadata::new(
+            &db,
+            doc_a_id,
+            FileUri::new("a.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let doc_b_id = FileId::new(2);
+        let doc_b_content = FileContent::new(&db, Arc::from("query B { world }"));
+        let doc_b_metadata = FileMetadata::new(
+            &db,
+            doc_b_id,
+            FileUri::new("b.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let project_files = create_tracked_project_files(
+            &db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[
+                (doc_a_id, doc_a_content, doc_a_metadata),
+                (doc_b_id, doc_b_content, doc_b_metadata),
+            ],
+        );
+
+        // Initial computation
+        let _coords = all_used_schema_coordinates(&db, project_files);
+
+        let checkpoint = db.checkpoint();
+
+        // Edit file A only
+        doc_a_content
+            .set_text(&mut db)
+            .to(Arc::from("query A { hello world }"));
+
+        // Re-query
+        let _coords2 = all_used_schema_coordinates(&db, project_files);
+
+        // file_schema_coordinates should re-run for file A but should be
+        // efficiently cached for file B. We verify that re-query triggers
+        // at most a reasonable number of calls (not one per unchanged file).
+        let coords_count = db.count_since(queries::FILE_SCHEMA_COORDINATES, checkpoint);
+
+        // Expect re-execution for the changed file only (1 call), not for both files
+        assert_eq!(
+            coords_count, 1,
+            "file_schema_coordinates should only re-run for edited file A, got {coords_count} calls"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::similar_names)]
+    fn test_issue_646_per_file_used_fragment_names_cached() {
+        let db = TrackedDatabase::new();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let doc_a_id = FileId::new(1);
+        let doc_a_content = FileContent::new(&db, Arc::from("query A { ...F }"));
+        let doc_a_metadata = FileMetadata::new(
+            &db,
+            doc_a_id,
+            FileUri::new("a.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let doc_b_id = FileId::new(2);
+        let doc_b_content = FileContent::new(&db, Arc::from("fragment F on Query { hello }"));
+        let doc_b_metadata = FileMetadata::new(
+            &db,
+            doc_b_id,
+            FileUri::new("b.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let _project_files = create_tracked_project_files(
+            &db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[
+                (doc_a_id, doc_a_content, doc_a_metadata),
+                (doc_b_id, doc_b_content, doc_b_metadata),
+            ],
+        );
+
+        // Initial computation
+        let used = file_used_fragment_names(&db, doc_a_id, doc_a_content, doc_a_metadata);
+        assert!(used.contains(&Arc::from("F") as &Arc<str>));
+
+        let checkpoint = db.checkpoint();
+
+        // Re-query without changes - should be cached
+        let _used2 = file_used_fragment_names(&db, doc_a_id, doc_a_content, doc_a_metadata);
+
+        let exec_count = db.count_since(queries::FILE_USED_FRAGMENT_NAMES, checkpoint);
+        assert_eq!(
+            exec_count, 0,
+            "file_used_fragment_names should be cached on second call"
+        );
     }
 }
