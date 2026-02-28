@@ -1103,7 +1103,7 @@ mod caching_tests {
         let schema_content = FileContent::new(
             &db,
             Arc::from(
-                r#"
+                r"
             interface Node {
                 id: ID!
             }
@@ -1117,7 +1117,7 @@ mod caching_tests {
                 id: ID!
                 title: String!
             }
-            "#,
+            ",
             ),
         );
         let schema_metadata = FileMetadata::new(
