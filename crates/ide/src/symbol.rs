@@ -1329,7 +1329,6 @@ pub fn find_operation_definition_ranges(
     None
 }
 
-
 /// Extract all definitions from a document for document symbols
 /// Returns a list of (name, kind, ranges) for each definition
 pub fn extract_all_definitions(
