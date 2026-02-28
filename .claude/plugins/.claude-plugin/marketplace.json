@@ -1,0 +1,16 @@
+{
+  "name": "project-tools",
+  "owner": {
+    "name": "graphql-analyzer"
+  },
+  "metadata": {
+    "description": "Project-local Claude Code plugins for graphql-analyzer development"
+  },
+  "plugins": [
+    {
+      "name": "tsgo-lsp",
+      "source": "./tsgo-lsp",
+      "description": "TypeScript diagnostics and code intelligence via tsgo native compiler LSP"
+    }
+  ]
+}

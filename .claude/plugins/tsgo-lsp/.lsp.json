@@ -1,0 +1,12 @@
+{
+  "tsgo": {
+    "command": "npx",
+    "args": ["tsgo", "--lsp"],
+    "extensionToLanguage": {
+      ".ts": "typescript",
+      ".tsx": "typescriptreact",
+      ".js": "javascript",
+      ".jsx": "javascriptreact"
+    }
+  }
+}

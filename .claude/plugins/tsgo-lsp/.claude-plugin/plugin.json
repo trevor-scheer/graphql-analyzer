@@ -1,0 +1,5 @@
+{
+  "name": "tsgo-lsp",
+  "version": "1.0.0",
+  "description": "TypeScript diagnostics and code intelligence via tsgo native compiler LSP"
+}
