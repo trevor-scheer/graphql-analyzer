@@ -736,10 +736,36 @@ struct IdeDatabase {
     project_files_input: Option<graphql_base_db::ProjectFiles>,
 }
 
+fn extract_query_name(database_key: &dyn std::fmt::Debug) -> String {
+    let debug_str = format!("{database_key:?}");
+    let without_args = debug_str.split('(').next().unwrap_or(&debug_str);
+    without_args
+        .rsplit("::")
+        .next()
+        .unwrap_or(without_args)
+        .to_string()
+}
+
 impl Default for IdeDatabase {
     fn default() -> Self {
         let mut db = Self {
-            storage: salsa::Storage::default(),
+            storage: salsa::Storage::new(Some(Box::new(|event: salsa::Event| {
+                match event.kind {
+                    salsa::EventKind::WillExecute { database_key, .. } => {
+                        tracing::debug!(
+                            query = %extract_query_name(&database_key),
+                            "query cache miss (executing)",
+                        );
+                    }
+                    salsa::EventKind::DidValidateMemoizedValue { database_key } => {
+                        tracing::debug!(
+                            query = %extract_query_name(&database_key),
+                            "query cache hit (memoized)",
+                        );
+                    }
+                    _ => {}
+                }
+            }))),
             lint_config_input: None,
             extract_config_input: None,
             project_files_input: None,
