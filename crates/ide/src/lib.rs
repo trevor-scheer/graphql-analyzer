@@ -35,6 +35,8 @@
 /// - Feature types: [`CompletionItem`], [`HoverResult`], [`Diagnostic`]
 #[cfg(test)]
 mod analysis_host_isolation;
+#[cfg(test)]
+mod diagnostics_for_change_tests;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1555,6 +1557,212 @@ impl Analysis {
             .iter()
             .map(convert_diagnostic)
             .collect()
+    }
+
+    /// Get diagnostics for all files affected by a change to `changed_file`.
+    ///
+    /// Always includes diagnostics for the changed file itself. Additionally:
+    /// - If the changed file is a **schema** file, re-validates all document files
+    ///   (every operation/fragment validates against the schema).
+    /// - If the changed file is a **document** file containing fragments,
+    ///   re-validates files that spread those fragments.
+    /// - If the changed file has named operations, re-validates files with
+    ///   same-named operations (uniqueness checks).
+    ///
+    /// Salsa memoization ensures unaffected files return cached results instantly.
+    pub fn diagnostics_for_change(
+        &self,
+        changed_file: &FilePath,
+    ) -> HashMap<FilePath, Vec<Diagnostic>> {
+        let mut result = HashMap::new();
+
+        // Always include diagnostics for the changed file
+        result.insert(changed_file.clone(), self.diagnostics(changed_file));
+
+        let Some(project_files) = self.project_files else {
+            return result;
+        };
+
+        let (is_schema, is_document, changed_file_id) = {
+            let registry = self.registry.read();
+            let Some(file_id) = registry.get_file_id(changed_file) else {
+                return result;
+            };
+            let Some(metadata) = registry.get_metadata(file_id) else {
+                return result;
+            };
+            (
+                metadata.is_schema(&self.db),
+                metadata.is_document(&self.db),
+                file_id,
+            )
+        };
+
+        if is_schema {
+            // Schema change: re-validate all document files
+            let document_files: Vec<FilePath> = {
+                let registry = self.registry.read();
+                registry
+                    .all_file_ids()
+                    .into_iter()
+                    .filter(|&id| {
+                        registry
+                            .get_metadata(id)
+                            .is_some_and(|m| m.is_document(&self.db))
+                    })
+                    .filter_map(|id| registry.get_path(id))
+                    .collect()
+            };
+
+            for doc_file in document_files {
+                if doc_file != *changed_file {
+                    result.insert(doc_file.clone(), self.diagnostics(&doc_file));
+                }
+            }
+        } else if is_document {
+            // Document file change: find affected files via fragment/operation dependencies
+            let affected = self.find_affected_document_files(changed_file_id, project_files);
+            for affected_file in affected {
+                if affected_file != *changed_file {
+                    result.insert(affected_file.clone(), self.diagnostics(&affected_file));
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Find document files affected by a change to the given document file.
+    ///
+    /// Returns files that:
+    /// 1. Spread fragments defined in the changed file (directly or transitively)
+    /// 2. Have same-named operations as the changed file (uniqueness checks)
+    fn find_affected_document_files(
+        &self,
+        changed_file_id: graphql_base_db::FileId,
+        project_files: graphql_base_db::ProjectFiles,
+    ) -> Vec<FilePath> {
+        let registry = self.registry.read();
+
+        // Get fragments and operations defined in the changed file
+        let (content, metadata) = {
+            let Some(content) = registry.get_content(changed_file_id) else {
+                return Vec::new();
+            };
+            let Some(metadata) = registry.get_metadata(changed_file_id) else {
+                return Vec::new();
+            };
+            (content, metadata)
+        };
+
+        let changed_fragments =
+            graphql_hir::file_fragments(&self.db, changed_file_id, content, metadata);
+        let changed_operations =
+            graphql_hir::file_operations(&self.db, changed_file_id, content, metadata);
+
+        // If no fragments or named operations, no cross-file dependencies
+        let has_fragments = !changed_fragments.is_empty();
+        let has_named_ops = changed_operations.iter().any(|op| op.name.is_some());
+        if !has_fragments && !has_named_ops {
+            return Vec::new();
+        }
+
+        // Collect fragment names from this file
+        let fragment_names: std::collections::HashSet<std::sync::Arc<str>> =
+            changed_fragments.iter().map(|f| f.name.clone()).collect();
+
+        // Collect named operation names from this file
+        let operation_names: std::collections::HashSet<std::sync::Arc<str>> = changed_operations
+            .iter()
+            .filter_map(|op| op.name.clone())
+            .collect();
+
+        // Build the set of fragment names we care about:
+        // 1. Fragments currently defined in this file
+        // 2. Fragments that transitively spread our fragments
+        let mut affected_fragment_names = fragment_names.clone();
+        let all_fragments_index = if has_fragments {
+            let index = graphql_hir::project_fragment_name_index(&self.db, project_files);
+            let spreads_index = graphql_hir::fragment_spreads_index(&self.db, project_files);
+            // Walk reverse: find fragments that spread OUR fragments
+            for (frag_name, spreads) in spreads_index.iter() {
+                if spreads.iter().any(|s| fragment_names.contains(s)) {
+                    affected_fragment_names.insert(frag_name.clone());
+                }
+            }
+            Some(index)
+        } else {
+            None
+        };
+
+        let mut affected_files = Vec::new();
+        let doc_ids = project_files.document_file_ids(&self.db).ids(&self.db);
+
+        for file_id in doc_ids.iter() {
+            if *file_id == changed_file_id {
+                continue;
+            }
+
+            let Some((file_content, file_metadata)) =
+                graphql_base_db::file_lookup(&self.db, project_files, *file_id)
+            else {
+                continue;
+            };
+
+            let mut is_affected = false;
+
+            if has_fragments {
+                let used_names = graphql_hir::file_used_fragment_names(
+                    &self.db,
+                    *file_id,
+                    file_content,
+                    file_metadata,
+                );
+
+                // Check 1: does this file spread any of our current/transitive fragments?
+                if used_names
+                    .iter()
+                    .any(|n| affected_fragment_names.contains(n))
+                {
+                    is_affected = true;
+                }
+
+                // Check 2: does this file spread a fragment that no longer exists?
+                // This catches the rename/delete case: the old fragment name is gone
+                // from the project index, so any file still referencing it needs refresh.
+                if !is_affected {
+                    if let Some(ref index) = all_fragments_index {
+                        if used_names.iter().any(|n| !index.contains_key(n)) {
+                            is_affected = true;
+                        }
+                    }
+                }
+            }
+
+            // Check if this file has same-named operations (uniqueness)
+            if !is_affected && has_named_ops {
+                let file_op_names = graphql_hir::file_operation_names(
+                    &self.db,
+                    *file_id,
+                    file_content,
+                    file_metadata,
+                );
+                if file_op_names
+                    .iter()
+                    .any(|info| operation_names.contains(&info.name))
+                {
+                    is_affected = true;
+                }
+            }
+
+            if is_affected {
+                if let Some(path) = registry.get_path(*file_id) {
+                    affected_files.push(path);
+                }
+            }
+        }
+
+        affected_files
     }
 
     /// Get only validation diagnostics for a file (excludes custom lint rules)

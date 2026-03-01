@@ -76,6 +76,16 @@ pub struct GraphQLLanguageServer {
     client_capabilities: Arc<RwLock<Option<ClientCapabilities>>>,
     /// Workspace manager for all workspace/project state
     workspace: Arc<WorkspaceManager>,
+    /// Channel for scheduling debounced cross-file diagnostic refresh.
+    cross_file_refresh_tx: tokio::sync::mpsc::UnboundedSender<CrossFileRefreshRequest>,
+}
+
+/// Request to refresh diagnostics for files affected by a change.
+#[derive(Debug)]
+struct CrossFileRefreshRequest {
+    workspace_uri: String,
+    project_name: String,
+    changed_file: graphql_ide::FilePath,
 }
 
 /// Background task that loads workspace configs and publishes initial diagnostics.
@@ -842,11 +852,109 @@ async fn load_all_project_files_background(
 
 impl GraphQLLanguageServer {
     pub fn new(client: Client) -> Self {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let workspace = Arc::new(WorkspaceManager::new());
+
+        // Spawn the debounced cross-file refresh background task
+        Self::spawn_cross_file_refresh_task(client.clone(), Arc::clone(&workspace), rx);
+
         Self {
             client,
             client_capabilities: Arc::new(RwLock::new(None)),
-            workspace: Arc::new(WorkspaceManager::new()),
+            workspace,
+            cross_file_refresh_tx: tx,
         }
+    }
+
+    /// Background task that debounces cross-file diagnostic refresh requests.
+    ///
+    /// Collects change notifications and waits for a quiet period (300ms with no new
+    /// changes) before computing and publishing diagnostics for affected files.
+    /// This coalesces rapid keystrokes so cross-file work only runs once.
+    fn spawn_cross_file_refresh_task(
+        client: Client,
+        workspace: Arc<WorkspaceManager>,
+        mut rx: tokio::sync::mpsc::UnboundedReceiver<CrossFileRefreshRequest>,
+    ) {
+        tokio::spawn(async move {
+            const DEBOUNCE_DELAY: Duration = Duration::from_millis(300);
+
+            loop {
+                // Wait for the first request
+                let Some(first_request) = rx.recv().await else {
+                    // Channel closed, server shutting down
+                    break;
+                };
+
+                // Collect requests during the debounce window, keyed by (workspace, project)
+                let mut pending: HashMap<(String, String), graphql_ide::FilePath> = HashMap::new();
+                pending.insert(
+                    (
+                        first_request.workspace_uri.clone(),
+                        first_request.project_name.clone(),
+                    ),
+                    first_request.changed_file,
+                );
+
+                // Drain any additional requests within the debounce window
+                loop {
+                    match tokio::time::timeout(DEBOUNCE_DELAY, rx.recv()).await {
+                        Ok(Some(request)) => {
+                            // New request arrived within window, reset the timer
+                            // Keep the latest changed file per project
+                            pending.insert(
+                                (request.workspace_uri.clone(), request.project_name.clone()),
+                                request.changed_file,
+                            );
+                        }
+                        Ok(None) => {
+                            // Channel closed
+                            return;
+                        }
+                        Err(_) => {
+                            // Timeout: debounce window elapsed, process pending requests
+                            break;
+                        }
+                    }
+                }
+
+                // Process each pending project's cross-file refresh
+                for ((workspace_uri, project_name), changed_file) in &pending {
+                    let Some(host) = workspace
+                        .hosts
+                        .get(&(workspace_uri.clone(), project_name.clone()))
+                    else {
+                        continue;
+                    };
+
+                    let Some(snapshot) = host.try_snapshot().await else {
+                        continue;
+                    };
+
+                    let all_diagnostics = snapshot.diagnostics_for_change(changed_file);
+
+                    for (diag_file_path, diagnostics) in all_diagnostics {
+                        // Skip the changed file itself -- already published synchronously
+                        if diag_file_path == *changed_file {
+                            continue;
+                        }
+
+                        let Ok(file_uri) = Uri::from_str(diag_file_path.as_str()) else {
+                            continue;
+                        };
+
+                        let lsp_diagnostics: Vec<Diagnostic> = diagnostics
+                            .into_iter()
+                            .map(convert_ide_diagnostic)
+                            .collect();
+
+                        client
+                            .publish_diagnostics(file_uri, lsp_diagnostics, None)
+                            .await;
+                    }
+                }
+            }
+        });
     }
 
     /// Custom request handler for fetching virtual file content.
@@ -1940,8 +2048,15 @@ impl LanguageServer for GraphQLLanguageServer {
                 .add_file_and_snapshot(&file_path, &final_content, language, document_kind)
                 .await;
 
-            // Validate using pre-acquired snapshot (no lock needed)
+            // Immediate: validate the changed file (fast, no cross-file work)
             self.validate_file_with_snapshot(&uri, snapshot).await;
+
+            // Schedule debounced cross-file refresh for affected files
+            let _ = self.cross_file_refresh_tx.send(CrossFileRefreshRequest {
+                workspace_uri,
+                project_name,
+                changed_file: file_path,
+            });
         }
     }
 
