@@ -1,6 +1,6 @@
 # GraphQL Analyzer - Claude Guide
 
-**Last Updated**: February 2026
+**Last Updated**: March 2026
 
 Context and guidance for Claude when working with this codebase.
 
@@ -28,7 +28,7 @@ Context and guidance for Claude when working with this codebase.
 | Where to add a lint rule?  | `crates/linter/src/rules/` - use `/adding-lint-rules` skill |
 | Where to add validation?   | `crates/analysis/src/`                                      |
 | Where's schema loading?    | `crates/introspect/` (remote), `crates/config/` (local)     |
-| How does incremental work? | Salsa queries: `base-db` → `syntax` → `hir` → `analysis`    |
+| How does incremental work? | Salsa queries: `base-db` → `syntax` → `hir` → `analysis`   |
 
 ---
 
@@ -42,21 +42,7 @@ A GraphQL LSP implementation in Rust providing IDE features for `.graphql` files
 - Project-wide analysis with proper fragment resolution across files
 - Remote schema support via introspection
 
-### Protected Core Features
-
-These features must NOT be removed or degraded:
-
-| Feature                       | Why Critical                      | What Enables It                                        |
-| ----------------------------- | --------------------------------- | ------------------------------------------------------ |
-| **Embedded GraphQL in TS/JS** | Most users write queries in TS/JS | `documentSelector` includes TS/JS in VS Code extension |
-| **Real-time diagnostics**     | Users expect immediate feedback   | LSP `textDocument/didChange` notifications             |
-| **Project-wide fragments**    | Fragments span many files         | `all_fragments()` indexes entire project               |
-
-**Solve performance problems without removing features.** Use filtering, lazy evaluation, debouncing, or configuration options instead.
-
----
-
-## Architecture
+### Architecture
 
 ```
 graphql-lsp / graphql-cli / graphql-mcp
@@ -73,66 +59,7 @@ graphql-db (Salsa database, FileId, memoization)
 ```
 
 See `DEVELOPMENT.md` for project structure and detailed architecture.
-
----
-
-## Key Concepts
-
-### GraphQL Document Model
-
-**Fragment scope is project-wide**, not file-scoped:
-
-- Operations can reference fragments in other files
-- Fragment spreads can reference other fragments (transitive dependencies)
-- Fragment and operation names must be unique across the entire project
-
-**When validating operations**, you MUST:
-
-1. Include direct fragment dependencies
-2. Recurse through fragment dependencies
-3. Handle circular references
-4. Validate against schema for all fragments in the chain
-
-### Cache Invariants
-
-The Salsa architecture relies on these invariants for incremental computation:
-
-| Invariant                     | Meaning                                                       |
-| ----------------------------- | ------------------------------------------------------------- |
-| **Structure/Body separation** | Editing body content never invalidates structure queries      |
-| **File isolation**            | Editing file A never invalidates unrelated queries for file B |
-| **Index stability**           | Global indexes stay cached when edits don't change names      |
-| **Lazy evaluation**           | Body queries only run when results are needed                 |
-
-**Structure** = identity (names, types). **Body** = content (selection sets, directives).
-
-### VS Code Extension Architecture
-
-The extension has three separate systems - don't confuse them:
-
-| System             | Purpose                                     | Scope                                            |
-| ------------------ | ------------------------------------------- | ------------------------------------------------ |
-| `documentSelector` | LSP features (diagnostics, hover, goto def) | Controls which files get IDE features            |
-| Grammar injection  | Syntax highlighting only                    | Visual coloring, no semantic understanding       |
-| File watcher       | Disk events only                            | File create/delete/rename, NOT real-time editing |
-
-**Common mistake:** Thinking grammar injection provides embedded GraphQL support. It only provides colors. The `documentSelector` MUST include TS/JS for actual LSP features.
-
----
-
-## Configuration
-
-```yaml
-# .graphqlrc.yaml
-schema: "schema.graphql"
-documents: "src/**/*.{graphql,ts,tsx}"
-
-# Lint config uses extensions.lint with camelCase rule names
-extensions:
-  lint: recommended # Happy path - just use preset
-```
-
-See `crates/config/README.md` for multi-project and advanced configuration.
+See `crates/CLAUDE.md` for crate architecture details, key concepts, and cache invariants.
 
 ---
 
@@ -282,7 +209,3 @@ SME agents in `.claude/agents/` provide domain guidance. Use `/sme-consultation`
 | `/add-ide-feature`   | LSP features (hover, goto def)     |
 | `/debug-lsp`         | Troubleshooting LSP issues         |
 | `/review-pr`         | Reviewing pull requests            |
-
----
-
-**End of Guide**
