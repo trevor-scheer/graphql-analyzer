@@ -749,22 +749,20 @@ fn extract_query_name(database_key: &dyn std::fmt::Debug) -> String {
 impl Default for IdeDatabase {
     fn default() -> Self {
         let mut db = Self {
-            storage: salsa::Storage::new(Some(Box::new(|event: salsa::Event| {
-                match event.kind {
-                    salsa::EventKind::WillExecute { database_key, .. } => {
-                        tracing::debug!(
-                            query = %extract_query_name(&database_key),
-                            "query cache miss (executing)",
-                        );
-                    }
-                    salsa::EventKind::DidValidateMemoizedValue { database_key } => {
-                        tracing::debug!(
-                            query = %extract_query_name(&database_key),
-                            "query cache hit (memoized)",
-                        );
-                    }
-                    _ => {}
+            storage: salsa::Storage::new(Some(Box::new(|event: salsa::Event| match event.kind {
+                salsa::EventKind::WillExecute { database_key, .. } => {
+                    tracing::debug!(
+                        query = %extract_query_name(&database_key),
+                        "query cache miss (executing)",
+                    );
                 }
+                salsa::EventKind::DidValidateMemoizedValue { database_key } => {
+                    tracing::debug!(
+                        query = %extract_query_name(&database_key),
+                        "query cache hit (memoized)",
+                    );
+                }
+                _ => {}
             }))),
             lint_config_input: None,
             extract_config_input: None,
