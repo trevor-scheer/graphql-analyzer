@@ -299,13 +299,22 @@ async fn main() -> anyhow::Result<()> {
     result
 }
 
+/// Build a tracing `EnvFilter`, always suppressing Salsa's internal logs
+/// unless the user explicitly includes `salsa` in `RUST_LOG`.
+fn build_env_filter(default: &str) -> tracing_subscriber::EnvFilter {
+    let filter_str = std::env::var("RUST_LOG").unwrap_or_else(|_| default.to_string());
+    let filter_str = if filter_str.contains("salsa") {
+        filter_str
+    } else {
+        format!("{filter_str},salsa=off")
+    };
+    tracing_subscriber::EnvFilter::new(filter_str)
+}
+
 /// Initialize basic tracing without OpenTelemetry
 fn init_tracing() {
     tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("off")),
-        )
+        .with_env_filter(build_env_filter("off"))
         .with_writer(std::io::stderr)
         .init();
 }
@@ -395,8 +404,7 @@ fn init_telemetry() -> Option<opentelemetry_sdk::trace::SdkTracerProvider> {
 
     let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    let env_filter = build_env_filter("info");
 
     tracing_subscriber::registry()
         .with(env_filter)

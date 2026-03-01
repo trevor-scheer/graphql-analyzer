@@ -739,7 +739,15 @@ struct IdeDatabase {
 impl Default for IdeDatabase {
     fn default() -> Self {
         let mut db = Self {
-            storage: salsa::Storage::default(),
+            storage: salsa::Storage::new(Some(Box::new(|event: salsa::Event| match event.kind {
+                salsa::EventKind::WillExecute { database_key, .. } => {
+                    tracing::debug!("query cache miss (executing): {database_key:?}");
+                }
+                salsa::EventKind::DidValidateMemoizedValue { database_key } => {
+                    tracing::debug!("query cache hit (memoized): {database_key:?}");
+                }
+                _ => {}
+            }))),
             lint_config_input: None,
             extract_config_input: None,
             project_files_input: None,

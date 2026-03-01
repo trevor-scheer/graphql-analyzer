@@ -1823,6 +1823,8 @@ impl LanguageServer for GraphQLLanguageServer {
         let content = params.text_document.text;
         let version = params.text_document.version;
 
+        tracing::info!("File opened: {}", uri.path());
+
         self.workspace
             .document_versions
             .insert(uri.to_string(), version);
@@ -1888,6 +1890,8 @@ impl LanguageServer for GraphQLLanguageServer {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
 
+        tracing::info!("File changed: {} (v{})", uri.path(), version);
+
         let uri_string = uri.to_string();
         if let Some(current_version) = self.workspace.document_versions.get(&uri_string) {
             if version <= *current_version {
@@ -1945,6 +1949,8 @@ impl LanguageServer for GraphQLLanguageServer {
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri;
 
+        tracing::info!("File saved: {}", uri.path());
+
         // Find the workspace and project for this file
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
         else {
@@ -2001,6 +2007,7 @@ impl LanguageServer for GraphQLLanguageServer {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        tracing::info!("File closed: {}", params.text_document.uri.path());
         // NOTE: We intentionally do NOT remove the file from AnalysisHost or clear diagnostics.
         // The file is still part of the project on disk, and other files may reference
         // fragments/types defined in it. Diagnostics should remain visible.
@@ -2015,7 +2022,7 @@ impl LanguageServer for GraphQLLanguageServer {
 
         for change in params.changes {
             let uri = change.uri;
-            tracing::debug!("File changed: {:?} (type: {:?})", uri, change.typ);
+            tracing::debug!("File changed: {} (type: {:?})", uri.path(), change.typ);
 
             let Some(config_path) = uri.to_file_path() else {
                 tracing::warn!("Failed to convert URI to file path: {:?}", uri);
@@ -2186,11 +2193,11 @@ impl LanguageServer for GraphQLLanguageServer {
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
         let uri = params.text_document.uri;
-        tracing::debug!("Document symbols requested: {:?}", uri);
+        tracing::debug!("Document symbols requested: {}", uri.path());
 
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
         else {
-            tracing::warn!("No project found for document: {:?}", uri);
+            tracing::warn!("No project found for document: {}", uri.path());
             return Ok(None);
         };
 
@@ -2256,12 +2263,12 @@ impl LanguageServer for GraphQLLanguageServer {
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
         let uri = params.text_document.uri;
-        tracing::debug!("Semantic tokens requested: {:?}", uri);
+        tracing::debug!("Semantic tokens requested: {}", uri.path());
 
         // Find workspace for this document
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
         else {
-            tracing::warn!("No project found for document: {:?}", uri);
+            tracing::warn!("No project found for document: {}", uri.path());
             return Ok(None);
         };
 
@@ -2279,7 +2286,7 @@ impl LanguageServer for GraphQLLanguageServer {
         let tokens = analysis.semantic_tokens(&file_path);
 
         if tokens.is_empty() {
-            tracing::debug!("No semantic tokens found in document: {:?}", uri);
+            tracing::debug!("No semantic tokens found in document");
             return Ok(None);
         }
 
@@ -2329,11 +2336,7 @@ impl LanguageServer for GraphQLLanguageServer {
             }
         }
 
-        tracing::debug!(
-            "Returning {} semantic tokens for {:?}",
-            encoded_tokens.len(),
-            uri
-        );
+        tracing::debug!(count = encoded_tokens.len(), "Returning semantic tokens");
         Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
             result_id: None,
             data: encoded_tokens,
@@ -2345,11 +2348,11 @@ impl LanguageServer for GraphQLLanguageServer {
         params: SelectionRangeParams,
     ) -> Result<Option<Vec<SelectionRange>>> {
         let uri = params.text_document.uri;
-        tracing::debug!("Selection range requested: {:?}", uri);
+        tracing::debug!("Selection range requested: {}", uri.path());
 
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
         else {
-            tracing::warn!("No project found for document: {:?}", uri);
+            tracing::warn!("No project found for document: {}", uri.path());
             return Ok(None);
         };
 
@@ -2379,15 +2382,11 @@ impl LanguageServer for GraphQLLanguageServer {
             .collect();
 
         if lsp_ranges.is_empty() {
-            tracing::debug!("No selection ranges found for {:?}", uri);
+            tracing::debug!("No selection ranges found");
             return Ok(None);
         }
 
-        tracing::debug!(
-            "Returning {} selection ranges for {:?}",
-            lsp_ranges.len(),
-            uri
-        );
+        tracing::debug!(count = lsp_ranges.len(), "Returning selection ranges");
         Ok(Some(lsp_ranges))
     }
 
@@ -2639,14 +2638,13 @@ impl LanguageServer for GraphQLLanguageServer {
         }
     }
 
-    #[tracing::instrument(skip(self, params), fields(uri = ?params.text_document.uri))]
+    #[tracing::instrument(skip(self, params), fields(path = %params.text_document.uri.path()))]
     async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
         let uri = params.text_document.uri;
-        tracing::debug!("Code lens requested: {:?}", uri);
 
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
         else {
-            tracing::debug!("No project found for document: {:?}", uri);
+            tracing::debug!("No project found for document");
             return Ok(None);
         };
 
@@ -2693,15 +2691,11 @@ impl LanguageServer for GraphQLLanguageServer {
         }
 
         if lsp_code_lenses.is_empty() {
-            tracing::debug!("No code lenses found for {:?}", uri);
+            tracing::debug!("No code lenses found");
             return Ok(None);
         }
 
-        tracing::debug!(
-            "Returning {} code lenses for {:?}",
-            lsp_code_lenses.len(),
-            uri
-        );
+        tracing::debug!(count = lsp_code_lenses.len(), "Returning code lenses");
         Ok(Some(lsp_code_lenses))
     }
 
@@ -2710,14 +2704,13 @@ impl LanguageServer for GraphQLLanguageServer {
         Ok(code_lens)
     }
 
-    #[tracing::instrument(skip(self, params), fields(uri = ?params.text_document.uri))]
+    #[tracing::instrument(skip(self, params), fields(path = %params.text_document.uri.path()))]
     async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
         let uri = params.text_document.uri;
-        tracing::debug!("Folding range requested: {:?}", uri);
 
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
         else {
-            tracing::debug!("No project found for document: {:?}", uri);
+            tracing::debug!("No project found for document");
             return Ok(None);
         };
 
@@ -2732,28 +2725,23 @@ impl LanguageServer for GraphQLLanguageServer {
         let ranges = analysis.folding_ranges(&file_path);
 
         if ranges.is_empty() {
-            tracing::debug!("No folding ranges found for {:?}", uri);
+            tracing::debug!("No folding ranges found");
             return Ok(None);
         }
 
         let lsp_ranges: Vec<FoldingRange> = ranges.iter().map(convert_ide_folding_range).collect();
 
-        tracing::debug!(
-            "Returning {} folding ranges for {:?}",
-            lsp_ranges.len(),
-            uri
-        );
+        tracing::debug!(count = lsp_ranges.len(), "Returning folding ranges");
         Ok(Some(lsp_ranges))
     }
 
-    #[tracing::instrument(skip(self, params), fields(uri = ?params.text_document.uri))]
+    #[tracing::instrument(skip(self, params), fields(path = %params.text_document.uri.path()))]
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<LspInlayHint>>> {
         let uri = params.text_document.uri;
-        tracing::debug!("Inlay hints requested: {:?}", uri);
 
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
         else {
-            tracing::debug!("No project found for inlay hints: {:?}", uri);
+            tracing::debug!("No project found for inlay hints");
             return Ok(None);
         };
 
@@ -2776,13 +2764,13 @@ impl LanguageServer for GraphQLLanguageServer {
         let hints = analysis.inlay_hints(&file_path, range);
 
         if hints.is_empty() {
-            tracing::debug!("No inlay hints found for {:?}", uri);
+            tracing::debug!("No inlay hints found");
             return Ok(None);
         }
 
         let lsp_hints: Vec<LspInlayHint> = hints.iter().map(convert_ide_inlay_hint).collect();
 
-        tracing::debug!("Returning {} inlay hints for {:?}", lsp_hints.len(), uri);
+        tracing::debug!(count = lsp_hints.len(), "Returning inlay hints");
         Ok(Some(lsp_hints))
     }
 }

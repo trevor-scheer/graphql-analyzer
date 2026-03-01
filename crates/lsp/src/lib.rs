@@ -10,6 +10,18 @@ mod workspace;
 use server::GraphQLLanguageServer;
 use tower_lsp_server::{LspService, Server};
 
+/// Build a tracing `EnvFilter`, always suppressing Salsa's internal logs
+/// unless the user explicitly includes `salsa` in `RUST_LOG`.
+fn build_env_filter(default: &str) -> tracing_subscriber::EnvFilter {
+    let filter_str = std::env::var("RUST_LOG").unwrap_or_else(|_| default.to_string());
+    let filter_str = if filter_str.contains("salsa") {
+        filter_str
+    } else {
+        format!("{filter_str},salsa=off")
+    };
+    tracing_subscriber::EnvFilter::new(filter_str)
+}
+
 /// Initialize tracing with OpenTelemetry support (when enabled).
 /// Returns true if tracing was initialized, false if already initialized.
 #[cfg(feature = "otel")]
@@ -39,8 +51,7 @@ fn init_tracing_with_otel() -> bool {
 
     let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    let env_filter = build_env_filter("info");
 
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
@@ -72,10 +83,7 @@ fn init_tracing_without_otel() -> bool {
         .with_ansi(false) // Disable ANSI colors since LSP output doesn't support them
         .with_target(true) // Include module target in logs for better filtering
         .with_thread_ids(true) // Include thread IDs for async debugging
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
+        .with_env_filter(build_env_filter("info"))
         .try_init()
         .is_ok()
 }
