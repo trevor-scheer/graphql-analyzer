@@ -655,6 +655,43 @@ fn find_preceding_arg_name(
     None
 }
 
+/// Find variable definitions from the operation that contains the given offset.
+///
+/// Returns variable names and their types for completions.
+pub fn find_operation_variables_at_offset(
+    tree: &apollo_parser::SyntaxTree,
+    byte_offset: usize,
+) -> Option<Vec<(String, String)>> {
+    use apollo_parser::cst::{CstNode, Definition};
+
+    let doc = tree.document();
+    for definition in doc.definitions() {
+        if let Definition::OperationDefinition(op) = definition {
+            let range = op.syntax().text_range();
+            let start: usize = range.start().into();
+            let end: usize = range.end().into();
+            if byte_offset >= start && byte_offset <= end {
+                let mut variables = Vec::new();
+                if let Some(var_defs) = op.variable_definitions() {
+                    for var_def in var_defs.variable_definitions() {
+                        if let Some(variable) = var_def.variable() {
+                            if let Some(name) = variable.name() {
+                                let type_str = var_def
+                                    .ty()
+                                    .map(|t| t.syntax().to_string())
+                                    .unwrap_or_default();
+                                variables.push((name.text().to_string(), type_str));
+                            }
+                        }
+                    }
+                }
+                return Some(variables);
+            }
+        }
+    }
+    None
+}
+
 /// Unwrap a `TypeRef` to get just the base type name (without List or `NonNull` wrappers)
 #[must_use]
 pub fn unwrap_type_to_name(type_ref: &graphql_hir::TypeRef) -> String {

@@ -1700,6 +1700,7 @@ impl LanguageServer for GraphQLLanguageServer {
                         "{".to_string(),
                         "@".to_string(),
                         "(".to_string(),
+                        "$".to_string(),
                     ]),
                     ..Default::default()
                 }),

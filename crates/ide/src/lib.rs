@@ -4936,6 +4936,65 @@ query GetUser {
     }
 
     #[test]
+    fn test_completions_for_variables_after_dollar() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { user(id: ID!): User } type User { id: ID! name: String! }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Cursor right after $: user(id: $|)
+        let (graphql, pos) = extract_cursor(
+            r#"
+query GetUser($userId: ID!, $includeEmail: Boolean!) {
+    user(id: $*) {
+        name
+    }
+}
+"#,
+        );
+        let path = FilePath::new("file:///test.graphql");
+        host.add_file(&path, &graphql, Language::GraphQL, DocumentKind::Executable);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let items = snapshot.completions(&path, pos).unwrap_or_default();
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+
+        assert!(
+            labels.contains(&"userId"),
+            "Should suggest 'userId' variable: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"includeEmail"),
+            "Should suggest 'includeEmail' variable: got {labels:?}"
+        );
+        assert_eq!(
+            items.len(),
+            2,
+            "Should suggest exactly 2 variables: got {labels:?}"
+        );
+
+        // All completions should be Variable kind
+        for item in &items {
+            assert_eq!(
+                item.kind,
+                CompletionKind::Variable,
+                "Expected Variable completion kind for '{}', got {:?}",
+                item.label,
+                item.kind
+            );
+        }
+
+        // Check type details
+        let user_id = items.iter().find(|i| i.label == "userId").unwrap();
+        assert_eq!(user_id.detail, Some("ID!".to_string()));
+    }
+
+    #[test]
     fn test_completions_for_field_arguments_on_nested_field() {
         let schema = r#"
 type Query { user: User }
