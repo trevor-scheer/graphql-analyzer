@@ -10,7 +10,8 @@
 
 use crate::helpers::{
     find_argument_context_at_offset, find_block_for_position,
-    find_directive_argument_context_at_offset, format_type_ref, position_to_offset,
+    find_directive_argument_context_at_offset, find_operation_variables_at_offset, format_type_ref,
+    position_to_offset,
 };
 use crate::symbol::{
     find_parent_type_at_offset, find_symbol_at_offset, is_in_selection_set, Symbol,
@@ -59,6 +60,11 @@ pub fn completions(
         try_directive_argument_completions(db, project_files, block_context.tree, offset)
     {
         return Some(items);
+    }
+
+    // Check if cursor follows `$` - offer variable completions
+    if is_after_dollar_sign(block_context.block_source, offset) {
+        return Some(variable_completions(block_context.tree, offset));
     }
 
     // Check if cursor is inside a field's arguments list
@@ -246,6 +252,28 @@ fn is_after_at_sign(source: &str, offset: usize) -> bool {
     source.as_bytes().get(offset - 1) == Some(&b'@')
 }
 
+/// Check if the cursor immediately follows a `$` sign.
+fn is_after_dollar_sign(source: &str, offset: usize) -> bool {
+    if offset == 0 {
+        return false;
+    }
+    source.as_bytes().get(offset - 1) == Some(&b'$')
+}
+
+/// Generate completion items for variables defined on the current operation.
+fn variable_completions(tree: &apollo_parser::SyntaxTree, offset: usize) -> Vec<CompletionItem> {
+    let Some(variables) = find_operation_variables_at_offset(tree, offset) else {
+        return Vec::new();
+    };
+
+    variables
+        .into_iter()
+        .map(|(name, type_str)| {
+            CompletionItem::new(name, CompletionKind::Variable).with_detail(type_str)
+        })
+        .collect()
+}
+
 /// Determine which directive locations are valid at the cursor position.
 fn directive_locations_at_offset(
     tree: &apollo_parser::SyntaxTree,
@@ -261,7 +289,6 @@ fn directive_locations_at_offset(
             cst::Definition::OperationDefinition(op) => {
                 let op_range = op.syntax().text_range();
                 if offset >= op_range.start().into() && offset <= op_range.end().into() {
-                    // Check if inside a selection set (field, fragment spread, inline fragment)
                     if is_in_selection_set(tree, offset) {
                         return vec![
                             DirectiveLocationKind::Field,
@@ -269,7 +296,6 @@ fn directive_locations_at_offset(
                             DirectiveLocationKind::InlineFragment,
                         ];
                     }
-                    // On the operation itself
                     let loc = match op.operation_type() {
                         Some(op_type) if op_type.mutation_token().is_some() => {
                             DirectiveLocationKind::Mutation
@@ -299,7 +325,6 @@ fn directive_locations_at_offset(
         }
     }
 
-    // Fallback: show all executable directives
     vec![
         DirectiveLocationKind::Query,
         DirectiveLocationKind::Mutation,
