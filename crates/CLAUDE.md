@@ -43,37 +43,8 @@ graphql-db           (Salsa database, FileId, memoization)
 
 ---
 
-## GraphQL Document Model
-
-**Fragment scope is project-wide**, not file-scoped:
-
-- Operations can reference fragments in other files
-- Fragment spreads can reference other fragments (transitive dependencies)
-- Fragment and operation names must be unique across the entire project
-
-**When validating operations**, you MUST:
-
-1. Include direct fragment dependencies
-2. Recurse through fragment dependencies
-3. Handle circular references
-4. Validate against schema for all fragments in the chain
-
----
-
-## Cache Invariants
-
-The Salsa architecture relies on these invariants for incremental computation:
-
-| Invariant                     | Meaning                                                       |
-| ----------------------------- | ------------------------------------------------------------- |
-| **Structure/Body separation** | Editing body content never invalidates structure queries      |
-| **File isolation**            | Editing file A never invalidates unrelated queries for file B |
-| **Index stability**           | Global indexes stay cached when edits don't change names      |
-| **Lazy evaluation**           | Body queries only run when results are needed                 |
-
-**Structure** = identity (names, types). **Body** = content (selection sets, directives).
-
----
+> Detailed rules for Salsa queries, GraphQL document model, and cache invariants
+> are in `.claude/rules/` (loaded automatically when working in relevant crates).
 
 ## Protected Core Features
 

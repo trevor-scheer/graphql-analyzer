@@ -32,6 +32,11 @@ else
     export PATH="$LOCAL_BIN:$PATH"
   fi
 
+  # Persist PATH for all subsequent Bash calls in this session
+  if [[ -n "${CLAUDE_ENV_FILE:-}" ]]; then
+    echo "PATH=$LOCAL_BIN:\$PATH" >> "$CLAUDE_ENV_FILE"
+  fi
+
   echo "✓ gh CLI installed successfully: $($LOCAL_BIN/gh --version | head -1)"
 fi
 

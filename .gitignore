@@ -48,4 +48,5 @@ node_modules/
 !.claude/hooks/
 !.claude/agents/
 !.claude/skills/
+!.claude/rules/
 plan-dist-manifest.json

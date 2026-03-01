@@ -25,6 +25,12 @@
       "Bash(git ls-files:*)",
       "Bash(git remote:*)",
       "Bash(git fetch:*)",
+      "Bash(gh pr:*)",
+      "Bash(gh issue:*)",
+      "Bash(gh api:*)",
+      "Bash(knope:*)",
+      "Bash(npm ci:*)",
+      "Bash(npm run:*)",
       "Bash(ls:*)",
       "Bash(tree:*)",
       "Bash(find:*)",
@@ -41,7 +47,8 @@
       "mcp__ide__getHoverInfo",
       "mcp__ide__getDefinition",
       "mcp__ide__getReferences"
-    ]
+    ],
+    "deny": ["Edit(.github/workflows/release.yml)"]
   },
   "hooks": {
     "SessionStart": [
@@ -50,6 +57,17 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/prompt-context.sh",
+            "timeout": 15
           }
         ]
       }
@@ -65,6 +83,17 @@
         ]
       }
     ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/permission-guard.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
@@ -72,6 +101,17 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/post-edit-format.sh"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/pre-compact.sh",
+            "timeout": 10
           }
         ]
       }
