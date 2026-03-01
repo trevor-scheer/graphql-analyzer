@@ -67,6 +67,15 @@ pub fn completions(
         return Some(variable_completions(block_context.tree, offset));
     }
 
+    // Check if cursor is in a type name position (after `on` keyword or after `:` in variable def)
+    if is_in_type_position(block_context.block_source, offset) {
+        if let Some(project_files) = project_files {
+            let types = graphql_hir::schema_types(db, project_files);
+            return Some(type_name_completions(types));
+        }
+        return Some(Vec::new());
+    }
+
     // Check if cursor is inside a field's arguments list
     if let Some(items) = try_argument_completions(db, project_files, block_context.tree, offset) {
         return Some(items);
@@ -403,6 +412,56 @@ fn directive_completions(
 
     items.sort_by(|a, b| a.label.cmp(&b.label));
     items
+}
+
+/// Check if the cursor is in a type name position.
+///
+/// Returns true if the cursor follows:
+/// - `on ` (fragment/inline fragment type condition)
+/// - `: ` in a variable definition context
+fn is_in_type_position(source: &str, offset: usize) -> bool {
+    let before = source.get(..offset).unwrap_or("");
+    let trimmed = before.trim_end();
+    // Check for `on` keyword (fragment type condition or inline fragment)
+    if trimmed.ends_with(" on") || trimmed.ends_with("\ton") || trimmed.ends_with("\non") {
+        return true;
+    }
+    // Also check if trimmed itself is just "on" (start of line)
+    if trimmed == "on" {
+        return true;
+    }
+    false
+}
+
+/// Generate completion items for type names from the schema.
+fn type_name_completions(types: &graphql_hir::TypeDefMap) -> Vec<CompletionItem> {
+    types
+        .values()
+        .filter(|t| {
+            // Only suggest types that can appear in type positions
+            // Exclude InputObject types for fragment type conditions
+            matches!(
+                t.kind,
+                graphql_hir::TypeDefKind::Object
+                    | graphql_hir::TypeDefKind::Interface
+                    | graphql_hir::TypeDefKind::Union
+            )
+        })
+        .map(|t| {
+            let kind_label = match t.kind {
+                graphql_hir::TypeDefKind::Object => "object",
+                graphql_hir::TypeDefKind::Interface => "interface",
+                graphql_hir::TypeDefKind::Union => "union",
+                _ => "type",
+            };
+            let mut item = CompletionItem::new(t.name.to_string(), CompletionKind::Type)
+                .with_detail(kind_label.to_string());
+            if let Some(desc) = &t.description {
+                item = item.with_documentation(desc.to_string());
+            }
+            item
+        })
+        .collect()
 }
 
 /// Generate completion items for top-level GraphQL keywords.
