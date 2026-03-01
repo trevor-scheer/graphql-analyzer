@@ -5,9 +5,10 @@
 //! - Fragment spread completions
 //! - Inline fragment completions for unions and interfaces
 //! - Argument completions for fields
+//! - Enum value completions in argument positions
 
 use crate::helpers::{
-    find_block_for_position, find_field_name_at_offset, format_type_ref, position_to_offset,
+    find_argument_context_at_offset, find_block_for_position, format_type_ref, position_to_offset,
 };
 use crate::symbol::{
     find_parent_type_at_offset, find_symbol_at_offset, is_in_selection_set, Symbol,
@@ -77,7 +78,11 @@ pub fn completions(
     }
 }
 
-/// Try to provide argument completions when the cursor is inside a field's arguments.
+/// Try to provide completions when the cursor is inside a field's arguments.
+///
+/// Handles two cases:
+/// 1. Cursor at argument name position -> suggest argument names
+/// 2. Cursor at argument value position (after `:`) -> suggest enum values if applicable
 ///
 /// Returns `Some(items)` if the cursor is in an arguments context, `None` otherwise.
 fn try_argument_completions(
@@ -87,7 +92,7 @@ fn try_argument_completions(
     offset: usize,
 ) -> Option<Vec<CompletionItem>> {
     let project_files = project_files?;
-    let field_name = find_field_name_at_offset(tree, offset)?;
+    let arg_ctx = find_argument_context_at_offset(tree, offset)?;
 
     let types = graphql_hir::schema_types(db, project_files);
     let parent_ctx = find_parent_type_at_offset(tree, offset)?;
@@ -98,8 +103,27 @@ fn try_argument_completions(
     let field_def = parent_type
         .fields
         .iter()
-        .find(|f| f.name.as_ref() == field_name)?;
+        .find(|f| f.name.as_ref() == arg_ctx.field_name)?;
 
+    // If we're in an argument value position, try enum value completions
+    if let Some(arg_name) = &arg_ctx.argument_name {
+        if let Some(arg_def) = field_def
+            .arguments
+            .iter()
+            .find(|a| a.name.as_ref() == arg_name)
+        {
+            let base_type_name = arg_def.type_ref.name.as_ref();
+            if let Some(type_def) = types.get(base_type_name) {
+                if type_def.kind == graphql_hir::TypeDefKind::Enum {
+                    return Some(enum_value_completions(type_def));
+                }
+            }
+        }
+        // In value position but not an enum type - return empty to avoid showing arg names
+        return Some(Vec::new());
+    }
+
+    // Cursor is at argument name position - suggest argument names
     let items = field_def
         .arguments
         .iter()
@@ -119,6 +143,24 @@ fn try_argument_completions(
         .collect();
 
     Some(items)
+}
+
+/// Generate completion items for enum values.
+fn enum_value_completions(type_def: &graphql_hir::TypeDef) -> Vec<CompletionItem> {
+    type_def
+        .enum_values
+        .iter()
+        .map(|ev| {
+            let mut item = CompletionItem::new(ev.name.to_string(), CompletionKind::EnumValue);
+            if let Some(desc) = &ev.description {
+                item = item.with_documentation(desc.to_string());
+            }
+            if ev.is_deprecated {
+                item = item.with_deprecated(true);
+            }
+            item
+        })
+        .collect()
 }
 
 /// Provide field completions in a selection set.
