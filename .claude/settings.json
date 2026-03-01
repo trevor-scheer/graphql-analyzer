@@ -1,4 +1,7 @@
 {
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": true
+  },
   "permissions": {
     "allow": [
       "Bash(cargo clippy:*)",
@@ -33,7 +36,11 @@
       "Bash(cat:*)",
       "Bash(head:*)",
       "Bash(tail:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "mcp__ide__getDiagnostics",
+      "mcp__ide__getHoverInfo",
+      "mcp__ide__getDefinition",
+      "mcp__ide__getReferences"
     ]
   },
   "hooks": {
