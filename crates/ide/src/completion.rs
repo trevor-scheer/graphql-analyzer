@@ -6,6 +6,7 @@
 //! - Inline fragment completions for unions and interfaces
 //! - Argument completions for fields
 //! - Enum value completions in argument positions
+//! - Directive completions after `@`
 
 use crate::helpers::{
     find_argument_context_at_offset, find_block_for_position, format_type_ref, position_to_offset,
@@ -15,6 +16,14 @@ use crate::symbol::{
 };
 use crate::types::{CompletionItem, CompletionKind, FilePath, InsertTextFormat, Position};
 use crate::FileRegistry;
+
+/// Built-in GraphQL directives available in all schemas.
+const BUILTIN_DIRECTIVES: &[(&str, &str, &str)] = &[
+    ("skip", "Directs the executor to skip this field or fragment when the `if` argument is true.", "FIELD | INLINE_FRAGMENT | FRAGMENT_SPREAD"),
+    ("include", "Directs the executor to include this field or fragment only when the `if` argument is true.", "FIELD | INLINE_FRAGMENT | FRAGMENT_SPREAD"),
+    ("deprecated", "Marks an element of a GraphQL schema as no longer supported.", "FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION | ENUM_VALUE"),
+    ("specifiedBy", "Exposes a URL that specifies the behavior of this scalar.", "SCALAR"),
+];
 
 /// Get completions at a position.
 ///
@@ -41,6 +50,11 @@ pub fn completions(
     let offset = position_to_offset(&block_line_index, adjusted_position)?;
 
     let symbol = find_symbol_at_offset(block_context.tree, offset);
+
+    // Check if cursor follows `@` - offer directive completions
+    if is_after_at_sign(block_context.block_source, offset) {
+        return Some(directive_completions());
+    }
 
     // Check if cursor is inside a field's arguments list
     if let Some(items) = try_argument_completions(db, project_files, block_context.tree, offset) {
@@ -159,6 +173,26 @@ fn enum_value_completions(type_def: &graphql_hir::TypeDef) -> Vec<CompletionItem
                 item = item.with_deprecated(true);
             }
             item
+        })
+        .collect()
+}
+
+/// Check if the cursor immediately follows an `@` sign.
+fn is_after_at_sign(source: &str, offset: usize) -> bool {
+    if offset == 0 {
+        return false;
+    }
+    source.as_bytes().get(offset - 1) == Some(&b'@')
+}
+
+/// Generate completion items for directives.
+fn directive_completions() -> Vec<CompletionItem> {
+    BUILTIN_DIRECTIVES
+        .iter()
+        .map(|(name, description, locations)| {
+            CompletionItem::new(name.to_string(), CompletionKind::Directive)
+                .with_detail(locations.to_string())
+                .with_documentation(description.to_string())
         })
         .collect()
 }
