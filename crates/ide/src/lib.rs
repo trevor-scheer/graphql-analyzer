@@ -2923,13 +2923,12 @@ fragment AttackActionInfo on AttackAction {
 
         host.rebuild_project_files();
 
-        // Get completions
+        // Get completions - at document level we now return keyword completions
         let snapshot = host.snapshot();
         let completions = snapshot.completions(&path, Position::new(0, 10));
 
-        // Should return empty list for files with syntax errors
+        // Should return completions without crashing (keyword completions at document level)
         assert!(completions.is_some());
-        assert_eq!(completions.unwrap().len(), 0);
     }
 
     #[test]
@@ -4933,6 +4932,74 @@ query GetUser {
         // Check that documentation is provided
         let skip_item = items.iter().find(|i| i.label == "skip").unwrap();
         assert!(skip_item.documentation.is_some());
+    }
+
+    #[test]
+    fn test_completions_for_top_level_keywords() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { user: User } type User { id: ID! }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Cursor at document root (after a definition)
+        let (graphql, pos) = extract_cursor(
+            r#"
+query GetUser {
+    user { id }
+}
+*"#,
+        );
+        let path = FilePath::new("file:///test.graphql");
+        host.add_file(&path, &graphql, Language::GraphQL, DocumentKind::Executable);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let items = snapshot.completions(&path, pos).unwrap_or_default();
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+
+        assert!(
+            labels.contains(&"query"),
+            "Should suggest 'query': got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"mutation"),
+            "Should suggest 'mutation': got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"subscription"),
+            "Should suggest 'subscription': got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"fragment"),
+            "Should suggest 'fragment': got {labels:?}"
+        );
+        assert_eq!(
+            items.len(),
+            4,
+            "Should suggest exactly 4 keywords: got {labels:?}"
+        );
+
+        // All completions should be Keyword kind
+        for item in &items {
+            assert_eq!(
+                item.kind,
+                CompletionKind::Keyword,
+                "Expected Keyword completion kind for '{}', got {:?}",
+                item.label,
+                item.kind
+            );
+        }
+
+        // Should have snippet insert text
+        let query_item = items.iter().find(|i| i.label == "query").unwrap();
+        assert_eq!(
+            query_item.insert_text_format,
+            Some(InsertTextFormat::Snippet)
+        );
     }
 
     #[test]
