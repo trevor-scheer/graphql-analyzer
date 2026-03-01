@@ -1823,6 +1823,8 @@ impl LanguageServer for GraphQLLanguageServer {
         let content = params.text_document.text;
         let version = params.text_document.version;
 
+        tracing::info!("File opened: {}", uri.path());
+
         self.workspace
             .document_versions
             .insert(uri.to_string(), version);
@@ -1888,6 +1890,8 @@ impl LanguageServer for GraphQLLanguageServer {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
 
+        tracing::info!("File changed: {} (v{})", uri.path(), version);
+
         let uri_string = uri.to_string();
         if let Some(current_version) = self.workspace.document_versions.get(&uri_string) {
             if version <= *current_version {
@@ -1945,6 +1949,8 @@ impl LanguageServer for GraphQLLanguageServer {
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri;
 
+        tracing::info!("File saved: {}", uri.path());
+
         // Find the workspace and project for this file
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
         else {
@@ -2001,6 +2007,7 @@ impl LanguageServer for GraphQLLanguageServer {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        tracing::info!("File closed: {}", params.text_document.uri.path());
         // NOTE: We intentionally do NOT remove the file from AnalysisHost or clear diagnostics.
         // The file is still part of the project on disk, and other files may reference
         // fragments/types defined in it. Diagnostics should remain visible.
