@@ -5003,6 +5003,80 @@ query GetUser {
     }
 
     #[test]
+    fn test_completions_for_input_object_fields() {
+        let schema = r#"
+type Query { me: User }
+type Mutation {
+    createUser(input: CreateUserInput!): User!
+}
+input CreateUserInput {
+    name: String!
+    email: String!
+    age: Int
+    role: Role
+}
+enum Role { ADMIN USER }
+type User { id: ID! name: String! }
+"#;
+
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Cursor inside input object value: createUser(input: { name: "test", | })
+        let (graphql, pos) = extract_cursor(
+            r#"
+mutation CreateUser {
+    createUser(input: { name: "test", *}) {
+        id
+    }
+}
+"#,
+        );
+        let path = FilePath::new("file:///test.graphql");
+        host.add_file(&path, &graphql, Language::GraphQL, DocumentKind::Executable);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let items = snapshot.completions(&path, pos).unwrap_or_default();
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+
+        assert!(
+            labels.contains(&"name"),
+            "Should suggest 'name' input field: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"email"),
+            "Should suggest 'email' input field: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"age"),
+            "Should suggest 'age' input field: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"role"),
+            "Should suggest 'role' input field: got {labels:?}"
+        );
+        assert_eq!(
+            items.len(),
+            4,
+            "Should suggest exactly 4 input fields: got {labels:?}"
+        );
+
+        // Check type details
+        let name_item = items.iter().find(|i| i.label == "name").unwrap();
+        assert_eq!(name_item.detail, Some("String!".to_string()));
+
+        // Check insert text includes ": "
+        assert_eq!(name_item.insert_text, Some("name: ".to_string()));
+    }
+
+    #[test]
     fn test_completions_for_variables_after_dollar() {
         let mut host = AnalysisHost::new();
         let schema_path = FilePath::new("file:///schema.graphql");

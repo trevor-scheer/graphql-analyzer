@@ -634,23 +634,55 @@ pub fn find_argument_context_at_offset(
 
 /// Scan backwards from cursor to find an `argName:` pattern.
 /// Returns the argument name if found.
+///
+/// Handles patterns like:
+/// - `argName: |` (cursor right after colon)
+/// - `argName: {|` (cursor inside object value)
+/// - `argName: { field: value, |` (cursor inside nested object)
 fn find_preceding_arg_name(
     source: &str,
     cursor_offset: usize,
     args_start: usize,
 ) -> Option<String> {
     let before_cursor = source.get(args_start..cursor_offset)?;
-    // Look for the last occurrence of `name:` pattern (with optional whitespace after colon)
-    // Walking backwards from the end of the slice
     let trimmed = before_cursor.trim_end();
+
+    // Direct case: text ends with `:` (cursor right after colon + optional whitespace)
     if let Some(before_colon) = trimmed.strip_suffix(':') {
-        // Find the argument name before the colon
-        let before_colon = before_colon.trim_end();
-        // Extract the last word (argument name) - it could follow a comma or opening paren
-        let arg_name = before_colon.rsplit([',', '(']).next()?.trim();
-        if !arg_name.is_empty() && arg_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
-            return Some(arg_name.to_string());
+        return extract_arg_name(before_colon);
+    }
+
+    // Object value case: text ends with `{` after `argName:` pattern
+    // Scan backwards, tracking brace depth to find the matching `argName:`
+    let mut depth = 0i32;
+    let bytes = before_cursor.as_bytes();
+    for i in (0..bytes.len()).rev() {
+        match bytes[i] {
+            b'}' => depth += 1,
+            b'{' => {
+                if depth == 0 {
+                    // Found the opening brace at our level, look for `argName:` before it
+                    let before_brace = before_cursor[..i].trim_end();
+                    if let Some(before_colon) = before_brace.strip_suffix(':') {
+                        return extract_arg_name(before_colon);
+                    }
+                    return None;
+                }
+                depth -= 1;
+            }
+            _ => {}
         }
+    }
+
+    None
+}
+
+/// Extract an argument name from the text before a colon.
+fn extract_arg_name(before_colon: &str) -> Option<String> {
+    let before_colon = before_colon.trim_end();
+    let arg_name = before_colon.rsplit([',', '(']).next()?.trim();
+    if !arg_name.is_empty() && arg_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return Some(arg_name.to_string());
     }
     None
 }
@@ -749,6 +781,28 @@ pub fn path_to_file_uri(path: &std::path::Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_find_argument_context_inside_object_value() {
+        let source = r#"mutation CreateUser {
+    createUser(input: { name: "test", }) {
+        id
+    }
+}"#;
+        let parser = apollo_parser::Parser::new(source);
+        let tree = parser.parse();
+        // Cursor between ", " and "}" inside the object value
+        let cursor_pos = source.find(", }").unwrap() + 2;
+
+        let ctx = find_argument_context_at_offset(&tree, cursor_pos);
+        assert!(
+            ctx.is_some(),
+            "Should find argument context inside object value"
+        );
+        let ctx = ctx.unwrap();
+        assert_eq!(ctx.field_name, "createUser");
+        assert_eq!(ctx.argument_name.as_deref(), Some("input"));
+    }
 
     #[test]
     fn test_position_to_offset_helper() {
