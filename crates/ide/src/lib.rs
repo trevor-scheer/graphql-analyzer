@@ -4878,6 +4878,64 @@ query Search {
     }
 
     #[test]
+    fn test_completions_for_directives_after_at() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { user: User } type User { id: ID! name: String! }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Cursor right after @: field @|
+        let (graphql, pos) = extract_cursor(
+            r#"
+query GetUser {
+    user {
+        name @*
+    }
+}
+"#,
+        );
+        let path = FilePath::new("file:///test.graphql");
+        host.add_file(&path, &graphql, Language::GraphQL, DocumentKind::Executable);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let items = snapshot.completions(&path, pos).unwrap_or_default();
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+
+        assert!(
+            labels.contains(&"skip"),
+            "Should suggest 'skip' directive: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"include"),
+            "Should suggest 'include' directive: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"deprecated"),
+            "Should suggest 'deprecated' directive: got {labels:?}"
+        );
+
+        // All completions should be Directive kind
+        for item in &items {
+            assert_eq!(
+                item.kind,
+                CompletionKind::Directive,
+                "Expected Directive completion kind for '{}', got {:?}",
+                item.label,
+                item.kind
+            );
+        }
+
+        // Check that documentation is provided
+        let skip_item = items.iter().find(|i| i.label == "skip").unwrap();
+        assert!(skip_item.documentation.is_some());
+    }
+
+    #[test]
     fn test_completions_for_field_arguments_on_nested_field() {
         let schema = r#"
 type Query { user: User }
