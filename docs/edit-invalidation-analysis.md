@@ -26,7 +26,7 @@ This means: **when you edit file A, only file A gets re-diagnosed.** Files B, C,
 
 ### What Salsa Handles vs. What It Doesn't
 
-Salsa handles memoization and dependency tracking within a single query tree. When file A's content changes, Salsa knows that any cached result depending on A's `FileContent` is stale. The next time someone *asks* for that result, Salsa will recompute it.
+Salsa handles memoization and dependency tracking within a single query tree. When file A's content changes, Salsa knows that any cached result depending on A's `FileContent` is stale. The next time someone _asks_ for that result, Salsa will recompute it.
 
 **The key insight: Salsa is pull-based, not push-based.** It doesn't proactively tell you "hey, file B's diagnostics are now stale because file A changed." You have to ask for file B's diagnostics again, and then Salsa will recompute them. The current LSP layer never asks.
 
@@ -42,12 +42,14 @@ query.graphql:   query { user { name } }     # should now show error, but doesn'
 ```
 
 **What happens today:**
+
 - `did_change` fires for `schema.graphql`
 - LSP publishes diagnostics for `schema.graphql` (no errors)
 - `query.graphql` is never re-validated
 - User sees no error until they edit `query.graphql` or restart the LSP
 
 **What should happen:**
+
 - `query.graphql` should immediately show `"Cannot query field 'name' on type 'User'"`
 
 ### Scenario 2: Delete a Schema Field
@@ -62,6 +64,7 @@ operations.graphql: query { user { ...UserInfo } }  # should show "unknown fragm
 ```
 
 **What happens today:**
+
 - `did_change` fires for `fragments.graphql`
 - LSP publishes diagnostics for `fragments.graphql` only
 - `operations.graphql` still shows no error
@@ -94,11 +97,11 @@ Here's what depends on what, and therefore what needs re-validation when somethi
 
 When a schema file's content changes, these Salsa queries become stale:
 
-| Query | What It Computes | Who Depends On It |
-|-------|-----------------|-------------------|
-| `file_type_defs(schema_file)` | Types from one schema file | `schema_types()` |
-| `schema_types(project_files)` | All merged types | Every document validation, every completion, every hover |
-| `merged_schema_with_diagnostics()` | The apollo-compiler `Schema` | `validate_file()` for every document file |
+| Query                              | What It Computes             | Who Depends On It                                        |
+| ---------------------------------- | ---------------------------- | -------------------------------------------------------- |
+| `file_type_defs(schema_file)`      | Types from one schema file   | `schema_types()`                                         |
+| `schema_types(project_files)`      | All merged types             | Every document validation, every completion, every hover |
+| `merged_schema_with_diagnostics()` | The apollo-compiler `Schema` | `validate_file()` for every document file                |
 
 **Impact**: A schema edit invalidates the validation result of **every document file** in the project.
 
@@ -106,19 +109,64 @@ When a schema file's content changes, these Salsa queries become stale:
 
 When a document file's content changes:
 
-| Query | What It Computes | Who Depends On It |
-|-------|-----------------|-------------------|
-| `file_fragments(doc_file)` | Fragments from one file | `all_fragments()`, `fragment_file_index()`, etc. |
-| `file_operations(doc_file)` | Operations from one file | `all_operations()`, name indexes |
-| `all_fragments(project_files)` | All fragments | `validate_file()` for any file using fragments |
-| `fragment_spreads_index()` | Fragment dependency graph | `validate_file()` for any file with fragment spreads |
-| `project_fragment_name_index()` | Fragment name uniqueness | Fragment uniqueness checks in other files |
-| `project_operation_name_index()` | Operation name uniqueness | Operation uniqueness checks in other files |
+| Query                            | What It Computes          | Who Depends On It                                    |
+| -------------------------------- | ------------------------- | ---------------------------------------------------- |
+| `file_fragments(doc_file)`       | Fragments from one file   | `all_fragments()`, `fragment_file_index()`, etc.     |
+| `file_operations(doc_file)`      | Operations from one file  | `all_operations()`, name indexes                     |
+| `all_fragments(project_files)`   | All fragments             | `validate_file()` for any file using fragments       |
+| `fragment_spreads_index()`       | Fragment dependency graph | `validate_file()` for any file with fragment spreads |
+| `project_fragment_name_index()`  | Fragment name uniqueness  | Fragment uniqueness checks in other files            |
+| `project_operation_name_index()` | Operation name uniqueness | Operation uniqueness checks in other files           |
 
 **Impact**: A document edit can invalidate:
+
 - Validation of any file that uses fragments defined in this file
 - Uniqueness checks in files with same-named operations/fragments
 - Fragment transitive dependency resolution
+
+---
+
+## Exact Inputs for a Single File's Diagnostics
+
+Before deciding on a refresh strategy, we need to know: **does diagnosing file F require reading all 10k files, or just a narrow subset?**
+
+The answer: **a narrow subset.** Here's the exact dependency tree for `file_diagnostics(file_F)`:
+
+### `validate_file()` (validation.rs) depends on:
+
+| Input                                | Scope                                                | Notes                                                                                       |
+| ------------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `merged_schema_with_diagnostics(pf)` | All schema files (typically 1-5)                     | Single cached `Schema` object, shared by all document files                                 |
+| `fragment_spreads_index(pf)`         | All document files' fragment spreads                 | Aggregate index, but per-file contributions are cached independently                        |
+| `fragment_ast(pf, "FragName")`       | **Only the specific fragments this file references** | Fine-grained: creates Salsa dependency on just the referenced fragment files, not all files |
+
+### `lint_file_impl()` (lint_integration.rs) depends on:
+
+| Input                              | Scope                               | Notes                                                 |
+| ---------------------------------- | ----------------------------------- | ----------------------------------------------------- |
+| `schema_types(pf)`                 | All schema files                    | Same shared schema                                    |
+| `project_fragment_name_index(pf)`  | All document files' fragment names  | Only queried if file has fragments (uniqueness check) |
+| `project_operation_name_index(pf)` | All document files' operation names | Only queried if file has named operations             |
+
+### How Aggregate Indexes Work at 10k Files
+
+The aggregate indexes (`fragment_spreads_index`, `project_fragment_name_index`, etc.) do iterate all files internally. But Salsa's per-file granularity means:
+
+1. If only file A changed, only `file_fragment_spreads(A)` recomputes
+2. The aggregate merges 1 fresh result + 9,999 cached results
+3. If the aggregate output is unchanged (e.g., editing a selection set didn't add/remove fragment spreads), **Salsa backdates the result** and nothing downstream re-runs
+
+The actual recomputation cost is proportional to the number of files that changed, not the total number of files.
+
+### Bottom Line
+
+A single file's diagnostics depend on:
+
+- The merged schema (shared, cached)
+- Specific fragments it references by name (fine-grained)
+- Aggregate name indexes (cheap to verify, backdate when unchanged)
+
+It does **not** depend on the content of all 10k files. This makes selective refresh viable.
 
 ---
 
@@ -128,119 +176,77 @@ The core question is: **after editing file A, which other files need their diagn
 
 ### Do We Need to Handle Every Edit Type Individually?
 
-**No.** We don't need to classify edits by type (rename, delete, add field, etc.). Instead, we can use a simpler and more robust approach based on Salsa's own dependency tracking.
+**No.** We don't need to classify individual edits (rename vs delete vs add). But we do need to classify the **kind of file** that changed (schema vs document) and **what aspect** changed (structure vs body). This gives us a small number of categories with clear refresh rules.
 
-There are two viable strategies:
+### Strategy: Debounced Selective Refresh (Recommended)
 
-### Strategy 1: Conservative Broadcast (Simple, Correct, Slightly Wasteful)
-
-After any file edit, re-publish diagnostics for all open files (or all loaded files).
+Combine immediate per-file validation with debounced cross-file refresh, scoped to affected files:
 
 ```
 on did_change(file_A):
-    update file_A content in Salsa
-    for each loaded file F:
-        diagnostics = salsa_query(diagnostics_for(F))  // Salsa handles memoization
-        publish_diagnostics(F, diagnostics)
-```
-
-**Why this works well enough:** Salsa's memoization means that if file F's diagnostics haven't actually changed (because file A's edit didn't affect F), the query returns the cached result almost instantly. The cost is just the HashMap lookups through the dependency chain.
-
-**Trade-offs:**
-- Simple to implement
-- Correct for all edit types without special-casing
-- Cost per keystroke = O(open_files * Salsa_verification_cost)
-- For large projects (hundreds of files), this could add latency
-
-### Strategy 2: Dependency-Aware Selective Refresh (Optimal, More Complex)
-
-Track which files depend on which, and only refresh affected files.
-
-```
-on did_change(file_A):
-    update file_A content in Salsa
+    // Immediate: validate the changed file
     publish_diagnostics(file_A)
 
-    if file_A is a schema file:
-        // Schema change invalidates ALL document files
-        for each document_file F:
-            publish_diagnostics(F)
-
-    else if file_A is a document file:
-        // Check what changed at the structure level
-        old_structure = cached file_structure(file_A)
-        new_structure = file_structure(file_A)  // recomputed by Salsa
-
-        if structure_changed(old_structure, new_structure):
-            // Fragment/operation names changed -> refresh files that reference them
-            for each file F that references changed fragments/operations:
-                publish_diagnostics(F)
-```
-
-**Trade-offs:**
-- Minimal work per keystroke
-- Requires tracking "reverse dependencies" (which files use which fragments)
-- More complex implementation
-- Risk of missing edge cases
-
-### Strategy 3: Two-Tier with Debouncing (Recommended)
-
-Combine immediate per-file validation with debounced cross-file refresh:
-
-```
-on did_change(file_A):
-    // Immediate: validate the changed file (< 1ms with Salsa)
-    publish_diagnostics(file_A)
-
-    // Debounced (e.g., 300ms): refresh affected files
+    // Debounced (300ms): refresh only affected files
     debounce("cross-file-refresh", 300ms, || {
-        if file_A is schema:
-            refresh_all_document_files()
-        else:
-            refresh_files_affected_by(file_A)
+        affected = compute_affected_files(file_A)
+        for F in affected:
+            publish_diagnostics(F)
     })
 ```
 
-**Why this is recommended:**
-- Users get instant feedback on the file they're editing
-- Cross-file errors appear within 300ms (imperceptible delay)
-- Debouncing coalesces rapid keystrokes (typing a name refactor)
-- Salsa memoization makes the debounced refresh cheap when nothing actually changed
+**Why debounce:** Coalesces rapid keystrokes. While a user types `displ` -> `display` -> `displayName`, only the final state triggers cross-file work.
+
+**Why selective:** At 10k files, we can't re-publish all files every 300ms. But we can refresh the ~5-50 files that actually depend on what changed.
 
 ---
 
-## Detailed Design for Strategy 3
+## Detailed Design
 
 ### What "Affected Files" Means Per Edit Category
 
-Even though we don't need to classify every individual edit, understanding the categories helps optimize the refresh scope:
-
 #### Category 1: Schema Content Changes
-**Trigger:** Any edit to a file with `DocumentKind::Schema`
-**Affected:** ALL document files (every operation/fragment validates against the schema)
-**Reason:** `validate_file()` depends on `merged_schema_with_diagnostics()` which depends on `schema_types()` which depends on `file_type_defs()` for the changed schema file
 
-**Optimization:** Can compare `schema_types()` before/after. If the merged types haven't changed (e.g., editing a comment or whitespace), skip the broadcast.
+**Trigger:** Any edit to a file with `DocumentKind::Schema`
+**Affected:** ALL document files (every operation/fragment validates against the schema via `merged_schema_with_diagnostics()`)
+**Mitigation:** Salsa's backdate optimization. If the schema edit doesn't change the merged `Schema` output (e.g., editing a description or comment), the backdate means zero downstream recomputation. In practice: requery all document files, but Salsa makes this ~free when the schema semantics didn't change.
+
+**At 10k files:** Worst case (actual schema change like field rename) requires re-publishing 10k files. But Salsa only actually recomputes validation for files that query the changed field. Others get cache hits. The cost is O(10k) Salsa verification checks (fast) + O(affected) actual recomputation.
 
 #### Category 2: Fragment Structure Changes (Name, Type Condition)
+
 **Trigger:** Renaming a fragment, changing its type condition, adding/removing a fragment
 **Affected:** Files that spread the changed fragment (directly or transitively)
-**How to find them:** `fragment_spreads_index()` gives the reverse dependency graph
+**How to find them:** Build a reverse index from `fragment_spreads_index()`:
+
+```
+fragment_spreads_index: { "FragA" -> {"FragB", "FragC"}, "FragB" -> {} }
+reverse: { "FragB" -> {"FragA"}, "FragC" -> {"FragA"} }
+```
+
+Then walk the reverse graph + find files that contain operations spreading these fragments.
+
+**At 10k files:** Typically affects 1-20 files. Very targeted.
 
 #### Category 3: Fragment Body Changes (Selection Set)
-**Trigger:** Editing fields inside a fragment body
-**Affected:** Files that spread this fragment (the merged validation document changes)
-**Scope:** Narrower than structure changes - only affects validation, not name indexes
+
+**Trigger:** Editing fields inside a fragment body (not changing name or type condition)
+**Affected:** Files that spread this fragment - because `validate_file()` pulls the fragment's AST via `fragment_ast()`, and the AST changed
+**At 10k files:** Same as Category 2, typically 1-20 files.
+
+**Optimization opportunity:** Fragment body edits are the trickiest because they cross the structure/body boundary via `fragment_ast()`. If we could detect "fragment name unchanged, type condition unchanged, only selection set changed" at the LSP layer, we'd still need to refresh spreaders (for validation) but could skip name index verification.
 
 #### Category 4: Operation Structure Changes (Name, Variables)
+
 **Trigger:** Renaming an operation, changing variables
-**Affected:** Other files with same-named operations (uniqueness check)
-**How to find them:** `project_operation_name_index()`
+**Affected:** Other files with same-named operations (uniqueness check via `project_operation_name_index()`)
+**At 10k files:** Usually 0-2 files (name collisions are rare). Could be zero if the old or new name is unique.
 
 #### Category 5: Operation Body Changes
+
 **Trigger:** Editing fields inside an operation body
-**Affected:** Only the file itself (operations don't have cross-file dependents)
-**Scope:** No cross-file refresh needed
+**Affected:** **Only the file itself.** Operations don't have cross-file dependents.
+**At 10k files:** Zero cross-file refresh needed. This is the most common edit.
 
 ### Implementation Sketch
 
@@ -253,62 +259,58 @@ async fn did_change(&self, params: DidChangeTextDocumentParams) {
     self.validate_file_with_snapshot(&uri, snapshot.clone()).await;
 
     // Schedule debounced cross-file refresh
-    let is_schema = document_kind == DocumentKind::Schema;
-    self.schedule_cross_file_refresh(workspace_uri, project_name, is_schema).await;
+    self.schedule_cross_file_refresh(
+        workspace_uri, project_name, uri, document_kind
+    ).await;
 }
 
-async fn refresh_affected_files(&self, workspace_uri: &str, project_name: &str) {
-    let host = self.workspace.get_host(workspace_uri, project_name);
-    let snapshot = host.snapshot().await;
-
-    // Get all loaded file paths
-    let all_files = snapshot.all_file_paths();
-
-    // Use all_diagnostics_for_files which merges per-file + project-wide
-    let diagnostics_map = snapshot.all_diagnostics_for_files(&all_files);
-
-    for (file_path, diagnostics) in &diagnostics_map {
-        let lsp_diagnostics = diagnostics.iter().map(convert_ide_diagnostic).collect();
-        self.client.publish_diagnostics(file_uri, lsp_diagnostics, None).await;
+fn compute_affected_files(
+    &self,
+    snapshot: &Analysis,
+    changed_uri: &Uri,
+    document_kind: DocumentKind,
+) -> Vec<FilePath> {
+    if document_kind == DocumentKind::Schema {
+        // Schema change: all document files need refresh
+        return snapshot.all_document_file_paths();
     }
 
-    // Clear diagnostics for files that no longer have issues
-    for file_path in &all_files {
-        if !diagnostics_map.contains_key(file_path) {
-            self.client.publish_diagnostics(file_uri, vec![], None).await;
-        }
+    // Document file change: check what changed
+    let changed_path = FilePath::new(changed_uri.to_string());
+    let mut affected = Vec::new();
+
+    // Check if fragment names/operations changed using structure comparison
+    // (This can be optimized with fingerprinting later)
+    let fragments_in_file = snapshot.fragments_in_file(&changed_path);
+    if !fragments_in_file.is_empty() {
+        // Files that spread any fragment defined in the changed file
+        let spreaders = snapshot.files_spreading_fragments(&fragments_in_file);
+        affected.extend(spreaders);
     }
+
+    let operations_in_file = snapshot.operations_in_file(&changed_path);
+    if !operations_in_file.is_empty() {
+        // Files with same-named operations (uniqueness checks)
+        let colliders = snapshot.files_with_operation_names(&operations_in_file);
+        affected.extend(colliders);
+    }
+
+    affected
 }
 ```
 
-### Key Consideration: Salsa's "Backdate" Optimization
+### Salsa's "Backdate" Optimization
 
-Salsa has an important optimization: when a tracked function's inputs change but the output doesn't, Salsa "backdates" the output (marks it as unchanged). This means downstream queries don't need to recompute.
+Salsa has a critical optimization: when a tracked function's inputs change but the output doesn't, Salsa "backdates" the output (marks it as unchanged). Downstream queries don't need to recompute.
 
-For example:
-- Edit `schema.graphql` to add a comment (whitespace-only change)
-- `file_type_defs(schema_file)` recomputes, but returns the **same** TypeDef map
-- Salsa backdates the result -> `schema_types()` doesn't recompute
+Example:
+
+- Edit `schema.graphql` to add a comment
+- `file_type_defs(schema_file)` recomputes, but returns the **same** `TypeDef` map
+- Salsa backdates -> `schema_types()` doesn't recompute
 - `validate_file()` for all document files returns cached results
 
-This means Strategy 1 (broadcast to all files) is actually quite cheap for edits that don't change semantics. The "verify cached" cost is just HashMap comparisons.
-
-### Optimization: Structure Fingerprinting
-
-To make the common case (body-only edits) even cheaper, we could add a fingerprint to `FileStructureData`:
-
-```rust
-pub struct FileStructureData {
-    pub file_id: FileId,
-    pub type_defs: Arc<Vec<TypeDef>>,
-    pub operations: Arc<Vec<OperationStructure>>,
-    pub fragments: Arc<Vec<FragmentStructure>>,
-    // Hash of names/types only - cheap to compare
-    pub structure_fingerprint: u64,
-}
-```
-
-If the fingerprint is the same before and after an edit, we know no structural change occurred and can skip the cross-file refresh entirely. This is effectively the structure/body separation already implemented in the HIR, but surfaced to the LSP layer for decision-making.
+This means even the "refresh all document files on schema change" path is cheap when the schema semantics didn't actually change. The cost is just Salsa verifying the dependency chain (HashMap equality checks), not rerunning validation.
 
 ---
 
@@ -316,12 +318,12 @@ If the fingerprint is the same before and after an edit, we know no structural c
 
 The existing split is well-designed at the conceptual level:
 
-| Layer | What It Captures | When It Invalidates |
-|-------|-----------------|---------------------|
-| `FileStructureData` | Names, types, signatures | Name/type changes only |
-| `OperationBody` / `FragmentBody` | Selection sets, spreads | Body content changes |
-| `file_type_defs()` | Schema types per file | Schema file content changes |
-| `schema_types()` | Merged schema types | Any schema file content change |
+| Layer                            | What It Captures         | When It Invalidates            |
+| -------------------------------- | ------------------------ | ------------------------------ |
+| `FileStructureData`              | Names, types, signatures | Name/type changes only         |
+| `OperationBody` / `FragmentBody` | Selection sets, spreads  | Body content changes           |
+| `file_type_defs()`               | Schema types per file    | Schema file content changes    |
+| `schema_types()`                 | Merged schema types      | Any schema file content change |
 
 **The split works correctly at the Salsa level.** The primary problem is in the LSP layer not asking Salsa about other files after an edit. However, there are a few known leaks worth documenting:
 
@@ -345,50 +347,45 @@ None of these leaks are bugs - they're known trade-offs. The architecture is sou
 
 ## Recommendations
 
-### Phase 1: Immediate (Get Cross-File Refresh Working)
+### Phase 1: Debounced Selective Refresh
 
-1. **Add debounced all-file diagnostic refresh after `did_change`.**
-   - After updating the changed file's diagnostics immediately, schedule a debounced (200-300ms) refresh of all loaded files
-   - Use `all_diagnostics_for_files()` which already handles the merge correctly
-   - Salsa memoization makes this cheap for files unaffected by the change
+1. **Add debounced cross-file diagnostic refresh after `did_change`.**
+   - Immediate: publish diagnostics for the changed file (existing behavior)
+   - Debounced (300ms): refresh affected files based on edit category
+   - Schema change -> all document files
+   - Document change -> files that spread its fragments + files with same-named operations
 
-2. **Move project-wide lints from `did_save` to the debounced refresh.**
+2. **Add `compute_affected_files()` to the IDE layer.**
+   - New API: given a changed file, return the set of files that need re-diagnosis
+   - Uses existing Salsa queries (`fragment_spreads_index`, name indexes) to determine scope
+   - Returns early for operation body-only changes (no cross-file dependents)
+
+3. **Move project-wide lints from `did_save` to the debounced refresh.**
    - Currently project-wide lints (unused fragments, unused fields) only run on save
    - They should be included in the debounced cross-file refresh for consistency
 
-### Phase 2: Optimization (If Performance Requires It)
-
-3. **Add schema-vs-document classification to the refresh.**
-   - Schema edits: refresh all document files (necessary - they all depend on schema)
-   - Document edits: only refresh files that share fragment/operation name dependencies
+### Phase 2: Optimization
 
 4. **Add structure fingerprinting.**
-   - Detect when an edit only changed body content (e.g., editing a selection set)
+   - Hash of (fragment names, type conditions, operation names, variable signatures) per file
+   - Compare before/after to detect body-only edits at the LSP layer
    - Skip cross-file refresh entirely for body-only edits in document files
-   - This handles the common case (typing inside an operation) with zero cross-file cost
+   - This handles the most common edit (typing inside an operation) with zero cross-file cost
 
-5. **Track reverse fragment dependencies.**
-   - Build an index: fragment name -> files that spread it
-   - On fragment rename/delete, only refresh those specific files
-   - This is the finest-grained approach but requires maintaining the reverse index
-
-### Phase 3: Advanced (Future Consideration)
-
-6. **Workspace-level pull diagnostics (LSP 3.17+).**
-   - Instead of pushing diagnostics, let the editor pull them
-   - The editor asks "what are the diagnostics for file X?" and Salsa gives the current answer
-   - Eliminates the push-based refresh problem entirely
-   - Requires editor support (VS Code supports this)
+5. **Build a reverse fragment dependency index.**
+   - `fragment_name -> Vec<FileId>` mapping files that spread each fragment
+   - Salsa-tracked, per-file granularity (like existing indexes)
+   - Enables O(affected) instead of O(all_documents) lookup for fragment changes
 
 ---
 
 ## Summary
 
-| Question | Answer |
-|----------|--------|
-| Do we need to classify every edit type? | **No.** Salsa handles fine-grained invalidation automatically. |
-| What's missing? | The LSP layer only re-validates the edited file, not affected files. |
-| What's the fix? | Debounced cross-file diagnostic refresh after each edit. |
-| Is it expensive? | No - Salsa memoization means unaffected files return cached results instantly. |
-| Does the structure/body split help? | Yes - it could be used to skip cross-file refresh for body-only edits. |
-| Is the current Salsa architecture correct? | Yes - the dependency graph is well-designed. The gap is only in the LSP orchestration layer. |
+| Question                                               | Answer                                                                                                                                                                           |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Do we need to handle every edit type?                  | **No.** Classify by file kind (schema/document) and change kind (structure/body). Five categories cover everything.                                                              |
+| What's missing?                                        | The LSP layer only re-validates the edited file. Affected files are never refreshed.                                                                                             |
+| What's the fix?                                        | Debounced selective cross-file refresh after each edit.                                                                                                                          |
+| Is it expensive at 10k files?                          | No. Operation body edits (most common): zero cross-file work. Fragment changes: ~1-20 files. Schema changes: Salsa verification is O(n) but actual recomputation is O(affected). |
+| Does a file's diagnostics depend on all project files? | **No.** Depends on merged schema (shared/cached) + specific referenced fragments (fine-grained) + aggregate indexes (cheap to verify).                                           |
+| Is the Salsa architecture correct?                     | Yes. The gap is only in the LSP orchestration layer not asking Salsa about other files.                                                                                          |
