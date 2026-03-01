@@ -4,8 +4,11 @@
 //! - Field completions in selection sets
 //! - Fragment spread completions
 //! - Inline fragment completions for unions and interfaces
+//! - Argument completions for fields
 
-use crate::helpers::{find_block_for_position, format_type_ref, position_to_offset};
+use crate::helpers::{
+    find_block_for_position, find_field_name_at_offset, format_type_ref, position_to_offset,
+};
 use crate::symbol::{
     find_parent_type_at_offset, find_symbol_at_offset, is_in_selection_set, Symbol,
 };
@@ -38,6 +41,11 @@ pub fn completions(
 
     let symbol = find_symbol_at_offset(block_context.tree, offset);
 
+    // Check if cursor is inside a field's arguments list
+    if let Some(items) = try_argument_completions(db, project_files, block_context.tree, offset) {
+        return Some(items);
+    }
+
     match symbol {
         Some(Symbol::FragmentSpread { .. }) => {
             let Some(project_files) = project_files else {
@@ -60,71 +68,113 @@ pub fn completions(
 
             let in_selection_set = is_in_selection_set(block_context.tree, offset);
             if in_selection_set {
-                let parent_ctx = find_parent_type_at_offset(block_context.tree, offset)?;
-                let parent_type_name = crate::symbol::walk_type_stack_to_offset(
-                    block_context.tree,
-                    types,
-                    offset,
-                    &parent_ctx.root_type,
-                )?;
-
-                types.get(parent_type_name.as_str()).map_or_else(
-                    || Some(Vec::new()),
-                    |parent_type| {
-                        if parent_type.kind == graphql_hir::TypeDefKind::Union {
-                            let items: Vec<CompletionItem> = parent_type
-                                .union_members
-                                .iter()
-                                .map(|member| {
-                                    CompletionItem::new(
-                                        format!("... on {member}"),
-                                        CompletionKind::Type,
-                                    )
-                                    .with_insert_text(format!("... on {member} {{\n  $0\n}}"))
-                                    .with_insert_text_format(InsertTextFormat::Snippet)
-                                })
-                                .collect();
-                            return Some(items);
-                        }
-
-                        let mut items: Vec<CompletionItem> = parent_type
-                            .fields
-                            .iter()
-                            .map(|field| {
-                                CompletionItem::new(field.name.to_string(), CompletionKind::Field)
-                                    .with_detail(format_type_ref(&field.type_ref))
-                            })
-                            .collect();
-
-                        if parent_type.kind == graphql_hir::TypeDefKind::Interface {
-                            let implementors =
-                                graphql_hir::interface_implementors(db, project_files);
-                            if let Some(impl_types) = implementors.get(&parent_type.name) {
-                                for type_name in impl_types {
-                                    let inline_fragment_label = format!("... on {type_name}");
-                                    items.push(
-                                        CompletionItem::new(
-                                            inline_fragment_label,
-                                            CompletionKind::Type,
-                                        )
-                                        .with_insert_text(format!(
-                                            "... on {type_name} {{\n  $0\n}}"
-                                        ))
-                                        .with_insert_text_format(InsertTextFormat::Snippet)
-                                        .with_sort_text(format!("z_{type_name}")),
-                                    );
-                                }
-                            }
-                        }
-                        Some(items)
-                    },
-                )
+                field_completions(db, project_files, block_context.tree, types, offset)
             } else {
                 Some(Vec::new())
             }
         }
         _ => Some(Vec::new()),
     }
+}
+
+/// Try to provide argument completions when the cursor is inside a field's arguments.
+///
+/// Returns `Some(items)` if the cursor is in an arguments context, `None` otherwise.
+fn try_argument_completions(
+    db: &dyn graphql_hir::GraphQLHirDatabase,
+    project_files: Option<graphql_base_db::ProjectFiles>,
+    tree: &apollo_parser::SyntaxTree,
+    offset: usize,
+) -> Option<Vec<CompletionItem>> {
+    let project_files = project_files?;
+    let field_name = find_field_name_at_offset(tree, offset)?;
+
+    let types = graphql_hir::schema_types(db, project_files);
+    let parent_ctx = find_parent_type_at_offset(tree, offset)?;
+    let parent_type_name =
+        crate::symbol::walk_type_stack_to_offset(tree, types, offset, &parent_ctx.root_type)?;
+
+    let parent_type = types.get(parent_type_name.as_str())?;
+    let field_def = parent_type
+        .fields
+        .iter()
+        .find(|f| f.name.as_ref() == field_name)?;
+
+    let items = field_def
+        .arguments
+        .iter()
+        .map(|arg| {
+            let mut item = CompletionItem::new(arg.name.to_string(), CompletionKind::Argument)
+                .with_detail(format_type_ref(&arg.type_ref));
+            if let Some(desc) = &arg.description {
+                item = item.with_documentation(desc.to_string());
+            }
+            if arg.is_deprecated {
+                item = item.with_deprecated(true);
+            }
+            // Insert "argName: " to make it easy to type the value
+            item = item.with_insert_text(format!("{}: ", arg.name));
+            item
+        })
+        .collect();
+
+    Some(items)
+}
+
+/// Provide field completions in a selection set.
+fn field_completions(
+    db: &dyn graphql_hir::GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+    tree: &apollo_parser::SyntaxTree,
+    types: &graphql_hir::TypeDefMap,
+    offset: usize,
+) -> Option<Vec<CompletionItem>> {
+    let parent_ctx = find_parent_type_at_offset(tree, offset)?;
+    let parent_type_name =
+        crate::symbol::walk_type_stack_to_offset(tree, types, offset, &parent_ctx.root_type)?;
+
+    types.get(parent_type_name.as_str()).map_or_else(
+        || Some(Vec::new()),
+        |parent_type| {
+            if parent_type.kind == graphql_hir::TypeDefKind::Union {
+                let items: Vec<CompletionItem> = parent_type
+                    .union_members
+                    .iter()
+                    .map(|member| {
+                        CompletionItem::new(format!("... on {member}"), CompletionKind::Type)
+                            .with_insert_text(format!("... on {member} {{\n  $0\n}}"))
+                            .with_insert_text_format(InsertTextFormat::Snippet)
+                    })
+                    .collect();
+                return Some(items);
+            }
+
+            let mut items: Vec<CompletionItem> = parent_type
+                .fields
+                .iter()
+                .map(|field| {
+                    CompletionItem::new(field.name.to_string(), CompletionKind::Field)
+                        .with_detail(format_type_ref(&field.type_ref))
+                })
+                .collect();
+
+            if parent_type.kind == graphql_hir::TypeDefKind::Interface {
+                let implementors = graphql_hir::interface_implementors(db, project_files);
+                if let Some(impl_types) = implementors.get(&parent_type.name) {
+                    for type_name in impl_types {
+                        let inline_fragment_label = format!("... on {type_name}");
+                        items.push(
+                            CompletionItem::new(inline_fragment_label, CompletionKind::Type)
+                                .with_insert_text(format!("... on {type_name} {{\n  $0\n}}"))
+                                .with_insert_text_format(InsertTextFormat::Snippet)
+                                .with_sort_text(format!("z_{type_name}")),
+                        );
+                    }
+                }
+            }
+            Some(items)
+        },
+    )
 }
 
 #[cfg(test)]
