@@ -235,10 +235,20 @@ gh issue view 123 --repo trevor-scheer/graphql-analyzer
 - Don't create markdown files unless asked
 - Don't manually edit `.github/workflows/release.yml`
 
+### rust-analyzer LSP
+
+The rust-analyzer LSP plugin is enabled for this project. Use it proactively:
+
+- **After editing Rust files**, check `mcp__ide__getDiagnostics` for compiler errors before running `cargo build` or `cargo check`. This is faster and catches issues immediately.
+- **When exploring unfamiliar code**, use `mcp__ide__getHoverInfo` to inspect types and signatures, and `mcp__ide__getDefinition` to jump to definitions.
+- **When refactoring**, use `mcp__ide__getReferences` to find all usages before renaming or modifying code.
+- **Prefer LSP tools over cargo commands** for quick feedback during iterative editing. Reserve `cargo build`/`cargo check`/`cargo clippy` for final validation before commits.
+
 ### Things to Always Do
 
 - Read relevant READMEs before starting
 - Use skills for guided workflows
+- Use rust-analyzer LSP tools for fast Rust feedback during editing
 - Write tests for new functionality
 - Create changesets for user-facing changes
 - Build and test after changes
