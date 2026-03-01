@@ -5,8 +5,9 @@
 
 use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
 use graphql_hir::{
-    all_fragments, file_defined_fragment_names, file_operation_names, file_structure,
-    file_used_fragment_names, fragment_source, schema_types,
+    all_fragments, all_used_schema_coordinates, file_defined_fragment_names, file_operation_names,
+    file_schema_coordinates, file_structure, file_used_fragment_names, fragment_source,
+    schema_types, SchemaCoordinate,
 };
 use graphql_test_utils::{create_project_files, TestDatabase};
 use salsa::Setter;
@@ -1094,6 +1095,59 @@ mod caching_tests {
             "Executions should include schema_types: {executions:?}"
         );
     }
+
+    #[test]
+    fn test_issue_649_interface_implementors_cached() {
+        let db = TrackedDatabase::new();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+            interface Node {
+                id: ID!
+            }
+
+            type User implements Node {
+                id: ID!
+                name: String!
+            }
+
+            type Post implements Node {
+                id: ID!
+                title: String!
+            }
+            ",
+            ),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let project_files =
+            create_tracked_project_files(&db, &[(schema_id, schema_content, schema_metadata)], &[]);
+
+        // First call should execute
+        let implementors = graphql_hir::interface_implementors(&db, project_files);
+        assert!(implementors.contains_key(&Arc::from("Node") as &Arc<str>));
+        let node_impls = implementors.get(&Arc::from("Node") as &Arc<str>).unwrap();
+        assert_eq!(node_impls.len(), 2);
+
+        let checkpoint = db.checkpoint();
+
+        // Second call should be cached (no re-execution)
+        let _implementors2 = graphql_hir::interface_implementors(&db, project_files);
+        let exec_count = db.count_since(queries::INTERFACE_IMPLEMENTORS, checkpoint);
+        assert_eq!(
+            exec_count, 0,
+            "interface_implementors should be cached on second call"
+        );
+    }
 }
 
 // ============================================================================
@@ -1338,5 +1392,675 @@ mod directive_tests {
             .collect();
         assert!(tag_values.contains(&r#""public""#));
         assert!(tag_values.contains(&r#""internal""#));
+    }
+}
+
+// ============================================================================
+// Source location tests
+// ============================================================================
+
+mod source_location_tests {
+    use super::*;
+
+    #[test]
+    fn test_schema_types_have_correct_file_ids_across_files() {
+        let mut db = TestDatabase::default();
+
+        let schema1_id = FileId::new(0);
+        let schema1_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                type Query {
+                    user: User
+                }
+                ",
+            ),
+        );
+        let schema1_metadata = FileMetadata::new(
+            &db,
+            schema1_id,
+            FileUri::new("schema1.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let schema2_id = FileId::new(1);
+        let schema2_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                type User {
+                    id: ID!
+                    name: String!
+                }
+                ",
+            ),
+        );
+        let schema2_metadata = FileMetadata::new(
+            &db,
+            schema2_id,
+            FileUri::new("schema2.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let project_files = create_project_files(
+            &mut db,
+            &[
+                (schema1_id, schema1_content, schema1_metadata),
+                (schema2_id, schema2_content, schema2_metadata),
+            ],
+            &[],
+        );
+
+        let types = graphql_hir::schema_types(&db, project_files);
+
+        let query_type = types.get("Query").expect("Query type should exist");
+        assert_eq!(query_type.file_id, schema1_id, "Query should be in schema1");
+
+        let user_type = types.get("User").expect("User type should exist");
+        assert_eq!(user_type.file_id, schema2_id, "User should be in schema2");
+    }
+
+    #[test]
+    fn test_type_def_name_range_is_nonzero() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let project_files = create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[],
+        );
+
+        let types = graphql_hir::schema_types(&db, project_files);
+        let query_type = types.get("Query").expect("Query type should exist");
+
+        assert!(
+            !query_type.name_range.is_empty(),
+            "Type name range should be non-empty"
+        );
+
+        let source: &str = &schema_content.text(&db);
+        let start = u32::from(query_type.name_range.start()) as usize;
+        let end = u32::from(query_type.name_range.end()) as usize;
+        assert_eq!(
+            &source[start..end],
+            "Query",
+            "Name range should point to 'Query'"
+        );
+    }
+
+    #[test]
+    fn test_field_name_range_is_nonzero() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let project_files = create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[],
+        );
+
+        let types = graphql_hir::schema_types(&db, project_files);
+        let query_type = types.get("Query").expect("Query type should exist");
+        let hello_field = query_type
+            .fields
+            .iter()
+            .find(|f| f.name.as_ref() == "hello")
+            .expect("hello field should exist");
+
+        assert!(
+            !hello_field.name_range.is_empty(),
+            "Field name range should be non-empty"
+        );
+
+        let source: &str = &schema_content.text(&db);
+        let start = u32::from(hello_field.name_range.start()) as usize;
+        let end = u32::from(hello_field.name_range.end()) as usize;
+        assert_eq!(
+            &source[start..end],
+            "hello",
+            "Name range should point to 'hello'"
+        );
+    }
+
+    #[test]
+    fn test_field_has_correct_file_id_from_extension() {
+        let mut db = TestDatabase::default();
+
+        let schema1_id = FileId::new(0);
+        let schema1_content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
+        let schema1_metadata = FileMetadata::new(
+            &db,
+            schema1_id,
+            FileUri::new("schema1.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let schema2_id = FileId::new(1);
+        let schema2_content =
+            FileContent::new(&db, Arc::from("extend type Query { world: String }"));
+        let schema2_metadata = FileMetadata::new(
+            &db,
+            schema2_id,
+            FileUri::new("schema2.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let project_files = create_project_files(
+            &mut db,
+            &[
+                (schema1_id, schema1_content, schema1_metadata),
+                (schema2_id, schema2_content, schema2_metadata),
+            ],
+            &[],
+        );
+
+        let types = graphql_hir::schema_types(&db, project_files);
+        let query_type = types.get("Query").expect("Query type should exist");
+
+        let hello_field = query_type
+            .fields
+            .iter()
+            .find(|f| f.name.as_ref() == "hello")
+            .expect("hello field should exist");
+        assert_eq!(
+            hello_field.file_id, schema1_id,
+            "hello should be from schema1"
+        );
+
+        let world_field = query_type
+            .fields
+            .iter()
+            .find(|f| f.name.as_ref() == "world")
+            .expect("world field should exist");
+        assert_eq!(
+            world_field.file_id, schema2_id,
+            "world should be from schema2"
+        );
+    }
+
+    #[test]
+    fn test_argument_def_name_range_is_nonzero() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from("type Query { hello(name: String!): String }"),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let project_files = create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[],
+        );
+
+        let types = graphql_hir::schema_types(&db, project_files);
+        let query_type = types.get("Query").expect("Query type should exist");
+        let hello_field = query_type
+            .fields
+            .iter()
+            .find(|f| f.name.as_ref() == "hello")
+            .expect("hello field should exist");
+        let name_arg = hello_field
+            .arguments
+            .iter()
+            .find(|a| a.name.as_ref() == "name")
+            .expect("name argument should exist");
+
+        assert!(
+            !name_arg.name_range.is_empty(),
+            "Argument name range should be non-empty"
+        );
+
+        let source: &str = &schema_content.text(&db);
+        let start = u32::from(name_arg.name_range.start()) as usize;
+        let end = u32::from(name_arg.name_range.end()) as usize;
+        assert_eq!(
+            &source[start..end],
+            "name",
+            "Name range should point to 'name'"
+        );
+    }
+
+    #[test]
+    fn test_source_locations_enable_direct_lookup() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let source_text =
+            "type Query { users(limit: Int): [User] }\n\ntype User { id: ID! name: String! }";
+        let schema_content = FileContent::new(&db, Arc::from(source_text));
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let project_files = create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[],
+        );
+
+        let types = graphql_hir::schema_types(&db, project_files);
+
+        // Simulate goto-definition for User.name
+        let user_type = types.get("User").expect("User type should exist");
+        let name_field = user_type
+            .fields
+            .iter()
+            .find(|f| f.name.as_ref() == "name")
+            .expect("name field should exist");
+
+        // Direct O(1) lookup via HIR source locations
+        assert_eq!(name_field.file_id, schema_id);
+        let start = u32::from(name_field.name_range.start()) as usize;
+        let end = u32::from(name_field.name_range.end()) as usize;
+        assert_eq!(&source_text[start..end], "name");
+
+        // Simulate goto-definition for Query.users(limit:)
+        let query_type = types.get("Query").expect("Query type should exist");
+        let users_field = query_type
+            .fields
+            .iter()
+            .find(|f| f.name.as_ref() == "users")
+            .expect("users field should exist");
+        let limit_arg = users_field
+            .arguments
+            .iter()
+            .find(|a| a.name.as_ref() == "limit")
+            .expect("limit argument should exist");
+
+        assert_eq!(limit_arg.file_id, schema_id);
+        let arg_start = u32::from(limit_arg.name_range.start()) as usize;
+        let arg_end = u32::from(limit_arg.name_range.end()) as usize;
+        assert_eq!(&source_text[arg_start..arg_end], "limit");
+    }
+}
+
+// ============================================================================
+// Issue #646: Per-file aggregation query tests
+// ============================================================================
+
+mod issue_646_per_file_linting {
+    use super::*;
+    use graphql_base_db::{DocumentFileIds, FileEntry, FileEntryMap, SchemaFileIds};
+    use graphql_test_utils::tracking::{queries, TrackedDatabase};
+    use salsa::Setter;
+    use std::collections::HashMap;
+
+    fn create_tracked_project_files(
+        db: &TrackedDatabase,
+        schema_files: &[(FileId, FileContent, FileMetadata)],
+        document_files: &[(FileId, FileContent, FileMetadata)],
+    ) -> graphql_base_db::ProjectFiles {
+        let schema_ids: Vec<FileId> = schema_files.iter().map(|(id, _, _)| *id).collect();
+        let doc_ids: Vec<FileId> = document_files.iter().map(|(id, _, _)| *id).collect();
+
+        let mut entries = HashMap::new();
+        for (id, content, metadata) in schema_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+        for (id, content, metadata) in document_files {
+            let entry = FileEntry::new(db, *content, *metadata);
+            entries.insert(*id, entry);
+        }
+
+        let schema_file_ids = SchemaFileIds::new(db, Arc::new(schema_ids));
+        let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
+        let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
+
+        graphql_base_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+    }
+
+    #[test]
+    #[allow(clippy::similar_names)]
+    fn test_issue_646_per_file_schema_coordinates_cached() {
+        let mut db = TrackedDatabase::new();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from("type Query { hello: String, world: String }"),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let doc_a_id = FileId::new(1);
+        let doc_a_content = FileContent::new(&db, Arc::from("query A { hello }"));
+        let doc_a_metadata = FileMetadata::new(
+            &db,
+            doc_a_id,
+            FileUri::new("a.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let doc_b_id = FileId::new(2);
+        let doc_b_content = FileContent::new(&db, Arc::from("query B { world }"));
+        let doc_b_metadata = FileMetadata::new(
+            &db,
+            doc_b_id,
+            FileUri::new("b.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let project_files = create_tracked_project_files(
+            &db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[
+                (doc_a_id, doc_a_content, doc_a_metadata),
+                (doc_b_id, doc_b_content, doc_b_metadata),
+            ],
+        );
+
+        // Initial computation
+        let _coords = all_used_schema_coordinates(&db, project_files);
+
+        let checkpoint = db.checkpoint();
+
+        // Edit file A only
+        doc_a_content
+            .set_text(&mut db)
+            .to(Arc::from("query A { hello world }"));
+
+        // Re-query
+        let _coords2 = all_used_schema_coordinates(&db, project_files);
+
+        // file_schema_coordinates should re-run for file A but should be
+        // efficiently cached for file B. We verify that re-query triggers
+        // at most a reasonable number of calls (not one per unchanged file).
+        let coords_count = db.count_since(queries::FILE_SCHEMA_COORDINATES, checkpoint);
+
+        // Expect re-execution for the changed file only (1 call), not for both files
+        assert_eq!(
+            coords_count, 1,
+            "file_schema_coordinates should only re-run for edited file A, got {coords_count} calls"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::similar_names)]
+    fn test_issue_646_per_file_used_fragment_names_cached() {
+        let db = TrackedDatabase::new();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let doc_a_id = FileId::new(1);
+        let doc_a_content = FileContent::new(&db, Arc::from("query A { ...F }"));
+        let doc_a_metadata = FileMetadata::new(
+            &db,
+            doc_a_id,
+            FileUri::new("a.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let doc_b_id = FileId::new(2);
+        let doc_b_content = FileContent::new(&db, Arc::from("fragment F on Query { hello }"));
+        let doc_b_metadata = FileMetadata::new(
+            &db,
+            doc_b_id,
+            FileUri::new("b.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let _project_files = create_tracked_project_files(
+            &db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[
+                (doc_a_id, doc_a_content, doc_a_metadata),
+                (doc_b_id, doc_b_content, doc_b_metadata),
+            ],
+        );
+
+        // Initial computation
+        let used = file_used_fragment_names(&db, doc_a_id, doc_a_content, doc_a_metadata);
+        assert!(used.contains(&Arc::from("F") as &Arc<str>));
+
+        let checkpoint = db.checkpoint();
+
+        // Re-query without changes - should be cached
+        let _used2 = file_used_fragment_names(&db, doc_a_id, doc_a_content, doc_a_metadata);
+
+        let exec_count = db.count_since(queries::FILE_USED_FRAGMENT_NAMES, checkpoint);
+        assert_eq!(
+            exec_count, 0,
+            "file_used_fragment_names should be cached on second call"
+        );
+    }
+}
+
+// ============================================================================
+// Issue #648: Find references pre-filtering tests
+// ============================================================================
+
+mod issue_648_find_references_prefiltering {
+    use super::*;
+
+    #[allow(clippy::similar_names)]
+    #[test]
+    fn test_file_used_fragment_names_reports_correct_files() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // File A uses fragment F
+        let doc_a_id = FileId::new(1);
+        let doc_a_content = FileContent::new(&db, Arc::from("query A { ...F }"));
+        let doc_a_metadata = FileMetadata::new(
+            &db,
+            doc_a_id,
+            FileUri::new("a.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        // File B does NOT use any fragments
+        let doc_b_id = FileId::new(2);
+        let doc_b_content = FileContent::new(&db, Arc::from("query B { hello }"));
+        let doc_b_metadata = FileMetadata::new(
+            &db,
+            doc_b_id,
+            FileUri::new("b.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        // File C uses fragment G (different fragment)
+        let doc_c_id = FileId::new(3);
+        let doc_c_content = FileContent::new(&db, Arc::from("query C { ...G }"));
+        let doc_c_metadata = FileMetadata::new(
+            &db,
+            doc_c_id,
+            FileUri::new("c.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let _project_files = create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[
+                (doc_a_id, doc_a_content, doc_a_metadata),
+                (doc_b_id, doc_b_content, doc_b_metadata),
+                (doc_c_id, doc_c_content, doc_c_metadata),
+            ],
+        );
+
+        // File A should report using fragment F
+        let a_frags = file_used_fragment_names(&db, doc_a_id, doc_a_content, doc_a_metadata);
+        assert!(a_frags.contains(&Arc::from("F") as &Arc<str>));
+        assert!(!a_frags.contains(&Arc::from("G") as &Arc<str>));
+
+        // File B should report no fragments
+        let b_frags = file_used_fragment_names(&db, doc_b_id, doc_b_content, doc_b_metadata);
+        assert!(b_frags.is_empty());
+
+        // File C should report using fragment G
+        let c_frags = file_used_fragment_names(&db, doc_c_id, doc_c_content, doc_c_metadata);
+        assert!(c_frags.contains(&Arc::from("G") as &Arc<str>));
+        assert!(!c_frags.contains(&Arc::from("F") as &Arc<str>));
+    }
+
+    #[allow(clippy::similar_names)]
+    #[test]
+    fn test_file_schema_coordinates_reports_correct_files() {
+        let mut db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                type Query {
+                    user: User
+                    post: Post
+                }
+                type User {
+                    id: ID!
+                    name: String!
+                }
+                type Post {
+                    id: ID!
+                    title: String!
+                }
+                ",
+            ),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // File A queries User fields
+        let doc_a_id = FileId::new(1);
+        let doc_a_content = FileContent::new(&db, Arc::from("query A { user { id name } }"));
+        let doc_a_metadata = FileMetadata::new(
+            &db,
+            doc_a_id,
+            FileUri::new("a.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        // File B queries Post fields
+        let doc_b_id = FileId::new(2);
+        let doc_b_content = FileContent::new(&db, Arc::from("query B { post { id title } }"));
+        let doc_b_metadata = FileMetadata::new(
+            &db,
+            doc_b_id,
+            FileUri::new("b.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let project_files = create_project_files(
+            &mut db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[
+                (doc_a_id, doc_a_content, doc_a_metadata),
+                (doc_b_id, doc_b_content, doc_b_metadata),
+            ],
+        );
+
+        let a_coords =
+            file_schema_coordinates(&db, doc_a_id, doc_a_content, doc_a_metadata, project_files);
+
+        // File A should have User.id and User.name
+        let user_id = SchemaCoordinate {
+            type_name: Arc::from("User"),
+            field_name: Arc::from("id"),
+        };
+        let user_name = SchemaCoordinate {
+            type_name: Arc::from("User"),
+            field_name: Arc::from("name"),
+        };
+        let post_title = SchemaCoordinate {
+            type_name: Arc::from("Post"),
+            field_name: Arc::from("title"),
+        };
+
+        assert!(a_coords.contains(&user_id), "File A should contain User.id");
+        assert!(
+            a_coords.contains(&user_name),
+            "File A should contain User.name"
+        );
+        assert!(
+            !a_coords.contains(&post_title),
+            "File A should NOT contain Post.title"
+        );
+
+        // File B should have Post coordinates but not User
+        let b_coords =
+            file_schema_coordinates(&db, doc_b_id, doc_b_content, doc_b_metadata, project_files);
+        assert!(
+            b_coords.contains(&post_title),
+            "File B should contain Post.title"
+        );
+        assert!(
+            !b_coords.contains(&user_name),
+            "File B should NOT contain User.name"
+        );
     }
 }

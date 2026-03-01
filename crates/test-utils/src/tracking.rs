@@ -43,6 +43,12 @@ pub mod queries {
     pub const FILE_DEFINED_FRAGMENT_NAMES: &str = "file_defined_fragment_names";
     pub const FILE_OPERATION_NAMES: &str = "file_operation_names";
     pub const FILE_SCHEMA_COORDINATES: &str = "file_schema_coordinates";
+    pub const INTERFACE_IMPLEMENTORS: &str = "interface_implementors";
+    pub const VALIDATE_DOCUMENT_FILE: &str = "validate_document_file";
+    pub const OPERATION_BODY: &str = "operation_body";
+    pub const ALL_USED_SCHEMA_COORDINATES: &str = "all_used_schema_coordinates";
+    pub const ALL_USED_FRAGMENT_NAMES: &str = "all_used_fragment_names";
+    pub const ANALYZE_FIELD_USAGE: &str = "analyze_field_usage";
 }
 
 #[derive(Default)]

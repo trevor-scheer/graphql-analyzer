@@ -17,7 +17,10 @@ pub use merged_schema::{
     merged_schema_diagnostics_for_file, merged_schema_with_diagnostics, DiagnosticsByFile,
     MergedSchemaResult,
 };
-pub use project_lints::{analyze_field_usage, FieldCoverageReport, FieldUsage, TypeCoverage};
+pub use project_lints::{
+    analyze_field_usage, field_usage_for_type, find_unused_fields, find_unused_fragments,
+    FieldCoverageReport, FieldUsage, TypeCoverage,
+};
 pub use validation::validate_file;
 
 #[salsa::db]
