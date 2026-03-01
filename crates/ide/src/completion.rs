@@ -96,7 +96,7 @@ pub fn completions(
             if in_selection_set {
                 field_completions(db, project_files, block_context.tree, types, offset)
             } else {
-                Some(Vec::new())
+                Some(keyword_completions())
             }
         }
         _ => Some(Vec::new()),
@@ -379,6 +379,28 @@ fn directive_completions(
 
     items.sort_by(|a, b| a.label.cmp(&b.label));
     items
+}
+
+/// Generate completion items for top-level GraphQL keywords.
+fn keyword_completions() -> Vec<CompletionItem> {
+    vec![
+        CompletionItem::new("query".to_string(), CompletionKind::Keyword)
+            .with_detail("Define a query operation".to_string())
+            .with_insert_text("query $1 {\n  $0\n}".to_string())
+            .with_insert_text_format(InsertTextFormat::Snippet),
+        CompletionItem::new("mutation".to_string(), CompletionKind::Keyword)
+            .with_detail("Define a mutation operation".to_string())
+            .with_insert_text("mutation $1 {\n  $0\n}".to_string())
+            .with_insert_text_format(InsertTextFormat::Snippet),
+        CompletionItem::new("subscription".to_string(), CompletionKind::Keyword)
+            .with_detail("Define a subscription operation".to_string())
+            .with_insert_text("subscription $1 {\n  $0\n}".to_string())
+            .with_insert_text_format(InsertTextFormat::Snippet),
+        CompletionItem::new("fragment".to_string(), CompletionKind::Keyword)
+            .with_detail("Define a fragment".to_string())
+            .with_insert_text("fragment $1 on $2 {\n  $0\n}".to_string())
+            .with_insert_text_format(InsertTextFormat::Snippet),
+    ]
 }
 
 /// Provide field completions in a selection set.
