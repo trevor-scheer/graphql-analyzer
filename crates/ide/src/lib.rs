@@ -4935,6 +4935,86 @@ query GetUser {
     }
 
     #[test]
+    fn test_completions_for_type_names_after_on() {
+        let schema = r#"
+type Query { user: User }
+type User { id: ID! name: String! posts: [Post!]! }
+type Post { id: ID! title: String! }
+interface Node { id: ID! }
+union SearchResult = User | Post
+"#;
+
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Cursor after `on` in fragment definition: fragment Foo on |
+        let (graphql, pos) = extract_cursor(
+            r#"
+fragment UserFields on *{
+    id
+    name
+}
+"#,
+        );
+        let path = FilePath::new("file:///test.graphql");
+        host.add_file(&path, &graphql, Language::GraphQL, DocumentKind::Executable);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let items = snapshot.completions(&path, pos).unwrap_or_default();
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+
+        // Should suggest object types, interfaces, and unions
+        assert!(
+            labels.contains(&"User"),
+            "Should suggest 'User': got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Post"),
+            "Should suggest 'Post': got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Node"),
+            "Should suggest 'Node' interface: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"SearchResult"),
+            "Should suggest 'SearchResult' union: got {labels:?}"
+        );
+
+        // Should NOT suggest scalars or input types
+        assert!(!labels.contains(&"ID"), "Should NOT suggest scalar 'ID'");
+        assert!(
+            !labels.contains(&"String"),
+            "Should NOT suggest scalar 'String'"
+        );
+
+        // All completions should be Type kind
+        for item in &items {
+            assert_eq!(
+                item.kind,
+                CompletionKind::Type,
+                "Expected Type completion kind for '{}', got {:?}",
+                item.label,
+                item.kind
+            );
+        }
+
+        // Check detail shows type kind
+        let user_item = items.iter().find(|i| i.label == "User").unwrap();
+        assert_eq!(user_item.detail, Some("object".to_string()));
+
+        let node_item = items.iter().find(|i| i.label == "Node").unwrap();
+        assert_eq!(node_item.detail, Some("interface".to_string()));
+    }
+
+    #[test]
     fn test_completions_for_top_level_keywords() {
         let mut host = AnalysisHost::new();
         let schema_path = FilePath::new("file:///schema.graphql");
