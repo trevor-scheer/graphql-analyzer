@@ -39,11 +39,11 @@ jobs:
 
       - name: Setup Rust toolchain
         if: steps.check.outputs.changeset_count > 0
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
 
       - name: Cache Rust build
         if: steps.check.outputs.changeset_count > 0
-        uses: Swatinem/rust-cache@ad397744b0d591a723ab90405b7247fac0e6b8db # v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
 
       - name: Install knope
         if: steps.check.outputs.changeset_count > 0
