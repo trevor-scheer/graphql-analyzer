@@ -5494,6 +5494,97 @@ mutation CreateUser {
     }
 
     #[test]
+    fn test_completions_for_schema_keywords() {
+        let mut host = AnalysisHost::new();
+
+        // Cursor at top level of a schema file
+        let (graphql, pos) = extract_cursor(
+            r#"
+type Query {
+    user: User
+}
+*"#,
+        );
+        let path = FilePath::new("file:///schema.graphql");
+        host.add_file(&path, &graphql, Language::GraphQL, DocumentKind::Schema);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let items = snapshot.completions(&path, pos).unwrap_or_default();
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+
+        assert!(
+            labels.contains(&"type"),
+            "Should suggest 'type': got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"input"),
+            "Should suggest 'input': got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"interface"),
+            "Should suggest 'interface': got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"union"),
+            "Should suggest 'union': got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"enum"),
+            "Should suggest 'enum': got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"scalar"),
+            "Should suggest 'scalar': got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"schema"),
+            "Should suggest 'schema': got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"directive"),
+            "Should suggest 'directive': got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"extend"),
+            "Should suggest 'extend': got {labels:?}"
+        );
+        assert_eq!(
+            items.len(),
+            9,
+            "Should suggest exactly 9 schema keywords: got {labels:?}"
+        );
+
+        // All completions should be Keyword kind
+        for item in &items {
+            assert_eq!(
+                item.kind,
+                CompletionKind::Keyword,
+                "Expected Keyword completion kind for '{}', got {:?}",
+                item.label,
+                item.kind
+            );
+        }
+
+        // Should have snippet insert text
+        let type_item = items.iter().find(|i| i.label == "type").unwrap();
+        assert_eq!(
+            type_item.insert_text_format,
+            Some(InsertTextFormat::Snippet)
+        );
+
+        // Should NOT suggest operation keywords in schema files
+        assert!(
+            !labels.contains(&"query"),
+            "Should not suggest 'query' in schema file: got {labels:?}"
+        );
+        assert!(
+            !labels.contains(&"fragment"),
+            "Should not suggest 'fragment' in schema file: got {labels:?}"
+        );
+    }
+
+    #[test]
     fn test_completions_for_variables_after_dollar() {
         let mut host = AnalysisHost::new();
         let schema_path = FilePath::new("file:///schema.graphql");
