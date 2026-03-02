@@ -1696,7 +1696,11 @@ impl LanguageServer for GraphQLLanguageServer {
                     TextDocumentSyncKind::FULL,
                 )),
                 completion_provider: supports_completion.then(|| CompletionOptions {
-                    trigger_characters: Some(vec!["{".to_string(), "@".to_string()]),
+                    trigger_characters: Some(vec![
+                        "{".to_string(),
+                        "@".to_string(),
+                        "(".to_string(),
+                    ]),
                     ..Default::default()
                 }),
                 hover_provider: supports_hover.then_some(HoverProviderCapability::Simple(true)),
