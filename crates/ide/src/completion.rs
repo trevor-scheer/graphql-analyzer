@@ -9,21 +9,14 @@
 //! - Directive completions after `@`
 
 use crate::helpers::{
-    find_argument_context_at_offset, find_block_for_position, format_type_ref, position_to_offset,
+    find_argument_context_at_offset, find_block_for_position,
+    find_directive_argument_context_at_offset, format_type_ref, position_to_offset,
 };
 use crate::symbol::{
     find_parent_type_at_offset, find_symbol_at_offset, is_in_selection_set, Symbol,
 };
 use crate::types::{CompletionItem, CompletionKind, FilePath, InsertTextFormat, Position};
 use crate::FileRegistry;
-
-/// Built-in GraphQL directives available in all schemas.
-const BUILTIN_DIRECTIVES: &[(&str, &str, &str)] = &[
-    ("skip", "Directs the executor to skip this field or fragment when the `if` argument is true.", "FIELD | INLINE_FRAGMENT | FRAGMENT_SPREAD"),
-    ("include", "Directs the executor to include this field or fragment only when the `if` argument is true.", "FIELD | INLINE_FRAGMENT | FRAGMENT_SPREAD"),
-    ("deprecated", "Marks an element of a GraphQL schema as no longer supported.", "FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION | ENUM_VALUE"),
-    ("specifiedBy", "Exposes a URL that specifies the behavior of this scalar.", "SCALAR"),
-];
 
 /// Get completions at a position.
 ///
@@ -53,7 +46,19 @@ pub fn completions(
 
     // Check if cursor follows `@` - offer directive completions
     if is_after_at_sign(block_context.block_source, offset) {
-        return Some(directive_completions());
+        return Some(directive_completions(
+            db,
+            project_files,
+            block_context.tree,
+            offset,
+        ));
+    }
+
+    // Check if cursor is inside a directive's arguments list
+    if let Some(items) =
+        try_directive_argument_completions(db, project_files, block_context.tree, offset)
+    {
+        return Some(items);
     }
 
     // Check if cursor is inside a field's arguments list
@@ -159,6 +164,62 @@ fn try_argument_completions(
     Some(items)
 }
 
+/// Try to provide completions when the cursor is inside a directive's arguments.
+///
+/// Handles two cases:
+/// 1. Cursor at argument name position -> suggest directive argument names
+/// 2. Cursor at argument value position (after `:`) -> suggest enum values if applicable
+fn try_directive_argument_completions(
+    db: &dyn graphql_hir::GraphQLHirDatabase,
+    project_files: Option<graphql_base_db::ProjectFiles>,
+    tree: &apollo_parser::SyntaxTree,
+    offset: usize,
+) -> Option<Vec<CompletionItem>> {
+    let project_files = project_files?;
+    let dir_ctx = find_directive_argument_context_at_offset(tree, offset)?;
+
+    let directives = graphql_hir::schema_directives(db, project_files);
+    let dir_def = directives.get(dir_ctx.directive_name.as_str())?;
+
+    // If we're in an argument value position, try enum value completions
+    if let Some(arg_name) = &dir_ctx.argument_name {
+        if let Some(arg_def) = dir_def
+            .arguments
+            .iter()
+            .find(|a| a.name.as_ref() == arg_name)
+        {
+            let types = graphql_hir::schema_types(db, project_files);
+            let base_type_name = arg_def.type_ref.name.as_ref();
+            if let Some(type_def) = types.get(base_type_name) {
+                if type_def.kind == graphql_hir::TypeDefKind::Enum {
+                    return Some(enum_value_completions(type_def));
+                }
+            }
+        }
+        return Some(Vec::new());
+    }
+
+    // Cursor is at argument name position - suggest argument names
+    let items = dir_def
+        .arguments
+        .iter()
+        .map(|arg| {
+            let mut item = CompletionItem::new(arg.name.to_string(), CompletionKind::Argument)
+                .with_detail(format_type_ref(&arg.type_ref));
+            if let Some(desc) = &arg.description {
+                item = item.with_documentation(desc.to_string());
+            }
+            if arg.is_deprecated {
+                item = item.with_deprecated(true);
+            }
+            item = item.with_insert_text(format!("{}: ", arg.name));
+            item
+        })
+        .collect();
+
+    Some(items)
+}
+
 /// Generate completion items for enum values.
 fn enum_value_completions(type_def: &graphql_hir::TypeDef) -> Vec<CompletionItem> {
     type_def
@@ -185,16 +246,114 @@ fn is_after_at_sign(source: &str, offset: usize) -> bool {
     source.as_bytes().get(offset - 1) == Some(&b'@')
 }
 
-/// Generate completion items for directives.
-fn directive_completions() -> Vec<CompletionItem> {
-    BUILTIN_DIRECTIVES
-        .iter()
-        .map(|(name, description, locations)| {
-            CompletionItem::new(name.to_string(), CompletionKind::Directive)
-                .with_detail(locations.to_string())
-                .with_documentation(description.to_string())
+/// Determine which directive locations are valid at the cursor position.
+fn directive_locations_at_offset(
+    tree: &apollo_parser::SyntaxTree,
+    offset: usize,
+) -> Vec<graphql_hir::DirectiveLocationKind> {
+    use apollo_parser::cst::{self, CstNode};
+    use graphql_hir::DirectiveLocationKind;
+
+    let doc = tree.document();
+
+    for definition in doc.definitions() {
+        match definition {
+            cst::Definition::OperationDefinition(op) => {
+                let op_range = op.syntax().text_range();
+                if offset >= op_range.start().into() && offset <= op_range.end().into() {
+                    // Check if inside a selection set (field, fragment spread, inline fragment)
+                    if is_in_selection_set(tree, offset) {
+                        return vec![
+                            DirectiveLocationKind::Field,
+                            DirectiveLocationKind::FragmentSpread,
+                            DirectiveLocationKind::InlineFragment,
+                        ];
+                    }
+                    // On the operation itself
+                    let loc = match op.operation_type() {
+                        Some(op_type) if op_type.mutation_token().is_some() => {
+                            DirectiveLocationKind::Mutation
+                        }
+                        Some(op_type) if op_type.subscription_token().is_some() => {
+                            DirectiveLocationKind::Subscription
+                        }
+                        _ => DirectiveLocationKind::Query,
+                    };
+                    return vec![loc, DirectiveLocationKind::VariableDefinition];
+                }
+            }
+            cst::Definition::FragmentDefinition(frag) => {
+                let frag_range = frag.syntax().text_range();
+                if offset >= frag_range.start().into() && offset <= frag_range.end().into() {
+                    if is_in_selection_set(tree, offset) {
+                        return vec![
+                            DirectiveLocationKind::Field,
+                            DirectiveLocationKind::FragmentSpread,
+                            DirectiveLocationKind::InlineFragment,
+                        ];
+                    }
+                    return vec![DirectiveLocationKind::FragmentDefinition];
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Fallback: show all executable directives
+    vec![
+        DirectiveLocationKind::Query,
+        DirectiveLocationKind::Mutation,
+        DirectiveLocationKind::Subscription,
+        DirectiveLocationKind::Field,
+        DirectiveLocationKind::FragmentDefinition,
+        DirectiveLocationKind::FragmentSpread,
+        DirectiveLocationKind::InlineFragment,
+        DirectiveLocationKind::VariableDefinition,
+    ]
+}
+
+/// Generate completion items for directives using schema-aware definitions.
+fn directive_completions(
+    db: &dyn graphql_hir::GraphQLHirDatabase,
+    project_files: Option<graphql_base_db::ProjectFiles>,
+    tree: &apollo_parser::SyntaxTree,
+    offset: usize,
+) -> Vec<CompletionItem> {
+    let Some(project_files) = project_files else {
+        return Vec::new();
+    };
+
+    let all_directives = graphql_hir::schema_directives(db, project_files);
+    let valid_locations = directive_locations_at_offset(tree, offset);
+
+    let mut items: Vec<CompletionItem> = all_directives
+        .values()
+        .filter(|dir| {
+            dir.locations
+                .iter()
+                .any(|loc| valid_locations.contains(loc))
         })
-        .collect()
+        .map(|dir| {
+            let locations_str = dir
+                .locations
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(" | ");
+
+            let mut item = CompletionItem::new(dir.name.to_string(), CompletionKind::Directive)
+                .with_detail(locations_str);
+
+            if let Some(desc) = &dir.description {
+                item = item.with_documentation(desc.to_string());
+            }
+
+            item
+        })
+        .collect();
+
+    items.sort_by(|a, b| a.label.cmp(&b.label));
+    items
 }
 
 /// Provide field completions in a selection set.
