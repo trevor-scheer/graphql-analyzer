@@ -27,10 +27,10 @@ The extension has three separate systems - don't confuse them:
 
 ## Key Files
 
-| File                  | Purpose                      |
-| --------------------- | ---------------------------- |
-| `src/extension.ts`    | Extension entry point        |
-| `src/binaryManager.ts`| LSP binary lifecycle         |
-| `syntaxes/`           | TextMate grammars            |
-| `package.json`        | Extension manifest           |
-| `e2e/`                | Playwright end-to-end tests  |
+| File                   | Purpose                     |
+| ---------------------- | --------------------------- |
+| `src/extension.ts`     | Extension entry point       |
+| `src/binaryManager.ts` | LSP binary lifecycle        |
+| `syntaxes/`            | TextMate grammars           |
+| `package.json`         | Extension manifest          |
+| `e2e/`                 | Playwright end-to-end tests |
