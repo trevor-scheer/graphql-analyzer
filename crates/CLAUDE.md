@@ -22,24 +22,24 @@ graphql-db           (Salsa database, FileId, memoization)
 
 ### Crate Purposes
 
-| Crate         | Purpose                                    |
-| ------------- | ------------------------------------------ |
-| `base-db`     | Salsa database foundation, FileId          |
-| `syntax`      | GraphQL parser, TS/JS extraction           |
-| `hir`         | Semantic layer, structure/body separation  |
-| `analysis`    | Validation and diagnostics                 |
-| `ide-db`      | IDE-specific database queries              |
-| `ide`         | IDE features (hover, completion, goto-def) |
-| `linter`      | Lint rules and configuration               |
-| `lsp`         | Language Server Protocol implementation    |
-| `cli`         | Command-line interface                     |
-| `mcp`         | Model Context Protocol server              |
-| `config`      | Project configuration (.graphqlrc.yaml)    |
-| `introspect`  | Remote schema introspection via HTTP       |
-| `extract`     | GraphQL extraction from TS/JS files        |
-| `apollo-ext`  | Apollo-specific extensions                 |
-| `types`       | Shared type definitions                    |
-| `test-utils`  | Testing utilities and fixtures             |
+| Crate        | Purpose                                    |
+| ------------ | ------------------------------------------ |
+| `base-db`    | Salsa database foundation, FileId          |
+| `syntax`     | GraphQL parser, TS/JS extraction           |
+| `hir`        | Semantic layer, structure/body separation  |
+| `analysis`   | Validation and diagnostics                 |
+| `ide-db`     | IDE-specific database queries              |
+| `ide`        | IDE features (hover, completion, goto-def) |
+| `linter`     | Lint rules and configuration               |
+| `lsp`        | Language Server Protocol implementation    |
+| `cli`        | Command-line interface                     |
+| `mcp`        | Model Context Protocol server              |
+| `config`     | Project configuration (.graphqlrc.yaml)    |
+| `introspect` | Remote schema introspection via HTTP       |
+| `extract`    | GraphQL extraction from TS/JS files        |
+| `apollo-ext` | Apollo-specific extensions                 |
+| `types`      | Shared type definitions                    |
+| `test-utils` | Testing utilities and fixtures             |
 
 ---
 
@@ -66,10 +66,10 @@ The Salsa architecture relies on these invariants for incremental computation:
 
 | Invariant                     | Meaning                                                       |
 | ----------------------------- | ------------------------------------------------------------- |
-| **Structure/Body separation** | Editing body content never invalidates structure queries       |
-| **File isolation**            | Editing file A never invalidates unrelated queries for file B  |
-| **Index stability**           | Global indexes stay cached when edits don't change names       |
-| **Lazy evaluation**           | Body queries only run when results are needed                  |
+| **Structure/Body separation** | Editing body content never invalidates structure queries      |
+| **File isolation**            | Editing file A never invalidates unrelated queries for file B |
+| **Index stability**           | Global indexes stay cached when edits don't change names      |
+| **Lazy evaluation**           | Body queries only run when results are needed                 |
 
 **Structure** = identity (names, types). **Body** = content (selection sets, directives).
 
