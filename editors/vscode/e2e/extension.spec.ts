@@ -1,4 +1,4 @@
-import { test, expect } from "./vscodeFixture";
+import { test, expect, openFile } from "./vscodeFixture";
 
 // Use Meta (Command) on macOS, Control on other platforms
 const mod = process.platform === "darwin" ? "Meta" : "Control";
@@ -39,9 +39,15 @@ test.describe("GraphQL LSP Extension", () => {
     // Focus the explorer
     await body.press(`${mod}+Shift+E`);
 
+    // Expand the operations folder if needed (files are in operations/)
+    const operationsFolder = page.getByText("operations").first();
+    await expect(operationsFolder).toBeVisible({ timeout: 5000 });
+    await operationsFolder.click();
+    await page.waitForTimeout(500);
+
     // Wait for the explorer to show our file
     const queryFile = page.getByText("query.graphql").first();
-    await expect(queryFile).toBeVisible();
+    await expect(queryFile).toBeVisible({ timeout: 5000 });
 
     await page.screenshot({ path: "test-results/explorer-open.png" });
 
@@ -57,30 +63,13 @@ test.describe("GraphQL LSP Extension", () => {
 
   test("shows GraphQL syntax highlighting", async ({ vscode }) => {
     const { page } = vscode;
-    const body = page.locator("body");
 
-    // Open quick open dialog
-    await body.press(`${mod}+P`);
-    const quickOpen = page.locator(".quick-input-widget");
-    await expect(quickOpen).toBeVisible();
-
-    // Type filename and wait for it to appear in results
-    const input = quickOpen.locator("input");
-    await input.fill("query.graphql");
-    const fileResult = page.getByText("query.graphql").first();
-    await expect(fileResult).toBeVisible();
-
-    // Open the file
-    await input.press("Enter");
-
-    // Wait for editor to be ready with content
-    const editorContent = page.locator(".view-lines").first();
-    await expect(editorContent).toBeVisible();
+    await openFile(page, "query.graphql");
 
     await page.screenshot({ path: "test-results/graphql-file.png" });
 
-    // Verify we can see the editor
-    const editor = page.locator(".monaco-editor").first();
+    // Verify we can see the editor (skip hidden chat widget)
+    const editor = page.locator(".monaco-editor").locator("visible=true").first();
     await expect(editor).toBeVisible();
   });
 
