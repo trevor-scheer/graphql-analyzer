@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.1.7 (2026-03-02)
+
+### Features
+
+- Add cross-file diagnostic refresh on save ([#672](https://github.com/trevor-scheer/graphql-analyzer/pull/672))
+
 ## 0.1.6 (2026-02-24)
 
 ### Features

@@ -2,6 +2,29 @@
 
 All notable changes to the GraphQL LSP will be documented in this file.
 
+## 0.1.3 (2026-03-02)
+
+### Features
+
+- Add type name completions in type positions ([#679](https://github.com/trevor-scheer/graphql-analyzer/pull/679))
+- Add cross-file diagnostic refresh on save ([#672](https://github.com/trevor-scheer/graphql-analyzer/pull/672))
+- Add directive completions and directive argument completions ([#675](https://github.com/trevor-scheer/graphql-analyzer/pull/675))
+- Add enum value completions in argument positions ([#674](https://github.com/trevor-scheer/graphql-analyzer/pull/674))
+- Add field argument completions ([#673](https://github.com/trevor-scheer/graphql-analyzer/pull/673))
+- Add input object field completions ([#678](https://github.com/trevor-scheer/graphql-analyzer/pull/678))
+- Add top-level keyword completions ([#677](https://github.com/trevor-scheer/graphql-analyzer/pull/677))
+
+### Fixes
+
+- Fix monolithic fragment/operation index cache invalidation in document validation ([#653](https://github.com/trevor-scheer/graphql-analyzer/pull/653))
+- Use targeted field usage analysis for hover instead of whole-project analysis ([#645](https://github.com/trevor-scheer/graphql-analyzer/issues/645))
+- Use per-file aggregation queries for incremental unused field/fragment detection ([#646](https://github.com/trevor-scheer/graphql-analyzer/issues/646))
+- Use HIR source locations for O(1) goto-definition instead of linear schema scanning ([#656](https://github.com/trevor-scheer/graphql-analyzer/pull/656))
+- Add pre-filtering to find-references using cached per-file queries ([#659](https://github.com/trevor-scheer/graphql-analyzer/pull/659))
+- Add interface implementors index for O(1) completion lookups ([#654](https://github.com/trevor-scheer/graphql-analyzer/pull/654))
+- Replace linear lookups with HashMap for O(1) access in symbols and field usage analysis ([#655](https://github.com/trevor-scheer/graphql-analyzer/pull/655))
+- Log Salsa query cache hit/miss at debug level for performance diagnostics ([#668](https://github.com/trevor-scheer/graphql-analyzer/pull/668))
+
 ## 0.1.2 (2026-02-24)
 
 ### Features
