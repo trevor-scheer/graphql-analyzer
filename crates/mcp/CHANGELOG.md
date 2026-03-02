@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL MCP server will be documented in this file.
 
+## 0.1.4 (2026-03-02)
+
+### Fixes
+
+- Log Salsa query cache hit/miss at debug level for performance diagnostics ([#668](https://github.com/trevor-scheer/graphql-analyzer/pull/668))
+
 ## 0.1.3 (2026-02-24)
 
 ### Features
