@@ -19,3 +19,6 @@ text-size = "1.1"
 
 [dev-dependencies]
 graphql-test-utils = { path = "../test-utils" }
+
+[lints]
+workspace = true

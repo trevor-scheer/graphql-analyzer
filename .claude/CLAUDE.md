@@ -1,6 +1,6 @@
 # GraphQL Analyzer - Claude Guide
 
-**Last Updated**: February 2026
+**Last Updated**: March 2026
 
 Context and guidance for Claude when working with this codebase.
 
@@ -12,14 +12,16 @@ Context and guidance for Claude when working with this codebase.
 
 ### Critical File Locations
 
-| Location          | Purpose                         |
-| ----------------- | ------------------------------- |
-| `.graphqlrc.yaml` | Project configuration           |
-| `crates/*/src/`   | Crate sources                   |
-| `editors/vscode/` | VS Code extension               |
-| `.claude/agents/` | SME agents for consultation     |
-| `.claude/skills/` | Workflow guidance               |
-| `DEVELOPMENT.md`  | Build, test, and debug commands |
+| Location          | Purpose                              |
+| ----------------- | ------------------------------------ |
+| `.graphqlrc.yaml` | Project configuration                |
+| `crates/*/src/`   | Crate sources                        |
+| `editors/vscode/` | VS Code extension                    |
+| `.claude/agents/` | SME agents for consultation          |
+| `.claude/skills/` | Workflow guidance                    |
+| `.claude/rules/`  | Path-scoped context rules            |
+| `.claude/hooks/`  | Session, edit, and commit automation |
+| `DEVELOPMENT.md`  | Build, test, and debug commands      |
 
 ### Quick Answers
 
@@ -42,21 +44,7 @@ A GraphQL LSP implementation in Rust providing IDE features for `.graphql` files
 - Project-wide analysis with proper fragment resolution across files
 - Remote schema support via introspection
 
-### Protected Core Features
-
-These features must NOT be removed or degraded:
-
-| Feature                       | Why Critical                      | What Enables It                                        |
-| ----------------------------- | --------------------------------- | ------------------------------------------------------ |
-| **Embedded GraphQL in TS/JS** | Most users write queries in TS/JS | `documentSelector` includes TS/JS in VS Code extension |
-| **Real-time diagnostics**     | Users expect immediate feedback   | LSP `textDocument/didChange` notifications             |
-| **Project-wide fragments**    | Fragments span many files         | `all_fragments()` indexes entire project               |
-
-**Solve performance problems without removing features.** Use filtering, lazy evaluation, debouncing, or configuration options instead.
-
----
-
-## Architecture
+### Architecture
 
 ```
 graphql-lsp / graphql-cli / graphql-mcp
@@ -73,66 +61,7 @@ graphql-db (Salsa database, FileId, memoization)
 ```
 
 See `DEVELOPMENT.md` for project structure and detailed architecture.
-
----
-
-## Key Concepts
-
-### GraphQL Document Model
-
-**Fragment scope is project-wide**, not file-scoped:
-
-- Operations can reference fragments in other files
-- Fragment spreads can reference other fragments (transitive dependencies)
-- Fragment and operation names must be unique across the entire project
-
-**When validating operations**, you MUST:
-
-1. Include direct fragment dependencies
-2. Recurse through fragment dependencies
-3. Handle circular references
-4. Validate against schema for all fragments in the chain
-
-### Cache Invariants
-
-The Salsa architecture relies on these invariants for incremental computation:
-
-| Invariant                     | Meaning                                                       |
-| ----------------------------- | ------------------------------------------------------------- |
-| **Structure/Body separation** | Editing body content never invalidates structure queries      |
-| **File isolation**            | Editing file A never invalidates unrelated queries for file B |
-| **Index stability**           | Global indexes stay cached when edits don't change names      |
-| **Lazy evaluation**           | Body queries only run when results are needed                 |
-
-**Structure** = identity (names, types). **Body** = content (selection sets, directives).
-
-### VS Code Extension Architecture
-
-The extension has three separate systems - don't confuse them:
-
-| System             | Purpose                                     | Scope                                            |
-| ------------------ | ------------------------------------------- | ------------------------------------------------ |
-| `documentSelector` | LSP features (diagnostics, hover, goto def) | Controls which files get IDE features            |
-| Grammar injection  | Syntax highlighting only                    | Visual coloring, no semantic understanding       |
-| File watcher       | Disk events only                            | File create/delete/rename, NOT real-time editing |
-
-**Common mistake:** Thinking grammar injection provides embedded GraphQL support. It only provides colors. The `documentSelector` MUST include TS/JS for actual LSP features.
-
----
-
-## Configuration
-
-```yaml
-# .graphqlrc.yaml
-schema: "schema.graphql"
-documents: "src/**/*.{graphql,ts,tsx}"
-
-# Lint config uses extensions.lint with camelCase rule names
-extensions:
-  lint: recommended # Happy path - just use preset
-```
-
-See `crates/config/README.md` for multi-project and advanced configuration.
+See `crates/CLAUDE.md` for crate architecture details, key concepts, and cache invariants.
 
 ---
 
@@ -150,27 +79,11 @@ For build, test, and debug commands, see `DEVELOPMENT.md`.
 
 ---
 
-## Troubleshooting
-
-### "No project found" Error
-
-Ensure `.graphqlrc.yaml` exists. For multi-project configs, use `--project` flag.
-
-### LSP Not Responding
-
-1. Rebuild: `cargo build`
-2. Check VS Code logs: View → Output → GraphQL
-3. Enable debug logging: `RUST_LOG=debug`
-
-### Fragment Not Found Errors
-
-- Ensure fragment file is in `document_files()`
-- Check `all_fragments()` includes the file
-- Verify fragment name uniqueness
-
----
-
 ## Instructions for Claude
+
+> Path-scoped rules in `.claude/rules/` provide context-specific guidance
+> (Salsa patterns, LSP conventions, testing, linter patterns, etc.) that loads
+> automatically when working in relevant directories.
 
 ### Pre-Task Skill Check (REQUIRED)
 
@@ -211,12 +124,6 @@ Fix argument parsing bug ([#123](https://github.com/trevor-scheer/graphql-analyz
 - Features, bug fixes, breaking changes → YES
 - Internal refactoring, CI changes, test-only → NO
 
-### Code Style
-
-- No emoji in code or commits
-- Follow Rust conventions: `snake_case` functions, `CamelCase` types
-- Comments explain **why**, not **what**
-
 ### GitHub CLI Usage
 
 Always use `--repo` flag (git remote uses a local proxy):
@@ -228,12 +135,14 @@ gh issue view 123 --repo trevor-scheer/graphql-analyzer
 
 ### Things to Never Do
 
+> Some of these are enforced by hooks (PermissionRequest guard) and deny rules.
+
 - Don't remove TS/JS from VS Code `documentSelector`
 - Don't solve performance problems by removing features
 - Don't mention CI status in PR descriptions
 - Don't add features not requested
 - Don't create markdown files unless asked
-- Don't manually edit `.github/workflows/release.yml`
+- Don't manually edit `.github/workflows/release.yml` (enforced by deny rule + hook)
 
 ### rust-analyzer LSP
 
@@ -259,19 +168,27 @@ The rust-analyzer LSP plugin is enabled for this project. Use it proactively:
 ## Expert Agents
 
 SME agents in `.claude/agents/` provide domain guidance. Use `/sme-consultation` skill.
+All agents have YAML frontmatter configuring model, tools, and turn limits.
 
-| Agent                 | Domain                                   |
-| --------------------- | ---------------------------------------- |
-| `graphql.md`          | GraphQL spec, validation rules           |
-| `rust-analyzer.md`    | Query-based architecture, Salsa patterns |
-| `salsa.md`            | Salsa framework, database design         |
-| `lsp.md`              | LSP specification, protocol messages     |
-| `apollo-rs.md`        | apollo-parser, apollo-compiler           |
-| `vscode-extension.md` | Extension development                    |
+| Agent                 | Domain                                        |
+| --------------------- | --------------------------------------------- |
+| `graphql.md`          | GraphQL spec, validation rules                |
+| `rust-analyzer.md`    | Query-based architecture, Salsa patterns      |
+| `salsa.md`            | Salsa framework, database design              |
+| `lsp.md`              | LSP specification, protocol messages          |
+| `apollo-rs.md`        | apollo-parser, apollo-compiler                |
+| `rust.md`             | Rust language, ownership, idioms              |
+| `apollo-client.md`    | Apollo Client patterns, fragment organization |
+| `graphql-cli.md`      | CLI tools, graphql-config, ecosystem          |
+| `graphiql.md`         | GraphiQL IDE, graphql-language-service        |
+| `vscode-extension.md` | VS Code extension development                 |
+| `playwright.md`       | E2E testing, Playwright, Electron             |
 
 ---
 
 ## Skills
+
+Skills have YAML frontmatter with `allowed-tools` (auto-permissions) and `argument-hint` (autocomplete).
 
 | Skill                | When to Use                        |
 | -------------------- | ---------------------------------- |
@@ -282,7 +199,5 @@ SME agents in `.claude/agents/` provide domain guidance. Use `/sme-consultation`
 | `/add-ide-feature`   | LSP features (hover, goto def)     |
 | `/debug-lsp`         | Troubleshooting LSP issues         |
 | `/review-pr`         | Reviewing pull requests            |
-
----
-
-**End of Guide**
+| `/audit-tests`       | Self-review test organization      |
+| `/testing-patterns`  | Test infrastructure reference      |

@@ -1,4 +1,4 @@
-name: Security Audit
+name: Security & License Audit
 
 on:
   schedule:
@@ -8,27 +8,25 @@ on:
     paths:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
+      - "deny.toml"
   pull_request:
     paths:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
+      - "deny.toml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  audit:
-    name: Cargo Audit
+  cargo-deny:
+    name: cargo deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-
-      - name: Run cargo audit
-        run: cargo audit
+      - name: Run cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@3fd3802e88374d3fe9159b834c7714ec57d6c979 # v2
+        with:
+          command: check

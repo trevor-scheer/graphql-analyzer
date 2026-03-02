@@ -47,37 +47,40 @@ jobs:
             os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ needs.check-command.outputs.head_sha }}
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
         with:
           shared-key: "release-${{ matrix.target }}"
 
       - name: Install cross
         if: matrix.cross
-        uses: taiki-e/install-action@cross
+        uses: taiki-e/install-action@dc65498be417cee56d567a702cfefe9337cf8ea6 # cross
+        with:
+          tool: cross
 
       - name: Build LSP binary
         run: ${{ matrix.cross && 'cross' || 'cargo' }} build --release --target ${{ matrix.target }} --package graphql-lsp
 
       - name: Upload LSP binary (Unix)
         if: runner.os != 'Windows'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: lsp-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/graphql-lsp
 
       - name: Upload LSP binary (Windows)
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: lsp-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/graphql-lsp.exe
@@ -104,19 +107,19 @@ jobs:
             binary_name: graphql-lsp.exe
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ needs.check-command.outputs.head_sha }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
         with:
           node-version: "24"
           cache: "npm"
           cache-dependency-path: editors/vscode/package-lock.json
 
       - name: Download LSP binary
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
         with:
           name: lsp-${{ matrix.rust_target }}
           path: editors/vscode/bin
@@ -138,7 +141,7 @@ jobs:
         run: npx vsce package --target ${{ matrix.vscode_target }}
 
       - name: Upload VSIX
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: vsix-${{ matrix.vscode_target }}
           path: editors/vscode/*.vsix

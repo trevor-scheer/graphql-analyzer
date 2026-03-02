@@ -1,0 +1,28 @@
+# Enforce LF line endings for all text files
+* text=auto eol=lf
+
+# Rust
+*.rs text eol=lf
+*.toml text eol=lf
+
+# TypeScript / JavaScript
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.json text eol=lf
+
+# Config / docs
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.graphql text eol=lf
+
+# Lock files - text but skip diffs
+Cargo.lock text eol=lf -diff
+package-lock.json text eol=lf -diff
+
+# Binary files
+*.png binary
+*.ico binary
+*.wasm binary

@@ -2,6 +2,8 @@
 name: debug-lsp
 description: Debug LSP server issues including hangs, incorrect responses, performance problems, or crashes. Use when troubleshooting the language server.
 user-invocable: true
+argument-hint: "[symptom description]"
+allowed-tools: Bash(cargo build *), Bash(cargo test *), Bash(cargo run *), Bash(RUST_LOG=*), Read, Grep, Glob
 ---
 
 # Debugging the LSP Server

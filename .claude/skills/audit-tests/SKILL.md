@@ -2,6 +2,7 @@
 name: audit-tests
 description: Audit test organization and patterns. Use PROACTIVELY after writing new tests to self-review, or when reviewing test changes in PRs. Checks unit vs integration test placement, TestDatabase patterns, and caching verification.
 user-invocable: true
+allowed-tools: Bash(cargo test *), Read, Grep, Glob
 ---
 
 # Audit Tests

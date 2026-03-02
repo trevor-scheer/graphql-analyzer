@@ -2,6 +2,8 @@
 name: add-ide-feature
 description: Add new IDE/LSP features like hover, goto definition, find references, or completion. Use when implementing editor features, LSP handlers, or IDE functionality.
 user-invocable: true
+argument-hint: "[feature name, e.g. hover, goto-def, completion]"
+allowed-tools: Bash(cargo test *), Bash(cargo clippy *), Bash(cargo fmt *), Bash(cargo check *), Read, Edit, Write, Grep, Glob
 ---
 
 # Adding IDE Features

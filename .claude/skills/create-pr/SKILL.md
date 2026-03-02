@@ -2,6 +2,7 @@
 name: create-pr
 description: Create pull requests following project standards. Use when opening a PR, preparing changes for review, or running gh pr create.
 user-invocable: true
+allowed-tools: Bash(gh *), Bash(git *), Bash(cargo fmt *), Bash(cargo clippy *), Bash(cargo test *), Bash(knope *), Read, Edit, Write, Grep, Glob
 ---
 
 # Creating Pull Requests

@@ -68,7 +68,6 @@ swc_common = "19.0"
 
 # Utilities
 dashmap = "6.1"
-once_cell = "1.21"
 parking_lot = "0.12"
 
 # Logging and Tracing
@@ -90,6 +89,25 @@ criterion = { version = "0.8", features = ["html_reports"] }
 
 # Testing
 insta = { version = "1.40", features = ["yaml"] }
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+# Docs
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# Cargo
+multiple_crate_versions = "allow"
+# Pedantic - not useful for this project
+too_many_lines = "allow"
+cast_possible_truncation = "allow"
+similar_names = "allow"
+
+[workspace.lints.rust]
+warnings = "deny"
 
 # The profile that 'dist' will build with
 [profile.dist]

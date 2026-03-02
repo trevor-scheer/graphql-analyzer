@@ -30,6 +30,14 @@
       "matchPackageNames": [
         "/^swc_/"
       ]
+    },
+    {
+      "description": "Group GitHub Actions updates and keep SHA pinning",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "pinDigests": true,
+      "groupName": "github-actions"
     }
   ]
 }

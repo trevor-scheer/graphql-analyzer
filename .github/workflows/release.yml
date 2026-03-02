@@ -52,22 +52,25 @@ jobs:
             cross: false
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       - name: Rust cache
         if: ${{ !matrix.cross }}
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
         with:
           shared-key: "release-${{ matrix.target }}"
 
       - name: Install cross
         if: matrix.cross
-        uses: taiki-e/install-action@cross
+        uses: taiki-e/install-action@dc65498be417cee56d567a702cfefe9337cf8ea6 # cross
+        with:
+          tool: cross
 
       - name: Build binaries
         run: |
@@ -114,7 +117,7 @@ jobs:
           Remove-Item dist/graphql-mcp.exe
 
       - name: Upload binary artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: binaries-${{ matrix.target }}
           path: dist/*
@@ -122,14 +125,14 @@ jobs:
       # Also upload raw LSP binary for VS Code extension bundling
       - name: Upload raw LSP binary (Unix)
         if: runner.os != 'Windows'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: lsp-raw-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/graphql-lsp
 
       - name: Upload raw LSP binary (Windows)
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: lsp-raw-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/graphql-lsp.exe
@@ -159,17 +162,17 @@ jobs:
             binary_name: graphql-lsp.exe
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
         with:
           node-version: "24"
           cache: "npm"
           cache-dependency-path: editors/vscode/package-lock.json
 
       - name: Download LSP binary
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
         with:
           name: lsp-raw-${{ matrix.rust_target }}
           path: editors/vscode/bin
@@ -191,7 +194,7 @@ jobs:
         run: npx vsce package --target ${{ matrix.vscode_target }}
 
       - name: Upload extension artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: vscode-extension-${{ matrix.vscode_target }}
           path: editors/vscode/*.vsix
@@ -202,12 +205,12 @@ jobs:
     if: needs.check-release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
         with:
           path: artifacts
           merge-multiple: true
@@ -216,7 +219,7 @@ jobs:
         run: find artifacts -type f
 
       - name: Install knope
-        uses: knope-dev/action@v2.1.2
+        uses: knope-dev/action@19617851f9f13ab2f27a05989c55efb18aca3675 # v2.1.2
 
       - name: Create releases
         run: knope release --verbose
@@ -247,10 +250,10 @@ jobs:
     if: needs.check-release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
         with:
           node-version: "24"
           cache: "npm"
@@ -261,7 +264,7 @@ jobs:
         run: npm ci
 
       - name: Download all VSIX artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
         with:
           pattern: vscode-extension-*
           path: vsix-artifacts

@@ -1944,7 +1944,7 @@ impl LanguageServer for GraphQLLanguageServer {
                 .add_file_and_snapshot(&file_path, &final_content, language, document_kind)
                 .await;
 
-            // Validate using pre-acquired snapshot (no lock needed)
+            // Validate the changed file only (cross-file diagnostics refresh on save)
             self.validate_file_with_snapshot(&uri, snapshot).await;
         }
     }
@@ -1974,38 +1974,33 @@ impl LanguageServer for GraphQLLanguageServer {
             return;
         };
 
-        // Run project-wide lints on save (these are expensive, so we don't run them on every change)
         let Some(snapshot) = host.try_snapshot().await else {
-            tracing::debug!("Could not acquire snapshot for project-wide lints");
+            tracing::debug!("Could not acquire snapshot");
             return;
         };
-        let project_diagnostics = snapshot.project_lint_diagnostics();
+
+        // Get all diagnostics for affected files: cross-file validation + project-wide lints
+        let changed_file = graphql_ide::FilePath::new(uri.as_str());
+        let all_diagnostics = snapshot.all_diagnostics_for_change(&changed_file);
 
         tracing::debug!(
-            "Running project-wide lints on save, found diagnostics for {} files",
-            project_diagnostics.len()
+            "On save: publishing diagnostics for {} files",
+            all_diagnostics.len()
         );
 
-        // Publish project-wide diagnostics for each affected file
-        for (file_path, diagnostics) in project_diagnostics {
-            // file_path.as_str() is already a URI string (e.g., "file:///path/to/file.tsx")
+        for (file_path, diagnostics) in all_diagnostics {
             let Ok(file_uri) = Uri::from_str(file_path.as_str()) else {
-                tracing::warn!("Invalid URI in project diagnostics: {}", file_path.as_str());
+                tracing::warn!("Invalid URI in diagnostics: {}", file_path.as_str());
                 continue;
             };
 
-            // Get existing per-file diagnostics and merge with project-wide diagnostics
-            let per_file_diagnostics = snapshot.diagnostics(&file_path);
-            let mut all_diagnostics: Vec<Diagnostic> = per_file_diagnostics
+            let lsp_diagnostics: Vec<Diagnostic> = diagnostics
                 .into_iter()
                 .map(convert_ide_diagnostic)
                 .collect();
 
-            // Add project-wide diagnostics
-            all_diagnostics.extend(diagnostics.into_iter().map(convert_ide_diagnostic));
-
             self.client
-                .publish_diagnostics(file_uri, all_diagnostics, None)
+                .publish_diagnostics(file_uri, lsp_diagnostics, None)
                 .await;
         }
     }
