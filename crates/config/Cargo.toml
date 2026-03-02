@@ -21,3 +21,6 @@ tracing = "0.1"
 anyhow = { workspace = true }
 tempfile = "3.0"
 jsonschema = "0.43"
+
+[lints]
+workspace = true

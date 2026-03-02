@@ -12,3 +12,6 @@ categories = ["development-tools"]
 [dependencies]
 graphql-types = { path = "../types" }
 salsa = { workspace = true }
+
+[lints]
+workspace = true

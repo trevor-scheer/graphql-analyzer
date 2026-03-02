@@ -15,3 +15,6 @@ dist = false
 
 # Zero external dependencies - this is a foundation crate
 [dependencies]
+
+[lints]
+workspace = true
