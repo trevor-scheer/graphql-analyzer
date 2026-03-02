@@ -515,6 +515,146 @@ pub fn find_field_name_at_offset(
     None
 }
 
+/// Context about a field argument at a cursor position
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArgumentContext {
+    /// The field name this argument belongs to
+    pub field_name: String,
+    /// The argument name, if the cursor is inside a specific argument's value
+    pub argument_name: Option<String>,
+}
+
+/// Find the argument context at a given offset.
+///
+/// Returns the field name and (optionally) which argument's value position the cursor is in.
+/// This is used for enum value completions and input object field completions.
+///
+/// We use a two-pronged approach:
+/// 1. Check CST argument nodes for cursor position
+/// 2. Scan the source text before the cursor to detect `argName:` patterns
+///    (handles cases where the parser doesn't produce a value node)
+pub fn find_argument_context_at_offset(
+    tree: &apollo_parser::SyntaxTree,
+    byte_offset: usize,
+) -> Option<ArgumentContext> {
+    use apollo_parser::cst::{CstNode, Definition, Selection};
+
+    fn check_selection_set(
+        selection_set: &apollo_parser::cst::SelectionSet,
+        byte_offset: usize,
+        source: &str,
+    ) -> Option<ArgumentContext> {
+        for selection in selection_set.selections() {
+            if let Selection::Field(field) = selection {
+                let range = field.syntax().text_range();
+                let start: usize = range.start().into();
+                let end: usize = range.end().into();
+
+                if byte_offset >= start && byte_offset <= end {
+                    if let Some(args) = field.arguments() {
+                        let args_range = args.syntax().text_range();
+                        let args_start: usize = args_range.start().into();
+                        let args_end: usize = args_range.end().into();
+                        if byte_offset >= args_start && byte_offset <= args_end {
+                            let field_name = field.name()?.text().to_string();
+
+                            // Check if cursor is inside a specific argument's value
+                            // by examining the CST argument nodes
+                            for arg in args.arguments() {
+                                let arg_range = arg.syntax().text_range();
+                                let arg_start: usize = arg_range.start().into();
+                                let arg_end: usize = arg_range.end().into();
+                                if byte_offset >= arg_start && byte_offset <= arg_end {
+                                    if let Some(name) = arg.name() {
+                                        let name_end: usize =
+                                            name.syntax().text_range().end().into();
+                                        if byte_offset > name_end {
+                                            return Some(ArgumentContext {
+                                                field_name,
+                                                argument_name: Some(name.text().to_string()),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Fallback: scan text before cursor for `argName:` pattern
+                            // This handles cases like `field(status: |)` where the parser
+                            // may not include the cursor position in the argument node range
+                            if let Some(arg_name) =
+                                find_preceding_arg_name(source, byte_offset, args_start)
+                            {
+                                return Some(ArgumentContext {
+                                    field_name,
+                                    argument_name: Some(arg_name),
+                                });
+                            }
+
+                            return Some(ArgumentContext {
+                                field_name,
+                                argument_name: None,
+                            });
+                        }
+                    }
+
+                    if let Some(nested) = field.selection_set() {
+                        if let Some(ctx) = check_selection_set(&nested, byte_offset, source) {
+                            return Some(ctx);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    let source = tree.document().syntax().to_string();
+    let doc = tree.document();
+    for definition in doc.definitions() {
+        match definition {
+            Definition::OperationDefinition(op) => {
+                if let Some(selection_set) = op.selection_set() {
+                    if let Some(ctx) = check_selection_set(&selection_set, byte_offset, &source) {
+                        return Some(ctx);
+                    }
+                }
+            }
+            Definition::FragmentDefinition(frag) => {
+                if let Some(selection_set) = frag.selection_set() {
+                    if let Some(ctx) = check_selection_set(&selection_set, byte_offset, &source) {
+                        return Some(ctx);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Scan backwards from cursor to find an `argName:` pattern.
+/// Returns the argument name if found.
+fn find_preceding_arg_name(
+    source: &str,
+    cursor_offset: usize,
+    args_start: usize,
+) -> Option<String> {
+    let before_cursor = source.get(args_start..cursor_offset)?;
+    // Look for the last occurrence of `name:` pattern (with optional whitespace after colon)
+    // Walking backwards from the end of the slice
+    let trimmed = before_cursor.trim_end();
+    if let Some(before_colon) = trimmed.strip_suffix(':') {
+        // Find the argument name before the colon
+        let before_colon = before_colon.trim_end();
+        // Extract the last word (argument name) - it could follow a comma or opening paren
+        let arg_name = before_colon.rsplit([',', '(']).next()?.trim();
+        if !arg_name.is_empty() && arg_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return Some(arg_name.to_string());
+        }
+    }
+    None
+}
+
 /// Unwrap a `TypeRef` to get just the base type name (without List or `NonNull` wrappers)
 #[must_use]
 pub fn unwrap_type_to_name(type_ref: &graphql_hir::TypeRef) -> String {
