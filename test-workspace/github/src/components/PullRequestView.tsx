@@ -6,7 +6,13 @@ import { useQuery, useMutation } from "@apollo/client/react";
 
 // Using graphql-tag style
 export const PR_TIMELINE_QUERY = gql`
-  query PRTimeline($owner: String!, $name: String!, $number: Int!, $first: Int = 50, $after: String) {
+  query PRTimeline(
+    $owner: String!
+    $name: String!
+    $number: Int!
+    $first: Int = 50
+    $after: String
+  ) {
     repository(owner: $owner, name: $name) {
       pullRequest(number: $number) {
         ...PullRequestDetails
