@@ -3,4 +3,4 @@ graphql-analyzer-lsp: minor
 graphql-analyzer-vscode: minor
 ---
 
-Add debounced cross-file diagnostic refresh on edit ([#667](https://github.com/trevor-scheer/graphql-analyzer/pull/667))
+Add cross-file diagnostic refresh on save ([#672](https://github.com/trevor-scheer/graphql-analyzer/pull/672))

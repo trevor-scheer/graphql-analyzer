@@ -1632,6 +1632,28 @@ impl Analysis {
         result
     }
 
+    /// Get all diagnostics (per-file + project-wide lints) for files affected by a change.
+    ///
+    /// Combines [`diagnostics_for_change`] with [`project_lint_diagnostics`] into a single
+    /// merged result. Each file in the result has its full set of diagnostics:
+    /// per-file validation, per-file lints, and project-wide lints.
+    ///
+    /// Use this from `did_save` to publish complete diagnostics in one pass.
+    pub fn all_diagnostics_for_change(
+        &self,
+        changed_file: &FilePath,
+    ) -> HashMap<FilePath, Vec<Diagnostic>> {
+        let mut result = self.diagnostics_for_change(changed_file);
+
+        // Merge project-wide lint diagnostics into the result
+        let project_diagnostics = self.project_lint_diagnostics();
+        for (file_path, diagnostics) in project_diagnostics {
+            result.entry(file_path).or_default().extend(diagnostics);
+        }
+
+        result
+    }
+
     /// Find document files affected by a change to the given document file.
     ///
     /// Returns files that:

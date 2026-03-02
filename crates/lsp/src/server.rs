@@ -1975,58 +1975,28 @@ impl LanguageServer for GraphQLLanguageServer {
             return;
         };
 
-        // Refresh cross-file diagnostics for files affected by this change
+        // Get all diagnostics for affected files: cross-file validation + project-wide lints
         let changed_file = graphql_ide::FilePath::new(uri.as_str());
-        let cross_file_diagnostics = snapshot.diagnostics_for_change(&changed_file);
+        let all_diagnostics = snapshot.all_diagnostics_for_change(&changed_file);
 
-        for (diag_file_path, diagnostics) in &cross_file_diagnostics {
-            // Skip the saved file itself -- it will be handled below with project lints
-            if *diag_file_path == changed_file {
-                continue;
-            }
+        tracing::debug!(
+            "On save: publishing diagnostics for {} files",
+            all_diagnostics.len()
+        );
 
-            let Ok(file_uri) = Uri::from_str(diag_file_path.as_str()) else {
+        for (file_path, diagnostics) in all_diagnostics {
+            let Ok(file_uri) = Uri::from_str(file_path.as_str()) else {
+                tracing::warn!("Invalid URI in diagnostics: {}", file_path.as_str());
                 continue;
             };
 
             let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-                .iter()
-                .cloned()
+                .into_iter()
                 .map(convert_ide_diagnostic)
                 .collect();
 
             self.client
                 .publish_diagnostics(file_uri, lsp_diagnostics, None)
-                .await;
-        }
-
-        // Run project-wide lints on save (these are expensive, so we don't run them on every change)
-        let project_diagnostics = snapshot.project_lint_diagnostics();
-
-        tracing::debug!(
-            "On save: cross-file diagnostics for {} files, project-wide lints for {} files",
-            cross_file_diagnostics.len(),
-            project_diagnostics.len()
-        );
-
-        // Publish merged diagnostics for files that have project-wide lint results
-        for (file_path, diagnostics) in project_diagnostics {
-            let Ok(file_uri) = Uri::from_str(file_path.as_str()) else {
-                tracing::warn!("Invalid URI in project diagnostics: {}", file_path.as_str());
-                continue;
-            };
-
-            // Get per-file diagnostics and merge with project-wide diagnostics
-            let per_file_diagnostics = snapshot.diagnostics(&file_path);
-            let mut all_diagnostics: Vec<Diagnostic> = per_file_diagnostics
-                .into_iter()
-                .map(convert_ide_diagnostic)
-                .collect();
-
-            all_diagnostics.extend(diagnostics.into_iter().map(convert_ide_diagnostic));
-
-            self.client
-                .publish_diagnostics(file_uri, all_diagnostics, None)
                 .await;
         }
     }
