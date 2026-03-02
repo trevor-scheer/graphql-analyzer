@@ -31,3 +31,6 @@ tracing = "0.1"
 serde_yaml = { workspace = true }
 insta = { workspace = true }
 graphql-ide-db = { path = "../ide-db" }
+
+[lints]
+workspace = true

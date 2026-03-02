@@ -28,7 +28,7 @@ Context and guidance for Claude when working with this codebase.
 | Where to add a lint rule?  | `crates/linter/src/rules/` - use `/adding-lint-rules` skill |
 | Where to add validation?   | `crates/analysis/src/`                                      |
 | Where's schema loading?    | `crates/introspect/` (remote), `crates/config/` (local)     |
-| How does incremental work? | Salsa queries: `base-db` → `syntax` → `hir` → `analysis`   |
+| How does incremental work? | Salsa queries: `base-db` → `syntax` → `hir` → `analysis`    |
 
 ---
 

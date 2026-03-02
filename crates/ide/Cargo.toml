@@ -43,3 +43,6 @@ graphql-extract = { path = "../extract" }
 tempfile = "3.0"
 serde_json = { workspace = true }
 graphql-ide-db = { path = "../ide-db" }
+
+[lints]
+workspace = true

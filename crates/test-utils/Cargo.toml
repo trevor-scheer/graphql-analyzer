@@ -21,3 +21,6 @@ graphql-analysis = { path = "../analysis" }
 graphql-ide-db = { path = "../ide-db" }
 salsa = { workspace = true }
 insta = { workspace = true }
+
+[lints]
+workspace = true
