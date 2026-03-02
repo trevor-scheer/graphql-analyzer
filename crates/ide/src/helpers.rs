@@ -655,6 +655,153 @@ fn find_preceding_arg_name(
     None
 }
 
+/// Context about a directive argument at a cursor position
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectiveArgumentContext {
+    /// The directive name this argument belongs to
+    pub directive_name: String,
+    /// The argument name, if the cursor is inside a specific argument's value
+    pub argument_name: Option<String>,
+}
+
+/// Find the directive argument context at a given offset.
+///
+/// Walks through all definitions and their directives (including directives on
+/// fields, inline fragments, and fragment spreads within selection sets) to check
+/// if the cursor is inside a directive's arguments list.
+pub fn find_directive_argument_context_at_offset(
+    tree: &apollo_parser::SyntaxTree,
+    byte_offset: usize,
+) -> Option<DirectiveArgumentContext> {
+    use apollo_parser::cst::{CstNode, Definition, Selection};
+
+    fn check_directives(
+        directives: &apollo_parser::cst::Directives,
+        byte_offset: usize,
+        source: &str,
+    ) -> Option<DirectiveArgumentContext> {
+        for directive in directives.directives() {
+            if let Some(args) = directive.arguments() {
+                let args_range = args.syntax().text_range();
+                let args_start: usize = args_range.start().into();
+                let args_end: usize = args_range.end().into();
+                if byte_offset >= args_start && byte_offset <= args_end {
+                    let directive_name = directive.name()?.text().to_string();
+
+                    // Check CST argument nodes for value position
+                    for arg in args.arguments() {
+                        let arg_range = arg.syntax().text_range();
+                        let arg_start: usize = arg_range.start().into();
+                        let arg_end: usize = arg_range.end().into();
+                        if byte_offset >= arg_start && byte_offset <= arg_end {
+                            if let Some(name) = arg.name() {
+                                let name_end: usize = name.syntax().text_range().end().into();
+                                if byte_offset > name_end {
+                                    return Some(DirectiveArgumentContext {
+                                        directive_name,
+                                        argument_name: Some(name.text().to_string()),
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    // Fallback: scan text before cursor for `argName:` pattern
+                    if let Some(arg_name) = find_preceding_arg_name(source, byte_offset, args_start)
+                    {
+                        return Some(DirectiveArgumentContext {
+                            directive_name,
+                            argument_name: Some(arg_name),
+                        });
+                    }
+
+                    return Some(DirectiveArgumentContext {
+                        directive_name,
+                        argument_name: None,
+                    });
+                }
+            }
+        }
+        None
+    }
+
+    fn check_selection_set(
+        selection_set: &apollo_parser::cst::SelectionSet,
+        byte_offset: usize,
+        source: &str,
+    ) -> Option<DirectiveArgumentContext> {
+        for selection in selection_set.selections() {
+            match selection {
+                Selection::Field(field) => {
+                    if let Some(directives) = field.directives() {
+                        if let Some(ctx) = check_directives(&directives, byte_offset, source) {
+                            return Some(ctx);
+                        }
+                    }
+                    if let Some(nested) = field.selection_set() {
+                        if let Some(ctx) = check_selection_set(&nested, byte_offset, source) {
+                            return Some(ctx);
+                        }
+                    }
+                }
+                Selection::InlineFragment(inline_frag) => {
+                    if let Some(directives) = inline_frag.directives() {
+                        if let Some(ctx) = check_directives(&directives, byte_offset, source) {
+                            return Some(ctx);
+                        }
+                    }
+                    if let Some(nested) = inline_frag.selection_set() {
+                        if let Some(ctx) = check_selection_set(&nested, byte_offset, source) {
+                            return Some(ctx);
+                        }
+                    }
+                }
+                Selection::FragmentSpread(frag_spread) => {
+                    if let Some(directives) = frag_spread.directives() {
+                        if let Some(ctx) = check_directives(&directives, byte_offset, source) {
+                            return Some(ctx);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    let source = tree.document().syntax().to_string();
+    let doc = tree.document();
+    for definition in doc.definitions() {
+        match definition {
+            Definition::OperationDefinition(op) => {
+                if let Some(directives) = op.directives() {
+                    if let Some(ctx) = check_directives(&directives, byte_offset, &source) {
+                        return Some(ctx);
+                    }
+                }
+                if let Some(selection_set) = op.selection_set() {
+                    if let Some(ctx) = check_selection_set(&selection_set, byte_offset, &source) {
+                        return Some(ctx);
+                    }
+                }
+            }
+            Definition::FragmentDefinition(frag) => {
+                if let Some(directives) = frag.directives() {
+                    if let Some(ctx) = check_directives(&directives, byte_offset, &source) {
+                        return Some(ctx);
+                    }
+                }
+                if let Some(selection_set) = frag.selection_set() {
+                    if let Some(ctx) = check_selection_set(&selection_set, byte_offset, &source) {
+                        return Some(ctx);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Unwrap a `TypeRef` to get just the base type name (without List or `NonNull` wrappers)
 #[must_use]
 pub fn unwrap_type_to_name(type_ref: &graphql_hir::TypeRef) -> String {

@@ -5108,6 +5108,171 @@ query Search {
     }
 
     #[test]
+    fn test_completions_for_directives_after_at() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            r#"
+                type Query { user: User }
+                type User { id: ID! name: String! }
+                directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+                directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+                directive @deprecated(reason: String) on FIELD_DEFINITION | ENUM_VALUE
+            "#,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Cursor right after @: field @|
+        let (graphql, pos) = extract_cursor(
+            r#"
+query GetUser {
+    user {
+        name @*
+    }
+}
+"#,
+        );
+        let path = FilePath::new("file:///test.graphql");
+        host.add_file(&path, &graphql, Language::GraphQL, DocumentKind::Executable);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let items = snapshot.completions(&path, pos).unwrap_or_default();
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+
+        assert!(
+            labels.contains(&"skip"),
+            "Should suggest 'skip' directive: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"include"),
+            "Should suggest 'include' directive: got {labels:?}"
+        );
+
+        // @deprecated is not valid on FIELD, so it should not appear
+        assert!(
+            !labels.contains(&"deprecated"),
+            "Should NOT suggest 'deprecated' on a field: got {labels:?}"
+        );
+
+        // All completions should be Directive kind
+        for item in &items {
+            assert_eq!(
+                item.kind,
+                CompletionKind::Directive,
+                "Expected Directive completion kind for '{}', got {:?}",
+                item.label,
+                item.kind
+            );
+        }
+
+        // Check that documentation is provided via the detail (locations)
+        let skip_item = items.iter().find(|i| i.label == "skip").unwrap();
+        assert!(skip_item.detail.is_some());
+    }
+
+    #[test]
+    fn test_completions_for_custom_schema_directives() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            r#"
+                type Query { user: User }
+                type User { id: ID! name: String! }
+                directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+                """Custom caching directive"""
+                directive @cacheControl(maxAge: Int) on FIELD
+            "#,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let (graphql, pos) = extract_cursor(
+            r#"
+query GetUser {
+    user {
+        name @*
+    }
+}
+"#,
+        );
+        let path = FilePath::new("file:///test.graphql");
+        host.add_file(&path, &graphql, Language::GraphQL, DocumentKind::Executable);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let items = snapshot.completions(&path, pos).unwrap_or_default();
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+
+        assert!(
+            labels.contains(&"cacheControl"),
+            "Should suggest custom 'cacheControl' directive: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"skip"),
+            "Should also suggest 'skip' directive: got {labels:?}"
+        );
+
+        let cache_item = items.iter().find(|i| i.label == "cacheControl").unwrap();
+        assert_eq!(
+            cache_item.documentation.as_deref(),
+            Some("Custom caching directive")
+        );
+    }
+
+    #[test]
+    fn test_completions_for_apollo_client_directives() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { user: User } type User { id: ID! name: String! }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        // Simulate Apollo client builtins being loaded as a schema file
+        let client_path = FilePath::new("client_builtins.graphql");
+        host.add_file(
+            &client_path,
+            r#"
+                directive @client(always: Boolean) on FIELD | INLINE_FRAGMENT
+                directive @connection(key: String!, filter: [String!]) on FIELD
+            "#,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let (graphql, pos) = extract_cursor(
+            r#"
+query GetUser {
+    user {
+        name @*
+    }
+}
+"#,
+        );
+        let path = FilePath::new("file:///test.graphql");
+        host.add_file(&path, &graphql, Language::GraphQL, DocumentKind::Executable);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let items = snapshot.completions(&path, pos).unwrap_or_default();
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+
+        assert!(
+            labels.contains(&"client"),
+            "Should suggest Apollo '@client' directive: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"connection"),
+            "Should suggest Apollo '@connection' directive: got {labels:?}"
+        );
+    }
+
+    #[test]
     fn test_completions_for_field_arguments_on_nested_field() {
         let schema = r#"
 type Query { user: User }
@@ -5159,6 +5324,87 @@ query GetUser {
             items.len(),
             2,
             "Should suggest exactly 2 arguments: got {labels:?}"
+        );
+    }
+
+    #[test]
+    fn test_completions_for_directive_arguments() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            r#"
+type Query { user: User }
+type User { id: ID! name: String! friends: [User!]! }
+directive @connection(key: String!, filter: [String!]) on FIELD
+"#,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Cursor inside directive arguments: @connection(|)
+        let (graphql, pos) = extract_cursor(
+            r#"
+query GetUser {
+    user {
+        friends @connection(*) {
+            name
+        }
+    }
+}
+"#,
+        );
+        let path = FilePath::new("file:///test.graphql");
+        host.add_file(&path, &graphql, Language::GraphQL, DocumentKind::Executable);
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let items = snapshot.completions(&path, pos).unwrap_or_default();
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+
+        assert!(
+            labels.contains(&"key"),
+            "Should suggest 'key' argument: got {labels:?}"
+        );
+        assert!(
+            labels.contains(&"filter"),
+            "Should suggest 'filter' argument: got {labels:?}"
+        );
+        assert_eq!(
+            items.len(),
+            2,
+            "Should suggest exactly 2 directive arguments: got {labels:?}"
+        );
+
+        // All completions should be Argument kind
+        for item in &items {
+            assert_eq!(
+                item.kind,
+                CompletionKind::Argument,
+                "Expected Argument completion kind for '{}', got {:?}",
+                item.label,
+                item.kind
+            );
+        }
+
+        // Check type details
+        let key_item = items.iter().find(|i| i.label == "key").unwrap();
+        assert_eq!(key_item.detail, Some("String!".to_string()));
+
+        let filter_item = items.iter().find(|i| i.label == "filter").unwrap();
+        assert_eq!(filter_item.detail, Some("[String!]".to_string()));
+
+        // Check insert text includes ": " suffix
+        assert_eq!(key_item.insert_text, Some("key: ".to_string()));
+
+        // Should NOT include parent type field names
+        assert!(
+            !labels.contains(&"id"),
+            "Should NOT suggest parent type field 'id': got {labels:?}"
+        );
+        assert!(
+            !labels.contains(&"name"),
+            "Should NOT suggest parent type field 'name': got {labels:?}"
         );
     }
 

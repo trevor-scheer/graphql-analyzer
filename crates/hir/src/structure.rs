@@ -105,6 +105,114 @@ pub struct DirectiveArgument {
     pub value: Arc<str>,
 }
 
+/// A directive definition from the schema (e.g. `directive @cacheControl on FIELD_DEFINITION`)
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DirectiveDef {
+    pub name: Arc<str>,
+    pub description: Option<Arc<str>>,
+    pub locations: Vec<DirectiveLocationKind>,
+    pub arguments: Vec<ArgumentDef>,
+    pub repeatable: bool,
+    pub file_id: FileId,
+    pub name_range: TextRange,
+}
+
+/// Locations where a directive can be applied
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DirectiveLocationKind {
+    // Executable locations
+    Query,
+    Mutation,
+    Subscription,
+    Field,
+    FragmentDefinition,
+    FragmentSpread,
+    InlineFragment,
+    VariableDefinition,
+    // Type system locations
+    Schema,
+    Scalar,
+    Object,
+    FieldDefinition,
+    ArgumentDefinition,
+    Interface,
+    Union,
+    Enum,
+    EnumValue,
+    InputObject,
+    InputFieldDefinition,
+}
+
+impl DirectiveLocationKind {
+    /// Returns true if this is an executable (query-side) location.
+    #[must_use]
+    pub fn is_executable(self) -> bool {
+        matches!(
+            self,
+            Self::Query
+                | Self::Mutation
+                | Self::Subscription
+                | Self::Field
+                | Self::FragmentDefinition
+                | Self::FragmentSpread
+                | Self::InlineFragment
+                | Self::VariableDefinition
+        )
+    }
+}
+
+impl std::fmt::Display for DirectiveLocationKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Query => write!(f, "QUERY"),
+            Self::Mutation => write!(f, "MUTATION"),
+            Self::Subscription => write!(f, "SUBSCRIPTION"),
+            Self::Field => write!(f, "FIELD"),
+            Self::FragmentDefinition => write!(f, "FRAGMENT_DEFINITION"),
+            Self::FragmentSpread => write!(f, "FRAGMENT_SPREAD"),
+            Self::InlineFragment => write!(f, "INLINE_FRAGMENT"),
+            Self::VariableDefinition => write!(f, "VARIABLE_DEFINITION"),
+            Self::Schema => write!(f, "SCHEMA"),
+            Self::Scalar => write!(f, "SCALAR"),
+            Self::Object => write!(f, "OBJECT"),
+            Self::FieldDefinition => write!(f, "FIELD_DEFINITION"),
+            Self::ArgumentDefinition => write!(f, "ARGUMENT_DEFINITION"),
+            Self::Interface => write!(f, "INTERFACE"),
+            Self::Union => write!(f, "UNION"),
+            Self::Enum => write!(f, "ENUM"),
+            Self::EnumValue => write!(f, "ENUM_VALUE"),
+            Self::InputObject => write!(f, "INPUT_OBJECT"),
+            Self::InputFieldDefinition => write!(f, "INPUT_FIELD_DEFINITION"),
+        }
+    }
+}
+
+impl From<ast::DirectiveLocation> for DirectiveLocationKind {
+    fn from(loc: ast::DirectiveLocation) -> Self {
+        match loc {
+            ast::DirectiveLocation::Query => Self::Query,
+            ast::DirectiveLocation::Mutation => Self::Mutation,
+            ast::DirectiveLocation::Subscription => Self::Subscription,
+            ast::DirectiveLocation::Field => Self::Field,
+            ast::DirectiveLocation::FragmentDefinition => Self::FragmentDefinition,
+            ast::DirectiveLocation::FragmentSpread => Self::FragmentSpread,
+            ast::DirectiveLocation::InlineFragment => Self::InlineFragment,
+            ast::DirectiveLocation::VariableDefinition => Self::VariableDefinition,
+            ast::DirectiveLocation::Schema => Self::Schema,
+            ast::DirectiveLocation::Scalar => Self::Scalar,
+            ast::DirectiveLocation::Object => Self::Object,
+            ast::DirectiveLocation::FieldDefinition => Self::FieldDefinition,
+            ast::DirectiveLocation::ArgumentDefinition => Self::ArgumentDefinition,
+            ast::DirectiveLocation::Interface => Self::Interface,
+            ast::DirectiveLocation::Union => Self::Union,
+            ast::DirectiveLocation::Enum => Self::Enum,
+            ast::DirectiveLocation::EnumValue => Self::EnumValue,
+            ast::DirectiveLocation::InputObject => Self::InputObject,
+            ast::DirectiveLocation::InputFieldDefinition => Self::InputFieldDefinition,
+        }
+    }
+}
+
 /// Operation structure (name and variables, no selection set details)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OperationStructure {
@@ -173,6 +281,7 @@ pub struct FileStructureData {
     pub type_defs: Arc<Vec<TypeDef>>,
     pub operations: Arc<Vec<OperationStructure>>,
     pub fragments: Arc<Vec<FragmentStructure>>,
+    pub directive_defs: Arc<Vec<DirectiveDef>>,
 }
 
 /// Extract a `TextRange` from an apollo-compiler `Node`
@@ -244,6 +353,7 @@ pub fn file_structure(
     let mut type_defs = Vec::new();
     let mut operations = Vec::new();
     let mut fragments = Vec::new();
+    let mut directive_defs = Vec::new();
 
     for (block_idx, doc) in parse.documents().enumerate() {
         // For embedded GraphQL (byte_offset > 0), include block context
@@ -261,6 +371,7 @@ pub fn file_structure(
             &mut type_defs,
             &mut operations,
             &mut fragments,
+            &mut directive_defs,
         );
         if block_idx > 0 {
             let ops_len = operations.len();
@@ -275,6 +386,7 @@ pub fn file_structure(
         type_defs: Arc::new(type_defs),
         operations: Arc::new(operations),
         fragments: Arc::new(fragments),
+        directive_defs: Arc::new(directive_defs),
     })
 }
 
@@ -285,6 +397,7 @@ fn extract_from_document(
     type_defs: &mut Vec<TypeDef>,
     operations: &mut Vec<OperationStructure>,
     fragments: &mut Vec<FragmentStructure>,
+    directive_defs: &mut Vec<DirectiveDef>,
 ) {
     for definition in &document.definitions {
         match definition {
@@ -316,6 +429,9 @@ fn extract_from_document(
             }
             ast::Definition::InputObjectTypeDefinition(input) => {
                 type_defs.push(extract_input_object_type(input, file_id));
+            }
+            ast::Definition::DirectiveDefinition(dir) => {
+                directive_defs.push(extract_directive_def(dir, file_id));
             }
             // Type extensions - these get merged with base types in schema_types()
             ast::Definition::ObjectTypeExtension(ext) => {
@@ -609,6 +725,33 @@ fn extract_input_object_type(
         name_range: name_range(&input.name),
         definition_range: node_range(input),
         is_extension: false,
+    }
+}
+
+fn extract_directive_def(dir: &Node<ast::DirectiveDefinition>, file_id: FileId) -> DirectiveDef {
+    let name = Arc::from(dir.name.as_str());
+    let description = dir.description.as_ref().map(|d| Arc::from(d.as_str()));
+
+    let arguments = dir
+        .arguments
+        .iter()
+        .map(|a| extract_argument_def(a, file_id))
+        .collect();
+
+    let locations = dir
+        .locations
+        .iter()
+        .map(|loc| DirectiveLocationKind::from(*loc))
+        .collect();
+
+    DirectiveDef {
+        name,
+        description,
+        locations,
+        arguments,
+        repeatable: dir.repeatable,
+        file_id,
+        name_range: name_range(&dir.name),
     }
 }
 
