@@ -150,6 +150,7 @@ pub enum CompletionKind {
     EnumValue,
     Argument,
     Variable,
+    Keyword,
 }
 
 /// Insert text format for completion items

@@ -181,7 +181,9 @@ pub fn convert_ide_completion_item(item: graphql_ide::CompletionItem) -> lsp_typ
             graphql_ide::CompletionKind::Field => lsp_types::CompletionItemKind::FIELD,
             graphql_ide::CompletionKind::Type => lsp_types::CompletionItemKind::CLASS,
             graphql_ide::CompletionKind::Fragment => lsp_types::CompletionItemKind::SNIPPET,
-            graphql_ide::CompletionKind::Directive => lsp_types::CompletionItemKind::KEYWORD,
+            graphql_ide::CompletionKind::Directive | graphql_ide::CompletionKind::Keyword => {
+                lsp_types::CompletionItemKind::KEYWORD
+            }
             graphql_ide::CompletionKind::EnumValue => lsp_types::CompletionItemKind::ENUM_MEMBER,
             graphql_ide::CompletionKind::Argument => lsp_types::CompletionItemKind::PROPERTY,
             graphql_ide::CompletionKind::Variable => lsp_types::CompletionItemKind::VARIABLE,
