@@ -130,7 +130,7 @@ fn try_argument_completions(
         .iter()
         .find(|f| f.name.as_ref() == arg_ctx.field_name)?;
 
-    // If we're in an argument value position, try enum value completions
+    // If we're in an argument value position, try type-aware completions
     if let Some(arg_name) = &arg_ctx.argument_name {
         if let Some(arg_def) = field_def
             .arguments
@@ -142,9 +142,12 @@ fn try_argument_completions(
                 if type_def.kind == graphql_hir::TypeDefKind::Enum {
                     return Some(enum_value_completions(type_def));
                 }
+                if type_def.kind == graphql_hir::TypeDefKind::InputObject {
+                    return Some(input_field_completions(type_def));
+                }
             }
         }
-        // In value position but not an enum type - return empty to avoid showing arg names
+        // In value position but not an enum/input type - return empty to avoid showing arg names
         return Some(Vec::new());
     }
 
@@ -224,6 +227,27 @@ fn try_directive_argument_completions(
         .collect();
 
     Some(items)
+}
+
+/// Generate completion items for input object fields.
+fn input_field_completions(type_def: &graphql_hir::TypeDef) -> Vec<CompletionItem> {
+    type_def
+        .fields
+        .iter()
+        .map(|field| {
+            let mut item = CompletionItem::new(field.name.to_string(), CompletionKind::Field)
+                .with_detail(format_type_ref(&field.type_ref));
+            if let Some(desc) = &field.description {
+                item = item.with_documentation(desc.to_string());
+            }
+            if field.is_deprecated {
+                item = item.with_deprecated(true);
+            }
+            // Insert "fieldName: " for quick value entry
+            item = item.with_insert_text(format!("{}: ", field.name));
+            item
+        })
+        .collect()
 }
 
 /// Generate completion items for enum values.
