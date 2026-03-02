@@ -2,6 +2,8 @@
 name: review-pr
 description: Review pull requests against project standards. Use when reviewing PRs, checking code quality, or providing feedback on changes.
 user-invocable: true
+argument-hint: "[PR number or URL]"
+allowed-tools: Bash(gh *), Bash(git diff *), Bash(git log *), Bash(cargo test *), Bash(cargo clippy *), Read, Grep, Glob
 ---
 
 # Reviewing Pull Requests

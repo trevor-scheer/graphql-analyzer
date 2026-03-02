@@ -2,6 +2,7 @@
 name: sme-consultation
 description: Consult SME agents before implementing features, fixing bugs, or making architecture changes. Use when working on LSP features, GraphQL validation, lint rules, VSCode extension, Salsa queries, CLI changes, or Rust API design.
 user-invocable: true
+argument-hint: "[topic or question for SME agents]"
 ---
 
 # SME Agent Consultation

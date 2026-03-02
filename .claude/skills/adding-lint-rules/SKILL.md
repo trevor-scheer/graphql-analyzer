@@ -2,6 +2,8 @@
 name: adding-lint-rules
 description: Add new GraphQL lint rules following project patterns. Use when implementing a lint rule, adding validation logic, or extending the linter with new checks.
 user-invocable: true
+argument-hint: "[rule name or description]"
+allowed-tools: Bash(cargo test *), Bash(cargo clippy *), Bash(cargo fmt *), Bash(cargo check *), Read, Edit, Write, Grep, Glob
 ---
 
 # Adding Lint Rules

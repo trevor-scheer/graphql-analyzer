@@ -2,6 +2,8 @@
 name: bug-fix-workflow
 description: Fix bugs using the two-commit structure with failing test first. Use when fixing bugs, addressing issues, or correcting incorrect behavior.
 user-invocable: true
+argument-hint: "[issue number or bug description]"
+allowed-tools: Bash(cargo test *), Bash(cargo clippy *), Bash(cargo fmt *), Bash(cargo check *), Bash(git add *), Bash(git commit *), Read, Edit, Write, Grep, Glob
 ---
 
 # Bug Fix Workflow
