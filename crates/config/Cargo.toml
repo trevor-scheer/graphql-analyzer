@@ -20,7 +20,7 @@ tracing = "0.1"
 [dev-dependencies]
 anyhow = { workspace = true }
 tempfile = "3.0"
-jsonschema = "0.43"
+jsonschema = "0.44"
 
 [lints]
 workspace = true
