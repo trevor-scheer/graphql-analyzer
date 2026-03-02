@@ -22,6 +22,9 @@ pub type TypeDefMap = HashMap<Arc<str>, TypeDef>;
 /// Map from fragment name to fragment structure.
 pub type FragmentMap = HashMap<Arc<str>, FragmentStructure>;
 
+/// Map from directive name to directive definition.
+pub type DirectiveDefMap = HashMap<Arc<str>, DirectiveDef>;
+
 /// Map from name to count (used for uniqueness validation).
 pub type NameCountMap = HashMap<Arc<str>, usize>;
 
@@ -131,6 +134,19 @@ pub fn file_fragments(
     Arc::clone(&structure.fragments)
 }
 
+/// Get directive definitions from a single schema file
+/// This query is cached per-file - editing another file won't invalidate it
+#[salsa::tracked]
+pub fn file_directive_defs(
+    db: &dyn GraphQLHirDatabase,
+    file_id: FileId,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
+) -> Arc<Vec<DirectiveDef>> {
+    let structure = file_structure(db, file_id, content, metadata);
+    Arc::clone(&structure.directive_defs)
+}
+
 /// Get operations from a single document file
 /// This query is cached per-file - editing another file won't invalidate it
 #[salsa::tracked]
@@ -237,6 +253,34 @@ pub fn schema_types(
     }
 
     types
+}
+
+/// Get all directive definitions from the schema
+///
+/// This query aggregates directive definitions from all schema files.
+/// Later definitions with the same name overwrite earlier ones (last-wins).
+///
+/// Uses granular per-file caching: when a single schema file changes,
+/// only that file's `file_directive_defs` is recomputed.
+#[salsa::tracked(returns(ref))]
+pub fn schema_directives(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+) -> DirectiveDefMap {
+    let schema_ids = project_files.schema_file_ids(db).ids(db);
+    let mut directives: HashMap<Arc<str>, DirectiveDef> = HashMap::new();
+
+    for file_id in schema_ids.iter() {
+        if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        {
+            let file_dirs = file_directive_defs(db, *file_id, content, metadata);
+            for dir_def in file_dirs.iter() {
+                directives.insert(dir_def.name.clone(), dir_def.clone());
+            }
+        }
+    }
+
+    directives
 }
 
 /// Get all fragments in the project
