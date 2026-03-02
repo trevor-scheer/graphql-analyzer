@@ -163,7 +163,6 @@ fn enum_value_completions(type_def: &graphql_hir::TypeDef) -> Vec<CompletionItem
         .collect()
 }
 
-
 /// Provide field completions in a selection set.
 fn field_completions(
     db: &dyn graphql_hir::GraphQLHirDatabase,
