@@ -40,6 +40,8 @@ jobs:
       - name: Setup Rust toolchain
         if: steps.check.outputs.changeset_count > 0
         uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: stable
 
       - name: Cache Rust build
         if: steps.check.outputs.changeset_count > 0
