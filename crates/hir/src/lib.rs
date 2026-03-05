@@ -28,6 +28,10 @@ pub type DirectiveDefMap = HashMap<Arc<str>, DirectiveDef>;
 /// Map from name to count (used for uniqueness validation).
 pub type NameCountMap = HashMap<Arc<str>, usize>;
 
+/// Map from type name to its definition locations (file and name range).
+/// Vec because types can have extensions across multiple files.
+pub type TypeLocationMap = HashMap<Arc<str>, Vec<(FileId, TextRange)>>;
+
 /// Identifier for a GraphQL type in the schema
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeId(salsa::Id);
@@ -423,6 +427,32 @@ pub fn file_fragment_asts(
     }
 
     Arc::new(asts)
+}
+
+/// Index mapping type names to their definition locations (file and name range).
+/// Returns a Vec per type name because types can have extensions across multiple files.
+#[salsa::tracked]
+pub fn type_definition_location_index(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+) -> Arc<TypeLocationMap> {
+    let schema_ids = project_files.schema_file_ids(db).ids(db);
+    let mut index: TypeLocationMap = HashMap::new();
+
+    for file_id in schema_ids.iter() {
+        if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        {
+            let type_defs = file_type_defs(db, *file_id, content, metadata);
+            for type_def in type_defs.iter() {
+                index
+                    .entry(type_def.name.clone())
+                    .or_default()
+                    .push((type_def.file_id, type_def.name_range));
+            }
+        }
+    }
+
+    Arc::new(index)
 }
 
 /// Index mapping fragment names to their file location.

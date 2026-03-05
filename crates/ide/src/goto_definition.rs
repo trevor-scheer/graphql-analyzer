@@ -123,28 +123,18 @@ pub fn goto_definition(
             Some(vec![Location::new(file_path, range)])
         }
         Symbol::TypeName { name } => {
-            let schema_file_ids = project_files.schema_file_ids(db).ids(db);
+            let type_index = graphql_hir::type_definition_location_index(db, project_files);
+            let entries = type_index.get(name.as_str())?;
             let mut locations = Vec::new();
 
-            for file_id in schema_file_ids.iter() {
-                let Some((file_content, file_metadata)) =
-                    graphql_base_db::file_lookup(db, project_files, *file_id)
-                else {
-                    continue;
-                };
-                let type_defs =
-                    graphql_hir::file_type_defs(db, *file_id, file_content, file_metadata);
-                for type_def in type_defs.iter() {
-                    if type_def.name.as_ref() == name {
-                        if let Some(file_path) = registry.get_path(type_def.file_id) {
-                            let content = registry.get_content(type_def.file_id)?;
-                            let line_index = graphql_syntax::line_index(db, content);
-                            let start: usize = type_def.name_range.start().into();
-                            let end: usize = type_def.name_range.end().into();
-                            let range = offset_range_to_range(&line_index, start, end);
-                            locations.push(Location::new(file_path, range));
-                        }
-                    }
+            for (file_id, name_range) in entries {
+                if let Some(file_path) = registry.get_path(*file_id) {
+                    let content = registry.get_content(*file_id)?;
+                    let line_index = graphql_syntax::line_index(db, content);
+                    let start: usize = name_range.start().into();
+                    let end: usize = name_range.end().into();
+                    let range = offset_range_to_range(&line_index, start, end);
+                    locations.push(Location::new(file_path, range));
                 }
             }
 
