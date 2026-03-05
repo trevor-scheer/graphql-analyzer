@@ -36,6 +36,7 @@ pub fn completions(
         (content, metadata)
     };
 
+    let is_schema = metadata.is_schema(db);
     let parse = graphql_syntax::parse(db, content, metadata);
 
     let (block_context, adjusted_position) = find_block_for_position(&parse, position)?;
@@ -105,7 +106,7 @@ pub fn completions(
             if in_selection_set {
                 field_completions(db, project_files, block_context.tree, types, offset)
             } else {
-                Some(keyword_completions())
+                Some(keyword_completions(is_schema))
             }
         }
         _ => Some(Vec::new()),
@@ -465,23 +466,77 @@ fn type_name_completions(types: &graphql_hir::TypeDefMap) -> Vec<CompletionItem>
 }
 
 /// Generate completion items for top-level GraphQL keywords.
-fn keyword_completions() -> Vec<CompletionItem> {
+///
+/// Returns operation keywords (query, mutation, etc.) for executable documents,
+/// or schema keywords (type, interface, etc.) for schema documents.
+fn keyword_completions(is_schema: bool) -> Vec<CompletionItem> {
+    if is_schema {
+        schema_keyword_completions()
+    } else {
+        executable_keyword_completions()
+    }
+}
+
+/// Keywords for executable documents (operations and fragments).
+fn executable_keyword_completions() -> Vec<CompletionItem> {
     vec![
-        CompletionItem::new("query".to_string(), CompletionKind::Keyword)
-            .with_detail("Define a query operation".to_string())
-            .with_insert_text("query $1 {\n  $0\n}".to_string())
+        CompletionItem::new("query", CompletionKind::Keyword)
+            .with_detail("Define a query operation")
+            .with_insert_text("query $1 {\n  $0\n}")
             .with_insert_text_format(InsertTextFormat::Snippet),
-        CompletionItem::new("mutation".to_string(), CompletionKind::Keyword)
-            .with_detail("Define a mutation operation".to_string())
-            .with_insert_text("mutation $1 {\n  $0\n}".to_string())
+        CompletionItem::new("mutation", CompletionKind::Keyword)
+            .with_detail("Define a mutation operation")
+            .with_insert_text("mutation $1 {\n  $0\n}")
             .with_insert_text_format(InsertTextFormat::Snippet),
-        CompletionItem::new("subscription".to_string(), CompletionKind::Keyword)
-            .with_detail("Define a subscription operation".to_string())
-            .with_insert_text("subscription $1 {\n  $0\n}".to_string())
+        CompletionItem::new("subscription", CompletionKind::Keyword)
+            .with_detail("Define a subscription operation")
+            .with_insert_text("subscription $1 {\n  $0\n}")
             .with_insert_text_format(InsertTextFormat::Snippet),
-        CompletionItem::new("fragment".to_string(), CompletionKind::Keyword)
-            .with_detail("Define a fragment".to_string())
-            .with_insert_text("fragment $1 on $2 {\n  $0\n}".to_string())
+        CompletionItem::new("fragment", CompletionKind::Keyword)
+            .with_detail("Define a fragment")
+            .with_insert_text("fragment $1 on $2 {\n  $0\n}")
+            .with_insert_text_format(InsertTextFormat::Snippet),
+    ]
+}
+
+/// Keywords for schema documents (type definitions).
+fn schema_keyword_completions() -> Vec<CompletionItem> {
+    vec![
+        CompletionItem::new("type", CompletionKind::Keyword)
+            .with_detail("Define an object type")
+            .with_insert_text("type $1 {\n  $0\n}")
+            .with_insert_text_format(InsertTextFormat::Snippet),
+        CompletionItem::new("input", CompletionKind::Keyword)
+            .with_detail("Define an input type")
+            .with_insert_text("input $1 {\n  $0\n}")
+            .with_insert_text_format(InsertTextFormat::Snippet),
+        CompletionItem::new("interface", CompletionKind::Keyword)
+            .with_detail("Define an interface type")
+            .with_insert_text("interface $1 {\n  $0\n}")
+            .with_insert_text_format(InsertTextFormat::Snippet),
+        CompletionItem::new("union", CompletionKind::Keyword)
+            .with_detail("Define a union type")
+            .with_insert_text("union $1 = $0")
+            .with_insert_text_format(InsertTextFormat::Snippet),
+        CompletionItem::new("enum", CompletionKind::Keyword)
+            .with_detail("Define an enum type")
+            .with_insert_text("enum $1 {\n  $0\n}")
+            .with_insert_text_format(InsertTextFormat::Snippet),
+        CompletionItem::new("scalar", CompletionKind::Keyword)
+            .with_detail("Define a scalar type")
+            .with_insert_text("scalar $0")
+            .with_insert_text_format(InsertTextFormat::Snippet),
+        CompletionItem::new("schema", CompletionKind::Keyword)
+            .with_detail("Define the schema entry point")
+            .with_insert_text("schema {\n  $0\n}")
+            .with_insert_text_format(InsertTextFormat::Snippet),
+        CompletionItem::new("directive", CompletionKind::Keyword)
+            .with_detail("Define a custom directive")
+            .with_insert_text("directive @$1 on $0")
+            .with_insert_text_format(InsertTextFormat::Snippet),
+        CompletionItem::new("extend", CompletionKind::Keyword)
+            .with_detail("Extend an existing type")
+            .with_insert_text("extend $0")
             .with_insert_text_format(InsertTextFormat::Snippet),
     ]
 }
