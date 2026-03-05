@@ -32,7 +32,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tower_lsp_server::jsonrpc::Result;
+use tower_lsp_server::jsonrpc::{Error, Result};
 use tower_lsp_server::ls_types as lsp_types;
 use tower_lsp_server::{Client, LanguageServer};
 
@@ -847,6 +847,37 @@ impl GraphQLLanguageServer {
             client_capabilities: Arc::new(RwLock::new(None)),
             workspace: Arc::new(WorkspaceManager::new()),
         }
+    }
+
+    /// Acquire a snapshot and run a query on a blocking thread.
+    /// This allows tower-lsp's built-in `$/cancelRequest` to abort the handler
+    /// while computation runs, and prevents sync Salsa queries from blocking
+    /// the async runtime.
+    async fn with_analysis<F, T>(&self, uri: &Uri, f: F) -> Result<Option<T>>
+    where
+        F: FnOnce(graphql_ide::Analysis, graphql_ide::FilePath) -> Option<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(uri)
+        else {
+            return Ok(None);
+        };
+
+        let host = self
+            .workspace
+            .get_or_create_host(&workspace_uri, &project_name);
+        let Some(analysis) = host.try_snapshot().await else {
+            return Ok(None);
+        };
+
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
+        let result = tokio::task::spawn_blocking(move || f(analysis, file_path))
+            .await
+            .map_err(|e| {
+                tracing::error!("Analysis task panicked: {e}");
+                Error::internal_error()
+            })?;
+        Ok(result)
     }
 
     /// Custom request handler for fetching virtual file content.
@@ -2062,58 +2093,26 @@ impl LanguageServer for GraphQLLanguageServer {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri;
         let lsp_position = params.text_document_position.position;
-
-        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
-        else {
-            return Ok(None);
-        };
-
-        let host = self
-            .workspace
-            .get_or_create_host(&workspace_uri, &project_name);
-        let Some(analysis) = host.try_snapshot().await else {
-            return Ok(None);
-        };
-
         let position = convert_lsp_position(lsp_position);
-        let file_path = graphql_ide::FilePath::new(uri.to_string());
 
-        let Some(items) = analysis.completions(&file_path, position) else {
-            return Ok(None);
-        };
-
-        let lsp_items: Vec<lsp_types::CompletionItem> =
-            items.into_iter().map(convert_ide_completion_item).collect();
-
-        Ok(Some(CompletionResponse::Array(lsp_items)))
+        self.with_analysis(&uri, move |analysis, file_path| {
+            let items = analysis.completions(&file_path, position)?;
+            let lsp_items: Vec<lsp_types::CompletionItem> =
+                items.into_iter().map(convert_ide_completion_item).collect();
+            Some(CompletionResponse::Array(lsp_items))
+        })
+        .await
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let uri = params.text_document_position_params.text_document.uri;
         let lsp_position = params.text_document_position_params.position;
-
-        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
-        else {
-            return Ok(None);
-        };
-
-        let host = self
-            .workspace
-            .get_or_create_host(&workspace_uri, &project_name);
-        let Some(analysis) = host.try_snapshot().await else {
-            return Ok(None);
-        };
-
         let position = convert_lsp_position(lsp_position);
-        let file_path = graphql_ide::FilePath::new(uri.to_string());
 
-        let Some(hover_result) = analysis.hover(&file_path, position) else {
-            return Ok(None);
-        };
-
-        let hover = convert_ide_hover(hover_result);
-
-        Ok(Some(hover))
+        self.with_analysis(&uri, move |analysis, file_path| {
+            analysis.hover(&file_path, position).map(convert_ide_hover)
+        })
+        .await
     }
 
     async fn goto_definition(
@@ -2122,70 +2121,39 @@ impl LanguageServer for GraphQLLanguageServer {
     ) -> Result<Option<GotoDefinitionResponse>> {
         let uri = params.text_document_position_params.text_document.uri;
         let lsp_position = params.text_document_position_params.position;
-
-        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
-        else {
-            return Ok(None);
-        };
-
-        let host = self
-            .workspace
-            .get_or_create_host(&workspace_uri, &project_name);
-        let Some(analysis) = host.try_snapshot().await else {
-            return Ok(None);
-        };
-
         let position = convert_lsp_position(lsp_position);
-        let file_path = graphql_ide::FilePath::new(uri.to_string());
 
-        let Some(locations) = analysis.goto_definition(&file_path, position) else {
-            return Ok(None);
-        };
-
-        let lsp_locations: Vec<Location> = locations.iter().map(convert_ide_location).collect();
-
-        if lsp_locations.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(GotoDefinitionResponse::Array(lsp_locations)))
-        }
+        self.with_analysis(&uri, move |analysis, file_path| {
+            let locations = analysis.goto_definition(&file_path, position)?;
+            let lsp_locations: Vec<Location> = locations.iter().map(convert_ide_location).collect();
+            if lsp_locations.is_empty() {
+                None
+            } else {
+                Some(GotoDefinitionResponse::Array(lsp_locations))
+            }
+        })
+        .await
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let uri = params.text_document_position.text_document.uri;
         let lsp_position = params.text_document_position.position;
         let include_declaration = params.context.include_declaration;
-
-        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
-        else {
-            return Ok(None);
-        };
-
-        let host = self
-            .workspace
-            .get_or_create_host(&workspace_uri, &project_name);
-        let Some(analysis) = host.try_snapshot().await else {
-            return Ok(None);
-        };
-
         let position = convert_lsp_position(lsp_position);
-        let file_path = graphql_ide::FilePath::new(uri.to_string());
 
-        let Some(locations) = analysis.find_references(&file_path, position, include_declaration)
-        else {
-            return Ok(None);
-        };
-
-        let lsp_locations: Vec<Location> = locations
-            .into_iter()
-            .map(|loc| convert_ide_location(&loc))
-            .collect();
-
-        if lsp_locations.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(lsp_locations))
-        }
+        self.with_analysis(&uri, move |analysis, file_path| {
+            let locations = analysis.find_references(&file_path, position, include_declaration)?;
+            let lsp_locations: Vec<Location> = locations
+                .into_iter()
+                .map(|loc| convert_ide_location(&loc))
+                .collect();
+            if lsp_locations.is_empty() {
+                None
+            } else {
+                Some(lsp_locations)
+            }
+        })
+        .await
     }
 
     async fn document_symbol(
@@ -2195,35 +2163,20 @@ impl LanguageServer for GraphQLLanguageServer {
         let uri = params.text_document.uri;
         tracing::debug!("Document symbols requested: {}", uri.path());
 
-        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
-        else {
-            tracing::warn!("No project found for document: {}", uri.path());
-            return Ok(None);
-        };
-
-        let host = self
-            .workspace
-            .get_or_create_host(&workspace_uri, &project_name);
-        let Some(analysis) = host.try_snapshot().await else {
-            return Ok(None);
-        };
-
-        let file_path = graphql_ide::FilePath::new(uri.to_string());
-
-        let symbols = analysis.document_symbols(&file_path);
-
-        if symbols.is_empty() {
-            tracing::debug!("No symbols found in document");
-            return Ok(None);
-        }
-
-        let lsp_symbols: Vec<lsp_types::DocumentSymbol> = symbols
-            .into_iter()
-            .map(convert_ide_document_symbol)
-            .collect();
-
-        tracing::debug!("Returning {} document symbols", lsp_symbols.len());
-        Ok(Some(DocumentSymbolResponse::Nested(lsp_symbols)))
+        self.with_analysis(&uri, move |analysis, file_path| {
+            let symbols = analysis.document_symbols(&file_path);
+            if symbols.is_empty() {
+                tracing::debug!("No symbols found in document");
+                return None;
+            }
+            let lsp_symbols: Vec<lsp_types::DocumentSymbol> = symbols
+                .into_iter()
+                .map(convert_ide_document_symbol)
+                .collect();
+            tracing::debug!("Returning {} document symbols", lsp_symbols.len());
+            Some(DocumentSymbolResponse::Nested(lsp_symbols))
+        })
+        .await
     }
 
     async fn symbol(
@@ -2265,82 +2218,66 @@ impl LanguageServer for GraphQLLanguageServer {
         let uri = params.text_document.uri;
         tracing::debug!("Semantic tokens requested: {}", uri.path());
 
-        // Find workspace for this document
-        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
-        else {
-            tracing::warn!("No project found for document: {}", uri.path());
-            return Ok(None);
-        };
+        self.with_analysis(&uri, move |analysis, file_path| {
+            let tokens = analysis.semantic_tokens(&file_path);
+            if tokens.is_empty() {
+                tracing::debug!("No semantic tokens found in document");
+                return None;
+            }
 
-        // Get AnalysisHost and create snapshot with timeout to avoid blocking during init
-        let host = self
-            .workspace
-            .get_or_create_host(&workspace_uri, &project_name);
-        let Some(analysis) = host.try_snapshot().await else {
-            return Ok(None);
-        };
+            // Convert to LSP delta-encoded format
+            let mut encoded_tokens = Vec::with_capacity(tokens.len() * 5);
+            let mut prev_line = 0u32;
+            let mut prev_start = 0u32;
 
-        let file_path = graphql_ide::FilePath::new(uri.to_string());
+            for token in tokens {
+                let delta_line = token.start.line - prev_line;
+                let delta_start = if delta_line == 0 {
+                    token.start.character - prev_start
+                } else {
+                    token.start.character
+                };
 
-        // Get semantic tokens from Analysis
-        let tokens = analysis.semantic_tokens(&file_path);
+                encoded_tokens.push(SemanticToken {
+                    delta_line,
+                    delta_start,
+                    length: token.length,
+                    token_type: token.token_type.index(),
+                    token_modifiers_bitset: token.modifiers.raw(),
+                });
 
-        if tokens.is_empty() {
-            tracing::debug!("No semantic tokens found in document");
-            return Ok(None);
-        }
+                prev_line = token.start.line;
+                prev_start = token.start.character;
+            }
 
-        // Convert to LSP delta-encoded format
-        let mut encoded_tokens = Vec::with_capacity(tokens.len() * 5);
-        let mut prev_line = 0u32;
-        let mut prev_start = 0u32;
-
-        for token in tokens {
-            let delta_line = token.start.line - prev_line;
-            let delta_start = if delta_line == 0 {
-                token.start.character - prev_start
-            } else {
-                token.start.character
-            };
-
-            encoded_tokens.push(SemanticToken {
-                delta_line,
-                delta_start,
-                length: token.length,
-                token_type: token.token_type.index(),
-                token_modifiers_bitset: token.modifiers.raw(),
-            });
-
-            prev_line = token.start.line;
-            prev_start = token.start.character;
-        }
-
-        // Log any deprecated tokens for debugging
-        let deprecated_count = encoded_tokens
-            .iter()
-            .filter(|t| t.token_modifiers_bitset != 0)
-            .count();
-        if deprecated_count > 0 {
-            tracing::debug!(
-                "Found {} tokens with modifiers (deprecated or definition)",
-                deprecated_count
-            );
-            for token in encoded_tokens
+            // Log any deprecated tokens for debugging
+            let deprecated_count = encoded_tokens
                 .iter()
                 .filter(|t| t.token_modifiers_bitset != 0)
-            {
+                .count();
+            if deprecated_count > 0 {
                 tracing::debug!(
-                    "  Token with modifiers_bitset={}",
-                    token.token_modifiers_bitset
+                    "Found {} tokens with modifiers (deprecated or definition)",
+                    deprecated_count
                 );
+                for token in encoded_tokens
+                    .iter()
+                    .filter(|t| t.token_modifiers_bitset != 0)
+                {
+                    tracing::debug!(
+                        "  Token with modifiers_bitset={}",
+                        token.token_modifiers_bitset
+                    );
+                }
             }
-        }
 
-        tracing::debug!(count = encoded_tokens.len(), "Returning semantic tokens");
-        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
-            result_id: None,
-            data: encoded_tokens,
-        })))
+            tracing::debug!(count = encoded_tokens.len(), "Returning semantic tokens");
+            Some(SemanticTokensResult::Tokens(SemanticTokens {
+                result_id: None,
+                data: encoded_tokens,
+            }))
+        })
+        .await
     }
 
     async fn selection_range(
@@ -2350,44 +2287,27 @@ impl LanguageServer for GraphQLLanguageServer {
         let uri = params.text_document.uri;
         tracing::debug!("Selection range requested: {}", uri.path());
 
-        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
-        else {
-            tracing::warn!("No project found for document: {}", uri.path());
-            return Ok(None);
-        };
-
-        let host = self
-            .workspace
-            .get_or_create_host(&workspace_uri, &project_name);
-        let Some(analysis) = host.try_snapshot().await else {
-            return Ok(None);
-        };
-
-        let file_path = graphql_ide::FilePath::new(uri.to_string());
-
-        // Convert LSP positions to IDE positions
         let positions: Vec<graphql_ide::Position> = params
             .positions
             .iter()
             .map(|p| convert_lsp_position(*p))
             .collect();
 
-        // Get selection ranges from Analysis
-        let selection_ranges = analysis.selection_ranges(&file_path, &positions);
-
-        // Convert to LSP selection ranges
-        let lsp_ranges: Vec<SelectionRange> = selection_ranges
-            .into_iter()
-            .filter_map(|sr| sr.map(convert_ide_selection_range))
-            .collect();
-
-        if lsp_ranges.is_empty() {
-            tracing::debug!("No selection ranges found");
-            return Ok(None);
-        }
-
-        tracing::debug!(count = lsp_ranges.len(), "Returning selection ranges");
-        Ok(Some(lsp_ranges))
+        self.with_analysis(&uri, move |analysis, file_path| {
+            let selection_ranges = analysis.selection_ranges(&file_path, &positions);
+            let lsp_ranges: Vec<SelectionRange> = selection_ranges
+                .into_iter()
+                .filter_map(|sr| sr.map(convert_ide_selection_range))
+                .collect();
+            if lsp_ranges.is_empty() {
+                tracing::debug!("No selection ranges found");
+                None
+            } else {
+                tracing::debug!(count = lsp_ranges.len(), "Returning selection ranges");
+                Some(lsp_ranges)
+            }
+        })
+        .await
     }
 
     #[allow(
@@ -2493,210 +2413,179 @@ impl LanguageServer for GraphQLLanguageServer {
         let uri = params.text_document.uri;
         let range = params.range;
 
-        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
-        else {
-            return Ok(None);
-        };
+        self.with_analysis(&uri, move |analysis, file_path| {
+            // Get lint diagnostics with fixes for this file (per-file rules)
+            let mut lint_diagnostics = analysis.lint_diagnostics_with_fixes(&file_path);
 
-        let host = self
-            .workspace
-            .get_or_create_host(&workspace_uri, &project_name);
-        let Some(analysis) = host.try_snapshot().await else {
-            return Ok(None);
-        };
-
-        let file_path = graphql_ide::FilePath::new(uri.to_string());
-
-        // Get lint diagnostics with fixes for this file (per-file rules)
-        let mut lint_diagnostics = analysis.lint_diagnostics_with_fixes(&file_path);
-
-        // Also get project-level diagnostics for this file (e.g., unused_fragments)
-        let project_diagnostics = analysis.project_lint_diagnostics_with_fixes();
-        if let Some(project_diags_for_file) = project_diagnostics.get(&file_path) {
-            lint_diagnostics.extend(project_diags_for_file.iter().cloned());
-        }
-
-        if lint_diagnostics.is_empty() {
-            return Ok(None);
-        }
-
-        // Convert LSP range to line/column for comparison
-        let start_line = range.start.line as usize;
-        let end_line = range.end.line as usize;
-
-        // Filter diagnostics that overlap with the requested range
-        // and have fixes available
-        let mut actions: Vec<CodeActionOrCommand> = Vec::new();
-
-        // Get file content for line index
-        let Some(content) = analysis.file_content(&file_path) else {
-            return Ok(None);
-        };
-
-        let file_line_index = graphql_syntax::LineIndex::new(&content);
-
-        for diag in lint_diagnostics {
-            // Skip diagnostics without fixes
-            let Some(ref fix) = diag.fix else {
-                continue;
-            };
-
-            // For embedded GraphQL (TypeScript/JavaScript), offsets are relative to the
-            // GraphQL block, not the full file. Use block context from SourceSpan.
-            let (line_offset, diag_line_index): (
-                u32,
-                std::borrow::Cow<'_, graphql_syntax::LineIndex>,
-            ) = if let Some(ref block_source) = diag.span.source {
-                (
-                    diag.span.line_offset,
-                    std::borrow::Cow::Owned(graphql_syntax::LineIndex::new(block_source)),
-                )
-            } else {
-                (0, std::borrow::Cow::Borrowed(&file_line_index))
-            };
-
-            // Convert diagnostic offset to line/column
-            let (diag_start_line, _) = diag_line_index.line_col(diag.span.start);
-            let (diag_end_line, _) = diag_line_index.line_col(diag.span.end);
-            let diag_start_line = diag_start_line + line_offset as usize;
-            let diag_end_line = diag_end_line + line_offset as usize;
-
-            // Check if diagnostic overlaps with requested range
-            if diag_end_line < start_line || diag_start_line > end_line {
-                continue;
+            // Also get project-level diagnostics for this file (e.g., unused_fragments)
+            let project_diagnostics = analysis.project_lint_diagnostics_with_fixes();
+            if let Some(project_diags_for_file) = project_diagnostics.get(&file_path) {
+                lint_diagnostics.extend(project_diags_for_file.iter().cloned());
             }
 
-            // Convert fix edits to LSP TextEdits
-            let edits: Vec<TextEdit> = fix
-                .edits
-                .iter()
-                .map(|edit| {
-                    let (start_line, start_col) = diag_line_index.line_col(edit.offset_range.start);
-                    let (end_line, end_col) = diag_line_index.line_col(edit.offset_range.end);
+            if lint_diagnostics.is_empty() {
+                return None;
+            }
 
-                    TextEdit {
-                        range: lsp_types::Range {
-                            start: lsp_types::Position {
-                                line: (start_line + line_offset as usize) as u32,
-                                character: start_col as u32,
+            // Convert LSP range to line/column for comparison
+            let start_line = range.start.line as usize;
+            let end_line = range.end.line as usize;
+
+            let mut actions: Vec<CodeActionOrCommand> = Vec::new();
+
+            let content = analysis.file_content(&file_path)?;
+
+            let file_line_index = graphql_syntax::LineIndex::new(&content);
+            // Reconstruct URI for workspace edit keys
+            let uri = Uri::from_str(&file_path.0).expect("valid URI from FilePath");
+
+            for diag in lint_diagnostics {
+                let Some(ref fix) = diag.fix else {
+                    continue;
+                };
+
+                // For embedded GraphQL (TypeScript/JavaScript), offsets are relative to the
+                // GraphQL block, not the full file. Use block context from SourceSpan.
+                let (line_offset, diag_line_index): (
+                    u32,
+                    std::borrow::Cow<'_, graphql_syntax::LineIndex>,
+                ) = if let Some(ref block_source) = diag.span.source {
+                    (
+                        diag.span.line_offset,
+                        std::borrow::Cow::Owned(graphql_syntax::LineIndex::new(block_source)),
+                    )
+                } else {
+                    (0, std::borrow::Cow::Borrowed(&file_line_index))
+                };
+
+                let (diag_start_line, _) = diag_line_index.line_col(diag.span.start);
+                let (diag_end_line, _) = diag_line_index.line_col(diag.span.end);
+                let diag_start_line = diag_start_line + line_offset as usize;
+                let diag_end_line = diag_end_line + line_offset as usize;
+
+                if diag_end_line < start_line || diag_start_line > end_line {
+                    continue;
+                }
+
+                let edits: Vec<TextEdit> = fix
+                    .edits
+                    .iter()
+                    .map(|edit| {
+                        let (start_line, start_col) =
+                            diag_line_index.line_col(edit.offset_range.start);
+                        let (end_line, end_col) = diag_line_index.line_col(edit.offset_range.end);
+
+                        TextEdit {
+                            range: lsp_types::Range {
+                                start: lsp_types::Position {
+                                    line: (start_line + line_offset as usize) as u32,
+                                    character: start_col as u32,
+                                },
+                                end: lsp_types::Position {
+                                    line: (end_line + line_offset as usize) as u32,
+                                    character: end_col as u32,
+                                },
                             },
-                            end: lsp_types::Position {
-                                line: (end_line + line_offset as usize) as u32,
-                                character: end_col as u32,
+                            new_text: edit.new_text.clone(),
+                        }
+                    })
+                    .collect();
+
+                let mut changes = HashMap::new();
+                changes.insert(uri.clone(), edits);
+
+                let workspace_edit = WorkspaceEdit {
+                    changes: Some(changes),
+                    document_changes: None,
+                    change_annotations: None,
+                };
+
+                let action = CodeAction {
+                    title: fix.label.clone(),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: Some(vec![convert_ide_diagnostic(graphql_ide::Diagnostic {
+                        range: graphql_ide::Range {
+                            start: graphql_ide::Position {
+                                line: diag_start_line as u32,
+                                character: 0,
+                            },
+                            end: graphql_ide::Position {
+                                line: diag_end_line as u32,
+                                character: 0,
                             },
                         },
-                        new_text: edit.new_text.clone(),
-                    }
-                })
-                .collect();
+                        severity: graphql_ide::DiagnosticSeverity::Warning,
+                        message: diag.message.clone(),
+                        code: Some(diag.rule.clone()),
+                        source: "graphql-linter".to_string(),
+                        fix: None,
+                    })]),
+                    edit: Some(workspace_edit),
+                    command: None,
+                    is_preferred: Some(true),
+                    disabled: None,
+                    data: None,
+                };
 
-            // Create the workspace edit
-            let mut changes = HashMap::new();
-            changes.insert(uri.clone(), edits);
+                actions.push(CodeActionOrCommand::CodeAction(action));
+            }
 
-            let workspace_edit = WorkspaceEdit {
-                changes: Some(changes),
-                document_changes: None,
-                change_annotations: None,
-            };
-
-            // Create the code action
-            let action = CodeAction {
-                title: fix.label.clone(),
-                kind: Some(CodeActionKind::QUICKFIX),
-                diagnostics: Some(vec![convert_ide_diagnostic(graphql_ide::Diagnostic {
-                    range: graphql_ide::Range {
-                        start: graphql_ide::Position {
-                            line: diag_start_line as u32,
-                            character: 0,
-                        },
-                        end: graphql_ide::Position {
-                            line: diag_end_line as u32,
-                            character: 0,
-                        },
-                    },
-                    severity: graphql_ide::DiagnosticSeverity::Warning,
-                    message: diag.message.clone(),
-                    code: Some(diag.rule.clone()),
-                    source: "graphql-linter".to_string(),
-                    fix: None,
-                })]),
-                edit: Some(workspace_edit),
-                command: None,
-                is_preferred: Some(true),
-                disabled: None,
-                data: None,
-            };
-
-            actions.push(CodeActionOrCommand::CodeAction(action));
-        }
-
-        if actions.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(actions))
-        }
+            if actions.is_empty() {
+                None
+            } else {
+                Some(actions)
+            }
+        })
+        .await
     }
 
     #[tracing::instrument(skip(self, params), fields(path = %params.text_document.uri.path()))]
     async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
         let uri = params.text_document.uri;
 
-        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
-        else {
-            tracing::debug!("No project found for document");
-            return Ok(None);
-        };
+        self.with_analysis(&uri, move |analysis, file_path| {
+            let uri = Uri::from_str(&file_path.0).expect("valid URI from FilePath");
+            let mut lsp_code_lenses: Vec<CodeLens> = Vec::new();
 
-        let host = self
-            .workspace
-            .get_or_create_host(&workspace_uri, &project_name);
-        let Some(analysis) = host.try_snapshot().await else {
-            return Ok(None);
-        };
-
-        let file_path = graphql_ide::FilePath::new(uri.to_string());
-        let mut lsp_code_lenses: Vec<CodeLens> = Vec::new();
-
-        // Code lenses for deprecated fields (in schema files)
-        let deprecated_lenses = analysis.deprecated_field_code_lenses(&file_path);
-        lsp_code_lenses.extend(
-            deprecated_lenses
-                .iter()
-                .map(|cl| convert_ide_code_lens_info(cl, &uri)),
-        );
-
-        // Code lenses for fragment definitions (showing reference counts)
-        let fragment_lenses = analysis.code_lenses(&file_path);
-        for lens in &fragment_lenses {
-            // Get fragment name from the command arguments (it's the 3rd argument)
-            let fragment_name = lens
-                .command
-                .as_ref()
-                .and_then(|cmd| cmd.arguments.get(2))
-                .map(String::as_str);
-
-            // Get references for this fragment
-            let references: Vec<lsp_types::Location> = if let Some(name) = fragment_name {
-                analysis
-                    .find_fragment_references(name, false)
+            // Code lenses for deprecated fields (in schema files)
+            let deprecated_lenses = analysis.deprecated_field_code_lenses(&file_path);
+            lsp_code_lenses.extend(
+                deprecated_lenses
                     .iter()
-                    .map(convert_ide_location)
-                    .collect()
-            } else {
-                Vec::new()
-            };
+                    .map(|cl| convert_ide_code_lens_info(cl, &uri)),
+            );
 
-            lsp_code_lenses.push(convert_ide_code_lens(lens, &uri, &references));
-        }
+            // Code lenses for fragment definitions (showing reference counts)
+            let fragment_lenses = analysis.code_lenses(&file_path);
+            for lens in &fragment_lenses {
+                let fragment_name = lens
+                    .command
+                    .as_ref()
+                    .and_then(|cmd| cmd.arguments.get(2))
+                    .map(String::as_str);
 
-        if lsp_code_lenses.is_empty() {
-            tracing::debug!("No code lenses found");
-            return Ok(None);
-        }
+                let references: Vec<lsp_types::Location> = if let Some(name) = fragment_name {
+                    analysis
+                        .find_fragment_references(name, false)
+                        .iter()
+                        .map(convert_ide_location)
+                        .collect()
+                } else {
+                    Vec::new()
+                };
 
-        tracing::debug!(count = lsp_code_lenses.len(), "Returning code lenses");
-        Ok(Some(lsp_code_lenses))
+                lsp_code_lenses.push(convert_ide_code_lens(lens, &uri, &references));
+            }
+
+            if lsp_code_lenses.is_empty() {
+                tracing::debug!("No code lenses found");
+                return None;
+            }
+
+            tracing::debug!(count = lsp_code_lenses.len(), "Returning code lenses");
+            Some(lsp_code_lenses)
+        })
+        .await
     }
 
     async fn code_lens_resolve(&self, code_lens: CodeLens) -> Result<CodeLens> {
@@ -2708,70 +2597,40 @@ impl LanguageServer for GraphQLLanguageServer {
     async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
         let uri = params.text_document.uri;
 
-        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
-        else {
-            tracing::debug!("No project found for document");
-            return Ok(None);
-        };
-
-        let host = self
-            .workspace
-            .get_or_create_host(&workspace_uri, &project_name);
-        let Some(analysis) = host.try_snapshot().await else {
-            return Ok(None);
-        };
-
-        let file_path = graphql_ide::FilePath::new(uri.to_string());
-        let ranges = analysis.folding_ranges(&file_path);
-
-        if ranges.is_empty() {
-            tracing::debug!("No folding ranges found");
-            return Ok(None);
-        }
-
-        let lsp_ranges: Vec<FoldingRange> = ranges.iter().map(convert_ide_folding_range).collect();
-
-        tracing::debug!(count = lsp_ranges.len(), "Returning folding ranges");
-        Ok(Some(lsp_ranges))
+        self.with_analysis(&uri, move |analysis, file_path| {
+            let ranges = analysis.folding_ranges(&file_path);
+            if ranges.is_empty() {
+                tracing::debug!("No folding ranges found");
+                return None;
+            }
+            let lsp_ranges: Vec<FoldingRange> =
+                ranges.iter().map(convert_ide_folding_range).collect();
+            tracing::debug!(count = lsp_ranges.len(), "Returning folding ranges");
+            Some(lsp_ranges)
+        })
+        .await
     }
 
     #[tracing::instrument(skip(self, params), fields(path = %params.text_document.uri.path()))]
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<LspInlayHint>>> {
         let uri = params.text_document.uri;
 
-        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
-        else {
-            tracing::debug!("No project found for inlay hints");
-            return Ok(None);
-        };
-
-        let host = self
-            .workspace
-            .get_or_create_host(&workspace_uri, &project_name);
-
-        let Some(analysis) = host.try_snapshot().await else {
-            return Ok(None);
-        };
-
-        let file_path = graphql_ide::FilePath::new(uri.to_string());
-
-        // Convert LSP range to IDE range for filtering
         let range = Some(graphql_ide::Range::new(
             graphql_ide::Position::new(params.range.start.line, params.range.start.character),
             graphql_ide::Position::new(params.range.end.line, params.range.end.character),
         ));
 
-        let hints = analysis.inlay_hints(&file_path, range);
-
-        if hints.is_empty() {
-            tracing::debug!("No inlay hints found");
-            return Ok(None);
-        }
-
-        let lsp_hints: Vec<LspInlayHint> = hints.iter().map(convert_ide_inlay_hint).collect();
-
-        tracing::debug!(count = lsp_hints.len(), "Returning inlay hints");
-        Ok(Some(lsp_hints))
+        self.with_analysis(&uri, move |analysis, file_path| {
+            let hints = analysis.inlay_hints(&file_path, range);
+            if hints.is_empty() {
+                tracing::debug!("No inlay hints found");
+                return None;
+            }
+            let lsp_hints: Vec<LspInlayHint> = hints.iter().map(convert_ide_inlay_hint).collect();
+            tracing::debug!(count = lsp_hints.len(), "Returning inlay hints");
+            Some(lsp_hints)
+        })
+        .await
     }
 }
 
