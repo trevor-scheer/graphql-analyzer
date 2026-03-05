@@ -182,10 +182,6 @@ jobs:
         working-directory: editors/vscode
         run: npm ci
 
-      - name: Lint
-        working-directory: editors/vscode
-        run: npm run lint
-
       - name: Unit tests
         working-directory: editors/vscode
         run: npm run test:unit
@@ -220,6 +216,9 @@ jobs:
 
       - name: Check formatting
         run: npm run fmt:check
+
+      - name: Lint
+        run: npm run lint
 
       - name: TypeScript type check
         run: npm run typecheck

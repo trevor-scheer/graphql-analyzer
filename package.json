@@ -18,7 +18,8 @@
     "compile": "npm run compile --workspace=editors/vscode",
     "watch": "npm run watch --workspace=editors/vscode",
     "typecheck": "tsc -b",
-    "lint": "npm run lint --workspace=editors/vscode",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
     "package": "npm run package --workspace=editors/vscode",
     "test:unit": "npm run test:unit --workspace=editors/vscode",
     "test:e2e": "npm run test:e2e --workspace=editors/vscode",
@@ -26,7 +27,8 @@
     "fmt:check": "oxfmt --check ."
   },
   "devDependencies": {
-    "oxfmt": "^0.36.0"
+    "oxfmt": "^0.36.0",
+    "oxlint": "^1.51.0"
   },
   "volta": {
     "node": "24.14.0"

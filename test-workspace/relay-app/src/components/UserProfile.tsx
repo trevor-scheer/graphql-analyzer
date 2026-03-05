@@ -1,7 +1,7 @@
-import { graphql, useRefetchableFragment, readInlineData } from "react-relay";
+import { graphql } from "react-relay";
 
 // Demonstrates embedded Relay fragment with @refetchable
-const UserProfileFragment = graphql`
+const _UserProfileFragment = graphql`
   fragment UserProfileComponent_user on User
   @refetchable(queryName: "UserProfileComponentRefetchQuery") {
     id
@@ -20,7 +20,7 @@ const UserProfileFragment = graphql`
 `;
 
 // Demonstrates @arguments in TypeScript
-const ViewerUserProfile = graphql`
+const _ViewerUserProfile = graphql`
   query UserProfilePageQuery {
     viewer {
       user {

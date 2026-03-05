@@ -1,8 +1,5 @@
 import { test as base, _electron as electron, ElectronApplication, Page } from "@playwright/test";
-import {
-  downloadAndUnzipVSCode,
-  resolveCliArgsFromVSCodeExecutablePath,
-} from "@vscode/test-electron";
+import { downloadAndUnzipVSCode } from "@vscode/test-electron";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
@@ -45,7 +42,7 @@ function getElectronPath(vscodeExePath: string): string {
 }
 
 export const test = base.extend<VSCodeFixtures>({
-  vscode: async ({}, use) => {
+  vscode: async (_, use) => {
     extensionDevelopmentPath = path.resolve(__dirname, "..");
 
     // Ensure the extension is compiled

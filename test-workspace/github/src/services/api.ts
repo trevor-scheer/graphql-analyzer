@@ -113,11 +113,11 @@ export class GitHubApiService {
     // Implementation
   }
 
-  async resolveNode(id: string) {
+  async resolveNode(_id: string) {
     // Implementation
   }
 
-  async resolveUrl(url: string) {
+  async resolveUrl(_url: string) {
     // Implementation
   }
 }
