@@ -187,7 +187,7 @@ fn parse_graphql(content: &str, uri: &str) -> Parse {
     let parser = apollo_parser::Parser::new(content);
     let tree = parser.parse();
 
-    let mut errors: Vec<ParseError> = tree
+    let errors: Vec<ParseError> = tree
         .errors()
         .map(|e| ParseError {
             message: e.message().to_string(),
@@ -197,14 +197,9 @@ fn parse_graphql(content: &str, uri: &str) -> Parse {
 
     let ast = match apollo_compiler::ast::Document::parse(content, uri) {
         Ok(doc) => doc,
-        Err(with_errors) => {
-            // apollo-compiler errors don't have precise positions, so we use offset 0
-            errors.extend(with_errors.errors.iter().map(|e| ParseError {
-                message: e.to_string(),
-                offset: 0,
-            }));
-            with_errors.partial
-        }
+        // apollo-parser already reports syntax errors with correct byte offsets;
+        // apollo-compiler's parse errors are duplicates without usable positions
+        Err(with_errors) => with_errors.partial,
     };
 
     // Create a single block representing the entire file at offset 0
@@ -266,13 +261,9 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -
 
         let ast = match apollo_compiler::ast::Document::parse(&block.source, uri) {
             Ok(doc) => doc,
-            Err(with_errors) => {
-                all_errors.extend(with_errors.errors.iter().map(|e| ParseError {
-                    message: e.to_string(),
-                    offset: block_offset,
-                }));
-                with_errors.partial
-            }
+            // apollo-parser already reports syntax errors with correct byte offsets;
+            // apollo-compiler's parse errors are duplicates without usable positions
+            Err(with_errors) => with_errors.partial,
         };
 
         blocks.push(ExtractedBlock {
