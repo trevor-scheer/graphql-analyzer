@@ -19,7 +19,7 @@ pub fn position_to_offset(
 
 /// Convert byte offset to IDE Position (UTF-16 columns) using `LineIndex`
 pub fn offset_to_position(line_index: &graphql_syntax::LineIndex, offset: usize) -> Position {
-    let (line, utf16_col) = line_index.line_col_utf16(offset);
+    let (line, utf16_col) = line_index.line_col(offset);
     Position::new(line as u32, utf16_col as u32)
 }
 

@@ -317,7 +317,7 @@ fn emit_token_for_syntax_node(
     let offset: usize = node.text_range().start().into();
     let len: u32 = node.text_range().len().into();
 
-    let (line, col) = line_index.line_col_utf16(offset);
+    let (line, col) = line_index.line_col(offset);
     tokens.push(SemanticToken::new(
         Position::new(line as u32 + line_offset, col as u32),
         len,
@@ -338,7 +338,7 @@ fn emit_token_for_syntax_token(
     let offset: usize = token.text_range().start().into();
     let len: u32 = token.text_range().len().into();
 
-    let (line, col) = line_index.line_col_utf16(offset);
+    let (line, col) = line_index.line_col(offset);
     tokens.push(SemanticToken::new(
         Position::new(line as u32 + line_offset, col as u32),
         len,

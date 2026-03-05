@@ -583,12 +583,25 @@ impl LineIndex {
         }
     }
 
-    /// Convert a byte offset to a line/column position (0-based, byte columns)
+    /// Convert a byte offset to a line/column position (0-based)
     ///
-    /// Returns byte-based columns. For LSP-compatible UTF-16 columns, use
-    /// [`line_col_utf16`](Self::line_col_utf16).
+    /// Columns are measured in UTF-16 code units, matching the LSP specification.
+    /// For byte-based columns (internal use), see [`line_col_bytes`](Self::line_col_bytes).
     #[must_use]
     pub fn line_col(&self, offset: usize) -> (usize, usize) {
+        let (line, byte_col) = self.line_col_bytes(offset);
+        let line_start = self.line_starts[line];
+        let line_text = &self.source[line_start..line_start + byte_col];
+        let utf16_col: usize = line_text.chars().map(char::len_utf16).sum();
+        (line, utf16_col)
+    }
+
+    /// Convert a byte offset to a line/column position with byte-based columns
+    ///
+    /// Used internally for byte offset arithmetic. Most callers should use
+    /// [`line_col`](Self::line_col) which returns UTF-16 columns.
+    #[must_use]
+    fn line_col_bytes(&self, offset: usize) -> (usize, usize) {
         let line = self
             .line_starts
             .binary_search(&offset)
@@ -596,20 +609,6 @@ impl LineIndex {
 
         let col = offset - self.line_starts[line];
         (line, col)
-    }
-
-    /// Convert a byte offset to a line/column position with UTF-16 columns
-    ///
-    /// The LSP specification requires character offsets in UTF-16 code units.
-    /// This method returns columns measured in UTF-16 code units, suitable for
-    /// LSP protocol messages.
-    #[must_use]
-    pub fn line_col_utf16(&self, offset: usize) -> (usize, usize) {
-        let (line, byte_col) = self.line_col(offset);
-        let line_start = self.line_starts[line];
-        let line_text = &self.source[line_start..line_start + byte_col];
-        let utf16_col: usize = line_text.chars().map(char::len_utf16).sum();
-        (line, utf16_col)
     }
 
     /// Convert a line number and UTF-16 column offset to a byte offset
@@ -730,32 +729,32 @@ mod tests {
     }
 
     #[test]
-    fn test_line_col_utf16_with_emoji() {
+    fn test_line_col_with_emoji() {
         // 🚀 is 4 bytes in UTF-8, 2 code units in UTF-16
         let text = "# \u{1F680} Launch\nquery";
         let index = LineIndex::new(text);
 
         // Byte offset 7 = 'L' in "Launch"
         // UTF-16 col: '#'(1) + ' '(1) + 🚀(2) + ' '(1) = 5
-        assert_eq!(index.line_col_utf16(7), (0, 5));
+        assert_eq!(index.line_col(7), (0, 5));
 
         // Byte offset 0 = '#'
-        assert_eq!(index.line_col_utf16(0), (0, 0));
+        assert_eq!(index.line_col(0), (0, 0));
 
         // Second line (after \n)
         let line1_start = text.find('\n').unwrap() + 1;
-        assert_eq!(index.line_col_utf16(line1_start), (1, 0));
+        assert_eq!(index.line_col(line1_start), (1, 0));
     }
 
     #[test]
-    fn test_line_col_utf16_with_cjk() {
+    fn test_line_col_with_cjk() {
         // CJK chars: 3 bytes in UTF-8, 1 code unit in UTF-16
         let text = "# \u{7528}\u{6237}\u{67E5}\u{8BE2}\nquery";
         let index = LineIndex::new(text);
 
         // Byte offset 5 = start of '户'
         // UTF-16 col: '#'(1) + ' '(1) + 用(1) = 3
-        assert_eq!(index.line_col_utf16(5), (0, 3));
+        assert_eq!(index.line_col(5), (0, 3));
     }
 
     #[test]
@@ -782,13 +781,13 @@ mod tests {
     }
 
     #[test]
-    fn test_utf16_ascii_same_as_byte() {
+    fn test_line_col_ascii_same_as_byte() {
         let text = "query {\n  user\n}";
         let index = LineIndex::new(text);
 
         // For ASCII, UTF-16 and byte columns are identical
-        assert_eq!(index.line_col_utf16(0), (0, 0));
-        assert_eq!(index.line_col_utf16(5), (0, 5));
+        assert_eq!(index.line_col(0), (0, 0));
+        assert_eq!(index.line_col(5), (0, 5));
         assert_eq!(index.utf16_to_offset(0, 5), Some(5));
         assert_eq!(index.utf16_to_offset(1, 2), Some(10));
     }

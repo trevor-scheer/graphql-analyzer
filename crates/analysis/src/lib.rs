@@ -61,7 +61,7 @@ fn syntax_diagnostics(
     let line_index = graphql_syntax::line_index(db, content);
 
     for error in parse.errors() {
-        let (line, col) = line_index.line_col_utf16(error.offset);
+        let (line, col) = line_index.line_col(error.offset);
 
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
@@ -98,7 +98,7 @@ fn file_validation_diagnostics_impl(
     let line_index = graphql_syntax::line_index(db, content);
 
     for error in parse.errors() {
-        let (line, col) = line_index.line_col_utf16(error.offset);
+        let (line, col) = line_index.line_col(error.offset);
 
         diagnostics.push(Diagnostic {
             severity: Severity::Error,

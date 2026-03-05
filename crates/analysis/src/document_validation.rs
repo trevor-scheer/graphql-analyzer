@@ -15,8 +15,8 @@ fn text_range_to_diagnostic_range(
 ) -> DiagnosticRange {
     let line_index = graphql_syntax::line_index(db, content);
 
-    let (start_line, start_col) = line_index.line_col_utf16(range.start().into());
-    let (end_line, end_col) = line_index.line_col_utf16(range.end().into());
+    let (start_line, start_col) = line_index.line_col(range.start().into());
+    let (end_line, end_col) = line_index.line_col(range.end().into());
 
     DiagnosticRange {
         start: Position {

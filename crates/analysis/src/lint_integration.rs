@@ -423,8 +423,8 @@ fn convert_lint_diagnostics(
             let (line_offset, start_line, start_col, end_line, end_col) =
                 if let Some(ref block_source) = ld.span.source {
                     let block_line_index = graphql_syntax::LineIndex::new(block_source);
-                    let (sl, sc) = block_line_index.line_col_utf16(ld.span.start);
-                    let (el, ec) = block_line_index.line_col_utf16(ld.span.end);
+                    let (sl, sc) = block_line_index.line_col(ld.span.start);
+                    let (el, ec) = block_line_index.line_col(ld.span.end);
                     tracing::trace!(
                         line_offset = ld.span.line_offset,
                         offset_start = ld.span.start,
@@ -437,8 +437,8 @@ fn convert_lint_diagnostics(
                     );
                     (ld.span.line_offset, sl, sc, el, ec)
                 } else {
-                    let (sl, sc) = file_line_index.line_col_utf16(ld.span.start);
-                    let (el, ec) = file_line_index.line_col_utf16(ld.span.end);
+                    let (sl, sc) = file_line_index.line_col(ld.span.start);
+                    let (el, ec) = file_line_index.line_col(ld.span.end);
                     (0u32, sl, sc, el, ec)
                 };
 
