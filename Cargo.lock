@@ -1301,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-lsp"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "apollo-compiler",
@@ -1345,7 +1345,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-mcp"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "glob",

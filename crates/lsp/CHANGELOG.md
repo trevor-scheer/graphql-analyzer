@@ -2,6 +2,14 @@
 
 All notable changes to the GraphQL LSP will be documented in this file.
 
+## 0.1.4 (2026-03-05)
+
+### Fixes
+
+- Pre-filter files for field usage analysis using schema coordinates index
+- Optimize type name goto-definition with pre-computed index ([#702](https://github.com/trevor-scheer/graphql-analyzer/pull/702))
+- Pre-filter files for type reference lookups with per-file index
+
 ## 0.1.3 (2026-03-02)
 
 ### Features

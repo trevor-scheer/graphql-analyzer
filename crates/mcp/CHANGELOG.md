@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL MCP server will be documented in this file.
 
+## 0.1.5 (2026-03-05)
+
+### Fixes
+
+- Upgrade rmcp dependency to v1.0 ([#700](https://github.com/trevor-scheer/graphql-analyzer/pull/700))
+
 ## 0.1.4 (2026-03-02)
 
 ### Fixes
