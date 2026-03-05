@@ -16,7 +16,6 @@
     "copy-schema": "./scripts/copy-schema.sh",
     "compile": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "lint": "oxlint src",
     "typecheck": "tsgo -b",
     "package": "vsce package --no-dependencies",
     "package:darwin-arm64": "vsce package --no-dependencies --target darwin-arm64",
@@ -40,7 +39,6 @@
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.2.1",
     "esbuild": "^0.27.3",
-    "oxlint": "^1.30.0",
     "vitest": "^4.0.18",
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.3.2"
