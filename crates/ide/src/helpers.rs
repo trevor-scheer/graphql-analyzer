@@ -9,21 +9,18 @@ use crate::symbol::{
 };
 use crate::types::{Position, Range};
 
-/// Convert IDE position to byte offset using `LineIndex`
+/// Convert IDE position (UTF-16 columns) to byte offset using `LineIndex`
 pub fn position_to_offset(
     line_index: &graphql_syntax::LineIndex,
     position: Position,
 ) -> Option<usize> {
-    let line_start = line_index.line_start(position.line as usize)?;
-    Some(line_start + position.character as usize)
+    line_index.utf16_to_offset(position.line as usize, position.character)
 }
 
-/// Convert byte offset to IDE Position using `LineIndex`
+/// Convert byte offset to IDE Position (UTF-16 columns) using `LineIndex`
 pub fn offset_to_position(line_index: &graphql_syntax::LineIndex, offset: usize) -> Position {
-    let line = line_index.line_col(offset).0;
-    let line_start = line_index.line_start(line).unwrap_or(0);
-    let character = offset - line_start;
-    Position::new(line as u32, character as u32)
+    let (line, utf16_col) = line_index.line_col(offset);
+    Position::new(line as u32, utf16_col as u32)
 }
 
 /// Convert byte offset range to IDE Range using `LineIndex`
@@ -1040,6 +1037,96 @@ mod tests {
         assert_eq!(ide_diag.range.start.character, 0);
         assert_eq!(ide_diag.range.end.line, 2);
         assert_eq!(ide_diag.range.end.character, 10);
+    }
+
+    #[test]
+    fn test_position_to_offset_with_emoji() {
+        // 🚀 is 4 bytes in UTF-8, 2 code units in UTF-16
+        let text = "# \u{1F680} Launch\nquery { user }";
+        let line_index = graphql_syntax::LineIndex::new(text);
+
+        // Position(0, 5) in UTF-16: '#'(1) + ' '(1) + 🚀(2) + ' '(1) = 5
+        // Should map to byte offset 7: '#'(1) + ' '(1) + 🚀(4) + ' '(1) = 7
+        assert_eq!(
+            position_to_offset(&line_index, Position::new(0, 5)),
+            Some(7),
+            "UTF-16 offset 5 should map to byte offset 7 (emoji is 4 bytes but 2 UTF-16 units)"
+        );
+    }
+
+    #[test]
+    fn test_position_to_offset_with_cjk() {
+        // CJK characters: 3 bytes in UTF-8, 1 code unit in UTF-16
+        let text = "# \u{7528}\u{6237}\u{67E5}\u{8BE2}\nquery { user }";
+        let line_index = graphql_syntax::LineIndex::new(text);
+
+        // Position(0, 3) in UTF-16: '#'(1) + ' '(1) + 用(1) = 3
+        // Should map to byte offset 5: '#'(1) + ' '(1) + 用(3) = 5
+        assert_eq!(
+            position_to_offset(&line_index, Position::new(0, 3)),
+            Some(5),
+            "UTF-16 offset 3 should map to byte offset 5 (CJK is 3 bytes but 1 UTF-16 unit)"
+        );
+    }
+
+    #[test]
+    fn test_offset_to_position_with_emoji() {
+        let text = "# \u{1F680} Launch\nquery { user }";
+        let line_index = graphql_syntax::LineIndex::new(text);
+
+        // Byte offset 7 = 'L' in "Launch"
+        // UTF-16 position: '#'(1) + ' '(1) + 🚀(2) + ' '(1) = 5
+        assert_eq!(
+            offset_to_position(&line_index, 7),
+            Position::new(0, 5),
+            "Byte offset 7 should map to UTF-16 column 5 (emoji is 4 bytes but 2 UTF-16 units)"
+        );
+    }
+
+    #[test]
+    fn test_offset_to_position_with_cjk() {
+        let text = "# \u{7528}\u{6237}\u{67E5}\u{8BE2}\nquery { user }";
+        let line_index = graphql_syntax::LineIndex::new(text);
+
+        // Byte offset 5 = start of 户 (second CJK char)
+        // UTF-16 position: '#'(1) + ' '(1) + 用(1) = 3
+        assert_eq!(
+            offset_to_position(&line_index, 5),
+            Position::new(0, 3),
+            "Byte offset 5 should map to UTF-16 column 3 (CJK is 3 bytes but 1 UTF-16 unit)"
+        );
+    }
+
+    #[test]
+    fn test_offset_range_to_range_with_multibyte() {
+        let text = "# \u{1F680} Launch\nquery { user }";
+        let line_index = graphql_syntax::LineIndex::new(text);
+
+        // "Launch" = bytes 7..13
+        // UTF-16: start at (0, 5), end at (0, 11)
+        let range = offset_range_to_range(&line_index, 7, 13);
+        assert_eq!(range.start, Position::new(0, 5));
+        assert_eq!(range.end, Position::new(0, 11));
+    }
+
+    #[test]
+    fn test_position_to_offset_ascii_unchanged() {
+        // ASCII-only text should work identically (byte offset == UTF-16 offset)
+        let text = "query {\n  user {\n    name\n  }\n}";
+        let line_index = graphql_syntax::LineIndex::new(text);
+
+        assert_eq!(
+            position_to_offset(&line_index, Position::new(0, 0)),
+            Some(0)
+        );
+        assert_eq!(
+            position_to_offset(&line_index, Position::new(0, 5)),
+            Some(5)
+        );
+        assert_eq!(
+            position_to_offset(&line_index, Position::new(1, 2)),
+            Some(10)
+        );
     }
 
     #[test]
