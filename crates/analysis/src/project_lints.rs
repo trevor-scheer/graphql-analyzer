@@ -162,6 +162,9 @@ pub fn find_unused_fragments(
 /// Analyze field usage for a specific type only.
 /// This is more efficient than `analyze_field_usage` for hover,
 /// which only needs usage info for one type at a time.
+///
+/// Pre-filters files using `file_schema_coordinates` to skip files that
+/// don't reference the target type, avoiding project-wide iteration.
 #[salsa::tracked]
 #[allow(clippy::needless_pass_by_value)] // Arc<str> needed for Salsa tracking
 pub fn field_usage_for_type(
@@ -194,9 +197,9 @@ pub fn field_usage_for_type(
         );
     }
 
-    let operations = graphql_hir::all_operations(db, project_files);
-    let all_fragments = graphql_hir::all_fragments(db, project_files);
     let doc_ids = project_files.document_file_ids(db).ids(db);
+
+    // Build full document files list (needed for fragment body resolution).
     let document_files: Vec<(
         graphql_base_db::FileId,
         graphql_base_db::FileContent,
@@ -209,24 +212,46 @@ pub fn field_usage_for_type(
         })
         .collect();
 
-    for operation in operations.iter() {
-        #[allow(clippy::match_same_arms)]
-        let root_type_name = match operation.operation_type {
-            graphql_hir::OperationType::Query => "Query",
-            graphql_hir::OperationType::Mutation => "Mutation",
-            graphql_hir::OperationType::Subscription => "Subscription",
-            _ => "Query",
-        };
+    // Pre-filter: only process operations from files whose schema coordinates
+    // reference the target type. file_schema_coordinates is cached per-file by
+    // Salsa, so unchanged files are free to query.
+    let relevant_file_ids: HashSet<graphql_base_db::FileId> = document_files
+        .iter()
+        .filter(|(file_id, content, metadata)| {
+            let coords = graphql_hir::file_schema_coordinates(
+                db,
+                *file_id,
+                *content,
+                *metadata,
+                project_files,
+            );
+            coords.iter().any(|c| c.type_name == type_name)
+        })
+        .map(|(file_id, _, _)| *file_id)
+        .collect();
 
-        let operation_name = operation
-            .name
-            .as_ref()
-            .map_or_else(|| Arc::from("<anonymous>"), Arc::clone);
+    let all_fragments = graphql_hir::all_fragments(db, project_files);
 
-        if let Some((_, content, metadata)) = document_files
-            .iter()
-            .find(|(fid, _, _)| *fid == operation.file_id)
-        {
+    // Only iterate operations from files that reference the target type.
+    for (file_id, content, metadata) in &document_files {
+        if !relevant_file_ids.contains(file_id) {
+            continue;
+        }
+        let file_ops = graphql_hir::file_operations(db, *file_id, *content, *metadata);
+        for operation in file_ops.iter() {
+            #[allow(clippy::match_same_arms)]
+            let root_type_name = match operation.operation_type {
+                graphql_hir::OperationType::Query => "Query",
+                graphql_hir::OperationType::Mutation => "Mutation",
+                graphql_hir::OperationType::Subscription => "Subscription",
+                _ => "Query",
+            };
+
+            let operation_name = operation
+                .name
+                .as_ref()
+                .map_or_else(|| Arc::from("<anonymous>"), Arc::clone);
+
             let body = graphql_hir::operation_body(db, *content, *metadata, operation.index);
 
             let mut operation_fields: HashSet<Arc<str>> = HashSet::new();
