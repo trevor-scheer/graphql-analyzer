@@ -1,6 +1,6 @@
 ---
 description: Lint rule implementation patterns
-globs:
+paths:
   - "crates/graphql-linter/**"
 ---
 

@@ -1,6 +1,6 @@
 ---
 description: VS Code extension development rules
-globs:
+paths:
   - "editors/vscode/**"
 ---
 

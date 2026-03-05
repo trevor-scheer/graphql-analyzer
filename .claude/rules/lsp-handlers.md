@@ -1,6 +1,6 @@
 ---
 description: LSP handler conventions and protocol compliance
-globs:
+paths:
   - "crates/graphql-lsp/**"
 ---
 

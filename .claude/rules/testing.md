@@ -1,6 +1,6 @@
 ---
 description: Test organization and TestDatabase patterns
-globs:
+paths:
   - "**/tests/**"
   - "**/*_test.rs"
   - "crates/graphql-test-utils/**"
