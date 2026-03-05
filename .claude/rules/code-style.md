@@ -1,6 +1,6 @@
 ---
 description: Global Rust code style conventions
-globs:
+paths:
   - "**/*.rs"
 ---
 

@@ -1,6 +1,6 @@
 ---
 description: GraphQL document model - fragment scope and validation rules
-globs:
+paths:
   - "crates/graphql-hir/**"
   - "crates/graphql-analysis/**"
   - "crates/graphql-ide/**"

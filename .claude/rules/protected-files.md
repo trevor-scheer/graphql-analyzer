@@ -1,6 +1,6 @@
 ---
 description: Files and patterns that must never be modified without explicit permission
-globs:
+paths:
   - ".github/workflows/release.yml"
 ---
 

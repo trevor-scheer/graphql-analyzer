@@ -1,6 +1,6 @@
 ---
 description: Salsa query patterns and cache invariants for the database layer
-globs:
+paths:
   - "crates/graphql-db/**"
   - "crates/graphql-hir/**"
 ---
