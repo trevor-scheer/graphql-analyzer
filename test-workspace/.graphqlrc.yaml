@@ -1,8 +1,8 @@
 # GraphQL LSP Project Configuration
 projects:
   pokemon:
-    schema: test-workspace/pokemon/schema.graphql
-    documents: "test-workspace/pokemon/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
+    schema: pokemon/schema.graphql
+    documents: "pokemon/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
     extensions:
       client: apollo
       lint:
@@ -12,8 +12,8 @@ projects:
           requireIdField: warn
 
   starwars:
-    schema: "test-workspace/starwars/schema.graphql"
-    documents: "test-workspace/starwars/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
+    schema: "starwars/schema.graphql"
+    documents: "starwars/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
     extensions:
       client: apollo
       lint:
@@ -24,12 +24,12 @@ projects:
 
   github:
     schema:
-      - "test-workspace/github/schema/*.graphql"
-      - "test-workspace/github/schema/*.ts"
+      - "github/schema/*.graphql"
+      - "github/schema/*.ts"
     documents:
-      - "test-workspace/github/src/**/*.graphql"
-      - "test-workspace/github/src/**/*.ts"
-      - "test-workspace/github/src/**/*.tsx"
+      - "github/src/**/*.graphql"
+      - "github/src/**/*.ts"
+      - "github/src/**/*.tsx"
     extensions:
       client: apollo
       lint:
@@ -40,8 +40,8 @@ projects:
           requireIdField: [warn, { fields: ["id", "databaseId"] }]
 
   github-admin:
-    schema: "test-workspace/github/admin/schema/*.graphql"
-    documents: "test-workspace/github/admin/src/**/*.graphql"
+    schema: "github/admin/schema/*.graphql"
+    documents: "github/admin/src/**/*.graphql"
     extensions:
       client: apollo
       lint:
@@ -59,7 +59,7 @@ projects:
       url: https://countries.trevorblades.com/graphql
       timeout: 30
       retry: 2
-    documents: "test-workspace/countries/src/**/*.{graphql,ts}"
+    documents: "countries/src/**/*.{graphql,ts}"
     extensions:
       client: none
       lint:
@@ -70,9 +70,9 @@ projects:
 
   apollo-app:
     schema:
-      - test-workspace/apollo-app/schema.graphql
-      - test-workspace/apollo-app/client-schema.graphql
-    documents: "test-workspace/apollo-app/src/**/*.{graphql,gql,ts,tsx}"
+      - apollo-app/schema.graphql
+      - apollo-app/client-schema.graphql
+    documents: "apollo-app/src/**/*.{graphql,gql,ts,tsx}"
     extensions:
       client: apollo
       lint:
@@ -82,9 +82,9 @@ projects:
 
   schema-extensions:
     schema:
-      - test-workspace/schema-extensions/schema.graphql
-      - test-workspace/schema-extensions/extensions.graphql
-    documents: "test-workspace/schema-extensions/src/**/*.graphql"
+      - schema-extensions/schema.graphql
+      - schema-extensions/extensions.graphql
+    documents: "schema-extensions/src/**/*.graphql"
     extensions:
       client: none
       lint:
@@ -93,8 +93,8 @@ projects:
           uniqueNames: error
 
   relay-app:
-    schema: test-workspace/relay-app/schema.graphql
-    documents: "test-workspace/relay-app/src/**/*.{graphql,gql,ts,tsx}"
+    schema: relay-app/schema.graphql
+    documents: "relay-app/src/**/*.{graphql,gql,ts,tsx}"
     extensions:
       client: relay
       lint:
@@ -104,14 +104,14 @@ projects:
 
   misconfigured-schema:
     # expect 2 errors: schema file does not exist, and documents file does not exist
-    schema: "test-workspace/misconfigured-schema/schema.graphql"
-    documents: "test-workspace/misconfigured-schema/query.graphql"
+    schema: "misconfigured-schema/schema.graphql"
+    documents: "misconfigured-schema/query.graphql"
     extensions:
       client: none
 
   misconfigured-documents:
     # expect 2 errors: schema file does not exist, and documents file does not exist
-    schema: "test-workspace/misconfigured-documents/schema.graphql"
-    documents: "test-workspace/misconfigured-documents/query.graphql"
+    schema: "misconfigured-documents/schema.graphql"
+    documents: "misconfigured-documents/query.graphql"
     extensions:
       client: none

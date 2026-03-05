@@ -1234,14 +1234,17 @@ extensions:
     }
 
     // ==========================================================================
-    // Integration test with real .graphqlrc.yaml from project root
+    // Integration test with real .graphqlrc.yaml from test-workspace
     // ==========================================================================
 
     #[test]
-    fn sync_project_root_config() {
-        let config_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../.graphqlrc.yaml");
+    fn sync_test_workspace_config() {
+        let config_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../test-workspace/.graphqlrc.yaml"
+        );
         if let Ok(config_str) = std::fs::read_to_string(config_path) {
-            assert_sync(&config_str, "project root .graphqlrc.yaml");
+            assert_sync(&config_str, "test-workspace .graphqlrc.yaml");
         }
         // Skip if file doesn't exist (e.g., in CI without full repo)
     }

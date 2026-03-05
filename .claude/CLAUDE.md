@@ -12,16 +12,16 @@ Context and guidance for Claude when working with this codebase.
 
 ### Critical File Locations
 
-| Location          | Purpose                              |
-| ----------------- | ------------------------------------ |
-| `.graphqlrc.yaml` | Project configuration                |
-| `crates/*/src/`   | Crate sources                        |
-| `editors/vscode/` | VS Code extension                    |
-| `.claude/agents/` | SME agents for consultation          |
-| `.claude/skills/` | Workflow guidance                    |
-| `.claude/rules/`  | Path-scoped context rules            |
-| `.claude/hooks/`  | Session, edit, and commit automation |
-| `DEVELOPMENT.md`  | Build, test, and debug commands      |
+| Location                         | Purpose                              |
+| -------------------------------- | ------------------------------------ |
+| `test-workspace/.graphqlrc.yaml` | Test project configuration           |
+| `crates/*/src/`                  | Crate sources                        |
+| `editors/vscode/`                | VS Code extension                    |
+| `.claude/agents/`                | SME agents for consultation          |
+| `.claude/skills/`                | Workflow guidance                    |
+| `.claude/rules/`                 | Path-scoped context rules            |
+| `.claude/hooks/`                 | Session, edit, and commit automation |
+| `DEVELOPMENT.md`                 | Build, test, and debug commands      |
 
 ### Quick Answers
 
