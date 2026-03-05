@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "oxfmt": "^0.36.0",
-    "oxlint": "^1.30.0"
+    "oxlint": "^1.51.0"
   },
   "volta": {
     "node": "24.14.0"

@@ -1,7 +1,7 @@
-import { graphql, useFragment, usePaginationFragment } from "react-relay";
+import { graphql } from "react-relay";
 
 // Demonstrates @catch for field-level error handling
-const PostQuery = graphql`
+const _PostQuery = graphql`
   query PostDetailPageQuery($id: ID!) {
     node(id: $id) {
       ... on Post {
@@ -16,7 +16,7 @@ const PostQuery = graphql`
 `;
 
 // Demonstrates @relay(plural: true) for list fragments
-const UserList = graphql`
+const _UserList = graphql`
   fragment PostDetailCommenters_users on User @relay(plural: true) {
     id
     name

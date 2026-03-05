@@ -1,8 +1,6 @@
 // TypeScript file with embedded GraphQL for PR views
 // Tests various template literal patterns
-
 import { gql } from "@apollo/client";
-import { useQuery, useMutation } from "@apollo/client/react";
 
 // Using graphql-tag style
 export const PR_TIMELINE_QUERY = gql`
@@ -148,7 +146,7 @@ interface PullRequestViewProps {
   number: number;
 }
 
-export function PullRequestView({ owner, name, number }: PullRequestViewProps) {
+export function PullRequestView(_props: PullRequestViewProps) {
   // Component implementation
   return null;
 }

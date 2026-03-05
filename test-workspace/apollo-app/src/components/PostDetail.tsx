@@ -31,7 +31,7 @@ const GET_POST_DETAIL = gql`
 `;
 
 // Demonstrates @unmask on fragment spread
-const POST_WITH_UNMASKED = gql`
+const _POST_WITH_UNMASKED = gql`
   query PostWithUnmasked($id: ID!) {
     post(id: $id) {
       ...PostSummary @unmask

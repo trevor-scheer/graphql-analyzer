@@ -93,6 +93,6 @@ interface RepositoryCardProps {
   name: string;
 }
 
-export function RepositoryCard({ owner, name }: RepositoryCardProps) {
+export function RepositoryCard(_props: RepositoryCardProps) {
   return null;
 }

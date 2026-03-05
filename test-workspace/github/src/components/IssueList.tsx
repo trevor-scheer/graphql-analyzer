@@ -94,7 +94,7 @@ interface IssueListProps {
   name: string;
 }
 
-export function IssueList({ owner, name }: IssueListProps) {
+export function IssueList(_props: IssueListProps) {
   // Component implementation would go here
   return null;
 }
