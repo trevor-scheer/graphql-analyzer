@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import oniguruma from "vscode-oniguruma";
 import textmate, { type IGrammar, type IToken, type StateStack } from "vscode-textmate";
-import { readFileSync } from "fs";
+import { readFileSync, readdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -16,7 +16,8 @@ const { createOnigScanner, createOnigString, loadWASM } = oniguruma;
 const { Registry, parseRawGrammar } = textmate;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const grammarPath = resolve(__dirname, "../syntaxes/graphql.tmLanguage.json");
+const syntaxesDir = resolve(__dirname, "../syntaxes");
+const grammarPath = resolve(syntaxesDir, "graphql.tmLanguage.json");
 
 // Find onig.wasm - npm workspaces hoists to the repo root
 const possibleWasmPaths = [
@@ -258,4 +259,52 @@ describe("directives", () => {
     expectToken(t[0], "{", "punctuation.operation.graphql");
     expectToken(t[2], "name", "variable.graphql");
   });
+});
+
+// Structural validation: every `#name` include must reference a pattern
+// defined in the same grammar's repository. Catches broken/dead references
+// like the `#literal-quasi-embedded` issue (#651).
+describe("grammar structural validity", () => {
+  interface TmGrammar {
+    repository?: Record<string, unknown>;
+  }
+
+  function collectIncludes(obj: unknown): { ref: string; path: string }[] {
+    const results: { ref: string; path: string }[] = [];
+
+    function walk(node: unknown, path: string): void {
+      if (node === null || typeof node !== "object") return;
+
+      if (Array.isArray(node)) {
+        node.forEach((item, i) => walk(item, `${path}[${i}]`));
+        return;
+      }
+
+      const record = node as Record<string, unknown>;
+      if (typeof record.include === "string" && record.include.startsWith("#")) {
+        results.push({ ref: record.include.slice(1), path });
+      }
+      for (const [key, value] of Object.entries(record)) {
+        walk(value, path ? `${path}.${key}` : key);
+      }
+    }
+
+    walk(obj, "");
+    return results;
+  }
+
+  const grammarFiles = readdirSync(syntaxesDir)
+    .filter((f) => f.endsWith(".tmLanguage.json"))
+    .map((f) => [f, resolve(syntaxesDir, f)] as const);
+
+  for (const [filename, filepath] of grammarFiles) {
+    it(`${filename}: all #includes resolve to defined patterns`, () => {
+      const grammar: TmGrammar = JSON.parse(readFileSync(filepath, "utf-8"));
+      const repositoryKeys = new Set(Object.keys(grammar.repository ?? {}));
+      const includes = collectIncludes(grammar);
+      const broken = includes.filter((inc) => !repositoryKeys.has(inc.ref));
+
+      expect(broken, `broken includes in ${filename}`).toEqual([]);
+    });
+  }
 });
