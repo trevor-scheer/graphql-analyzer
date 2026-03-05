@@ -9,21 +9,18 @@ use crate::symbol::{
 };
 use crate::types::{Position, Range};
 
-/// Convert IDE position to byte offset using `LineIndex`
+/// Convert IDE position (UTF-16 columns) to byte offset using `LineIndex`
 pub fn position_to_offset(
     line_index: &graphql_syntax::LineIndex,
     position: Position,
 ) -> Option<usize> {
-    let line_start = line_index.line_start(position.line as usize)?;
-    Some(line_start + position.character as usize)
+    line_index.utf16_to_offset(position.line as usize, position.character)
 }
 
-/// Convert byte offset to IDE Position using `LineIndex`
+/// Convert byte offset to IDE Position (UTF-16 columns) using `LineIndex`
 pub fn offset_to_position(line_index: &graphql_syntax::LineIndex, offset: usize) -> Position {
-    let line = line_index.line_col(offset).0;
-    let line_start = line_index.line_start(line).unwrap_or(0);
-    let character = offset - line_start;
-    Position::new(line as u32, character as u32)
+    let (line, utf16_col) = line_index.line_col_utf16(offset);
+    Position::new(line as u32, utf16_col as u32)
 }
 
 /// Convert byte offset range to IDE Range using `LineIndex`

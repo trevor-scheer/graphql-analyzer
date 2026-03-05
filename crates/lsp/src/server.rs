@@ -2556,8 +2556,8 @@ impl LanguageServer for GraphQLLanguageServer {
             };
 
             // Convert diagnostic offset to line/column
-            let (diag_start_line, _) = diag_line_index.line_col(diag.span.start);
-            let (diag_end_line, _) = diag_line_index.line_col(diag.span.end);
+            let (diag_start_line, _) = diag_line_index.line_col_utf16(diag.span.start);
+            let (diag_end_line, _) = diag_line_index.line_col_utf16(diag.span.end);
             let diag_start_line = diag_start_line + line_offset as usize;
             let diag_end_line = diag_end_line + line_offset as usize;
 
@@ -2571,8 +2571,9 @@ impl LanguageServer for GraphQLLanguageServer {
                 .edits
                 .iter()
                 .map(|edit| {
-                    let (start_line, start_col) = diag_line_index.line_col(edit.offset_range.start);
-                    let (end_line, end_col) = diag_line_index.line_col(edit.offset_range.end);
+                    let (start_line, start_col) =
+                        diag_line_index.line_col_utf16(edit.offset_range.start);
+                    let (end_line, end_col) = diag_line_index.line_col_utf16(edit.offset_range.end);
 
                     TextEdit {
                         range: lsp_types::Range {
