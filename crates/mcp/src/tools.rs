@@ -171,21 +171,16 @@ impl GraphQLToolRouter {
 
 impl ServerHandler for GraphQLToolRouter {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            server_info: Implementation {
-                name: "graphql-mcp".to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                ..Default::default()
-            },
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            instructions: Some(
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::new(
+                "graphql-mcp",
+                env!("CARGO_PKG_VERSION"),
+            ))
+            .with_instructions(
                 "GraphQL MCP server providing schema-aware validation, linting, and code intelligence. \
                  Use validate_document to check if GraphQL operations are valid. \
-                 Use lint_document to get best practice suggestions."
-                    .to_string(),
-            ),
-            ..Default::default()
-        }
+                 Use lint_document to get best practice suggestions.",
+            )
     }
 
     fn list_tools(
