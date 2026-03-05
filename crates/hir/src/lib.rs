@@ -160,6 +160,54 @@ pub fn file_operations(
     Arc::clone(&structure.operations)
 }
 
+/// Per-file query for type names referenced in a file.
+/// Returns all type names used in field return types, argument types,
+/// union members, implements clauses, fragment type conditions, and variable types.
+/// Works for both schema and document files.
+#[salsa::tracked]
+pub fn file_type_name_references(
+    db: &dyn GraphQLHirDatabase,
+    file_id: FileId,
+    content: graphql_base_db::FileContent,
+    metadata: graphql_base_db::FileMetadata,
+) -> Arc<std::collections::HashSet<Arc<str>>> {
+    let structure = file_structure(db, file_id, content, metadata);
+    let mut names = std::collections::HashSet::new();
+
+    for type_def in structure.type_defs.iter() {
+        for field in &type_def.fields {
+            names.insert(field.type_ref.name.clone());
+            for arg in &field.arguments {
+                names.insert(arg.type_ref.name.clone());
+            }
+        }
+        for iface in &type_def.implements {
+            names.insert(iface.clone());
+        }
+        for member in &type_def.union_members {
+            names.insert(member.clone());
+        }
+    }
+
+    for directive_def in structure.directive_defs.iter() {
+        for arg in &directive_def.arguments {
+            names.insert(arg.type_ref.name.clone());
+        }
+    }
+
+    for fragment in structure.fragments.iter() {
+        names.insert(fragment.type_condition.clone());
+    }
+
+    for operation in structure.operations.iter() {
+        for var in &operation.variables {
+            names.insert(var.type_ref.name.clone());
+        }
+    }
+
+    Arc::new(names)
+}
+
 // ============================================================================
 // Aggregate queries - these use granular inputs for efficient invalidation
 // They depend on file IDs (stable) and call per-file queries (granular caching)
@@ -1027,6 +1075,41 @@ pub fn file_schema_coordinates(
     }
 
     Arc::new(ctx.coordinates)
+}
+
+/// Index mapping type names to the files that reference them.
+/// Covers both schema files and document files.
+/// Uses per-file `file_type_name_references` for fine-grained caching.
+#[salsa::tracked]
+pub fn type_name_references_index(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+) -> Arc<HashMap<Arc<str>, Vec<FileId>>> {
+    let mut index: HashMap<Arc<str>, Vec<FileId>> = HashMap::new();
+
+    let schema_ids = project_files.schema_file_ids(db).ids(db);
+    for file_id in schema_ids.iter() {
+        if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        {
+            let names = file_type_name_references(db, *file_id, content, metadata);
+            for name in names.iter() {
+                index.entry(name.clone()).or_default().push(*file_id);
+            }
+        }
+    }
+
+    let doc_ids = project_files.document_file_ids(db).ids(db);
+    for file_id in doc_ids.iter() {
+        if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        {
+            let names = file_type_name_references(db, *file_id, content, metadata);
+            for name in names.iter() {
+                index.entry(name.clone()).or_default().push(*file_id);
+            }
+        }
+    }
+
+    Arc::new(index)
 }
 
 // ============================================================================

@@ -194,6 +194,12 @@ fn find_type_references(
             continue;
         };
 
+        // Pre-filter: skip files that don't reference this type name.
+        let type_names = graphql_hir::file_type_name_references(db, *file_id, content, metadata);
+        if !type_names.contains(type_name) {
+            continue;
+        }
+
         let file_path = registry.get_path(*file_id);
 
         let Some(file_path) = file_path else {
