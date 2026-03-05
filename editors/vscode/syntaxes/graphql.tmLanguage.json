@@ -1,15 +1,8 @@
 {
   "name": "GraphQL",
   "scopeName": "source.graphql",
-  "fileTypes": [
-    "graphql",
-    "graphqls",
-    "gql",
-    "graphcool"
-  ],
-  "patterns": [
-    { "include": "#graphql" }
-  ],
+  "fileTypes": ["graphql", "graphqls", "gql", "graphcool"],
+  "patterns": [{ "include": "#graphql" }],
   "repository": {
     "graphql": {
       "patterns": [
@@ -291,7 +284,7 @@
       "end": "(?=[\n,)])",
       "applyEndPatternLast": 1,
       "beginCaptures": { "1": { "name": "punctuation.assignment.graphql" } },
-      "patterns": [ { "include": "#graphql-value" } ]
+      "patterns": [{ "include": "#graphql-value" }]
     },
     "graphql-comma": {
       "match": "\\s*(,)",
@@ -493,10 +486,7 @@
         "2": { "name": "punctuation.definition.string.end.graphql" },
         "3": { "name": "invalid.illegal.newline.graphql" }
       },
-      "patterns": [
-        { "include": "#graphql-string-content" },
-        { "include": "#native-interpolation" }
-      ]
+      "patterns": [{ "include": "#graphql-string-content" }, { "include": "#native-interpolation" }]
     },
     "graphql-string-content": {
       "patterns": [
@@ -568,7 +558,7 @@
           "end": "\\s*(\\])",
           "endCaptures": { "1": { "name": "meta.brace.square.graphql" } },
           "beginCaptures": { "1": { "name": "meta.brace.square.graphql" } },
-          "patterns": [ { "include": "#graphql-value" } ]
+          "patterns": [{ "include": "#graphql-value" }]
         }
       ]
     },
@@ -580,10 +570,7 @@
           "end": "\\s*(})",
           "beginCaptures": { "1": { "name": "meta.brace.curly.graphql" } },
           "endCaptures": { "1": { "name": "meta.brace.curly.graphql" } },
-          "patterns": [
-            { "include": "#graphql-object-field" },
-            { "include": "#graphql-value" }
-          ]
+          "patterns": [{ "include": "#graphql-object-field" }, { "include": "#graphql-value" }]
         }
       ]
     },
