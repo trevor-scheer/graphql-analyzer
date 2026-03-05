@@ -17,7 +17,7 @@
         { "include": "#graphql-union" },
         { "include": "#graphql-schema" },
         { "include": "#graphql-operation-def" },
-        { "include": "#literal-quasi-embedded" }
+        { "include": "#native-interpolation" }
       ]
     },
     "graphql-operation-def": {
@@ -52,7 +52,7 @@
         { "include": "#graphql-selection-set" },
         { "include": "#graphql-directive" },
         { "include": "#graphql-skip-newlines" },
-        { "include": "#literal-quasi-embedded" }
+        { "include": "#native-interpolation" }
       ]
     },
     "graphql-query-mutation": {
@@ -100,7 +100,7 @@
         { "include": "#graphql-description-singleline" },
         { "include": "#graphql-directive" },
         { "include": "#graphql-type-object" },
-        { "include": "#literal-quasi-embedded" },
+        { "include": "#native-interpolation" },
         { "include": "#graphql-ignore-spaces" }
       ]
     },
@@ -121,9 +121,8 @@
         { "include": "#graphql-comment" },
         { "include": "#graphql-description-docstring" },
         { "include": "#graphql-description-singleline" },
-        { "include": "#graphql-object-type" },
         { "include": "#graphql-type-definition" },
-        { "include": "#literal-quasi-embedded" }
+        { "include": "#native-interpolation" }
       ]
     },
     "graphql-type-definition": {
@@ -145,7 +144,7 @@
         { "include": "#graphql-type-object" },
         { "include": "#graphql-colon" },
         { "include": "#graphql-input-types" },
-        { "include": "#literal-quasi-embedded" }
+        { "include": "#native-interpolation" }
       ]
     },
     "graphql-schema": {
@@ -255,7 +254,7 @@
         { "include": "#graphql-description-docstring" },
         { "include": "#graphql-description-singleline" },
         { "include": "#graphql-variable-definition" },
-        { "include": "#literal-quasi-embedded" }
+        { "include": "#native-interpolation" }
       ]
     },
     "graphql-variable-definition": {
@@ -277,7 +276,7 @@
         { "include": "#graphql-colon" },
         { "include": "#graphql-input-types" },
         { "include": "#graphql-variable-assignment" },
-        { "include": "#literal-quasi-embedded" },
+        { "include": "#native-interpolation" },
         { "include": "#graphql-skip-newlines" }
       ]
     },
@@ -305,7 +304,7 @@
             { "include": "#graphql-description-singleline" },
             { "include": "#graphql-input-types" },
             { "include": "#graphql-comma" },
-            { "include": "#literal-quasi-embedded" }
+            { "include": "#native-interpolation" }
           ]
         }
       ]
@@ -375,7 +374,7 @@
         { "include": "#graphql-description-docstring" },
         { "include": "#graphql-description-singleline" },
         { "include": "#graphql-arguments" },
-        { "include": "#literal-quasi-embedded" }
+        { "include": "#native-interpolation" }
       ]
     },
     "graphql-directive-definition": {
@@ -426,7 +425,7 @@
               "include": "#graphql-comment"
             },
             {
-              "include": "#literal-quasi-embedded"
+              "include": "#native-interpolation"
             },
             {
               "match": "\\s*(\\|)\\s*([_A-Za-z]*)",
@@ -445,7 +444,7 @@
           "include": "#graphql-comment"
         },
         {
-          "include": "#literal-quasi-embedded"
+          "include": "#native-interpolation"
         }
       ]
     },
@@ -467,8 +466,7 @@
         { "include": "#graphql-fragment-spread" },
         { "include": "#graphql-inline-fragment" },
         { "include": "#graphql-comma" },
-        { "include": "#native-interpolation" },
-        { "include": "#literal-quasi-embedded" }
+        { "include": "#native-interpolation" }
       ]
     },
     "graphql-field": {
@@ -489,7 +487,7 @@
         { "include": "#graphql-arguments" },
         { "include": "#graphql-directive" },
         { "include": "#graphql-selection-set" },
-        { "include": "#literal-quasi-embedded" },
+        { "include": "#native-interpolation" },
         { "include": "#graphql-skip-newlines" }
       ]
     },
@@ -508,7 +506,7 @@
         { "include": "#graphql-description-singleline" },
         { "include": "#graphql-selection-set" },
         { "include": "#graphql-directive" },
-        { "include": "#literal-quasi-embedded" },
+        { "include": "#native-interpolation" },
         { "include": "#graphql-skip-newlines" }
       ]
     },
@@ -528,7 +526,7 @@
         { "include": "#graphql-selection-set" },
         { "include": "#graphql-directive" },
         { "include": "#graphql-skip-newlines" },
-        { "include": "#literal-quasi-embedded" }
+        { "include": "#native-interpolation" }
       ]
     },
     "graphql-arguments": {
@@ -564,7 +562,7 @@
             { "include": "#graphql-skip-newlines" }
           ]
         },
-        { "include": "#literal-quasi-embedded" }
+        { "include": "#native-interpolation" }
       ]
     },
     "graphql-variable-name": {
@@ -606,7 +604,7 @@
       },
       "patterns": [
         { "include": "#graphql-string-content" },
-        { "include": "#literal-quasi-embedded" }
+        { "include": "#native-interpolation" }
       ]
     },
     "graphql-string-content": {
@@ -642,14 +640,12 @@
             "1": { "name": "punctuation.operation.graphql" }
           },
           "patterns": [
-            { "include": "#graphql-object-type" },
-
             { "include": "#graphql-comment" },
             { "include": "#graphql-description-docstring" },
             { "include": "#graphql-description-singleline" },
             { "include": "#graphql-directive" },
             { "include": "#graphql-enum-value" },
-            { "include": "#literal-quasi-embedded" }
+            { "include": "#native-interpolation" }
           ]
         },
         { "include": "#graphql-comment" },
@@ -674,7 +670,7 @@
         { "include": "#graphql-enum-value" },
         { "include": "#graphql-list-value" },
         { "include": "#graphql-object-value" },
-        { "include": "#literal-quasi-embedded" }
+        { "include": "#native-interpolation" }
       ]
     },
     "graphql-list-value": {
@@ -740,7 +736,7 @@
             { "include": "#graphql-description-docstring" },
             { "include": "#graphql-description-singleline" },
             { "include": "#graphql-skip-newlines" },
-            { "include": "#literal-quasi-embedded" },
+            { "include": "#native-interpolation" },
             {
               "match": "\\s*(\\|)\\s*([_A-Za-z][_0-9A-Za-z]*)",
               "captures": {
@@ -754,7 +750,7 @@
         { "include": "#graphql-description-docstring" },
         { "include": "#graphql-description-singleline" },
         { "include": "#graphql-skip-newlines" },
-        { "include": "#literal-quasi-embedded" }
+        { "include": "#native-interpolation" }
       ]
     },
     "native-interpolation": {
