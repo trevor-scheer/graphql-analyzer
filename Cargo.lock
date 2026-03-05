@@ -113,11 +113,11 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "apollo-compiler"
-version = "1.31.0"
-source = "git+https://github.com/trevor-scheer/apollo-rs.git?branch=parse_with_offset#fd1abeb31eca310b9ec9aef0e9d1a7c7d7a17980"
+version = "1.31.1"
+source = "git+https://github.com/trevor-scheer/apollo-rs.git?branch=parse_with_offset#aa50261d5321c5a2addd914c10d61dd9acf8e865"
 dependencies = [
  "ahash",
- "apollo-parser 0.8.4 (git+https://github.com/trevor-scheer/apollo-rs.git?branch=parse_with_offset)",
+ "apollo-parser 0.8.5",
  "ariadne",
  "futures",
  "indexmap",
@@ -142,8 +142,8 @@ dependencies = [
 
 [[package]]
 name = "apollo-parser"
-version = "0.8.4"
-source = "git+https://github.com/trevor-scheer/apollo-rs.git?branch=parse_with_offset#fd1abeb31eca310b9ec9aef0e9d1a7c7d7a17980"
+version = "0.8.5"
+source = "git+https://github.com/trevor-scheer/apollo-rs.git?branch=parse_with_offset#aa50261d5321c5a2addd914c10d61dd9acf8e865"
 dependencies = [
  "memchr",
  "rowan",
@@ -488,7 +488,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -885,7 +885,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1134,7 +1134,7 @@ name = "graphql-analysis"
 version = "0.1.0"
 dependencies = [
  "apollo-compiler",
- "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "apollo-parser 0.8.4",
  "graphql-base-db",
  "graphql-hir",
  "graphql-linter",
@@ -1150,7 +1150,7 @@ dependencies = [
 name = "graphql-apollo-ext"
 version = "0.1.0"
 dependencies = [
- "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "apollo-parser 0.8.4",
 ]
 
 [[package]]
@@ -1166,7 +1166,7 @@ name = "graphql-cli"
 version = "0.1.4"
 dependencies = [
  "anyhow",
- "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "apollo-parser 0.8.4",
  "clap",
  "colored",
  "glob",
@@ -1227,7 +1227,7 @@ name = "graphql-hir"
 version = "0.1.0"
 dependencies = [
  "apollo-compiler",
- "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "apollo-parser 0.8.4",
  "graphql-base-db",
  "graphql-syntax",
  "graphql-test-utils",
@@ -1240,7 +1240,7 @@ name = "graphql-ide"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "apollo-parser 0.8.4",
  "glob",
  "graphql-analysis",
  "graphql-base-db",
@@ -1286,7 +1286,7 @@ name = "graphql-linter"
 version = "0.1.0"
 dependencies = [
  "apollo-compiler",
- "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "apollo-parser 0.8.4",
  "graphql-apollo-ext",
  "graphql-base-db",
  "graphql-hir",
@@ -1305,7 +1305,7 @@ version = "0.1.3"
 dependencies = [
  "anyhow",
  "apollo-compiler",
- "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "apollo-parser 0.8.4",
  "dashmap",
  "glob",
  "graphql-config",
@@ -1367,7 +1367,7 @@ name = "graphql-syntax"
 version = "0.1.0"
 dependencies = [
  "apollo-compiler",
- "apollo-parser 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "apollo-parser 0.8.4",
  "graphql-base-db",
  "graphql-extract",
  "graphql-types",
@@ -1853,7 +1853,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2699,7 +2699,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3027,7 +3027,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3085,7 +3085,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3710,7 +3710,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4453,7 +4453,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
