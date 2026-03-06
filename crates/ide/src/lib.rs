@@ -63,6 +63,7 @@ mod references;
 mod rename;
 mod selection_range;
 mod semantic_tokens;
+mod signature_help;
 mod symbols;
 
 // Re-export types from the types module
@@ -70,9 +71,9 @@ pub use types::{
     CodeFix, CodeLens, CodeLensCommand, CodeLensInfo, CompletionItem, CompletionKind, Diagnostic,
     DiagnosticSeverity, DocumentLoadResult, DocumentSymbol, FilePath, FoldingRange,
     FoldingRangeKind, FragmentReference, FragmentUsage, HoverResult, InlayHint, InlayHintKind,
-    InsertTextFormat, Location, PendingIntrospection, Position, ProjectStatus, Range, RenameResult,
-    SchemaContentError, SchemaLoadResult, SchemaStats, SelectionRange, SymbolKind, TextEdit,
-    WorkspaceSymbol,
+    InsertTextFormat, Location, ParameterInformation, PendingIntrospection, Position,
+    ProjectStatus, Range, RenameResult, SchemaContentError, SchemaLoadResult, SchemaStats,
+    SelectionRange, SignatureHelp, SignatureInformation, SymbolKind, TextEdit, WorkspaceSymbol,
 };
 
 // Re-export helpers for internal use
@@ -2236,6 +2237,14 @@ impl Analysis {
     pub fn hover(&self, file: &FilePath, position: Position) -> Option<HoverResult> {
         let registry = self.registry.read();
         hover::hover(&self.db, &registry, self.project_files, file, position)
+    }
+
+    /// Get signature help at a position
+    ///
+    /// Returns argument information when inside a field or directive argument list.
+    pub fn signature_help(&self, file: &FilePath, position: Position) -> Option<SignatureHelp> {
+        let registry = self.registry.read();
+        signature_help::signature_help(&self.db, &registry, self.project_files, file, position)
     }
 
     /// Get goto definition locations for the symbol at a position
@@ -8746,5 +8755,228 @@ type Post {
         // Try to rename "id" field in query - should be rejected
         let result = snapshot.rename(&query_file, Position::new(0, 15), "identifier");
         assert!(result.is_none(), "Should reject renaming fields");
+    }
+
+    // =========================================================================
+    // Signature Help Tests
+    // =========================================================================
+
+    #[test]
+    fn test_signature_help_field_with_arguments() {
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { user(id: ID!, name: String): User }\ntype User { id: ID! }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let doc_path = FilePath::new("file:///query.graphql");
+        // Cursor right after `(` at position (0, 8)
+        host.add_file(
+            &doc_path,
+            "{ user(id: \"123\") { id } }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Cursor inside the argument list, after `(`
+        let help = snapshot.signature_help(&doc_path, Position::new(0, 7));
+        assert!(
+            help.is_some(),
+            "Should return signature help inside field arguments"
+        );
+        let help = help.unwrap();
+        assert_eq!(help.signatures.len(), 1);
+        assert!(help.signatures[0].label.contains("user("));
+        assert!(help.signatures[0].label.contains("id: ID!"));
+        assert!(help.signatures[0].label.contains("name: String"));
+        assert!(help.signatures[0].label.contains("): User"));
+        assert_eq!(help.signatures[0].parameters.len(), 2);
+        assert_eq!(help.active_signature, Some(0));
+        assert_eq!(help.active_parameter, Some(0));
+    }
+
+    #[test]
+    fn test_signature_help_directive_with_arguments() {
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            r#"type Query { hello: String }
+directive @skip(if: Boolean!) on FIELD"#,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "{ hello @skip(if: true) }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Cursor inside the directive argument list
+        let help = snapshot.signature_help(&doc_path, Position::new(0, 18));
+        assert!(
+            help.is_some(),
+            "Should return signature help inside directive arguments"
+        );
+        let help = help.unwrap();
+        assert_eq!(help.signatures.len(), 1);
+        assert!(help.signatures[0].label.starts_with("@skip("));
+        assert_eq!(help.signatures[0].parameters.len(), 1);
+    }
+
+    #[test]
+    fn test_signature_help_nested_field() {
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { user: User }\ntype User { posts(first: Int, after: String): [Post] }\ntype Post { title: String }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "{ user { posts(first: 10) { title } } }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Cursor inside posts() arguments
+        let help = snapshot.signature_help(&doc_path, Position::new(0, 21));
+        assert!(
+            help.is_some(),
+            "Should return signature help for nested field arguments"
+        );
+        let help = help.unwrap();
+        assert!(help.signatures[0].label.contains("posts("));
+        assert_eq!(help.signatures[0].parameters.len(), 2);
+    }
+
+    #[test]
+    fn test_signature_help_not_in_arguments() {
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { hello: String }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "{ hello }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Cursor on `hello` field, not in arguments
+        let help = snapshot.signature_help(&doc_path, Position::new(0, 3));
+        assert!(
+            help.is_none(),
+            "Should not return signature help outside argument list"
+        );
+    }
+
+    #[test]
+    fn test_signature_help_default_values() {
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { posts(first: Int = 10, after: String): [Post] }\ntype Post { id: ID! }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "{ posts(first: 5) { id } }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let help = snapshot.signature_help(&doc_path, Position::new(0, 15));
+        assert!(help.is_some());
+        let help = help.unwrap();
+        assert!(
+            help.signatures[0].label.contains("= 10"),
+            "Should show default value in label: {}",
+            help.signatures[0].label
+        );
+    }
+
+    #[test]
+    fn test_signature_help_active_parameter_tracking() {
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { user(id: ID!, name: String, age: Int): User }\ntype User { id: ID! }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            r#"{ user(id: "1", name: "test", age: 25) { id } }"#,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Cursor in first argument
+        let help = snapshot.signature_help(&doc_path, Position::new(0, 10));
+        assert!(help.is_some());
+        assert_eq!(help.unwrap().active_parameter, Some(0));
+
+        // Cursor in second argument (after first comma)
+        let help = snapshot.signature_help(&doc_path, Position::new(0, 20));
+        assert!(help.is_some());
+        assert_eq!(help.unwrap().active_parameter, Some(1));
+
+        // Cursor in third argument (after second comma)
+        let help = snapshot.signature_help(&doc_path, Position::new(0, 33));
+        assert!(help.is_some());
+        assert_eq!(help.unwrap().active_parameter, Some(2));
+    }
+
+    #[test]
+    fn test_signature_help_nonexistent_file() {
+        let host = AnalysisHost::new();
+        let snapshot = host.snapshot();
+
+        let path = FilePath::new("file:///nonexistent.graphql");
+        let help = snapshot.signature_help(&path, Position::new(0, 0));
+        assert!(help.is_none());
     }
 }

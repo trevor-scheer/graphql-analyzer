@@ -2,7 +2,8 @@ use crate::conversions::{
     convert_ide_code_lens, convert_ide_code_lens_info, convert_ide_completion_item,
     convert_ide_diagnostic, convert_ide_document_symbol, convert_ide_folding_range,
     convert_ide_hover, convert_ide_inlay_hint, convert_ide_location, convert_ide_range,
-    convert_ide_selection_range, convert_ide_workspace_symbol, convert_lsp_position,
+    convert_ide_selection_range, convert_ide_signature_help, convert_ide_workspace_symbol,
+    convert_lsp_position,
 };
 use crate::workspace::{ProjectHost, WorkspaceManager};
 use graphql_config::find_config;
@@ -23,8 +24,9 @@ use lsp_types::{
     SemanticTokenModifier, SemanticTokenType, SemanticTokens, SemanticTokensFullOptions,
     SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
     SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, ShowDocumentParams,
-    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri,
-    WorkDoneProgressOptions, WorkspaceEdit, WorkspaceSymbolParams,
+    SignatureHelpOptions, SignatureHelpParams, TextDocumentPositionParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri, WorkDoneProgressOptions,
+    WorkspaceEdit, WorkspaceSymbolParams,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -1689,6 +1691,10 @@ impl LanguageServer for GraphQLLanguageServer {
             .and_then(|td| td.rename.as_ref())
             .is_some();
 
+        let supports_signature_help = text_document_caps
+            .and_then(|td| td.signature_help.as_ref())
+            .is_some();
+
         tracing::debug!(
             supports_hover,
             supports_completion,
@@ -1702,6 +1708,7 @@ impl LanguageServer for GraphQLLanguageServer {
             supports_inlay_hints,
             supports_selection_range,
             supports_rename,
+            supports_signature_help,
             "Client capabilities detected"
         );
 
@@ -1741,6 +1748,11 @@ impl LanguageServer for GraphQLLanguageServer {
                     ..Default::default()
                 }),
                 hover_provider: supports_hover.then_some(HoverProviderCapability::Simple(true)),
+                signature_help_provider: supports_signature_help.then(|| SignatureHelpOptions {
+                    trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
+                    retrigger_characters: None,
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
+                }),
                 definition_provider: supports_definition.then_some(OneOf::Left(true)),
                 references_provider: supports_references.then_some(OneOf::Left(true)),
                 document_symbol_provider: supports_document_symbols.then_some(OneOf::Left(true)),
@@ -2131,6 +2143,22 @@ impl LanguageServer for GraphQLLanguageServer {
 
         self.with_analysis(&uri, move |analysis, file_path| {
             analysis.hover(&file_path, position).map(convert_ide_hover)
+        })
+        .await
+    }
+
+    async fn signature_help(
+        &self,
+        params: SignatureHelpParams,
+    ) -> Result<Option<lsp_types::SignatureHelp>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let lsp_position = params.text_document_position_params.position;
+        let position = convert_lsp_position(lsp_position);
+
+        self.with_analysis(&uri, move |analysis, file_path| {
+            analysis
+                .signature_help(&file_path, position)
+                .map(convert_ide_signature_help)
         })
         .await
     }

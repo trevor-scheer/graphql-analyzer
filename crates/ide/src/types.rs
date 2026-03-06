@@ -824,6 +824,33 @@ impl RenameResult {
     }
 }
 
+/// Signature help result for displaying argument information.
+///
+/// Shows the signature of a field or directive when the cursor is inside
+/// an argument list, highlighting the active parameter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureHelp {
+    pub signatures: Vec<SignatureInformation>,
+    pub active_signature: Option<u32>,
+    pub active_parameter: Option<u32>,
+}
+
+/// Information about a single signature (field or directive).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureInformation {
+    pub label: String,
+    pub documentation: Option<String>,
+    pub parameters: Vec<ParameterInformation>,
+}
+
+/// Information about a single parameter within a signature.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParameterInformation {
+    /// Byte offset range [start, end) within the signature label
+    pub label_offsets: (u32, u32),
+    pub documentation: Option<String>,
+}
+
 /// Selection range for smart expand/shrink selection.
 ///
 /// Represents a range at a cursor position with an optional parent range
