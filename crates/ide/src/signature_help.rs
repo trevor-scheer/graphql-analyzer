@@ -352,7 +352,7 @@ mod tests {
                         is_non_null: non_null,
                         inner_non_null: false,
                     },
-                    default_value: default.map(|d| d.into()),
+                    default_value: default.map(std::convert::Into::into),
                     description: None,
                     is_deprecated: false,
                     deprecation_reason: None,
@@ -416,7 +416,7 @@ mod tests {
     #[test]
     fn test_count_active_parameter_basic() {
         // `field(a: 1, b: |)` - 1 comma before cursor
-        let source = r#"{ field(a: 1, b: 2) }"#;
+        let source = "{ field(a: 1, b: 2) }";
         let parser = apollo_parser::Parser::new(source);
         let tree = parser.parse();
 
@@ -428,7 +428,7 @@ mod tests {
 
     #[test]
     fn test_count_active_parameter_first_arg() {
-        let source = r#"{ field(a: 1) }"#;
+        let source = "{ field(a: 1) }";
         let parser = apollo_parser::Parser::new(source);
         let tree = parser.parse();
 
@@ -440,7 +440,7 @@ mod tests {
 
     #[test]
     fn test_count_active_parameter_empty_parens() {
-        let source = r#"{ field() }"#;
+        let source = "{ field() }";
         let parser = apollo_parser::Parser::new(source);
         let tree = parser.parse();
 
