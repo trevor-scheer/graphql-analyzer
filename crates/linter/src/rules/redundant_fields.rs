@@ -229,8 +229,14 @@ impl FragmentRegistry {
         for selection in selection_set.selections() {
             match selection {
                 cst::Selection::Field(field) => {
-                    if let Some(field_key) = FieldKey::from_field(&field) {
-                        fields.insert(field_key);
+                    // Only collect leaf fields (no sub-selection set).
+                    // Fields with sub-selections get merged by GraphQL
+                    // execution, so selecting the same field with different
+                    // sub-fields is not redundant.
+                    if field.selection_set().is_none() {
+                        if let Some(field_key) = FieldKey::from_field(&field) {
+                            fields.insert(field_key);
+                        }
                     }
                 }
                 cst::Selection::FragmentSpread(fragment_spread) => {
@@ -330,11 +336,15 @@ fn check_selection_set_for_redundancy(
 
     for selection in &selections {
         if let cst::Selection::Field(field) = selection {
-            if let Some(field_key) = FieldKey::from_field(field) {
-                direct_field_counts
-                    .entry(field_key)
-                    .or_default()
-                    .push(field);
+            // Only track leaf fields for duplicate detection.
+            // Fields with sub-selections are merged by GraphQL execution.
+            if field.selection_set().is_none() {
+                if let Some(field_key) = FieldKey::from_field(field) {
+                    direct_field_counts
+                        .entry(field_key)
+                        .or_default()
+                        .push(field);
+                }
             }
         }
     }
@@ -384,6 +394,22 @@ fn check_selection_set_for_redundancy(
     // Now check each field to see if it's redundant via fragment
     for selection in &selections {
         if let cst::Selection::Field(field) = selection {
+            // Skip fields with sub-selections — they get merged by GraphQL
+            // execution, so selecting the same field with different sub-fields
+            // is not redundant.
+            if field.selection_set().is_some() {
+                // Still recurse into nested selection sets
+                if let Some(nested_set) = field.selection_set() {
+                    check_selection_set_for_redundancy(
+                        &nested_set,
+                        fragments,
+                        diagnostics,
+                        source,
+                        doc,
+                    );
+                }
+                continue;
+            }
             if let Some(field_key) = FieldKey::from_field(field) {
                 if fields_from_fragments.contains(&field_key) {
                     let field_name = field.name().unwrap();
@@ -435,17 +461,6 @@ fn check_selection_set_for_redundancy(
                         .with_fix(fix),
                     );
                 }
-            }
-
-            // Recursively check nested selection sets
-            if let Some(nested_set) = field.selection_set() {
-                check_selection_set_for_redundancy(
-                    &nested_set,
-                    fragments,
-                    diagnostics,
-                    source,
-                    doc,
-                );
             }
         } else if let cst::Selection::InlineFragment(inline_fragment) = selection {
             if let Some(nested_set) = inline_fragment.selection_set() {

@@ -150,7 +150,7 @@ fn test_redundant_fields_not_flagged_with_different_selections() {
     // Issue #619: Fields with sub-selections should not be treated as redundant
     // when the fragment selects different sub-fields
     let db = RootDatabase::default();
-    let source = r#"
+    let source = r"
 query NotActuallyRedundant {
   ...NotRedundantFragment
   notRedundant {
@@ -163,7 +163,7 @@ fragment NotRedundantFragment on Query {
     aDifferentField
   }
 }
-"#;
+";
     let config = LintConfig::recommended();
 
     let diagnostics = run_standalone_rules(&db, source, &config);
@@ -183,7 +183,7 @@ fragment NotRedundantFragment on Query {
 fn test_redundant_fields_leaf_fields_still_flagged() {
     // Leaf fields (no sub-selection) that appear in a fragment should still be flagged
     let db = RootDatabase::default();
-    let source = r#"
+    let source = r"
 query StillRedundant {
   ...MyFragment
   id
@@ -192,7 +192,7 @@ query StillRedundant {
 fragment MyFragment on Query {
   id
 }
-"#;
+";
     let config = LintConfig::recommended();
 
     let diagnostics = run_standalone_rules(&db, source, &config);
