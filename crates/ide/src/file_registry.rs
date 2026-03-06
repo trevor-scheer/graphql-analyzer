@@ -293,6 +293,22 @@ impl FileRegistry {
     pub fn get_entry(&self, file_id: FileId) -> Option<FileEntry> {
         self.id_to_entry.get(&file_id).copied()
     }
+
+    /// Look up an existing file's Salsa handles without performing any mutations.
+    ///
+    /// Returns the file's `FileContent` and `FileMetadata` handles if the file
+    /// exists, allowing the caller to call Salsa setters outside of the registry
+    /// lock to avoid deadlocks with concurrent snapshot reads.
+    #[must_use]
+    pub fn lookup_existing_file(
+        &self,
+        path: &FilePath,
+    ) -> Option<(FileId, FileContent, FileMetadata)> {
+        let &file_id = self.uri_to_id.get(path.as_str())?;
+        let &content = self.id_to_content.get(&file_id)?;
+        let metadata = self.id_to_metadata.get(&file_id).copied()?;
+        Some((file_id, content, metadata))
+    }
 }
 
 #[cfg(test)]

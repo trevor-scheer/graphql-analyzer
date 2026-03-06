@@ -947,14 +947,17 @@ impl AnalysisHost {
         }
     }
 
-    /// Update a file and optionally create a snapshot in a single lock acquisition
+    /// Update a file and create a snapshot for immediate analysis.
     ///
-    /// This is optimized for the common case of editing an existing file. It:
-    /// 1. Updates the file content (cheap operation)
-    /// 2. Returns a snapshot for immediate analysis
+    /// This is optimized for the common `did_change` hot path (editing an existing file).
     ///
-    /// This avoids the overhead of multiple lock acquisitions per keystroke.
-    /// For new files, call `add_file()` followed by `rebuild_project_files()` instead.
+    /// ## Deadlock Prevention
+    ///
+    /// For existing files, Salsa setters (`set_text`, etc.) are called WITHOUT holding
+    /// the registry write lock. This prevents a deadlock where:
+    /// - Thread A (diagnostics): holds a Salsa snapshot, blocks on `registry.read()`
+    /// - Thread B (`did_change`): holds `registry.write()`, blocks on Salsa setter
+    ///   (which waits for Thread A's snapshot to be dropped)
     ///
     /// Returns `(is_new_file, Analysis)` tuple.
     pub fn update_file_and_snapshot(
@@ -964,22 +967,46 @@ impl AnalysisHost {
         language: Language,
         document_kind: DocumentKind,
     ) -> (bool, Analysis) {
-        // Single lock acquisition for both operations
-        let mut registry = self.registry.write();
-        let (_, _, _, is_new) =
-            registry.add_file(&mut self.db, path, content, language, document_kind);
+        let content_arc: Arc<str> = Arc::from(content);
 
-        // If this is a new file, rebuild the index before creating snapshot
-        // This also syncs project_files to self.db.project_files_input
-        if is_new {
-            registry.rebuild_project_files(&mut self.db);
-            // Sync project_files from registry to database
-            self.db.project_files_input = registry.project_files();
-        }
+        // Phase 1: Check if file exists (read lock only, no Salsa mutations)
+        let existing = {
+            let registry = self.registry.read();
+            registry.lookup_existing_file(path)
+        };
+        // Registry lock released here
+
+        let is_new = if let Some((_file_id, existing_content, metadata)) = existing {
+            // Phase 2a: Existing file - call Salsa setters WITHOUT registry lock.
+            //
+            // Salsa setters block while any database snapshot (clone) exists.
+            // Snapshots call registry.read() during diagnostics. If we held
+            // registry.write() here, the snapshot couldn't acquire its read lock,
+            // and the setter couldn't proceed until the snapshot drops — deadlock.
+            if *existing_content.text(&self.db) != *content_arc {
+                existing_content.set_text(&mut self.db).to(content_arc);
+            }
+            if metadata.language(&self.db) != language {
+                metadata.set_language(&mut self.db).to(language);
+            }
+            if metadata.document_kind(&self.db) != document_kind {
+                metadata.set_document_kind(&mut self.db).to(document_kind);
+            }
+            false
+        } else {
+            // Phase 2b: New file - needs write lock for registry map updates.
+            // New files during did_change are rare (file already exists from did_open).
+            let mut registry = self.registry.write();
+            let (_, _, _, is_new) =
+                registry.add_file(&mut self.db, path, content, language, document_kind);
+            if is_new {
+                registry.rebuild_project_files(&mut self.db);
+                self.db.project_files_input = registry.project_files();
+            }
+            is_new
+        };
 
         let project_files = self.db.project_files_input;
-        // Release the lock before creating the snapshot (no longer needed)
-        drop(registry);
 
         let snapshot = Analysis {
             db: self.db.clone(),
