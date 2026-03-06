@@ -407,8 +407,7 @@ pub fn apply_content_change(
     let end_offset = line_index.utf16_to_offset(range.end.line as usize, range.end.character);
 
     if let (Some(start), Some(end)) = (start_offset, end_offset) {
-        let mut result =
-            String::with_capacity(content.len() - (end - start) + change.text.len());
+        let mut result = String::with_capacity(content.len() - (end - start) + change.text.len());
         result.push_str(&content[..start]);
         result.push_str(&change.text);
         result.push_str(&content[end..]);
