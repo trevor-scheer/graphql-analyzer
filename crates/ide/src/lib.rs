@@ -60,6 +60,7 @@ mod goto_definition;
 mod hover;
 mod inlay_hints;
 mod references;
+mod rename;
 mod selection_range;
 mod semantic_tokens;
 mod symbols;
@@ -69,7 +70,7 @@ pub use types::{
     CodeFix, CodeLens, CodeLensCommand, CodeLensInfo, CompletionItem, CompletionKind, Diagnostic,
     DiagnosticSeverity, DocumentLoadResult, DocumentSymbol, FilePath, FoldingRange,
     FoldingRangeKind, FragmentReference, FragmentUsage, HoverResult, InlayHint, InlayHintKind,
-    InsertTextFormat, Location, PendingIntrospection, Position, ProjectStatus, Range,
+    InsertTextFormat, Location, PendingIntrospection, Position, ProjectStatus, Range, RenameResult,
     SchemaContentError, SchemaLoadResult, SchemaStats, SelectionRange, SymbolKind, TextEdit,
     WorkspaceSymbol,
 };
@@ -2262,6 +2263,30 @@ impl Analysis {
             file,
             position,
             include_declaration,
+        )
+    }
+
+    /// Check if the symbol at a position can be renamed, returning its range.
+    pub fn prepare_rename(&self, file: &FilePath, position: Position) -> Option<Range> {
+        let registry = self.registry.read();
+        rename::prepare_rename(&self.db, &registry, file, position)
+    }
+
+    /// Rename the symbol at a position to a new name.
+    pub fn rename(
+        &self,
+        file: &FilePath,
+        position: Position,
+        new_name: &str,
+    ) -> Option<RenameResult> {
+        let registry = self.registry.read();
+        rename::rename(
+            &self.db,
+            &registry,
+            self.project_files,
+            file,
+            position,
+            new_name,
         )
     }
 
@@ -8440,5 +8465,286 @@ type Post {
         let files: Vec<&str> = locations.iter().map(|l| l.file.as_str()).collect();
         assert!(files.contains(&"file:///a-extensions.graphql"));
         assert!(files.contains(&"file:///b-schema.graphql"));
+    }
+
+    // =========================================================================
+    // Rename tests
+    // =========================================================================
+
+    #[test]
+    fn test_prepare_rename_fragment_spread() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User }\ntype User { id: ID! name: String }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let fragment_file = FilePath::new("file:///fragments.graphql");
+        host.add_file(
+            &fragment_file,
+            "fragment UserFields on User { id name }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &query_file,
+            "query { user { ...UserFields } }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Position on "UserFields" in the spread (after "...")
+        let range = snapshot.prepare_rename(&query_file, Position::new(0, 19));
+        assert!(range.is_some(), "Should allow renaming fragment spread");
+    }
+
+    #[test]
+    fn test_prepare_rename_rejects_type_name() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User }\ntype User { id: ID! }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Position on "User" type name - should be rejected
+        let range = snapshot.prepare_rename(&schema_file, Position::new(1, 5));
+        assert!(range.is_none(), "Should reject renaming schema types");
+    }
+
+    #[test]
+    fn test_rename_fragment_project_wide() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User }\ntype User { id: ID! name: String }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let fragment_file = FilePath::new("file:///fragments.graphql");
+        host.add_file(
+            &fragment_file,
+            "fragment UserFields on User { id name }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &query_file,
+            "query { user { ...UserFields } }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let query_file2 = FilePath::new("file:///query2.graphql");
+        host.add_file(
+            &query_file2,
+            "query Other { user { ...UserFields } }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Rename from the fragment definition
+        let result = snapshot.rename(
+            &fragment_file,
+            Position::new(0, 10), // "UserFields" in definition
+            "UserInfo",
+        );
+        assert!(result.is_some(), "Should produce rename result");
+        let result = result.unwrap();
+
+        // Should have edits in 3 files: definition + 2 query files
+        assert_eq!(result.changes.len(), 3, "Should affect 3 files");
+        assert!(result.changes.contains_key(&fragment_file));
+        assert!(result.changes.contains_key(&query_file));
+        assert!(result.changes.contains_key(&query_file2));
+
+        // Each file should have exactly 1 edit
+        for (_, edits) in &result.changes {
+            assert_eq!(edits.len(), 1);
+            assert_eq!(edits[0].new_text, "UserInfo");
+        }
+    }
+
+    #[test]
+    fn test_rename_fragment_from_spread() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User }\ntype User { id: ID! name: String }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let fragment_file = FilePath::new("file:///fragments.graphql");
+        host.add_file(
+            &fragment_file,
+            "fragment UserFields on User { id name }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &query_file,
+            "query { user { ...UserFields } }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Rename from a spread site
+        let result = snapshot.rename(
+            &query_file,
+            Position::new(0, 19), // "UserFields" in spread
+            "UserInfo",
+        );
+        assert!(result.is_some(), "Should produce rename result from spread");
+        let result = result.unwrap();
+
+        assert_eq!(
+            result.changes.len(),
+            2,
+            "Should affect definition + spread files"
+        );
+        assert!(result.changes.contains_key(&fragment_file));
+        assert!(result.changes.contains_key(&query_file));
+    }
+
+    #[test]
+    fn test_rename_operation_name() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User }\ntype User { id: ID! }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &query_file,
+            "query GetUser { user { id } }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Rename "GetUser" operation
+        let result = snapshot.rename(&query_file, Position::new(0, 7), "FetchUser");
+        assert!(
+            result.is_some(),
+            "Should produce rename result for operation"
+        );
+        let result = result.unwrap();
+
+        assert_eq!(result.changes.len(), 1, "Operation rename is file-local");
+        let edits = result.changes.get(&query_file).unwrap();
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].new_text, "FetchUser");
+    }
+
+    #[test]
+    fn test_rename_variable() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user(id: ID!): User }\ntype User { id: ID! name: String }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &query_file,
+            "query GetUser($userId: ID!) { user(id: $userId) { id name } }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Rename "$userId" variable from its usage site
+        // "query GetUser($userId: ID!) { user(id: $userId) { id name } }"
+        // The $userId reference: "user(id: $" is at offset ~39, "userId" starts after $
+        let result = snapshot.rename(&query_file, Position::new(0, 40), "id");
+        assert!(
+            result.is_some(),
+            "Should produce rename result for variable"
+        );
+        let result = result.unwrap();
+
+        assert_eq!(result.changes.len(), 1);
+        let edits = result.changes.get(&query_file).unwrap();
+        // Should rename both the definition and the usage
+        assert_eq!(
+            edits.len(),
+            2,
+            "Should rename variable definition and usage"
+        );
+        for edit in edits {
+            assert_eq!(edit.new_text, "id");
+        }
+    }
+
+    #[test]
+    fn test_rename_rejects_field_name() {
+        let mut host = AnalysisHost::new();
+
+        let schema_file = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_file,
+            "type Query { user: User }\ntype User { id: ID! }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &query_file,
+            "query { user { id } }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // Try to rename "id" field in query - should be rejected
+        let result = snapshot.rename(&query_file, Position::new(0, 15), "identifier");
+        assert!(result.is_none(), "Should reject renaming fields");
     }
 }
