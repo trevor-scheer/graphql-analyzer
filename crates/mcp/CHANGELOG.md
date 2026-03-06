@@ -2,6 +2,13 @@
 
 All notable changes to the GraphQL MCP server will be documented in this file.
 
+## 0.1.6 (2026-03-06)
+
+### Fixes
+
+- Fix false positive in redundant fields rule for fields with different sub-selections ([#719](https://github.com/trevor-scheer/graphql-analyzer/pull/719))
+- Fix UTF-16 position handling for files with non-ASCII characters ([#710](https://github.com/trevor-scheer/graphql-analyzer/pull/710))
+
 ## 0.1.5 (2026-03-05)
 
 ### Fixes
