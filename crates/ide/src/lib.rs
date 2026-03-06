@@ -1683,6 +1683,60 @@ impl Analysis {
         result
     }
 
+    /// Find files affected by a change, without computing diagnostics.
+    ///
+    /// Returns the changed file itself plus any files that need re-validation:
+    /// - Schema change: all document files
+    /// - Document change with fragments: files that spread those fragments
+    /// - Document change with named operations: files with same-named operations
+    ///
+    /// This is cheaper than `diagnostics_for_change` because it only identifies
+    /// which files are affected, not their actual diagnostics. Use this when you
+    /// need to split work across multiple short-lived snapshots to avoid blocking
+    /// Salsa setters (which wait for snapshot drops).
+    pub fn affected_files_for_change(&self, changed_file: &FilePath) -> Vec<FilePath> {
+        let mut result = vec![changed_file.clone()];
+
+        let Some(project_files) = self.project_files else {
+            return result;
+        };
+
+        let (is_schema, is_document, changed_file_id) = {
+            let registry = self.registry.read();
+            let Some(file_id) = registry.get_file_id(changed_file) else {
+                return result;
+            };
+            let Some(metadata) = registry.get_metadata(file_id) else {
+                return result;
+            };
+            (
+                metadata.is_schema(&self.db),
+                metadata.is_document(&self.db),
+                file_id,
+            )
+        };
+
+        if is_schema {
+            let registry = self.registry.read();
+            let document_files = registry
+                .all_file_ids()
+                .into_iter()
+                .filter(|&id| {
+                    registry
+                        .get_metadata(id)
+                        .is_some_and(|m| m.is_document(&self.db))
+                })
+                .filter_map(|id| registry.get_path(id))
+                .filter(|p| p != changed_file);
+            result.extend(document_files);
+        } else if is_document {
+            let affected = self.find_affected_document_files(changed_file_id, project_files);
+            result.extend(affected.into_iter().filter(|p| p != changed_file));
+        }
+
+        result
+    }
+
     /// Find document files affected by a change to the given document file.
     ///
     /// Returns files that:
