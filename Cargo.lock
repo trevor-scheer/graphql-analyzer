@@ -1250,7 +1250,6 @@ dependencies = [
  "graphql-ide-db",
  "graphql-linter",
  "graphql-syntax",
- "parking_lot",
  "salsa",
  "serde_json",
  "tempfile",

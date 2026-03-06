@@ -28,9 +28,6 @@ glob = { workspace = true }
 # Error handling
 anyhow = { workspace = true }
 
-# Concurrency - parking_lot::RwLock never poisons, preventing cascading panics
-parking_lot = { workspace = true }
-
 # Internal crates (query-based layers)
 graphql-base-db = { path = "../base-db" }
 graphql-syntax = { path = "../syntax" }
