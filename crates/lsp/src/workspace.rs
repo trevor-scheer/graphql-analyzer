@@ -403,25 +403,21 @@ pub fn apply_content_change(
 
     let line_index = graphql_syntax::LineIndex::new(content);
 
-    let start_offset =
-        line_index.utf16_to_offset(range.start.line as usize, range.start.character);
+    let start_offset = line_index.utf16_to_offset(range.start.line as usize, range.start.character);
     let end_offset = line_index.utf16_to_offset(range.end.line as usize, range.end.character);
 
-    match (start_offset, end_offset) {
-        (Some(start), Some(end)) => {
-            let mut result =
-                String::with_capacity(content.len() - (end - start) + change.text.len());
-            result.push_str(&content[..start]);
-            result.push_str(&change.text);
-            result.push_str(&content[end..]);
-            result
-        }
-        _ => {
-            tracing::warn!(
-                "Failed to resolve incremental change offsets, falling back to full replacement"
-            );
-            change.text.clone()
-        }
+    if let (Some(start), Some(end)) = (start_offset, end_offset) {
+        let mut result =
+            String::with_capacity(content.len() - (end - start) + change.text.len());
+        result.push_str(&content[..start]);
+        result.push_str(&change.text);
+        result.push_str(&content[end..]);
+        result
+    } else {
+        tracing::warn!(
+            "Failed to resolve incremental change offsets, falling back to full replacement"
+        );
+        change.text.clone()
     }
 }
 
