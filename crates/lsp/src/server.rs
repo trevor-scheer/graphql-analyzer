@@ -2028,11 +2028,17 @@ impl LanguageServer for GraphQLLanguageServer {
             return;
         };
 
-        // Get the analysis host for this workspace/project
+        // Get the analysis host for this workspace/project.
+        //
+        // Clone the ProjectHost to release the DashMap shard lock immediately.
+        // Holding the Ref (shard read lock) across the expensive diagnostic loop
+        // would block all request handlers that call get_or_create_host (which
+        // needs a shard write lock), causing the LSP to appear unresponsive.
         let Some(host) = self
             .workspace
             .hosts
             .get(&(workspace_uri.clone(), project_name.clone()))
+            .map(|entry| entry.value().clone())
         else {
             tracing::debug!("No analysis host found for workspace/project");
             return;
