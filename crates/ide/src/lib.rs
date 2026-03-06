@@ -825,9 +825,10 @@ pub struct AnalysisHost {
     db: IdeDatabase,
     /// File registry for mapping paths to file IDs
     ///
-    /// Owned directly by the host. Snapshots get their own clone wrapped
-    /// in `Arc<FileRegistry>` for thread-safe sharing between Analysis clones.
-    registry: FileRegistry,
+    /// Wrapped in `Arc` for copy-on-write semantics: snapshots share the
+    /// same `Arc` (cheap), and mutations use `Arc::make_mut` to clone only
+    /// when snapshots are still alive.
+    registry: Arc<FileRegistry>,
 }
 
 impl AnalysisHost {
@@ -836,7 +837,7 @@ impl AnalysisHost {
     pub fn new() -> Self {
         Self {
             db: IdeDatabase::default(),
-            registry: FileRegistry::new(),
+            registry: Arc::new(FileRegistry::new()),
         }
     }
 
@@ -856,7 +857,7 @@ impl AnalysisHost {
         document_kind: DocumentKind,
     ) -> bool {
         let (_, _, _, is_new) =
-            self.registry
+            Arc::make_mut(&mut self.registry)
                 .add_file(&mut self.db, path, content, language, document_kind);
         is_new
     }
@@ -868,10 +869,11 @@ impl AnalysisHost {
     ///
     /// Returns the list of `LoadedFile` structs for building indexes.
     pub fn add_discovered_files(&mut self, files: &[DiscoveredFile]) -> Vec<LoadedFile> {
+        let registry = Arc::make_mut(&mut self.registry);
         let mut loaded = Vec::with_capacity(files.len());
 
         for file in files {
-            self.registry.add_file(
+            registry.add_file(
                 &mut self.db,
                 &file.path,
                 &file.content,
@@ -897,7 +899,7 @@ impl AnalysisHost {
     /// This method also syncs the `ProjectFiles` to the database so queries can
     /// access it via `db.project_files()`.
     pub fn rebuild_project_files(&mut self) {
-        self.registry.rebuild_project_files(&mut self.db);
+        Arc::make_mut(&mut self.registry).rebuild_project_files(&mut self.db);
 
         // Sync project_files from registry to database
         // This enables queries to access project_files via db.project_files()
@@ -926,20 +928,19 @@ impl AnalysisHost {
     /// host.add_files_batch(&files);
     /// ```
     pub fn add_files_batch(&mut self, files: &[(FilePath, &str, Language, DocumentKind)]) {
+        let registry = Arc::make_mut(&mut self.registry);
         let mut any_new = false;
 
         for (path, content, language, document_kind) in files {
             let (_, _, _, is_new) =
-                self.registry
-                    .add_file(&mut self.db, path, content, *language, *document_kind);
+                registry.add_file(&mut self.db, path, content, *language, *document_kind);
             any_new = any_new || is_new;
         }
 
         // Only rebuild if at least one file was new
         if any_new {
-            self.registry.rebuild_project_files(&mut self.db);
-            // Sync project_files from registry to database
-            self.db.project_files_input = self.registry.project_files();
+            registry.rebuild_project_files(&mut self.db);
+            self.db.project_files_input = registry.project_files();
         }
     }
 
@@ -959,21 +960,21 @@ impl AnalysisHost {
         language: Language,
         document_kind: DocumentKind,
     ) -> (bool, Analysis) {
+        let registry = Arc::make_mut(&mut self.registry);
         let (_, _, _, is_new) =
-            self.registry
-                .add_file(&mut self.db, path, content, language, document_kind);
+            registry.add_file(&mut self.db, path, content, language, document_kind);
 
         // If this is a new file, rebuild the index before creating snapshot
         if is_new {
-            self.registry.rebuild_project_files(&mut self.db);
-            self.db.project_files_input = self.registry.project_files();
+            registry.rebuild_project_files(&mut self.db);
+            self.db.project_files_input = registry.project_files();
         }
 
         let project_files = self.db.project_files_input;
 
         let snapshot = Analysis {
             db: self.db.clone(),
-            registry: Arc::new(self.registry.clone()),
+            registry: Arc::clone(&self.registry),
             project_files,
         };
 
@@ -989,8 +990,9 @@ impl AnalysisHost {
     /// Remove a file from the host
     pub fn remove_file(&mut self, path: &FilePath) {
         if let Some(file_id) = self.registry.get_file_id(path) {
-            self.registry.remove_file(file_id);
-            self.registry.rebuild_project_files(&mut self.db);
+            let registry = Arc::make_mut(&mut self.registry);
+            registry.remove_file(file_id);
+            registry.rebuild_project_files(&mut self.db);
         }
     }
 
@@ -1484,7 +1486,7 @@ impl AnalysisHost {
 
         Analysis {
             db: self.db.clone(),
-            registry: Arc::new(self.registry.clone()),
+            registry: Arc::clone(&self.registry),
             project_files,
         }
     }
@@ -8423,9 +8425,9 @@ type Post {
 
     /// Regression test for issue #237: snapshot registry must be isolated from host.
     ///
-    /// The `Analysis` snapshot should own its own registry, not share it with
-    /// `AnalysisHost` via `Arc`. If shared, mutations on the host could violate
-    /// snapshot isolation guarantees.
+    /// Uses copy-on-write via `Arc::make_mut`: snapshots share the `Arc` cheaply,
+    /// and mutations on the host clone the registry only when needed, leaving
+    /// existing snapshots pointing to the old (immutable) data.
     #[test]
     fn test_snapshot_registry_isolation() {
         let mut host = AnalysisHost::new();
@@ -8439,13 +8441,36 @@ type Post {
 
         let snapshot = host.snapshot();
 
-        // The snapshot's registry should be isolated (its own allocation),
-        // not shared with the host. With a shared Arc, strong_count >= 2.
-        // With an isolated snapshot, strong_count == 1.
+        // Snapshot shares the Arc with the host (cheap clone)
+        assert!(Arc::ptr_eq(&snapshot.registry, &host.registry));
+
+        // Drop the snapshot so the host can mutate (Salsa constraint)
+        drop(snapshot);
+
+        // Mutation triggers copy-on-write: host gets a new Arc, old one is gone
+        host.add_file(
+            &FilePath::new("file:///query.graphql"),
+            "query { hello }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        // Take a new snapshot after mutation
+        let snapshot2 = host.snapshot();
+
+        // The new snapshot sees the new file
+        assert!(
+            snapshot2.registry.get_file_id(&FilePath::new("file:///query.graphql")).is_some(),
+            "Snapshot should see files added before snapshot creation"
+        );
+
+        // Verify copy-on-write: host's Arc was replaced during mutation,
+        // so the registry is no longer shared with the old (dropped) snapshot.
+        // With the old RwLock design, this would have been the same Arc.
         assert_eq!(
-            Arc::strong_count(&snapshot.registry),
-            1,
-            "Snapshot registry should be isolated from host (issue #237)"
+            Arc::strong_count(&host.registry),
+            2,
+            "Host registry should be shared only with the current snapshot"
         );
     }
 }
