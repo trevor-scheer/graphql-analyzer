@@ -2,6 +2,22 @@
 
 All notable changes to the GraphQL LSP will be documented in this file.
 
+## 0.1.5 (2026-03-06)
+
+### Features
+
+- Support request cancellation via spawn_blocking ([#712](https://github.com/trevor-scheer/graphql-analyzer/pull/712))
+- Implement incremental text synchronization for improved editing performance ([#275](https://github.com/trevor-scheer/graphql-analyzer/pull/275))
+- Support rename symbol for fragments, operations, and variables ([#717](https://github.com/trevor-scheer/graphql-analyzer/pull/717))
+- Add schema keyword completions for type definition documents ([#696](https://github.com/trevor-scheer/graphql-analyzer/pull/696))
+- Add signature help for field and directive arguments ([#716](https://github.com/trevor-scheer/graphql-analyzer/pull/716))
+
+### Fixes
+
+- Drop duplicate parse errors that appeared at incorrect positions ([#711](https://github.com/trevor-scheer/graphql-analyzer/pull/711))
+- Fix false positive in redundant fields rule for fields with different sub-selections ([#719](https://github.com/trevor-scheer/graphql-analyzer/pull/719))
+- Fix UTF-16 position handling for files with non-ASCII characters ([#710](https://github.com/trevor-scheer/graphql-analyzer/pull/710))
+
 ## 0.1.4 (2026-03-05)
 
 ### Fixes
