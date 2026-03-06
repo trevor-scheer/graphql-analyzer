@@ -1724,7 +1724,7 @@ impl LanguageServer for GraphQLLanguageServer {
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::FULL,
+                    TextDocumentSyncKind::INCREMENTAL,
                 )),
                 completion_provider: supports_completion.then(|| CompletionOptions {
                     trigger_characters: Some(vec![
@@ -1861,9 +1861,13 @@ impl LanguageServer for GraphQLLanguageServer {
 
         tracing::info!("File opened: {}", uri.path());
 
+        let uri_string = uri.to_string();
         self.workspace
             .document_versions
-            .insert(uri.to_string(), version);
+            .insert(uri_string.clone(), version);
+        self.workspace
+            .document_contents
+            .insert(uri_string.clone(), content.clone());
 
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
         else {
@@ -1872,10 +1876,9 @@ impl LanguageServer for GraphQLLanguageServer {
             return;
         };
 
-        self.workspace.file_to_project.insert(
-            uri.to_string(),
-            (workspace_uri.clone(), project_name.clone()),
-        );
+        self.workspace
+            .file_to_project
+            .insert(uri_string, (workspace_uri.clone(), project_name.clone()));
 
         let host = self
             .workspace
@@ -1894,8 +1897,6 @@ impl LanguageServer for GraphQLLanguageServer {
                 graphql_config::FileType::Document => DocumentKind::Executable,
             });
 
-        // For TS/JS files, store the original source and let the parsing layer handle extraction.
-        // This preserves block boundaries and allows proper validation of separate documents.
         let final_content = content;
 
         // Update file and get snapshot in one lock
@@ -1939,46 +1940,56 @@ impl LanguageServer for GraphQLLanguageServer {
                 return;
             }
         }
-        self.workspace.document_versions.insert(uri_string, version);
+        self.workspace
+            .document_versions
+            .insert(uri_string.clone(), version);
 
-        for change in params.content_changes {
-            let Some((workspace_uri, project_name)) =
-                self.workspace.find_workspace_and_project(&uri)
-            else {
-                continue;
-            };
+        // Apply all incremental changes to the stored document content
+        let mut current_content = self
+            .workspace
+            .document_contents
+            .get(&uri_string)
+            .map(|v| v.clone())
+            .unwrap_or_default();
 
-            let host = self
-                .workspace
-                .get_or_create_host(&workspace_uri, &project_name);
-
-            // Determine language from file extension
-            let language =
-                Language::from_path(Path::new(uri.path().as_str())).unwrap_or(Language::GraphQL);
-
-            // Get DocumentKind from config (schema vs documents pattern)
-            let document_kind = self
-                .workspace
-                .get_file_type(&uri, &workspace_uri, &project_name)
-                .map_or(DocumentKind::Executable, |ft| match ft {
-                    graphql_config::FileType::Schema => DocumentKind::Schema,
-                    graphql_config::FileType::Document => DocumentKind::Executable,
-                });
-
-            // For TS/JS files, store the original source and let the parsing layer handle extraction.
-            // This preserves block boundaries and allows proper validation of separate documents.
-            let final_content = change.text.clone();
-
-            // Update file and get snapshot in one lock
-            // Uses add_file_and_snapshot which properly rebuilds project files if needed
-            let file_path = graphql_ide::FilePath::new(uri.to_string());
-            let (_is_new, snapshot) = host
-                .add_file_and_snapshot(&file_path, &final_content, language, document_kind)
-                .await;
-
-            // Validate the changed file only (cross-file diagnostics refresh on save)
-            self.validate_file_with_snapshot(&uri, snapshot).await;
+        for change in &params.content_changes {
+            current_content = crate::workspace::apply_content_change(&current_content, change);
         }
+
+        self.workspace
+            .document_contents
+            .insert(uri_string.clone(), current_content.clone());
+
+        let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
+        else {
+            return;
+        };
+
+        let host = self
+            .workspace
+            .get_or_create_host(&workspace_uri, &project_name);
+
+        // Determine language from file extension
+        let language =
+            Language::from_path(Path::new(uri.path().as_str())).unwrap_or(Language::GraphQL);
+
+        // Get DocumentKind from config (schema vs documents pattern)
+        let document_kind = self
+            .workspace
+            .get_file_type(&uri, &workspace_uri, &project_name)
+            .map_or(DocumentKind::Executable, |ft| match ft {
+                graphql_config::FileType::Schema => DocumentKind::Schema,
+                graphql_config::FileType::Document => DocumentKind::Executable,
+            });
+
+        // Update file and get snapshot in one lock
+        let file_path = graphql_ide::FilePath::new(uri.to_string());
+        let (_is_new, snapshot) = host
+            .add_file_and_snapshot(&file_path, &current_content, language, document_kind)
+            .await;
+
+        // Validate the changed file only (cross-file diagnostics refresh on save)
+        self.validate_file_with_snapshot(&uri, snapshot).await;
     }
 
     #[tracing::instrument(skip(self, params), fields(path = %params.text_document.uri.as_str()))]
@@ -2043,9 +2054,9 @@ impl LanguageServer for GraphQLLanguageServer {
         // The file is still part of the project on disk, and other files may reference
         // fragments/types defined in it. Diagnostics should remain visible.
         // Only files deleted from disk should be removed (handled by did_change_watched_files).
-        self.workspace
-            .document_versions
-            .remove(&params.text_document.uri.to_string());
+        let uri_string = params.text_document.uri.to_string();
+        self.workspace.document_versions.remove(&uri_string);
+        self.workspace.document_contents.remove(&uri_string);
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {

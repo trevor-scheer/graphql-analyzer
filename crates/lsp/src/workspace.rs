@@ -155,6 +155,11 @@ pub struct WorkspaceManager {
     /// Used to detect out-of-order updates and avoid race conditions
     pub document_versions: DashMap<String, i32>,
 
+    /// In-memory document contents indexed by document URI string.
+    /// Required for incremental text sync: the client sends only changed ranges,
+    /// so we must maintain the full document text to apply edits.
+    pub document_contents: DashMap<String, String>,
+
     /// Reverse index: file URI → (`workspace_uri`, `project_name`)
     /// Provides O(1) lookup instead of O(n) iteration over all hosts
     pub file_to_project: DashMap<String, (String, String)>,
@@ -171,6 +176,7 @@ impl WorkspaceManager {
             configs: DashMap::new(),
             hosts: DashMap::new(),
             document_versions: DashMap::new(),
+            document_contents: DashMap::new(),
             file_to_project: DashMap::new(),
         }
     }
@@ -381,6 +387,39 @@ impl WorkspaceManager {
     }
 }
 
+/// Apply an incremental content change to document text.
+///
+/// Handles both full-document replacements (range is None) and incremental
+/// changes (range specifies the region to replace). Uses UTF-16 code unit
+/// positions as specified by the LSP protocol.
+pub fn apply_content_change(
+    content: &str,
+    change: &lsp_types::TextDocumentContentChangeEvent,
+) -> String {
+    let Some(range) = change.range else {
+        // Full document replacement
+        return change.text.clone();
+    };
+
+    let line_index = graphql_syntax::LineIndex::new(content);
+
+    let start_offset = line_index.utf16_to_offset(range.start.line as usize, range.start.character);
+    let end_offset = line_index.utf16_to_offset(range.end.line as usize, range.end.character);
+
+    if let (Some(start), Some(end)) = (start_offset, end_offset) {
+        let mut result = String::with_capacity(content.len() - (end - start) + change.text.len());
+        result.push_str(&content[..start]);
+        result.push_str(&change.text);
+        result.push_str(&content[end..]);
+        result
+    } else {
+        tracing::warn!(
+            "Failed to resolve incremental change offsets, falling back to full replacement"
+        );
+        change.text.clone()
+    }
+}
+
 impl Default for WorkspaceManager {
     fn default() -> Self {
         Self::new()
@@ -442,6 +481,230 @@ mod tests {
             .hosts
             .get(&("workspace2".to_string(), "project1".to_string()))
             .is_some());
+    }
+
+    #[test]
+    fn test_apply_content_change_full_replacement() {
+        let content = "query { hello }";
+        let change = lsp_types::TextDocumentContentChangeEvent {
+            range: None,
+            range_length: None,
+            text: "query { world }".to_string(),
+        };
+        assert_eq!(apply_content_change(content, &change), "query { world }");
+    }
+
+    #[test]
+    fn test_apply_content_change_single_char_insert() {
+        // Insert "x" at position (0, 8) in "query { hello }"
+        let content = "query { hello }";
+        let change = lsp_types::TextDocumentContentChangeEvent {
+            range: Some(lsp_types::Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 8,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 8,
+                },
+            }),
+            range_length: None,
+            text: "x".to_string(),
+        };
+        assert_eq!(apply_content_change(content, &change), "query { xhello }");
+    }
+
+    #[test]
+    fn test_apply_content_change_replace_word() {
+        // Replace "hello" (positions 8..13) with "world"
+        let content = "query { hello }";
+        let change = lsp_types::TextDocumentContentChangeEvent {
+            range: Some(lsp_types::Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 8,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 13,
+                },
+            }),
+            range_length: None,
+            text: "world".to_string(),
+        };
+        assert_eq!(apply_content_change(content, &change), "query { world }");
+    }
+
+    #[test]
+    fn test_apply_content_change_multiline() {
+        let content = "query {\n  hello\n  world\n}";
+        // Replace "hello" on line 1, chars 2..7
+        let change = lsp_types::TextDocumentContentChangeEvent {
+            range: Some(lsp_types::Range {
+                start: lsp_types::Position {
+                    line: 1,
+                    character: 2,
+                },
+                end: lsp_types::Position {
+                    line: 1,
+                    character: 7,
+                },
+            }),
+            range_length: None,
+            text: "foo".to_string(),
+        };
+        assert_eq!(
+            apply_content_change(content, &change),
+            "query {\n  foo\n  world\n}"
+        );
+    }
+
+    #[test]
+    fn test_apply_content_change_delete() {
+        // Delete "hello " (positions 8..14)
+        let content = "query { hello world }";
+        let change = lsp_types::TextDocumentContentChangeEvent {
+            range: Some(lsp_types::Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 8,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 14,
+                },
+            }),
+            range_length: None,
+            text: String::new(),
+        };
+        assert_eq!(apply_content_change(content, &change), "query { world }");
+    }
+
+    #[test]
+    fn test_apply_content_change_cross_line() {
+        let content = "query {\n  hello\n  world\n}";
+        // Replace from end of line 1 to start of line 2's content
+        let change = lsp_types::TextDocumentContentChangeEvent {
+            range: Some(lsp_types::Range {
+                start: lsp_types::Position {
+                    line: 1,
+                    character: 2,
+                },
+                end: lsp_types::Position {
+                    line: 2,
+                    character: 7,
+                },
+            }),
+            range_length: None,
+            text: "combined".to_string(),
+        };
+        assert_eq!(
+            apply_content_change(content, &change),
+            "query {\n  combined\n}"
+        );
+    }
+
+    #[test]
+    fn test_apply_content_change_sequential_edits() {
+        // Simulate a realistic editing session: type "query { }" character by character
+        let mut content = String::new();
+
+        // Type "q"
+        let change = lsp_types::TextDocumentContentChangeEvent {
+            range: Some(lsp_types::Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 0,
+                },
+            }),
+            range_length: None,
+            text: "q".to_string(),
+        };
+        content = apply_content_change(&content, &change);
+        assert_eq!(content, "q");
+
+        // Type "uery { }"
+        let change = lsp_types::TextDocumentContentChangeEvent {
+            range: Some(lsp_types::Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 1,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 1,
+                },
+            }),
+            range_length: None,
+            text: "uery { }".to_string(),
+        };
+        content = apply_content_change(&content, &change);
+        assert_eq!(content, "query { }");
+
+        // Insert "name " between "{ " and "}"
+        let change = lsp_types::TextDocumentContentChangeEvent {
+            range: Some(lsp_types::Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 8,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 8,
+                },
+            }),
+            range_length: None,
+            text: "name ".to_string(),
+        };
+        content = apply_content_change(&content, &change);
+        assert_eq!(content, "query { name }");
+    }
+
+    #[test]
+    fn test_document_contents_tracking() {
+        let manager = WorkspaceManager::new();
+        let uri = "file:///test.graphql";
+
+        // Store initial content (simulating did_open)
+        manager
+            .document_contents
+            .insert(uri.to_string(), "query { hello }".to_string());
+
+        // Apply incremental change (simulating did_change)
+        let stored = manager.document_contents.get(uri).unwrap();
+        let change = lsp_types::TextDocumentContentChangeEvent {
+            range: Some(lsp_types::Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 8,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 13,
+                },
+            }),
+            range_length: None,
+            text: "world".to_string(),
+        };
+        let new_content = apply_content_change(&stored, &change);
+        drop(stored);
+        manager
+            .document_contents
+            .insert(uri.to_string(), new_content);
+
+        assert_eq!(
+            *manager.document_contents.get(uri).unwrap(),
+            "query { world }"
+        );
+
+        // Clean up (simulating did_close)
+        manager.document_contents.remove(uri);
+        assert!(manager.document_contents.get(uri).is_none());
     }
 
     #[test]
