@@ -8423,8 +8423,8 @@ type Post {
 
     /// Regression test for issue #237: snapshot registry must be isolated from host.
     ///
-    /// The Analysis snapshot should own its own registry, not share it with the
-    /// AnalysisHost via Arc. If shared, mutations on the host could violate
+    /// The `Analysis` snapshot should own its own registry, not share it with
+    /// `AnalysisHost` via `Arc`. If shared, mutations on the host could violate
     /// snapshot isolation guarantees.
     #[test]
     fn test_snapshot_registry_isolation() {
