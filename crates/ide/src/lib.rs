@@ -8582,7 +8582,7 @@ type Post {
         assert!(result.changes.contains_key(&query_file2));
 
         // Each file should have exactly 1 edit
-        for (_, edits) in &result.changes {
+        for edits in result.changes.values() {
             assert_eq!(edits.len(), 1);
             assert_eq!(edits[0].new_text, "UserInfo");
         }
