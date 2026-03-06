@@ -808,6 +808,22 @@ impl ProjectStatus {
     }
 }
 
+/// Result of a rename operation.
+///
+/// Contains a map of file paths to the text edits needed in each file
+/// to perform the rename atomically across the project.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenameResult {
+    pub changes: std::collections::HashMap<FilePath, Vec<TextEdit>>,
+}
+
+impl RenameResult {
+    #[must_use]
+    pub fn new(changes: std::collections::HashMap<FilePath, Vec<TextEdit>>) -> Self {
+        Self { changes }
+    }
+}
+
 /// Selection range for smart expand/shrink selection.
 ///
 /// Represents a range at a cursor position with an optional parent range

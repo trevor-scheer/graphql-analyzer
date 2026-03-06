@@ -1,8 +1,8 @@
 use crate::conversions::{
     convert_ide_code_lens, convert_ide_code_lens_info, convert_ide_completion_item,
     convert_ide_diagnostic, convert_ide_document_symbol, convert_ide_folding_range,
-    convert_ide_hover, convert_ide_inlay_hint, convert_ide_location, convert_ide_selection_range,
-    convert_ide_workspace_symbol, convert_lsp_position,
+    convert_ide_hover, convert_ide_inlay_hint, convert_ide_location, convert_ide_range,
+    convert_ide_selection_range, convert_ide_workspace_symbol, convert_lsp_position,
 };
 use crate::workspace::{ProjectHost, WorkspaceManager};
 use graphql_config::find_config;
@@ -18,13 +18,13 @@ use lsp_types::{
     GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability,
     InitializeParams, InitializeResult, InitializedParams, InlayHint as LspInlayHint,
     InlayHintOptions, InlayHintParams, InlayHintServerCapabilities, Location, MessageActionItem,
-    MessageType, OneOf, ReferenceParams, SelectionRange, SelectionRangeParams,
-    SelectionRangeProviderCapability, SemanticToken, SemanticTokenModifier, SemanticTokenType,
-    SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
-    SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
-    ServerCapabilities, ServerInfo, ShowDocumentParams, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextEdit, Uri, WorkDoneProgressOptions, WorkspaceEdit,
-    WorkspaceSymbolParams,
+    MessageType, OneOf, PrepareRenameResponse, ReferenceParams, RenameOptions, RenameParams,
+    SelectionRange, SelectionRangeParams, SelectionRangeProviderCapability, SemanticToken,
+    SemanticTokenModifier, SemanticTokenType, SemanticTokens, SemanticTokensFullOptions,
+    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
+    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, ShowDocumentParams,
+    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri,
+    WorkDoneProgressOptions, WorkspaceEdit, WorkspaceSymbolParams,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -1685,6 +1685,10 @@ impl LanguageServer for GraphQLLanguageServer {
             .and_then(|td| td.selection_range.as_ref())
             .is_some();
 
+        let supports_rename = text_document_caps
+            .and_then(|td| td.rename.as_ref())
+            .is_some();
+
         tracing::debug!(
             supports_hover,
             supports_completion,
@@ -1697,6 +1701,7 @@ impl LanguageServer for GraphQLLanguageServer {
             supports_folding_range,
             supports_inlay_hints,
             supports_selection_range,
+            supports_rename,
             "Client capabilities detected"
         );
 
@@ -1783,6 +1788,10 @@ impl LanguageServer for GraphQLLanguageServer {
                 )),
                 selection_range_provider: supports_selection_range
                     .then_some(SelectionRangeProviderCapability::Simple(true)),
+                rename_provider: supports_rename.then_some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
+                })),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["graphql-analyzer.checkStatus".to_string()],
                     work_done_progress_options: WorkDoneProgressOptions::default(),
@@ -2163,6 +2172,49 @@ impl LanguageServer for GraphQLLanguageServer {
             } else {
                 Some(lsp_locations)
             }
+        })
+        .await
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = params.text_document.uri;
+        let position = convert_lsp_position(params.position);
+
+        self.with_analysis(&uri, move |analysis, file_path| {
+            let range = analysis.prepare_rename(&file_path, position)?;
+            Some(PrepareRenameResponse::Range(convert_ide_range(range)))
+        })
+        .await
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri;
+        let lsp_position = params.text_document_position.position;
+        let position = convert_lsp_position(lsp_position);
+        let new_name = params.new_name;
+
+        self.with_analysis(&uri, move |analysis, file_path| {
+            let result = analysis.rename(&file_path, position, &new_name)?;
+            let mut changes: HashMap<Uri, Vec<TextEdit>> = HashMap::new();
+            for (ide_path, edits) in result.changes {
+                let uri: Uri = ide_path.as_str().parse().ok()?;
+                let lsp_edits = edits
+                    .into_iter()
+                    .map(|edit| TextEdit {
+                        range: convert_ide_range(edit.range),
+                        new_text: edit.new_text,
+                    })
+                    .collect();
+                changes.insert(uri, lsp_edits);
+            }
+            Some(WorkspaceEdit {
+                changes: Some(changes),
+                document_changes: None,
+                change_annotations: None,
+            })
         })
         .await
     }
