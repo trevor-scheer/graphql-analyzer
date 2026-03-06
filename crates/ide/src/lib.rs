@@ -8441,4 +8441,32 @@ type Post {
         assert!(files.contains(&"file:///a-extensions.graphql"));
         assert!(files.contains(&"file:///b-schema.graphql"));
     }
+
+    /// Regression test for issue #237: snapshot registry must be isolated from host.
+    ///
+    /// The Analysis snapshot should own its own registry, not share it with the
+    /// AnalysisHost via Arc. If shared, mutations on the host could violate
+    /// snapshot isolation guarantees.
+    #[test]
+    fn test_snapshot_registry_isolation() {
+        let mut host = AnalysisHost::new();
+        host.add_file(
+            &FilePath::new("file:///schema.graphql"),
+            "type Query { hello: String }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+
+        // The snapshot's registry should be isolated (its own allocation),
+        // not shared with the host. With a shared Arc, strong_count >= 2.
+        // With an isolated snapshot, strong_count == 1.
+        assert_eq!(
+            Arc::strong_count(&snapshot.registry),
+            1,
+            "Snapshot registry should be isolated from host (issue #237)"
+        );
+    }
 }
