@@ -140,6 +140,14 @@ impl IntoLsp for &graphql_ide::InlayHint {
     }
 }
 
+// SignatureHelp conversions
+impl IntoLsp for graphql_ide::SignatureHelp {
+    type Output = lsp_types::SignatureHelp;
+    fn into_lsp(self) -> lsp_types::SignatureHelp {
+        convert_ide_signature_help(self)
+    }
+}
+
 // =============================================================================
 // Standalone Conversion Functions (for backward compatibility)
 // =============================================================================
@@ -414,6 +422,45 @@ pub fn convert_ide_inlay_hint(hint: &graphql_ide::InlayHint) -> InlayHint {
         padding_left: Some(hint.padding_left),
         padding_right: Some(hint.padding_right),
         data: None,
+    }
+}
+
+/// Convert graphql-ide `SignatureHelp` to LSP `SignatureHelp`
+pub fn convert_ide_signature_help(help: graphql_ide::SignatureHelp) -> lsp_types::SignatureHelp {
+    lsp_types::SignatureHelp {
+        signatures: help
+            .signatures
+            .into_iter()
+            .map(|sig| lsp_types::SignatureInformation {
+                label: sig.label,
+                documentation: sig.documentation.map(|doc| {
+                    lsp_types::Documentation::MarkupContent(lsp_types::MarkupContent {
+                        kind: lsp_types::MarkupKind::Markdown,
+                        value: doc,
+                    })
+                }),
+                parameters: Some(
+                    sig.parameters
+                        .into_iter()
+                        .map(|param| lsp_types::ParameterInformation {
+                            label: lsp_types::ParameterLabel::LabelOffsets([
+                                param.label_offsets.0,
+                                param.label_offsets.1,
+                            ]),
+                            documentation: param.documentation.map(|doc| {
+                                lsp_types::Documentation::MarkupContent(lsp_types::MarkupContent {
+                                    kind: lsp_types::MarkupKind::Markdown,
+                                    value: doc,
+                                })
+                            }),
+                        })
+                        .collect(),
+                ),
+                active_parameter: None,
+            })
+            .collect(),
+        active_signature: help.active_signature,
+        active_parameter: help.active_parameter,
     }
 }
 
