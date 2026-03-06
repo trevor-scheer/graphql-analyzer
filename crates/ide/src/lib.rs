@@ -947,14 +947,17 @@ impl AnalysisHost {
         }
     }
 
-    /// Update a file and optionally create a snapshot in a single lock acquisition
+    /// Update a file and create a snapshot for immediate analysis.
     ///
-    /// This is optimized for the common case of editing an existing file. It:
-    /// 1. Updates the file content (cheap operation)
-    /// 2. Returns a snapshot for immediate analysis
+    /// This is optimized for the common `did_change` hot path (editing an existing file).
     ///
-    /// This avoids the overhead of multiple lock acquisitions per keystroke.
-    /// For new files, call `add_file()` followed by `rebuild_project_files()` instead.
+    /// ## Deadlock Prevention
+    ///
+    /// For existing files, Salsa setters (`set_text`, etc.) are called WITHOUT holding
+    /// the registry write lock. This prevents a deadlock where:
+    /// - Thread A (diagnostics): holds a Salsa snapshot, blocks on `registry.read()`
+    /// - Thread B (`did_change`): holds `registry.write()`, blocks on Salsa setter
+    ///   (which waits for Thread A's snapshot to be dropped)
     ///
     /// Returns `(is_new_file, Analysis)` tuple.
     pub fn update_file_and_snapshot(
@@ -964,22 +967,46 @@ impl AnalysisHost {
         language: Language,
         document_kind: DocumentKind,
     ) -> (bool, Analysis) {
-        // Single lock acquisition for both operations
-        let mut registry = self.registry.write();
-        let (_, _, _, is_new) =
-            registry.add_file(&mut self.db, path, content, language, document_kind);
+        let content_arc: Arc<str> = Arc::from(content);
 
-        // If this is a new file, rebuild the index before creating snapshot
-        // This also syncs project_files to self.db.project_files_input
-        if is_new {
-            registry.rebuild_project_files(&mut self.db);
-            // Sync project_files from registry to database
-            self.db.project_files_input = registry.project_files();
-        }
+        // Phase 1: Check if file exists (read lock only, no Salsa mutations)
+        let existing = {
+            let registry = self.registry.read();
+            registry.lookup_existing_file(path)
+        };
+        // Registry lock released here
+
+        let is_new = if let Some((_file_id, existing_content, metadata)) = existing {
+            // Phase 2a: Existing file - call Salsa setters WITHOUT registry lock.
+            //
+            // Salsa setters block while any database snapshot (clone) exists.
+            // Snapshots call registry.read() during diagnostics. If we held
+            // registry.write() here, the snapshot couldn't acquire its read lock,
+            // and the setter couldn't proceed until the snapshot drops — deadlock.
+            if *existing_content.text(&self.db) != *content_arc {
+                existing_content.set_text(&mut self.db).to(content_arc);
+            }
+            if metadata.language(&self.db) != language {
+                metadata.set_language(&mut self.db).to(language);
+            }
+            if metadata.document_kind(&self.db) != document_kind {
+                metadata.set_document_kind(&mut self.db).to(document_kind);
+            }
+            false
+        } else {
+            // Phase 2b: New file - needs write lock for registry map updates.
+            // New files during did_change are rare (file already exists from did_open).
+            let mut registry = self.registry.write();
+            let (_, _, _, is_new) =
+                registry.add_file(&mut self.db, path, content, language, document_kind);
+            if is_new {
+                registry.rebuild_project_files(&mut self.db);
+                self.db.project_files_input = registry.project_files();
+            }
+            is_new
+        };
 
         let project_files = self.db.project_files_input;
-        // Release the lock before creating the snapshot (no longer needed)
-        drop(registry);
 
         let snapshot = Analysis {
             db: self.db.clone(),
@@ -1651,6 +1678,60 @@ impl Analysis {
         let project_diagnostics = self.project_lint_diagnostics();
         for (file_path, diagnostics) in project_diagnostics {
             result.entry(file_path).or_default().extend(diagnostics);
+        }
+
+        result
+    }
+
+    /// Find files affected by a change, without computing diagnostics.
+    ///
+    /// Returns the changed file itself plus any files that need re-validation:
+    /// - Schema change: all document files
+    /// - Document change with fragments: files that spread those fragments
+    /// - Document change with named operations: files with same-named operations
+    ///
+    /// This is cheaper than `diagnostics_for_change` because it only identifies
+    /// which files are affected, not their actual diagnostics. Use this when you
+    /// need to split work across multiple short-lived snapshots to avoid blocking
+    /// Salsa setters (which wait for snapshot drops).
+    pub fn affected_files_for_change(&self, changed_file: &FilePath) -> Vec<FilePath> {
+        let mut result = vec![changed_file.clone()];
+
+        let Some(project_files) = self.project_files else {
+            return result;
+        };
+
+        let (is_schema, is_document, changed_file_id) = {
+            let registry = self.registry.read();
+            let Some(file_id) = registry.get_file_id(changed_file) else {
+                return result;
+            };
+            let Some(metadata) = registry.get_metadata(file_id) else {
+                return result;
+            };
+            (
+                metadata.is_schema(&self.db),
+                metadata.is_document(&self.db),
+                file_id,
+            )
+        };
+
+        if is_schema {
+            let registry = self.registry.read();
+            let document_files = registry
+                .all_file_ids()
+                .into_iter()
+                .filter(|&id| {
+                    registry
+                        .get_metadata(id)
+                        .is_some_and(|m| m.is_document(&self.db))
+                })
+                .filter_map(|id| registry.get_path(id))
+                .filter(|p| p != changed_file);
+            result.extend(document_files);
+        } else if is_document {
+            let affected = self.find_affected_document_files(changed_file_id, project_files);
+            result.extend(affected.into_iter().filter(|p| p != changed_file));
         }
 
         result

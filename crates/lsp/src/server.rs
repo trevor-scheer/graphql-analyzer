@@ -2028,35 +2028,72 @@ impl LanguageServer for GraphQLLanguageServer {
             return;
         };
 
-        // Get the analysis host for this workspace/project
+        // Get the analysis host for this workspace/project.
+        //
+        // Clone the ProjectHost to release the DashMap shard lock immediately.
+        // Holding the Ref (shard read lock) across the expensive diagnostic loop
+        // would block all request handlers that call get_or_create_host (which
+        // needs a shard write lock), causing the LSP to appear unresponsive.
         let Some(host) = self
             .workspace
             .hosts
             .get(&(workspace_uri.clone(), project_name.clone()))
+            .map(|entry| entry.value().clone())
         else {
             tracing::debug!("No analysis host found for workspace/project");
             return;
         };
 
-        let Some(snapshot) = host.try_snapshot().await else {
-            tracing::debug!("Could not acquire snapshot");
-            return;
-        };
-
-        // Get all diagnostics for affected files: cross-file validation + project-wide lints
+        // Phase 1: Find affected files with a brief snapshot.
+        //
+        // We deliberately drop the snapshot before the expensive per-file loop.
+        // Salsa setters (from concurrent did_change) block while any snapshot
+        // exists and hold the Mutex during that wait, so a long-lived snapshot
+        // here would stall the entire server for the duration of 10k-file
+        // diagnostic computation.
         let changed_file = graphql_ide::FilePath::new(uri.as_str());
-        let all_diagnostics = snapshot.all_diagnostics_for_change(&changed_file);
+        let affected_files = {
+            let Some(snapshot) = host.try_snapshot().await else {
+                tracing::debug!("Could not acquire snapshot for affected files");
+                return;
+            };
+            snapshot.affected_files_for_change(&changed_file)
+        }; // snapshot dropped
 
         tracing::debug!(
             "On save: publishing diagnostics for {} files",
-            all_diagnostics.len()
+            affected_files.len()
         );
 
-        for (file_path, diagnostics) in all_diagnostics {
+        // Phase 2: Compute project-wide lint diagnostics (brief snapshot).
+        let project_lints: HashMap<graphql_ide::FilePath, Vec<graphql_ide::Diagnostic>> = {
+            if let Some(snapshot) = host.try_snapshot().await {
+                snapshot.project_lint_diagnostics()
+            } else {
+                HashMap::new()
+            }
+        }; // snapshot dropped
+
+        // Phase 3: Compute per-file diagnostics with short-lived snapshots.
+        //
+        // Each iteration creates and drops a snapshot, giving concurrent
+        // did_change handlers a window to run Salsa setters between files.
+        for file_path in &affected_files {
             let Ok(file_uri) = Uri::from_str(file_path.as_str()) else {
                 tracing::warn!("Invalid URI in diagnostics: {}", file_path.as_str());
                 continue;
             };
+
+            let Some(snapshot) = host.try_snapshot().await else {
+                continue;
+            };
+            let mut diagnostics = snapshot.diagnostics(file_path);
+            drop(snapshot);
+
+            // Merge project-wide lint diagnostics for this file
+            if let Some(lint_diagnostics) = project_lints.get(file_path) {
+                diagnostics.extend(lint_diagnostics.iter().cloned());
+            }
 
             let lsp_diagnostics: Vec<Diagnostic> = diagnostics
                 .into_iter()
