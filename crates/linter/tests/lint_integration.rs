@@ -144,3 +144,66 @@ fn test_shorthand_query_syntax() {
         "Shorthand query syntax should trigger anonymous warning. Got: {diagnostics:?}"
     );
 }
+
+#[test]
+fn test_redundant_fields_not_flagged_with_different_selections() {
+    // Issue #619: Fields with sub-selections should not be treated as redundant
+    // when the fragment selects different sub-fields
+    let db = RootDatabase::default();
+    let source = r#"
+query NotActuallyRedundant {
+  ...NotRedundantFragment
+  notRedundant {
+    id
+  }
+}
+
+fragment NotRedundantFragment on Query {
+  notRedundant {
+    aDifferentField
+  }
+}
+"#;
+    let config = LintConfig::recommended();
+
+    let diagnostics = run_standalone_rules(&db, source, &config);
+
+    let redundant = diagnostics
+        .iter()
+        .filter(|d| d.message.contains("redundant"))
+        .collect::<Vec<_>>();
+
+    assert!(
+        redundant.is_empty(),
+        "Fields with different sub-selections should not be flagged as redundant. Got: {redundant:?}"
+    );
+}
+
+#[test]
+fn test_redundant_fields_leaf_fields_still_flagged() {
+    // Leaf fields (no sub-selection) that appear in a fragment should still be flagged
+    let db = RootDatabase::default();
+    let source = r#"
+query StillRedundant {
+  ...MyFragment
+  id
+}
+
+fragment MyFragment on Query {
+  id
+}
+"#;
+    let config = LintConfig::recommended();
+
+    let diagnostics = run_standalone_rules(&db, source, &config);
+
+    let redundant = diagnostics
+        .iter()
+        .filter(|d| d.message.contains("redundant"))
+        .collect::<Vec<_>>();
+
+    assert!(
+        !redundant.is_empty(),
+        "Leaf fields that are in a fragment should still be flagged as redundant"
+    );
+}
