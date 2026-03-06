@@ -856,9 +856,13 @@ impl AnalysisHost {
         language: Language,
         document_kind: DocumentKind,
     ) -> bool {
-        let (_, _, _, is_new) =
-            Arc::make_mut(&mut self.registry)
-                .add_file(&mut self.db, path, content, language, document_kind);
+        let (_, _, _, is_new) = Arc::make_mut(&mut self.registry).add_file(
+            &mut self.db,
+            path,
+            content,
+            language,
+            document_kind,
+        );
         is_new
     }
 
@@ -8460,7 +8464,10 @@ type Post {
 
         // The new snapshot sees the new file
         assert!(
-            snapshot2.registry.get_file_id(&FilePath::new("file:///query.graphql")).is_some(),
+            snapshot2
+                .registry
+                .get_file_id(&FilePath::new("file:///query.graphql"))
+                .is_some(),
             "Snapshot should see files added before snapshot creation"
         );
 
