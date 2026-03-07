@@ -64,7 +64,7 @@ jobs:
 
       - name: Install cross
         if: matrix.cross
-        uses: taiki-e/install-action@230d9637c4e7734bd52f2195e1acfde406d5361e # cross
+        uses: taiki-e/install-action@d6ac44784102aca860a0ce5462246201f7f76f78 # cross
         with:
           tool: cross
 
