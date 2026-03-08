@@ -54,21 +54,12 @@ indicatif = "0.18"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# OpenTelemetry (optional, enabled with `otel` feature)
-opentelemetry = { workspace = true, optional = true }
-opentelemetry_sdk = { workspace = true, optional = true }
-opentelemetry-otlp = { workspace = true, features = ["default"], optional = true }
-opentelemetry-semantic-conventions = { workspace = true, optional = true }
-tracing-opentelemetry = { workspace = true, optional = true }
-
-[features]
-otel = [
-  "opentelemetry",
-  "opentelemetry_sdk",
-  "opentelemetry-otlp",
-  "opentelemetry-semantic-conventions",
-  "tracing-opentelemetry",
-]
+# OpenTelemetry
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true, features = ["default"] }
+opentelemetry-semantic-conventions = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.25.0"

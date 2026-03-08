@@ -149,9 +149,6 @@ All settings are under the `graphql-analyzer` namespace.
 #### CLI
 
 ```bash
-# Build with OTEL support
-cargo build --package graphql-lsp --features otel
-
 # Run with tracing enabled
 OTEL_TRACES_ENABLED=1 target/debug/graphql-lsp
 

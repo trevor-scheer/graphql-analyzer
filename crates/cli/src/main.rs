@@ -208,11 +208,7 @@ async fn main() -> anyhow::Result<()> {
         return commands::lsp::run().await;
     }
 
-    #[cfg(feature = "otel")]
     let otel_guard = init_telemetry();
-
-    #[cfg(not(feature = "otel"))]
-    init_tracing();
 
     configure_colors(cli.color, cli.no_color);
 
@@ -287,7 +283,6 @@ async fn main() -> anyhow::Result<()> {
         Commands::Lsp => unreachable!("handled above"),
     };
 
-    #[cfg(feature = "otel")]
     if let Some(provider) = otel_guard {
         eprintln!("Shutting down OpenTelemetry...");
         if let Err(e) = provider.shutdown() {
@@ -355,7 +350,6 @@ fn configure_colors(force_color: bool, no_color: bool) {
 }
 
 /// Initialize OpenTelemetry tracing with OTLP exporter
-#[cfg(feature = "otel")]
 fn init_telemetry() -> Option<opentelemetry_sdk::trace::SdkTracerProvider> {
     use opentelemetry::trace::TracerProvider as _;
     use opentelemetry::KeyValue;

@@ -22,9 +22,8 @@ fn build_env_filter(default: &str) -> tracing_subscriber::EnvFilter {
     tracing_subscriber::EnvFilter::new(filter_str)
 }
 
-/// Initialize tracing with OpenTelemetry support (when enabled).
+/// Initialize tracing with OpenTelemetry support.
 /// Returns true if tracing was initialized, false if already initialized.
-#[cfg(feature = "otel")]
 fn init_tracing_with_otel() -> bool {
     use opentelemetry::trace::TracerProvider;
     use opentelemetry_otlp::WithExportConfig;
@@ -101,20 +100,16 @@ fn init_tracing_without_otel() -> bool {
 
 /// Initialize tracing for the LSP server.
 ///
-/// When the `otel` feature is enabled and `OTEL_TRACES_ENABLED` is set,
-/// traces will be sent to an OpenTelemetry collector. Otherwise, logs
-/// are written to stderr.
+/// When `OTEL_TRACES_ENABLED` is set, traces will be sent to an
+/// OpenTelemetry collector. Otherwise, logs are written to stderr.
 ///
 /// This function is safe to call even if tracing has already been initialized
 /// (e.g., when running as `graphql lsp` subcommand). It will simply skip
 /// initialization if a global subscriber is already set.
 pub fn init_tracing() {
-    #[cfg(feature = "otel")]
-    {
-        if std::env::var("OTEL_TRACES_ENABLED").is_ok() {
-            init_tracing_with_otel();
-            return;
-        }
+    if std::env::var("OTEL_TRACES_ENABLED").is_ok() {
+        init_tracing_with_otel();
+        return;
     }
 
     init_tracing_without_otel();
