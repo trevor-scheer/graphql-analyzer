@@ -144,12 +144,12 @@
             "default": "warn",
             "description": "Server log verbosity in the 'graphql-analyzer Debug' output channel. Higher levels (info, debug) may impact performance on large codebases."
           },
-          "graphql-analyzer.debug.otel": {
+          "graphql-analyzer.debug.otelEnabled": {
             "type": "boolean",
             "default": false,
             "description": "Export traces via OpenTelemetry to an OTLP collector. Requires a running collector (e.g. Jaeger)."
           },
-          "graphql-analyzer.debug.otel.endpoint": {
+          "graphql-analyzer.debug.otelEndpoint": {
             "type": "string",
             "default": "http://localhost:4317",
             "description": "OTLP collector endpoint for OpenTelemetry trace export."

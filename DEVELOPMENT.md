@@ -130,8 +130,8 @@ operations like file changes, validation, and schema loading.
 
 1. Start a collector (see [Running Jaeger](#running-jaeger) below)
 2. Enable OTEL in VS Code settings:
-   - Set `graphql-analyzer.debug.otel` to `true`
-   - Optionally adjust `graphql-analyzer.debug.otel.endpoint` (default: `http://localhost:4317`)
+   - Set `graphql-analyzer.debug.otelEnabled` to `true`
+   - Optionally adjust `graphql-analyzer.debug.otelEndpoint` (default: `http://localhost:4317`)
 3. Restart the language server (Command Palette: "graphql-analyzer: Restart Language Server")
 4. Use the "graphql-analyzer: Test OpenTelemetry Connection" command to verify connectivity
 5. Open [http://localhost:16686](http://localhost:16686) to view traces
@@ -141,8 +141,8 @@ operations like file changes, validation, and schema loading.
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `debug.logLevel` | string | `warn` | Server log verbosity. Higher levels may impact performance on large codebases. |
-| `debug.otel` | boolean | `false` | Export traces via OpenTelemetry to an OTLP collector. |
-| `debug.otel.endpoint` | string | `http://localhost:4317` | OTLP collector gRPC endpoint. |
+| `debug.otelEnabled` | boolean | `false` | Export traces via OpenTelemetry to an OTLP collector. |
+| `debug.otelEndpoint` | string | `http://localhost:4317` | OTLP collector gRPC endpoint. |
 
 All settings are under the `graphql-analyzer` namespace.
 

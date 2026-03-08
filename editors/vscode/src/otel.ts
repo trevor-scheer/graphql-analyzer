@@ -10,8 +10,8 @@ export interface OtelConfig {
 export function getOtelConfig(): OtelConfig {
   const config = workspace.getConfiguration("graphql-analyzer");
   return {
-    enabled: config.get<boolean>("debug.otel", false),
-    endpoint: config.get<string>("debug.otel.endpoint", "http://localhost:4317"),
+    enabled: config.get<boolean>("debug.otelEnabled", false),
+    endpoint: config.get<string>("debug.otelEndpoint", "http://localhost:4317"),
   };
 }
 
@@ -34,7 +34,7 @@ export function registerOtelConfigListener(): Disposable {
   return workspace.onDidChangeConfiguration((event) => {
     if (
       event.affectsConfiguration("graphql-analyzer.debug.logLevel") ||
-      event.affectsConfiguration("graphql-analyzer.debug.otel")
+      event.affectsConfiguration("graphql-analyzer.debug.otelEnabled")
     ) {
       window
         .showInformationMessage(
@@ -61,7 +61,7 @@ export function registerTestOtelCommand(outputChannel: OutputChannel): Disposabl
         "Open Settings",
       );
       if (choice) {
-        commands.executeCommand("workbench.action.openSettings", "graphql-analyzer.debug.otel");
+        commands.executeCommand("workbench.action.openSettings", "graphql-analyzer.debug.otelEnabled");
       }
       return;
     }

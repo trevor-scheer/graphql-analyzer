@@ -1965,21 +1965,28 @@ impl LanguageServer for GraphQLLanguageServer {
             .document_versions
             .insert(uri_string.clone(), version);
 
-        // Apply all incremental changes to the stored document content
-        let mut current_content = self
-            .workspace
-            .document_contents
-            .get(&uri_string)
-            .map(|v| v.clone())
-            .unwrap_or_default();
+        let current_content = {
+            let _span =
+                tracing::info_span!("apply_changes", changes = params.content_changes.len())
+                    .entered();
 
-        for change in &params.content_changes {
-            current_content = crate::workspace::apply_content_change(&current_content, change);
-        }
+            let mut current_content = self
+                .workspace
+                .document_contents
+                .get(&uri_string)
+                .map(|v| v.clone())
+                .unwrap_or_default();
 
-        self.workspace
-            .document_contents
-            .insert(uri_string.clone(), current_content.clone());
+            for change in &params.content_changes {
+                current_content = crate::workspace::apply_content_change(&current_content, change);
+            }
+
+            self.workspace
+                .document_contents
+                .insert(uri_string.clone(), current_content.clone());
+
+            current_content
+        };
 
         let Some((workspace_uri, project_name)) = self.workspace.find_workspace_and_project(&uri)
         else {
@@ -2003,14 +2010,23 @@ impl LanguageServer for GraphQLLanguageServer {
                 graphql_config::FileType::Document => DocumentKind::Executable,
             });
 
-        // Update file and get snapshot in one lock
         let file_path = graphql_ide::FilePath::new(uri.to_string());
-        let (_is_new, snapshot) = host
-            .add_file_and_snapshot(&file_path, &current_content, language, document_kind)
-            .await;
+        let (_is_new, snapshot) = {
+            use tracing::Instrument;
+            async {
+                host.add_file_and_snapshot(&file_path, &current_content, language, document_kind)
+                    .await
+            }
+            .instrument(tracing::info_span!("update_file_and_snapshot"))
+            .await
+        };
 
-        // Validate the changed file only (cross-file diagnostics refresh on save)
-        self.validate_file_with_snapshot(&uri, snapshot).await;
+        {
+            use tracing::Instrument;
+            async { self.validate_file_with_snapshot(&uri, snapshot).await }
+                .instrument(tracing::info_span!("validate_changed_file"))
+                .await;
+        }
     }
 
     #[tracing::instrument(skip(self, params), fields(path = %params.text_document.uri.as_str()))]
@@ -2038,34 +2054,46 @@ impl LanguageServer for GraphQLLanguageServer {
             return;
         };
 
-        let Some(snapshot) = host.try_snapshot().await else {
-            tracing::debug!("Could not acquire snapshot");
-            return;
+        let snapshot = {
+            use tracing::Instrument;
+            let result = async { host.try_snapshot().await }
+                .instrument(tracing::info_span!("acquire_snapshot"))
+                .await;
+            let Some(snapshot) = result else {
+                tracing::debug!("Could not acquire snapshot");
+                return;
+            };
+            snapshot
         };
 
-        // Get all diagnostics for affected files: cross-file validation + project-wide lints
-        let changed_file = graphql_ide::FilePath::new(uri.as_str());
-        let all_diagnostics = snapshot.all_diagnostics_for_change(&changed_file);
+        let all_diagnostics = {
+            let _span = tracing::info_span!("compute_diagnostics").entered();
+            let changed_file = graphql_ide::FilePath::new(uri.as_str());
+            snapshot.all_diagnostics_for_change(&changed_file)
+        };
 
-        tracing::debug!(
-            "On save: publishing diagnostics for {} files",
-            all_diagnostics.len()
-        );
+        {
+            use tracing::Instrument;
+            let file_count = all_diagnostics.len();
+            async {
+                for (file_path, file_diagnostics) in all_diagnostics {
+                    let Ok(file_uri) = Uri::from_str(file_path.as_str()) else {
+                        tracing::warn!("Invalid URI in diagnostics: {}", file_path.as_str());
+                        continue;
+                    };
 
-        for (file_path, diagnostics) in all_diagnostics {
-            let Ok(file_uri) = Uri::from_str(file_path.as_str()) else {
-                tracing::warn!("Invalid URI in diagnostics: {}", file_path.as_str());
-                continue;
-            };
+                    let lsp_diagnostics: Vec<Diagnostic> = file_diagnostics
+                        .into_iter()
+                        .map(convert_ide_diagnostic)
+                        .collect();
 
-            let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-                .into_iter()
-                .map(convert_ide_diagnostic)
-                .collect();
-
-            self.client
-                .publish_diagnostics(file_uri, lsp_diagnostics, None)
-                .await;
+                    self.client
+                        .publish_diagnostics(file_uri, lsp_diagnostics, None)
+                        .await;
+                }
+            }
+            .instrument(tracing::info_span!("publish_diagnostics", file_count))
+            .await;
         }
     }
 
