@@ -138,11 +138,11 @@ operations like file changes, validation, and schema loading.
 
 #### VS Code Tracing Settings
 
-| Setting | Type | Default | Description |
-|---|---|---|---|
-| `debug.logLevel` | string | `warn` | Server log verbosity. Higher levels may impact performance on large codebases. |
-| `debug.otelEnabled` | boolean | `false` | Export traces via OpenTelemetry to an OTLP collector. |
-| `debug.otelEndpoint` | string | `http://localhost:4317` | OTLP collector gRPC endpoint. |
+| Setting              | Type    | Default                 | Description                                                                    |
+| -------------------- | ------- | ----------------------- | ------------------------------------------------------------------------------ |
+| `debug.logLevel`     | string  | `warn`                  | Server log verbosity. Higher levels may impact performance on large codebases. |
+| `debug.otelEnabled`  | boolean | `false`                 | Export traces via OpenTelemetry to an OTLP collector.                          |
+| `debug.otelEndpoint` | string  | `http://localhost:4317` | OTLP collector gRPC endpoint.                                                  |
 
 All settings are under the `graphql-analyzer` namespace.
 
@@ -191,14 +191,14 @@ services:
   jaeger:
     image: jaegertracing/all-in-one:latest
     ports:
-      - "4317:4317"   # OTLP gRPC
+      - "4317:4317" # OTLP gRPC
       - "16686:16686" # Jaeger UI
 ```
 
-| Port | Purpose |
-|---|---|
-| 4317 | OTLP gRPC ingestion (what graphql-analyzer connects to) |
-| 16686 | Jaeger UI for viewing traces |
+| Port  | Purpose                                                 |
+| ----- | ------------------------------------------------------- |
+| 4317  | OTLP gRPC ingestion (what graphql-analyzer connects to) |
+| 16686 | Jaeger UI for viewing traces                            |
 
 To stop Jaeger: `docker stop jaeger && docker rm jaeger` (or `podman`).
 

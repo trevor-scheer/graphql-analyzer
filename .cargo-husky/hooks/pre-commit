@@ -17,10 +17,10 @@ if git diff --cached --name-only | grep -qE '\.(rs|toml)$'; then
     cargo clippy --workspace --all-targets --all-features
 fi
 
-# Lint VSCode extension if its files are staged
-if git diff --cached --name-only | grep -q "^editors/vscode/"; then
-    echo '+(cd editors/vscode && npm run lint)'
-    (cd editors/vscode && npm run lint)
+# Lint TS/JS files if any are staged
+if git diff --cached --name-only | grep -qE '\.(ts|tsx|js|jsx)$'; then
+    echo '+npm run lint'
+    npm run lint
 fi
 
 # Check formatting with oxfmt for supported file types

@@ -61,7 +61,10 @@ export function registerTestOtelCommand(outputChannel: OutputChannel): Disposabl
         "Open Settings",
       );
       if (choice) {
-        commands.executeCommand("workbench.action.openSettings", "graphql-analyzer.debug.otelEnabled");
+        commands.executeCommand(
+          "workbench.action.openSettings",
+          "graphql-analyzer.debug.otelEnabled",
+        );
       }
       return;
     }

@@ -33,7 +33,12 @@ import {
   Position as LspPosition,
 } from "vscode-languageclient/node";
 import { findServerBinary } from "./binaryManager";
-import { getOtelConfig, buildOtelEnv, registerOtelConfigListener, registerTestOtelCommand } from "./otel";
+import {
+  getOtelConfig,
+  buildOtelEnv,
+  registerOtelConfigListener,
+  registerTestOtelCommand,
+} from "./otel";
 
 // =============================================================================
 // LSP Command Arguments: Why Custom Commands Are Required
