@@ -67,7 +67,10 @@ fn init_tracing_with_otel() -> bool {
     // for quiet stderr output, while the OTEL layer always captures info-level
     // spans so traces flow to the collector regardless of log verbosity.
     let fmt_filter = build_env_filter("warn");
-    let otel_filter = build_env_filter("info");
+    // The OTEL filter ignores RUST_LOG -- it always captures info-level spans.
+    // RUST_LOG controls stderr verbosity, not trace export.
+    let otel_filter =
+        tracing_subscriber::EnvFilter::new("info,salsa=off");
 
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
