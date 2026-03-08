@@ -40,6 +40,10 @@ fn init_tracing_with_otel() -> bool {
         .with_endpoint(&otlp_endpoint)
         .build()
     else {
+        eprintln!(
+            "Failed to build OTLP exporter for endpoint: {otlp_endpoint}. \
+             Check that the endpoint URL is valid."
+        );
         return false;
     };
 
@@ -68,7 +72,14 @@ fn init_tracing_with_otel() -> bool {
         return false;
     }
 
-    eprintln!("Initialized OpenTelemetry tracing (endpoint: {otlp_endpoint})");
+    // The OTLP exporter connects lazily on first span export, so we can't
+    // verify connectivity at init time. Connection failures will surface as
+    // warnings from the opentelemetry SDK during export.
+    eprintln!("OpenTelemetry tracing enabled (endpoint: {otlp_endpoint})");
+    eprintln!(
+        "Note: the OTLP exporter connects lazily. If no traces appear, \
+         verify the collector is running at the configured endpoint."
+    );
     opentelemetry::global::set_tracer_provider(provider);
     true
 }
@@ -83,7 +94,7 @@ fn init_tracing_without_otel() -> bool {
         .with_ansi(false) // Disable ANSI colors since LSP output doesn't support them
         .with_target(true) // Include module target in logs for better filtering
         .with_thread_ids(true) // Include thread IDs for async debugging
-        .with_env_filter(build_env_filter("info"))
+        .with_env_filter(build_env_filter("warn"))
         .try_init()
         .is_ok()
 }

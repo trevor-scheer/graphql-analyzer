@@ -295,26 +295,10 @@ Log levels: `error`, `warn`, `info`, `debug`, `trace`
 
 ### With OpenTelemetry Tracing
 
-Build with the `otel` feature for performance analysis:
-
-```bash
-cargo build --features otel --release
-```
-
-Run with tracing enabled:
-
-```bash
-# Start Jaeger
-docker run -d --name jaeger \
-  -p 4317:4317 \
-  -p 16686:16686 \
-  jaegertracing/all-in-one:latest
-
-# Run LSP with tracing
-OTEL_TRACES_ENABLED=1 ./target/release/graphql-lsp
-```
-
-View traces at [http://localhost:16686](http://localhost:16686)
+The LSP supports OpenTelemetry tracing for performance analysis. In VS Code,
+enable it via the `graphql-analyzer.debug.otel` setting. For CLI usage and
+Jaeger setup, see the [OpenTelemetry Tracing](../../DEVELOPMENT.md#opentelemetry-tracing)
+section in the Development Guide.
 
 ## LSP Protocol Implementation
 
