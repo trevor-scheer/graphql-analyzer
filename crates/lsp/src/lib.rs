@@ -69,8 +69,7 @@ fn init_tracing_with_otel() -> bool {
     let fmt_filter = build_env_filter("warn");
     // The OTEL filter ignores RUST_LOG -- it always captures info-level spans.
     // RUST_LOG controls stderr verbosity, not trace export.
-    let otel_filter =
-        tracing_subscriber::EnvFilter::new("info,salsa=off");
+    let otel_filter = tracing_subscriber::EnvFilter::new("info,salsa=off");
 
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
@@ -81,9 +80,7 @@ fn init_tracing_with_otel() -> bool {
 
     let telemetry_layer = telemetry_layer.with_filter(otel_filter);
 
-    let subscriber = Registry::default()
-        .with(fmt_layer)
-        .with(telemetry_layer);
+    let subscriber = Registry::default().with(fmt_layer).with(telemetry_layer);
 
     if tracing::subscriber::set_global_default(subscriber).is_err() {
         return false;
