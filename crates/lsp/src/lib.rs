@@ -29,6 +29,7 @@ fn init_tracing_with_otel() -> bool {
     use opentelemetry_otlp::WithExportConfig;
     use opentelemetry_sdk::trace::SdkTracerProvider;
     use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::Layer;
     use tracing_subscriber::Registry;
 
     let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
@@ -62,16 +63,22 @@ fn init_tracing_with_otel() -> bool {
 
     let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
-    let env_filter = build_env_filter("info");
+    // Per-layer filtering: the fmt layer respects RUST_LOG (defaulting to warn)
+    // for quiet stderr output, while the OTEL layer always captures info-level
+    // spans so traces flow to the collector regardless of log verbosity.
+    let fmt_filter = build_env_filter("warn");
+    let otel_filter = build_env_filter("info");
 
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
         .with_ansi(false)
         .with_target(true)
-        .with_thread_ids(true);
+        .with_thread_ids(true)
+        .with_filter(fmt_filter);
+
+    let telemetry_layer = telemetry_layer.with_filter(otel_filter);
 
     let subscriber = Registry::default()
-        .with(env_filter)
         .with(fmt_layer)
         .with(telemetry_layer);
 
