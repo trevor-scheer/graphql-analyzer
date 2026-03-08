@@ -46,7 +46,15 @@ fn init_tracing_with_otel() -> bool {
         return false;
     };
 
+    let resource = opentelemetry_sdk::Resource::builder()
+        .with_attribute(opentelemetry::KeyValue::new(
+            opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+            "graphql-analyzer",
+        ))
+        .build();
+
     let provider = SdkTracerProvider::builder()
+        .with_resource(resource)
         .with_batch_exporter(exporter)
         .build();
 

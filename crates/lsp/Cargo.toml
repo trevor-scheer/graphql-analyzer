@@ -52,6 +52,7 @@ tracing-opentelemetry = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
+opentelemetry-semantic-conventions = { workspace = true }
 
 # Temp files for TypeScript extraction
 tempfile = "3.0"
