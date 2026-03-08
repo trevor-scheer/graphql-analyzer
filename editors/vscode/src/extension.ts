@@ -33,6 +33,12 @@ import {
   Position as LspPosition,
 } from "vscode-languageclient/node";
 import { findServerBinary } from "./binaryManager";
+import {
+  getOtelConfig,
+  buildOtelEnv,
+  registerOtelConfigListener,
+  registerTestOtelCommand,
+} from "./otel";
 
 // =============================================================================
 // LSP Command Arguments: Why Custom Commands Are Required
@@ -340,12 +346,18 @@ function syncTraceLevel(): void {
 async function startLanguageServer(context: ExtensionContext): Promise<void> {
   const config = workspace.getConfiguration("graphql-analyzer");
   const customPath = config.get<string>("server.path");
-  const logLevel = config.get<string>("debug.logLevel") || "info";
+  const logLevel = config.get<string>("debug.logLevel") || "warn";
+  const otel = getOtelConfig();
 
   const serverBinary = await findServerBinary(context, outputChannel, customPath);
   outputChannel.appendLine(`Using GraphQL LSP server: ${serverBinary}`);
 
   const serverEnv = config.get<Record<string, string>>("server.env") || {};
+  const otelEnv = buildOtelEnv(otel);
+
+  if (otel.enabled) {
+    outputChannel.appendLine(`OpenTelemetry tracing enabled (endpoint: ${otel.endpoint})`);
+  }
 
   const run: Executable = {
     command: serverBinary,
@@ -353,6 +365,7 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
       env: {
         ...process.env,
         RUST_LOG: process.env.RUST_LOG || logLevel,
+        ...otelEnv,
         ...serverEnv,
       },
     },
@@ -558,9 +571,15 @@ export async function activate(context: ExtensionContext) {
           startHealthCheck();
         }
       }),
+      registerOtelConfigListener(),
     );
 
-    context.subscriptions.push(reloadCommand, showReferencesCommand, reportIssueCommand);
+    context.subscriptions.push(
+      reloadCommand,
+      showReferencesCommand,
+      reportIssueCommand,
+      registerTestOtelCommand(outputChannel),
+    );
   } catch (error) {
     const errorMessage = `Failed to start graphql-analyzer: ${error}`;
     outputChannel.appendLine(errorMessage);

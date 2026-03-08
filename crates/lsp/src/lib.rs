@@ -22,14 +22,14 @@ fn build_env_filter(default: &str) -> tracing_subscriber::EnvFilter {
     tracing_subscriber::EnvFilter::new(filter_str)
 }
 
-/// Initialize tracing with OpenTelemetry support (when enabled).
+/// Initialize tracing with OpenTelemetry support.
 /// Returns true if tracing was initialized, false if already initialized.
-#[cfg(feature = "otel")]
 fn init_tracing_with_otel() -> bool {
     use opentelemetry::trace::TracerProvider;
     use opentelemetry_otlp::WithExportConfig;
     use opentelemetry_sdk::trace::SdkTracerProvider;
     use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::Layer;
     use tracing_subscriber::Registry;
 
     let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
@@ -40,10 +40,22 @@ fn init_tracing_with_otel() -> bool {
         .with_endpoint(&otlp_endpoint)
         .build()
     else {
+        eprintln!(
+            "Failed to build OTLP exporter for endpoint: {otlp_endpoint}. \
+             Check that the endpoint URL is valid."
+        );
         return false;
     };
 
+    let resource = opentelemetry_sdk::Resource::builder()
+        .with_attribute(opentelemetry::KeyValue::new(
+            opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+            "graphql-analyzer",
+        ))
+        .build();
+
     let provider = SdkTracerProvider::builder()
+        .with_resource(resource)
         .with_batch_exporter(exporter)
         .build();
 
@@ -51,24 +63,37 @@ fn init_tracing_with_otel() -> bool {
 
     let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
-    let env_filter = build_env_filter("info");
+    // Per-layer filtering: the fmt layer respects RUST_LOG (defaulting to warn)
+    // for quiet stderr output, while the OTEL layer always captures info-level
+    // spans so traces flow to the collector regardless of log verbosity.
+    let fmt_filter = build_env_filter("warn");
+    // The OTEL filter ignores RUST_LOG -- it always captures info-level spans.
+    // RUST_LOG controls stderr verbosity, not trace export.
+    let otel_filter = tracing_subscriber::EnvFilter::new("info,salsa=off");
 
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
         .with_ansi(false)
         .with_target(true)
-        .with_thread_ids(true);
+        .with_thread_ids(true)
+        .with_filter(fmt_filter);
 
-    let subscriber = Registry::default()
-        .with(env_filter)
-        .with(fmt_layer)
-        .with(telemetry_layer);
+    let telemetry_layer = telemetry_layer.with_filter(otel_filter);
+
+    let subscriber = Registry::default().with(fmt_layer).with(telemetry_layer);
 
     if tracing::subscriber::set_global_default(subscriber).is_err() {
         return false;
     }
 
-    eprintln!("Initialized OpenTelemetry tracing (endpoint: {otlp_endpoint})");
+    // The OTLP exporter connects lazily on first span export, so we can't
+    // verify connectivity at init time. Connection failures will surface as
+    // warnings from the opentelemetry SDK during export.
+    eprintln!("OpenTelemetry tracing enabled (endpoint: {otlp_endpoint})");
+    eprintln!(
+        "Note: the OTLP exporter connects lazily. If no traces appear, \
+         verify the collector is running at the configured endpoint."
+    );
     opentelemetry::global::set_tracer_provider(provider);
     true
 }
@@ -83,27 +108,23 @@ fn init_tracing_without_otel() -> bool {
         .with_ansi(false) // Disable ANSI colors since LSP output doesn't support them
         .with_target(true) // Include module target in logs for better filtering
         .with_thread_ids(true) // Include thread IDs for async debugging
-        .with_env_filter(build_env_filter("info"))
+        .with_env_filter(build_env_filter("warn"))
         .try_init()
         .is_ok()
 }
 
 /// Initialize tracing for the LSP server.
 ///
-/// When the `otel` feature is enabled and `OTEL_TRACES_ENABLED` is set,
-/// traces will be sent to an OpenTelemetry collector. Otherwise, logs
-/// are written to stderr.
+/// When `OTEL_TRACES_ENABLED` is set, traces will be sent to an
+/// OpenTelemetry collector. Otherwise, logs are written to stderr.
 ///
 /// This function is safe to call even if tracing has already been initialized
 /// (e.g., when running as `graphql lsp` subcommand). It will simply skip
 /// initialization if a global subscriber is already set.
 pub fn init_tracing() {
-    #[cfg(feature = "otel")]
-    {
-        if std::env::var("OTEL_TRACES_ENABLED").is_ok() {
-            init_tracing_with_otel();
-            return;
-        }
+    if std::env::var("OTEL_TRACES_ENABLED").is_ok() {
+        init_tracing_with_otel();
+        return;
     }
 
     init_tracing_without_otel();

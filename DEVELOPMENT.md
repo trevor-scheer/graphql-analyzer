@@ -122,18 +122,115 @@ RUST_LOG=graphql_lsp=debug,graphql_analysis=info target/debug/graphql-lsp
 
 ### OpenTelemetry Tracing
 
+graphql-analyzer supports [OpenTelemetry](https://opentelemetry.io/) tracing
+for diagnosing performance issues. Traces provide detailed timing data for LSP
+operations like file changes, validation, and schema loading.
+
+#### VS Code
+
+1. Start a collector (see [Running Jaeger](#running-jaeger) below)
+2. Enable OTEL in VS Code settings:
+   - Set `graphql-analyzer.debug.otelEnabled` to `true`
+   - Optionally adjust `graphql-analyzer.debug.otelEndpoint` (default: `http://localhost:4317`)
+3. Restart the language server (Command Palette: "graphql-analyzer: Restart Language Server")
+4. Use the "graphql-analyzer: Test OpenTelemetry Connection" command to verify connectivity
+5. Open [http://localhost:16686](http://localhost:16686) to view traces
+
+#### VS Code Tracing Settings
+
+| Setting              | Type    | Default                 | Description                                                                    |
+| -------------------- | ------- | ----------------------- | ------------------------------------------------------------------------------ |
+| `debug.logLevel`     | string  | `warn`                  | Server log verbosity. Higher levels may impact performance on large codebases. |
+| `debug.otelEnabled`  | boolean | `false`                 | Export traces via OpenTelemetry to an OTLP collector.                          |
+| `debug.otelEndpoint` | string  | `http://localhost:4317` | OTLP collector gRPC endpoint.                                                  |
+
+All settings are under the `graphql-analyzer` namespace.
+
+#### CLI
+
 ```bash
-# Build with tracing support
-cargo build --features otel
-
-# Start Jaeger
-docker run -d --name jaeger -p 4317:4317 -p 16686:16686 jaegertracing/all-in-one:latest
-
 # Run with tracing enabled
 OTEL_TRACES_ENABLED=1 target/debug/graphql-lsp
 
-# View traces at http://localhost:16686
+# Custom endpoint
+OTEL_TRACES_ENABLED=1 \
+  OTEL_EXPORTER_OTLP_ENDPOINT=http://my-collector:4317 \
+  target/debug/graphql-lsp
+
+# Combine with log level control
+RUST_LOG=info OTEL_TRACES_ENABLED=1 target/debug/graphql-lsp
 ```
+
+#### Running Jaeger
+
+[Jaeger](https://www.jaegertracing.io/) is an open-source tracing backend that
+works out of the box with graphql-analyzer's OTLP export.
+
+**Docker:**
+
+```bash
+docker run -d --name jaeger \
+  -p 4317:4317 \
+  -p 16686:16686 \
+  jaegertracing/all-in-one:latest
+```
+
+**Podman:**
+
+```bash
+podman run -d --name jaeger \
+  -p 4317:4317 \
+  -p 16686:16686 \
+  docker.io/jaegertracing/all-in-one:latest
+```
+
+**Docker Compose:**
+
+```yaml
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "16686:16686" # Jaeger UI
+```
+
+| Port  | Purpose                                                 |
+| ----- | ------------------------------------------------------- |
+| 4317  | OTLP gRPC ingestion (what graphql-analyzer connects to) |
+| 16686 | Jaeger UI for viewing traces                            |
+
+To stop Jaeger: `docker stop jaeger && docker rm jaeger` (or `podman`).
+
+#### Log Levels and Performance
+
+The default log level is `warn`, which has negligible overhead even on large
+codebases (10k+ files). Setting the level to `info` or `debug` activates text
+log formatting for all instrumented functions, which can noticeably impact
+performance during initial load and file changes.
+
+For performance investigation, use OTEL tracing (which batches and exports
+asynchronously) rather than increasing the log level. To debug a specific
+module without global overhead:
+
+```bash
+RUST_LOG=warn,graphql_lsp::server=debug target/debug/graphql-lsp
+```
+
+#### Interpreting Traces
+
+In Jaeger UI, look for the `graphql-analyzer` service. Key spans:
+
+- **`did_change`** -- Triggered on every edit. Shows time in change application and re-validation.
+- **`did_save`** -- Triggered on file save. Includes cross-file diagnostics.
+- **`validate_file_with_snapshot`** -- Core validation path (parsing, HIR, analysis).
+- **`load_workspace_config`** -- Initial project loading (config, file discovery, introspection).
+
+#### Troubleshooting
+
+- **No traces appearing:** Run "graphql-analyzer: Test OpenTelemetry Connection" to verify the collector is reachable. Check the "graphql-analyzer Debug" output channel for OTEL messages. Ensure the server was restarted after enabling OTEL.
+- **Collector not reachable:** Verify the container is running (`docker ps`). Check port 4317 is free.
+- **High overhead:** Check if `debug.logLevel` is `info` or `debug` -- text log formatting is typically the bottleneck, not OTEL.
 
 ## Project Structure
 

@@ -1,4 +1,4 @@
 {
   "graphql-analyzer.server.path": "../target/debug/graphql-lsp",
-  "graphql-analyzer.debug.logLevel": "debug"
+  "graphql-analyzer.debug.otelEnabled": true
 }
