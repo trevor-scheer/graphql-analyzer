@@ -296,7 +296,7 @@ Log levels: `error`, `warn`, `info`, `debug`, `trace`
 ### With OpenTelemetry Tracing
 
 The LSP supports OpenTelemetry tracing for performance analysis. In VS Code,
-enable it via the `graphql-analyzer.debug.otel` setting. For CLI usage and
+enable it via the `graphql-analyzer.debug.otelEnabled` setting. For CLI usage and
 Jaeger setup, see the [OpenTelemetry Tracing](../../DEVELOPMENT.md#opentelemetry-tracing)
 section in the Development Guide.
 
@@ -525,8 +525,8 @@ cargo build --package graphql-lsp --release
 # Run with logging
 RUST_LOG=debug cargo run --package graphql-lsp 2> lsp.log
 
-# Build with OpenTelemetry
-cargo build --package graphql-lsp --features otel
+# Run with OpenTelemetry tracing
+OTEL_TRACES_ENABLED=1 cargo run --package graphql-lsp
 ```
 
 ## License
