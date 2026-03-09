@@ -86,6 +86,7 @@ For multi-project setups and advanced configuration, see the **[Configuration Gu
 | [CLI](crates/cli/README.md)                   | Commands, CI/CD integration, output formats |
 | [LSP Server](crates/lsp/README.md)            | Editor integration, Neovim setup, debugging |
 | [MCP Server](crates/mcp/README.md)            | AI agent integration for Claude and others  |
+| [Claude Code Plugin](.claude-plugin/plugins/graphql-lsp/README.md) | GraphQL LSP plugin for Claude Code          |
 | [Development Guide](DEVELOPMENT.md)           | Building from source, testing, contributing |
 
 ## License
