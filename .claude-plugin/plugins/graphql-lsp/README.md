@@ -54,47 +54,7 @@ graphql-lsp --version
 
 ## Configure your project
 
-### 1. Add a `.graphqlrc.yaml`
-
-Create a `.graphqlrc.yaml` (or `.graphqlrc.yml`, `.graphqlrc.json`) in your project root:
-
-```yaml
-# Single project
-schema: schema.graphql
-documents: "src/**/*.{graphql,ts,tsx}"
-```
-
-For multi-project workspaces:
-
-```yaml
-projects:
-  web:
-    schema: packages/web/schema.graphql
-    documents: "packages/web/src/**/*.{graphql,tsx}"
-  api:
-    schema: packages/api/schema.graphql
-    documents: "packages/api/src/**/*.graphql"
-```
-
-Remote schemas are also supported:
-
-```yaml
-schema: https://api.example.com/graphql
-documents: "src/**/*.{graphql,ts,tsx}"
-```
-
-### 2. Configure linting (optional)
-
-```yaml
-schema: schema.graphql
-documents: "src/**/*.{graphql,ts,tsx}"
-extensions:
-  lint:
-    extends: recommended
-    rules:
-      noDeprecated: warn
-      uniqueNames: error
-```
+The LSP requires a `.graphqlrc.yaml` (or `.graphqlrc.yml`, `.graphqlrc.json`) in your project root. See the [Configuration Guide](https://github.com/trevor-scheer/graphql-analyzer/blob/main/crates/config/README.md) for setup instructions, and the [LSP Server docs](https://github.com/trevor-scheer/graphql-analyzer/blob/main/crates/lsp/README.md) for LSP-specific configuration.
 
 ## What you get
 
@@ -108,14 +68,4 @@ Once installed and configured, Claude Code will use the GraphQL LSP to provide:
 
 ## Troubleshooting
 
-**LSP not starting?** Make sure `graphql-lsp` is on your `PATH` and that a `.graphqlrc.yaml` exists at your project root.
-
-**No diagnostics?** Check that your `documents` glob pattern matches your file locations.
-
-**Embedded GraphQL not detected?** The LSP recognizes `gql` and `graphql` tag functions from known modules like `graphql-tag` and `@apollo/client`. Add custom modules via:
-
-```yaml
-extensions:
-  extractConfig:
-    modules: ["graphql-tag", "your-custom-module"]
-```
+See the [LSP Server troubleshooting guide](https://github.com/trevor-scheer/graphql-analyzer/blob/main/crates/lsp/README.md#troubleshooting) for common issues.
