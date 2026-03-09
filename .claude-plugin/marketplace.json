@@ -9,8 +9,14 @@
   "plugins": [
     {
       "name": "graphql-lsp",
-      "description": "",
+      "description": "GraphQL LSP plugin powered by graphql-analyzer",
       "source": "./.claude-plugin/plugins/graphql-lsp",
+      "category": "development"
+    },
+    {
+      "name": "tsgo",
+      "description": "TypeScript native LSP plugin powered by tsgo",
+      "source": "./.claude-plugin/plugins/tsgo",
       "category": "development"
     }
   ]
