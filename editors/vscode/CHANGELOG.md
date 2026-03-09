@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.1.9 (2026-03-09)
+
+### Features
+
+- Add VSCode settings for OpenTelemetry tracing and reduce default log level to warn for better performance on large codebases. OTEL dependencies are now always included (no longer behind a cargo feature flag). ([#724](https://github.com/trevor-scheer/graphql-analyzer/pull/724))
+
 ## 0.1.8 (2026-03-06)
 
 ### Features
