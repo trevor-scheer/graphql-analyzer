@@ -6,17 +6,17 @@ This is the test workspace for the GraphQL Analyzer project. It contains sample 
 
 Each subdirectory is a separate GraphQL project configured in `.graphqlrc.yaml`:
 
-| Project                  | Purpose                                    |
-| ------------------------ | ------------------------------------------ |
-| `pokemon/`               | Basic schema + operations with Apollo      |
-| `starwars/`              | Basic schema + operations with Apollo      |
-| `github/`                | Multi-file schema with TS documents        |
-| `countries/`             | Remote schema via introspection            |
-| `apollo-app/`            | Client schema extensions                   |
-| `relay-app/`             | Relay-style project                        |
-| `schema-extensions/`     | Schema with extension files                |
-| `misconfigured-schema/`  | Intentionally broken config (missing files)|
-| `misconfigured-documents/` | Intentionally broken config (missing files)|
+| Project                    | Purpose                                     |
+| -------------------------- | ------------------------------------------- |
+| `pokemon/`                 | Basic schema + operations with Apollo       |
+| `starwars/`                | Basic schema + operations with Apollo       |
+| `github/`                  | Multi-file schema with TS documents         |
+| `countries/`               | Remote schema via introspection             |
+| `apollo-app/`              | Client schema extensions                    |
+| `relay-app/`               | Relay-style project                         |
+| `schema-extensions/`       | Schema with extension files                 |
+| `misconfigured-schema/`    | Intentionally broken config (missing files) |
+| `misconfigured-documents/` | Intentionally broken config (missing files) |
 
 ## LSP Plugin
 

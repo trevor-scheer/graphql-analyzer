@@ -30,13 +30,13 @@ The plugin requires the `graphql-lsp` binary to be installed and available on yo
 
 Download the latest binary for your platform from the [releases page](https://github.com/trevor-scheer/graphql-analyzer/releases) (look for the `graphql-analyzer-lsp` release):
 
-| Platform              | Asset                                       |
-| --------------------- | ------------------------------------------- |
-| macOS (Apple Silicon)  | `graphql-lsp-aarch64-apple-darwin.tar.xz`   |
-| macOS (Intel)          | `graphql-lsp-x86_64-apple-darwin.tar.xz`    |
-| Linux (x86_64)         | `graphql-lsp-x86_64-unknown-linux-gnu.tar.xz` |
-| Linux (ARM64)          | `graphql-lsp-aarch64-unknown-linux-gnu.tar.xz` |
-| Windows                | `graphql-lsp-x86_64-pc-windows-msvc.zip`    |
+| Platform              | Asset                                          |
+| --------------------- | ---------------------------------------------- |
+| macOS (Apple Silicon) | `graphql-lsp-aarch64-apple-darwin.tar.xz`      |
+| macOS (Intel)         | `graphql-lsp-x86_64-apple-darwin.tar.xz`       |
+| Linux (x86_64)        | `graphql-lsp-x86_64-unknown-linux-gnu.tar.xz`  |
+| Linux (ARM64)         | `graphql-lsp-aarch64-unknown-linux-gnu.tar.xz` |
+| Windows               | `graphql-lsp-x86_64-pc-windows-msvc.zip`       |
 
 Extract the binary and place it somewhere on your `PATH`:
 
