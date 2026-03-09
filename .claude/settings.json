@@ -126,7 +126,7 @@
   },
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": true,
-    "graphql-lsp@graphql-analyzer": true,
+    "graphql-lsp@graphql-analyzer": false,
     "tsgo@graphql-analyzer": true
   }
 }
