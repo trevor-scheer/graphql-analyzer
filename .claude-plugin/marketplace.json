@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "graphql-analyzer",
+  "version": "1.0.0",
+  "owner": {
+    "name": "Trevor Scheer",
+    "email": "trevor.scheer@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "graphql-lsp",
+      "description": "",
+      "source": "./.claude-plugin/plugins/graphql-lsp",
+      "category": "development"
+    }
+  ]
+}

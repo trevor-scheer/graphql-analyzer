@@ -1,7 +1,4 @@
 {
-  "enabledPlugins": {
-    "rust-analyzer-lsp@claude-plugins-official": true
-  },
   "permissions": {
     "allow": [
       "Bash(cargo clippy:*)",
@@ -48,7 +45,9 @@
       "mcp__ide__getDefinition",
       "mcp__ide__getReferences"
     ],
-    "deny": ["Edit(.github/workflows/release.yml)"]
+    "deny": [
+      "Edit(.github/workflows/release.yml)"
+    ]
   },
   "hooks": {
     "SessionStart": [
@@ -126,5 +125,9 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "graphql-lsp@graphql-analyzer": true
   }
 }
