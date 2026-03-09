@@ -46,12 +46,6 @@ tar -xJf graphql-lsp-*.tar.xz
 mv graphql-lsp ~/.local/bin/
 ```
 
-### Via Cargo
-
-```sh
-cargo install graphql-lsp
-```
-
 ### Verify installation
 
 ```sh
