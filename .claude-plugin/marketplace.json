@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "graphql-analyzer",
+  "version": "1.0.0",
+  "owner": {
+    "name": "Trevor Scheer",
+    "email": "trevor.scheer@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "graphql-lsp",
+      "description": "GraphQL LSP plugin powered by graphql-analyzer",
+      "source": "./.claude-plugin/plugins/graphql-lsp",
+      "category": "development"
+    },
+    {
+      "name": "tsgo",
+      "description": "TypeScript native LSP plugin powered by tsgo",
+      "source": "./.claude-plugin/plugins/tsgo",
+      "category": "development"
+    }
+  ]
+}

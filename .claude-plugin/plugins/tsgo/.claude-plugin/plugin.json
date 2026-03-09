@@ -1,0 +1,21 @@
+{
+  "name": "tsgo",
+  "description": "TypeScript native LSP plugin powered by tsgo",
+  "version": "0.1.1",
+  "lspServers": {
+    "tsgo": {
+      "command": "npx",
+      "args": ["tsgo", "--lsp", "-stdio"],
+      "extensionToLanguage": {
+        ".ts": "typescript",
+        ".tsx": "typescriptreact",
+        ".js": "javascript",
+        ".jsx": "javascriptreact",
+        ".mts": "typescript",
+        ".cts": "typescript",
+        ".mjs": "javascript",
+        ".cjs": "javascript"
+      }
+    }
+  }
+}
