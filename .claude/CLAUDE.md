@@ -144,20 +144,46 @@ gh issue view 123 --repo trevor-scheer/graphql-analyzer
 - Don't create markdown files unless asked
 - Don't manually edit `.github/workflows/release.yml` (enforced by deny rule + hook)
 
-### rust-analyzer LSP
+### LSP Tool
 
-The rust-analyzer LSP plugin is enabled for this project. Use it proactively:
+This project has **rust-analyzer** (Rust) and **tsgo** (TypeScript) LSP plugins enabled via the `LSP` tool. The LSP tool is a deferred tool — you must load it with `ToolSearch` before first use each session.
 
-- **After editing Rust files**, check `mcp__ide__getDiagnostics` for compiler errors before running `cargo build` or `cargo check`. This is faster and catches issues immediately.
-- **When exploring unfamiliar code**, use `mcp__ide__getHoverInfo` to inspect types and signatures, and `mcp__ide__getDefinition` to jump to definitions.
-- **When refactoring**, use `mcp__ide__getReferences` to find all usages before renaming or modifying code.
-- **Prefer LSP tools over cargo commands** for quick feedback during iterative editing. Reserve `cargo build`/`cargo check`/`cargo clippy` for final validation before commits.
+**Discovery step (do this early in each session):**
+
+```
+ToolSearch query: "select:LSP"
+```
+
+Then call `LSP` with any operation to see all available commands. The tool supports: `goToDefinition`, `findReferences`, `hover`, `documentSymbol`, `workspaceSymbol`, `goToImplementation`, `prepareCallHierarchy`, `incomingCalls`, `outgoingCalls`.
+
+**Prefer the LSP tool over Grep/Glob for code navigation:**
+
+- **Finding definitions** → `LSP goToDefinition` instead of grepping for `fn foo` or `function foo`
+- **Finding usages** → `LSP findReferences` instead of grepping for a symbol name
+- **Understanding types** → `LSP hover` instead of reading surrounding code
+- **Exploring a file's structure** → `LSP documentSymbol` instead of skimming the file
+- **Finding implementations** → `LSP goToImplementation` instead of grepping for `impl`
+- **Understanding call graphs** → `LSP incomingCalls`/`outgoingCalls` instead of manual tracing
+
+**When to use LSP vs other tools:**
+
+| Task                                 | Use                  | Not                   |
+| ------------------------------------ | -------------------- | --------------------- |
+| "What type is this variable?"        | `LSP hover`          | Reading code context  |
+| "Where is this defined?"             | `LSP goToDefinition` | `Grep` for the name   |
+| "Who calls this function?"           | `LSP incomingCalls`  | `Grep` for the name   |
+| "What's in this file?"               | `LSP documentSymbol` | `Read` entire file    |
+| "Find all usages before refactoring" | `LSP findReferences` | `Grep` for the name   |
+| "Search for a string/pattern"        | `Grep`               | LSP (not text search) |
+| "Find files by name"                 | `Glob`               | LSP (not file search) |
+
+**After editing Rust files**, check `mcp__ide__getDiagnostics` for compiler errors before running `cargo build` or `cargo check`. This is faster and catches issues immediately. Reserve `cargo build`/`cargo check`/`cargo clippy` for final validation before commits.
 
 ### Things to Always Do
 
 - Read relevant READMEs before starting
 - Use skills for guided workflows
-- Use rust-analyzer LSP tools for fast Rust feedback during editing
+- Load and use the `LSP` tool (via `ToolSearch`) for code navigation — prefer it over Grep/Glob for definitions, references, hover, and call hierarchy
 - Write tests for new functionality
 - Create changesets for user-facing changes
 - Build and test after changes
