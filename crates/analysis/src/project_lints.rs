@@ -163,8 +163,8 @@ pub fn find_unused_fragments(
 /// This is more efficient than `analyze_field_usage` for hover,
 /// which only needs usage info for one type at a time.
 ///
-/// Pre-filters files using `file_schema_coordinates` to skip files that
-/// don't reference the target type, avoiding project-wide iteration.
+/// Iterates all document files and walks each operation's selection set
+/// recursively (including fragment spreads) to find fields of the target type.
 #[salsa::tracked]
 #[allow(clippy::needless_pass_by_value)] // Arc<str> needed for Salsa tracking
 pub fn field_usage_for_type(
@@ -212,31 +212,9 @@ pub fn field_usage_for_type(
         })
         .collect();
 
-    // Pre-filter: only process operations from files whose schema coordinates
-    // reference the target type. file_schema_coordinates is cached per-file by
-    // Salsa, so unchanged files are free to query.
-    let relevant_file_ids: HashSet<graphql_base_db::FileId> = document_files
-        .iter()
-        .filter(|(file_id, content, metadata)| {
-            let coords = graphql_hir::file_schema_coordinates(
-                db,
-                *file_id,
-                *content,
-                *metadata,
-                project_files,
-            );
-            coords.iter().any(|c| c.type_name == type_name)
-        })
-        .map(|(file_id, _, _)| *file_id)
-        .collect();
-
     let all_fragments = graphql_hir::all_fragments(db, project_files);
 
-    // Only iterate operations from files that reference the target type.
     for (file_id, content, metadata) in &document_files {
-        if !relevant_file_ids.contains(file_id) {
-            continue;
-        }
         let file_ops = graphql_hir::file_operations(db, *file_id, *content, *metadata);
         for operation in file_ops.iter() {
             #[allow(clippy::match_same_arms)]
@@ -1072,6 +1050,200 @@ mod tests {
         assert!(
             unused_names.iter().any(|m| m.contains("OrphanB")),
             "OrphanB should be unused"
+        );
+    }
+
+    /// Regression test for #481: field_usage_for_type must count fields on
+    /// nested types even when the operation file doesn't directly reference the
+    /// type in its top-level selections. Previously a pre-filter skipped files
+    /// whose schema coordinates didn't mention the target type, causing hover
+    /// to show "0 operations (unused)" for nested fields.
+    #[test]
+    fn test_field_usage_for_type_counts_nested_types() {
+        let db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                type Query {
+                    user: User
+                }
+
+                type User {
+                    id: ID!
+                    name: String!
+                    email: String!
+                }
+                ",
+            ),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let doc_id = FileId::new(1);
+        let doc_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                query GetUser {
+                    user {
+                        id
+                        name
+                    }
+                }
+                ",
+            ),
+        );
+        let doc_metadata = FileMetadata::new(
+            &db,
+            doc_id,
+            FileUri::new("query.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let project_files = create_project_files(
+            &db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[(doc_id, doc_content, doc_metadata)],
+        );
+
+        db.set_project_files(Some(project_files));
+
+        let usages =
+            field_usage_for_type(&db, project_files, Arc::from("User"));
+
+        let id_usage = usages.get("id").expect("id field should exist");
+        assert_eq!(
+            id_usage.usage_count, 1,
+            "User.id should be used in 1 operation"
+        );
+        assert_eq!(id_usage.operations.len(), 1);
+
+        let name_usage = usages.get("name").expect("name field should exist");
+        assert_eq!(
+            name_usage.usage_count, 1,
+            "User.name should be used in 1 operation"
+        );
+
+        let email_usage = usages.get("email").expect("email field should exist");
+        assert_eq!(
+            email_usage.usage_count, 0,
+            "User.email should be unused"
+        );
+    }
+
+    /// Regression test for #481: field_usage_for_type must follow fragment
+    /// spreads into other files to count field usage correctly.
+    #[test]
+    fn test_field_usage_for_type_cross_file_fragments() {
+        let db = TestDatabase::default();
+
+        let schema_id = FileId::new(0);
+        let schema_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                type Query {
+                    user: User
+                }
+
+                type User {
+                    id: ID!
+                    name: String!
+                    email: String!
+                }
+                ",
+            ),
+        );
+        let schema_metadata = FileMetadata::new(
+            &db,
+            schema_id,
+            FileUri::new("schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // File 1: operation that uses a fragment from another file
+        let doc1_id = FileId::new(1);
+        let doc1_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                query GetUser {
+                    user {
+                        ...UserFields
+                    }
+                }
+                ",
+            ),
+        );
+        let doc1_metadata = FileMetadata::new(
+            &db,
+            doc1_id,
+            FileUri::new("query.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        // File 2: fragment definition on a different file
+        let doc2_id = FileId::new(2);
+        let doc2_content = FileContent::new(
+            &db,
+            Arc::from(
+                r"
+                fragment UserFields on User {
+                    id
+                    name
+                }
+                ",
+            ),
+        );
+        let doc2_metadata = FileMetadata::new(
+            &db,
+            doc2_id,
+            FileUri::new("fragment.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let project_files = create_project_files(
+            &db,
+            &[(schema_id, schema_content, schema_metadata)],
+            &[
+                (doc1_id, doc1_content, doc1_metadata),
+                (doc2_id, doc2_content, doc2_metadata),
+            ],
+        );
+
+        db.set_project_files(Some(project_files));
+
+        let usages =
+            field_usage_for_type(&db, project_files, Arc::from("User"));
+
+        let id_usage = usages.get("id").expect("id field should exist");
+        assert_eq!(
+            id_usage.usage_count, 1,
+            "User.id should be used in 1 operation via fragment"
+        );
+
+        let name_usage = usages.get("name").expect("name field should exist");
+        assert_eq!(
+            name_usage.usage_count, 1,
+            "User.name should be used in 1 operation via fragment"
+        );
+
+        let email_usage = usages.get("email").expect("email field should exist");
+        assert_eq!(
+            email_usage.usage_count, 0,
+            "User.email should be unused"
         );
     }
 
