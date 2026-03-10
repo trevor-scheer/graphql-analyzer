@@ -42,7 +42,7 @@ for extracted in result.documents {
 ### Extract from a String
 
 ```rust
-use graphql_extract::{extract_from_source, Language};
+use graphql_extract::{extract_from_source, ExtractConfig, Language};
 
 let source = r#"
 const query = gql`
@@ -52,7 +52,8 @@ const query = gql`
 `;
 "#;
 
-let result = extract_from_source(source, Language::TypeScript)?;
+let config = ExtractConfig::default();
+let result = extract_from_source(source, Language::TypeScript, &config, "file.ts")?;
 ```
 
 ### Auto-Detect Language from File Extension
@@ -255,17 +256,9 @@ This enables:
 
 Extracts GraphQL from a file using the default configuration.
 
-#### `extract_from_source(source: &str, language: Language) -> Result<ExtractionResult>`
+#### `extract_from_source(source: &str, language: Language, config: &ExtractConfig, path: &str) -> Result<ExtractionResult>`
 
-Extracts GraphQL from a source string using the default configuration.
-
-#### `extract_from_file_with_config(path: &str, config: &ExtractConfig) -> Result<ExtractionResult>`
-
-Extracts GraphQL from a file using a custom configuration.
-
-#### `extract_from_source_with_config(source: &str, config: &ExtractConfig) -> Result<ExtractionResult>`
-
-Extracts GraphQL from a source string using a custom configuration.
+Extracts GraphQL from a source string. The `path` is used in error messages and SWC diagnostics.
 
 ### Types
 

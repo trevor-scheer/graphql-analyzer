@@ -235,13 +235,13 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -
     );
 
     let language = Language::TypeScript;
-    let extracted = match extract_from_source(content, language, &config) {
+    let extracted = match extract_from_source(content, language, &config, uri) {
         Ok(blocks) => {
             tracing::debug!(blocks_extracted = blocks.len(), "Extraction successful");
             blocks
         }
         Err(e) => {
-            tracing::error!(error = ?e, "Extraction failed");
+            tracing::error!(path = uri, error = ?e, "Extraction failed");
             Vec::new()
         }
     };

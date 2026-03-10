@@ -134,12 +134,17 @@ impl CliAnalysisHost {
                 // For TS/JS files, extract GraphQL first
                 let graphql_content = if language.requires_extraction() {
                     let extract_config = graphql_extract::ExtractConfig::default();
-                    graphql_extract::extract_from_source(content, language, &extract_config)
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|block| block.source.as_str())
-                        .collect::<Vec<_>>()
-                        .join("\n")
+                    graphql_extract::extract_from_source(
+                        content,
+                        language,
+                        &extract_config,
+                        &path.display().to_string(),
+                    )
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|block| block.source.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n")
                 } else {
                     content.clone()
                 };
