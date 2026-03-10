@@ -8979,4 +8979,68 @@ directive @skip(if: Boolean!) on FIELD"#,
         let help = snapshot.signature_help(&path, Position::new(0, 0));
         assert!(help.is_none());
     }
+
+    #[test]
+    fn test_discover_document_files_skips_ts_without_graphql() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let src_dir = temp_dir.path().join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+
+        // TS file WITH GraphQL
+        std::fs::write(
+            src_dir.join("with-graphql.ts"),
+            r#"
+import { gql } from '@apollo/client';
+const query = gql`
+  query GetUser {
+    user { id name }
+  }
+`;
+"#,
+        )
+        .unwrap();
+
+        // TS file WITHOUT GraphQL
+        std::fs::write(
+            src_dir.join("no-graphql.ts"),
+            r#"
+export function add(a: number, b: number): number {
+  return a + b;
+}
+"#,
+        )
+        .unwrap();
+
+        // Plain .graphql file
+        std::fs::write(
+            src_dir.join("query.graphql"),
+            "query GetUser { user { id } }",
+        )
+        .unwrap();
+
+        let config = graphql_config::ProjectConfig {
+            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            documents: Some(graphql_config::DocumentsConfig::Patterns(vec![
+                "src/**/*.ts".to_string(),
+                "src/**/*.graphql".to_string(),
+            ])),
+            include: None,
+            exclude: None,
+            extensions: None,
+        };
+
+        let result = discover_document_files(&config, temp_dir.path());
+
+        // Should only discover files that actually contain GraphQL:
+        // - with-graphql.ts (has gql tag)
+        // - query.graphql (pure GraphQL file)
+        // NOT no-graphql.ts (no GraphQL content)
+        assert_eq!(
+            result.files.len(),
+            2,
+            "Expected 2 files (1 TS with GraphQL + 1 .graphql), got {}. Files: {:?}",
+            result.files.len(),
+            result.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>()
+        );
+    }
 }
