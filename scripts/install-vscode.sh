@@ -105,7 +105,7 @@ URL="https://github.com/${REPO}/releases/download/graphql-analyzer-vscode/v${VER
 echo "Downloading extension..."
 
 TMP_DIR=$(mktemp -d)
-trap "rm -rf $TMP_DIR" EXIT
+trap 'rm -rf "$TMP_DIR"' EXIT
 
 VSIX_PATH="$TMP_DIR/graphql-analyzer.vsix"
 
