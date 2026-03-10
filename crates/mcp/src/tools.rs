@@ -3,7 +3,10 @@
 //! This module defines the tools exposed to AI agents via MCP.
 
 use crate::service::McpService;
-use crate::types::ValidateDocumentParams;
+use crate::types::{
+    DocumentSymbolsParams, FileDiagnosticsParams, FilePositionParams, FindReferencesParams,
+    ValidateDocumentParams, WorkspaceSymbolsParams,
+};
 use rmcp::handler::server::tool::{ToolCallContext, ToolRouter};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
@@ -167,6 +170,174 @@ impl GraphQLToolRouter {
         let json = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
+
+    #[tool(
+        name = "goto_definition",
+        description = "Go to the definition of a GraphQL symbol (type, field, fragment, etc.) at a given position in a loaded project file. Returns JSON with {locations[{file, range}], count}."
+    )]
+    pub async fn goto_definition(
+        &self,
+        params: Parameters<FilePositionParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let service = self.service.lock().await;
+        let result = service.goto_definition(
+            &params.0.file_path,
+            params.0.line,
+            params.0.character,
+            params.0.project.as_deref(),
+        );
+        match result {
+            Some(locations) => {
+                let json = serde_json::to_string(&locations).unwrap_or_else(|_| "{}".to_string());
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            None => Ok(CallToolResult::success(vec![Content::text(
+                r#"{"locations":[],"count":0}"#,
+            )])),
+        }
+    }
+
+    #[tool(
+        name = "find_references",
+        description = "Find all references to a GraphQL symbol at a given position across the project. Returns JSON with {locations[{file, range}], count}."
+    )]
+    pub async fn find_references(
+        &self,
+        params: Parameters<FindReferencesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let service = self.service.lock().await;
+        let result = service.find_references(
+            &params.0.file_path,
+            params.0.line,
+            params.0.character,
+            params.0.include_declaration,
+            params.0.project.as_deref(),
+        );
+        match result {
+            Some(locations) => {
+                let json = serde_json::to_string(&locations).unwrap_or_else(|_| "{}".to_string());
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            None => Ok(CallToolResult::success(vec![Content::text(
+                r#"{"locations":[],"count":0}"#,
+            )])),
+        }
+    }
+
+    #[tool(
+        name = "hover",
+        description = "Get hover information (type details, documentation) for a GraphQL symbol at a given position. Returns JSON with {contents, range?} where contents is markdown."
+    )]
+    pub async fn hover(
+        &self,
+        params: Parameters<FilePositionParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let service = self.service.lock().await;
+        let result = service.hover(
+            &params.0.file_path,
+            params.0.line,
+            params.0.character,
+            params.0.project.as_deref(),
+        );
+        match result {
+            Some(hover) => {
+                let json = serde_json::to_string(&hover).unwrap_or_else(|_| "{}".to_string());
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            None => Ok(CallToolResult::success(vec![Content::text(
+                r#"{"contents":"No hover information available"}"#,
+            )])),
+        }
+    }
+
+    #[tool(
+        name = "document_symbols",
+        description = "Get all symbols (types, operations, fragments, fields) in a GraphQL file as a hierarchical outline. Returns JSON with {symbols[{name, kind, detail?, range, selection_range, children[]}], count}."
+    )]
+    pub async fn document_symbols(
+        &self,
+        params: Parameters<DocumentSymbolsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let service = self.service.lock().await;
+        let result = service.document_symbols(&params.0.file_path, params.0.project.as_deref());
+        match result {
+            Some(symbols) => {
+                let json = serde_json::to_string(&symbols).unwrap_or_else(|_| "{}".to_string());
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            None => Ok(CallToolResult::success(vec![Content::text(
+                r#"{"symbols":[],"count":0}"#,
+            )])),
+        }
+    }
+
+    #[tool(
+        name = "workspace_symbols",
+        description = "Search for GraphQL symbols across all files in the workspace. Returns JSON with {symbols[{name, kind, location, container_name?}], count}."
+    )]
+    pub async fn workspace_symbols(
+        &self,
+        params: Parameters<WorkspaceSymbolsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let service = self.service.lock().await;
+        let result = service.workspace_symbols(&params.0.query, params.0.project.as_deref());
+        match result {
+            Some(symbols) => {
+                let json = serde_json::to_string(&symbols).unwrap_or_else(|_| "{}".to_string());
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            None => Ok(CallToolResult::success(vec![Content::text(
+                r#"{"symbols":[],"count":0}"#,
+            )])),
+        }
+    }
+
+    #[tool(
+        name = "get_completions",
+        description = "Get completion suggestions at a position in a GraphQL file. Returns JSON with {items[{label, kind, detail?, documentation?, deprecated?}], count}."
+    )]
+    pub async fn get_completions(
+        &self,
+        params: Parameters<FilePositionParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let service = self.service.lock().await;
+        let result = service.completions(
+            &params.0.file_path,
+            params.0.line,
+            params.0.character,
+            params.0.project.as_deref(),
+        );
+        match result {
+            Some(completions) => {
+                let json = serde_json::to_string(&completions).unwrap_or_else(|_| "{}".to_string());
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            None => Ok(CallToolResult::success(vec![Content::text(
+                r#"{"items":[],"count":0}"#,
+            )])),
+        }
+    }
+
+    #[tool(
+        name = "get_file_diagnostics",
+        description = "Get diagnostics (errors, warnings) for a specific file in the loaded project. Returns JSON with {file, diagnostics[{severity, message, range?, rule?, fix?}]}."
+    )]
+    pub async fn get_file_diagnostics(
+        &self,
+        params: Parameters<FileDiagnosticsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let service = self.service.lock().await;
+        let result = service.file_diagnostics(&params.0.file_path, params.0.project.as_deref());
+        match result {
+            Some(diagnostics) => {
+                let json = serde_json::to_string(&diagnostics).unwrap_or_else(|_| "{}".to_string());
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            None => Ok(CallToolResult::success(vec![Content::text(
+                r#"{"file":"","diagnostics":[]}"#,
+            )])),
+        }
+    }
 }
 
 impl ServerHandler for GraphQLToolRouter {
@@ -179,7 +350,10 @@ impl ServerHandler for GraphQLToolRouter {
             .with_instructions(
                 "GraphQL MCP server providing schema-aware validation, linting, and code intelligence. \
                  Use validate_document to check if GraphQL operations are valid. \
-                 Use lint_document to get best practice suggestions.",
+                 Use lint_document to get best practice suggestions. \
+                 Use goto_definition, find_references, hover, document_symbols, workspace_symbols, \
+                 and get_completions for code navigation on loaded project files. \
+                 Use get_file_diagnostics for per-file diagnostics.",
             )
     }
 
