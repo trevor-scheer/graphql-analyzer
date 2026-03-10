@@ -33,6 +33,7 @@ fn collect_apollo_diagnostics(errors: &DiagnosticList) -> HashMap<Arc<str>, Vec<
                 .get(&file_id)
                 .map(|source_file| Arc::from(source_file.path().to_string_lossy().to_string()))
         }) else {
+            tracing::debug!(error = %apollo_diag.error, "Schema merge error without file location");
             continue;
         };
 
@@ -169,6 +170,9 @@ pub fn merged_schema_with_diagnostics(
                         error_count = with_errors.errors.len(),
                         "Schema validation errors found (schema still usable for document validation)"
                     );
+                    for apollo_diag in with_errors.errors.iter() {
+                        tracing::debug!(error = %apollo_diag.error, "Schema validation error");
+                    }
                     let diagnostics_by_file = collect_apollo_diagnostics(&with_errors.errors);
                     MergedSchemaResult {
                         schema: Some(Arc::new(with_errors.partial)),
@@ -182,6 +186,9 @@ pub fn merged_schema_with_diagnostics(
                 error_count = with_errors.errors.len(),
                 "Failed to merge schema due to build errors"
             );
+            for apollo_diag in with_errors.errors.iter() {
+                tracing::debug!(error = %apollo_diag.error, "Schema build error");
+            }
             let diagnostics_by_file = collect_apollo_diagnostics(&with_errors.errors);
             MergedSchemaResult {
                 schema: None,
