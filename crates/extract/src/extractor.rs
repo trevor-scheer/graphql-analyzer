@@ -78,7 +78,7 @@ pub fn extract_from_file(path: &Path, config: &ExtractConfig) -> Result<Vec<Extr
     tracing::trace!(language = ?language, "Detected language");
 
     let source = fs::read_to_string(path)?;
-    let result = extract_from_source(&source, language, config)?;
+    let result = extract_from_source(&source, language, config, &path.display().to_string())?;
     tracing::debug!(blocks_extracted = result.len(), "Extraction complete");
     Ok(result)
 }
@@ -89,6 +89,7 @@ pub fn extract_from_source(
     source: &str,
     language: Language,
     config: &ExtractConfig,
+    path: &str,
 ) -> Result<Vec<ExtractedGraphQL>> {
     match language {
         Language::GraphQL => {
@@ -108,7 +109,7 @@ pub fn extract_from_source(
             }])
         }
         Language::TypeScript | Language::JavaScript => {
-            extract_from_js_family(source, language, config)
+            extract_from_js_family(source, language, config, path)
         }
         _ => Err(ExtractError::UnsupportedLanguage(language)),
     }
@@ -119,6 +120,7 @@ fn extract_from_js_family(
     source: &str,
     language: Language,
     config: &ExtractConfig,
+    path: &str,
 ) -> Result<Vec<ExtractedGraphQL>> {
     use swc_common::sync::Lrc;
     use swc_common::{FileName, SourceMap};
@@ -128,7 +130,7 @@ fn extract_from_js_family(
 
     let source_map = Lrc::new(SourceMap::default());
     let source_file = source_map.new_source_file(
-        Lrc::new(FileName::Custom("input".into())),
+        Lrc::new(FileName::Custom(path.to_string())),
         source.to_string(),
     );
 
@@ -148,7 +150,7 @@ fn extract_from_js_family(
 
     let module = parse_file_as_module(&source_file, syntax, EsVersion::EsNext, None, &mut vec![])
         .map_err(|e| ExtractError::Parse {
-        path: std::path::PathBuf::from("input"),
+        path: std::path::PathBuf::from(path),
         message: format!("SWC parse error: {e:?}"),
     })?;
 
@@ -498,7 +500,7 @@ query GetUser {
 }
 ";
         let config = ExtractConfig::default();
-        let result = extract_from_source(source, Language::GraphQL, &config).unwrap();
+        let result = extract_from_source(source, Language::GraphQL, &config, "test").unwrap();
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].source, source);
@@ -536,7 +538,8 @@ const query = gql`
 `;
 ";
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             assert_eq!(result.len(), 1);
             assert!(result[0].source.contains("query GetUser"));
@@ -555,7 +558,8 @@ const query = gql`
 `;
 ";
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             // Should not extract because gql is not imported
             assert_eq!(result.len(), 0);
@@ -576,7 +580,8 @@ const query = gql`
                 allow_global_identifiers: true,
                 ..Default::default()
             };
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             // Should extract because global identifiers are allowed
             assert_eq!(result.len(), 1);
@@ -599,7 +604,8 @@ const QUERY = gql`
 `;
 ";
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             assert_eq!(result.len(), 1);
             assert!(result[0].source.contains("query GetPosts"));
@@ -616,7 +622,8 @@ const query2 = gql`query Q2 { field2 }`;
 const query3 = gql`mutation M1 { updateField }`;
 ";
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             assert_eq!(result.len(), 3);
             assert!(result[0].source.contains("query Q1"));
@@ -638,7 +645,8 @@ const query = graphql`
 `;
 ";
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             assert_eq!(result.len(), 1);
             assert!(result[0].source.contains("query GetData"));
@@ -659,7 +667,8 @@ const query = gql`
 `;
 ";
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::JavaScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::JavaScript, &config, "test").unwrap();
 
             assert_eq!(result.len(), 1);
             assert!(result[0].source.contains("query GetUser"));
@@ -686,7 +695,8 @@ function UserComponent({ userId }) {
 }
 ";
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             assert_eq!(result.len(), 1);
             assert!(result[0].source.contains("query GetUser"));
@@ -701,7 +711,8 @@ const query = customGql`query Custom { field }`;
 ";
             let mut config = ExtractConfig::default();
             config.tag_identifiers.push("customGql".to_string());
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             assert_eq!(result.len(), 1);
             assert!(result[0].source.contains("query Custom"));
@@ -716,7 +727,8 @@ import { gql } from 'unknown-module';
 const query = gql`query Test { field }`;
 ";
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             // Should not extract because module is not in the allowed list
             assert_eq!(result.len(), 0);
@@ -730,7 +742,8 @@ import gql from 'graphql-tag';
 const query = gql`query Test { field }`;
 ";
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             assert_eq!(result.len(), 1);
             assert!(result[0].source.contains("query Test"));
@@ -745,7 +758,8 @@ const q = query`query Test { field }`;
 ";
             let mut config = ExtractConfig::default();
             config.tag_identifiers.push("query".to_string());
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             assert_eq!(result.len(), 1);
             assert!(result[0].source.contains("query Test"));
@@ -762,7 +776,8 @@ class UserQuery {
 }
 ";
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             assert_eq!(result.len(), 1);
             assert!(result[0].source.contains("query GetUser"));
@@ -773,7 +788,7 @@ class UserQuery {
             let source = "import { gql } from 'graphql-tag'; const x = %%%invalid%%%";
 
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::TypeScript, &config);
+            let result = extract_from_source(source, Language::TypeScript, &config, "test");
 
             assert!(result.is_err());
             if let Err(ExtractError::Parse { message, .. }) = result {
@@ -803,7 +818,8 @@ const query = gql`
 `;
 ";
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             assert_eq!(result.len(), 1);
             assert!(result[0].source.contains("query GetUserWithPosts"));
@@ -835,7 +851,8 @@ const GET_USER = gql`
 `;
 ";
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             // Should extract both fragments (the second has an expression, but we can count them)
             assert!(!result.is_empty());
@@ -848,7 +865,8 @@ const GET_USER = gql`
 const q = gql`query Test { field }`;
 ";
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             assert_eq!(result.len(), 1);
             let location = &result[0].location;
@@ -876,7 +894,7 @@ const query = gql`query Test { field }`;
 
             for (lang, _filename) in test_cases {
                 let config = ExtractConfig::default();
-                let result = extract_from_source(source, lang, &config).unwrap();
+                let result = extract_from_source(source, lang, &config, "test").unwrap();
                 assert_eq!(result.len(), 1, "Failed for {lang:?}");
             }
         }
@@ -899,7 +917,8 @@ const document = graphql(`
 `, [fragment1, fragment2]);
 ";
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             // Should extract all three: both fragments and the query
             assert_eq!(result.len(), 3);
@@ -923,7 +942,8 @@ const document = graphql(`
 `);
 ";
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             // Should extract the query
             assert_eq!(result.len(), 1);
@@ -946,7 +966,8 @@ const document = gql(`
 `, []);
 ";
             let config = ExtractConfig::default();
-            let result = extract_from_source(source, Language::TypeScript, &config).unwrap();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             // Should extract the query
             assert_eq!(result.len(), 1);

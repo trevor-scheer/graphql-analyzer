@@ -206,7 +206,7 @@ pub fn discover_document_files(
                                             // Extract and concatenate all GraphQL blocks
                                             let config = graphql_extract::ExtractConfig::default();
                                             graphql_extract::extract_from_source(
-                                                &content, language, &config,
+                                                &content, language, &config, &path_str,
                                             )
                                             .unwrap_or_default()
                                             .iter()
@@ -1113,6 +1113,7 @@ impl AnalysisHost {
                                                 &content,
                                                 lang,
                                                 &extract_config,
+                                                &file_uri,
                                             ) {
                                                 Ok(blocks) => {
                                                     // Validate all blocks for executable definitions
@@ -5834,7 +5835,8 @@ export const GET_POKEMON = gql`
 
         // Test extraction works
         let config = ExtractConfig::default();
-        let result = extract_from_source(typescript_source, Language::TypeScript, &config);
+        let result =
+            extract_from_source(typescript_source, Language::TypeScript, &config, "test.ts");
 
         assert!(result.is_ok(), "Extraction should succeed");
         let blocks = result.unwrap();
