@@ -217,6 +217,13 @@ pub fn discover_document_files(
                                             content.clone()
                                         };
 
+                                        // Skip files that require extraction but contain no GraphQL
+                                        if language.requires_extraction()
+                                            && graphql_content.is_empty()
+                                        {
+                                            continue;
+                                        }
+
                                         // Check for schema definitions in document files
                                         if let Some(mismatch) =
                                             graphql_syntax::validate_content_matches_kind(
@@ -1393,6 +1400,19 @@ impl AnalysisHost {
                                             let path_str = path.display().to_string();
                                             let (language, document_kind) =
                                                 determine_document_file_kind(&path_str, &content);
+
+                                            // Skip files that require extraction but contain no GraphQL
+                                            if language.requires_extraction() {
+                                                let config =
+                                                    graphql_extract::ExtractConfig::default();
+                                                let blocks = graphql_extract::extract_from_source(
+                                                    &content, language, &config,
+                                                )
+                                                .unwrap_or_default();
+                                                if blocks.is_empty() {
+                                                    continue;
+                                                }
+                                            }
 
                                             let file_path = path_to_file_path(&path);
 
@@ -9040,7 +9060,11 @@ export function add(a: number, b: number): number {
             2,
             "Expected 2 files (1 TS with GraphQL + 1 .graphql), got {}. Files: {:?}",
             result.files.len(),
-            result.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>()
+            result
+                .files
+                .iter()
+                .map(|f| f.path.as_str())
+                .collect::<Vec<_>>()
         );
     }
 }
