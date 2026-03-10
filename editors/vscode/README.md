@@ -41,7 +41,11 @@ A VS Code extension that provides comprehensive GraphQL language support includi
 
 ### From VS Code Marketplace
 
-Coming soon - this extension will be published to the VS Code Marketplace.
+Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=graphql-analyzer.graphql-analyzer): search for "graphql-analyzer" in the Extensions view, or run:
+
+```bash
+code --install-extension graphql-analyzer.graphql-analyzer
+```
 
 ### From GitHub Release
 

@@ -12,6 +12,17 @@ This project draws heavy inspiration from [rust-analyzer](https://rust-analyzer.
 
 ### 1. Install the VS Code Extension
 
+Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=graphql-analyzer.graphql-analyzer): search for "graphql-analyzer" in the Extensions view, or run:
+
+```bash
+code --install-extension graphql-analyzer.graphql-analyzer
+```
+
+**Alternative: install from GitHub Release**
+
+<details>
+<summary>macOS / Linux / Windows scripts</summary>
+
 **macOS / Linux:**
 
 ```sh
@@ -25,6 +36,8 @@ irm https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/script
 ```
 
 Or download the `.vsix` from the [releases page](https://github.com/trevor-scheer/graphql-analyzer/releases) and install via `code --install-extension <file>.vsix`.
+
+</details>
 
 ### 2. Configure Your Project
 
