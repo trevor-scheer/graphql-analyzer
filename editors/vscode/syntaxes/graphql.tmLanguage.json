@@ -56,7 +56,7 @@
       ]
     },
     "graphql-query-mutation": {
-      "match": "\\s*\\b(query|mutation)\\b",
+      "match": "\\s*\\b(query|mutation|subscription)\\b",
       "captures": { "1": { "name": "keyword.operation.graphql" } }
     },
     "graphql-type-interface": {
@@ -175,26 +175,9 @@
       ]
     },
     "graphql-comment": {
-      "patterns": [
-        {
-          "comment": "need to prefix comment space with a scope else Atom's reflow cmd doesn't work",
-          "name": "comment.line.graphql.js",
-          "match": "(\\s*)(#).*",
-          "captures": { "1": { "name": "punctuation.whitespace.comment.leading.graphql" } }
-        },
-        {
-          "name": "comment.line.graphql.js",
-          "begin": "(\"\"\")",
-          "end": "(\"\"\")",
-          "beginCaptures": { "1": { "name": "punctuation.whitespace.comment.leading.graphql" } }
-        },
-        {
-          "name": "comment.line.graphql.js",
-          "begin": "(\")",
-          "end": "(\")",
-          "beginCaptures": { "1": { "name": "punctuation.whitespace.comment.leading.graphql" } }
-        }
-      ]
+      "name": "comment.line.graphql",
+      "match": "(\\s*)(#).*",
+      "captures": { "1": { "name": "punctuation.whitespace.comment.leading.graphql" } }
     },
     "graphql-description-singleline": {
       "name": "comment.line.number-sign.graphql",
@@ -266,10 +249,11 @@
       ]
     },
     "graphql-scalar": {
-      "match": "\\s*\\b(scalar)\\b\\s*([_A-Za-z][_0-9A-Za-z]*)",
+      "match": "\\s*\\b(extends?)?\\s*\\b(scalar)\\b\\s*([_A-Za-z][_0-9A-Za-z]*)",
       "captures": {
-        "1": { "name": "keyword.scalar.graphql" },
-        "2": { "name": "entity.scalar.graphql" }
+        "1": { "name": "keyword.type.graphql" },
+        "2": { "name": "keyword.scalar.graphql" },
+        "3": { "name": "entity.scalar.graphql" }
       }
     },
     "graphql-scalar-type": {
@@ -321,10 +305,7 @@
       "applyEndPatternLast": 1,
       "beginCaptures": {
         "1": { "name": "keyword.directive.graphql" },
-        "2": { "name": "entity.name.function.directive.graphql" },
-        "3": { "name": "keyword.repeatable.graphql" },
-        "4": { "name": "keyword.on.graphql" },
-        "5": { "name": "support.type.graphql" }
+        "2": { "name": "entity.name.function.directive.graphql" }
       },
       "patterns": [
         { "include": "#graphql-variable-definitions" },
@@ -463,7 +444,7 @@
     },
     "graphql-float-value": {
       "match": "\\s*(-?(0|[1-9][0-9]*)(\\.[0-9]+)?((e|E)(\\+|-)?[0-9]+)?)",
-      "captures": { "1": { "name": "constant.numeric.float.graphql" } }
+      "captures": { "1": { "name": "constant.numeric.graphql" } }
     },
     "graphql-boolean-value": {
       "match": "\\s*\\b(true|false)\\b",
@@ -533,7 +514,7 @@
     },
     "graphql-enum-value": {
       "name": "constant.character.enum.graphql",
-      "match": "\\s*(?!=\\b(true|false|null)\\b)([_A-Za-z][_0-9A-Za-z]*)"
+      "match": "\\s*(?!\\b(true|false|null)\\b)([_A-Za-z][_0-9A-Za-z]*)"
     },
     "graphql-value": {
       "patterns": [
