@@ -1,0 +1,37 @@
+---
+title: Hover
+description: View type information and descriptions on hover.
+---
+
+Hover over any GraphQL element to see type information, descriptions, and deprecation warnings.
+
+## What's shown
+
+- **Type information** for fields and variables
+- **Schema descriptions** from doc strings
+- **Deprecation warnings** with reasons
+- **Argument types** and default values
+
+## Example
+
+```graphql
+query {
+  user {
+    name # Hover → String! - The user's full name
+  }
+}
+```
+
+For deprecated fields, the hover shows the deprecation reason:
+
+```graphql
+query {
+  user {
+    name # Hover → ⚠️ Deprecated: Use fullName instead
+  }
+}
+```
+
+## Works everywhere
+
+Hover works in pure `.graphql` files and embedded GraphQL in TypeScript/JavaScript.

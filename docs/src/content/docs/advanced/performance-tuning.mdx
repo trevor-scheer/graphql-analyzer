@@ -1,0 +1,80 @@
+---
+title: Performance Tuning
+description: Optimizing GraphQL Analyzer for large projects.
+---
+
+## How incremental computation works
+
+GraphQL Analyzer uses Salsa for incremental computation. When a file changes, only the queries that depend on that file are recomputed. Everything else is served from cache.
+
+```
+Edit one file out of 100 → Only that file is re-validated
+Edit schema → All documents re-validated (schema is a shared dependency)
+```
+
+## LSP vs CLI performance characteristics
+
+| Aspect          | LSP (editor)         | CLI (CI/CD) |
+| --------------- | -------------------- | ----------- |
+| Update model    | Incremental per-file | Full batch  |
+| Rule budget     | Fast rules only      | All rules   |
+| Typical latency | Milliseconds         | Seconds     |
+
+## Disabling expensive rules in the LSP
+
+Project-wide rules analyze all documents together and can be slow. Disable them in the LSP and run them in CI:
+
+```yaml
+extensions:
+  lint:
+    extends: recommended
+
+  lsp:
+    lint:
+      rules:
+        unusedFields: off
+        unusedFragments: off
+
+  cli:
+    lint:
+      rules:
+        unusedFields: error
+        unusedFragments: error
+```
+
+## Structure/body separation
+
+The analyzer separates schema structure (type definitions) from operation bodies. This means:
+
+- Editing an operation doesn't recompute schema analysis
+- Editing the schema recomputes everything that depends on types
+- Fragment indexes are stable across operation edits
+
+This is key to keeping the IDE responsive in large codebases.
+
+## Debugging performance
+
+### Enable OpenTelemetry tracing
+
+In VS Code settings:
+
+```json
+{
+  "graphql.server.env": {
+    "OTEL_TRACES_ENABLED": "1",
+    "RUST_LOG": "debug"
+  }
+}
+```
+
+View traces in Jaeger at `http://localhost:16686` (requires Jaeger running locally).
+
+### Enable debug logging
+
+```sh
+# CLI
+RUST_LOG=debug graphql validate
+
+# LSP
+RUST_LOG=debug graphql-lsp 2> lsp.log
+```

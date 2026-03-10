@@ -1,0 +1,52 @@
+---
+title: Introduction
+description: What is GraphQL Analyzer and why use it.
+---
+
+GraphQL Analyzer is a fast, Rust-powered GraphQL tooling suite that provides IDE support, CLI validation, and AI agent integration for your GraphQL projects.
+
+## What it does
+
+- **Real-time validation** — Instant feedback on errors as you type
+- **Go to definition** — Jump to types, fragments, and fields across your project
+- **Find references** — See all usages of a type or fragment
+- **Hover information** — Type details, descriptions, and deprecation warnings
+- **Linting** — Configurable rules to enforce best practices
+- **CLI validation** — Run validation and linting in CI/CD pipelines
+- **AI integration** — MCP server for AI agents like Claude
+
+## What it works with
+
+- Pure `.graphql` and `.gql` files
+- Embedded GraphQL in TypeScript and JavaScript (`gql` tagged templates)
+- Multi-project workspaces via `.graphqlrc.yaml`
+- Remote schemas via introspection
+- VS Code, Neovim, and any editor with LSP support
+
+## How it's built
+
+Under the hood, GraphQL Analyzer uses a query-based architecture with incremental computation via [Salsa](https://github.com/salsa-rs/salsa). Only the parts of your project affected by a change are recomputed, keeping the IDE responsive even in large codebases.
+
+The architecture draws inspiration from [rust-analyzer](https://rust-analyzer.github.io/) and builds on patterns from [graphql-language-service](https://github.com/graphql/graphiql/tree/main/packages/graphql-language-service) and [graphql-config](https://github.com/kamilkisiela/graphql-config).
+
+```
+CLI / LSP / MCP
+    ↓
+IDE layer (editor API)
+    ↓
+Analysis (validation + linting)
+    ↓
+HIR (semantic layer)
+    ↓
+Syntax (parsing, TS/JS extraction)
+    ↓
+Database (Salsa, incremental computation)
+```
+
+The CLI, LSP, and MCP server all share the same core analysis engine — they produce identical results.
+
+## Next steps
+
+- [Quick Start](/graphql-analyzer/getting-started/quick-start/) — Get up and running in 3 minutes
+- [Installation](/graphql-analyzer/getting-started/installation/) — All installation methods
+- [Configuration](/graphql-analyzer/configuration/config-file/) — Set up your project

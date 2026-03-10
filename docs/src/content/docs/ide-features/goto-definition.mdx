@@ -1,0 +1,52 @@
+---
+title: Go to Definition
+description: Navigate to definitions of types, fragments, fields, and more.
+---
+
+Press `F12` (or `Ctrl/Cmd+Click`) on any GraphQL element to jump to its definition.
+
+## Supported targets
+
+| Source                      | Navigates to                     |
+| --------------------------- | -------------------------------- |
+| Fragment spread (`...Frag`) | Fragment definition              |
+| Type reference (`on User`)  | Type definition in schema        |
+| Field (`name`)              | Field definition in schema       |
+| Variable (`$id`)            | Variable definition in operation |
+| Argument (`id:`)            | Argument definition in schema    |
+| Enum value (`ACTIVE`)       | Enum value definition in schema  |
+| Directive (`@deprecated`)   | Directive definition in schema   |
+
+## Examples
+
+```graphql
+fragment UserFields on User {
+  id
+  name
+}
+
+query GetUser {
+  user {
+    ...UserFields # F12 → jumps to fragment definition above
+    email # F12 → jumps to field definition in schema
+  }
+}
+```
+
+## Cross-file navigation
+
+Go to definition works across files. A fragment spread in one file jumps to the fragment definition in another file, even in a different directory.
+
+## Embedded GraphQL
+
+Works in TypeScript/JavaScript template literals with accurate position mapping:
+
+```typescript
+const query = gql`
+  query GetUser {
+    user {
+      ...UserFields  // F12 works here too
+    }
+  }
+`;
+```

@@ -1,0 +1,55 @@
+---
+title: lint
+description: Run lint rules on GraphQL documents.
+---
+
+The `lint` command runs configurable lint rules on your GraphQL documents.
+
+## Usage
+
+```sh
+graphql lint [OPTIONS]
+```
+
+## Options
+
+| Option              | Description                                        |
+| ------------------- | -------------------------------------------------- |
+| `--format <FORMAT>` | Output format: `human` (default), `json`, `github` |
+| `--watch`           | Watch for file changes and re-lint                 |
+
+## Examples
+
+```sh
+# Basic linting
+graphql lint
+
+# JSON output for CI
+graphql lint --format json
+
+# Watch mode for development
+graphql lint --watch
+
+# Specific project
+graphql --project frontend lint
+```
+
+## Exit codes
+
+- `0` — No lint errors (warnings don't cause non-zero exit)
+- `1` — Lint errors found
+
+## Configuring rules
+
+Lint rules are configured in `.graphqlrc.yml`:
+
+```yaml
+extensions:
+  lint:
+    extends: recommended
+    rules:
+      noDeprecated: warn
+      uniqueNames: error
+```
+
+See [Linting Configuration](/graphql-analyzer/linting/configuration/) and the [Rules Catalog](/graphql-analyzer/rules/catalog/) for all available rules.

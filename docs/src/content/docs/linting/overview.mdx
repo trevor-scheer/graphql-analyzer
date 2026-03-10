@@ -1,0 +1,52 @@
+---
+title: Linting Overview
+description: How linting works in GraphQL Analyzer.
+---
+
+GraphQL Analyzer includes a configurable linting engine with rules for common GraphQL best practices.
+
+## Quick setup
+
+Add to your `.graphqlrc.yml`:
+
+```yaml
+extensions:
+  lint: recommended
+```
+
+The `recommended` preset enables rules that are objectively beneficial without being opinionated about architecture choices.
+
+## The `recommended` preset
+
+| Rule                    | Severity | Description                                  |
+| ----------------------- | -------- | -------------------------------------------- |
+| `noAnonymousOperations` | error    | Require named operations                     |
+| `noDeprecated`          | warn     | Alert on deprecated field usage              |
+| `redundantFields`       | warn     | Detect fields duplicated by fragment spreads |
+| `unusedFragments`       | warn     | Detect unused fragment definitions           |
+| `unusedFields`          | warn     | Detect unused schema fields                  |
+
+## Additional rules
+
+These rules are available but not in the `recommended` preset — enable them based on your project's needs:
+
+| Rule                  | Description                                |
+| --------------------- | ------------------------------------------ |
+| `uniqueNames`         | Ensure operation/fragment names are unique |
+| `requireIdField`      | Require `id` field for cache normalization |
+| `operationNameSuffix` | Enforce operation name conventions         |
+| `unusedVariables`     | Detect unused query variables              |
+
+See the [Rules Catalog](/graphql-analyzer/rules/catalog/) for details on each rule.
+
+## Rule contexts
+
+Rules run in different contexts depending on how much information they need:
+
+| Context             | Scope                      | Speed | Where it runs    |
+| ------------------- | -------------------------- | ----- | ---------------- |
+| Standalone Document | Single document, no schema | Fast  | LSP + CLI        |
+| Document-Schema     | Single document + schema   | Fast  | LSP + CLI        |
+| Project-Wide        | All documents + schema     | Slow  | CLI (by default) |
+
+Project-wide rules are disabled in the LSP by default for performance. Use [tool-specific overrides](/graphql-analyzer/configuration/tool-overrides/) to enable them in CI only.

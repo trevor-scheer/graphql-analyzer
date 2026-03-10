@@ -1,0 +1,62 @@
+---
+title: Neovim
+description: Setting up GraphQL Analyzer in Neovim.
+---
+
+## Prerequisites
+
+1. Install the LSP server binary (see [Installation](/graphql-analyzer/getting-started/installation/#lsp-server-standalone))
+2. Install [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig)
+
+## Setup with nvim-lspconfig
+
+Add to your `init.lua`:
+
+```lua
+require('lspconfig').graphql.setup {
+  cmd = { 'graphql-lsp' },
+  filetypes = { 'graphql', 'typescriptreact', 'javascriptreact' },
+  root_dir = require('lspconfig.util').root_pattern(
+    '.graphqlrc*',
+    'graphql.config.*'
+  ),
+}
+```
+
+## Custom binary path
+
+If the LSP server isn't on your `$PATH`:
+
+```lua
+require('lspconfig').graphql.setup {
+  cmd = { '/path/to/graphql-lsp' },
+}
+```
+
+## Configuration
+
+Create a `.graphqlrc.yml` in your project root:
+
+```yaml
+schema: schema.graphql
+documents: src/**/*.{graphql,ts,tsx}
+```
+
+## Debugging
+
+Check LSP logs:
+
+```vim
+:LspLog
+```
+
+Enable debug logging:
+
+```lua
+require('lspconfig').graphql.setup {
+  cmd = { 'graphql-lsp' },
+  cmd_env = {
+    RUST_LOG = 'debug',
+  },
+}
+```

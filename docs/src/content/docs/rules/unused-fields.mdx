@@ -1,0 +1,57 @@
+---
+title: unused-fields
+description: Detect schema fields never queried in any operation.
+---
+
+| Property         | Value          |
+| ---------------- | -------------- |
+| Config name      | `unusedFields` |
+| Default severity | `warn`         |
+| Context          | Project        |
+| In recommended   | Yes            |
+
+## What it checks
+
+Detects schema fields that are never queried in any operation or fragment across the project. Helps identify unused API surface area.
+
+## Examples
+
+```graphql
+# Schema
+type User {
+  id: ID!
+  email: String! # ⚠️ Warning: Field 'email' is never used
+}
+
+# Operations only query 'id', never 'email'
+query {
+  user {
+    id
+  }
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  lint:
+    rules:
+      unusedFields: warn # or error, off
+```
+
+## Performance note
+
+This is a project-wide rule that analyzes all documents. It can be slow on large projects. By default it's disabled in the LSP for real-time editing. Use [tool-specific overrides](/graphql-analyzer/configuration/tool-overrides/) to enable it in CI:
+
+```yaml
+extensions:
+  cli:
+    lint:
+      rules:
+        unusedFields: error
+  lsp:
+    lint:
+      rules:
+        unusedFields: off
+```

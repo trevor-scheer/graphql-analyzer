@@ -1,0 +1,51 @@
+---
+title: redundant-fields
+description: Detect fields duplicated by fragment spreads.
+---
+
+| Property         | Value             |
+| ---------------- | ----------------- |
+| Config name      | `redundantFields` |
+| Default severity | `warn`            |
+| Context          | Document          |
+| In recommended   | Yes               |
+
+## What it checks
+
+Detects fields in a selection set that are already included in a sibling fragment spread. This keeps queries clean by avoiding duplication.
+
+The rule is **project-wide fragment aware** — it resolves fragments defined in other files. It is also **alias-aware** — differently aliased versions of the same field are not considered redundant.
+
+## Examples
+
+```graphql
+fragment UserFields on User {
+  id
+  name
+}
+
+query GetUser {
+  user {
+    ...UserFields
+    id # ⚠️ Redundant — already in UserFields
+    name # ⚠️ Redundant — already in UserFields
+    userId: id # ✅ OK — different alias
+  }
+}
+```
+
+## What it handles
+
+- Direct redundancy (field in same selection set as fragment spread)
+- Transitive redundancy (field in fragment that includes other fragments)
+- Circular fragment references (prevents infinite loops)
+- Aliased fields (only same alias is considered redundant)
+
+## Configuration
+
+```yaml
+extensions:
+  lint:
+    rules:
+      redundantFields: warn # or error, off
+```

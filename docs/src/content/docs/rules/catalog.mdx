@@ -1,0 +1,24 @@
+---
+title: Rules Catalog
+description: All available lint rules.
+---
+
+## All rules
+
+| Rule                                                                        | Default Severity | Context         | In `recommended`? |
+| --------------------------------------------------------------------------- | ---------------- | --------------- | ----------------- |
+| [no-anonymous-operations](/graphql-analyzer/rules/no-anonymous-operations/) | error            | Document        | Yes               |
+| [no-deprecated](/graphql-analyzer/rules/no-deprecated/)                     | warn             | Document-Schema | Yes               |
+| [redundant-fields](/graphql-analyzer/rules/redundant-fields/)               | warn             | Document        | Yes               |
+| [unused-fragments](/graphql-analyzer/rules/unused-fragments/)               | warn             | Project         | Yes               |
+| [unused-fields](/graphql-analyzer/rules/unused-fields/)                     | warn             | Project         | Yes               |
+| [unique-names](/graphql-analyzer/rules/unique-names/)                       | error            | Project         | No                |
+| [require-id-field](/graphql-analyzer/rules/require-id-field/)               | —                | Document-Schema | No                |
+| [operation-name-suffix](/graphql-analyzer/rules/operation-name-suffix/)     | —                | Document        | No                |
+| [unused-variables](/graphql-analyzer/rules/unused-variables/)               | —                | Document        | No                |
+
+## Contexts
+
+- **Document** — Analyzes a single document without schema. Fast.
+- **Document-Schema** — Analyzes a single document against the schema. Fast.
+- **Project** — Analyzes all documents together. Slower, best for CI.

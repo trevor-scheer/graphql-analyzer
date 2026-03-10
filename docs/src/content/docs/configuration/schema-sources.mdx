@@ -1,0 +1,50 @@
+---
+title: Schema Sources
+description: How to configure schema loading from local files or remote endpoints.
+---
+
+The `schema` field in your config tells GraphQL Analyzer where to find your GraphQL schema.
+
+## Local file
+
+```yaml
+schema: schema.graphql
+```
+
+## Glob pattern
+
+```yaml
+schema: schema/**/*.graphql
+```
+
+Multiple schema files are merged into a single schema.
+
+## Multiple sources
+
+```yaml
+schema:
+  - schema.graphql
+  - extensions/*.graphql
+```
+
+## Remote URL (introspection)
+
+```yaml
+schema: https://api.example.com/graphql
+```
+
+The tool fetches the schema via introspection query. The schema is cached automatically.
+
+See [Remote Schema Introspection](/graphql-analyzer/advanced/remote-schemas/) for authentication and advanced options.
+
+## Per-project schemas
+
+In multi-project configs, each project has its own schema:
+
+```yaml
+projects:
+  api:
+    schema: api/schema.graphql
+  client:
+    schema: https://api.example.com/graphql
+```

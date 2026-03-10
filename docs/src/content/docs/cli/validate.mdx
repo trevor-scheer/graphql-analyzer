@@ -1,0 +1,63 @@
+---
+title: validate
+description: Validate GraphQL documents against a schema.
+---
+
+The `validate` command runs Apollo compiler validation on your GraphQL documents against your schema.
+
+## Usage
+
+```sh
+graphql validate [OPTIONS]
+```
+
+## Options
+
+| Option              | Description                                        |
+| ------------------- | -------------------------------------------------- |
+| `--format <FORMAT>` | Output format: `human` (default), `json`, `github` |
+| `--watch`           | Watch for file changes and re-validate             |
+| `--syntax-only`     | Skip schema validation, only check syntax          |
+
+## Examples
+
+```sh
+# Basic validation (requires schema)
+graphql validate
+
+# JSON output for CI
+graphql validate --format json
+
+# Watch mode for development
+graphql validate --watch
+
+# Only check syntax, skip schema validation
+graphql validate --syntax-only
+
+# Specific project in a multi-project config
+graphql --project backend validate
+```
+
+## Behavior
+
+By default, `validate` requires a schema and will fail with exit code 2 if:
+
+- No schema files match the configured patterns
+- No document files match the configured patterns
+
+Use `--syntax-only` to skip schema validation when you only need to check GraphQL syntax.
+
+## Example output
+
+```
+✗ Validation error in src/queries.graphql:5:3
+  Cannot query field "invalidField" on type "User"
+
+  3 |   user(id: $id) {
+  4 |     id
+  5 |     invalidField
+    |     ^^^^^^^^^^^^
+  6 |   }
+
+✓ 12 files validated, 1 error found
+```
