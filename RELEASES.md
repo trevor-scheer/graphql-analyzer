@@ -92,13 +92,22 @@ Users can install the CLI in several ways:
 **macOS/Linux:**
 
 ```bash
+# Install CLI (default), LSP, or MCP
 curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
+curl -fsSL .../install.sh | sh -s -- lsp
+curl -fsSL .../install.sh | sh -s -- mcp
+
+# Pin a specific version
+curl -fsSL .../install.sh | sh -s -- cli 0.1.6
 ```
 
 **Windows:**
 
 ```powershell
 irm https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.ps1 | iex
+
+# Install LSP instead of CLI
+$env:GA_TOOL="lsp"; irm .../install.ps1 | iex
 ```
 
 ### 2. Direct Download

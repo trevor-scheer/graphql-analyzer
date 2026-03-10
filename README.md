@@ -37,7 +37,12 @@ Open any GraphQL file or TypeScript/JavaScript file with embedded GraphQL. You'l
 Install the CLI for CI/CD integration:
 
 ```sh
+# Install the CLI (default)
 curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
+
+# Install LSP or MCP server
+curl -fsSL .../install.sh | sh -s -- lsp
+curl -fsSL .../install.sh | sh -s -- mcp
 ```
 
 Validate your GraphQL:
