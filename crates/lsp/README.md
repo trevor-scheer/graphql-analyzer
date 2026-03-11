@@ -14,7 +14,11 @@ Language Server Protocol (LSP) implementation providing IDE features for GraphQL
 
 ## Installation
 
-The LSP server is typically installed via editor extensions. For VSCode, see the [VSCode extension](../../editors/vscode/).
+The LSP server is bundled with the [VS Code extension](../../editors/vscode/). For other editors, install the standalone binary:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh -s -- lsp
+```
 
 ### Via Cargo
 

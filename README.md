@@ -12,19 +12,7 @@ This project draws heavy inspiration from [rust-analyzer](https://rust-analyzer.
 
 ### 1. Install the VS Code Extension
 
-**macOS / Linux:**
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install-vscode.sh | sh
-```
-
-**Windows (PowerShell):**
-
-```powershell
-irm https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install-vscode.ps1 | iex
-```
-
-Or download the `.vsix` from the [releases page](https://github.com/trevor-scheer/graphql-analyzer/releases) and install via `code --install-extension <file>.vsix`.
+Install **[GraphQL Analyzer](https://marketplace.visualstudio.com/items?itemName=trevor-scheer.graphql-analyzer)** from the VS Code Marketplace, or search "GraphQL Analyzer" in the Extensions view.
 
 ### 2. Configure Your Project
 
@@ -49,7 +37,12 @@ Open any GraphQL file or TypeScript/JavaScript file with embedded GraphQL. You'l
 Install the CLI for CI/CD integration:
 
 ```sh
+# Install the CLI (default)
 curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
+
+# Install LSP or MCP server
+curl -fsSL .../install.sh | sh -s -- lsp
+curl -fsSL .../install.sh | sh -s -- mcp
 ```
 
 Validate your GraphQL:

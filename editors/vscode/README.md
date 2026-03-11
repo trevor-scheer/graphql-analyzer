@@ -39,43 +39,7 @@ A VS Code extension that provides comprehensive GraphQL language support includi
 
 ## Installation
 
-### From VS Code Marketplace
-
-Coming soon - this extension will be published to the VS Code Marketplace.
-
-### From GitHub Release
-
-**One-line installer (macOS/Linux):**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install-vscode.sh | sh
-```
-
-**One-line installer (Windows PowerShell):**
-
-```powershell
-irm https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install-vscode.ps1 | iex
-```
-
-**Manual installation:**
-
-1. Download the `.vsix` file for your platform from the [latest release](https://github.com/trevor-scheer/graphql-analyzer/releases)
-2. Install in VS Code:
-   - Open VS Code
-   - Go to Extensions view (Ctrl/Cmd+Shift+X)
-   - Click the "..." menu at the top of the Extensions view
-   - Select "Install from VSIX..."
-   - Choose the downloaded `.vsix` file
-
-Or install via command line:
-
-```bash
-code --install-extension graphql-analyzer-darwin-arm64-*.vsix  # macOS Apple Silicon
-code --install-extension graphql-analyzer-darwin-x64-*.vsix    # macOS Intel
-code --install-extension graphql-analyzer-linux-x64-*.vsix     # Linux x64
-code --install-extension graphql-analyzer-linux-arm64-*.vsix   # Linux ARM64
-code --install-extension graphql-analyzer-win32-x64-*.vsix     # Windows x64
-```
+Install **[GraphQL Analyzer](https://marketplace.visualstudio.com/items?itemName=graphql-analyzer.graphql-analyzer)** from the VS Code Marketplace, or search "GraphQL Analyzer" in the Extensions view (`Ctrl/Cmd+Shift+X`).
 
 ### Bundled LSP Server
 
@@ -188,13 +152,30 @@ query {
 - Rust toolchain (see `rust-toolchain.toml` in repo root)
 - Node.js and npm
 
-### Steps
+### Quick Install (Recommended)
 
-1. **Clone and build the LSP server:**
+Build the LSP server and install the extension in one step:
+
+```bash
+git clone https://github.com/trevor-scheer/graphql-analyzer.git
+cd graphql-analyzer
+
+# Debug build
+cargo xtask install
+
+# Release build (optimized)
+cargo xtask install --release
+```
+
+This builds the LSP binary, bundles it into the extension, and installs the `.vsix` into VS Code. After installing, reload your VS Code window.
+
+### Manual Steps
+
+If you need more control (e.g., for debugging the extension itself):
+
+1. **Build the LSP server:**
 
    ```bash
-   git clone https://github.com/trevor-scheer/graphql-analyzer.git
-   cd graphql-lsp
    cargo build --package graphql-lsp
    ```
 
