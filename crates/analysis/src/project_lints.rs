@@ -1053,7 +1053,7 @@ mod tests {
         );
     }
 
-    /// Regression test for #481: field_usage_for_type must count fields on
+    /// Regression test for #481: `field_usage_for_type` must count fields on
     /// nested types even when the operation file doesn't directly reference the
     /// type in its top-level selections. Previously a pre-filter skipped files
     /// whose schema coordinates didn't mention the target type, causing hover
@@ -1136,7 +1136,7 @@ mod tests {
         assert_eq!(email_usage.usage_count, 0, "User.email should be unused");
     }
 
-    /// Regression test for #481: field_usage_for_type must follow fragment
+    /// Regression test for #481: `field_usage_for_type` must follow fragment
     /// spreads into other files to count field usage correctly.
     #[test]
     fn test_field_usage_for_type_cross_file_fragments() {
