@@ -1,6 +1,7 @@
 use apollo_compiler::ast;
 use apollo_compiler::Node;
 use graphql_base_db::FileId;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 pub use text_size::{TextRange, TextSize};
 
@@ -26,6 +27,63 @@ pub struct TypeDef {
     pub definition_range: TextRange,
     /// Whether this type was extracted from a type extension (extend type)
     pub is_extension: bool,
+}
+
+impl TypeDef {
+    /// Hash only semantic content, excluding positional data (ranges, file IDs).
+    /// Two type defs with the same schema meaning but different source positions
+    /// will produce the same hash.
+    pub fn semantic_hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.kind.hash(state);
+        self.is_extension.hash(state);
+        self.description.hash(state);
+
+        self.fields.len().hash(state);
+        for field in &self.fields {
+            field.semantic_hash(state);
+        }
+
+        self.implements.hash(state);
+        self.union_members.hash(state);
+
+        self.enum_values.len().hash(state);
+        for ev in &self.enum_values {
+            ev.hash(state);
+        }
+
+        self.directives.hash(state);
+    }
+}
+
+impl FieldSignature {
+    /// Hash only semantic content, excluding positional data.
+    pub fn semantic_hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.type_ref.hash(state);
+        self.description.hash(state);
+        self.is_deprecated.hash(state);
+        self.deprecation_reason.hash(state);
+        self.directives.hash(state);
+
+        self.arguments.len().hash(state);
+        for arg in &self.arguments {
+            arg.semantic_hash(state);
+        }
+    }
+}
+
+impl ArgumentDef {
+    /// Hash only semantic content, excluding positional data.
+    pub fn semantic_hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.type_ref.hash(state);
+        self.default_value.hash(state);
+        self.description.hash(state);
+        self.is_deprecated.hash(state);
+        self.deprecation_reason.hash(state);
+        self.directives.hash(state);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

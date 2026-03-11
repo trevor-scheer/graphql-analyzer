@@ -4,6 +4,7 @@
 
 use graphql_base_db::FileId;
 use std::collections::HashMap;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 mod body;
@@ -333,6 +334,30 @@ pub fn schema_directives(
     }
 
     directives
+}
+
+/// Per-type fingerprints for the merged schema.
+///
+/// Returns a hash for each type name. When a schema file changes, only
+/// types actually modified will have different fingerprints. This enables
+/// the IDE layer to diff old vs new and skip re-validating operations
+/// that don't reference any changed types.
+#[salsa::tracked(returns(ref))]
+pub fn schema_type_fingerprints(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+) -> HashMap<Arc<str>, u64> {
+    let types = schema_types(db, project_files);
+    let mut fingerprints = HashMap::with_capacity(types.len());
+    for (name, type_def) in types {
+        let mut hasher = std::hash::DefaultHasher::new();
+        // Use semantic_hash to ignore positional data (ranges, file IDs).
+        // This way, shifting text positions from unrelated edits in the
+        // same file don't cause false "type changed" signals.
+        type_def.semantic_hash(&mut hasher);
+        fingerprints.insert(name.clone(), hasher.finish());
+    }
+    fingerprints
 }
 
 /// Get all fragments in the project

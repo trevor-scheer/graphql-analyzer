@@ -691,9 +691,12 @@ async fn load_all_project_files_background(
             );
         }
 
-        // Rebuild project files index (brief lock)
-        host.with_write(graphql_ide::AnalysisHost::rebuild_project_files)
-            .await;
+        // Rebuild project files index and capture initial schema fingerprints (brief lock)
+        host.with_write(|h| {
+            h.rebuild_project_files();
+            h.update_schema_fingerprints();
+        })
+        .await;
 
         // Compute and publish diagnostics
         // Use try_snapshot since this is a background task - if we can't get the lock, just skip diagnostics
@@ -2095,6 +2098,11 @@ impl LanguageServer for GraphQLLanguageServer {
             .instrument(tracing::info_span!("publish_diagnostics", file_count))
             .await;
         }
+
+        // Update schema fingerprints so the next schema change can diff against them.
+        // This must happen after diagnostics are published (which used the old fingerprints).
+        host.with_write(graphql_ide::AnalysisHost::update_schema_fingerprints)
+            .await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {

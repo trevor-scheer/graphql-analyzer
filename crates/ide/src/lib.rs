@@ -829,6 +829,11 @@ pub struct AnalysisHost {
     /// File registry for mapping paths to file IDs
     /// Wrapped in Arc<RwLock> so snapshots can share it
     registry: Arc<RwLock<FileRegistry>>,
+    /// Previous schema type fingerprints for diff-based filtering.
+    /// When a schema file changes, we compare old vs new fingerprints
+    /// to determine which types actually changed, and only re-validate
+    /// document files that reference those changed types.
+    previous_schema_fingerprints: Arc<HashMap<Arc<str>, u64>>,
 }
 
 impl AnalysisHost {
@@ -838,6 +843,7 @@ impl AnalysisHost {
         Self {
             db: IdeDatabase::default(),
             registry: Arc::new(RwLock::new(FileRegistry::new())),
+            previous_schema_fingerprints: Arc::new(HashMap::new()),
         }
     }
 
@@ -985,6 +991,7 @@ impl AnalysisHost {
             db: self.db.clone(),
             registry: Arc::clone(&self.registry),
             project_files,
+            previous_schema_fingerprints: Arc::clone(&self.previous_schema_fingerprints),
         };
 
         (is_new, snapshot)
@@ -1500,6 +1507,16 @@ impl AnalysisHost {
             db: self.db.clone(),
             registry: Arc::clone(&self.registry),
             project_files,
+            previous_schema_fingerprints: Arc::clone(&self.previous_schema_fingerprints),
+        }
+    }
+
+    /// Update stored schema fingerprints after a schema change has been processed.
+    /// Call this after `diagnostics_for_change` to keep fingerprints in sync.
+    pub fn update_schema_fingerprints(&mut self) {
+        if let Some(pf) = self.db.project_files_input {
+            let fingerprints = graphql_hir::schema_type_fingerprints(&self.db, pf);
+            self.previous_schema_fingerprints = Arc::new(fingerprints.clone());
         }
     }
 }
@@ -1528,6 +1545,10 @@ pub struct Analysis {
     /// Cached `ProjectFiles` for HIR queries
     /// This is fetched from the registry when the snapshot is created
     project_files: Option<graphql_base_db::ProjectFiles>,
+    /// Schema type fingerprints from before the current change.
+    /// Used to diff which types actually changed and skip re-validating
+    /// document files that don't reference any changed types.
+    previous_schema_fingerprints: Arc<HashMap<Arc<str>, u64>>,
 }
 
 impl Analysis {
@@ -1565,14 +1586,16 @@ impl Analysis {
     /// Get diagnostics for all files affected by a change to `changed_file`.
     ///
     /// Always includes diagnostics for the changed file itself. Additionally:
-    /// - If the changed file is a **schema** file, re-validates all document files
-    ///   (every operation/fragment validates against the schema).
+    /// - If the changed file is a **schema** file, uses schema-diff filtering
+    ///   to only re-validate document files that reference changed types.
     /// - If the changed file is a **document** file containing fragments,
     ///   re-validates files that spread those fragments.
     /// - If the changed file has named operations, re-validates files with
     ///   same-named operations (uniqueness checks).
     ///
-    /// Salsa memoization ensures unaffected files return cached results instantly.
+    /// Schema-diff filtering compares per-type fingerprints before and after the
+    /// change. Document files that don't reference any changed type names are
+    /// skipped entirely, leaving their Salsa queries dirty but unexecuted.
     pub fn diagnostics_for_change(
         &self,
         changed_file: &FilePath,
@@ -1602,26 +1625,7 @@ impl Analysis {
         };
 
         if is_schema {
-            // Schema change: re-validate all document files
-            let document_files: Vec<FilePath> = {
-                let registry = self.registry.read();
-                registry
-                    .all_file_ids()
-                    .into_iter()
-                    .filter(|&id| {
-                        registry
-                            .get_metadata(id)
-                            .is_some_and(|m| m.is_document(&self.db))
-                    })
-                    .filter_map(|id| registry.get_path(id))
-                    .collect()
-            };
-
-            for doc_file in document_files {
-                if doc_file != *changed_file {
-                    result.insert(doc_file.clone(), self.diagnostics(&doc_file));
-                }
-            }
+            self.schema_change_diagnostics(project_files, changed_file, &mut result);
         } else if is_document {
             // Document file change: find affected files via fragment/operation dependencies
             let affected = self.find_affected_document_files(changed_file_id, project_files);
@@ -1633,6 +1637,143 @@ impl Analysis {
         }
 
         result
+    }
+
+    /// Handle schema file changes with diff-based filtering.
+    ///
+    /// Compares per-type fingerprints to the previous snapshot. Only re-validates
+    /// document files whose type references intersect with changed types.
+    /// Falls back to full re-validation when fingerprints are unavailable
+    /// (first change after startup) or when root operation types changed.
+    fn schema_change_diagnostics(
+        &self,
+        project_files: graphql_base_db::ProjectFiles,
+        changed_file: &FilePath,
+        result: &mut HashMap<FilePath, Vec<Diagnostic>>,
+    ) {
+        let document_files: Vec<(graphql_base_db::FileId, FilePath)> = {
+            let registry = self.registry.read();
+            registry
+                .all_file_ids()
+                .into_iter()
+                .filter(|&id| {
+                    registry
+                        .get_metadata(id)
+                        .is_some_and(|m| m.is_document(&self.db))
+                })
+                .filter_map(|id| registry.get_path(id).map(|p| (id, p)))
+                .collect()
+        };
+
+        let changed_types = self.changed_schema_type_names(project_files);
+
+        if let Some(ref changed) = changed_types {
+            tracing::debug!(
+                changed_count = changed.len(),
+                "Schema diff: {} type(s) changed",
+                changed.len()
+            );
+        }
+
+        let mut skipped = 0usize;
+        for (file_id, doc_file) in &document_files {
+            if *doc_file == *changed_file {
+                continue;
+            }
+
+            if let Some(ref changed) = changed_types {
+                if changed.is_empty() {
+                    // No types actually changed - skip all document files.
+                    // (D/Salsa backdating handles this at the query level too,
+                    // but skipping here avoids even calling into Salsa.)
+                    skipped += 1;
+                    continue;
+                }
+
+                if self.can_skip_document_file(*file_id, project_files, changed) {
+                    skipped += 1;
+                    continue;
+                }
+            }
+
+            result.insert(doc_file.clone(), self.diagnostics(doc_file));
+        }
+
+        if skipped > 0 {
+            tracing::debug!(
+                skipped,
+                total = document_files.len(),
+                "Schema diff filtering: skipped {}/{} document files",
+                skipped,
+                document_files.len()
+            );
+        }
+    }
+
+    /// Compute which schema type names changed compared to previous fingerprints.
+    /// Returns `None` if no previous fingerprints are available (first schema change).
+    fn changed_schema_type_names(
+        &self,
+        project_files: graphql_base_db::ProjectFiles,
+    ) -> Option<std::collections::HashSet<Arc<str>>> {
+        if self.previous_schema_fingerprints.is_empty() {
+            return None;
+        }
+
+        let current = graphql_hir::schema_type_fingerprints(&self.db, project_files);
+        let previous = &*self.previous_schema_fingerprints;
+        let mut changed = std::collections::HashSet::new();
+
+        // Types that are new or modified
+        for (name, hash) in current {
+            match previous.get(name) {
+                Some(prev_hash) if *prev_hash == *hash => {}
+                _ => {
+                    changed.insert(name.clone());
+                }
+            }
+        }
+
+        // Types that were removed
+        for name in previous.keys() {
+            if !current.contains_key(name) {
+                changed.insert(name.clone());
+            }
+        }
+
+        Some(changed)
+    }
+
+    /// Check whether a document file can be safely skipped during schema
+    /// change re-validation, based on its type references.
+    fn can_skip_document_file(
+        &self,
+        file_id: graphql_base_db::FileId,
+        project_files: graphql_base_db::ProjectFiles,
+        changed_types: &std::collections::HashSet<Arc<str>>,
+    ) -> bool {
+        // If root operation types changed, operations of that kind need re-validation.
+        // Since file_type_name_references doesn't capture implicit root type deps,
+        // we check if any root type changed and conservatively include all files.
+        let root_type_changed = changed_types.contains("Query")
+            || changed_types.contains("Mutation")
+            || changed_types.contains("Subscription");
+
+        if root_type_changed {
+            return false;
+        }
+
+        let Some((content, metadata)) =
+            graphql_base_db::file_lookup(&self.db, project_files, file_id)
+        else {
+            return true;
+        };
+
+        let type_refs =
+            graphql_hir::file_type_name_references(&self.db, file_id, content, metadata);
+
+        // Skip if none of the file's referenced types are in the changed set
+        !type_refs.iter().any(|name| changed_types.contains(name))
     }
 
     /// Get all diagnostics (per-file + project-wide lints) for files affected by a change.
