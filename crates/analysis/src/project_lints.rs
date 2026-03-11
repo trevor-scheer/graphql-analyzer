@@ -1117,8 +1117,7 @@ mod tests {
 
         db.set_project_files(Some(project_files));
 
-        let usages =
-            field_usage_for_type(&db, project_files, Arc::from("User"));
+        let usages = field_usage_for_type(&db, project_files, Arc::from("User"));
 
         let id_usage = usages.get("id").expect("id field should exist");
         assert_eq!(
@@ -1134,10 +1133,7 @@ mod tests {
         );
 
         let email_usage = usages.get("email").expect("email field should exist");
-        assert_eq!(
-            email_usage.usage_count, 0,
-            "User.email should be unused"
-        );
+        assert_eq!(email_usage.usage_count, 0, "User.email should be unused");
     }
 
     /// Regression test for #481: field_usage_for_type must follow fragment
@@ -1225,8 +1221,7 @@ mod tests {
 
         db.set_project_files(Some(project_files));
 
-        let usages =
-            field_usage_for_type(&db, project_files, Arc::from("User"));
+        let usages = field_usage_for_type(&db, project_files, Arc::from("User"));
 
         let id_usage = usages.get("id").expect("id field should exist");
         assert_eq!(
@@ -1241,10 +1236,7 @@ mod tests {
         );
 
         let email_usage = usages.get("email").expect("email field should exist");
-        assert_eq!(
-            email_usage.usage_count, 0,
-            "User.email should be unused"
-        );
+        assert_eq!(email_usage.usage_count, 0, "User.email should be unused");
     }
 
     #[test]
