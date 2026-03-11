@@ -3,19 +3,58 @@ use apollo_compiler::diagnostic::ToCliReport;
 use apollo_compiler::parser::{Parser, SourceOffset};
 use apollo_compiler::validation::DiagnosticList;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 /// Diagnostics grouped by file URI
 pub type DiagnosticsByFile = Arc<HashMap<Arc<str>, Vec<Diagnostic>>>;
 
-/// Result of merging schema files - includes both the schema (if valid) and any diagnostics
-#[derive(Clone, Debug, PartialEq)]
+/// Result of merging schema files - includes both the schema (if valid) and any diagnostics.
+///
+/// Uses SDL-based equality so Salsa can backdate unchanged results. Without this,
+/// every schema rebuild produces a new `Arc<Schema>` pointer, which Salsa treats as
+/// "changed" even if the schema is structurally identical. That cascades into
+/// re-validating every document file unnecessarily.
+#[derive(Clone, Debug)]
 pub struct MergedSchemaResult {
     /// The merged schema, if validation succeeded
     pub schema: Option<Arc<apollo_compiler::Schema>>,
     /// Validation diagnostics grouped by file URI
     pub diagnostics_by_file: DiagnosticsByFile,
+    /// Hash of the serialized SDL, used for semantic equality comparison.
+    /// Two schemas that produce the same SDL are considered equal regardless
+    /// of Arc pointer identity.
+    schema_sdl_hash: u64,
 }
+
+impl MergedSchemaResult {
+    fn new(
+        schema: Option<Arc<apollo_compiler::Schema>>,
+        diagnostics_by_file: DiagnosticsByFile,
+    ) -> Self {
+        let schema_sdl_hash = schema.as_ref().map_or(0, |s| {
+            let sdl = s.serialize().to_string();
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            sdl.hash(&mut hasher);
+            hasher.finish()
+        });
+
+        Self {
+            schema,
+            diagnostics_by_file,
+            schema_sdl_hash,
+        }
+    }
+}
+
+impl PartialEq for MergedSchemaResult {
+    fn eq(&self, other: &Self) -> bool {
+        self.schema_sdl_hash == other.schema_sdl_hash
+            && self.diagnostics_by_file == other.diagnostics_by_file
+    }
+}
+
+impl Eq for MergedSchemaResult {}
 
 /// Convert apollo-compiler diagnostics to our diagnostic format, grouped by file URI.
 ///
@@ -104,10 +143,7 @@ pub fn merged_schema_with_diagnostics(
 
     if !has_user_schema {
         tracing::debug!("No user schema files found in project - returning empty result");
-        return MergedSchemaResult {
-            schema: None,
-            diagnostics_by_file: Arc::new(HashMap::new()),
-        };
+        return MergedSchemaResult::new(None, Arc::new(HashMap::new()));
     }
 
     let mut builder = apollo_compiler::schema::SchemaBuilder::new();
@@ -160,10 +196,10 @@ pub fn merged_schema_with_diagnostics(
                         type_count = valid_schema.types.len(),
                         "Successfully merged and validated schema"
                     );
-                    MergedSchemaResult {
-                        schema: Some(Arc::new(valid_schema.into_inner())),
-                        diagnostics_by_file: Arc::new(HashMap::new()),
-                    }
+                    MergedSchemaResult::new(
+                        Some(Arc::new(valid_schema.into_inner())),
+                        Arc::new(HashMap::new()),
+                    )
                 }
                 Err(with_errors) => {
                     tracing::warn!(
@@ -174,10 +210,10 @@ pub fn merged_schema_with_diagnostics(
                         tracing::debug!(error = %apollo_diag.error, "Schema validation error");
                     }
                     let diagnostics_by_file = collect_apollo_diagnostics(&with_errors.errors);
-                    MergedSchemaResult {
-                        schema: Some(Arc::new(with_errors.partial)),
-                        diagnostics_by_file: Arc::new(diagnostics_by_file),
-                    }
+                    MergedSchemaResult::new(
+                        Some(Arc::new(with_errors.partial)),
+                        Arc::new(diagnostics_by_file),
+                    )
                 }
             }
         }
@@ -190,10 +226,7 @@ pub fn merged_schema_with_diagnostics(
                 tracing::debug!(error = %apollo_diag.error, "Schema build error");
             }
             let diagnostics_by_file = collect_apollo_diagnostics(&with_errors.errors);
-            MergedSchemaResult {
-                schema: None,
-                diagnostics_by_file: Arc::new(diagnostics_by_file),
-            }
+            MergedSchemaResult::new(None, Arc::new(diagnostics_by_file))
         }
     }
 }
@@ -221,10 +254,7 @@ mod tests {
 
     #[test]
     fn test_merged_schema_result_default_values() {
-        let result = MergedSchemaResult {
-            schema: None,
-            diagnostics_by_file: Arc::new(HashMap::new()),
-        };
+        let result = MergedSchemaResult::new(None, Arc::new(HashMap::new()));
         assert!(result.schema.is_none());
         assert!(result.diagnostics_by_file.is_empty());
     }
@@ -236,10 +266,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let result = MergedSchemaResult {
-            schema: Some(Arc::new(schema)),
-            diagnostics_by_file: Arc::new(HashMap::new()),
-        };
+        let result = MergedSchemaResult::new(Some(Arc::new(schema)), Arc::new(HashMap::new()));
         assert!(result.schema.is_some());
         assert!(result.diagnostics_by_file.is_empty());
     }
@@ -258,25 +285,57 @@ mod tests {
             }],
         );
 
-        let result = MergedSchemaResult {
-            schema: None,
-            diagnostics_by_file: Arc::new(diagnostics),
-        };
+        let result = MergedSchemaResult::new(None, Arc::new(diagnostics));
         assert!(result.schema.is_none());
         assert_eq!(result.diagnostics_by_file.len(), 1);
     }
 
     #[test]
     fn test_merged_schema_result_equality() {
-        let result1 = MergedSchemaResult {
-            schema: None,
-            diagnostics_by_file: Arc::new(HashMap::new()),
-        };
-        let result2 = MergedSchemaResult {
-            schema: None,
-            diagnostics_by_file: Arc::new(HashMap::new()),
-        };
+        let result1 = MergedSchemaResult::new(None, Arc::new(HashMap::new()));
+        let result2 = MergedSchemaResult::new(None, Arc::new(HashMap::new()));
         assert_eq!(result1, result2);
+    }
+
+    #[test]
+    fn test_merged_schema_result_semantic_equality() {
+        // Two independently-built schemas with identical SDL should be equal
+        // even though they have different Arc pointers
+        let schema1 = apollo_compiler::Schema::builder()
+            .parse("type Query { hello: String }", "schema.graphql")
+            .build()
+            .unwrap();
+        let schema2 = apollo_compiler::Schema::builder()
+            .parse("type Query { hello: String }", "schema.graphql")
+            .build()
+            .unwrap();
+
+        let result1 = MergedSchemaResult::new(Some(Arc::new(schema1)), Arc::new(HashMap::new()));
+        let result2 = MergedSchemaResult::new(Some(Arc::new(schema2)), Arc::new(HashMap::new()));
+
+        // Different Arc pointers, but same SDL hash
+        assert!(!Arc::ptr_eq(
+            result1.schema.as_ref().unwrap(),
+            result2.schema.as_ref().unwrap()
+        ));
+        assert_eq!(result1, result2);
+    }
+
+    #[test]
+    fn test_merged_schema_result_different_schemas_not_equal() {
+        let schema1 = apollo_compiler::Schema::builder()
+            .parse("type Query { hello: String }", "schema.graphql")
+            .build()
+            .unwrap();
+        let schema2 = apollo_compiler::Schema::builder()
+            .parse("type Query { goodbye: Int }", "schema.graphql")
+            .build()
+            .unwrap();
+
+        let result1 = MergedSchemaResult::new(Some(Arc::new(schema1)), Arc::new(HashMap::new()));
+        let result2 = MergedSchemaResult::new(Some(Arc::new(schema2)), Arc::new(HashMap::new()));
+
+        assert_ne!(result1, result2);
     }
 
     #[test]
