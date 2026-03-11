@@ -39,7 +39,7 @@ A VS Code extension that provides comprehensive GraphQL language support includi
 
 ## Installation
 
-Install **[GraphQL Analyzer](https://marketplace.visualstudio.com/items?itemName=trevor-scheer.graphql-analyzer)** from the VS Code Marketplace, or search "GraphQL Analyzer" in the Extensions view (`Ctrl/Cmd+Shift+X`).
+Install **[GraphQL Analyzer](https://marketplace.visualstudio.com/items?itemName=graphql-analyzer.graphql-analyzer)** from the VS Code Marketplace, or search "GraphQL Analyzer" in the Extensions view (`Ctrl/Cmd+Shift+X`).
 
 ### Bundled LSP Server
 
