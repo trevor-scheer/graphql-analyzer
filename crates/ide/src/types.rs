@@ -902,6 +902,325 @@ impl SelectionRange {
     }
 }
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
+/// Semantic token type for syntax highlighting
+///
+/// These map to LSP semantic token types and provide rich syntax highlighting
+/// based on semantic analysis (e.g., knowing if a field is deprecated).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemanticTokenType {
+    /// GraphQL type names (User, Post, etc.)
+    Type,
+    /// Field names in selection sets
+    Property,
+    /// Variables ($id, $limit)
+    Variable,
+    /// Fragment names
+    Function,
+    /// Enum values (ACTIVE, PENDING)
+    EnumMember,
+    /// Keywords (query, mutation, fragment, on)
+    Keyword,
+    /// String literals
+    String,
+    /// Number literals
+    Number,
+}
+
+impl SemanticTokenType {
+    /// Index into the legend (must match order in LSP capability registration)
+    #[must_use]
+    pub const fn index(self) -> u32 {
+        match self {
+            Self::Type => 0,
+            Self::Property => 1,
+            Self::Variable => 2,
+            Self::Function => 3,
+            Self::EnumMember => 4,
+            Self::Keyword => 5,
+            Self::String => 6,
+            Self::Number => 7,
+        }
+    }
+}
+
+/// Semantic token modifier for additional styling
+///
+/// These are combined as a bitmask and provide additional semantic information
+/// like deprecation status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticTokenModifiers(u32);
+
+impl SemanticTokenModifiers {
+    /// No modifiers
+    pub const NONE: Self = Self(0);
+    /// Element is deprecated (triggers strikethrough in editors)
+    pub const DEPRECATED: Self = Self(1 << 0);
+    /// Element is a definition site
+    pub const DEFINITION: Self = Self(1 << 1);
+
+    /// Create from raw bitmask
+    #[must_use]
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    /// Get raw bitmask value
+    #[must_use]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// Combine modifiers
+    #[must_use]
+    pub const fn with(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// Check if a modifier is set
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        (self.0 & other.0) == other.0
+    }
+}
+
+/// A semantic token for syntax highlighting
+///
+/// Tokens are emitted in document order and converted to delta encoding
+/// by the LSP layer before being sent to the client.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticToken {
+    /// Start position of the token
+    pub start: Position,
+    /// Length of the token in UTF-16 code units
+    pub length: u32,
+    /// Token type
+    pub token_type: SemanticTokenType,
+    /// Token modifiers (bitmask)
+    pub modifiers: SemanticTokenModifiers,
+}
+
+impl SemanticToken {
+    #[must_use]
+    pub const fn new(
+        start: Position,
+        length: u32,
+        token_type: SemanticTokenType,
+        modifiers: SemanticTokenModifiers,
+    ) -> Self {
+        Self {
+            start,
+            length,
+            token_type,
+            modifiers,
+        }
+    }
+}
+
+/// Field usage information for a single field
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldUsageInfo {
+    /// Number of operations that use this field
+    pub usage_count: usize,
+    /// Names of operations that use this field
+    pub operations: Vec<String>,
+}
+
+/// Coverage information for a single type
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeCoverageInfo {
+    /// Name of the type
+    pub type_name: String,
+    /// Total number of fields on this type
+    pub total_fields: usize,
+    /// Number of fields that are used in operations
+    pub used_fields: usize,
+}
+
+impl TypeCoverageInfo {
+    /// Calculate coverage as a percentage (0.0 to 100.0)
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn coverage_percentage(&self) -> f64 {
+        if self.total_fields == 0 {
+            100.0
+        } else {
+            (self.used_fields as f64 / self.total_fields as f64) * 100.0
+        }
+    }
+}
+
+/// Field usage coverage report for an entire project
+#[derive(Debug, Clone, Default)]
+pub struct FieldCoverageReport {
+    /// Total number of fields in the schema
+    pub total_fields: usize,
+    /// Number of fields used in at least one operation
+    pub used_fields: usize,
+    /// Coverage by type
+    pub types: Vec<TypeCoverageInfo>,
+    /// Detailed field usages (`type_name`, `field_name`) -> usage info
+    pub field_usages: HashMap<(String, String), FieldUsageInfo>,
+}
+
+impl FieldCoverageReport {
+    /// Calculate overall coverage as a percentage (0.0 to 100.0)
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn coverage_percentage(&self) -> f64 {
+        if self.total_fields == 0 {
+            100.0
+        } else {
+            (self.used_fields as f64 / self.total_fields as f64) * 100.0
+        }
+    }
+
+    /// Get all unused fields as (`type_name`, `field_name`) tuples
+    #[must_use]
+    pub fn unused_fields(&self) -> Vec<(String, String)> {
+        self.field_usages
+            .iter()
+            .filter(|(_, info)| info.usage_count == 0)
+            .map(|((type_name, field_name), _)| (type_name.clone(), field_name.clone()))
+            .collect()
+    }
+}
+
+impl From<Arc<graphql_analysis::FieldCoverageReport>> for FieldCoverageReport {
+    fn from(report: Arc<graphql_analysis::FieldCoverageReport>) -> Self {
+        let types: Vec<TypeCoverageInfo> = report
+            .type_coverage
+            .iter()
+            .map(|(name, coverage)| TypeCoverageInfo {
+                type_name: name.to_string(),
+                total_fields: coverage.total_fields,
+                used_fields: coverage.used_fields,
+            })
+            .collect();
+
+        let field_usages: HashMap<(String, String), FieldUsageInfo> = report
+            .field_usages
+            .iter()
+            .map(|((type_name, field_name), usage)| {
+                (
+                    (type_name.to_string(), field_name.to_string()),
+                    FieldUsageInfo {
+                        usage_count: usage.usage_count,
+                        operations: usage.operations.iter().map(ToString::to_string).collect(),
+                    },
+                )
+            })
+            .collect();
+
+        Self {
+            total_fields: report.total_fields,
+            used_fields: report.used_fields,
+            types,
+            field_usages,
+        }
+    }
+}
+
+/// Per-field complexity breakdown
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldComplexity {
+    /// Field path from root (e.g., "posts.author.name")
+    pub path: String,
+    /// Field name
+    pub name: String,
+    /// Complexity score for this field
+    pub complexity: u32,
+    /// List multiplier (for list fields like `[Post!]!`)
+    pub multiplier: u32,
+    /// Depth level (0 = root level)
+    pub depth: u32,
+    /// Whether this is a connection pattern (edges/nodes pagination)
+    pub is_connection: bool,
+    /// Warning message if any (e.g., nested pagination)
+    pub warning: Option<String>,
+}
+
+impl FieldComplexity {
+    pub fn new(path: impl Into<String>, name: impl Into<String>, complexity: u32) -> Self {
+        Self {
+            path: path.into(),
+            name: name.into(),
+            complexity,
+            multiplier: 1,
+            depth: 0,
+            is_connection: false,
+            warning: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_multiplier(mut self, multiplier: u32) -> Self {
+        self.multiplier = multiplier;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_depth(mut self, depth: u32) -> Self {
+        self.depth = depth;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_connection(mut self, is_connection: bool) -> Self {
+        self.is_connection = is_connection;
+        self
+    }
+
+    #[must_use]
+    pub fn with_warning(mut self, warning: impl Into<String>) -> Self {
+        self.warning = Some(warning.into());
+        self
+    }
+}
+
+/// Complexity analysis result for an operation
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComplexityAnalysis {
+    /// Operation name (or "<anonymous>" for unnamed operations)
+    pub operation_name: String,
+    /// Operation type (query, mutation, subscription)
+    pub operation_type: String,
+    /// Total calculated complexity score
+    pub total_complexity: u32,
+    /// Maximum selection depth
+    pub depth: u32,
+    /// Per-field complexity breakdown
+    pub breakdown: Vec<FieldComplexity>,
+    /// Warnings about potential issues (nested pagination, etc.)
+    pub warnings: Vec<String>,
+    /// File path containing this operation
+    pub file: FilePath,
+    /// Range of the operation in the file
+    pub range: Range,
+}
+
+impl ComplexityAnalysis {
+    pub fn new(
+        operation_name: impl Into<String>,
+        operation_type: impl Into<String>,
+        file: FilePath,
+        range: Range,
+    ) -> Self {
+        Self {
+            operation_name: operation_name.into(),
+            operation_type: operation_type.into(),
+            total_complexity: 0,
+            depth: 0,
+            breakdown: Vec::new(),
+            warnings: Vec::new(),
+            file,
+            range,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
