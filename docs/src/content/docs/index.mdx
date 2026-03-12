@@ -1,0 +1,50 @@
+---
+title: GraphQL Analyzer
+description: Fast, Rust-powered GraphQL tooling for your editor and CI.
+template: splash
+hero:
+  tagline: Real-time validation, navigation, and linting for GraphQL projects. Works with .graphql files and embedded GraphQL in TypeScript/JavaScript.
+  actions:
+    - text: Get Started
+      link: /graphql-analyzer/getting-started/quick-start/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/trevor-scheer/graphql-analyzer
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+## Features
+
+<CardGrid stagger>
+  <Card title="IDE Support" icon="laptop">
+    Real-time validation, go to definition, find references, and hover information. Works in VS Code, Neovim, and any LSP-compatible editor.
+  </Card>
+
+<Card title="CLI Validation" icon="seti:powershell">
+  Run `graphql check` in CI/CD pipelines. JSON output, GitHub Actions annotations, and distinct exit
+  codes for scripting.
+</Card>
+
+<Card title="Configurable Linting" icon="approve-check-circle">
+  9 built-in lint rules with the `recommended` preset. Configure severity per-rule, enable expensive
+  rules in CI only.
+</Card>
+
+<Card title="Embedded GraphQL" icon="seti:typescript">
+  Full support for GraphQL in TypeScript and JavaScript template literals. All IDE features work
+  inside `gql` tags.
+</Card>
+
+<Card title="Incremental Computation" icon="rocket">
+  Built on Salsa for query-based incremental analysis. Only recomputes what changed — stays fast in
+  large codebases.
+</Card>
+
+  <Card title="AI Integration" icon="star">
+    MCP server gives AI agents like Claude access to schema-aware validation and linting.
+  </Card>
+</CardGrid>

@@ -1,0 +1,30 @@
+---
+title: Diagnostics
+description: Real-time validation and linting in your editor.
+---
+
+GraphQL Analyzer provides real-time diagnostics as you type, showing validation errors and lint warnings inline in your editor.
+
+## What's checked
+
+- **GraphQL spec validation** — Full compliance via Apollo compiler
+- **Schema type checking** — Fields, arguments, types validated against your schema
+- **Lint rules** — Configurable rules for best practices
+- **Position-accurate** — Correct line/column even for embedded GraphQL in TypeScript/JavaScript
+
+## How it works
+
+```
+File opened    → Full validation
+File changed   → Re-validate changed document only
+File saved     → Re-validate changed document
+Schema changed → Re-validate all documents
+```
+
+Only the file you're editing is recomputed — the rest of the project is cached. This keeps diagnostics fast even in large codebases.
+
+## Performance
+
+By default, the LSP runs only fast, per-document rules in real-time. Expensive project-wide rules (like `unusedFields`) are disabled in the LSP and can be run via the CLI instead.
+
+See [Performance Tuning](/graphql-analyzer/advanced/performance-tuning/) and [Tool-Specific Overrides](/graphql-analyzer/configuration/tool-overrides/) for configuration.

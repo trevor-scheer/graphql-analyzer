@@ -1,0 +1,40 @@
+---
+title: Find References
+description: Find all usages of fragments and types across your project.
+---
+
+Right-click → "Find All References" (or `Shift+F12`) to see everywhere a GraphQL element is used.
+
+## Supported targets
+
+| Definition          | Finds                                                                     |
+| ------------------- | ------------------------------------------------------------------------- |
+| Fragment definition | All fragment spreads across the project                                   |
+| Type definition     | Usages in field types, union members, implements, input fields, arguments |
+
+## Examples
+
+### Fragment references
+
+```graphql
+# Right-click on "UserFields" to find all spreads
+fragment UserFields on User {
+  id
+  name
+}
+```
+
+Finds all `...UserFields` spreads across your project.
+
+### Type references
+
+Find all places where the `User` type is referenced:
+
+- Field types: `user: User`
+- Union members: `SearchResult = User | Post`
+- Implements: `Admin implements User`
+- Input fields and arguments
+
+## Cross-file search
+
+References are found across all files in the project, including embedded GraphQL in TypeScript/JavaScript.

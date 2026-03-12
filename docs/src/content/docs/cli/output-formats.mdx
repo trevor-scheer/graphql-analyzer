@@ -1,0 +1,70 @@
+---
+title: Output Formats
+description: Human-readable, JSON, and GitHub Actions output formats.
+---
+
+All CLI commands support three output formats via the `--format` flag.
+
+## Human (default)
+
+Colorized, human-readable output with source context:
+
+```
+✗ Validation error in src/queries.graphql:5:3
+  Cannot query field "invalidField" on type "User"
+
+  3 |   user(id: $id) {
+  4 |     id
+  5 |     invalidField
+    |     ^^^^^^^^^^^^
+  6 |   }
+
+✓ 12 files validated, 1 error found
+```
+
+## JSON
+
+Machine-readable JSON for CI/CD pipelines and custom tooling:
+
+```sh
+graphql validate --format json
+```
+
+```json
+{
+  "success": false,
+  "files": [
+    {
+      "file": "src/queries.graphql",
+      "errors": [
+        {
+          "message": "Cannot query field \"invalidField\" on type \"User\"",
+          "severity": "error",
+          "location": {
+            "start": { "line": 5, "column": 3 },
+            "end": { "line": 5, "column": 15 }
+          }
+        }
+      ]
+    }
+  ],
+  "stats": {
+    "total_files": 1,
+    "total_errors": 1
+  }
+}
+```
+
+## GitHub
+
+GitHub Actions annotation format — errors and warnings appear as inline annotations on pull requests:
+
+```sh
+graphql validate --format github
+```
+
+```
+::error file=src/queries.graphql,line=5,col=3::Cannot query field "invalidField" on type "User"
+```
+
+See [CI/CD Integration](/graphql-analyzer/cli/ci-cd/) for a full GitHub Actions workflow.

@@ -1,0 +1,90 @@
+---
+title: CLI Overview
+description: Command-line tool for validating and linting GraphQL projects.
+---
+
+The `graphql` CLI validates and lints your GraphQL projects. Use it in CI/CD pipelines or during local development.
+
+## Commands
+
+| Command    | Description                               | Recommended for    |
+| ---------- | ----------------------------------------- | ------------------ |
+| `check`    | Run validation + linting in a single pass | Most workflows     |
+| `validate` | Run schema validation only                | Schema-only checks |
+| `lint`     | Run lint rules only                       | Lint-only checks   |
+
+**`check` is the recommended command** — it's more efficient than running `validate` and `lint` separately.
+
+## Quick usage
+
+```sh
+# Run all checks (recommended)
+graphql check
+
+# Validate only
+graphql validate
+
+# Lint only
+graphql lint
+
+# Watch mode
+graphql check --watch
+```
+
+## Global options
+
+| Option              | Description                                      |
+| ------------------- | ------------------------------------------------ |
+| `--config <PATH>`   | Path to config file (auto-discovered by default) |
+| `--project <NAME>`  | Project name for multi-project configs           |
+| `--quiet`, `-q`     | Suppress all output except errors                |
+| `--no-progress`     | Suppress progress spinners only                  |
+| `--format <FORMAT>` | Output format: `human`, `json`, `github`         |
+
+**Output verbosity:**
+
+| Flag            | Spinner | Results | Errors |
+| --------------- | ------- | ------- | ------ |
+| (none)          | Yes     | Yes     | Yes    |
+| `--no-progress` | No      | Yes     | Yes    |
+| `--quiet`       | No      | No      | Yes    |
+
+## Exit codes
+
+| Code | Meaning                                        |
+| ---- | ---------------------------------------------- |
+| 0    | Success — no errors                            |
+| 1    | Validation or lint errors found                |
+| 2    | Configuration error (missing/invalid config)   |
+| 3    | Schema load error (introspection failed, etc.) |
+| 4    | I/O error (file read/write failure)            |
+| 5    | Parse error (invalid GraphQL syntax)           |
+
+```sh
+graphql validate
+case $? in
+  0) echo "All good!" ;;
+  1) echo "Fix your GraphQL errors" ;;
+  2) echo "Check your .graphqlrc configuration" ;;
+  3) echo "Schema could not be loaded" ;;
+  *) echo "Unexpected error" ;;
+esac
+```
+
+## Environment variables
+
+| Variable         | Description                                           |
+| ---------------- | ----------------------------------------------------- |
+| `GRAPHQL_CONFIG` | Override config file path                             |
+| `RUST_LOG`       | Log level (`error`, `warn`, `info`, `debug`, `trace`) |
+| `NO_COLOR`       | Disable colored output                                |
+| `CLICOLOR`       | `0` to disable, `1` to enable colors                  |
+| `CLICOLOR_FORCE` | `1` to force colors even without TTY                  |
+
+Color priority (highest to lowest):
+
+1. `--color` / `--no-color` flags
+2. `NO_COLOR` environment variable
+3. `CLICOLOR_FORCE` environment variable
+4. `CLICOLOR` environment variable
+5. Auto-detect (colors enabled if stdout is a TTY)

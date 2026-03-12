@@ -1,0 +1,82 @@
+---
+title: MCP Server
+description: AI agent integration via Model Context Protocol.
+---
+
+GraphQL Analyzer includes an MCP (Model Context Protocol) server that gives AI agents like Claude access to GraphQL analysis capabilities.
+
+## Setup with Claude Desktop
+
+Add to your Claude Desktop config:
+
+**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "graphql": {
+      "command": "/path/to/graphql",
+      "args": ["mcp", "--workspace", "/path/to/project"]
+    }
+  }
+}
+```
+
+## CLI options
+
+```sh
+# Load all projects (default)
+graphql mcp --workspace /path/to/project
+
+# Load specific projects only
+graphql mcp --workspace /path/to/project --preload frontend,backend
+
+# Load on demand (for large workspaces)
+graphql mcp --workspace /path/to/project --no-preload
+```
+
+| Option         | Description                                  |
+| -------------- | -------------------------------------------- |
+| `--workspace`  | Project path (defaults to current directory) |
+| `--preload`    | Comma-separated projects to preload          |
+| `--no-preload` | Don't load any projects at startup           |
+
+## Available tools
+
+### validate_document
+
+Validate a GraphQL document against the schema.
+
+**Parameters:**
+
+- `document` (required) — GraphQL source to validate
+- `file_path` (optional) — Virtual file path for error reporting
+- `project` (optional) — Project name
+
+### lint_document
+
+Run lint rules on a GraphQL document.
+
+**Parameters:**
+
+- `document` (required) — GraphQL source to lint
+- `file_path` (optional) — Virtual file path for error reporting
+- `project` (optional) — Project name
+
+### list_projects
+
+List all GraphQL projects in the workspace. No parameters.
+
+### load_project
+
+Load a specific project by name.
+
+**Parameters:**
+
+- `project` (required) — Project name to load
+
+### get_project_diagnostics
+
+Get all diagnostics for all loaded projects. No parameters.

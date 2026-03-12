@@ -1,0 +1,108 @@
+---
+title: Troubleshooting
+description: Common issues and how to resolve them.
+---
+
+## No diagnostics showing
+
+**Check your config exists:**
+
+```sh
+ls -la .graphqlrc.yml
+```
+
+**Verify document patterns match your files:**
+
+```yaml
+documents: "src/**/*.graphql" # Must match your file locations
+```
+
+**Verify schema file exists:**
+
+```sh
+ls -la schema.graphql  # Or whatever path is in your config
+```
+
+## LSP not starting
+
+**VS Code:** Check Output panel → "GraphQL Language Server" for errors.
+
+**Neovim:** Run `:LspLog` to see LSP output.
+
+**Enable debug logging:**
+
+```json
+{
+  "graphql.trace.server": "verbose",
+  "graphql.server.env": {
+    "RUST_LOG": "debug"
+  }
+}
+```
+
+## Configuration not found
+
+The tool searches for config files walking up the directory tree. Ensure your `.graphqlrc.yml` is at or above your workspace root.
+
+Supported file names (in priority order):
+
+1. `.graphqlrc.yml` / `.graphqlrc.yaml`
+2. `.graphqlrc.json`
+3. `.graphqlrc`
+4. `graphql.config.yml` / `graphql.config.yaml`
+5. `graphql.config.json`
+
+**Not supported:** `graphql.config.js`, `graphql.config.ts`
+
+## Schema loading errors
+
+```sh
+RUST_LOG=debug graphql validate
+```
+
+Look for schema loading errors in the output. Common causes:
+
+- File path in config doesn't match actual file location
+- Glob pattern doesn't match any files
+- Remote URL is unreachable
+
+## Embedded GraphQL not working
+
+The tag function must be imported from a recognized module:
+
+```typescript
+// ✅ Works
+import { gql } from "graphql-tag";
+
+// ❌ Won't work — unknown module
+import { gql } from "custom-unknown-module";
+```
+
+Add custom modules:
+
+```yaml
+extensions:
+  extractConfig:
+    modules: ["graphql-tag", "custom-module"]
+```
+
+## Performance issues
+
+See [Performance Tuning](/graphql-analyzer/advanced/performance-tuning/).
+
+Quick fixes:
+
+- Disable expensive rules in the LSP: `unusedFields: off`
+- Check document patterns aren't matching too many files
+- Ensure `node_modules` isn't included in document patterns
+
+## Reporting issues
+
+File issues at [GitHub Issues](https://github.com/trevor-scheer/graphql-analyzer/issues).
+
+Include:
+
+1. Your `.graphqlrc.yml` configuration
+2. GraphQL Analyzer version
+3. Editor and OS
+4. Debug logs if applicable

@@ -1,0 +1,73 @@
+---
+title: Documents
+description: Configuring which files contain GraphQL operations and fragments.
+---
+
+The `documents` field tells GraphQL Analyzer where to find your GraphQL operations and fragments.
+
+## Basic patterns
+
+```yaml
+# Pure GraphQL files
+documents: "src/**/*.graphql"
+
+# Multiple file types
+documents: "src/**/*.{graphql,ts,tsx}"
+```
+
+## Multiple patterns
+
+```yaml
+documents:
+  - "src/**/*.graphql"
+  - "src/**/*.gql"
+  - "src/**/*.tsx"
+  - "src/**/*.ts"
+```
+
+## Excluding files
+
+Use `!` prefix to exclude patterns:
+
+```yaml
+documents:
+  - "src/**/*.{ts,tsx}"
+  - "!src/**/*.test.ts"
+  - "!src/**/*.spec.ts"
+```
+
+## Embedded GraphQL in TypeScript/JavaScript
+
+When you include `.ts`, `.tsx`, `.js`, or `.jsx` files, GraphQL Analyzer automatically extracts GraphQL from tagged template literals:
+
+```typescript
+import { gql } from "graphql-tag";
+
+const query = gql`
+  query GetUser($id: ID!) {
+    user(id: $id) {
+      id
+      name
+    }
+  }
+`;
+```
+
+### Configuring extraction
+
+By default, the tool recognizes `gql` imported from common modules. You can customize this:
+
+```yaml
+documents: "src/**/*.tsx"
+extensions:
+  extractConfig:
+    tagIdentifiers: ["gql", "graphql", "query"]
+    modules: ["graphql-tag", "@apollo/client", "custom-gql"]
+    allowGlobalIdentifiers: true
+```
+
+| Option                   | Default           | Description                      |
+| ------------------------ | ----------------- | -------------------------------- |
+| `tagIdentifiers`         | `["gql"]`         | Tag function names to recognize  |
+| `modules`                | `["graphql-tag"]` | Import sources to recognize      |
+| `allowGlobalIdentifiers` | `false`           | Allow unimported tag identifiers |
