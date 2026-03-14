@@ -452,11 +452,17 @@ export async function activate(context: ExtensionContext) {
   outputChannel.appendLine("=== graphql-analyzer extension activating ===");
 
   statusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 100);
-  statusBarItem.command = "graphql-analyzer.checkStatus";
+  statusBarItem.command = "graphql-analyzer.jumpToLogs";
   statusBarItem.text = "$(sync~spin) graphql-analyzer";
   statusBarItem.tooltip = "graphql-analyzer is starting...";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
+
+  context.subscriptions.push(
+    commands.registerCommand("graphql-analyzer.jumpToLogs", () => {
+      outputChannel.show(true);
+    }),
+  );
 
   try {
     await startLanguageServer(context);

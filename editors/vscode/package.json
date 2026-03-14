@@ -51,6 +51,11 @@
         "category": "graphql-analyzer"
       },
       {
+        "command": "graphql-analyzer.jumpToLogs",
+        "title": "Show Logs",
+        "category": "graphql-analyzer"
+      },
+      {
         "command": "graphql-analyzer.checkStatus",
         "title": "Check Status",
         "category": "graphql-analyzer"
