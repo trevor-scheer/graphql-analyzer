@@ -1613,6 +1613,8 @@ documents: "**/*.graphql"
             .map(convert_ide_diagnostic)
             .collect();
 
+        tracing::debug!(diagnostic_count = lsp_diagnostics.len(), "Publishing diagnostics");
+
         self.client
             .publish_diagnostics(uri.clone(), lsp_diagnostics, None)
             .await;
@@ -2017,7 +2019,10 @@ impl LanguageServer for GraphQLLanguageServer {
                 host.add_file_and_snapshot(&file_path, &current_content, language, document_kind)
                     .await
             }
-            .instrument(tracing::info_span!("update_file_and_snapshot"))
+            .instrument(tracing::info_span!(
+                "update_file_and_snapshot",
+                document_kind = ?document_kind,
+            ))
             .await
         };
 
@@ -2067,9 +2072,13 @@ impl LanguageServer for GraphQLLanguageServer {
         };
 
         let all_diagnostics = {
-            let _span = tracing::info_span!("compute_diagnostics").entered();
             let changed_file = graphql_ide::FilePath::new(uri.as_str());
-            snapshot.all_diagnostics_for_change(&changed_file)
+            let result = {
+                let _span = tracing::info_span!("compute_diagnostics").entered();
+                snapshot.all_diagnostics_for_change(&changed_file)
+            };
+            tracing::info!(affected_file_count = result.len(), "Diagnostics computed for save");
+            result
         };
 
         {

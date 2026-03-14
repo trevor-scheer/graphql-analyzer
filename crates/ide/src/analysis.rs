@@ -44,6 +44,8 @@ impl Analysis {
     ///
     /// Returns syntax errors, validation errors, and lint warnings.
     pub fn diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
+        let _span = tracing::info_span!("file_diagnostics", uri = %file.as_str()).entered();
+
         let (content, metadata) = {
             let registry = self.registry.read();
 
@@ -86,6 +88,9 @@ impl Analysis {
         &self,
         changed_file: &FilePath,
     ) -> HashMap<FilePath, Vec<Diagnostic>> {
+        let _span =
+            tracing::info_span!("diagnostics_for_change", uri = %changed_file.as_str()).entered();
+
         let mut result = HashMap::new();
 
         // Always include diagnostics for the changed file
@@ -155,12 +160,20 @@ impl Analysis {
         &self,
         changed_file: &FilePath,
     ) -> HashMap<FilePath, Vec<Diagnostic>> {
-        let mut result = self.diagnostics_for_change(changed_file);
+        let _span = tracing::info_span!("all_diagnostics_for_change", uri = %changed_file.as_str())
+            .entered();
 
-        // Merge project-wide lint diagnostics into the result
-        let project_diagnostics = self.project_lint_diagnostics();
-        for (file_path, diagnostics) in project_diagnostics {
-            result.entry(file_path).or_default().extend(diagnostics);
+        let mut result = {
+            let _span = tracing::debug_span!("per_file_diagnostics").entered();
+            self.diagnostics_for_change(changed_file)
+        };
+
+        {
+            let _span = tracing::debug_span!("project_lint_diagnostics").entered();
+            let project_diagnostics = self.project_lint_diagnostics();
+            for (file_path, diagnostics) in project_diagnostics {
+                result.entry(file_path).or_default().extend(diagnostics);
+            }
         }
 
         result
@@ -176,6 +189,7 @@ impl Analysis {
         changed_file_id: graphql_base_db::FileId,
         project_files: graphql_base_db::ProjectFiles,
     ) -> Vec<FilePath> {
+        let _span = tracing::debug_span!("find_affected_files").entered();
         let registry = self.registry.read();
 
         // Get fragments and operations defined in the changed file
