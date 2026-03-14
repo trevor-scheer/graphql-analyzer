@@ -264,25 +264,25 @@ mod tests {
         // TS file WITH GraphQL
         std::fs::write(
             src_dir.join("with-graphql.ts"),
-            r#"
+            r"
 import { gql } from '@apollo/client';
 const query = gql`
   query GetUser {
     user { id name }
   }
 `;
-"#,
+",
         )
         .unwrap();
 
         // TS file WITHOUT GraphQL
         std::fs::write(
             src_dir.join("no-graphql.ts"),
-            r#"
+            r"
 export function add(a: number, b: number): number {
   return a + b;
 }
-"#,
+",
         )
         .unwrap();
 
