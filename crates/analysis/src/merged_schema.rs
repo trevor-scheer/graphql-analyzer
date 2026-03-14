@@ -110,7 +110,7 @@ pub fn merged_schema_with_diagnostics(
         };
     }
 
-    let mut builder = apollo_compiler::schema::SchemaBuilder::new();
+    let mut builder = apollo_compiler::schema::SchemaBuilder::new().adopt_orphan_extensions();
 
     for file_id in schema_ids.iter() {
         let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
