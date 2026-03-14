@@ -74,6 +74,7 @@ impl FileDiscoveryResult {
 pub fn discover_document_files(
     config: &graphql_config::ProjectConfig,
     workspace_path: &std::path::Path,
+    extract_config: &graphql_extract::ExtractConfig,
 ) -> FileDiscoveryResult {
     let Some(documents_config) = &config.documents else {
         return FileDiscoveryResult::default();
@@ -121,9 +122,11 @@ pub fn discover_document_files(
                                         // For TS/JS files, we need to extract GraphQL first
                                         let graphql_content = if language.requires_extraction() {
                                             // Extract and concatenate all GraphQL blocks
-                                            let config = graphql_extract::ExtractConfig::default();
                                             graphql_extract::extract_from_source(
-                                                &content, language, &config, &path_str,
+                                                &content,
+                                                language,
+                                                extract_config,
+                                                &path_str,
                                             )
                                             .unwrap_or_default()
                                             .iter()
@@ -304,7 +307,8 @@ export function add(a: number, b: number): number {
             extensions: None,
         };
 
-        let result = discover_document_files(&config, temp_dir.path());
+        let extract_config = graphql_extract::ExtractConfig::default();
+        let result = discover_document_files(&config, temp_dir.path(), &extract_config);
 
         // Should only discover files that actually contain GraphQL:
         // - with-graphql.ts (has gql tag)

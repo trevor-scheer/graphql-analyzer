@@ -568,6 +568,7 @@ impl AnalysisHost {
         &mut self,
         config: &graphql_config::ProjectConfig,
         workspace_path: &std::path::Path,
+        extract_config: &graphql_extract::ExtractConfig,
     ) -> (Vec<LoadedFile>, DocumentLoadResult) {
         let Some(documents_config) = &config.documents else {
             return (Vec::new(), DocumentLoadResult::default());
@@ -614,10 +615,11 @@ impl AnalysisHost {
 
                                             // Skip files that require extraction but contain no GraphQL
                                             if language.requires_extraction() {
-                                                let config =
-                                                    graphql_extract::ExtractConfig::default();
                                                 let blocks = graphql_extract::extract_from_source(
-                                                    &content, language, &config, &path_str,
+                                                    &content,
+                                                    language,
+                                                    extract_config,
+                                                    &path_str,
                                                 )
                                                 .unwrap_or_default();
                                                 if blocks.is_empty() {
