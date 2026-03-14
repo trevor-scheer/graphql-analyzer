@@ -1772,8 +1772,19 @@ impl Analysis {
         let type_refs =
             graphql_hir::file_type_name_references(&self.db, file_id, content, metadata);
 
-        // Skip if none of the file's referenced types are in the changed set
-        !type_refs.iter().any(|name| changed_types.contains(name))
+        if type_refs.iter().any(|name| changed_types.contains(name)) {
+            return false;
+        }
+
+        // file_type_name_references only captures explicit type names (variable types,
+        // fragment type conditions). It misses implicit dependencies from field selections
+        // like `query { user { name } }` where `User` is only reachable via schema traversal.
+        // file_schema_coordinates walks the selection set through the schema and captures
+        // all type names that the file's selections pass through.
+        let coords =
+            graphql_hir::file_schema_coordinates(&self.db, file_id, content, metadata, project_files);
+
+        !coords.iter().any(|c| changed_types.contains(&c.type_name))
     }
 
     /// Get all diagnostics (per-file + project-wide lints) for files affected by a change.
