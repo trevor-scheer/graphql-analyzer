@@ -43,6 +43,12 @@ impl Analysis {
     /// Get diagnostics for a file
     ///
     /// Returns syntax errors, validation errors, and lint warnings.
+    #[tracing::instrument(
+        level = "info",
+        name = "file_diagnostics",
+        skip(self),
+        fields(uri = %file.as_str())
+    )]
     pub fn diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
         let (content, metadata) = {
             let registry = self.registry.read();
@@ -82,6 +88,12 @@ impl Analysis {
     ///   same-named operations (uniqueness checks).
     ///
     /// Salsa memoization ensures unaffected files return cached results instantly.
+    #[tracing::instrument(
+        level = "info",
+        name = "diagnostics_for_change",
+        skip(self),
+        fields(uri = %changed_file.as_str())
+    )]
     pub fn diagnostics_for_change(
         &self,
         changed_file: &FilePath,
@@ -151,13 +163,18 @@ impl Analysis {
     /// per-file validation, per-file lints, and project-wide lints.
     ///
     /// Use this from `did_save` to publish complete diagnostics in one pass.
+    #[tracing::instrument(
+        level = "info",
+        name = "all_diagnostics_for_change",
+        skip(self),
+        fields(uri = %changed_file.as_str())
+    )]
     pub fn all_diagnostics_for_change(
         &self,
         changed_file: &FilePath,
     ) -> HashMap<FilePath, Vec<Diagnostic>> {
         let mut result = self.diagnostics_for_change(changed_file);
 
-        // Merge project-wide lint diagnostics into the result
         let project_diagnostics = self.project_lint_diagnostics();
         for (file_path, diagnostics) in project_diagnostics {
             result.entry(file_path).or_default().extend(diagnostics);
@@ -171,6 +188,7 @@ impl Analysis {
     /// Returns files that:
     /// 1. Spread fragments defined in the changed file (directly or transitively)
     /// 2. Have same-named operations as the changed file (uniqueness checks)
+    #[tracing::instrument(level = "debug", name = "find_affected_files", skip_all)]
     fn find_affected_document_files(
         &self,
         changed_file_id: graphql_base_db::FileId,

@@ -92,6 +92,12 @@ fn file_validation_diagnostics_impl(
     metadata: graphql_base_db::FileMetadata,
     project_files: graphql_base_db::ProjectFiles,
 ) -> Arc<Vec<Diagnostic>> {
+    let _span = tracing::debug_span!(
+        "file_validation",
+        uri = %metadata.uri(db),
+        document_kind = ?metadata.document_kind(db),
+    )
+    .entered();
     let mut diagnostics = Vec::new();
 
     let parse = graphql_syntax::parse(db, content, metadata);
@@ -171,6 +177,11 @@ fn file_diagnostics_impl(
     metadata: graphql_base_db::FileMetadata,
     project_files: graphql_base_db::ProjectFiles,
 ) -> Arc<Vec<Diagnostic>> {
+    let _span = tracing::debug_span!(
+        "file_diagnostics_impl",
+        uri = %metadata.uri(db),
+    )
+    .entered();
     let mut diagnostics = Vec::new();
 
     diagnostics.extend(

@@ -54,12 +54,13 @@ fn lint_file_impl(
     metadata: FileMetadata,
     project_files: ProjectFiles,
 ) -> Arc<Vec<Diagnostic>> {
+    let uri = metadata.uri(db);
+    let _span = tracing::debug_span!("lint_file", uri = %uri).entered();
     let mut diagnostics = Vec::new();
 
     let parse = graphql_syntax::parse(db, content, metadata);
 
-    let uri = metadata.uri(db);
-    tracing::debug!(uri = %uri, parse_errors = parse.errors().len(), "lint_file called");
+    tracing::debug!(parse_errors = parse.errors().len(), "lint_file called");
 
     if parse.has_errors() {
         tracing::debug!(uri = %uri, "Skipping linting due to parse errors");
@@ -239,28 +240,23 @@ fn project_lint_diagnostics_impl(
     db: &dyn GraphQLAnalysisDatabase,
     project_files: ProjectFiles,
 ) -> Arc<HashMap<FileId, Vec<Diagnostic>>> {
+    let _span = tracing::debug_span!("project_lint_diagnostics").entered();
     let lint_config = db.lint_config();
     let mut diagnostics_by_file: HashMap<FileId, Vec<Diagnostic>> = HashMap::new();
 
-    tracing::debug!("Running project-wide lint rules");
-
     for rule in graphql_linter::project_rules() {
         let enabled = lint_config.is_enabled(rule.name());
-        tracing::debug!(
-            rule = rule.name(),
-            enabled = enabled,
-            "Checking project-wide rule"
-        );
-
         if !enabled {
+            tracing::debug!(rule = rule.name(), "Project rule disabled, skipping");
             continue;
         }
+
+        let _rule_span = tracing::debug_span!("project_rule", rule_name = rule.name()).entered();
 
         let options = lint_config.get_options(rule.name());
         let lint_diags = rule.check(db, project_files, options);
 
         tracing::debug!(
-            rule = rule.name(),
             file_count = lint_diags.len(),
             "Project-wide rule returned diagnostics"
         );
