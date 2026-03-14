@@ -134,15 +134,21 @@ fn extract_from_js_family(
         source.to_string(),
     );
 
-    // Configure syntax based on language
+    // Enable JSX/TSX only for extensions that support it (.tsx, .jsx).
+    // Plain .ts files don't allow JSX, and enabling tsx mode causes SWC
+    // to misparse generic arrow functions like `<T>(arg: T) => ...` as JSX.
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
     let syntax = match language {
         Language::TypeScript => Syntax::Typescript(swc_core::ecma::parser::TsSyntax {
-            tsx: true,
+            tsx: ext == "tsx",
             decorators: true,
             ..Default::default()
         }),
         Language::JavaScript => Syntax::Es(swc_core::ecma::parser::EsSyntax {
-            jsx: true,
+            jsx: ext == "jsx",
             ..Default::default()
         }),
         _ => unreachable!("extract_from_js_family only handles JS/TS"),
@@ -696,7 +702,7 @@ function UserComponent({ userId }) {
 ";
             let config = ExtractConfig::default();
             let result =
-                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
+                extract_from_source(source, Language::TypeScript, &config, "test.tsx").unwrap();
 
             assert_eq!(result.len(), 1);
             assert!(result[0].source.contains("query GetUser"));
@@ -973,6 +979,28 @@ const document = gql(`
             assert_eq!(result.len(), 1);
             assert!(result[0].source.contains("query GetPosts"));
             assert_eq!(result[0].tag_name, Some("gql".to_string()));
+        }
+
+        #[test]
+        fn test_generic_arrow_function_in_ts_file() {
+            // Issue #755: SWC parse error on .ts files with generic arrow functions.
+            // `<T>` is parsed as JSX when tsx mode is enabled, but .ts files
+            // don't support JSX — only .tsx files do.
+            let source = r"
+import { gql } from 'graphql-tag';
+
+const genericArrowFunction = <T>(arg: T): T => {
+  return arg;
+};
+
+const query = gql`query GetUser { user { id } }`;
+";
+            let config = ExtractConfig::default();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test.ts").unwrap();
+
+            assert_eq!(result.len(), 1);
+            assert!(result[0].source.contains("query GetUser"));
         }
     }
 }
