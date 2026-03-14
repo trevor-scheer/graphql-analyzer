@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.1.11 (2026-03-14)
+
+### Fixes
+
+- Fix extension crash on activation due to duplicate `checkStatus` command registration. The status bar item now uses a dedicated `jumpToLogs` command to avoid conflicting with the LSP server's `checkStatus` command.
+
 ## 0.1.10 (2026-03-14)
 
 ### Features
