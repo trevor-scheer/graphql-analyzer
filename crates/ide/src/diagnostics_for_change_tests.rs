@@ -280,11 +280,7 @@ fn orphan_extensions_produce_valid_schema_for_document_validation() {
     // document validation would silently return zero diagnostics for everything.
     let (host, _schema_path, file_paths) = setup_host(
         "extend type Query { hero: String }",
-        &[(
-            "query.graphql",
-            "query { hero }",
-            DocumentKind::Executable,
-        )],
+        &[("query.graphql", "query { hero }", DocumentKind::Executable)],
     );
     let query_path = &file_paths[0];
 
