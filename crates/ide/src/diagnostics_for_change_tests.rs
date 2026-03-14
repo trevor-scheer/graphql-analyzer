@@ -272,3 +272,51 @@ fn document_change_without_fragments_or_ops_is_self_only() {
         assert!(!result.contains_key(other_path));
     }
 }
+
+#[test]
+fn orphan_extensions_produce_valid_schema_for_document_validation() {
+    // Schema defined entirely via `extend type` (no base `type Query` definition).
+    // Without adopt_orphan_extensions(), SchemaBuilder::build() would fail and
+    // document validation would silently return zero diagnostics for everything.
+    let (host, _schema_path, file_paths) = setup_host(
+        "extend type Query { hero: String }",
+        &[(
+            "query.graphql",
+            "query { hero }",
+            DocumentKind::Executable,
+        )],
+    );
+    let query_path = &file_paths[0];
+
+    let snapshot = host.snapshot();
+    let diagnostics = snapshot.diagnostics(query_path);
+
+    // The query is valid against the schema — no errors expected.
+    assert!(
+        !has_error(&diagnostics),
+        "valid query against orphan-extension schema should have no errors, got: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn orphan_extensions_detect_invalid_fields() {
+    // Verify that validation actually runs against orphan-extension schemas
+    // (not just silently returning empty diagnostics).
+    let (host, _schema_path, file_paths) = setup_host(
+        "extend type Query { hero: String }",
+        &[(
+            "query.graphql",
+            "query { nonexistent }",
+            DocumentKind::Executable,
+        )],
+    );
+    let query_path = &file_paths[0];
+
+    let snapshot = host.snapshot();
+    let diagnostics = snapshot.diagnostics(query_path);
+
+    assert!(
+        has_error(&diagnostics),
+        "querying nonexistent field against orphan-extension schema should produce an error"
+    );
+}
