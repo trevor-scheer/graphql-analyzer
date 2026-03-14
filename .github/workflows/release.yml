@@ -18,11 +18,16 @@ jobs:
     steps:
       - name: Check if release commit
         id: check
+        # Use env var to safely pass the commit message to bash.
+        # Direct ${{ }} interpolation breaks when the message contains
+        # shell-special characters (backticks, quotes, pipes, etc.).
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           # Manual workflow_dispatch always runs release
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "should_release=true" >> "$GITHUB_OUTPUT"
-          elif [[ "${{ github.event.head_commit.message }}" == "chore: prepare release"* ]]; then
+          elif [[ "$COMMIT_MSG" == "chore: prepare release"* ]]; then
             echo "should_release=true" >> "$GITHUB_OUTPUT"
           else
             echo "should_release=false" >> "$GITHUB_OUTPUT"
