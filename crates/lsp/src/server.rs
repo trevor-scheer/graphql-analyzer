@@ -532,7 +532,7 @@ async fn load_all_project_files_background(
         .await;
 
         // Load schemas
-        let (pending_introspections, no_user_schema, unmatched_patterns) = host
+        let (pending_introspections, no_user_schema, unmatched_patterns, schema_count) = host
             .with_write(
                 |h| match h.load_schemas_from_config(project_config, workspace_path) {
                     Ok(result) => {
@@ -542,6 +542,7 @@ async fn load_all_project_files_background(
                             result.pending_introspections.len()
                         );
                         let no_schema = result.has_no_user_schema();
+                        let count = result.loaded_count;
                         // Convert content mismatch errors to ConfigValidationError
                         for error in &result.content_errors {
                             tracing::warn!(
@@ -559,11 +560,11 @@ async fn load_all_project_files_background(
                                 },
                             );
                         }
-                        (result.pending_introspections, no_schema, result.unmatched_patterns)
+                        (result.pending_introspections, no_schema, result.unmatched_patterns, count)
                     }
                     Err(e) => {
                         tracing::error!("Failed to load schemas: {}", e);
-                        (vec![], true, vec![])
+                        (vec![], true, vec![], 0)
                     }
                 },
             )
@@ -622,7 +623,8 @@ async fn load_all_project_files_background(
         }
 
         // Phase 1: Discover and read files (no lock needed - just file I/O)
-        let discovery_result = graphql_ide::discover_document_files(project_config, workspace_path);
+        let discovery_result =
+            graphql_ide::discover_document_files(project_config, workspace_path, &extract_config);
 
         // Convert content mismatch errors to ConfigValidationError
         for error in &discovery_result.errors {
@@ -727,8 +729,9 @@ async fn load_all_project_files_background(
         );
 
         let project_msg = format!(
-            "Project '{}' loaded: {} files in {:.1}s",
+            "Project '{}' loaded: {} schema file(s), {} document file(s) in {:.1}s",
             project_name,
+            schema_count,
             loaded_files.len(),
             project_start.elapsed().as_secs_f64()
         );
@@ -1291,8 +1294,11 @@ documents: "**/*.graphql"
                         };
 
                     // Load documents in the same lock acquisition
-                    let (docs, doc_result) =
-                        h.load_documents_from_config(project_config, workspace_path);
+                    let (docs, doc_result) = h.load_documents_from_config(
+                        project_config,
+                        workspace_path,
+                        &extract_config,
+                    );
 
                     (schema_result, docs, doc_result)
                 })
@@ -1435,8 +1441,9 @@ documents: "**/*.graphql"
             }
 
             let project_msg = format!(
-                "Project '{}' loaded: {} files in {:.1}s",
+                "Project '{}' loaded: {} schema file(s), {} document file(s) in {:.1}s",
                 project_name,
+                schema_result.loaded_count,
                 loaded_files.len(),
                 project_start.elapsed().as_secs_f64()
             );

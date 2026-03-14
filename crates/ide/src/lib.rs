@@ -5082,7 +5082,8 @@ export const RATE_LIMIT_QUERY = gql`
         // Load schema
         let _ = host.load_schemas_from_config(&config, temp_dir.path());
         // Load documents (including TS files)
-        let _ = host.load_documents_from_config(&config, temp_dir.path());
+        let extract_config = graphql_extract::ExtractConfig::default();
+        let _ = host.load_documents_from_config(&config, temp_dir.path(), &extract_config);
 
         // Rebuild project files to update indices (this happens in LSP initialization)
         host.rebuild_project_files();
@@ -5171,7 +5172,9 @@ export const RATE_LIMIT_QUERY = gql`
         // Load schema
         let _ = host.load_schemas_from_config(&config, temp_dir.path());
         // Load documents (including TS files)
-        let (loaded_docs, _doc_result) = host.load_documents_from_config(&config, temp_dir.path());
+        let extract_config = graphql_extract::ExtractConfig::default();
+        let (loaded_docs, _doc_result) =
+            host.load_documents_from_config(&config, temp_dir.path(), &extract_config);
 
         // Verify the TS file was loaded
         assert!(
