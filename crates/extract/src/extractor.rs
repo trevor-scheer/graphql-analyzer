@@ -134,15 +134,21 @@ fn extract_from_js_family(
         source.to_string(),
     );
 
-    // Configure syntax based on language
+    // Enable JSX/TSX only for extensions that support it (.tsx, .jsx).
+    // Plain .ts files don't allow JSX, and enabling tsx mode causes SWC
+    // to misparse generic arrow functions like `<T>(arg: T) => ...` as JSX.
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
     let syntax = match language {
         Language::TypeScript => Syntax::Typescript(swc_core::ecma::parser::TsSyntax {
-            tsx: true,
+            tsx: ext != "ts",
             decorators: true,
             ..Default::default()
         }),
         Language::JavaScript => Syntax::Es(swc_core::ecma::parser::EsSyntax {
-            jsx: true,
+            jsx: ext != "js" && ext != "mjs" && ext != "cjs",
             ..Default::default()
         }),
         _ => unreachable!("extract_from_js_family only handles JS/TS"),
