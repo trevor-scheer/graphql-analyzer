@@ -59,11 +59,12 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
-        with:
-          toolchain: stable
-          targets: ${{ matrix.target }}
+      - name: Install Rust
+        run: rustup show
+
+      - name: Add cross-compilation target
+        if: ${{ !matrix.cross }}
+        run: rustup target add ${{ matrix.target }}
 
       - name: Rust cache
         if: ${{ !matrix.cross }}
