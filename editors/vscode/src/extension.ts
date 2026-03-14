@@ -563,6 +563,20 @@ export async function activate(context: ExtensionContext) {
     // Trace capture commands
     let traceStatusBarItem: StatusBarItem | undefined;
 
+    function clearTraceStatusBar(): void {
+      if (traceStatusBarItem) {
+        traceStatusBarItem.dispose();
+        traceStatusBarItem = undefined;
+      }
+    }
+
+    // Clean up trace indicator if the server stops/restarts
+    client.onDidChangeState((event) => {
+      if (event.newState !== State.Running) {
+        clearTraceStatusBar();
+      }
+    });
+
     const startTraceCommand = commands.registerCommand("graphql-analyzer.startTrace", async () => {
       if (!client || client.state !== State.Running) {
         window.showErrorMessage("graphql-analyzer is not running");
@@ -612,10 +626,7 @@ export async function activate(context: ExtensionContext) {
           duration_ms?: number;
         }>("graphql-analyzer/traceCapture", { action: "stop" });
 
-        if (traceStatusBarItem) {
-          traceStatusBarItem.dispose();
-          traceStatusBarItem = undefined;
-        }
+        clearTraceStatusBar();
 
         if (result.status === "error") {
           window.showErrorMessage(`Trace capture failed: ${result.message}`);

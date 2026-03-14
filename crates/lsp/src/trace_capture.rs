@@ -92,11 +92,13 @@ impl TraceCaptureManager {
             .include_args(true)
             .build();
 
-        // Wrap with a debug-level filter so we capture info + debug spans
-        let filtered: BoxedLayer =
-            Box::new(chrome_layer.with_filter(tracing_subscriber::filter::LevelFilter::DEBUG));
+        // Don't use .with_filter() here — per-layer filtering requires
+        // registering a FilterId at subscriber build time, which can't
+        // happen for a layer created at runtime via reload. The chrome
+        // layer captures all spans; users can filter in the trace viewer.
+        let layer: BoxedLayer = Box::new(chrome_layer);
 
-        if let Err(e) = self.reload_handle.reload(filtered) {
+        if let Err(e) = self.reload_handle.reload(layer) {
             return TraceCaptureResult {
                 status: "error".to_string(),
                 path: None,
