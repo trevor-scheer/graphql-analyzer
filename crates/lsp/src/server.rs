@@ -78,6 +78,8 @@ pub struct GraphQLLanguageServer {
     client_capabilities: Arc<RwLock<Option<ClientCapabilities>>>,
     /// Workspace manager for all workspace/project state
     workspace: Arc<WorkspaceManager>,
+    /// Trace capture manager (None if tracing init failed)
+    trace_capture: Option<Arc<crate::trace_capture::TraceCaptureManager>>,
 }
 
 /// Background task that loads workspace configs and publishes initial diagnostics.
@@ -843,11 +845,14 @@ async fn load_all_project_files_background(
 }
 
 impl GraphQLLanguageServer {
-    pub fn new(client: Client) -> Self {
+    pub fn new(client: Client, reload_handle: Option<crate::trace_capture::ReloadHandle>) -> Self {
+        let trace_capture =
+            reload_handle.map(|h| Arc::new(crate::trace_capture::TraceCaptureManager::new(h)));
         Self {
             client,
             client_capabilities: Arc::new(RwLock::new(None)),
             workspace: Arc::new(WorkspaceManager::new()),
+            trace_capture,
         }
     }
 
@@ -929,6 +934,32 @@ impl GraphQLLanguageServer {
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
         Ok(PingResponse { timestamp })
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn trace_capture(
+        &self,
+        params: crate::trace_capture::TraceCaptureParams,
+    ) -> Result<crate::trace_capture::TraceCaptureResult> {
+        let Some(ref manager) = self.trace_capture else {
+            return Ok(crate::trace_capture::TraceCaptureResult {
+                status: "error".to_string(),
+                path: None,
+                message: Some("Trace capture not available (tracing not initialized)".to_string()),
+                duration_ms: None,
+            });
+        };
+
+        match params.action.as_str() {
+            "start" => Ok(manager.start()),
+            "stop" => Ok(manager.stop()),
+            _ => Ok(crate::trace_capture::TraceCaptureResult {
+                status: "error".to_string(),
+                path: None,
+                message: Some(format!("Unknown action: {}", params.action)),
+                duration_ms: None,
+            }),
+        }
     }
     #[tracing::instrument(skip(self), fields(workspace_uri = %workspace_uri))]
     /// Load GraphQL config from a workspace folder and load all project files
@@ -2039,6 +2070,18 @@ impl LanguageServer for GraphQLLanguageServer {
 
     #[tracing::instrument(skip(self, params), fields(path = %params.text_document.uri.as_str()))]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        // Check auto-stop for trace capture (prevents forgotten captures)
+        if let Some(ref manager) = self.trace_capture {
+            if manager.check_auto_stop() {
+                self.client
+                    .log_message(
+                        MessageType::INFO,
+                        "Trace capture auto-stopped after 60s timeout",
+                    )
+                    .await;
+            }
+        }
+
         let uri = params.text_document.uri;
 
         tracing::info!("File saved: {}", uri.path());

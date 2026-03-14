@@ -560,6 +560,126 @@ export async function activate(context: ExtensionContext) {
       },
     );
 
+    // Trace capture commands
+    let traceStatusBarItem: StatusBarItem | undefined;
+
+    function clearTraceStatusBar(): void {
+      if (traceStatusBarItem) {
+        traceStatusBarItem.dispose();
+        traceStatusBarItem = undefined;
+      }
+    }
+
+    // Clean up trace indicator if the server stops/restarts
+    client.onDidChangeState((event) => {
+      if (event.newState !== State.Running) {
+        clearTraceStatusBar();
+      }
+    });
+
+    const startTraceCommand = commands.registerCommand("graphql-analyzer.startTrace", async () => {
+      if (!client || client.state !== State.Running) {
+        window.showErrorMessage("graphql-analyzer is not running");
+        return;
+      }
+
+      try {
+        const result = await client.sendRequest<{
+          status: string;
+          path?: string;
+          message?: string;
+        }>("graphql-analyzer/traceCapture", { action: "start" });
+
+        if (result.status === "error") {
+          window.showErrorMessage(`Trace capture failed: ${result.message}`);
+          return;
+        }
+
+        traceStatusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 99);
+        traceStatusBarItem.text = "$(record) Tracing...";
+        traceStatusBarItem.tooltip = "graphql-analyzer is recording a performance trace";
+        traceStatusBarItem.backgroundColor = new ThemeColor("statusBarItem.warningBackground");
+        traceStatusBarItem.command = "graphql-analyzer.stopTrace";
+        traceStatusBarItem.show();
+        context.subscriptions.push(traceStatusBarItem);
+
+        window.showInformationMessage(
+          "Trace capture started. Reproduce the issue, then run 'Stop Performance Trace'.",
+        );
+        outputChannel.appendLine(`[Trace] Started. Server trace file: ${result.path}`);
+      } catch (error) {
+        window.showErrorMessage(`Failed to start trace: ${error}`);
+      }
+    });
+
+    const stopTraceCommand = commands.registerCommand("graphql-analyzer.stopTrace", async () => {
+      if (!client || client.state !== State.Running) {
+        window.showErrorMessage("graphql-analyzer is not running");
+        return;
+      }
+
+      try {
+        const result = await client.sendRequest<{
+          status: string;
+          path?: string;
+          message?: string;
+          duration_ms?: number;
+        }>("graphql-analyzer/traceCapture", { action: "stop" });
+
+        clearTraceStatusBar();
+
+        if (result.status === "error") {
+          window.showErrorMessage(`Trace capture failed: ${result.message}`);
+          return;
+        }
+
+        if (!result.path) {
+          window.showErrorMessage("Trace stopped but no file path returned");
+          return;
+        }
+
+        const sourcePath = result.path;
+        const durationSec = result.duration_ms ? (result.duration_ms / 1000).toFixed(1) : "?";
+
+        // Copy trace to workspace .graphql-analyzer/traces/ directory
+        const workspaceFolders = workspace.workspaceFolders;
+        let destPath: string | undefined;
+
+        if (workspaceFolders && workspaceFolders.length > 0) {
+          const tracesDir = Uri.joinPath(workspaceFolders[0].uri, ".graphql-analyzer", "traces");
+          const fileName = sourcePath.split("/").pop() || "trace.json";
+          const destUri = Uri.joinPath(tracesDir, fileName);
+
+          try {
+            await workspace.fs.createDirectory(tracesDir);
+            await workspace.fs.copy(Uri.file(sourcePath), destUri, { overwrite: true });
+            destPath = destUri.fsPath;
+          } catch {
+            // Fall back to using the temp file directly
+            destPath = sourcePath;
+          }
+        } else {
+          destPath = sourcePath;
+        }
+
+        outputChannel.appendLine(`[Trace] Stopped after ${durationSec}s. File: ${destPath}`);
+
+        const action = await window.showInformationMessage(
+          `Trace saved (${durationSec}s): ${destPath}`,
+          "Reveal in Finder",
+          "Copy Path",
+        );
+
+        if (action === "Reveal in Finder") {
+          commands.executeCommand("revealFileInOS", Uri.file(destPath));
+        } else if (action === "Copy Path") {
+          env.clipboard.writeText(destPath);
+        }
+      } catch (error) {
+        window.showErrorMessage(`Failed to stop trace: ${error}`);
+      }
+    });
+
     // Listen for configuration changes
     context.subscriptions.push(
       workspace.onDidChangeConfiguration((event) => {
@@ -579,6 +699,8 @@ export async function activate(context: ExtensionContext) {
       showReferencesCommand,
       reportIssueCommand,
       registerTestOtelCommand(outputChannel),
+      startTraceCommand,
+      stopTraceCommand,
     );
   } catch (error) {
     const errorMessage = `Failed to start graphql-analyzer: ${error}`;
