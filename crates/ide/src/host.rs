@@ -612,6 +612,19 @@ impl AnalysisHost {
                                             let (language, document_kind) =
                                                 determine_document_file_kind(&path_str, &content);
 
+                                            // Skip files that require extraction but contain no GraphQL
+                                            if language.requires_extraction() {
+                                                let config =
+                                                    graphql_extract::ExtractConfig::default();
+                                                let blocks = graphql_extract::extract_from_source(
+                                                    &content, language, &config, &path_str,
+                                                )
+                                                .unwrap_or_default();
+                                                if blocks.is_empty() {
+                                                    continue;
+                                                }
+                                            }
+
                                             let file_path = path_to_file_path(&path);
 
                                             pattern_matched_any_files = true;

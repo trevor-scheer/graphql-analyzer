@@ -483,7 +483,6 @@ async fn load_all_project_files_background(
     config: &graphql_config::GraphQLConfig,
     config_path: &Path,
 ) {
-    const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
     let start = std::time::Instant::now();
     let projects: Vec<_> = config.projects().collect();
     tracing::debug!(
@@ -670,15 +669,6 @@ async fn load_all_project_files_background(
             total_files,
             project_name
         );
-
-        if total_files >= MAX_FILES_WARNING_THRESHOLD {
-            client
-                .show_message(
-                    MessageType::WARNING,
-                    format!("GraphQL LSP: Loading {total_files} files, this may take a while."),
-                )
-                .await;
-        }
 
         // Phase 2: Register files (brief lock acquisition)
         let loaded_files = host
@@ -1227,7 +1217,6 @@ documents: "**/*.graphql"
         config: &graphql_config::GraphQLConfig,
         config_path: &Path,
     ) {
-        const MAX_FILES_WARNING_THRESHOLD: usize = 1000;
         let start = std::time::Instant::now();
         let projects: Vec<_> = config.projects().collect();
         tracing::debug!("Loading files for {} project(s)", projects.len());
@@ -1369,23 +1358,6 @@ documents: "**/*.graphql"
                     total_files_loaded,
                     project_name
                 );
-
-                // Show warning for large file counts
-                if total_files_loaded >= MAX_FILES_WARNING_THRESHOLD {
-                    tracing::warn!(
-                        "Loading large number of files ({}), this may take a while...",
-                        total_files_loaded
-                    );
-                    self.client
-                        .show_message(
-                            MessageType::WARNING,
-                            format!(
-                                "GraphQL LSP: Loading {total_files_loaded} files, this may take a while. \
-                                Consider using more specific patterns if this is too slow."
-                            ),
-                        )
-                        .await;
-                }
 
                 // Register files in the file-to-project index
                 for loaded_file in &loaded_files {
