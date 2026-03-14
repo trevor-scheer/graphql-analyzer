@@ -64,6 +64,16 @@
         "command": "graphql-analyzer.testOtelConnection",
         "title": "Test OpenTelemetry Connection",
         "category": "graphql-analyzer"
+      },
+      {
+        "command": "graphql-analyzer.startTrace",
+        "title": "Start Performance Trace",
+        "category": "graphql-analyzer"
+      },
+      {
+        "command": "graphql-analyzer.stopTrace",
+        "title": "Stop Performance Trace",
+        "category": "graphql-analyzer"
       }
     ],
     "languages": [
