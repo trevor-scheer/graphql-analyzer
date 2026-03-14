@@ -662,9 +662,7 @@ export async function activate(context: ExtensionContext) {
           destPath = sourcePath;
         }
 
-        outputChannel.appendLine(
-          `[Trace] Stopped after ${durationSec}s. File: ${destPath}`,
-        );
+        outputChannel.appendLine(`[Trace] Stopped after ${durationSec}s. File: ${destPath}`);
 
         const action = await window.showInformationMessage(
           `Trace saved (${durationSec}s): ${destPath}`,
