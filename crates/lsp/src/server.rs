@@ -1613,7 +1613,10 @@ documents: "**/*.graphql"
             .map(convert_ide_diagnostic)
             .collect();
 
-        tracing::debug!(diagnostic_count = lsp_diagnostics.len(), "Publishing diagnostics");
+        tracing::debug!(
+            diagnostic_count = lsp_diagnostics.len(),
+            "Publishing diagnostics"
+        );
 
         self.client
             .publish_diagnostics(uri.clone(), lsp_diagnostics, None)
@@ -2077,7 +2080,10 @@ impl LanguageServer for GraphQLLanguageServer {
                 let _span = tracing::info_span!("compute_diagnostics").entered();
                 snapshot.all_diagnostics_for_change(&changed_file)
             };
-            tracing::info!(affected_file_count = result.len(), "Diagnostics computed for save");
+            tracing::info!(
+                affected_file_count = result.len(),
+                "Diagnostics computed for save"
+            );
             result
         };
 
