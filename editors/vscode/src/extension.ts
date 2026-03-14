@@ -458,12 +458,6 @@ export async function activate(context: ExtensionContext) {
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
-  context.subscriptions.push(
-    commands.registerCommand("graphql-analyzer.checkStatus", () => {
-      outputChannel.show(true);
-    }),
-  );
-
   try {
     await startLanguageServer(context);
 
