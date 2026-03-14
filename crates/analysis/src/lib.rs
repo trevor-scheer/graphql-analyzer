@@ -184,23 +184,17 @@ fn file_diagnostics_impl(
     .entered();
     let mut diagnostics = Vec::new();
 
-    {
-        let _span = tracing::debug_span!("validation").entered();
-        diagnostics.extend(
-            file_validation_diagnostics_impl(db, content, metadata, project_files)
-                .iter()
-                .cloned(),
-        );
-    }
+    diagnostics.extend(
+        file_validation_diagnostics_impl(db, content, metadata, project_files)
+            .iter()
+            .cloned(),
+    );
 
-    {
-        let _span = tracing::debug_span!("linting").entered();
-        diagnostics.extend(
-            lint_integration::lint_file_with_project(db, content, metadata, project_files)
-                .iter()
-                .cloned(),
-        );
-    }
+    diagnostics.extend(
+        lint_integration::lint_file_with_project(db, content, metadata, project_files)
+            .iter()
+            .cloned(),
+    );
 
     Arc::new(diagnostics)
 }
