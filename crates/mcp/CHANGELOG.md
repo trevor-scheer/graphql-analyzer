@@ -2,6 +2,20 @@
 
 All notable changes to the GraphQL MCP server will be documented in this file.
 
+## 0.1.7 (2026-03-14)
+
+### Features
+
+- Add LSP plugin-style code intelligence tools: goto_definition, find_references, hover, document_symbols, workspace_symbols, get_completions, and get_file_diagnostics ([#748](https://github.com/trevor-scheer/graphql-analyzer/pull/748))
+
+### Fixes
+
+- Support schema types defined only via `extend type` across schema files ([#756](https://github.com/trevor-scheer/graphql-analyzer/pull/756))
+- Fix hover showing 0 usages for fields on nested types ([#742](https://github.com/trevor-scheer/graphql-analyzer/pull/742))
+- Fix SWC parse error on `.ts` files containing generic arrow functions ([#765](https://github.com/trevor-scheer/graphql-analyzer/pull/765))
+- Add debug logging for schema merge error details ([#737](https://github.com/trevor-scheer/graphql-analyzer/pull/737))
+- Include file path in SWC parser error messages instead of "input" ([#736](https://github.com/trevor-scheer/graphql-analyzer/pull/736))
+
 ## 0.1.6 (2026-03-06)
 
 ### Fixes
