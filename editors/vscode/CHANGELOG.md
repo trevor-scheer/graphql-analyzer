@@ -2,18 +2,6 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
-## 0.1.10 (2026-03-14)
-
-### Features
-
-- Add user-facing trace capture for performance debugging ([#761](https://github.com/trevor-scheer/graphql-analyzer/pull/761))
-
-### Fixes
-
-- Support schema types defined only via `extend type` across schema files ([#756](https://github.com/trevor-scheer/graphql-analyzer/pull/756))
-- Fix TextMate grammar bugs, dead code, and missing features ([#743](https://github.com/trevor-scheer/graphql-analyzer/pull/743))
-- Only count and load files that contain GraphQL content during project initialization, reducing noise in the file count for projects with many TS/JS files. Remove the "maybe slow" warning popup for large file counts. Clicking the status bar item now opens the debug output channel.
-
 ## 0.1.9 (2026-03-09)
 
 ### Features
