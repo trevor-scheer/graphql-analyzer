@@ -1,0 +1,70 @@
+---
+title: Quick Start
+description: Get up and running with GraphQL Analyzer in 3 minutes.
+---
+
+## 1. Install the VS Code extension
+
+**macOS / Linux:**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install-vscode.sh | sh
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install-vscode.ps1 | iex
+```
+
+Or download the `.vsix` from the [releases page](https://github.com/trevor-scheer/graphql-analyzer/releases) and install via `code --install-extension <file>.vsix`.
+
+## 2. Configure your project
+
+Create a `.graphqlrc.yml` in your project root:
+
+```yaml
+schema: "schema.graphql"
+documents: "src/**/*.{graphql,ts,tsx}"
+```
+
+## 3. Start coding
+
+Open any GraphQL file or TypeScript/JavaScript file with embedded GraphQL. You'll get:
+
+- **Real-time validation** — Instant feedback on errors
+- **Go to definition** — Jump to types, fragments, and fields
+- **Find references** — See all usages across your project
+- **Hover information** — Type details and descriptions
+
+## 4. Add linting (optional)
+
+Add lint rules to your configuration:
+
+```yaml
+schema: "schema.graphql"
+documents: "src/**/*.{graphql,ts,tsx}"
+
+extensions:
+  lint:
+    extends: recommended
+```
+
+The `recommended` preset enables rules that are objectively beneficial without being opinionated. See [Linting Overview](/graphql-analyzer/linting/overview/) for details.
+
+## 5. Set up CI (optional)
+
+Install the CLI and run checks in your pipeline:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
+graphql check --format github
+```
+
+See [CI/CD Integration](/graphql-analyzer/cli/ci-cd/) for full examples.
+
+## Next steps
+
+- [Installation](/graphql-analyzer/getting-started/installation/) — Other installation methods
+- [Configuration](/graphql-analyzer/configuration/config-file/) — Advanced configuration options
+- [CLI Overview](/graphql-analyzer/cli/overview/) — CLI commands and usage

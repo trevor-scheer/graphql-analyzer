@@ -1,0 +1,51 @@
+---
+title: Tool-Specific Overrides
+description: Configure the CLI and LSP independently.
+---
+
+The CLI and LSP share the same core analysis engine but are optimized for different use cases. You can configure them independently using the `extensions.cli` and `extensions.lsp` keys.
+
+## Why override per tool?
+
+| Concern         | CLI (CI/CD)           | LSP (editor)             |
+| --------------- | --------------------- | ------------------------ |
+| Speed           | Can be slower (batch) | Must be fast (real-time) |
+| Expensive rules | Enable all            | Disable expensive ones   |
+| Error severity  | May want stricter     | May want more lenient    |
+
+## Example
+
+```yaml
+schema: schema.graphql
+documents: src/**/*.{graphql,tsx}
+
+extensions:
+  # Base lint config (shared)
+  lint:
+    extends: recommended
+    rules:
+      noDeprecated: warn
+
+  # CLI-specific overrides
+  cli:
+    lint:
+      rules:
+        unusedFields: error # Enable expensive rule in CI
+
+  # LSP-specific overrides
+  lsp:
+    lint:
+      rules:
+        unusedFields: off # Disable in editor (too slow for real-time)
+```
+
+## How overrides merge
+
+Tool-specific settings are merged on top of the base config:
+
+1. Start with `extensions.lint` (base)
+2. Apply `extensions.cli.lint` or `extensions.lsp.lint` on top
+3. Individual rule settings override, not replace
+
+In the example above, the CLI sees: `noDeprecated: warn` + `unusedFields: error`.
+The LSP sees: `noDeprecated: warn` + `unusedFields: off`.

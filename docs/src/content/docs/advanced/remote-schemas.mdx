@@ -1,0 +1,49 @@
+---
+title: Remote Schema Introspection
+description: Loading schemas from GraphQL endpoints.
+---
+
+GraphQL Analyzer can fetch your schema directly from a running GraphQL endpoint via introspection.
+
+## Basic setup
+
+```yaml
+schema: https://api.example.com/graphql
+documents: src/**/*.{graphql,tsx}
+```
+
+The tool sends an introspection query to the endpoint and caches the result.
+
+## Per-project remote schemas
+
+```yaml
+projects:
+  local:
+    schema: schema.graphql
+    documents: src/local/**/*.graphql
+  remote:
+    schema: https://api.example.com/graphql
+    documents: src/remote/**/*.graphql
+```
+
+## How it works
+
+1. On first load, the tool sends a standard introspection query to the endpoint
+2. The schema response is cached locally
+3. Both the LSP and CLI use the cached schema for validation
+
+## Troubleshooting
+
+**Schema loading fails?**
+
+Check the endpoint is reachable:
+
+```sh
+RUST_LOG=debug graphql validate
+```
+
+Look for introspection errors in the debug output.
+
+**Schema out of date?**
+
+Restart the LSP server to re-fetch the schema. In VS Code: `Ctrl/Cmd+Shift+P` → "GraphQL Analyzer: Restart Server".

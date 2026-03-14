@@ -4,8 +4,10 @@
 //! It can work with either owned `AnalysisHost` instances or shared `Analysis` snapshots.
 
 use crate::types::{
-    DiagnosticInfo, FileDiagnostics, LintResult, LoadProjectResult, ProjectDiagnosticsResult,
-    ValidateDocumentParams, ValidateDocumentResult,
+    CompletionInfo, CompletionsResult, DiagnosticInfo, DocumentSymbolsResult, FileDiagnostics,
+    HoverResultInfo, LintResult, LoadProjectResult, LocationResult, LocationsResult,
+    ProjectDiagnosticsResult, SymbolInfo, ValidateDocumentParams, ValidateDocumentResult,
+    WorkspaceSymbolInfo, WorkspaceSymbolsResult,
 };
 use crate::McpPreloadConfig;
 use anyhow::{Context, Result};
@@ -386,7 +388,7 @@ impl McpService {
     pub fn validate_document(&mut self, params: ValidateDocumentParams) -> ValidateDocumentResult {
         let file_path = params
             .file_path
-            .unwrap_or_else(|| "document.graphql".to_string());
+            .unwrap_or_else(|| "file:///document.graphql".to_string());
 
         // Determine which project to use (convert to owned to avoid borrow issues)
         let project_name = params
@@ -453,7 +455,7 @@ impl McpService {
         file_path: Option<&str>,
         project: Option<&str>,
     ) -> LintResult {
-        let file_path = file_path.unwrap_or("document.graphql");
+        let file_path = file_path.unwrap_or("file:///document.graphql");
 
         // Determine which project to use (convert to owned to avoid borrow issues)
         let project_name = project
@@ -501,6 +503,168 @@ impl McpService {
         }
     }
 
+    /// Resolve a file path string to a FilePath
+    ///
+    /// Handles both absolute paths and file:// URIs.
+    fn resolve_file_path(file_path: &str) -> FilePath {
+        if file_path.contains("://") {
+            FilePath::new(file_path.to_string())
+        } else {
+            FilePath::from_path(std::path::Path::new(file_path))
+        }
+    }
+
+    /// Resolve which project to use, defaulting to the first loaded project
+    fn resolve_project(&self, project: Option<&str>) -> Option<String> {
+        project
+            .map(ToString::to_string)
+            .or_else(|| self.first_project().map(ToString::to_string))
+    }
+
+    /// Go to definition of the symbol at the given position
+    pub fn goto_definition(
+        &self,
+        file_path: &str,
+        line: u32,
+        character: u32,
+        project: Option<&str>,
+    ) -> Option<LocationsResult> {
+        let project_name = self.resolve_project(project)?;
+        let analysis = self.analysis(&project_name)?;
+        let fp = Self::resolve_file_path(file_path);
+        let position = graphql_ide::Position::new(line, character);
+
+        let locations = analysis.goto_definition(&fp, position)?;
+        let results: Vec<LocationResult> =
+            locations.into_iter().map(LocationResult::from).collect();
+        let count = results.len();
+        Some(LocationsResult {
+            locations: results,
+            count,
+        })
+    }
+
+    /// Find all references to the symbol at the given position
+    pub fn find_references(
+        &self,
+        file_path: &str,
+        line: u32,
+        character: u32,
+        include_declaration: bool,
+        project: Option<&str>,
+    ) -> Option<LocationsResult> {
+        let project_name = self.resolve_project(project)?;
+        let analysis = self.analysis(&project_name)?;
+        let fp = Self::resolve_file_path(file_path);
+        let position = graphql_ide::Position::new(line, character);
+
+        let locations = analysis.find_references(&fp, position, include_declaration)?;
+        let results: Vec<LocationResult> =
+            locations.into_iter().map(LocationResult::from).collect();
+        let count = results.len();
+        Some(LocationsResult {
+            locations: results,
+            count,
+        })
+    }
+
+    /// Get hover information for the symbol at the given position
+    pub fn hover(
+        &self,
+        file_path: &str,
+        line: u32,
+        character: u32,
+        project: Option<&str>,
+    ) -> Option<HoverResultInfo> {
+        let project_name = self.resolve_project(project)?;
+        let analysis = self.analysis(&project_name)?;
+        let fp = Self::resolve_file_path(file_path);
+        let position = graphql_ide::Position::new(line, character);
+
+        let hover = analysis.hover(&fp, position)?;
+        Some(HoverResultInfo {
+            contents: hover.contents,
+            range: hover.range.map(Into::into),
+        })
+    }
+
+    /// Get document symbols (outline) for a file
+    pub fn document_symbols(
+        &self,
+        file_path: &str,
+        project: Option<&str>,
+    ) -> Option<DocumentSymbolsResult> {
+        let project_name = self.resolve_project(project)?;
+        let analysis = self.analysis(&project_name)?;
+        let fp = Self::resolve_file_path(file_path);
+
+        let symbols = analysis.document_symbols(&fp);
+        let results: Vec<SymbolInfo> = symbols.into_iter().map(SymbolInfo::from).collect();
+        let count = results.len();
+        Some(DocumentSymbolsResult {
+            symbols: results,
+            count,
+        })
+    }
+
+    /// Search for symbols across the workspace
+    pub fn workspace_symbols(
+        &self,
+        query: &str,
+        project: Option<&str>,
+    ) -> Option<WorkspaceSymbolsResult> {
+        let project_name = self.resolve_project(project)?;
+        let analysis = self.analysis(&project_name)?;
+
+        let symbols = analysis.workspace_symbols(query);
+        let results: Vec<WorkspaceSymbolInfo> =
+            symbols.into_iter().map(WorkspaceSymbolInfo::from).collect();
+        let count = results.len();
+        Some(WorkspaceSymbolsResult {
+            symbols: results,
+            count,
+        })
+    }
+
+    /// Get completions at the given position
+    pub fn completions(
+        &self,
+        file_path: &str,
+        line: u32,
+        character: u32,
+        project: Option<&str>,
+    ) -> Option<CompletionsResult> {
+        let project_name = self.resolve_project(project)?;
+        let analysis = self.analysis(&project_name)?;
+        let fp = Self::resolve_file_path(file_path);
+        let position = graphql_ide::Position::new(line, character);
+
+        let items = analysis.completions(&fp, position)?;
+        let results: Vec<CompletionInfo> = items.into_iter().map(CompletionInfo::from).collect();
+        let count = results.len();
+        Some(CompletionsResult {
+            items: results,
+            count,
+        })
+    }
+
+    /// Get diagnostics for a specific file
+    pub fn file_diagnostics(
+        &self,
+        file_path: &str,
+        project: Option<&str>,
+    ) -> Option<FileDiagnostics> {
+        let project_name = self.resolve_project(project)?;
+        let analysis = self.analysis(&project_name)?;
+        let fp = Self::resolve_file_path(file_path);
+
+        let diagnostics = analysis.all_diagnostics_for_file(&fp);
+        Some(FileDiagnostics {
+            file: file_path.to_string(),
+            diagnostics: diagnostics.into_iter().map(DiagnosticInfo::from).collect(),
+        })
+    }
+
     /// Update the shared analysis snapshot for a project
     ///
     /// This is used in embedded mode to refresh the analysis when the LSP
@@ -524,7 +688,7 @@ mod tests {
         let mut service = McpService::new();
         let host = service.get_or_create_host("default");
         host.add_file(
-            &FilePath::new("schema.graphql".to_string()),
+            &FilePath::new("file:///test/schema.graphql".to_string()),
             schema,
             Language::GraphQL,
             DocumentKind::Schema,
@@ -582,7 +746,7 @@ mod tests {
         // Create two projects with different schemas
         let host1 = service.get_or_create_host("project1");
         host1.add_file(
-            &FilePath::new("schema.graphql".to_string()),
+            &FilePath::new("file:///test/schema.graphql".to_string()),
             "type Query { users: [User] } type User { id: ID! }",
             Language::GraphQL,
             DocumentKind::Schema,
@@ -591,7 +755,7 @@ mod tests {
 
         let host2 = service.get_or_create_host("project2");
         host2.add_file(
-            &FilePath::new("schema.graphql".to_string()),
+            &FilePath::new("file:///test/schema.graphql".to_string()),
             "type Query { posts: [Post] } type Post { title: String }",
             Language::GraphQL,
             DocumentKind::Schema,
@@ -638,5 +802,206 @@ mod tests {
         assert_eq!(projects.len(), 2);
         assert!(projects.iter().any(|(name, _)| name == "project1"));
         assert!(projects.iter().any(|(name, _)| name == "project2"));
+    }
+
+    fn setup_service_with_documents(schema: &str, doc_path: &str, doc: &str) -> McpService {
+        let mut service = McpService::new();
+        let host = service.get_or_create_host("default");
+        host.add_file(
+            &FilePath::new("file:///test/schema.graphql".to_string()),
+            schema,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.add_file(
+            &FilePath::new(doc_path.to_string()),
+            doc,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+        service
+    }
+
+    #[test]
+    fn test_hover() {
+        let service = setup_service_with_documents(
+            "type Query { hello: String }",
+            "file:///test/query.graphql",
+            "query { hello }",
+        );
+
+        // Hover over "hello" field (line 0, character 8)
+        let result = service.hover("file:///test/query.graphql", 0, 8, None);
+        assert!(result.is_some());
+        let hover = result.unwrap();
+        assert!(!hover.contents.is_empty());
+    }
+
+    #[test]
+    fn test_hover_no_result() {
+        let service = setup_service_with_documents(
+            "type Query { hello: String }",
+            "file:///test/query.graphql",
+            "query { hello }",
+        );
+
+        // Hover over whitespace (should return None)
+        let result = service.hover("file:///nonexistent.graphql", 0, 0, None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_document_symbols() {
+        let service = setup_service_with_documents(
+            "type Query { hello: String }",
+            "file:///test/query.graphql",
+            "query GetHello { hello }",
+        );
+
+        let result = service.document_symbols("file:///test/query.graphql", None);
+        assert!(result.is_some());
+        let symbols = result.unwrap();
+        assert!(symbols.count > 0);
+        assert_eq!(symbols.symbols[0].name, "GetHello");
+        assert_eq!(symbols.symbols[0].kind, "query");
+    }
+
+    #[test]
+    fn test_document_symbols_schema() {
+        let service = setup_service_with_schema(
+            "type Query { hello: String }\ntype User { id: ID! name: String }",
+        );
+
+        let result = service.document_symbols("file:///test/schema.graphql", None);
+        assert!(result.is_some());
+        let symbols = result.unwrap();
+        // Should have Query and User types
+        assert!(symbols.count >= 2);
+    }
+
+    #[test]
+    fn test_workspace_symbols() {
+        let service = setup_service_with_documents(
+            "type Query { hello: String }\ntype User { id: ID! }",
+            "file:///test/query.graphql",
+            "query GetHello { hello }",
+        );
+
+        let result = service.workspace_symbols("User", None);
+        assert!(result.is_some());
+        let symbols = result.unwrap();
+        assert!(symbols.count > 0);
+        assert!(symbols.symbols.iter().any(|s| s.name == "User"));
+    }
+
+    #[test]
+    fn test_completions() {
+        let service = setup_service_with_documents(
+            "type Query { hello: String, world: Int }",
+            "file:///test/query.graphql",
+            "query { }",
+        );
+
+        // Position inside the selection set (after opening brace)
+        let result = service.completions("file:///test/query.graphql", 0, 8, None);
+        assert!(result.is_some());
+        let completions = result.unwrap();
+        assert!(completions.count > 0);
+        assert!(completions.items.iter().any(|c| c.label == "hello"));
+    }
+
+    #[test]
+    fn test_file_diagnostics() {
+        let service = setup_service_with_documents(
+            "type Query { hello: String }",
+            "file:///test/query.graphql",
+            "query { nonexistent }",
+        );
+
+        let result = service.file_diagnostics("file:///test/query.graphql", None);
+        assert!(result.is_some());
+        let diagnostics = result.unwrap();
+        assert!(!diagnostics.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_file_diagnostics_clean() {
+        let service = setup_service_with_documents(
+            "type Query { hello: String }",
+            "file:///test/query.graphql",
+            "query { hello }",
+        );
+
+        let result = service.file_diagnostics("file:///test/query.graphql", None);
+        assert!(result.is_some());
+        let diagnostics = result.unwrap();
+        assert!(diagnostics.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_goto_definition() {
+        let service = setup_service_with_documents(
+            "type Query { hello: String }",
+            "file:///test/query.graphql",
+            "query { hello }",
+        );
+
+        // "hello" starts at character 8 in the query
+        let result = service.goto_definition("file:///test/query.graphql", 0, 8, None);
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert!(locations.count > 0);
+        // Should point to the schema definition
+        assert!(locations.locations[0]
+            .file
+            .contains("file:///test/schema.graphql"));
+    }
+
+    #[test]
+    fn test_find_references_fragment() {
+        let service = {
+            let mut service = McpService::new();
+            let host = service.get_or_create_host("default");
+            host.add_file(
+                &FilePath::new("file:///test/schema.graphql".to_string()),
+                "type Query { user: User }\ntype User { id: ID!, name: String }",
+                Language::GraphQL,
+                DocumentKind::Schema,
+            );
+            host.add_file(
+                &FilePath::new("file:///test/fragment.graphql".to_string()),
+                "fragment UserFields on User { id name }",
+                Language::GraphQL,
+                DocumentKind::Executable,
+            );
+            host.add_file(
+                &FilePath::new("file:///test/query.graphql".to_string()),
+                "query { user { ...UserFields } }",
+                Language::GraphQL,
+                DocumentKind::Executable,
+            );
+            host.rebuild_project_files();
+            service
+        };
+
+        // Find references to the fragment name "UserFields" (at position 9 in fragment.graphql)
+        let result = service.find_references("file:///test/fragment.graphql", 0, 10, true, None);
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        // Should find the definition and the spread
+        assert!(locations.count >= 2);
+    }
+
+    #[test]
+    fn test_resolve_file_path_uri() {
+        let fp = McpService::resolve_file_path("file:///home/user/query.graphql");
+        assert_eq!(fp.as_str(), "file:///home/user/query.graphql");
+    }
+
+    #[test]
+    fn test_resolve_file_path_absolute() {
+        let fp = McpService::resolve_file_path("/home/user/query.graphql");
+        assert_eq!(fp.as_str(), "file:///home/user/query.graphql");
     }
 }

@@ -77,6 +77,31 @@ function expectToken(result: TokenizedLine, text: string, expectedScope: string)
   expect(scopes, `"${text}" expected scope "${expectedScope}"`).toContain(expectedScope);
 }
 
+/** Find the scope at the position where `text` appears in the line (handles tokens with leading whitespace). */
+function expectScopeAtText(result: TokenizedLine, text: string, expectedScope: string): void {
+  const { line, tokens } = result;
+  const idx = line.indexOf(text);
+  expect(idx, `"${text}" not found in line: ${line}`).not.toBe(-1);
+  const token = tokens.find((t) => t.startIndex <= idx && t.endIndex >= idx + text.length);
+  expect(token, `no token spanning "${text}" on line: ${line}`).toBeDefined();
+  const scopes = token!.scopes.join(" > ");
+  expect(scopes, `"${text}" expected scope "${expectedScope}"`).toContain(expectedScope);
+}
+
+/** Assert that no token on the line has the given scope for text at its position. */
+function expectNoScopeAtText(result: TokenizedLine, text: string, forbiddenScope: string): void {
+  const { line, tokens } = result;
+  const idx = line.indexOf(text);
+  expect(idx, `"${text}" not found in line: ${line}`).not.toBe(-1);
+  const token = tokens.find((t) => t.startIndex <= idx && t.endIndex >= idx + text.length);
+  if (token) {
+    const scopes = token.scopes.join(" > ");
+    expect(scopes, `"${text}" should NOT have scope "${forbiddenScope}"`).not.toContain(
+      forbiddenScope,
+    );
+  }
+}
+
 // Regression: body-less type extensions broke highlighting on subsequent lines
 // because the implements sub-pattern crossed line boundaries, causing a double
 // zero-width end that prevented the engine from re-entering graphql-type-interface.
@@ -227,7 +252,7 @@ describe("directives", () => {
     const t = tokenize(["type User @cacheControl(maxAge: 300) {", "  name: String", "}"]);
     expectToken(t[0], "@cacheControl", "entity.name.function.directive.graphql");
     expectToken(t[0], "maxAge", "variable.parameter.graphql");
-    expectToken(t[0], "300", "constant.numeric.float.graphql");
+    expectToken(t[0], "300", "constant.numeric.graphql");
     expectToken(t[0], "{", "punctuation.operation.graphql");
     expectToken(t[1], "name", "variable.graphql");
   });
@@ -258,6 +283,142 @@ describe("directives", () => {
     expectToken(t[0], "@client", "entity.name.function.directive.graphql");
     expectToken(t[0], "{", "punctuation.operation.graphql");
     expectToken(t[2], "name", "variable.graphql");
+  });
+});
+
+// #743: subscription keyword was missing from graphql-query-mutation pattern
+describe("subscription keyword (#743)", () => {
+  it("subscription gets keyword.operation scope", () => {
+    const t = tokenize(["subscription OnUserCreated {", "  userCreated {", "    name", "  }", "}"]);
+    expectToken(t[0], "subscription", "keyword.operation.graphql");
+    expectToken(t[0], "OnUserCreated", "entity.name.function.graphql");
+    expectToken(t[0], "{", "punctuation.operation.graphql");
+    expectToken(t[2], "name", "variable.graphql");
+  });
+
+  it("anonymous subscription", () => {
+    const t = tokenize(["subscription {", "  newMessage", "}"]);
+    expectToken(t[0], "subscription", "keyword.operation.graphql");
+    expectToken(t[0], "{", "punctuation.operation.graphql");
+  });
+});
+
+// #743: graphql-comment had """ and " sub-patterns that shadowed string/description syntax.
+// Before the fix, strings like (name: "hello") were tokenized as comments.
+describe("strings vs comments (#743)", () => {
+  it("string argument values are scoped as strings, not comments", () => {
+    const t = tokenize(["query {", '  user(name: "hello") {', "    id", "  }", "}"]);
+    // The grammar splits strings into begin-quote, content, end-quote tokens.
+    // Check that the content portion gets string scope, not comment scope.
+    expectScopeAtText(t[1], "hello", "string.quoted.double.graphql");
+    expectNoScopeAtText(t[1], "hello", "comment");
+  });
+
+  it("triple-quoted descriptions get description scope, not comment.line.graphql", () => {
+    const t = tokenize(['"""A user type"""', "type User {", "  name: String", "}"]);
+    // Description docstrings use comment.block.graphql, not comment.line.graphql
+    expectScopeAtText(t[0], "A user type", "comment");
+    expectNoScopeAtText(t[0], "A user type", "comment.line.graphql");
+    expectToken(t[1], "type", "keyword.type.graphql");
+    expectToken(t[1], "User", "support.type.graphql");
+  });
+
+  it("single-line string descriptions do not shadow subsequent definitions", () => {
+    const t = tokenize(['"A user type"', "type User {", "  name: String", "}"]);
+    // The key fix: the old graphql-comment pattern had a "..." sub-pattern that
+    // would consume the string as a comment, preventing subsequent lines from parsing.
+    // After the fix, the string may or may not match a description pattern, but
+    // the important thing is that the next line's type definition still parses.
+    expectToken(t[1], "type", "keyword.type.graphql");
+    expectToken(t[1], "User", "support.type.graphql");
+  });
+});
+
+// #743: comment scope had .js suffix (comment.line.graphql.js → comment.line.graphql)
+describe("comment scope name (#743)", () => {
+  it("line comment has comment.line.graphql scope (no .js suffix)", () => {
+    const t = tokenize(["# this is a comment"]);
+    const token = t[0].tokens.find((tk) =>
+      t[0].line.substring(tk.startIndex, tk.endIndex).includes("#"),
+    );
+    expect(token).toBeDefined();
+    const scopes = token!.scopes.join(" ");
+    expect(scopes).toContain("comment.line.graphql");
+    expect(scopes).not.toContain("comment.line.graphql.js");
+  });
+});
+
+// #743: enum value lookahead used (?!=...) instead of (?!...).
+// The broken regex (?!=...) is "not followed by =" then literal "...", which
+// doesn't actually exclude true/false/null. The fix uses proper (?!...).
+describe("enum value negative lookahead (#743)", () => {
+  it("enum member values get enum scope", () => {
+    const t = tokenize(["enum Status {", "  ACTIVE", "  INACTIVE", "}"]);
+    // Enum values include leading whitespace in the token due to \\s* in the pattern
+    expectScopeAtText(t[1], "ACTIVE", "constant.character.enum.graphql");
+    expectScopeAtText(t[2], "INACTIVE", "constant.character.enum.graphql");
+  });
+
+  it("boolean literals get boolean scope, not enum scope", () => {
+    const t = tokenize(["type Query {", "  enabled(flag: Boolean = true): String", "}"]);
+    expectScopeAtText(t[1], "true", "constant.language.boolean.graphql");
+  });
+});
+
+// #743: directive-definition had phantom beginCaptures 3-5 that didn't match any groups
+describe("directive definition (#743)", () => {
+  it("directive definition tokenizes correctly without phantom captures", () => {
+    const t = tokenize([
+      "directive @cacheControl(maxAge: Int) repeatable on FIELD_DEFINITION | OBJECT",
+    ]);
+    expectToken(t[0], "directive", "keyword.directive.graphql");
+    expectToken(t[0], "@cacheControl", "entity.name.function.directive.graphql");
+    expectToken(t[0], "maxAge", "variable.parameter.graphql");
+    expectToken(t[0], "Int", "support.type.builtin.graphql");
+  });
+
+  it("simple directive definition", () => {
+    const t = tokenize(["directive @deprecated(reason: String) on FIELD_DEFINITION"]);
+    expectToken(t[0], "directive", "keyword.directive.graphql");
+    expectToken(t[0], "@deprecated", "entity.name.function.directive.graphql");
+    expectToken(t[0], "reason", "variable.parameter.graphql");
+  });
+});
+
+// #743: scalar now supports extend scalar, consistent with type/enum/union
+describe("extend scalar (#743)", () => {
+  it("extend scalar gets keyword and entity scopes", () => {
+    const t = tokenize(["extend scalar JSON"]);
+    expectToken(t[0], "extend", "keyword.type.graphql");
+    expectToken(t[0], "scalar", "keyword.scalar.graphql");
+    expectToken(t[0], "JSON", "entity.scalar.graphql");
+  });
+
+  it("plain scalar still works", () => {
+    const t = tokenize(["scalar DateTime"]);
+    expectToken(t[0], "scalar", "keyword.scalar.graphql");
+    expectToken(t[0], "DateTime", "entity.scalar.graphql");
+  });
+
+  it("extend scalar followed by another definition", () => {
+    const t = tokenize(["extend scalar JSON", "type User {", "  name: String", "}"]);
+    expectToken(t[0], "extend", "keyword.type.graphql");
+    expectToken(t[0], "JSON", "entity.scalar.graphql");
+    expectToken(t[1], "type", "keyword.type.graphql");
+    expectToken(t[1], "User", "support.type.graphql");
+  });
+});
+
+// #743: numeric scope renamed from constant.numeric.float.graphql to constant.numeric.graphql
+describe("numeric scope name (#743)", () => {
+  it("integer gets constant.numeric.graphql scope", () => {
+    const t = tokenize(["query {", "  user(id: 42) {", "    name", "  }", "}"]);
+    expectToken(t[1], "42", "constant.numeric.graphql");
+  });
+
+  it("float gets constant.numeric.graphql scope", () => {
+    const t = tokenize(["query {", "  product(price: 19.99) {", "    name", "  }", "}"]);
+    expectToken(t[1], "19.99", "constant.numeric.graphql");
   });
 });
 

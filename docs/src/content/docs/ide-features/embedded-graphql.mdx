@@ -1,0 +1,62 @@
+---
+title: Embedded GraphQL
+description: Full IDE support for GraphQL in TypeScript and JavaScript files.
+---
+
+GraphQL Analyzer provides full IDE support for GraphQL embedded in TypeScript and JavaScript files via tagged template literals.
+
+## Supported patterns
+
+```typescript
+import { gql } from "graphql-tag";
+
+const query = gql`
+  query GetUser($id: ID!) {
+    user(id: $id) {
+      id
+      name
+    }
+  }
+`;
+```
+
+All IDE features work inside the template literal:
+
+- Diagnostics at correct positions
+- Go to definition
+- Find references
+- Hover information
+
+## How it works
+
+The analyzer extracts GraphQL from tagged template literals and maps positions between the TypeScript/JavaScript file and the extracted GraphQL. This means error positions, go-to-definition targets, and hover information all point to the correct location in your source file.
+
+## Configuring extraction
+
+By default, the tool recognizes `gql` imported from `graphql-tag`. Customize which tags and modules are recognized:
+
+```yaml
+extensions:
+  extractConfig:
+    tagIdentifiers: ["gql", "graphql", "query"]
+    modules: ["graphql-tag", "@apollo/client", "custom-gql"]
+    allowGlobalIdentifiers: true
+```
+
+See [Documents configuration](/graphql-analyzer/configuration/documents/) for details.
+
+## Common issues
+
+**GraphQL not detected in template literal?**
+
+The tag function must be imported from a recognized module:
+
+```typescript
+// ✅ Works — gql from recognized module
+import { gql } from "graphql-tag";
+
+// ❌ Won't work — unknown module
+import { gql } from "custom-unknown-module";
+```
+
+Add custom modules to `extractConfig.modules` in your config.

@@ -18,14 +18,22 @@ Command-line tool for validating and linting GraphQL projects.
 **macOS and Linux:**
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
+curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
+
+# Or install a specific version
+curl -fsSL .../install.sh | sh -s -- cli 0.1.6
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.ps1 | iex
+irm https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.ps1 | iex
+
+# Or install a specific version
+$env:GA_VERSION="0.1.6"; irm .../install.ps1 | iex
 ```
+
+The install script also supports `lsp` and `mcp` — see [scripts/install.sh](../../scripts/install.sh) for full usage.
 
 ### Via Cargo
 
@@ -400,7 +408,7 @@ graphql-validate:
 
 ```bash
 # Install
-curl -LsSf https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
+curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
 
 # Validate
 graphql validate --format json > results.json

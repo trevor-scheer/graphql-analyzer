@@ -1,0 +1,93 @@
+---
+title: CI/CD Integration
+description: Using GraphQL Analyzer in continuous integration pipelines.
+---
+
+## GitHub Actions
+
+```yaml
+name: GraphQL Validation
+on: [pull_request]
+
+jobs:
+  graphql:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GraphQL CLI
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
+      - name: Check GraphQL
+        run: graphql check --format github
+```
+
+Using `--format github` turns errors into pull request annotations.
+
+To run validation and linting as separate steps:
+
+```yaml
+- name: Validate GraphQL
+  run: graphql validate --format github
+- name: Lint GraphQL
+  run: graphql lint --format github
+```
+
+## GitLab CI
+
+```yaml
+graphql:
+  script:
+    - curl --proto '=https' --tlsv1.2 -LsSf https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
+    - graphql check --format json
+```
+
+## Generic CI
+
+```sh
+# Install
+curl -LsSf https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
+
+# Run checks
+graphql check --format json > results.json
+
+# Check exit code
+if [ $? -ne 0 ]; then
+  echo "GraphQL validation failed"
+  exit 1
+fi
+```
+
+## Pre-commit hooks
+
+**Using [husky](https://github.com/typicode/husky):**
+
+```json
+{
+  "husky": {
+    "hooks": {
+      "pre-commit": "graphql check"
+    }
+  }
+}
+```
+
+## Enabling expensive rules in CI
+
+Some lint rules (like `unusedFields`) are too expensive for real-time editor feedback but work well in CI. Use [tool-specific overrides](/graphql-analyzer/configuration/tool-overrides/):
+
+```yaml
+extensions:
+  lint:
+    extends: recommended
+
+  cli:
+    lint:
+      rules:
+        unusedFields: error # Enable in CI
+
+  lsp:
+    lint:
+      rules:
+        unusedFields: off # Disable in editor
+```

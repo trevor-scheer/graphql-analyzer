@@ -1,0 +1,44 @@
+---
+title: unused-variables
+description: Detect unused query variables.
+---
+
+| Property         | Value             |
+| ---------------- | ----------------- |
+| Config name      | `unusedVariables` |
+| Default severity | —                 |
+| Context          | Document          |
+| In recommended   | No                |
+
+## What it checks
+
+Detects variables defined in an operation that are never referenced in the query body.
+
+## Examples
+
+```graphql
+# ⚠️ Warning: Variable '$name' is never used
+query GetUser($id: ID!, $name: String) {
+  user(id: $id) {
+    id
+  }
+}
+```
+
+```graphql
+# ✅ Good — all variables used
+query GetUser($id: ID!) {
+  user(id: $id) {
+    id
+  }
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  lint:
+    rules:
+      unusedVariables: warn # or error, off
+```

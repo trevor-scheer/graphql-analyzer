@@ -1,0 +1,84 @@
+---
+title: Multi-Project Workspaces
+description: Configure multiple GraphQL projects in a single workspace.
+---
+
+For monorepos or applications with multiple GraphQL schemas, use the `projects` key to define independent GraphQL projects in a single config file.
+
+## Basic multi-project setup
+
+```yaml
+# .graphqlrc.yml
+projects:
+  api:
+    schema: api/schema.graphql
+    documents: api/**/*.graphql
+  client:
+    schema: client/schema.graphql
+    documents: client/**/*.{graphql,tsx}
+```
+
+Each project is fully independent — it has its own schema, documents, and lint configuration.
+
+## Per-project linting
+
+```yaml
+projects:
+  web:
+    schema: packages/web/schema.graphql
+    documents: packages/web/src/**/*.{graphql,tsx}
+    extensions:
+      lint:
+        extends: recommended
+  api:
+    schema: packages/api/schema/**/*.graphql
+    documents: packages/api/src/**/*.graphql
+    extensions:
+      lint:
+        extends: recommended
+        rules:
+          unusedFields: error
+```
+
+## Using with the CLI
+
+Specify a project with `--project`:
+
+```sh
+# Validate a specific project
+graphql --project api validate
+
+# Lint a specific project
+graphql --project client lint
+
+# Without --project, all projects are checked
+graphql check
+```
+
+## Using with the LSP
+
+The LSP automatically detects which project a file belongs to based on the `documents` patterns. Each file is validated against its project's schema.
+
+## Real-world example: monorepo
+
+```yaml
+projects:
+  web:
+    schema: packages/web/schema.graphql
+    documents: packages/web/src/**/*.{graphql,tsx}
+    extensions:
+      lint:
+        extends: recommended
+  mobile:
+    schema: packages/mobile/schema.graphql
+    documents: packages/mobile/src/**/*.{graphql,ts}
+    extensions:
+      lint:
+        extends: recommended
+  api:
+    schema: packages/api/schema/**/*.graphql
+    documents: packages/api/src/**/*.graphql
+    extensions:
+      lint:
+        extends: recommended
+```

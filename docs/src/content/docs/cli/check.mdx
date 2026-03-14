@@ -1,0 +1,40 @@
+---
+title: check
+description: Run validation and linting in a single pass.
+---
+
+The `check` command runs both validation and linting together. This is the **recommended command** for most workflows — it's more efficient than running `validate` and `lint` separately.
+
+## Usage
+
+```sh
+graphql check [OPTIONS]
+```
+
+## Options
+
+| Option              | Description                                        |
+| ------------------- | -------------------------------------------------- |
+| `--format <FORMAT>` | Output format: `human` (default), `json`, `github` |
+| `--watch`           | Watch for file changes and re-check                |
+
+## Examples
+
+```sh
+# Run all checks (recommended)
+graphql check
+
+# JSON output for CI
+graphql check --format json
+
+# Watch mode for development
+graphql check --watch
+
+# Specific project
+graphql --project backend check
+```
+
+## Exit codes
+
+- `0` — No validation or lint errors
+- `1` — Errors found

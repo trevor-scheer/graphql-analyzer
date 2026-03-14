@@ -1,0 +1,104 @@
+---
+title: VS Code
+description: Setting up GraphQL Analyzer in Visual Studio Code.
+---
+
+The VS Code extension bundles the LSP server — no separate installation needed. It works immediately after installation.
+
+## Installation
+
+**One-line installer (macOS/Linux):**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install-vscode.sh | sh
+```
+
+**One-line installer (Windows PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install-vscode.ps1 | iex
+```
+
+**Manual:** Download the `.vsix` for your platform from the [releases page](https://github.com/trevor-scheer/graphql-analyzer/releases) and install with `code --install-extension <file>.vsix`.
+
+## Configuration
+
+Create a `.graphqlrc.yml` in your project root:
+
+```yaml
+schema: "schema.graphql"
+documents: "src/**/*.{graphql,ts,tsx}"
+```
+
+Open any GraphQL file to activate the extension.
+
+## Extension settings
+
+```json
+{
+  // Logging verbosity: "off", "messages", "verbose"
+  "graphql.trace.server": "off",
+
+  // Custom path to LSP server binary (optional)
+  "graphql.server.path": "/path/to/graphql-lsp",
+
+  // Environment variables for the LSP server
+  "graphql.server.env": {
+    "RUST_LOG": "debug"
+  }
+}
+```
+
+## Features
+
+- **Real-time validation** — Errors appear as you type
+- **Go to definition** — `F12` on fragments, types, fields, variables, directives
+- **Find references** — Right-click → Find All References
+- **Hover** — Type information and descriptions
+- **Embedded GraphQL** — Full support in TypeScript/JavaScript template literals
+
+## Commands
+
+| Command                          | Description         |
+| -------------------------------- | ------------------- |
+| `graphql-analyzer.restartServer` | Restart LSP server  |
+| `graphql-analyzer.checkStatus`   | Check server status |
+| `graphql-analyzer.reportIssue`   | Report an issue     |
+
+Access via Command Palette (`Ctrl/Cmd+Shift+P`).
+
+## Supported platforms
+
+The extension includes a pre-compiled LSP server binary for:
+
+- macOS (Intel and Apple Silicon)
+- Linux (x86_64 and ARM64)
+- Windows (x86_64)
+
+## Troubleshooting
+
+**Extension not working?**
+
+1. Open the Output panel (View → Output)
+2. Select "GraphQL Language Server" from the dropdown
+3. Look for errors
+
+**Common fixes:**
+
+- Ensure `.graphqlrc.yml` exists in your workspace root
+- Verify schema file path is correct
+- Check that document patterns match your files
+- Reload the window (`Ctrl/Cmd+Shift+P` → "Developer: Reload Window")
+
+**Enable debug logging:**
+
+```json
+{
+  "graphql.trace.server": "verbose",
+  "graphql.server.env": {
+    "RUST_LOG": "debug"
+  }
+}
+```
+
+See [Troubleshooting](/graphql-analyzer/advanced/troubleshooting/) for more.

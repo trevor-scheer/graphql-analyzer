@@ -1,0 +1,69 @@
+---
+title: Other Editors
+description: Using GraphQL Analyzer with any LSP-compatible editor.
+---
+
+GraphQL Analyzer's LSP server works with any editor that supports the Language Server Protocol.
+
+## Generic setup
+
+1. Install the `graphql-lsp` binary (see [Installation](/graphql-analyzer/getting-started/installation/#lsp-server-standalone))
+2. Configure your editor's LSP client to:
+   - Launch `graphql-lsp` as the server command
+   - Communicate via stdin/stdout
+   - Associate it with GraphQL file types (`.graphql`, `.gql`)
+   - Optionally associate it with TypeScript/JavaScript for embedded GraphQL
+   - Set the root directory to where `.graphqlrc` is located
+
+## LSP capabilities
+
+The server supports:
+
+- `textDocument/didOpen` — Load and validate
+- `textDocument/didChange` — Incremental updates
+- `textDocument/didClose` — Clean up
+- `textDocument/didSave` — Re-validate
+- `textDocument/definition` — Go to definition
+- `textDocument/references` — Find references
+- `textDocument/hover` — Hover information
+- `textDocument/publishDiagnostics` — Real-time errors
+- `workspace/didChangeWatchedFiles` — React to file changes
+
+## Running the server
+
+```sh
+# Standard mode (stdin/stdout)
+graphql-lsp
+
+# With debug logging
+RUST_LOG=debug graphql-lsp 2> lsp.log
+```
+
+## Helix
+
+Add to `languages.toml`:
+
+```toml
+[[language]]
+name = "graphql"
+language-servers = ["graphql-lsp"]
+
+[language-server.graphql-lsp]
+command = "graphql-lsp"
+```
+
+## Zed
+
+Zed has built-in LSP support. Add to your settings:
+
+```json
+{
+  "lsp": {
+    "graphql-lsp": {
+      "binary": {
+        "path": "graphql-lsp"
+      }
+    }
+  }
+}
+```
