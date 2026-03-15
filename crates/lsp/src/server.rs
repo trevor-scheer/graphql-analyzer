@@ -698,7 +698,27 @@ async fn load_all_project_files_background(
         let loaded_file_paths: Vec<graphql_ide::FilePath> =
             loaded_files.iter().map(|f| f.path.clone()).collect();
 
-        let all_diagnostics_map = snapshot.all_diagnostics_for_files(&loaded_file_paths);
+        let all_diagnostics_map = GraphQLLanguageServer::blocking(move || {
+            let diagnostics = snapshot.all_diagnostics_for_files(&loaded_file_paths);
+
+            // Prewarm field coverage analysis while on the blocking thread —
+            // this triggers operation_body() for all operations so the first
+            // hover doesn't block on a project-wide query.
+            let prewarm_start = std::time::Instant::now();
+            let _ = snapshot.field_coverage();
+            tracing::debug!(
+                "Prewarmed field coverage in {:.2}ms",
+                prewarm_start.elapsed().as_secs_f64() * 1000.0
+            );
+
+            diagnostics
+        })
+        .await;
+
+        let Some(all_diagnostics_map) = all_diagnostics_map else {
+            tracing::warn!("Background diagnostics task panicked");
+            continue;
+        };
 
         tracing::debug!(
             "Publishing diagnostics for {} files with issues",
@@ -718,15 +738,6 @@ async fn load_all_project_files_background(
                 .publish_diagnostics(file_uri, lsp_diagnostics, None)
                 .await;
         }
-
-        // Prewarm field coverage analysis - this triggers operation_body() for all operations,
-        // so the first hover doesn't block on a project-wide query
-        let prewarm_start = std::time::Instant::now();
-        let _ = snapshot.field_coverage();
-        tracing::debug!(
-            "Prewarmed field coverage in {:.2}ms",
-            prewarm_start.elapsed().as_secs_f64() * 1000.0
-        );
 
         let project_msg = format!(
             "Project '{}' loaded: {} schema file(s), {} document file(s) in {:.1}s",
@@ -878,6 +889,31 @@ impl GraphQLLanguageServer {
                 Error::internal_error()
             })?;
         Ok(result)
+    }
+
+    /// Run a blocking Salsa computation on a dedicated thread.
+    ///
+    /// All `Analysis` method calls (diagnostics, completions, goto-definition, …)
+    /// perform synchronous Salsa queries that can be expensive — especially on
+    /// schema changes in large projects, where recomputation fans out to every
+    /// file. Running these inline on the async runtime blocks the event loop and
+    /// starves other tasks (health-check pings, cancellation, etc.).
+    ///
+    /// Use this helper (or [`with_analysis`]) for **every** Salsa call site.
+    /// It moves the closure to the blocking thread-pool so the event loop stays
+    /// responsive.
+    async fn blocking<F, T>(f: F) -> Option<T>
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        match tokio::task::spawn_blocking(f).await {
+            Ok(result) => Some(result),
+            Err(e) => {
+                tracing::error!("Blocking task panicked: {e}");
+                None
+            }
+        }
     }
 
     /// Custom request handler for fetching virtual file content.
@@ -1399,7 +1435,16 @@ documents: "**/*.graphql"
                     loaded_files.iter().map(|f| f.path.clone()).collect();
 
                 // Use the new all_diagnostics_for_files helper to merge per-file and project-wide diagnostics
-                let all_diagnostics_map = snapshot.all_diagnostics_for_files(&loaded_file_paths);
+                let Some(all_diagnostics_map) = GraphQLLanguageServer::blocking(move || {
+                    snapshot.all_diagnostics_for_files(&loaded_file_paths)
+                })
+                .await
+                else {
+                    tracing::error!(
+                        "Diagnostics computation panicked during workspace config load"
+                    );
+                    continue;
+                };
 
                 tracing::debug!(
                     "Publishing diagnostics for {} files with issues",
@@ -1608,29 +1653,6 @@ documents: "**/*.graphql"
             "Configuration reload complete for workspace: {}",
             workspace_uri
         );
-    }
-    /// Validate a file using a pre-acquired snapshot
-    ///
-    /// This variant avoids acquiring the host lock again when we already have a snapshot.
-    /// Used by `did_change` after updating a file to avoid double-locking.
-    #[tracing::instrument(skip(self, snapshot), fields(path = %uri.as_str()))]
-    async fn validate_file_with_snapshot(&self, uri: &Uri, snapshot: graphql_ide::Analysis) {
-        let file_path = graphql_ide::FilePath::new(uri.as_str());
-        let diagnostics = snapshot.diagnostics(&file_path);
-
-        let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-            .into_iter()
-            .map(convert_ide_diagnostic)
-            .collect();
-
-        tracing::debug!(
-            diagnostic_count = lsp_diagnostics.len(),
-            "Publishing diagnostics"
-        );
-
-        self.client
-            .publish_diagnostics(uri.clone(), lsp_diagnostics, None)
-            .await;
     }
 }
 
@@ -1946,15 +1968,19 @@ impl LanguageServer for GraphQLLanguageServer {
         // Files loaded during init already have diagnostics published (including project-wide).
         // Re-publishing here would overwrite project-wide diagnostics with only per-file ones.
         if is_new {
-            // Use all_diagnostics_for_file to include project-wide diagnostics
-            let diagnostics = snapshot.all_diagnostics_for_file(&file_path);
-            let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-                .into_iter()
-                .map(convert_ide_diagnostic)
-                .collect();
-            self.client
-                .publish_diagnostics(uri, lsp_diagnostics, None)
-                .await;
+            if let Some(lsp_diagnostics) = Self::blocking(move || {
+                snapshot
+                    .all_diagnostics_for_file(&file_path)
+                    .into_iter()
+                    .map(convert_ide_diagnostic)
+                    .collect::<Vec<Diagnostic>>()
+            })
+            .await
+            {
+                self.client
+                    .publish_diagnostics(uri, lsp_diagnostics, None)
+                    .await;
+            }
         }
     }
 
@@ -2039,10 +2065,18 @@ impl LanguageServer for GraphQLLanguageServer {
             .await
         };
 
+        let file_path_clone = graphql_ide::FilePath::new(uri.as_str());
+        if let Some(lsp_diagnostics) = Self::blocking(move || {
+            snapshot
+                .diagnostics(&file_path_clone)
+                .into_iter()
+                .map(convert_ide_diagnostic)
+                .collect::<Vec<Diagnostic>>()
+        })
+        .await
         {
-            use tracing::Instrument;
-            async { self.validate_file_with_snapshot(&uri, snapshot).await }
-                .instrument(tracing::info_span!("validate_changed_file"))
+            self.client
+                .publish_diagnostics(uri, lsp_diagnostics, None)
                 .await;
         }
     }
@@ -2096,41 +2130,32 @@ impl LanguageServer for GraphQLLanguageServer {
             snapshot
         };
 
-        let all_diagnostics = {
-            let changed_file = graphql_ide::FilePath::new(uri.as_str());
-            let result = {
-                let _span = tracing::info_span!("compute_diagnostics").entered();
-                snapshot.all_diagnostics_for_change(&changed_file)
-            };
-            tracing::info!(
-                affected_file_count = result.len(),
-                "Diagnostics computed for save"
-            );
-            result
+        let changed_file = graphql_ide::FilePath::new(uri.as_str());
+        let Some(all_diagnostics) =
+            Self::blocking(move || snapshot.all_diagnostics_for_change(&changed_file)).await
+        else {
+            return;
         };
 
-        {
-            use tracing::Instrument;
-            let file_count = all_diagnostics.len();
-            async {
-                for (file_path, file_diagnostics) in all_diagnostics {
-                    let Ok(file_uri) = Uri::from_str(file_path.as_str()) else {
-                        tracing::warn!("Invalid URI in diagnostics: {}", file_path.as_str());
-                        continue;
-                    };
+        tracing::info!(
+            affected_file_count = all_diagnostics.len(),
+            "Diagnostics computed for save"
+        );
 
-                    let lsp_diagnostics: Vec<Diagnostic> = file_diagnostics
-                        .into_iter()
-                        .map(convert_ide_diagnostic)
-                        .collect();
+        for (file_path, file_diagnostics) in all_diagnostics {
+            let Ok(file_uri) = Uri::from_str(file_path.as_str()) else {
+                tracing::warn!("Invalid URI in diagnostics: {}", file_path.as_str());
+                continue;
+            };
 
-                    self.client
-                        .publish_diagnostics(file_uri, lsp_diagnostics, None)
-                        .await;
-                }
-            }
-            .instrument(tracing::info_span!("publish_diagnostics", file_count))
-            .await;
+            let lsp_diagnostics: Vec<Diagnostic> = file_diagnostics
+                .into_iter()
+                .map(convert_ide_diagnostic)
+                .collect();
+
+            self.client
+                .publish_diagnostics(file_uri, lsp_diagnostics, None)
+                .await;
         }
     }
 

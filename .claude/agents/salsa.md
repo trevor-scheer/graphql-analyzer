@@ -266,30 +266,27 @@ When providing guidance:
 
 ## Applying to GraphQL LSP
 
-This project's architecture:
+This project uses tower-lsp (async) unlike rust-analyzer (synchronous event loop). This creates
+a critical constraint: **Salsa queries must never run directly on the async runtime**.
 
-```rust
-pub struct AnalysisHost {
-    db: IdeDatabase,
-    registry: Arc<RwLock<FileRegistry>>,  // CAUTION: shared lock
-}
+### Async Runtime Starvation (fixed in #779)
 
-pub struct Analysis {
-    db: IdeDatabase,  // Clone of host's db
-    registry: Arc<RwLock<FileRegistry>>,  // Same Arc as host!
-}
-```
+tower-lsp handlers run on tokio's async runtime. Salsa queries are synchronous and can block for
+hundreds of milliseconds. This starves the runtime — health checks time out, the client thinks the
+server is dead, and the LSP hangs.
 
-**Known Issue**: The `registry` is shared between host and snapshots, creating potential deadlocks when:
+**Rule**: Always use `spawn_blocking` for Salsa queries in LSP handlers:
 
-1. A snapshot holds a read lock on registry during query execution
-2. Host tries to acquire write lock for mutation
+- `with_analysis` — for request handlers (bundles workspace lookup + snapshot + spawn_blocking)
+- `blocking` — for notification handlers that already have a snapshot
 
-**Recommended Fix**: Either:
+See `.claude/rules/lsp-handlers.md` for the full pattern.
 
-1. Make registry an `Arc<FileRegistry>` (immutable, replaced on change)
-2. Move registry data into Salsa inputs
-3. Ensure snapshots are always dropped before mutations
+### rust-analyzer's Approach (for comparison)
+
+rust-analyzer avoids this entirely: no async runtime, synchronous crossbeam event loop, explicit
+thread pool for Salsa queries, and panic-based cancellation when inputs change. We can't do this
+because tower-lsp is async, so `spawn_blocking` is our bridge.
 
 ## Research Resources
 
