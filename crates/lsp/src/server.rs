@@ -1609,29 +1609,6 @@ documents: "**/*.graphql"
             workspace_uri
         );
     }
-    /// Validate a file using a pre-acquired snapshot
-    ///
-    /// This variant avoids acquiring the host lock again when we already have a snapshot.
-    /// Used by `did_change` after updating a file to avoid double-locking.
-    #[tracing::instrument(skip(self, snapshot), fields(path = %uri.as_str()))]
-    async fn validate_file_with_snapshot(&self, uri: &Uri, snapshot: graphql_ide::Analysis) {
-        let file_path = graphql_ide::FilePath::new(uri.as_str());
-        let diagnostics = snapshot.diagnostics(&file_path);
-
-        let lsp_diagnostics: Vec<Diagnostic> = diagnostics
-            .into_iter()
-            .map(convert_ide_diagnostic)
-            .collect();
-
-        tracing::debug!(
-            diagnostic_count = lsp_diagnostics.len(),
-            "Publishing diagnostics"
-        );
-
-        self.client
-            .publish_diagnostics(uri.clone(), lsp_diagnostics, None)
-            .await;
-    }
 }
 
 impl LanguageServer for GraphQLLanguageServer {
@@ -2039,11 +2016,29 @@ impl LanguageServer for GraphQLLanguageServer {
             .await
         };
 
-        {
-            use tracing::Instrument;
-            async { self.validate_file_with_snapshot(&uri, snapshot).await }
-                .instrument(tracing::info_span!("validate_changed_file"))
-                .await;
+        // Compute diagnostics on a blocking thread to avoid starving the async
+        // runtime. Schema file changes can trigger expensive Salsa recomputation
+        // across all files; running this inline would block the event loop and
+        // prevent health-check pings from being serviced.
+        let file_path_clone = graphql_ide::FilePath::new(uri.as_str());
+        let lsp_diagnostics = tokio::task::spawn_blocking(move || {
+            let diagnostics = snapshot.diagnostics(&file_path_clone);
+            diagnostics
+                .into_iter()
+                .map(convert_ide_diagnostic)
+                .collect::<Vec<Diagnostic>>()
+        })
+        .await;
+
+        match lsp_diagnostics {
+            Ok(lsp_diagnostics) => {
+                self.client
+                    .publish_diagnostics(uri, lsp_diagnostics, None)
+                    .await;
+            }
+            Err(e) => {
+                tracing::error!("Diagnostics task panicked: {e}");
+            }
         }
     }
 
