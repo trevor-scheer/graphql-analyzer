@@ -244,7 +244,7 @@ pub fn find_field_references(
                 .iter()
                 .find(|f| f.name.as_ref() == field_name)
             {
-                let field_file_id = type_def.file_id;
+                let field_file_id = field_sig.file_id;
                 let file_path = registry.get_path(field_file_id);
 
                 if let (Some(file_path), Some((content, _metadata))) = (

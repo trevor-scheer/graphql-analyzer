@@ -6448,4 +6448,119 @@ directive @skip(if: Boolean!) on FIELD"#,
         let help = snapshot.signature_help(&path, Position::new(0, 0));
         assert!(help.is_none());
     }
+
+    // ========================================================================
+    // Type extension tests: fields defined in a different file via `extend type`
+    // Regression tests for offset/file_id mismatch panics
+    // ========================================================================
+
+    #[test]
+    fn test_goto_definition_field_from_type_extension() {
+        let mut host = AnalysisHost::new();
+
+        // Base type in one file
+        let base_file = FilePath::new("file:///base.graphql");
+        host.add_file(
+            &base_file,
+            "type Query { user: User }\ntype User { id: ID! }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Extension adds a field in a separate file
+        let ext_file = FilePath::new("file:///extension.graphql");
+        host.add_file(
+            &ext_file,
+            "extend type User { name: String! }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        let (query_text, cursor_pos) = extract_cursor("query { user { na*me } }");
+        host.add_file(
+            &query_file,
+            &query_text,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let locations = snapshot.goto_definition(&query_file, cursor_pos);
+
+        assert!(
+            locations.is_some(),
+            "Should find field definition from extension"
+        );
+        let locations = locations.unwrap();
+        assert_eq!(locations.len(), 1);
+        // Should point to the extension file, not the base file
+        assert_eq!(locations[0].file.as_str(), ext_file.as_str());
+        assert_eq!(locations[0].range.start.line, 0);
+    }
+
+    #[test]
+    fn test_find_references_field_from_type_extension() {
+        let mut host = AnalysisHost::new();
+
+        // Base type in one file
+        let base_file = FilePath::new("file:///base.graphql");
+        host.add_file(
+            &base_file,
+            "type Query { user: User }\ntype User { id: ID! }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Extension adds a field in a separate file
+        let ext_file = FilePath::new("file:///extension.graphql");
+        host.add_file(
+            &ext_file,
+            "extend type User { name: String! }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let query_file = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &query_file,
+            "query { user { name } }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        // Find references to "name" from the extension file, including declaration
+        // "extend type User { " = 19 chars, "name" at position 19
+        let snapshot = host.snapshot();
+        let locations = snapshot.find_references(&ext_file, Position::new(0, 19), true);
+
+        assert!(
+            locations.is_some(),
+            "Should find references for extension field"
+        );
+        let locations = locations.unwrap();
+        // declaration (in ext_file) + usage (in query_file) = 2
+        assert_eq!(
+            locations.len(),
+            2,
+            "Expected declaration + usage, got {locations:?}",
+        );
+
+        let ext_refs: Vec<_> = locations
+            .iter()
+            .filter(|l| l.file.as_str() == ext_file.as_str())
+            .collect();
+        let query_refs: Vec<_> = locations
+            .iter()
+            .filter(|l| l.file.as_str() == query_file.as_str())
+            .collect();
+        assert_eq!(
+            ext_refs.len(),
+            1,
+            "Should have 1 declaration in extension file"
+        );
+        assert_eq!(query_refs.len(), 1, "Should have 1 usage in query file");
+    }
 }
