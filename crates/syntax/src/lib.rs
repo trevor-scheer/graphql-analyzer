@@ -580,6 +580,12 @@ impl LineIndex {
     /// For byte-based columns (internal use), see [`line_col_bytes`](Self::line_col_bytes).
     #[must_use]
     pub fn line_col(&self, offset: usize) -> (usize, usize) {
+        assert!(
+            offset <= self.source.len(),
+            "byte offset {offset} is out of bounds of source ({} bytes). \
+             This is a bug — the offset likely comes from a different file than the LineIndex.",
+            self.source.len()
+        );
         let (line, byte_col) = self.line_col_bytes(offset);
         let line_start = self.line_starts[line];
         let line_text = &self.source[line_start..line_start + byte_col];

@@ -115,11 +115,11 @@ pub fn deprecated_field_code_lenses(
     let line_index = graphql_syntax::line_index(db, content);
 
     for type_def in schema_types.values() {
-        if type_def.file_id != file_id {
-            continue;
-        }
-
         for field in &type_def.fields {
+            if field.file_id != file_id {
+                continue;
+            }
+
             if !field.is_deprecated {
                 continue;
             }
