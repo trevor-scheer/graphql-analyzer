@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL LSP will be documented in this file.
 
+## 0.1.9 (2026-03-14)
+
+### Fixes
+
+- Use project extract config during document discovery instead of defaults ([#769](https://github.com/trevor-scheer/graphql-analyzer/pull/769))
+
 ## 0.1.8 (2026-03-14)
 
 ### Fixes
