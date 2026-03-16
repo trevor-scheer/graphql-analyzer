@@ -147,9 +147,13 @@ pub struct WorkspaceManager {
     /// Loaded GraphQL configs indexed by workspace URI string
     pub configs: DashMap<String, graphql_config::GraphQLConfig>,
 
-    /// `ProjectHost` per (workspace URI, project name) tuple
-    /// Uses `ProjectHost` wrapper to enforce safe access patterns
-    pub hosts: DashMap<(String, String), ProjectHost>,
+    /// `ProjectHost` per (workspace URI, project name) tuple.
+    ///
+    /// **Private by design.** All access goes through typed methods (`get_or_create_host`,
+    /// `get_host`, `projects_for_workspace`, `clear_workspace`) that return owned
+    /// `ProjectHost` clones. Never expose a `DashMap` `Ref` to callers — holding one
+    /// across an `.await` point deadlocks the async runtime.
+    hosts: DashMap<(String, String), ProjectHost>,
 
     /// Document versions indexed by document URI string
     /// Used to detect out-of-order updates and avoid race conditions
@@ -199,6 +203,28 @@ impl WorkspaceManager {
         self.hosts
             .get(&(workspace_uri.to_string(), project_name.to_string()))
             .map(|r| r.clone())
+    }
+
+    /// Return all `(project_name, ProjectHost)` pairs for a given workspace.
+    ///
+    /// Collects into an owned `Vec` so no `DashMap` shard lock is held after this call returns.
+    pub fn projects_for_workspace(&self, workspace_uri: &str) -> Vec<(String, ProjectHost)> {
+        self.hosts
+            .iter()
+            .filter(|entry| entry.key().0 == workspace_uri)
+            .map(|entry| (entry.key().1.clone(), entry.value().clone()))
+            .collect()
+    }
+
+    /// Return all hosts across all workspaces as owned `ProjectHost` clones.
+    ///
+    /// Collects into an owned `Vec` so no `DashMap` shard lock is held after this call returns.
+    /// Use this instead of iterating `hosts` directly when you need to `.await` on each host.
+    pub fn all_hosts(&self) -> Vec<ProjectHost> {
+        self.hosts
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 
     /// Find the workspace and project for a given document URI (sync version)
@@ -446,7 +472,7 @@ mod tests {
     fn test_workspace_manager_creation() {
         let manager = WorkspaceManager::new();
         assert!(manager.workspace_roots.is_empty());
-        assert!(manager.hosts.is_empty());
+        assert!(manager.get_host("nonexistent", "nonexistent").is_none());
     }
 
     #[test]
@@ -482,17 +508,11 @@ mod tests {
         // workspace1 data should be gone
         assert!(manager.file_to_project.get("file1.graphql").is_none());
         assert!(manager.file_to_project.get("file2.graphql").is_none());
-        assert!(manager
-            .hosts
-            .get(&("workspace1".to_string(), "project1".to_string()))
-            .is_none());
+        assert!(manager.get_host("workspace1", "project1").is_none());
 
         // workspace2 data should remain
         assert!(manager.file_to_project.get("file3.graphql").is_some());
-        assert!(manager
-            .hosts
-            .get(&("workspace2".to_string(), "project1".to_string()))
-            .is_some());
+        assert!(manager.get_host("workspace2", "project1").is_some());
     }
 
     #[test]
