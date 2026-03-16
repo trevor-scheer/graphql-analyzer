@@ -184,14 +184,20 @@ pub fn merged_schema_with_diagnostics(
         Err(with_errors) => {
             tracing::warn!(
                 error_count = with_errors.errors.len(),
-                "Failed to merge schema due to build errors"
+                "Schema build errors found (schema still usable for document validation)"
             );
             for apollo_diag in with_errors.errors.iter() {
                 tracing::debug!(error = %apollo_diag.error, "Schema build error");
             }
             let diagnostics_by_file = collect_apollo_diagnostics(&with_errors.errors);
+            // IMPORTANT: Return the partial schema even when build fails.
+            // Build errors (like duplicate type definitions) are common in large
+            // projects. Without a schema, validate_file silently skips ALL
+            // semantic document validation (field selection, argument types, etc.).
+            // The partial schema is still useful for validation - apollo-compiler
+            // handles missing/duplicate types gracefully during document validation.
             MergedSchemaResult {
-                schema: None,
+                schema: Some(Arc::new(with_errors.partial)),
                 diagnostics_by_file: Arc::new(diagnostics_by_file),
             }
         }

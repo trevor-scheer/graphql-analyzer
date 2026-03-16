@@ -707,10 +707,12 @@ fn test_merged_schema_invalid_syntax() {
     let schema_files = [(file_id, content, metadata)];
     let project_files = create_project_files(&mut db, &schema_files, &[]);
 
-    let schema = merged_schema_with_diagnostics(&db, project_files).schema;
+    let result = merged_schema_with_diagnostics(&db, project_files);
+    // Even with parse errors, a partial schema is returned so document validation
+    // is not silently skipped
     assert!(
-        schema.is_none(),
-        "Expected None when schema has parse errors"
+        result.schema.is_some(),
+        "Expected partial schema even when schema has parse errors"
     );
 }
 
@@ -734,10 +736,12 @@ fn test_merged_schema_validation_error() {
     let schema_files = [(file_id, content, metadata)];
     let project_files = create_project_files(&mut db, &schema_files, &[]);
 
-    let schema = merged_schema_with_diagnostics(&db, project_files).schema;
+    let result = merged_schema_with_diagnostics(&db, project_files);
+    // Even with duplicate type errors, a partial schema is returned so document
+    // validation is not silently skipped
     assert!(
-        schema.is_none(),
-        "Expected None when schema has validation errors"
+        result.schema.is_some(),
+        "Expected partial schema even when schema has validation errors"
     );
 }
 
@@ -938,9 +942,10 @@ fn test_schema_build_error_attributed_to_correct_file() {
 
     let result = merged_schema_with_diagnostics(&db, project_files);
 
+    // Partial schema is still returned despite build errors
     assert!(
-        result.schema.is_none(),
-        "Expected schema build to fail with duplicate type"
+        result.schema.is_some(),
+        "Expected partial schema even with duplicate type errors"
     );
     assert!(
         !result.diagnostics_by_file.is_empty(),
@@ -1624,6 +1629,289 @@ fn test_non_relay_unknown_directive_args_still_reported() {
     assert!(
         !arg_errors.is_empty(),
         "Unknown args on non-Relay directives should still be reported"
+    );
+}
+
+// ============================================================================
+// Semantic query validation tests
+// ============================================================================
+
+/// Test that field selection validation produces errors for non-existent fields
+/// when using a TypeScript file with embedded GraphQL.
+///
+/// This is a regression test for the issue where semantic query validation
+/// errors (like referencing a renamed/removed field) don't show up at all.
+#[test]
+fn test_ts_embedded_graphql_invalid_field_produces_errors() {
+    let mut db = TestDatabase::default();
+
+    let schema_id = FileId::new(0);
+    // Schema with `group` (singular) field on IdpFetchConfig
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from(
+            "type Query { idpFetchConfig: IdpFetchConfig }\n\
+             type IdpFetchConfig { id: ID! group: [IdpGroup!]! scopingEnabled: Boolean! }\n\
+             type IdpGroup { id: ID! name: String! }",
+        ),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("file:///schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    let doc_id = FileId::new(1);
+    // TypeScript file with embedded GraphQL that references "groups" (old name, now "group")
+    let ts_content = r#"import { gql } from "@apollo/client";
+
+export const QUERY = gql`
+  query GetIdpFetchConfig {
+    idpFetchConfig {
+      id
+      groups {
+        id
+        name
+      }
+      scopingEnabled
+    }
+  }
+`;
+"#;
+    let doc_content = FileContent::new(&db, Arc::from(ts_content));
+    let doc_metadata = FileMetadata::new(
+        &db,
+        doc_id,
+        FileUri::new("file:///components/idp-scoping-row.tsx"),
+        Language::TypeScript,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_project_files(
+        &mut db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[(doc_id, doc_content, doc_metadata)],
+    );
+
+    // Test via validate_file (what file_validation_diagnostics_impl calls)
+    let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
+    assert!(
+        !diagnostics.is_empty(),
+        "Expected validation errors for query referencing non-existent field 'groups' \
+         (renamed to 'group' in schema). Got no diagnostics."
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.message.contains("groups") || d.message.contains("field")),
+        "Expected error about invalid field 'groups', got: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}
+
+/// Test that field selection validation works for pure GraphQL files too.
+/// This is the base case to verify `validate_file` catches renamed fields.
+#[test]
+fn test_graphql_invalid_field_after_rename_produces_errors() {
+    let mut db = TestDatabase::default();
+
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from(
+            "type Query { idpFetchConfig: IdpFetchConfig }\n\
+             type IdpFetchConfig { id: ID! group: [IdpGroup!]! scopingEnabled: Boolean! }\n\
+             type IdpGroup { id: ID! name: String! }",
+        ),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("file:///schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    let doc_id = FileId::new(1);
+    let doc_content = FileContent::new(
+        &db,
+        Arc::from(
+            "query GetIdpFetchConfig { idpFetchConfig { id groups { id name } scopingEnabled } }",
+        ),
+    );
+    let doc_metadata = FileMetadata::new(
+        &db,
+        doc_id,
+        FileUri::new("file:///query.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_project_files(
+        &mut db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[(doc_id, doc_content, doc_metadata)],
+    );
+
+    let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
+    assert!(
+        !diagnostics.is_empty(),
+        "Expected validation errors for query referencing non-existent field 'groups'. Got none."
+    );
+}
+
+/// Test that `file_diagnostics` (the full LSP diagnostic path) also reports
+/// semantic query validation errors for TS files.
+#[test]
+fn test_file_diagnostics_reports_semantic_errors_for_ts() {
+    let mut db = TestDatabase::default();
+
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from(
+            "type Query { idpFetchConfig: IdpFetchConfig }\n\
+             type IdpFetchConfig { id: ID! group: [IdpGroup!]! scopingEnabled: Boolean! }\n\
+             type IdpGroup { id: ID! name: String! }",
+        ),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("file:///schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    let doc_id = FileId::new(1);
+    let ts_content = r#"import { gql } from "@apollo/client";
+
+export const QUERY = gql`
+  query GetIdpFetchConfig {
+    idpFetchConfig {
+      id
+      groups {
+        id
+        name
+      }
+      scopingEnabled
+    }
+  }
+`;
+"#;
+    let doc_content = FileContent::new(&db, Arc::from(ts_content));
+    let doc_metadata = FileMetadata::new(
+        &db,
+        doc_id,
+        FileUri::new("file:///components/idp-scoping-row.tsx"),
+        Language::TypeScript,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_project_files(
+        &mut db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[(doc_id, doc_content, doc_metadata)],
+    );
+
+    // Test via file_diagnostics (the actual LSP code path)
+    let diagnostics = file_diagnostics(&db, doc_content, doc_metadata, Some(project_files));
+    assert!(
+        !diagnostics.is_empty(),
+        "file_diagnostics should report semantic validation errors for TS files with \
+         invalid field references. Got no diagnostics."
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.message.contains("groups") || d.message.contains("field")),
+        "Expected error about invalid field 'groups', got: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}
+
+/// Test that duplicate type definitions in the schema don't prevent document validation.
+///
+/// This is the key regression test: when schema files have duplicate type definitions
+/// (which happens in real projects like Vanta's obsidian monorepo), `merged_schema_with_diagnostics`
+/// might return `None` for the schema, causing `validate_file` to silently skip all
+/// semantic validation. This means "semantic query validation errors don't show up at all."
+#[test]
+fn test_document_validation_works_despite_duplicate_schema_types() {
+    let mut db = TestDatabase::default();
+
+    // Schema file 1: defines Foo
+    let schema1_id = FileId::new(0);
+    let schema1_content = FileContent::new(
+        &db,
+        Arc::from("type Query { foo: Foo }\ntype Foo { id: ID! name: String! }"),
+    );
+    let schema1_metadata = FileMetadata::new(
+        &db,
+        schema1_id,
+        FileUri::new("file:///schema1.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    // Schema file 2: also defines Foo (duplicate!)
+    let schema2_id = FileId::new(1);
+    let schema2_content = FileContent::new(
+        &db,
+        Arc::from("type Foo { id: ID! name: String! email: String }"),
+    );
+    let schema2_metadata = FileMetadata::new(
+        &db,
+        schema2_id,
+        FileUri::new("file:///schema2.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    // Document that references a non-existent field
+    let doc_id = FileId::new(2);
+    let doc_content = FileContent::new(&db, Arc::from("query { foo { id nonExistentField } }"));
+    let doc_metadata = FileMetadata::new(
+        &db,
+        doc_id,
+        FileUri::new("file:///query.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_project_files(
+        &mut db,
+        &[
+            (schema1_id, schema1_content, schema1_metadata),
+            (schema2_id, schema2_content, schema2_metadata),
+        ],
+        &[(doc_id, doc_content, doc_metadata)],
+    );
+
+    // First, verify the merged schema has errors (duplicate Foo)
+    let schema_result = merged_schema_with_diagnostics(&db, project_files);
+    let has_schema_errors = !schema_result.diagnostics_by_file.is_empty();
+
+    // The critical assertion: even with schema errors, the schema should still
+    // be available (not None) so document validation can proceed.
+    assert!(
+        schema_result.schema.is_some(),
+        "Merged schema should be available (Some) even with duplicate type errors. \
+         If it's None, all document validation is silently skipped. \
+         Schema errors: {:?}",
+        schema_result.diagnostics_by_file
+    );
+
+    // Now validate the document - should catch the invalid field
+    let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
+    assert!(
+        !diagnostics.is_empty(),
+        "Expected validation errors for query referencing non-existent field \
+         'nonExistentField'. Got no diagnostics. This means document validation \
+         was silently skipped (likely because merged_schema returned None). \
+         Schema had errors: {has_schema_errors}"
     );
 }
 
