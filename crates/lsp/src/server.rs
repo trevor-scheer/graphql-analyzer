@@ -1858,6 +1858,7 @@ impl LanguageServer for GraphQLLanguageServer {
         let version = env!("CARGO_PKG_VERSION");
         let git_sha = option_env!("VERGEN_GIT_SHA").unwrap_or("unknown");
         let git_dirty = option_env!("VERGEN_GIT_DIRTY").unwrap_or("false");
+        let build_timestamp = option_env!("VERGEN_BUILD_TIMESTAMP").unwrap_or("unknown");
         let binary_path = std::env::current_exe()
             .map_or_else(|_| "unknown".to_string(), |p| p.display().to_string());
 
@@ -1866,6 +1867,7 @@ impl LanguageServer for GraphQLLanguageServer {
         tracing::info!(
             version = version,
             git_sha = format!("{git_sha}{dirty_suffix}"),
+            build_timestamp = build_timestamp,
             binary_path = binary_path,
             "GraphQL Language Server initialized"
         );
@@ -1873,7 +1875,7 @@ impl LanguageServer for GraphQLLanguageServer {
         self.client
             .log_message(
                 MessageType::INFO,
-                format!("GraphQL LSP initialized (v{version} @ {git_sha}{dirty_suffix}"),
+                format!("GraphQL LSP initialized (v{version} @ {git_sha}{dirty_suffix}, built {build_timestamp}, binary: {binary_path})"),
             )
             .await;
 
@@ -2108,11 +2110,15 @@ impl LanguageServer for GraphQLLanguageServer {
             return;
         };
 
-        // Get the analysis host for this workspace/project
+        // Get the analysis host for this workspace/project.
+        // Clone the ProjectHost immediately to release the DashMap shard lock — holding
+        // a DashMap Ref across an .await deadlocks if another task tries to acquire the
+        // same shard's write lock (e.g., did_change's get_or_create_host via entry()).
         let Some(host) = self
             .workspace
             .hosts
             .get(&(workspace_uri.clone(), project_name.clone()))
+            .map(|r| r.clone())
         else {
             tracing::debug!("No analysis host found for workspace/project");
             return;
