@@ -2110,16 +2110,7 @@ impl LanguageServer for GraphQLLanguageServer {
             return;
         };
 
-        // Get the analysis host for this workspace/project.
-        // Clone the ProjectHost immediately to release the DashMap shard lock — holding
-        // a DashMap Ref across an .await deadlocks if another task tries to acquire the
-        // same shard's write lock (e.g., did_change's get_or_create_host via entry()).
-        let Some(host) = self
-            .workspace
-            .hosts
-            .get(&(workspace_uri.clone(), project_name.clone()))
-            .map(|r| r.clone())
-        else {
+        let Some(host) = self.workspace.get_host(&workspace_uri, &project_name) else {
             tracing::debug!("No analysis host found for workspace/project");
             return;
         };

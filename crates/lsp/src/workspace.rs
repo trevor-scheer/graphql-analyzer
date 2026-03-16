@@ -189,6 +189,18 @@ impl WorkspaceManager {
             .clone()
     }
 
+    /// Get an existing `ProjectHost`, returning `None` if it doesn't exist.
+    ///
+    /// Always returns a cloned `ProjectHost` (cheap `Arc` clone) rather than a `DashMap` reference.
+    /// This is intentional: `DashMap::get()` returns a `Ref` that holds a shard lock, and holding
+    /// that lock across `.await` points causes deadlocks with any concurrent `entry()` call on the
+    /// same shard. Callers receive ownership and can safely `.await` without holding any `DashMap` lock.
+    pub fn get_host(&self, workspace_uri: &str, project_name: &str) -> Option<ProjectHost> {
+        self.hosts
+            .get(&(workspace_uri.to_string(), project_name.to_string()))
+            .map(|r| r.clone())
+    }
+
     /// Find the workspace and project for a given document URI (sync version)
     ///
     /// Uses a reverse index for O(1) lookup of previously seen files.
