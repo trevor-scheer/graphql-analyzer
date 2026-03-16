@@ -68,13 +68,13 @@ jobs:
 
       - name: Rust cache
         if: ${{ !matrix.cross }}
-        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: "release-${{ matrix.target }}"
 
       - name: Install cross
         if: matrix.cross
-        uses: taiki-e/install-action@c0fdfb28b4d6c8525bbfd28915bf4c1f3cd0631f # cross
+        uses: taiki-e/install-action@7e92ca6b8967b068a9d197aa051b48132385d695 # cross
         with:
           tool: cross
 
