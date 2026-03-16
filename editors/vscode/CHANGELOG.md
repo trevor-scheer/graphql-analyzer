@@ -2,6 +2,13 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.1.13 (2026-03-15)
+
+### Fixes
+
+- Move diagnostics computation in did_change to blocking thread to prevent async runtime starvation on large schema changes
+- Fix panic on goto definition, find references, and code lens for fields from type extensions across files ([#778](https://github.com/trevor-scheer/graphql-analyzer/pull/778))
+
 ## 0.1.12 (2026-03-14)
 
 ### Fixes
