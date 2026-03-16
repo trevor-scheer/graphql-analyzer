@@ -2,6 +2,13 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.1.14 (2026-03-16)
+
+### Fixes
+
+- Fix deadlock when textDocument/didSave arrives immediately after textDocument/didChange ([#784](https://github.com/trevor-scheer/graphql-analyzer/pull/784))
+- Fix missing semantic validation when schema has build errors (duplicate types, etc.) ([#783](https://github.com/trevor-scheer/graphql-analyzer/pull/783))
+
 ## 0.1.13 (2026-03-15)
 
 ### Fixes
