@@ -708,8 +708,6 @@ fn test_merged_schema_invalid_syntax() {
     let project_files = create_project_files(&mut db, &schema_files, &[]);
 
     let result = merged_schema_with_diagnostics(&db, project_files);
-    // Even with parse errors, a partial schema is returned so document validation
-    // is not silently skipped
     assert!(
         result.schema.is_some(),
         "Expected partial schema even when schema has parse errors"
