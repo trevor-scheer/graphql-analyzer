@@ -735,8 +735,6 @@ fn test_merged_schema_validation_error() {
     let project_files = create_project_files(&mut db, &schema_files, &[]);
 
     let result = merged_schema_with_diagnostics(&db, project_files);
-    // Even with duplicate type errors, a partial schema is returned so document
-    // validation is not silently skipped
     assert!(
         result.schema.is_some(),
         "Expected partial schema even when schema has validation errors"
@@ -940,7 +938,6 @@ fn test_schema_build_error_attributed_to_correct_file() {
 
     let result = merged_schema_with_diagnostics(&db, project_files);
 
-    // Partial schema is still returned despite build errors
     assert!(
         result.schema.is_some(),
         "Expected partial schema even with duplicate type errors"
