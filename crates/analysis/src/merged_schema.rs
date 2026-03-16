@@ -184,14 +184,14 @@ pub fn merged_schema_with_diagnostics(
         Err(with_errors) => {
             tracing::warn!(
                 error_count = with_errors.errors.len(),
-                "Failed to merge schema due to build errors"
+                "Schema build errors found (schema still usable for document validation)"
             );
             for apollo_diag in with_errors.errors.iter() {
                 tracing::debug!(error = %apollo_diag.error, "Schema build error");
             }
             let diagnostics_by_file = collect_apollo_diagnostics(&with_errors.errors);
             MergedSchemaResult {
-                schema: None,
+                schema: Some(Arc::new(with_errors.partial)),
                 diagnostics_by_file: Arc::new(diagnostics_by_file),
             }
         }

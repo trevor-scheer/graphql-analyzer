@@ -340,6 +340,83 @@ fragment AttackActionInfo on AttackAction {
             .all(|d| d.severity != DiagnosticSeverity::Error));
     }
 
+    /// Regression test: semantic query validation errors must show up through
+    /// the IDE diagnostics pipeline. Tests both pure GraphQL and TypeScript files.
+    ///
+    /// This verifies that `Analysis::diagnostics()` (the entry point used by the LSP)
+    /// correctly reports field selection errors when a query references a field
+    /// that doesn't exist in the schema.
+    #[test]
+    fn test_diagnostics_reports_semantic_validation_errors() {
+        let mut host = AnalysisHost::new();
+
+        // Schema with `group` (singular) field
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "type Query { idpFetchConfig: IdpFetchConfig }\n\
+             type IdpFetchConfig { id: ID! group: [IdpGroup!]! scopingEnabled: Boolean! }\n\
+             type IdpGroup { id: ID! name: String! }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        // Pure GraphQL document referencing "groups" (non-existent, should be "group")
+        let graphql_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &graphql_path,
+            "query GetConfig { idpFetchConfig { id groups { id name } scopingEnabled } }",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        // TypeScript file with embedded GraphQL referencing "groups"
+        let ts_path = FilePath::new("file:///components/scoping.tsx");
+        host.add_file(
+            &ts_path,
+            r#"import { gql } from "@apollo/client";
+
+export const QUERY = gql`
+  query GetConfig {
+    idpFetchConfig {
+      id
+      groups {
+        id
+        name
+      }
+      scopingEnabled
+    }
+  }
+`;
+"#,
+            Language::TypeScript,
+            DocumentKind::Executable,
+        );
+
+        host.rebuild_project_files();
+        let snapshot = host.snapshot();
+
+        // Pure GraphQL file should have semantic errors
+        let graphql_diagnostics = snapshot.diagnostics(&graphql_path);
+        assert!(
+            graphql_diagnostics
+                .iter()
+                .any(|d| d.severity == DiagnosticSeverity::Error),
+            "Expected semantic validation errors for GraphQL file referencing non-existent \
+             field 'groups'. Got: {graphql_diagnostics:?}",
+        );
+
+        // TypeScript file should also have semantic errors
+        let ts_diagnostics = snapshot.diagnostics(&ts_path);
+        assert!(
+            ts_diagnostics
+                .iter()
+                .any(|d| d.severity == DiagnosticSeverity::Error),
+            "Expected semantic validation errors for TypeScript file referencing non-existent \
+             field 'groups'. Got: {ts_diagnostics:?}",
+        );
+    }
+
     #[test]
     fn test_conversion_position() {
         let analysis_pos = graphql_analysis::Position::new(10, 20);
