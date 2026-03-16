@@ -57,3 +57,18 @@ These features must NOT be removed or degraded:
 | **Project-wide fragments**    | Fragments span many files         | `all_fragments()` indexes entire project               |
 
 **Solve performance problems without removing features.** Use filtering, lazy evaluation, debouncing, or configuration options instead.
+
+---
+
+## Async Safety: DashMap and Locks
+
+**Never hold a `DashMap` `Ref` (or any non-async lock guard) across an `.await` point.**
+
+`DashMap::get()` returns a `Ref<'_, K, V>` that holds a `parking_lot` shard read lock. If you hold this `Ref` as a local variable and then call `.await`, the current thread suspends while owning the lock. If another task on the Tokio runtime tries to acquire the same shard's write lock (e.g., via `DashMap::entry()`), it blocks. With a saturated thread pool, nothing can resume the suspended task to release the lock — **deadlock**.
+
+**Rules:**
+
+- Always call `.map(|r| r.clone())` on a `DashMap` reference before any `.await`
+- Prefer typed accessor methods on `WorkspaceManager` (e.g., `get_host`, `all_hosts`, `projects_for_workspace`) over direct field access — these enforce the clone-before-await contract by returning owned values
+- The `hosts` field on `WorkspaceManager` is private for this reason; all callers must go through the typed API
+- Same applies to `std::sync::Mutex`, `parking_lot::RwLock`, and any other non-`tokio::sync` lock type

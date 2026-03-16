@@ -936,8 +936,7 @@ impl GraphQLLanguageServer {
         let file_path = graphql_ide::FilePath::new(&params.uri);
 
         // Search all hosts for the file content
-        for entry in &self.workspace.hosts {
-            let host = entry.value();
+        for host in self.workspace.all_hosts() {
             let Some(analysis) = host.try_snapshot().await else {
                 continue;
             };
@@ -1599,40 +1598,8 @@ documents: "**/*.graphql"
             return;
         };
 
-        let keys_to_remove: Vec<_> = self
-            .workspace
-            .hosts
-            .iter()
-            .filter(|entry| entry.key().0 == workspace_uri)
-            .map(|entry| entry.key().clone())
-            .collect();
-
-        for key in &keys_to_remove {
-            tracing::debug!("Removing host for project: {}", key.1);
-            self.workspace.hosts.remove(key);
-        }
-
-        tracing::debug!(
-            "Cleared {} existing host(s) for workspace",
-            keys_to_remove.len()
-        );
-
-        let file_keys_to_remove: Vec<_> = self
-            .workspace
-            .file_to_project
-            .iter()
-            .filter(|entry| entry.value().0 == workspace_uri)
-            .map(|entry| entry.key().clone())
-            .collect();
-
-        for key in &file_keys_to_remove {
-            self.workspace.file_to_project.remove(key);
-        }
-
-        tracing::debug!(
-            "Cleared {} file-to-project mappings for workspace",
-            file_keys_to_remove.len()
-        );
+        tracing::debug!("Clearing hosts and file mappings for workspace");
+        self.workspace.clear_workspace(workspace_uri);
 
         self.workspace.configs.remove(workspace_uri);
         self.load_workspace_config(workspace_uri, &workspace_path)
@@ -1858,6 +1825,7 @@ impl LanguageServer for GraphQLLanguageServer {
         let version = env!("CARGO_PKG_VERSION");
         let git_sha = option_env!("VERGEN_GIT_SHA").unwrap_or("unknown");
         let git_dirty = option_env!("VERGEN_GIT_DIRTY").unwrap_or("false");
+        let build_timestamp = option_env!("VERGEN_BUILD_TIMESTAMP").unwrap_or("unknown");
         let binary_path = std::env::current_exe()
             .map_or_else(|_| "unknown".to_string(), |p| p.display().to_string());
 
@@ -1866,6 +1834,7 @@ impl LanguageServer for GraphQLLanguageServer {
         tracing::info!(
             version = version,
             git_sha = format!("{git_sha}{dirty_suffix}"),
+            build_timestamp = build_timestamp,
             binary_path = binary_path,
             "GraphQL Language Server initialized"
         );
@@ -1873,7 +1842,7 @@ impl LanguageServer for GraphQLLanguageServer {
         self.client
             .log_message(
                 MessageType::INFO,
-                format!("GraphQL LSP initialized (v{version} @ {git_sha}{dirty_suffix}"),
+                format!("GraphQL LSP initialized (v{version} @ {git_sha}{dirty_suffix}, built {build_timestamp}, binary: {binary_path})"),
             )
             .await;
 
@@ -2108,12 +2077,7 @@ impl LanguageServer for GraphQLLanguageServer {
             return;
         };
 
-        // Get the analysis host for this workspace/project
-        let Some(host) = self
-            .workspace
-            .hosts
-            .get(&(workspace_uri.clone(), project_name.clone()))
-        else {
+        let Some(host) = self.workspace.get_host(&workspace_uri, &project_name) else {
             tracing::debug!("No analysis host found for workspace/project");
             return;
         };
@@ -2368,8 +2332,7 @@ impl LanguageServer for GraphQLLanguageServer {
 
         let mut all_symbols = Vec::new();
 
-        for entry in &self.workspace.hosts {
-            let host = entry.value();
+        for host in self.workspace.all_hosts() {
             let Some(analysis) = host.try_snapshot().await else {
                 // Skip this host if we can't acquire the lock in time
                 continue;
@@ -2524,14 +2487,7 @@ impl LanguageServer for GraphQLLanguageServer {
                     ));
                 }
 
-                // Collect projects for this workspace
-                let workspace_projects: Vec<_> = self
-                    .workspace
-                    .hosts
-                    .iter()
-                    .filter(|entry| entry.key().0 == *workspace_uri)
-                    .map(|entry| (entry.key().1.clone(), entry.value().clone()))
-                    .collect();
+                let workspace_projects = self.workspace.projects_for_workspace(workspace_uri);
 
                 if workspace_projects.is_empty() {
                     status_lines.push("  Projects: (none loaded)".to_string());
