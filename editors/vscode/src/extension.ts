@@ -384,11 +384,16 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
       { scheme: "file", language: "typescriptreact" },
       { scheme: "file", language: "javascript" },
       { scheme: "file", language: "javascriptreact" },
+      { scheme: "file", language: "vue" },
+      { scheme: "file", language: "svelte" },
+      { scheme: "file", language: "astro" },
       // Virtual files for remote schemas (introspected)
       { scheme: "schema", language: "graphql" },
     ],
     synchronize: {
-      fileEvents: workspace.createFileSystemWatcher("**/*.{graphql,gql,ts,tsx,js,jsx}"),
+      fileEvents: workspace.createFileSystemWatcher(
+        "**/*.{graphql,gql,ts,tsx,js,jsx,vue,svelte,astro}",
+      ),
     },
     outputChannel: outputChannel,
     traceOutputChannel: traceOutputChannel,

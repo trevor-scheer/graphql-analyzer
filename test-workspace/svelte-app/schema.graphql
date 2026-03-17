@@ -1,0 +1,27 @@
+# Shared test schema for framework integration tests
+
+type User {
+  id: ID!
+  name: String!
+  email: String!
+  posts: [Post!]!
+}
+
+type Post {
+  id: ID!
+  title: String!
+  body: String!
+  author: User!
+}
+
+type Query {
+  user(id: ID!): User
+  users: [User!]!
+  post(id: ID!): Post
+  posts: [Post!]!
+}
+
+type Mutation {
+  createPost(title: String!, body: String!): Post!
+  updateUser(id: ID!, name: String): User!
+}
