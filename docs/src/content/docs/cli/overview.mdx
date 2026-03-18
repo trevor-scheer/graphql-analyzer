@@ -7,17 +7,17 @@ The `graphql` CLI validates and lints your GraphQL projects. Use it in CI/CD pip
 
 ## Commands
 
-| Command         | Description                               | Recommended for        |
-| --------------- | ----------------------------------------- | ---------------------- |
-| `check`         | Run validation + linting in a single pass | Most workflows         |
-| `validate`      | Run schema validation only                | Schema-only checks     |
-| `lint`          | Run lint rules only                       | Lint-only checks       |
-| `deprecations`  | List deprecated field usages              | Deprecation tracking   |
-| `schema`        | Schema management (download, etc.)        | Schema introspection   |
-| `stats`         | Display project statistics                | Project overview       |
-| `fragments`     | Analyze fragment usage                    | Fragment cleanup       |
-| `coverage`      | Show schema field coverage by operations  | Coverage analysis      |
-| `complexity`    | Analyze query complexity                  | Complexity budgeting   |
+| Command        | Description                               | Recommended for      |
+| -------------- | ----------------------------------------- | -------------------- |
+| `check`        | Run validation + linting in a single pass | Most workflows       |
+| `validate`     | Run schema validation only                | Schema-only checks   |
+| `lint`         | Run lint rules only                       | Lint-only checks     |
+| `deprecations` | List deprecated field usages              | Deprecation tracking |
+| `schema`       | Schema management (download, etc.)        | Schema introspection |
+| `stats`        | Display project statistics                | Project overview     |
+| `fragments`    | Analyze fragment usage                    | Fragment cleanup     |
+| `coverage`     | Show schema field coverage by operations  | Coverage analysis    |
+| `complexity`   | Analyze query complexity                  | Complexity budgeting |
 
 **`check` is the recommended command** — it's more efficient than running `validate` and `lint` separately.
 
