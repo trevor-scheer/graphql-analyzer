@@ -15,6 +15,9 @@ const CONFIG_FILES: &[&str] = &[
 
 /// Find a GraphQL config file by walking up the directory tree from the given start directory.
 /// Returns the path to the config file if found.
+///
+/// Checks for dedicated config files first (`.graphqlrc.*`, `graphql.config.*`),
+/// then falls back to `package.json` with a `"graphql"` key.
 #[tracing::instrument(fields(start = %start_dir.display()))]
 pub fn find_config(start_dir: &Path) -> Result<Option<PathBuf>> {
     let mut current_dir = start_dir.to_path_buf();
@@ -30,6 +33,21 @@ pub fn find_config(start_dir: &Path) -> Result<Option<PathBuf>> {
             }
         }
 
+        // Check package.json with "graphql" key (lowest priority)
+        let package_json_path = current_dir.join("package.json");
+        if package_json_path.exists() && package_json_path.is_file() {
+            if let Ok(contents) = fs::read_to_string(&package_json_path) {
+                if has_graphql_key(&contents) {
+                    tracing::info!(
+                        path = %package_json_path.display(),
+                        checked_dirs,
+                        "Found config in package.json"
+                    );
+                    return Ok(Some(package_json_path));
+                }
+            }
+        }
+
         checked_dirs += 1;
         if !current_dir.pop() {
             tracing::debug!(checked_dirs, "No config file found");
@@ -38,6 +56,14 @@ pub fn find_config(start_dir: &Path) -> Result<Option<PathBuf>> {
     }
 
     Ok(None)
+}
+
+/// Quick check if a JSON string (package.json) contains a "graphql" key.
+fn has_graphql_key(contents: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(contents)
+        .ok()
+        .and_then(|v| v.get("graphql").cloned())
+        .is_some()
 }
 
 /// Load a GraphQL config from the specified path.
@@ -73,6 +99,10 @@ pub fn load_config_from_str(contents: &str, path: &Path) -> Result<GraphQLConfig
             tracing::trace!("Parsing as YAML");
             parse_yaml(contents, path)?
         }
+        "json" if file_name == "package.json" => {
+            tracing::trace!("Extracting graphql config from package.json");
+            parse_package_json(contents, path)?
+        }
         "json" => {
             tracing::trace!("Parsing as JSON");
             parse_json(contents, path)?
@@ -104,6 +134,25 @@ fn parse_json(contents: &str, path: &Path) -> Result<GraphQLConfig> {
     serde_json::from_str(contents).map_err(|e| ConfigError::Invalid {
         path: path.to_path_buf(),
         message: format!("JSON parse error: {e}"),
+    })
+}
+
+/// Extract and parse GraphQL config from a package.json "graphql" key.
+fn parse_package_json(contents: &str, path: &Path) -> Result<GraphQLConfig> {
+    let package: serde_json::Value =
+        serde_json::from_str(contents).map_err(|e| ConfigError::Invalid {
+            path: path.to_path_buf(),
+            message: format!("JSON parse error: {e}"),
+        })?;
+
+    let graphql_value = package.get("graphql").ok_or_else(|| ConfigError::Invalid {
+        path: path.to_path_buf(),
+        message: "package.json does not contain a \"graphql\" key".to_string(),
+    })?;
+
+    serde_json::from_value(graphql_value.clone()).map_err(|e| ConfigError::Invalid {
+        path: path.to_path_buf(),
+        message: format!("Invalid GraphQL config in package.json: {e}"),
     })
 }
 
@@ -322,5 +371,73 @@ schema:
 
         let project = config.get_project("default").unwrap();
         assert!(project.schema.is_introspection());
+    }
+
+    #[test]
+    fn test_find_config_in_package_json() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let package_path = temp_dir.path().join("package.json");
+        fs::write(
+            &package_path,
+            r#"{"name": "my-app", "graphql": {"schema": "schema.graphql"}}"#,
+        )
+        .unwrap();
+
+        let found = find_config(temp_dir.path()).unwrap();
+        assert_eq!(found, Some(package_path));
+    }
+
+    #[test]
+    fn test_package_json_without_graphql_key_skipped() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            temp_dir.path().join("package.json"),
+            r#"{"name": "my-app", "version": "1.0.0"}"#,
+        )
+        .unwrap();
+
+        let found = find_config(temp_dir.path()).unwrap();
+        assert_eq!(found, None);
+    }
+
+    #[test]
+    fn test_dedicated_config_takes_priority_over_package_json() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            temp_dir.path().join(".graphqlrc.yml"),
+            "schema: dedicated.graphql",
+        )
+        .unwrap();
+        fs::write(
+            temp_dir.path().join("package.json"),
+            r#"{"name": "my-app", "graphql": {"schema": "package.graphql"}}"#,
+        )
+        .unwrap();
+
+        let found = find_config(temp_dir.path()).unwrap().unwrap();
+        assert_eq!(found.file_name().unwrap(), ".graphqlrc.yml");
+    }
+
+    #[test]
+    fn test_load_config_from_package_json() {
+        let json = r#"{"name": "my-app", "graphql": {"schema": "schema.graphql", "documents": "src/**/*.graphql"}}"#;
+        let path = Path::new("package.json");
+
+        let config = load_config_from_str(json, path).unwrap();
+        assert!(!config.is_multi_project());
+        assert_eq!(config.project_count(), 1);
+
+        let project = config.get_project("default").unwrap();
+        assert_eq!(project.schema.paths(), vec!["schema.graphql"]);
+    }
+
+    #[test]
+    fn test_load_config_from_package_json_multi_project() {
+        let json = r#"{"name": "my-app", "graphql": {"projects": {"api": {"schema": "api/schema.graphql"}, "web": {"schema": "web/schema.graphql"}}}}"#;
+        let path = Path::new("package.json");
+
+        let config = load_config_from_str(json, path).unwrap();
+        assert!(config.is_multi_project());
+        assert_eq!(config.project_count(), 2);
     }
 }
