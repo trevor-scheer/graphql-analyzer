@@ -36,16 +36,19 @@ Open any GraphQL file to activate the extension.
 
 ```json
 {
-  // Logging verbosity: "off", "messages", "verbose"
-  "graphql.trace.server": "off",
+  // Log LSP requests and responses to the output channel
+  "graphql-analyzer.lsp.trace": true,
 
   // Custom path to LSP server binary (optional)
-  "graphql.server.path": "/path/to/graphql-lsp",
+  "graphql-analyzer.server.path": "/path/to/graphql-lsp",
 
   // Environment variables for the LSP server
-  "graphql.server.env": {
+  "graphql-analyzer.server.env": {
     "RUST_LOG": "debug"
-  }
+  },
+
+  // Server log verbosity: "error", "warn", "info", "debug"
+  "graphql-analyzer.debug.logLevel": "warn"
 }
 ```
 
@@ -62,6 +65,7 @@ Open any GraphQL file to activate the extension.
 | Command                          | Description         |
 | -------------------------------- | ------------------- |
 | `graphql-analyzer.restartServer` | Restart LSP server  |
+| `graphql-analyzer.jumpToLogs`    | Show server logs    |
 | `graphql-analyzer.checkStatus`   | Check server status |
 | `graphql-analyzer.reportIssue`   | Report an issue     |
 
@@ -94,8 +98,8 @@ The extension includes a pre-compiled LSP server binary for:
 
 ```json
 {
-  "graphql.trace.server": "verbose",
-  "graphql.server.env": {
+  "graphql-analyzer.debug.logLevel": "debug",
+  "graphql-analyzer.server.env": {
     "RUST_LOG": "debug"
   }
 }

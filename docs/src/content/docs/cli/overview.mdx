@@ -7,11 +7,17 @@ The `graphql` CLI validates and lints your GraphQL projects. Use it in CI/CD pip
 
 ## Commands
 
-| Command    | Description                               | Recommended for    |
-| ---------- | ----------------------------------------- | ------------------ |
-| `check`    | Run validation + linting in a single pass | Most workflows     |
-| `validate` | Run schema validation only                | Schema-only checks |
-| `lint`     | Run lint rules only                       | Lint-only checks   |
+| Command         | Description                               | Recommended for        |
+| --------------- | ----------------------------------------- | ---------------------- |
+| `check`         | Run validation + linting in a single pass | Most workflows         |
+| `validate`      | Run schema validation only                | Schema-only checks     |
+| `lint`          | Run lint rules only                       | Lint-only checks       |
+| `deprecations`  | List deprecated field usages              | Deprecation tracking   |
+| `schema`        | Schema management (download, etc.)        | Schema introspection   |
+| `stats`         | Display project statistics                | Project overview       |
+| `fragments`     | Analyze fragment usage                    | Fragment cleanup       |
+| `coverage`      | Show schema field coverage by operations  | Coverage analysis      |
+| `complexity`    | Analyze query complexity                  | Complexity budgeting   |
 
 **`check` is the recommended command** — it's more efficient than running `validate` and `lint` separately.
 
@@ -29,6 +35,15 @@ graphql lint
 
 # Watch mode
 graphql check --watch
+
+# Download schema from a remote endpoint
+graphql schema download https://api.example.com/graphql -o schema.graphql
+
+# View project statistics
+graphql stats
+
+# Analyze query complexity with a threshold
+graphql complexity --threshold 100
 ```
 
 ## Global options
@@ -40,6 +55,8 @@ graphql check --watch
 | `--quiet`, `-q`     | Suppress all output except errors                |
 | `--no-progress`     | Suppress progress spinners only                  |
 | `--format <FORMAT>` | Output format: `human`, `json`, `github`         |
+| `--color`           | Force colored output even when not a TTY         |
+| `--no-color`        | Disable colored output                           |
 
 **Output verbosity:**
 
@@ -75,7 +92,6 @@ esac
 
 | Variable         | Description                                           |
 | ---------------- | ----------------------------------------------------- |
-| `GRAPHQL_CONFIG` | Override config file path                             |
 | `RUST_LOG`       | Log level (`error`, `warn`, `info`, `debug`, `trace`) |
 | `NO_COLOR`       | Disable colored output                                |
 | `CLICOLOR`       | `0` to disable, `1` to enable colors                  |

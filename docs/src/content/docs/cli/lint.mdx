@@ -17,6 +17,8 @@ graphql lint [OPTIONS]
 | ------------------- | -------------------------------------------------- |
 | `--format <FORMAT>` | Output format: `human` (default), `json`, `github` |
 | `--watch`           | Watch for file changes and re-lint                 |
+| `--fix`             | Automatically fix issues that have safe fixes      |
+| `--fix-dry-run`     | Show what would be fixed without modifying files   |
 
 ## Examples
 
@@ -29,6 +31,12 @@ graphql lint --format json
 
 # Watch mode for development
 graphql lint --watch
+
+# Auto-fix lint issues
+graphql lint --fix
+
+# Preview fixes without applying them
+graphql lint --fix-dry-run
 
 # Specific project
 graphql --project frontend lint
