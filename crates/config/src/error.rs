@@ -27,4 +27,7 @@ pub enum ConfigError {
 
     #[error("Configuration validation error: {0}")]
     Validation(String),
+
+    #[error("Environment variable interpolation error: {0}")]
+    EnvInterpolation(#[from] crate::env::EnvInterpolationError),
 }

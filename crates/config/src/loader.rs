@@ -2,6 +2,15 @@ use crate::{ConfigError, GraphQLConfig, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Wrapper to apply environment variable interpolation to config contents.
+/// Errors in interpolation are converted to `ConfigError::Invalid`.
+fn apply_env_interpolation(contents: &str, path: &Path) -> Result<String> {
+    crate::env::interpolate_env_vars(contents).map_err(|e| ConfigError::Invalid {
+        path: path.to_path_buf(),
+        message: format!("Environment variable interpolation failed: {e}"),
+    })
+}
+
 /// Config file names to search for, in order of preference
 const CONFIG_FILES: &[&str] = &[
     ".graphqlrc.yml",
@@ -83,8 +92,13 @@ pub fn load_config(path: &Path) -> Result<GraphQLConfig> {
 
 /// Load a GraphQL config from a string.
 /// The path is used for error messages and format detection.
+///
+/// Environment variables in the format `${VAR}` or `${VAR:default}` are
+/// interpolated before parsing. This matches graphql-config standard behavior.
 #[tracing::instrument(skip(contents), fields(path = %path.display(), size = contents.len()))]
 pub fn load_config_from_str(contents: &str, path: &Path) -> Result<GraphQLConfig> {
+    let contents = apply_env_interpolation(contents, path)?;
+    let contents = contents.as_str();
     let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
 
     let file_name = path
@@ -439,5 +453,38 @@ schema:
         let config = load_config_from_str(json, path).unwrap();
         assert!(config.is_multi_project());
         assert_eq!(config.project_count(), 2);
+    }
+
+    #[test]
+    fn test_env_var_interpolation_in_config() {
+        let path = std::path::Path::new("test.yml");
+
+        // Set env var for test
+        std::env::set_var("GRAPHQL_TEST_URL", "https://api.example.com/graphql");
+        let yaml = r#"
+schema:
+  url: ${GRAPHQL_TEST_URL}
+  headers:
+    Authorization: "Bearer ${GRAPHQL_TEST_TOKEN:default-token}"
+"#;
+        let config = load_config_from_str(yaml, path).unwrap();
+        let project = config.get_project("default").unwrap();
+        let introspection = project.schema.introspection_config().unwrap();
+        assert_eq!(introspection.url, "https://api.example.com/graphql");
+        let headers = introspection.headers.as_ref().unwrap();
+        assert_eq!(
+            headers.get("Authorization"),
+            Some(&"Bearer default-token".to_string())
+        );
+        // Clean up
+        std::env::remove_var("GRAPHQL_TEST_URL");
+    }
+
+    #[test]
+    fn test_env_var_interpolation_missing_var_errors() {
+        let path = std::path::Path::new("test.yml");
+        let yaml = "schema:\n  url: ${GRAPHQL_DEFINITELY_MISSING_VAR_12345}\n";
+        let result = load_config_from_str(yaml, path);
+        assert!(result.is_err());
     }
 }
