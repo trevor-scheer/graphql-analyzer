@@ -311,6 +311,7 @@ fn init_tracing() {
     tracing_subscriber::fmt()
         .with_env_filter(build_env_filter("off"))
         .with_writer(std::io::stderr)
+        .with_ansi(false)
         .init();
 }
 
@@ -403,7 +404,11 @@ fn init_telemetry() -> Option<opentelemetry_sdk::trace::SdkTracerProvider> {
     tracing_subscriber::registry()
         .with(env_filter)
         .with(telemetry)
-        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_ansi(false),
+        )
         .init();
 
     eprintln!("OpenTelemetry initialized. Traces will be sent to {endpoint}");
