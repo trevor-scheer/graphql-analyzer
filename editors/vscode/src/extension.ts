@@ -482,6 +482,7 @@ export async function activate(context: ExtensionContext) {
 
       try {
         stopHealthCheck();
+        isServerHealthy = true;
 
         if (client) {
           outputChannel.appendLine("Stopping existing client...");
@@ -496,6 +497,11 @@ export async function activate(context: ExtensionContext) {
             );
           }
         }
+
+        // Reset status bar to loading state while restarting
+        statusBarItem.text = "$(loading~spin) graphql-analyzer";
+        statusBarItem.tooltip = "graphql-analyzer is restarting...";
+        statusBarItem.backgroundColor = new ThemeColor("statusBarItem.warningBackground");
 
         await startLanguageServer(context);
         window.showInformationMessage("graphql-analyzer restarted successfully");
