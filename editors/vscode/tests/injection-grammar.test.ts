@@ -64,10 +64,7 @@ beforeAll(async () => {
         return parseRawGrammar(JSON.stringify(minimalTsGrammar), "source.ts.json");
       }
       if (scopeName === "inline.graphql") {
-        return parseRawGrammar(
-          readFileSync(injectionGrammarPath, "utf-8"),
-          injectionGrammarPath,
-        );
+        return parseRawGrammar(readFileSync(injectionGrammarPath, "utf-8"), injectionGrammarPath);
       }
       return null;
     },
@@ -152,26 +149,18 @@ describe("function call with template literal (same line)", () => {
 describe("function call with template literal (multi-line)", () => {
   it("graphql(\\n`...`) parentheses get meta.brace.round.ts scope", () => {
     // When `)` is on the same line as the closing backtick, it gets scoped
-    const t = tokenize([
-      "graphql(",
-      "  `query { user { name } }`)",
-    ]);
+    const t = tokenize(["graphql(", "  `query { user { name } }`)"]);
     expectToken(t[0], "graphql", "entity.name.function.js");
     expectToken(t[0], "(", "meta.brace.round.ts");
     expectToken(t[1], ")", "meta.brace.round.ts");
   });
 
   it("backticks get template string scopes on inner line", () => {
-    const t = tokenize([
-      "graphql(",
-      "  `query { user { name } }`",
-      ")",
-    ]);
+    const t = tokenize(["graphql(", "  `query { user { name } }`", ")"]);
     const innerLine = t[1];
     const openBacktick = innerLine.tokens.find(
       (tk) =>
-        innerLine.line[tk.startIndex] === "`" &&
-        tk.scopes.join(" ").includes("template.begin"),
+        innerLine.line[tk.startIndex] === "`" && tk.scopes.join(" ").includes("template.begin"),
     );
     expect(openBacktick, "opening backtick not found on inner line").toBeDefined();
   });
@@ -212,10 +201,7 @@ describe("tagged template literal (no parentheses)", () => {
 
 describe("tagged template literal (multi-line)", () => {
   it("gql\\n`...` matches across lines", () => {
-    const t = tokenize([
-      "gql",
-      "`query { user { name } }`",
-    ]);
+    const t = tokenize(["gql", "`query { user { name } }`"]);
     expectToken(t[0], "gql", "entity.name.function.tagged-template.js");
     expectScopeAtText(t[1], "query", "meta.embedded.block.graphql");
   });
