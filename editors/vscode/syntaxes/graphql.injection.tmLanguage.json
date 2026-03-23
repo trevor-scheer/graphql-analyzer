@@ -10,21 +10,27 @@
     "graphql-template-literal": {
       "patterns": [
         {
-          "name": "meta.embedded.block.graphql",
+          "contentName": "meta.embedded.block.graphql",
           "comment": "Function call with template literal (same line): graphql(`query { ... }`)",
-          "begin": "(gql|graphql|gqltag)[ \\t]*\\([ \\t]*(`)",
+          "begin": "(gql|graphql|gqltag)[ \\t]*(\\()[ \\t]*(`)",
           "beginCaptures": {
             "1": {
               "name": "entity.name.function.js"
             },
             "2": {
+              "name": "meta.brace.round.ts"
+            },
+            "3": {
               "name": "punctuation.definition.string.template.begin.js"
             }
           },
-          "end": "`",
+          "end": "(`)([ \\t]*(\\)))?",
           "endCaptures": {
-            "0": {
+            "1": {
               "name": "punctuation.definition.string.template.end.js"
+            },
+            "3": {
+              "name": "meta.brace.round.ts"
             }
           },
           "patterns": [
@@ -37,15 +43,23 @@
           ]
         },
         {
-          "name": "meta.embedded.block.graphql",
+          "contentName": "meta.embedded.block.graphql",
           "comment": "Function call with template literal (multi-line): graphql(\\n`query { ... }`)",
-          "begin": "(gql|graphql|gqltag)[ \\t]*\\([ \\t]*$",
+          "begin": "(gql|graphql|gqltag)[ \\t]*(\\()[ \\t]*$",
           "beginCaptures": {
             "1": {
               "name": "entity.name.function.js"
+            },
+            "2": {
+              "name": "meta.brace.round.ts"
             }
           },
-          "end": "(?<=`)",
+          "end": "(?<=`)([ \\t]*(\\)))?",
+          "endCaptures": {
+            "2": {
+              "name": "meta.brace.round.ts"
+            }
+          },
           "patterns": [
             {
               "begin": "[ \\t]*(`)",
