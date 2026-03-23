@@ -2,7 +2,7 @@ import { gql } from "@apollo/client";
 import { useQuery } from "@apollo/client/react";
 
 // Demonstrates @defer for incremental delivery of comments
-const GET_POST_DETAIL = gql`
+const GET_POST_DETAIL = gql(`
   query GetPostDetail($id: ID!) {
     post(id: $id) {
       id
@@ -28,7 +28,7 @@ const GET_POST_DETAIL = gql`
       }
     }
   }
-`;
+`);
 
 // Demonstrates @unmask on fragment spread
 const _POST_WITH_UNMASKED = gql`
