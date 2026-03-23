@@ -518,7 +518,9 @@ struct UrlInlineConfig {
 }
 
 /// Try to parse a single JSON object as URL-as-key introspection config.
-fn try_url_as_key(obj: &serde_json::Map<String, serde_json::Value>) -> Option<IntrospectionSchemaConfig> {
+fn try_url_as_key(
+    obj: &serde_json::Map<String, serde_json::Value>,
+) -> Option<IntrospectionSchemaConfig> {
     if obj.len() != 1 {
         return None;
     }
