@@ -2,6 +2,7 @@ mod config;
 
 // New Salsa-based architecture
 mod diagnostics;
+pub mod ignore;
 mod registry;
 mod rules;
 mod schema_utils;

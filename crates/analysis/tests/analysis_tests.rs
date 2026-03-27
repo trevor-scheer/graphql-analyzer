@@ -4,8 +4,8 @@
 
 use graphql_analysis::{
     analyze_field_usage, file_diagnostics, file_validation_diagnostics, find_unused_fields,
-    merged_schema::merged_schema_with_diagnostics, validate_document_file, validate_file,
-    FieldCoverageReport, TypeCoverage,
+    lint_integration, merged_schema::merged_schema_with_diagnostics, validate_document_file,
+    validate_file, FieldCoverageReport, TypeCoverage,
 };
 use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
 use graphql_test_utils::{create_project_files, TestDatabase, TestDatabaseWithProject};
@@ -2513,5 +2513,140 @@ fn test_issue_645_field_usage_for_type_is_targeted() {
         full_analysis_count, 0,
         "field_usage_for_type should NOT trigger full analyze_field_usage. \
          It should use its own targeted analysis that only examines the target type."
+    );
+}
+
+// ============================================================================
+// lint ignore comment tests
+// ============================================================================
+
+/// Test database with recommended lint config enabled.
+#[salsa::db]
+#[derive(Clone, Default)]
+struct LintTestDatabase {
+    storage: salsa::Storage<Self>,
+}
+
+#[salsa::db]
+impl salsa::Database for LintTestDatabase {}
+
+#[salsa::db]
+impl graphql_syntax::GraphQLSyntaxDatabase for LintTestDatabase {}
+
+#[salsa::db]
+impl graphql_hir::GraphQLHirDatabase for LintTestDatabase {}
+
+#[salsa::db]
+impl graphql_analysis::GraphQLAnalysisDatabase for LintTestDatabase {
+    fn lint_config(&self) -> Arc<graphql_linter::LintConfig> {
+        Arc::new(graphql_linter::LintConfig::recommended())
+    }
+}
+
+fn lint_test_file(db: &LintTestDatabase, source: &str) -> Vec<graphql_analysis::Diagnostic> {
+    let mut db_mut = db.clone();
+    let file_id = FileId::new(0);
+    let content = FileContent::new(db, Arc::from(source));
+    let metadata = FileMetadata::new(
+        db,
+        file_id,
+        FileUri::new("test.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+    let project_files = create_project_files(&mut db_mut, &[], &[(file_id, content, metadata)]);
+
+    lint_integration::lint_file(db, content, metadata, Some(project_files))
+        .iter()
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn test_ignore_comment_suppresses_all_rules() {
+    let db = LintTestDatabase::default();
+
+    // Without ignore: should produce anonymous operation warning
+    let source_no_ignore = "query { user { id } }";
+    let diags = lint_test_file(&db, source_no_ignore);
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.code.as_deref() == Some("no_anonymous_operations")),
+        "Expected no_anonymous_operations diagnostic without ignore comment"
+    );
+
+    // With ignore: should suppress all diagnostics on the next line
+    let source_with_ignore = "# graphql-analyzer-ignore\nquery { user { id } }";
+    let diags = lint_test_file(&db, source_with_ignore);
+    assert!(
+        !diags
+            .iter()
+            .any(|d| d.code.as_deref() == Some("no_anonymous_operations")),
+        "Expected no_anonymous_operations to be suppressed by ignore comment, got: {diags:?}"
+    );
+}
+
+#[test]
+fn test_ignore_comment_suppresses_specific_rule() {
+    let db = LintTestDatabase::default();
+
+    let source = "# graphql-analyzer-ignore: no_anonymous_operations\nquery { user { id } }";
+    let diags = lint_test_file(&db, source);
+    assert!(
+        !diags
+            .iter()
+            .any(|d| d.code.as_deref() == Some("no_anonymous_operations")),
+        "Expected no_anonymous_operations to be suppressed, got: {diags:?}"
+    );
+}
+
+#[test]
+fn test_ignore_comment_does_not_suppress_other_rules() {
+    let db = LintTestDatabase::default();
+
+    // Ignore only targets a different rule, so no_anonymous_operations should still fire
+    let source = "# graphql-analyzer-ignore: no_deprecated\nquery { user { id } }";
+    let diags = lint_test_file(&db, source);
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.code.as_deref() == Some("no_anonymous_operations")),
+        "Expected no_anonymous_operations to NOT be suppressed when a different rule is ignored"
+    );
+}
+
+#[test]
+fn test_ignore_comment_only_affects_next_line() {
+    let db = LintTestDatabase::default();
+
+    // Ignore on line 0, but the anonymous query is on line 2 (gap between them)
+    let source = "# graphql-analyzer-ignore\n\nquery { user { id } }";
+    let diags = lint_test_file(&db, source);
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.code.as_deref() == Some("no_anonymous_operations")),
+        "Ignore comment should only affect the immediately following line"
+    );
+}
+
+#[test]
+fn test_multiple_ignore_comments() {
+    let db = LintTestDatabase::default();
+
+    let source = "\
+# graphql-analyzer-ignore
+query { user { id } }
+# graphql-analyzer-ignore
+mutation { updateUser { id } }";
+    let diags = lint_test_file(&db, source);
+    let anon_count = diags
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("no_anonymous_operations"))
+        .count();
+    assert_eq!(
+        anon_count, 0,
+        "Both anonymous operations should be suppressed, got: {diags:?}"
     );
 }
