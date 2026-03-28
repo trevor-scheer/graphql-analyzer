@@ -1,0 +1,29 @@
+# Lint Ignores Demo Schema
+
+type User {
+  id: ID!
+  name: String!
+  email: String! @deprecated(reason: "Use contactEmail instead")
+  contactEmail: String!
+  age: Int
+}
+
+type Post {
+  id: ID!
+  title: String!
+  body: String!
+  author: User!
+  views: Int @deprecated(reason: "Use analytics query instead")
+}
+
+type Query {
+  user(id: ID!): User
+  users: [User!]!
+  post(id: ID!): Post
+  posts: [Post!]!
+}
+
+type Mutation {
+  createUser(name: String!, email: String!): User!
+  updateUser(id: ID!, name: String): User!
+}
