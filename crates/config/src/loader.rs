@@ -7,10 +7,12 @@ const CONFIG_FILES: &[&str] = &[
     ".graphqlrc.yml",
     ".graphqlrc.yaml",
     ".graphqlrc.json",
+    ".graphqlrc.toml",
     ".graphqlrc",
     "graphql.config.yml",
     "graphql.config.yaml",
     "graphql.config.json",
+    "graphql.config.toml",
 ];
 
 /// Find a GraphQL config file by walking up the directory tree from the given start directory.
@@ -107,6 +109,10 @@ pub fn load_config_from_str(contents: &str, path: &Path) -> Result<GraphQLConfig
             tracing::trace!("Parsing as JSON");
             parse_json(contents, path)?
         }
+        "toml" => {
+            tracing::trace!("Parsing as TOML");
+            parse_toml(contents, path)?
+        }
         "" if file_name == ".graphqlrc" => {
             // .graphqlrc without extension - try YAML first, then JSON
             tracing::trace!("Trying YAML then JSON for .graphqlrc");
@@ -134,6 +140,14 @@ fn parse_json(contents: &str, path: &Path) -> Result<GraphQLConfig> {
     serde_json::from_str(contents).map_err(|e| ConfigError::Invalid {
         path: path.to_path_buf(),
         message: format!("JSON parse error: {e}"),
+    })
+}
+
+/// Parse TOML configuration
+fn parse_toml(contents: &str, path: &Path) -> Result<GraphQLConfig> {
+    toml::from_str(contents).map_err(|e| ConfigError::Invalid {
+        path: path.to_path_buf(),
+        message: format!("TOML parse error: {e}"),
     })
 }
 
@@ -371,6 +385,93 @@ schema:
 
         let project = config.get_project("default").unwrap();
         assert!(project.schema.is_introspection());
+    }
+
+    #[test]
+    fn test_load_toml_single_project() {
+        let toml_content = r#"
+schema = "schema.graphql"
+documents = "**/*.graphql"
+"#;
+
+        let mut file = NamedTempFile::with_suffix(".toml").unwrap();
+        file.write_all(toml_content.as_bytes()).unwrap();
+        file.flush().unwrap();
+
+        let config = load_config(file.path()).unwrap();
+        assert!(!config.is_multi_project());
+        assert_eq!(config.project_count(), 1);
+
+        let project = config.get_project("default").unwrap();
+        assert_eq!(project.schema.paths(), vec!["schema.graphql"]);
+    }
+
+    #[test]
+    fn test_load_toml_multi_project() {
+        let toml_content = r#"
+[projects.frontend]
+schema = "frontend/schema.graphql"
+documents = "frontend/**/*.ts"
+
+[projects.backend]
+schema = "backend/schema.graphql"
+documents = "backend/**/*.graphql"
+"#;
+
+        let mut file = NamedTempFile::with_suffix(".toml").unwrap();
+        file.write_all(toml_content.as_bytes()).unwrap();
+        file.flush().unwrap();
+
+        let config = load_config(file.path()).unwrap();
+        assert!(config.is_multi_project());
+        assert_eq!(config.project_count(), 2);
+    }
+
+    #[test]
+    fn test_load_toml_with_extensions() {
+        let toml_content = r#"
+schema = "schema.graphql"
+
+[extensions]
+client = "apollo"
+lint = "recommended"
+"#;
+
+        let mut file = NamedTempFile::with_suffix(".toml").unwrap();
+        file.write_all(toml_content.as_bytes()).unwrap();
+        file.flush().unwrap();
+
+        let config = load_config(file.path()).unwrap();
+        let project = config.get_project("default").unwrap();
+        assert!(project.extensions.is_some());
+    }
+
+    #[test]
+    fn test_find_config_toml() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join(".graphqlrc.toml");
+        fs::write(&config_path, "schema = \"schema.graphql\"").unwrap();
+
+        let found = find_config(temp_dir.path()).unwrap();
+        assert_eq!(found, Some(config_path));
+    }
+
+    #[test]
+    fn test_yaml_takes_priority_over_toml() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            temp_dir.path().join(".graphqlrc.yml"),
+            "schema: yml.graphql",
+        )
+        .unwrap();
+        fs::write(
+            temp_dir.path().join(".graphqlrc.toml"),
+            "schema = \"toml.graphql\"",
+        )
+        .unwrap();
+
+        let found = find_config(temp_dir.path()).unwrap().unwrap();
+        assert_eq!(found.file_name().unwrap(), ".graphqlrc.yml");
     }
 
     #[test]
