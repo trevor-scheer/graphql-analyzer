@@ -2,6 +2,19 @@
 
 All notable changes to the GraphQL CLI will be documented in this file.
 
+## 0.1.8 (2026-03-28)
+
+### Features
+
+- Support JSON introspection result files as schema source ([#789](https://github.com/trevor-scheer/graphql-analyzer/pull/789))
+- Support inline lint ignore comments for per-case suppression of lint rules
+- Support package.json "graphql" key for config discovery ([#791](https://github.com/trevor-scheer/graphql-analyzer/pull/791))
+- Support URL-with-headers inline schema syntax from graphql-config standard ([#790](https://github.com/trevor-scheer/graphql-analyzer/pull/790))
+
+### Fixes
+
+- Disable ANSI escape codes in tracing output ([#794](https://github.com/trevor-scheer/graphql-analyzer/pull/794))
+
 ## 0.1.7 (2026-03-14)
 
 ### Fixes

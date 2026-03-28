@@ -2,6 +2,18 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.1.15 (2026-03-28)
+
+### Features
+
+- Support inline lint ignore comments for per-case suppression of lint rules
+
+### Fixes
+
+- Fix parentheses in `graphql()` calls being colored as GraphQL instead of TypeScript ([#800](https://github.com/trevor-scheer/graphql-analyzer/pull/800))
+- Fix report issue command URL encoding ([#793](https://github.com/trevor-scheer/graphql-analyzer/pull/793))
+- Reset extension health state and status bar on server restart
+
 ## 0.1.14 (2026-03-16)
 
 ### Fixes
