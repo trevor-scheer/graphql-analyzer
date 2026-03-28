@@ -110,6 +110,7 @@ projects:
         extends: recommended
         rules:
           noDeprecated: warn
+          requireIdField: warn
 
   misconfigured-schema:
     # expect 2 errors: schema file does not exist, and documents file does not exist
