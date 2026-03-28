@@ -152,9 +152,8 @@ pub enum UnusedIgnore<'a> {
 
 /// Find ignore directives where individual rules didn't suppress any diagnostic.
 ///
-/// Unlike `find_unused_directives`, this provides per-rule granularity: if a
-/// multi-rule directive has some rules that matched and some that didn't, only
-/// the unmatched rules are reported.
+/// Provides per-rule granularity: if a multi-rule directive has some rules that
+/// matched and some that didn't, only the unmatched rules are reported.
 #[must_use]
 pub fn find_unused_rules<'a>(
     directives: &'a [IgnoreDirective],
@@ -189,27 +188,6 @@ pub fn find_unused_rules<'a>(
                     Some(UnusedIgnore::UnusedRules { directive: d, rules: unused_rules })
                 }
             }
-        })
-        .collect()
-}
-
-/// Find ignore directives that didn't suppress any diagnostic.
-///
-/// Takes the directives and the lines/rules of all diagnostics that were
-/// produced (before filtering). Returns directives that matched nothing.
-// Superseded by `find_unused_rules` which provides per-rule granularity.
-#[must_use]
-pub fn find_unused_directives<'a>(
-    directives: &'a [IgnoreDirective],
-    diagnostic_lines_and_rules: &[(usize, &str)],
-) -> Vec<&'a IgnoreDirective> {
-    directives
-        .iter()
-        .filter(|d| {
-            let target_line = d.line + 1;
-            !diagnostic_lines_and_rules
-                .iter()
-                .any(|(line, rule)| *line == target_line && d.suppresses(rule))
         })
         .collect()
 }

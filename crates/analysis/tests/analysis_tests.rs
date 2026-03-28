@@ -2723,3 +2723,75 @@ fn test_unused_ignore_not_adjacent() {
         "Non-adjacent ignore should not suppress the lint"
     );
 }
+
+#[test]
+fn test_unused_ignore_partial_multi_rule() {
+    let db = LintTestDatabase::default();
+
+    // no_anonymous_operations fires (anonymous query), no_deprecated does NOT (no deprecated fields).
+    let source = "# graphql-analyzer-ignore: no_anonymous_operations, no_deprecated\nquery { user { id } }";
+    let diags = lint_test_file(&db, source);
+
+    // The anonymous operation should be suppressed
+    assert!(
+        !diags
+            .iter()
+            .any(|d| d.code.as_deref() == Some("no_anonymous_operations")),
+        "no_anonymous_operations should be suppressed"
+    );
+
+    // But we should get a warning about no_deprecated being unused
+    let unused: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("unused_ignore"))
+        .collect();
+    assert_eq!(
+        unused.len(),
+        1,
+        "Expected one unused_ignore for no_deprecated, got: {diags:?}"
+    );
+    assert!(
+        unused[0].message.contains("no_deprecated"),
+        "Message should mention the unused rule name, got: {}",
+        unused[0].message
+    );
+
+    // The diagnostic range should underline just "no_deprecated", not the whole comment.
+    // "# graphql-analyzer-ignore: no_anonymous_operations, " is 52 chars,
+    // so "no_deprecated" starts at col 52 and ends at col 65.
+    assert_eq!(
+        unused[0].range.start.character, 52,
+        "Unused rule diagnostic should start at the rule name, got: {:?}",
+        unused[0].range
+    );
+    assert_eq!(
+        unused[0].range.end.character, 65,
+        "Unused rule diagnostic should end at the rule name, got: {:?}",
+        unused[0].range
+    );
+}
+
+#[test]
+fn test_unused_ignore_all_rules_unused_in_multi_rule() {
+    let db = LintTestDatabase::default();
+
+    // Named query, no deprecated fields -> both rules unused -> entire directive flagged
+    let source =
+        "# graphql-analyzer-ignore: no_anonymous_operations, no_deprecated\nquery Named { user { id } }";
+    let diags = lint_test_file(&db, source);
+
+    let unused: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("unused_ignore"))
+        .collect();
+    assert_eq!(
+        unused.len(),
+        1,
+        "Expected one unused_ignore for entire directive, got: {diags:?}"
+    );
+    assert!(
+        unused[0].message.contains("Unused graphql-analyzer-ignore directive"),
+        "All-unused should use the whole-directive message, got: {}",
+        unused[0].message
+    );
+}
