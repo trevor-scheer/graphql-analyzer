@@ -27,8 +27,10 @@ query GetUserWithEmail($id: ID!) {
   }
 }
 
-# --- Multiple rules in one ignore ---
-# You can list multiple rule names separated by commas.
+# --- Partial unused (produces a per-rule warning) ---
+# Only no_deprecated applies here (views is deprecated), but require_id_field
+# does not fire on this line (it fires on parent fields with missing id).
+# The analyzer will report: Unused rule 'require_id_field' in graphql-analyzer-ignore directive
 query GetPostWithDeprecatedViews($id: ID!) {
   post(id: $id) {
     id

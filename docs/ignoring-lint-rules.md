@@ -31,9 +31,9 @@ query GetUser($id: ID!) {
 Multiple rules can be listed:
 
 ```graphql
-# graphql-analyzer-ignore: no_deprecated, require_id_field
-query GetPost($id: ID!) {
-  post(id: $id) {
+# graphql-analyzer-ignore: no_deprecated, no_anonymous_operations
+query {
+  post(id: "1") {
     views
   }
 }
@@ -87,6 +87,29 @@ query GetUser {
   }
 }
 ```
+
+## Partially Unused Ignore Directives
+
+When you list multiple rules in an ignore comment and only some of them fire, the analyzer reports a separate warning for each unused rule rather than a blanket "unused ignore" message. This gives you precise feedback about which rules to remove.
+
+For example:
+
+```graphql
+# graphql-analyzer-ignore: no_deprecated, require_id_field
+views
+```
+
+If only `no_deprecated` fires (because `views` is deprecated), the analyzer reports:
+
+> Unused rule 'require_id_field' in graphql-analyzer-ignore directive
+
+The `no_deprecated` suppression still takes effect — only the unnecessary rule is flagged.
+
+If **all** listed rules are unused (none of them fire on the next line), you get the standard blanket message instead:
+
+> Unused graphql-analyzer-ignore directive
+
+This distinction helps you tell apart stale directives (remove entirely) from over-broad ones (trim the rule list).
 
 ## Rule Names
 

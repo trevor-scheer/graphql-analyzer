@@ -168,7 +168,11 @@ pub fn find_unused_rules<'a>(
                 .any(|(line, _)| *line == target_line);
 
             if d.rules.is_empty() {
-                if has_any_diag { None } else { Some(UnusedIgnore::EntireDirective(d)) }
+                if has_any_diag {
+                    None
+                } else {
+                    Some(UnusedIgnore::EntireDirective(d))
+                }
             } else {
                 let unused_rules: Vec<&RuleSpan> = d
                     .rules
@@ -185,7 +189,10 @@ pub fn find_unused_rules<'a>(
                 } else if unused_rules.len() == d.rules.len() {
                     Some(UnusedIgnore::EntireDirective(d))
                 } else {
-                    Some(UnusedIgnore::UnusedRules { directive: d, rules: unused_rules })
+                    Some(UnusedIgnore::UnusedRules {
+                        directive: d,
+                        rules: unused_rules,
+                    })
                 }
             }
         })
@@ -347,7 +354,9 @@ query Bar { world }";
         assert_eq!(unused.len(), 1);
         match &unused[0] {
             UnusedIgnore::EntireDirective(d) => assert_eq!(d.line, 0),
-            other => panic!("Expected EntireDirective, got {other:?}"),
+            other @ UnusedIgnore::UnusedRules { .. } => {
+                panic!("Expected EntireDirective, got {other:?}")
+            }
         }
     }
 
@@ -359,7 +368,9 @@ query Bar { world }";
         assert_eq!(unused.len(), 1);
         match &unused[0] {
             UnusedIgnore::EntireDirective(d) => assert_eq!(d.line, 0),
-            other => panic!("Expected EntireDirective, got {other:?}"),
+            other @ UnusedIgnore::UnusedRules { .. } => {
+                panic!("Expected EntireDirective, got {other:?}")
+            }
         }
     }
 
@@ -371,7 +382,9 @@ query Bar { world }";
         assert_eq!(unused.len(), 1);
         match &unused[0] {
             UnusedIgnore::EntireDirective(d) => assert_eq!(d.line, 0),
-            other => panic!("Expected EntireDirective, got {other:?}"),
+            other @ UnusedIgnore::UnusedRules { .. } => {
+                panic!("Expected EntireDirective, got {other:?}")
+            }
         }
     }
 
@@ -387,7 +400,9 @@ query Bar { world }";
                 let names: Vec<&str> = rules.iter().map(|r| r.name.as_str()).collect();
                 assert_eq!(names, vec!["require_id_field"]);
             }
-            other => panic!("Expected UnusedRules, got {other:?}"),
+            other @ UnusedIgnore::EntireDirective(_) => {
+                panic!("Expected UnusedRules, got {other:?}")
+            }
         }
     }
 
@@ -399,7 +414,9 @@ query Bar { world }";
         assert_eq!(unused.len(), 1);
         match &unused[0] {
             UnusedIgnore::EntireDirective(d) => assert_eq!(d.line, 0),
-            other => panic!("Expected EntireDirective, got {other:?}"),
+            other @ UnusedIgnore::UnusedRules { .. } => {
+                panic!("Expected EntireDirective, got {other:?}")
+            }
         }
     }
 
@@ -419,7 +436,9 @@ query Bar { world }";
         assert_eq!(unused.len(), 1);
         match &unused[0] {
             UnusedIgnore::EntireDirective(d) => assert!(d.rules.is_empty()),
-            other => panic!("Expected EntireDirective for bare ignore, got {other:?}"),
+            other @ UnusedIgnore::UnusedRules { .. } => {
+                panic!("Expected EntireDirective for bare ignore, got {other:?}")
+            }
         }
     }
 
@@ -442,7 +461,9 @@ query Bar { world }";
                 let names: Vec<&str> = d.rule_names();
                 assert_eq!(names, vec!["no_deprecated"]);
             }
-            other => panic!("Expected EntireDirective for single unused rule, got {other:?}"),
+            other @ UnusedIgnore::UnusedRules { .. } => {
+                panic!("Expected EntireDirective for single unused rule, got {other:?}")
+            }
         }
     }
 
@@ -454,8 +475,14 @@ query Bar { world }";
         let rules = &directives[0].rules;
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].name, "no_deprecated");
-        assert_eq!(&source[rules[0].byte_offset..rules[0].byte_end], "no_deprecated");
+        assert_eq!(
+            &source[rules[0].byte_offset..rules[0].byte_end],
+            "no_deprecated"
+        );
         assert_eq!(rules[1].name, "require_id_field");
-        assert_eq!(&source[rules[1].byte_offset..rules[1].byte_end], "require_id_field");
+        assert_eq!(
+            &source[rules[1].byte_offset..rules[1].byte_end],
+            "require_id_field"
+        );
     }
 }

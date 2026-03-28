@@ -2729,7 +2729,8 @@ fn test_unused_ignore_partial_multi_rule() {
     let db = LintTestDatabase::default();
 
     // no_anonymous_operations fires (anonymous query), no_deprecated does NOT (no deprecated fields).
-    let source = "# graphql-analyzer-ignore: no_anonymous_operations, no_deprecated\nquery { user { id } }";
+    let source =
+        "# graphql-analyzer-ignore: no_anonymous_operations, no_deprecated\nquery { user { id } }";
     let diags = lint_test_file(&db, source);
 
     // The anonymous operation should be suppressed
@@ -2790,7 +2791,9 @@ fn test_unused_ignore_all_rules_unused_in_multi_rule() {
         "Expected one unused_ignore for entire directive, got: {diags:?}"
     );
     assert!(
-        unused[0].message.contains("Unused graphql-analyzer-ignore directive"),
+        unused[0]
+            .message
+            .contains("Unused graphql-analyzer-ignore directive"),
         "All-unused should use the whole-directive message, got: {}",
         unused[0].message
     );

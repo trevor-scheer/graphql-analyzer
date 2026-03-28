@@ -492,35 +492,33 @@ fn unused_ignore_diagnostics(
                     code: Some("unused_ignore".into()),
                 }]
             }
-            graphql_linter::ignore::UnusedIgnore::UnusedRules { rules, .. } => {
-                rules
-                    .into_iter()
-                    .map(|r| {
-                        let (start_line, start_col) = file_line_index.line_col(r.byte_offset);
-                        let (end_line, end_col) = file_line_index.line_col(r.byte_end);
-                        Diagnostic {
-                            severity: Severity::Warning,
-                            message: format!(
-                                "Unused rule '{}' in graphql-analyzer-ignore directive",
-                                r.name
-                            )
-                            .into(),
-                            range: DiagnosticRange {
-                                start: Position {
-                                    line: start_line as u32,
-                                    character: start_col as u32,
-                                },
-                                end: Position {
-                                    line: end_line as u32,
-                                    character: end_col as u32,
-                                },
+            graphql_linter::ignore::UnusedIgnore::UnusedRules { rules, .. } => rules
+                .into_iter()
+                .map(|r| {
+                    let (start_line, start_col) = file_line_index.line_col(r.byte_offset);
+                    let (end_line, end_col) = file_line_index.line_col(r.byte_end);
+                    Diagnostic {
+                        severity: Severity::Warning,
+                        message: format!(
+                            "Unused rule '{}' in graphql-analyzer-ignore directive",
+                            r.name
+                        )
+                        .into(),
+                        range: DiagnosticRange {
+                            start: Position {
+                                line: start_line as u32,
+                                character: start_col as u32,
                             },
-                            source: "graphql-linter".into(),
-                            code: Some("unused_ignore".into()),
-                        }
-                    })
-                    .collect()
-            }
+                            end: Position {
+                                line: end_line as u32,
+                                character: end_col as u32,
+                            },
+                        },
+                        source: "graphql-linter".into(),
+                        code: Some("unused_ignore".into()),
+                    }
+                })
+                .collect(),
         })
         .collect()
 }
