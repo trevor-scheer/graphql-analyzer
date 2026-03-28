@@ -95,6 +95,13 @@ fn lint_file_impl(
         diagnostics.extend(schema_lints(db, file_id, content, project_files));
     }
 
+    diagnostics.extend(unused_ignore_diagnostics(
+        db,
+        content,
+        metadata,
+        project_files,
+    ));
+
     tracing::debug!(diagnostics = diagnostics.len(), "Linting complete");
 
     Arc::new(diagnostics)
@@ -399,6 +406,93 @@ pub fn project_lint_diagnostics_with_fixes(
     }
 
     diagnostics_by_file
+}
+
+/// Produce diagnostics for unused `# graphql-analyzer-ignore` comments.
+///
+/// Collects all raw lint diagnostics (before filtering) to determine which
+/// ignore directives actually suppressed something. Any directive that didn't
+/// match a diagnostic is reported as a warning.
+fn unused_ignore_diagnostics(
+    db: &dyn GraphQLAnalysisDatabase,
+    content: FileContent,
+    metadata: FileMetadata,
+    project_files: ProjectFiles,
+) -> Vec<Diagnostic> {
+    let file_text = content.text(db);
+    let file_line_index = graphql_syntax::line_index(db, content);
+    let file_ignores = graphql_linter::ignore::parse_ignore_directives(&file_text);
+
+    if file_ignores.is_empty() {
+        return Vec::new();
+    }
+
+    // Collect all raw lint diagnostics to determine what each ignore could match
+    let lint_config = db.lint_config();
+    let file_id = metadata.file_id(db);
+    let mut all_raw_diags: Vec<(usize, String)> = Vec::new();
+
+    let collect_line_and_rule = |diag: &graphql_linter::LintDiagnostic| -> (usize, String) {
+        if let Some(ref block_source) = diag.span.source {
+            let idx = graphql_syntax::LineIndex::new(block_source);
+            let (sl, _) = idx.line_col(diag.span.start);
+            (sl, diag.rule.clone())
+        } else {
+            let (sl, _) = file_line_index.line_col(diag.span.start);
+            (sl, diag.rule.clone())
+        }
+    };
+
+    if metadata.is_document(db) {
+        for rule in graphql_linter::standalone_document_rules() {
+            if lint_config.is_enabled(rule.name()) {
+                let options = lint_config.get_options(rule.name());
+                for d in rule.check(db, file_id, content, metadata, project_files, options) {
+                    all_raw_diags.push(collect_line_and_rule(&d));
+                }
+            }
+        }
+        for rule in graphql_linter::document_schema_rules() {
+            if lint_config.is_enabled(rule.name()) {
+                let options = lint_config.get_options(rule.name());
+                for d in rule.check(db, file_id, content, metadata, project_files, options) {
+                    all_raw_diags.push(collect_line_and_rule(&d));
+                }
+            }
+        }
+    }
+
+    let diag_refs: Vec<(usize, &str)> = all_raw_diags
+        .iter()
+        .map(|(line, rule)| (*line, rule.as_str()))
+        .collect();
+
+    let unused = graphql_linter::ignore::find_unused_directives(&file_ignores, &diag_refs);
+
+    unused
+        .into_iter()
+        .map(|d| {
+            let (start_line, start_col) = file_line_index.line_col(d.byte_offset);
+            let (end_line, end_col) = file_line_index.line_col(d.byte_end);
+
+            Diagnostic {
+                severity: Severity::Warning,
+                message: "Unused graphql-analyzer-ignore directive".into(),
+                range: DiagnosticRange {
+                    start: Position {
+                        line: start_line as u32,
+                        character: start_col as u32,
+                    },
+                    end: Position {
+                        line: end_line as u32,
+                        character: end_col as u32,
+                    },
+                },
+                source: "graphql-linter".into(),
+                code: Some("unused_ignore".into()),
+            }
+        })
+        .collect()
 }
 
 /// Filter raw `LintDiagnostic`s, removing those suppressed by ignore comments.

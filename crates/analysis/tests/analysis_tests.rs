@@ -2650,3 +2650,76 @@ mutation { updateUser { id } }";
         "Both anonymous operations should be suppressed, got: {diags:?}"
     );
 }
+
+#[test]
+fn test_unused_ignore_produces_warning() {
+    let db = LintTestDatabase::default();
+
+    // Named operation doesn't trigger no_anonymous_operations, so the ignore is unused
+    let source = "# graphql-analyzer-ignore\nquery GetUser { user { id } }";
+    let diags = lint_test_file(&db, source);
+    let unused = diags
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("unused_ignore"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        unused.len(),
+        1,
+        "Expected one unused_ignore diagnostic, got: {diags:?}"
+    );
+    assert_eq!(unused[0].severity, graphql_analysis::Severity::Warning);
+}
+
+#[test]
+fn test_used_ignore_no_unused_warning() {
+    let db = LintTestDatabase::default();
+
+    // Anonymous operation triggers no_anonymous_operations, so the ignore IS used
+    let source = "# graphql-analyzer-ignore\nquery { user { id } }";
+    let diags = lint_test_file(&db, source);
+    assert!(
+        !diags
+            .iter()
+            .any(|d| d.code.as_deref() == Some("unused_ignore")),
+        "Used ignore should not produce unused_ignore warning, got: {diags:?}"
+    );
+}
+
+#[test]
+fn test_unused_ignore_specific_rule_wrong_target() {
+    let db = LintTestDatabase::default();
+
+    // Ignoring no_deprecated, but the actual diagnostic is no_anonymous_operations
+    let source = "# graphql-analyzer-ignore: no_deprecated\nquery { user { id } }";
+    let diags = lint_test_file(&db, source);
+    let unused = diags
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("unused_ignore"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        unused.len(),
+        1,
+        "Ignore targeting wrong rule should produce unused_ignore warning, got: {diags:?}"
+    );
+}
+
+#[test]
+fn test_unused_ignore_not_adjacent() {
+    let db = LintTestDatabase::default();
+
+    // Ignore on line 0, anonymous query on line 2 (gap) - ignore is unused
+    let source = "# graphql-analyzer-ignore\n\nquery { user { id } }";
+    let diags = lint_test_file(&db, source);
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.code.as_deref() == Some("unused_ignore")),
+        "Non-adjacent ignore should produce unused_ignore warning"
+    );
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.code.as_deref() == Some("no_anonymous_operations")),
+        "Non-adjacent ignore should not suppress the lint"
+    );
+}
