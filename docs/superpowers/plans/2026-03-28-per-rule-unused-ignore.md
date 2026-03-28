@@ -14,19 +14,20 @@
 
 ## File Structure
 
-| File | Action | Responsibility |
-|------|--------|----------------|
-| `crates/linter/src/ignore.rs` | Modify | `RuleSpan` type, `UnusedIgnore` enum, `find_unused_rules` fn, updated parser |
-| `crates/analysis/src/lint_integration.rs` | Modify | `unused_ignore_diagnostics` uses new API, per-rule messages + ranges |
-| `crates/analysis/tests/analysis_tests.rs` | Modify | Integration tests for partial-unused |
-| `test-workspace/lint-ignores/src/operations.graphql` | Modify | Fix `require_id_field` misuse, add partial-unused example |
-| `docs/ignoring-lint-rules.md` | Modify | Document partial-unused behavior |
+| File                                                 | Action | Responsibility                                                               |
+| ---------------------------------------------------- | ------ | ---------------------------------------------------------------------------- |
+| `crates/linter/src/ignore.rs`                        | Modify | `RuleSpan` type, `UnusedIgnore` enum, `find_unused_rules` fn, updated parser |
+| `crates/analysis/src/lint_integration.rs`            | Modify | `unused_ignore_diagnostics` uses new API, per-rule messages + ranges         |
+| `crates/analysis/tests/analysis_tests.rs`            | Modify | Integration tests for partial-unused                                         |
+| `test-workspace/lint-ignores/src/operations.graphql` | Modify | Fix `require_id_field` misuse, add partial-unused example                    |
+| `docs/ignoring-lint-rules.md`                        | Modify | Document partial-unused behavior                                             |
 
 ---
 
 ### Task 1: Add `RuleSpan`, `UnusedIgnore`, and `find_unused_rules` to ignore.rs
 
 **Files:**
+
 - Modify: `crates/linter/src/ignore.rs`
 
 - [ ] **Step 1: Write failing tests for the new API**
@@ -132,6 +133,7 @@ pub struct RuleSpan {
 Change `IgnoreDirective.rules` from `Vec<String>` to `Vec<RuleSpan>`.
 
 Update `suppresses()`:
+
 ```rust
 pub fn suppresses(&self, rule_name: &str) -> bool {
     self.rules.is_empty() || self.rules.iter().any(|r| r.name == rule_name)
@@ -139,6 +141,7 @@ pub fn suppresses(&self, rule_name: &str) -> bool {
 ```
 
 Add `rule_names()` convenience:
+
 ```rust
 pub fn rule_names(&self) -> Vec<&str> {
     self.rules.iter().map(|r| r.name.as_str()).collect()
@@ -271,6 +274,7 @@ fn directive(line: usize, rules: Vec<&str>) -> IgnoreDirective {
 ```
 
 Update assertions that compare `.rules` directly against `vec!["..."]`:
+
 - `parse_ignore_with_rules`: change to `directives[0].rule_names(), vec!["no_deprecated", "unused_variables"]`
 - `parse_ignore_with_extra_whitespace`: same pattern
 - `single_rule_ignore`: change to `directives[0].rule_names(), vec!["no_anonymous_operations"]`
@@ -314,6 +318,7 @@ diagnostic underlines."
 ### Task 2: Update `unused_ignore_diagnostics` in lint_integration.rs
 
 **Files:**
+
 - Modify: `crates/analysis/src/lint_integration.rs`
 - Modify: `crates/analysis/tests/analysis_tests.rs`
 
@@ -491,6 +496,7 @@ on just that rule name."
 ### Task 3: Fix test workspace and update docs
 
 **Files:**
+
 - Modify: `test-workspace/lint-ignores/src/operations.graphql`
 - Modify: `docs/ignoring-lint-rules.md`
 
@@ -503,6 +509,7 @@ Replace the "Multiple rules in one ignore" section with a correct example where 
 - [ ] **Step 2: Update docs/ignoring-lint-rules.md**
 
 Add a section explaining partial-unused behavior:
+
 - If you list multiple rules and some don't fire, each unused rule gets its own warning
 - Show example warning message: `Unused rule 'require_id_field' in graphql-analyzer-ignore directive`
 
