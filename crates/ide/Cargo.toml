@@ -38,6 +38,7 @@ graphql-hir = { path = "../hir" }
 graphql-analysis = { path = "../analysis" }
 graphql-linter = { path = "../linter" }
 graphql-extract = { path = "../extract" }
+graphql-introspect = { path = "../introspect" }
 
 [dev-dependencies]
 tempfile = "3.0"

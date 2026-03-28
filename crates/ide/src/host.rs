@@ -407,6 +407,38 @@ impl AnalysisHost {
                                         }
                                     }
 
+                                    // JSON introspection result file support
+                                    if entry.extension().and_then(|e| e.to_str()) == Some("json")
+                                        && graphql_introspect::is_introspection_json(&content)
+                                    {
+                                        match graphql_introspect::introspection_json_to_sdl(
+                                            &content,
+                                        ) {
+                                            Ok(sdl) => {
+                                                tracing::info!(
+                                                    "Loaded JSON introspection result from {}",
+                                                    entry.display()
+                                                );
+                                                self.add_file(
+                                                    &FilePath::new(file_uri),
+                                                    &sdl,
+                                                    Language::GraphQL,
+                                                    DocumentKind::Schema,
+                                                );
+                                                loaded_paths.push(entry.clone());
+                                                count += 1;
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!(
+                                                    "Failed to parse JSON introspection result from {}: {}",
+                                                    entry.display(),
+                                                    e
+                                                );
+                                            }
+                                        }
+                                        continue;
+                                    }
+
                                     // Pure GraphQL file - validate and add
                                     // Check for executable definitions (operations/fragments)
                                     if let Some(mismatch) =

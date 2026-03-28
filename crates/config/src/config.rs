@@ -444,7 +444,7 @@ pub enum ClientConfig {
 }
 
 /// Schema source configuration
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum SchemaConfig {
     /// Single file path or glob pattern
@@ -453,6 +453,107 @@ pub enum SchemaConfig {
     Paths(Vec<String>),
     /// Introspection configuration for remote schemas
     Introspection(IntrospectionSchemaConfig),
+}
+
+impl<'de> serde::Deserialize<'de> for SchemaConfig {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+
+        // String -> Path
+        if let Some(s) = value.as_str() {
+            return Ok(Self::Path(s.to_string()));
+        }
+
+        // Array -> Paths or Introspection (URL-as-key wrapped in array)
+        if let Some(arr) = value.as_array() {
+            // Check if any element is a URL-as-key object
+            if let Some(introspection) = try_url_as_key_from_array(arr) {
+                return Ok(Self::Introspection(introspection));
+            }
+
+            let paths: std::result::Result<Vec<String>, _> = arr
+                .iter()
+                .map(|v| {
+                    v.as_str()
+                        .map(String::from)
+                        .ok_or_else(|| serde::de::Error::custom("expected string in schema array"))
+                })
+                .collect();
+            return Ok(Self::Paths(paths?));
+        }
+
+        // Object -> try IntrospectionSchemaConfig first (has explicit "url" key)
+        if let Some(obj) = value.as_object() {
+            if obj.contains_key("url") {
+                let config: IntrospectionSchemaConfig =
+                    serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+                return Ok(Self::Introspection(config));
+            }
+
+            // URL-with-headers inline syntax: { "https://...": { headers: {...} } }
+            if let Some(config) = try_url_as_key(obj) {
+                return Ok(Self::Introspection(config));
+            }
+        }
+
+        Err(serde::de::Error::custom(
+            "expected string, array, or object for schema config",
+        ))
+    }
+}
+
+/// Inline URL configuration (used with URL-as-key syntax).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UrlInlineConfig {
+    #[serde(default)]
+    headers: Option<HashMap<String, String>>,
+    #[serde(default)]
+    timeout: Option<u64>,
+    #[serde(default)]
+    retry: Option<u32>,
+}
+
+/// Try to parse a single JSON object as URL-as-key introspection config.
+fn try_url_as_key(
+    obj: &serde_json::Map<String, serde_json::Value>,
+) -> Option<IntrospectionSchemaConfig> {
+    if obj.len() != 1 {
+        return None;
+    }
+    let (key, val) = obj.iter().next()?;
+    if !key.starts_with("http://") && !key.starts_with("https://") {
+        return None;
+    }
+    let inline: UrlInlineConfig = serde_json::from_value(val.clone()).unwrap_or_default();
+    Some(IntrospectionSchemaConfig {
+        url: key.clone(),
+        headers: inline.headers,
+        timeout: inline.timeout,
+        retry: inline.retry,
+    })
+}
+
+/// Try to extract a URL-as-key introspection config from an array.
+/// Returns `Some` if the array contains exactly one URL-as-key object
+/// (and optionally other string entries, which are ignored in favor of the URL).
+fn try_url_as_key_from_array(arr: &[serde_json::Value]) -> Option<IntrospectionSchemaConfig> {
+    let mut introspection = None;
+    for item in arr {
+        if let Some(obj) = item.as_object() {
+            if let Some(config) = try_url_as_key(obj) {
+                if introspection.is_some() {
+                    // Multiple URL-as-key entries in array not supported
+                    return None;
+                }
+                introspection = Some(config);
+            }
+        }
+    }
+    introspection
 }
 
 /// Configuration for introspecting a remote GraphQL endpoint
@@ -977,6 +1078,98 @@ schema:
         let local = SchemaConfig::Path("schema.graphql".to_string());
         assert!(!local.is_introspection());
         assert!(local.introspection_config().is_none());
+    }
+
+    #[test]
+    fn test_url_with_headers_inline_syntax() {
+        let yaml = r#"
+schema:
+  https://api.example.com/graphql:
+    headers:
+      Authorization: "Bearer token"
+      X-API-Key: my-key
+documents: "**/*.graphql"
+"#;
+        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+
+        assert!(config.schema.is_introspection());
+        assert!(config.schema.has_remote_schema());
+        assert!(config.schema.paths().is_empty());
+
+        let introspection = config.schema.introspection_config().unwrap();
+        assert_eq!(introspection.url, "https://api.example.com/graphql");
+
+        let headers = introspection.headers.as_ref().unwrap();
+        assert_eq!(
+            headers.get("Authorization"),
+            Some(&"Bearer token".to_string())
+        );
+        assert_eq!(headers.get("X-API-Key"), Some(&"my-key".to_string()));
+    }
+
+    #[test]
+    fn test_url_with_headers_inline_minimal() {
+        let yaml = r"
+schema:
+  https://api.example.com/graphql: {}
+";
+        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+
+        assert!(config.schema.is_introspection());
+        let introspection = config.schema.introspection_config().unwrap();
+        assert_eq!(introspection.url, "https://api.example.com/graphql");
+        assert!(introspection.headers.is_none());
+    }
+
+    #[test]
+    fn test_url_with_headers_inline_with_timeout() {
+        let yaml = r"
+schema:
+  https://api.example.com/graphql:
+    headers:
+      Authorization: Bearer token
+    timeout: 60
+    retry: 3
+";
+        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+
+        let introspection = config.schema.introspection_config().unwrap();
+        assert_eq!(introspection.url, "https://api.example.com/graphql");
+        assert_eq!(introspection.timeout, Some(60));
+        assert_eq!(introspection.retry, Some(3));
+    }
+
+    #[test]
+    fn test_url_with_headers_in_array() {
+        let yaml = r#"
+schema:
+  - https://api.example.com/graphql:
+      headers:
+        Authorization: "Bearer token"
+"#;
+        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+
+        assert!(config.schema.is_introspection());
+        let introspection = config.schema.introspection_config().unwrap();
+        assert_eq!(introspection.url, "https://api.example.com/graphql");
+        assert_eq!(
+            introspection.headers.as_ref().unwrap().get("Authorization"),
+            Some(&"Bearer token".to_string())
+        );
+    }
+
+    #[test]
+    fn test_url_with_headers_in_array_minimal() {
+        let yaml = r"
+schema:
+  - https://api.example.com/graphql: {}
+";
+        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+
+        assert!(config.schema.is_introspection());
+        let introspection = config.schema.introspection_config().unwrap();
+        assert_eq!(introspection.url, "https://api.example.com/graphql");
+        assert!(introspection.headers.is_none());
     }
 }
 

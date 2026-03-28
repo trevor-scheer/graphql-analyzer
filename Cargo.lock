@@ -1249,6 +1249,7 @@ dependencies = [
  "graphql-extract",
  "graphql-hir",
  "graphql-ide-db",
+ "graphql-introspect",
  "graphql-linter",
  "graphql-syntax",
  "parking_lot",

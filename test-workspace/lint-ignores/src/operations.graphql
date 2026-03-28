@@ -1,0 +1,100 @@
+# ============================================================
+# Lint Ignore Comments - Demonstration
+# ============================================================
+# Use `# graphql-analyzer-ignore` to suppress lint rules on
+# the next line, similar to eslint-disable-next-line.
+# ============================================================
+
+# --- Suppressing all rules ---
+# This anonymous query would normally trigger `no_anonymous_operations`.
+# The ignore comment suppresses all lint rules on the next line.
+# graphql-analyzer-ignore
+query {
+  users {
+    id
+    name
+  }
+}
+
+# --- Suppressing a specific rule ---
+# Only suppress the deprecated field warning; other rules still apply.
+query GetUserWithEmail($id: ID!) {
+  user(id: $id) {
+    id
+    name
+    # graphql-analyzer-ignore: no_deprecated
+    email
+  }
+}
+
+# --- Multiple rules, all used ---
+# Both rules fire here: no_deprecated (views is deprecated) and
+# require_id_field (author selection is missing id). Both are suppressed.
+# Expected: no warnings on this ignore comment.
+query GetPostSuppressBoth($id: ID!) {
+  post(id: $id) {
+    id
+    title
+    # graphql-analyzer-ignore: no_deprecated
+    views
+    # graphql-analyzer-ignore: require_id_field
+    author {
+      name
+    }
+  }
+}
+
+# --- Partial unused (per-rule warning) ---
+# Only no_deprecated applies here (views is deprecated), but
+# require_id_field does NOT fire on this line — it targets the parent
+# field whose selection set is missing id, not a leaf field.
+# Expected warning: Unused rule 'require_id_field' in graphql-analyzer-ignore directive
+query GetPostPartialUnused($id: ID!) {
+  post(id: $id) {
+    id
+    title
+    # graphql-analyzer-ignore: no_deprecated, require_id_field
+    views
+    author {
+      name
+    }
+  }
+}
+
+# --- All rules unused in multi-rule ignore ---
+# Neither rule fires: the query is named (no no_anonymous_operations)
+# and there are no deprecated fields (no no_deprecated).
+# Expected warning: Unused graphql-analyzer-ignore directive
+# graphql-analyzer-ignore: no_anonymous_operations, no_deprecated
+query GetAllUsers {
+  users {
+    id
+    name
+  }
+}
+
+# --- Unused ignore (completely unused) ---
+# This ignore comment doesn't suppress anything because the next line
+# is a valid named query with no lint issues.
+# Expected warning: Unused graphql-analyzer-ignore directive
+# graphql-analyzer-ignore
+query GetAllPosts {
+  posts {
+    id
+    title
+    body
+  }
+}
+
+# --- Ignore only affects the immediately next line ---
+# This ignore does NOT reach the anonymous query two lines below,
+# so it will produce an `unused_ignore` warning AND the anonymous
+# query will still trigger `no_anonymous_operations`.
+# graphql-analyzer-ignore
+
+query {
+  posts {
+    id
+    title
+  }
+}

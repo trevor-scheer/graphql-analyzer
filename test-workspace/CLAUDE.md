@@ -14,6 +14,7 @@ Each subdirectory is a separate GraphQL project configured in `.graphqlrc.yaml`:
 | `countries/`               | Remote schema via introspection             |
 | `apollo-app/`              | Client schema extensions                    |
 | `relay-app/`               | Relay-style project                         |
+| `lint-ignores/`            | Inline lint ignore comment demos            |
 | `schema-extensions/`       | Schema with extension files                 |
 | `misconfigured-schema/`    | Intentionally broken config (missing files) |
 | `misconfigured-documents/` | Intentionally broken config (missing files) |
