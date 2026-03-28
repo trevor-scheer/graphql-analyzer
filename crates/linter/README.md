@@ -207,6 +207,40 @@ extensions:
 - `warn` - Show as warning
 - `error` - Show as error
 
+### Ignoring Rules Inline
+
+You can suppress lint diagnostics for specific lines using comments, similar to ESLint's `// eslint-disable-next-line`:
+
+```graphql
+# Suppress all rules on the next line
+# graphql-analyzer-ignore
+query {
+  users {
+    id
+  }
+}
+
+# Suppress specific rules
+# graphql-analyzer-ignore: no_deprecated
+query GetUser($id: ID!) {
+  user(id: $id) {
+    email
+  }
+}
+
+# Multiple rules
+# graphql-analyzer-ignore: no_deprecated, require_id_field
+query GetPost($id: ID!) {
+  post(id: $id) {
+    views
+  }
+}
+```
+
+The comment must appear on the line immediately before the target code. If an ignore comment doesn't suppress any diagnostic, an `unused_ignore` warning is reported.
+
+See [docs/ignoring-lint-rules.md](../../docs/ignoring-lint-rules.md) for full documentation.
+
 ### The `recommended` Preset
 
 The `recommended` preset includes rules that are objectively beneficial without being opinionated about architecture choices:
