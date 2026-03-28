@@ -564,9 +564,12 @@ export async function activate(context: ExtensionContext) {
           `- Server state: ${serverState}`,
         ].join("\n");
 
-        const url = Uri.parse(
-          `https://github.com/trevor-scheer/graphql-analyzer/issues/new?${new URLSearchParams({ body })}`,
-        );
+        const url = Uri.from({
+          scheme: "https",
+          authority: "github.com",
+          path: "/trevor-scheer/graphql-analyzer/issues/new",
+          query: `body=${encodeURIComponent(body)}`,
+        });
 
         await env.openExternal(url);
       },
