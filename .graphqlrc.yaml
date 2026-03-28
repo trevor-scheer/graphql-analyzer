@@ -102,6 +102,15 @@ projects:
         rules:
           uniqueNames: error
 
+  lint-ignores:
+    schema: test-workspace/lint-ignores/schema.graphql
+    documents: "test-workspace/lint-ignores/src/**/*.graphql"
+    extensions:
+      lint:
+        extends: recommended
+        rules:
+          noDeprecated: warn
+
   misconfigured-schema:
     # expect 2 errors: schema file does not exist, and documents file does not exist
     schema: "test-workspace/misconfigured-schema/schema.graphql"
