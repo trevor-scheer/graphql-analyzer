@@ -3,9 +3,9 @@ use crate::rules::{
     AlphabetizeRuleImpl, DescriptionStyleRuleImpl, InputNameRuleImpl,
     LoneExecutableDefinitionRuleImpl, NamingConventionRuleImpl, NoAnonymousOperationsRuleImpl,
     NoDeprecatedRuleImpl, NoDuplicateFieldsRuleImpl, NoHashtagDescriptionRuleImpl,
-    NoOnePlaceFragmentsRuleImpl, OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl,
-    RequireIdFieldRuleImpl, SelectionSetDepthRuleImpl, UniqueNamesRuleImpl, UnusedFieldsRuleImpl,
-    UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
+    NoOnePlaceFragmentsRuleImpl, NoTypenamePrefixRuleImpl, OperationNameSuffixRuleImpl,
+    RedundantFieldsRuleImpl, RequireIdFieldRuleImpl, SelectionSetDepthRuleImpl,
+    UniqueNamesRuleImpl, UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
 };
 use crate::traits::{
     DocumentSchemaLintRule, ProjectLintRule, StandaloneDocumentLintRule, StandaloneSchemaLintRule,
@@ -58,6 +58,7 @@ static STANDALONE_SCHEMA_RULES: LazyLock<Vec<Arc<dyn StandaloneSchemaLintRule>>>
             Arc::new(DescriptionStyleRuleImpl),
             Arc::new(InputNameRuleImpl),
             Arc::new(NoHashtagDescriptionRuleImpl),
+            Arc::new(NoTypenamePrefixRuleImpl),
         ]
     });
 

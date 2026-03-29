@@ -141,3 +141,4 @@ projects:
           descriptionStyle: warn
           inputName: warn
           noHashtagDescription: warn
+          noTypenamePrefix: warn
