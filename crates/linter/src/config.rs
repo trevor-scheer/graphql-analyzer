@@ -348,9 +348,15 @@ impl LintConfig {
     fn recommended_severity(rule_name: &str) -> Option<LintSeverity> {
         match rule_name {
             "noAnonymousOperations" => Some(LintSeverity::Error),
-            "noDeprecated" | "redundantFields" | "unusedFragments" | "unusedFields" => {
-                Some(LintSeverity::Warn)
-            }
+            "noDeprecated"
+            | "redundantFields"
+            | "unusedFragments"
+            | "unusedFields"
+            | "noDuplicateFields"
+            | "noUnreachableTypes"
+            | "requireDeprecationReason"
+            | "noHashtagDescription"
+            | "uniqueEnumValueNames" => Some(LintSeverity::Warn),
             _ => None,
         }
     }
@@ -378,6 +384,11 @@ mod tests {
         assert!(!config.is_enabled("uniqueNames"));
         assert!(config.is_enabled("noDeprecated"));
         assert!(config.is_enabled("unusedFields"));
+        assert!(config.is_enabled("noDuplicateFields"));
+        assert!(config.is_enabled("noUnreachableTypes"));
+        assert!(config.is_enabled("requireDeprecationReason"));
+        assert!(config.is_enabled("noHashtagDescription"));
+        assert!(config.is_enabled("uniqueEnumValueNames"));
     }
 
     #[test]
