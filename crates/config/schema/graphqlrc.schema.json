@@ -287,6 +287,10 @@
             "noOnePlaceFragments": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Detects fragments that are used in only one place and could be inlined"
+            },
+            "descriptionStyle": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforces consistent description style (block vs inline)"
             }
           },
           "additionalProperties": {
