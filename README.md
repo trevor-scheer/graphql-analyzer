@@ -38,12 +38,11 @@ Open any GraphQL file, TypeScript/JavaScript file, or Vue/Svelte/Astro component
 Install the CLI for CI/CD integration:
 
 ```sh
-# Install the CLI (default)
-curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
+# Homebrew (macOS/Linux)
+brew install trevor-scheer/graphql-analyzer/graphql-analyzer
 
-# Install LSP or MCP server
-curl -fsSL .../install.sh | sh -s -- lsp
-curl -fsSL .../install.sh | sh -s -- mcp
+# Or via install script
+curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
 ```
 
 Validate your GraphQL:
