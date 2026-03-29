@@ -1,0 +1,14 @@
+# Demonstrates: noOnePlaceFragments
+# Fragments used in only one place should be inlined.
+
+query SingleUseFragmentQuery {
+  user(id: "1") {
+    ...SingleUseFields
+  }
+}
+
+fragment SingleUseFields on User {
+  id
+  name
+  email
+}

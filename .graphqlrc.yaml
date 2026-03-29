@@ -137,3 +137,4 @@ projects:
           namingConvention: warn
           noDuplicateFields: warn
           selectionSetDepth: [warn, { maxDepth: 3 }]
+          noOnePlaceFragments: warn
