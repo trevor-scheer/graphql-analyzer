@@ -147,3 +147,4 @@ projects:
           requireDeprecationReason: warn
           requireDescription: warn
           requireFieldOfTypeQueryInMutationResult: warn
+          strictIdInTypes: warn
