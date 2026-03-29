@@ -291,6 +291,10 @@
             "descriptionStyle": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Enforces consistent description style (block vs inline)"
+            },
+            "inputName": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforces that input type names end with a specific suffix"
             }
           },
           "additionalProperties": {

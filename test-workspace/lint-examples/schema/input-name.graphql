@@ -1,0 +1,44 @@
+# Demonstrates: inputName
+# These input types don't end with the required "Input" suffix.
+
+"""
+Data for creating a user
+"""
+input CreateUserData {
+  """
+  User name
+  """
+  name: String!
+  """
+  User email
+  """
+  email: String!
+}
+
+"""
+Filter for posts
+"""
+input PostFilter {
+  """
+  Author ID
+  """
+  authorId: ID
+  """
+  Title contains
+  """
+  titleContains: String
+}
+
+"""
+This one is correct - ends with Input
+"""
+input UpdateUserInput {
+  """
+  New name
+  """
+  name: String
+  """
+  New email
+  """
+  email: String
+}

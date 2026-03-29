@@ -27,6 +27,7 @@ pub fn get_operation_kind(op_type: &cst::OperationType) -> OperationKind {
 
 mod alphabetize;
 mod description_style;
+mod input_name;
 mod lone_executable_definition;
 mod naming_convention;
 mod no_anonymous_operations;
@@ -44,6 +45,7 @@ mod unused_variables;
 
 pub use alphabetize::AlphabetizeRuleImpl;
 pub use description_style::DescriptionStyleRuleImpl;
+pub use input_name::InputNameRuleImpl;
 pub use lone_executable_definition::LoneExecutableDefinitionRuleImpl;
 pub use naming_convention::NamingConventionRuleImpl;
 pub use no_anonymous_operations::NoAnonymousOperationsRuleImpl;
