@@ -279,6 +279,10 @@
             "noDuplicateFields": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Disallows duplicate fields within the same selection set"
+            },
+            "selectionSetDepth": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Limits the depth of selection set nesting to prevent overly complex queries"
             }
           },
           "additionalProperties": {

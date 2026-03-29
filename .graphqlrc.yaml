@@ -136,3 +136,4 @@ projects:
           loneExecutableDefinition: warn
           namingConvention: warn
           noDuplicateFields: warn
+          selectionSetDepth: [warn, { maxDepth: 3 }]
