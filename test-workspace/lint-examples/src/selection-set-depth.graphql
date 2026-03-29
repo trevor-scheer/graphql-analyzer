@@ -1,0 +1,16 @@
+# Demonstrates: selectionSetDepth
+# Selection set nesting exceeds the configured max depth (3).
+
+query DeepQuery {
+  user(id: "1") {
+    posts {
+      comments {
+        replies {
+          author {
+            name
+          }
+        }
+      }
+    }
+  }
+}
