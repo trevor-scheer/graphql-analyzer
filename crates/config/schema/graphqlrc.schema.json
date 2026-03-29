@@ -267,6 +267,10 @@
             "alphabetize": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Enforce alphabetical ordering of fields, arguments, and variables in selections"
+            },
+            "loneExecutableDefinition": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Requires each file to contain only one executable definition (operation or fragment)"
             }
           },
           "additionalProperties": {

@@ -1,0 +1,16 @@
+# Demonstrates: loneExecutableDefinition
+# Only one executable definition (operation or fragment) per file.
+
+query FirstQuery {
+  users {
+    id
+    name
+  }
+}
+
+query SecondQuery {
+  posts {
+    id
+    title
+  }
+}

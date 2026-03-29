@@ -133,3 +133,4 @@ projects:
       lint:
         rules:
           alphabetize: [warn, { selections: true, arguments: true, variables: true }]
+          loneExecutableDefinition: warn
