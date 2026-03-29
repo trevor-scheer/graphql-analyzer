@@ -335,6 +335,43 @@ mod tests {
     }
 
     #[test]
+    fn test_ts_single_fragment_fix_deletes_declaration() {
+        let db = RootDatabase::default();
+        let rule = UnusedFragmentsRuleImpl;
+
+        let source =
+            "import { gql } from 'graphql-tag';\nconst F = gql`fragment Unused on User { name }`;\n";
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.ts"),
+            Language::TypeScript,
+            DocumentKind::Executable,
+        );
+
+        let project_files = create_test_project_files(&db, &[(file_id, content, metadata)]);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        let file_diags = diagnostics
+            .get(&file_id)
+            .expect("Expected diagnostics for file");
+        assert_eq!(file_diags.len(), 1);
+
+        let diag = &file_diags[0];
+        assert!(diag.has_fix());
+        let fix = diag.fix.as_ref().unwrap();
+
+        // Fix should delete the entire TS declaration, not just the GraphQL content
+        let deleted = &source[fix.edits[0].offset_range.start..fix.edits[0].offset_range.end];
+        assert!(
+            deleted.contains("const F"),
+            "Fix should delete the TS declaration, got: {deleted:?}",
+        );
+    }
+
+    #[test]
     fn test_diagnostic_range_points_to_fragment_name() {
         let db = RootDatabase::default();
         let rule = UnusedFragmentsRuleImpl;
