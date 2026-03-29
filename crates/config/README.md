@@ -4,7 +4,7 @@ A Rust library for parsing and discovering GraphQL configuration files, compatib
 
 ## Features
 
-- **Multiple Formats**: Supports YAML and JSON configuration files
+- **Multiple Formats**: Supports YAML, JSON, and TOML configuration files
 - **Auto-Discovery**: Walks up the directory tree to find configuration files
 - **Multi-Project Support**: Single or multiple GraphQL projects in one configuration
 - **Glob Patterns**: Resolves glob patterns for schema and document files
@@ -71,6 +71,12 @@ schema: schema.graphql
 documents: src/**/*.graphql
 ```
 
+```toml
+# .graphqlrc.toml
+schema = "schema.graphql"
+documents = "src/**/*.graphql"
+```
+
 ### Multiple Projects
 
 ```yaml
@@ -86,6 +92,17 @@ projects:
     documents:
       - client/**/*.graphql
       - client/**/*.tsx
+```
+
+```toml
+# .graphqlrc.toml
+[projects.api]
+schema = "api/schema.graphql"
+documents = "api/**/*.graphql"
+
+[projects.client]
+schema = ["client/schema.graphql", "client/schema/*.graphql"]
+documents = ["client/**/*.graphql", "client/**/*.tsx"]
 ```
 
 ### Schema Sources
@@ -194,7 +211,7 @@ Finds the path to the nearest configuration file without loading it.
 
 #### `load_config_from_str(content: &str, format: &str) -> Result<GraphQLConfig>`
 
-Parses configuration from a string. Format should be "yaml" or "json".
+Parses configuration from a string. Format should be "yaml", "json", or "toml".
 
 #### `has_remote_schema(config: &ProjectConfig) -> bool`
 
@@ -207,16 +224,18 @@ The library searches for these files in order of preference:
 1. `.graphqlrc.yml`
 2. `.graphqlrc.yaml`
 3. `.graphqlrc.json`
-4. `.graphqlrc` (YAML or JSON, auto-detected)
-5. `graphql.config.yml`
-6. `graphql.config.yaml`
-7. `graphql.config.json`
+4. `.graphqlrc.toml`
+5. `.graphqlrc` (YAML or JSON, auto-detected)
+6. `graphql.config.yml`
+7. `graphql.config.yaml`
+8. `graphql.config.json`
+9. `graphql.config.toml`
 
 ### Note on JavaScript/TypeScript Configs
 
-This library only supports YAML and JSON configuration formats. JavaScript and TypeScript config files (`graphql.config.js`, `graphql.config.ts`) are **not supported**.
+This library only supports YAML, JSON, and TOML configuration formats. JavaScript and TypeScript config files (`graphql.config.js`, `graphql.config.ts`) are **not supported**.
 
-If you're migrating from a JS/TS config, convert your configuration to YAML or JSON. Most configurations can be directly translated since the schema is the same:
+If you're migrating from a JS/TS config, convert your configuration to YAML, JSON, or TOML. Most configurations can be directly translated since the schema is the same:
 
 ```javascript
 // graphql.config.js (NOT SUPPORTED)
@@ -232,7 +251,13 @@ schema: schema.graphql
 documents: src/**/*.graphql
 ```
 
-For dynamic configuration needs (rare), consider using environment variables or generating the YAML/JSON config as a build step.
+```toml
+# .graphqlrc.toml (equivalent)
+schema = "schema.graphql"
+documents = "src/**/*.graphql"
+```
+
+For dynamic configuration needs (rare), consider using environment variables or generating the config as a build step.
 
 ## Examples
 
@@ -296,7 +321,7 @@ Uses the `glob` crate to resolve file patterns. Patterns are resolved relative t
 Provides detailed error types for:
 
 - Missing configuration files (`ConfigError::NotFound`)
-- Invalid YAML/JSON syntax (`ConfigError::ParseError`)
+- Invalid YAML/JSON/TOML syntax (`ConfigError::ParseError`)
 - Invalid configuration structure (`ConfigError::ValidationError`)
 - Missing required fields
 

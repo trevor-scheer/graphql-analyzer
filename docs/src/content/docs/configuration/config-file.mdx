@@ -1,13 +1,13 @@
 ---
 title: Configuration File
-description: How to configure GraphQL Analyzer with .graphqlrc.yaml.
+description: How to configure GraphQL Analyzer with .graphqlrc.yaml, .graphqlrc.toml, or .graphqlrc.json.
 ---
 
 GraphQL Analyzer uses the standard `.graphqlrc` configuration format, compatible with tools like GraphQL Code Generator and GraphQL ESLint.
 
 ## File format
 
-Only YAML and JSON are supported. JavaScript/TypeScript configs (`graphql.config.js`, `graphql.config.ts`) are **not supported**.
+YAML, JSON, and TOML are supported. JavaScript/TypeScript configs (`graphql.config.js`, `graphql.config.ts`) are **not supported**.
 
 ## File discovery
 
@@ -15,9 +15,11 @@ The tool searches for these files in order, walking up the directory tree from y
 
 1. `.graphqlrc.yml` / `.graphqlrc.yaml`
 2. `.graphqlrc.json`
-3. `.graphqlrc` (YAML or JSON, auto-detected)
-4. `graphql.config.yml` / `graphql.config.yaml`
-5. `graphql.config.json`
+3. `.graphqlrc.toml`
+4. `.graphqlrc` (YAML or JSON, auto-detected)
+5. `graphql.config.yml` / `graphql.config.yaml`
+6. `graphql.config.json`
+7. `graphql.config.toml`
 
 You can also specify a config file explicitly:
 
@@ -27,11 +29,32 @@ graphql --config path/to/.graphqlrc.yml validate
 
 ## Basic configuration
 
-```yaml
-# .graphqlrc.yml
-schema: "schema.graphql"
-documents: "src/**/*.{graphql,ts,tsx}"
-```
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+<Tabs>
+  <TabItem label="YAML">
+    ```yaml
+    # .graphqlrc.yml
+    schema: "schema.graphql"
+    documents: "src/**/*.{graphql,ts,tsx}"
+    ```
+  </TabItem>
+  <TabItem label="TOML">
+    ```toml
+    # .graphqlrc.toml
+    schema = "schema.graphql"
+    documents = "src/**/*.{graphql,ts,tsx}"
+    ```
+  </TabItem>
+  <TabItem label="JSON">
+    ```json
+    {
+      "schema": "schema.graphql",
+      "documents": "src/**/*.{graphql,ts,tsx}"
+    }
+    ```
+  </TabItem>
+</Tabs>
 
 | Field       | Required | Description                        |
 | ----------- | -------- | ---------------------------------- |
@@ -40,16 +63,34 @@ documents: "src/**/*.{graphql,ts,tsx}"
 
 ## Adding linting
 
-```yaml
-schema: "schema.graphql"
-documents: "src/**/*.{graphql,ts,tsx}"
+<Tabs>
+  <TabItem label="YAML">
+    ```yaml
+    schema: "schema.graphql"
+    documents: "src/**/*.{graphql,ts,tsx}"
 
-extensions:
-  lint:
-    extends: recommended
-    rules:
-      noDeprecated: warn
-```
+    extensions:
+      lint:
+        extends: recommended
+        rules:
+          noDeprecated: warn
+    ```
+
+  </TabItem>
+  <TabItem label="TOML">
+    ```toml
+    schema = "schema.graphql"
+    documents = "src/**/*.{graphql,ts,tsx}"
+
+    [extensions.lint]
+    extends = "recommended"
+
+    [extensions.lint.rules]
+    noDeprecated = "warn"
+    ```
+
+  </TabItem>
+</Tabs>
 
 See [Linting Configuration](/graphql-analyzer/linting/configuration/) for details.
 
@@ -57,21 +98,37 @@ See [Linting Configuration](/graphql-analyzer/linting/configuration/) for detail
 
 For monorepos or projects with multiple GraphQL schemas:
 
-```yaml
-projects:
-  api:
-    schema: api/schema.graphql
-    documents: api/**/*.graphql
-  client:
-    schema: client/schema.graphql
-    documents: client/**/*.{graphql,tsx}
-```
+<Tabs>
+  <TabItem label="YAML">
+    ```yaml
+    projects:
+      api:
+        schema: api/schema.graphql
+        documents: api/**/*.graphql
+      client:
+        schema: client/schema.graphql
+        documents: client/**/*.{graphql,tsx}
+    ```
+  </TabItem>
+  <TabItem label="TOML">
+    ```toml
+    [projects.api]
+    schema = "api/schema.graphql"
+    documents = "api/**/*.graphql"
+
+    [projects.client]
+    schema = "client/schema.graphql"
+    documents = "client/**/*.{graphql,tsx}"
+    ```
+
+  </TabItem>
+</Tabs>
 
 See [Multi-Project Workspaces](/graphql-analyzer/configuration/multi-project/) for details.
 
 ## Migrating from JavaScript config
 
-If you have a `graphql.config.js`, convert it to YAML:
+If you have a `graphql.config.js`, convert it to YAML or TOML:
 
 ```javascript
 // graphql.config.js (NOT SUPPORTED)
@@ -81,13 +138,17 @@ module.exports = {
 };
 ```
 
-```yaml
-# .graphqlrc.yml (equivalent)
-schema: schema.graphql
-documents: src/**/*.graphql
-```
+<Tabs>
+  <TabItem label="YAML">
+    ```yaml # .graphqlrc.yml (equivalent) schema: schema.graphql documents: src/**/*.graphql ```
+  </TabItem>
+  <TabItem label="TOML">
+    ```toml # .graphqlrc.toml (equivalent) schema = "schema.graphql" documents = "src/**/*.graphql"
+    ```
+  </TabItem>
+</Tabs>
 
-For dynamic configuration needs, generate the YAML/JSON config as a build step.
+For dynamic configuration needs, generate the YAML/JSON/TOML config as a build step.
 
 ## Environment variables
 
