@@ -46,10 +46,10 @@ impl CliAnalysisHost {
                     }
 
                     tracing::info!("Loaded lint configuration from project config");
-                    tracing::debug!("Parsed lint config - unique_names enabled: {}, unused_fields enabled: {}, redundant_fields enabled: {}",
-                        lint_config.is_enabled("unique_names"),
-                        lint_config.is_enabled("unused_fields"),
-                        lint_config.is_enabled("redundant_fields"));
+                    tracing::debug!("Parsed lint config - uniqueNames enabled: {}, unusedFields enabled: {}, redundantFields enabled: {}",
+                        lint_config.is_enabled("uniqueNames"),
+                        lint_config.is_enabled("unusedFields"),
+                        lint_config.is_enabled("redundantFields"));
                     host.set_lint_config(lint_config);
                 }
                 Err(e) => {

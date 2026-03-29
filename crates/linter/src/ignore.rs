@@ -6,7 +6,7 @@
 //! # graphql-analyzer-ignore
 //! query { ... }
 //!
-//! # graphql-analyzer-ignore: no_deprecated, unused_variables
+//! # graphql-analyzer-ignore: noDeprecated, unusedVariables
 //! query { ... }
 //! ```
 //!
@@ -215,35 +215,35 @@ mod tests {
 
     #[test]
     fn parse_ignore_with_rules() {
-        let source = "# graphql-analyzer-ignore: no_deprecated, unused_variables\nquery { hello }";
+        let source = "# graphql-analyzer-ignore: noDeprecated, unusedVariables\nquery { hello }";
         let directives = parse_ignore_directives(source);
         assert_eq!(directives.len(), 1);
         assert_eq!(
             directives[0].rule_names(),
-            vec!["no_deprecated", "unused_variables"]
+            vec!["noDeprecated", "unusedVariables"]
         );
-        assert!(directives[0].suppresses("no_deprecated"));
-        assert!(directives[0].suppresses("unused_variables"));
+        assert!(directives[0].suppresses("noDeprecated"));
+        assert!(directives[0].suppresses("unusedVariables"));
         assert!(!directives[0].suppresses("other_rule"));
     }
 
     #[test]
     fn parse_ignore_with_extra_whitespace() {
         let source =
-            "  #  graphql-analyzer-ignore :  no_deprecated ,  unused_variables  \nquery { hello }";
+            "  #  graphql-analyzer-ignore :  noDeprecated ,  unusedVariables  \nquery { hello }";
         let directives = parse_ignore_directives(source);
         assert_eq!(directives.len(), 1);
         assert_eq!(
             directives[0].rule_names(),
-            vec!["no_deprecated", "unused_variables"]
+            vec!["noDeprecated", "unusedVariables"]
         );
         assert_eq!(
             &source[directives[0].rules[0].byte_offset..directives[0].rules[0].byte_end],
-            "no_deprecated"
+            "noDeprecated"
         );
         assert_eq!(
             &source[directives[0].rules[1].byte_offset..directives[0].rules[1].byte_end],
-            "unused_variables"
+            "unusedVariables"
         );
     }
 
@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn multiple_directives() {
         let source = "\
-# graphql-analyzer-ignore: no_deprecated
+# graphql-analyzer-ignore: noDeprecated
 query Foo { hello }
 # graphql-analyzer-ignore
 query Bar { world }";
@@ -292,10 +292,10 @@ query Bar { world }";
 
     #[test]
     fn is_suppressed_on_preceding_line() {
-        let directives = vec![directive(2, vec!["no_deprecated"])];
-        assert!(is_suppressed(&directives, 3, "no_deprecated"));
+        let directives = vec![directive(2, vec!["noDeprecated"])];
+        assert!(is_suppressed(&directives, 3, "noDeprecated"));
         assert!(!is_suppressed(&directives, 3, "other_rule"));
-        assert!(!is_suppressed(&directives, 4, "no_deprecated"));
+        assert!(!is_suppressed(&directives, 4, "noDeprecated"));
     }
 
     #[test]
@@ -314,10 +314,10 @@ query Bar { world }";
 
     #[test]
     fn single_rule_ignore() {
-        let source = "# graphql-analyzer-ignore: no_anonymous_operations\nquery { hello }";
+        let source = "# graphql-analyzer-ignore: noAnonymousOperations\nquery { hello }";
         let directives = parse_ignore_directives(source);
         assert_eq!(directives.len(), 1);
-        assert_eq!(directives[0].rule_names(), vec!["no_anonymous_operations"]);
+        assert_eq!(directives[0].rule_names(), vec!["noAnonymousOperations"]);
     }
 
     #[test]
@@ -332,8 +332,8 @@ query Bar { world }";
 
     #[test]
     fn find_unused_all_used() {
-        let directives = vec![directive(0, vec!["no_deprecated"])];
-        let diag_lines = vec![(1, "no_deprecated")];
+        let directives = vec![directive(0, vec!["noDeprecated"])];
+        let diag_lines = vec![(1, "noDeprecated")];
         let unused = find_unused_rules(&directives, &diag_lines);
         assert!(unused.is_empty());
     }
@@ -348,7 +348,7 @@ query Bar { world }";
 
     #[test]
     fn find_unused_none_matched() {
-        let directives = vec![directive(0, vec!["no_deprecated"])];
+        let directives = vec![directive(0, vec!["noDeprecated"])];
         let diag_lines: Vec<(usize, &str)> = vec![];
         let unused = find_unused_rules(&directives, &diag_lines);
         assert_eq!(unused.len(), 1);
@@ -362,7 +362,7 @@ query Bar { world }";
 
     #[test]
     fn find_unused_wrong_rule() {
-        let directives = vec![directive(0, vec!["no_deprecated"])];
+        let directives = vec![directive(0, vec!["noDeprecated"])];
         let diag_lines = vec![(1, "other_rule")];
         let unused = find_unused_rules(&directives, &diag_lines);
         assert_eq!(unused.len(), 1);
@@ -376,8 +376,8 @@ query Bar { world }";
 
     #[test]
     fn find_unused_wrong_line() {
-        let directives = vec![directive(0, vec!["no_deprecated"])];
-        let diag_lines = vec![(5, "no_deprecated")];
+        let directives = vec![directive(0, vec!["noDeprecated"])];
+        let diag_lines = vec![(5, "noDeprecated")];
         let unused = find_unused_rules(&directives, &diag_lines);
         assert_eq!(unused.len(), 1);
         match &unused[0] {
@@ -390,15 +390,15 @@ query Bar { world }";
 
     #[test]
     fn find_unused_rules_partial() {
-        let directives = vec![directive(0, vec!["no_deprecated", "require_id_field"])];
-        let diag_lines = vec![(1, "no_deprecated")];
+        let directives = vec![directive(0, vec!["noDeprecated", "requireIdField"])];
+        let diag_lines = vec![(1, "noDeprecated")];
         let unused = find_unused_rules(&directives, &diag_lines);
         assert_eq!(unused.len(), 1);
         match &unused[0] {
             UnusedIgnore::UnusedRules { directive, rules } => {
                 assert_eq!(directive.line, 0);
                 let names: Vec<&str> = rules.iter().map(|r| r.name.as_str()).collect();
-                assert_eq!(names, vec!["require_id_field"]);
+                assert_eq!(names, vec!["requireIdField"]);
             }
             other @ UnusedIgnore::EntireDirective(_) => {
                 panic!("Expected UnusedRules, got {other:?}")
@@ -408,7 +408,7 @@ query Bar { world }";
 
     #[test]
     fn find_unused_rules_all_rules_unused() {
-        let directives = vec![directive(0, vec!["no_deprecated", "require_id_field"])];
+        let directives = vec![directive(0, vec!["noDeprecated", "requireIdField"])];
         let diag_lines: Vec<(usize, &str)> = vec![];
         let unused = find_unused_rules(&directives, &diag_lines);
         assert_eq!(unused.len(), 1);
@@ -422,8 +422,8 @@ query Bar { world }";
 
     #[test]
     fn find_unused_rules_all_used() {
-        let directives = vec![directive(0, vec!["no_deprecated", "require_id_field"])];
-        let diag_lines = vec![(1, "no_deprecated"), (1, "require_id_field")];
+        let directives = vec![directive(0, vec!["noDeprecated", "requireIdField"])];
+        let diag_lines = vec![(1, "noDeprecated"), (1, "requireIdField")];
         let unused = find_unused_rules(&directives, &diag_lines);
         assert!(unused.is_empty());
     }
@@ -452,14 +452,14 @@ query Bar { world }";
 
     #[test]
     fn find_unused_rules_single_rule_unused() {
-        let directives = vec![directive(0, vec!["no_deprecated"])];
+        let directives = vec![directive(0, vec!["noDeprecated"])];
         let diag_lines: Vec<(usize, &str)> = vec![];
         let unused = find_unused_rules(&directives, &diag_lines);
         assert_eq!(unused.len(), 1);
         match &unused[0] {
             UnusedIgnore::EntireDirective(d) => {
                 let names: Vec<&str> = d.rule_names();
-                assert_eq!(names, vec!["no_deprecated"]);
+                assert_eq!(names, vec!["noDeprecated"]);
             }
             other @ UnusedIgnore::UnusedRules { .. } => {
                 panic!("Expected EntireDirective for single unused rule, got {other:?}")
@@ -469,20 +469,20 @@ query Bar { world }";
 
     #[test]
     fn rule_span_byte_offsets_are_correct() {
-        let source = "# graphql-analyzer-ignore: no_deprecated, require_id_field\nquery { hello }";
+        let source = "# graphql-analyzer-ignore: noDeprecated, requireIdField\nquery { hello }";
         let directives = parse_ignore_directives(source);
         assert_eq!(directives.len(), 1);
         let rules = &directives[0].rules;
         assert_eq!(rules.len(), 2);
-        assert_eq!(rules[0].name, "no_deprecated");
+        assert_eq!(rules[0].name, "noDeprecated");
         assert_eq!(
             &source[rules[0].byte_offset..rules[0].byte_end],
-            "no_deprecated"
+            "noDeprecated"
         );
-        assert_eq!(rules[1].name, "require_id_field");
+        assert_eq!(rules[1].name, "requireIdField");
         assert_eq!(
             &source[rules[1].byte_offset..rules[1].byte_end],
-            "require_id_field"
+            "requireIdField"
         );
     }
 }

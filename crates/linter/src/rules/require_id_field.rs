@@ -55,7 +55,7 @@ pub struct RequireIdFieldRuleImpl;
 
 impl LintRule for RequireIdFieldRuleImpl {
     fn name(&self) -> &'static str {
-        "require_id_field"
+        "requireIdField"
     }
 
     fn description(&self) -> &'static str {
@@ -452,7 +452,7 @@ fn check_selection_set(
                     format!(
                         "Selection set on type '{parent_type_name}' should include the '{required_field}' field"
                     ),
-                    "require_id_field",
+                    "requireIdField",
                 )
                 .with_fix(fix),
             );

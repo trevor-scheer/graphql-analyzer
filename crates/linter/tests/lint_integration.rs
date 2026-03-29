@@ -84,10 +84,10 @@ fn test_lint_named_operation_passes() {
 fn test_lint_config_recommended() {
     let config = LintConfig::recommended();
 
-    // Recommended preset should enable no_anonymous_operations
+    // Recommended preset should enable noAnonymousOperations
     assert!(
-        config.is_enabled("no_anonymous_operations"),
-        "no_anonymous_operations should be enabled in recommended"
+        config.is_enabled("noAnonymousOperations"),
+        "noAnonymousOperations should be enabled in recommended"
     );
 }
 
@@ -98,12 +98,12 @@ fn test_rule_registry_returns_rules() {
     let rule_names: Vec<&str> = rules.iter().map(|r| r.name()).collect();
 
     assert!(
-        rule_names.contains(&"no_anonymous_operations"),
-        "Registry should include no_anonymous_operations"
+        rule_names.contains(&"noAnonymousOperations"),
+        "Registry should include noAnonymousOperations"
     );
     assert!(
-        rule_names.contains(&"unused_variables"),
-        "Registry should include unused_variables"
+        rule_names.contains(&"unusedVariables"),
+        "Registry should include unusedVariables"
     );
 }
 

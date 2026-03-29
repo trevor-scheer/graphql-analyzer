@@ -62,7 +62,7 @@ pub fn run(
         println!("{}", "✓ Documents loaded successfully".green());
     }
 
-    // Get lint diagnostics and filter for no_deprecated rule
+    // Get lint diagnostics and filter for noDeprecated rule
     let spinner = if matches!(format, OutputFormat::Human) {
         Some(crate::progress::spinner(
             "Scanning for deprecated usages...",
@@ -85,8 +85,8 @@ pub fn run(
 
     for (file_path, diagnostics) in all_diagnostics {
         for diag in diagnostics {
-            // Only process no_deprecated rule diagnostics
-            if diag.code.as_deref() != Some("no_deprecated") {
+            // Only process noDeprecated rule diagnostics
+            if diag.code.as_deref() != Some("noDeprecated") {
                 continue;
             }
 

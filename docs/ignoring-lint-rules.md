@@ -19,8 +19,8 @@ query {
 To suppress specific rules only, add a colon followed by a comma-separated list of rule names:
 
 ```graphql
-# Suppress only the no_deprecated rule
-# graphql-analyzer-ignore: no_deprecated
+# Suppress only the noDeprecated rule
+# graphql-analyzer-ignore: noDeprecated
 query GetUser($id: ID!) {
   user(id: $id) {
     email
@@ -31,7 +31,7 @@ query GetUser($id: ID!) {
 Multiple rules can be listed:
 
 ```graphql
-# graphql-analyzer-ignore: no_deprecated, no_anonymous_operations
+# graphql-analyzer-ignore: noDeprecated, noAnonymousOperations
 query {
   post(id: "1") {
     views
@@ -95,15 +95,15 @@ When you list multiple rules in an ignore comment and only some of them fire, th
 For example:
 
 ```graphql
-# graphql-analyzer-ignore: no_deprecated, require_id_field
+# graphql-analyzer-ignore: noDeprecated, requireIdField
 views
 ```
 
-If only `no_deprecated` fires (because `views` is deprecated), the analyzer reports:
+If only `noDeprecated` fires (because `views` is deprecated), the analyzer reports:
 
-> Unused rule 'require_id_field' in graphql-analyzer-ignore directive
+> Unused rule 'requireIdField' in graphql-analyzer-ignore directive
 
-The `no_deprecated` suppression still takes effect — only the unnecessary rule is flagged.
+The `noDeprecated` suppression still takes effect — only the unnecessary rule is flagged.
 
 If **all** listed rules are unused (none of them fire on the next line), you get the standard blanket message instead:
 
@@ -113,19 +113,19 @@ This distinction helps you tell apart stale directives (remove entirely) from ov
 
 ## Rule Names
 
-Rule names in ignore comments use `snake_case`, matching the internal rule identifiers:
+Rule names in ignore comments use `camelCase`, matching the config file format:
 
 | Rule Name                 | Description                           |
 | ------------------------- | ------------------------------------- |
-| `no_anonymous_operations` | Named operations required             |
-| `no_deprecated`           | Deprecated field usage                |
-| `redundant_fields`        | Fields duplicated by fragment spreads |
-| `unused_variables`        | Unused query variables                |
-| `unused_fragments`        | Unused fragment definitions           |
-| `unused_fields`           | Schema fields never queried           |
-| `unique_names`            | Duplicate operation/fragment names    |
-| `require_id_field`        | Missing id field in selections        |
-| `operation_name_suffix`   | Operation name suffix conventions     |
+| `noAnonymousOperations` | Named operations required             |
+| `noDeprecated`           | Deprecated field usage                |
+| `redundantFields`        | Fields duplicated by fragment spreads |
+| `unusedVariables`        | Unused query variables                |
+| `unusedFragments`        | Unused fragment definitions           |
+| `unusedFields`           | Schema fields never queried           |
+| `uniqueNames`            | Duplicate operation/fragment names    |
+| `requireIdField`        | Missing id field in selections        |
+| `operationNameSuffix`   | Operation name suffix conventions     |
 
 ## Configuration vs. Ignore Comments
 
@@ -142,7 +142,7 @@ extensions:
 
 ```graphql
 # Inline - suppress for one specific usage
-# graphql-analyzer-ignore: no_deprecated
+# graphql-analyzer-ignore: noDeprecated
 query GetLegacyUser($id: ID!) {
   user(id: $id) {
     oldEmail

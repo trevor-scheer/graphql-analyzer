@@ -10,7 +10,7 @@ pub struct UniqueNamesRuleImpl;
 
 impl LintRule for UniqueNamesRuleImpl {
     fn name(&self) -> &'static str {
-        "unique_names"
+        "uniqueNames"
     }
 
     fn description(&self) -> &'static str {

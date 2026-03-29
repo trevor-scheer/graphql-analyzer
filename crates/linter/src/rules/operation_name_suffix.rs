@@ -11,7 +11,7 @@ pub struct OperationNameSuffixRuleImpl;
 
 impl LintRule for OperationNameSuffixRuleImpl {
     fn name(&self) -> &'static str {
-        "operation_name_suffix"
+        "operationNameSuffix"
     }
 
     fn description(&self) -> &'static str {
@@ -74,7 +74,7 @@ impl StandaloneDocumentLintRule for OperationNameSuffixRuleImpl {
                                 format!(
                                     "Operation name '{name_text}' should end with '{expected_suffix}'. Consider renaming to '{name_text}{expected_suffix}'."
                                 ),
-                                "operation_name_suffix",
+                                "operationNameSuffix",
                             ));
                         }
                     }
