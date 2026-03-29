@@ -11,4 +11,6 @@ pub use config::{
 pub use env::{interpolate_env_vars, EnvInterpolationError};
 pub use error::{ConfigError, Result};
 pub use loader::{find_config, load_config, load_config_from_str};
-pub use validation::{validate, ConfigValidationError, FileType, Location};
+pub use validation::{
+    validate, ConfigValidationError, FileType, LintValidationContext, Location, Severity,
+};
