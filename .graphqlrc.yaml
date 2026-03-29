@@ -140,3 +140,4 @@ projects:
           noOnePlaceFragments: warn
           descriptionStyle: warn
           inputName: warn
+          noHashtagDescription: warn
