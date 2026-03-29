@@ -299,6 +299,10 @@
             "noHashtagDescription": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Disallows using # comments as type descriptions in schema"
+            },
+            "noTypenamePrefix": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Disallows field names that are prefixed with their parent type name"
             }
           },
           "additionalProperties": {
