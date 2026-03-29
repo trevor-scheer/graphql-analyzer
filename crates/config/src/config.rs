@@ -734,7 +734,7 @@ schema: schema.graphql
 extensions:
   client: apollo
 ";
-        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
         assert_eq!(config.client(), Some(ClientConfig::Apollo));
     }
 
@@ -745,7 +745,7 @@ schema: schema.graphql
 extensions:
   client: relay
 ";
-        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
         assert_eq!(config.client(), Some(ClientConfig::Relay));
     }
 
@@ -756,7 +756,7 @@ schema: schema.graphql
 extensions:
   client: none
 ";
-        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
         assert_eq!(config.client(), Some(ClientConfig::None));
     }
 
@@ -765,7 +765,7 @@ extensions:
         let yaml = r"
 schema: schema.graphql
 ";
-        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
         assert_eq!(config.client(), None);
     }
 
@@ -781,7 +781,7 @@ extensions:
   otherExtension:
     someKey: "someValue"
 "#;
-        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
         assert!(config.extensions.is_some());
         let extensions = config.extensions.unwrap();
         assert!(extensions.contains_key("extractConfig"));
@@ -1026,7 +1026,7 @@ schema:
   retry: 3
 documents: "**/*.graphql"
 "#;
-        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
 
         assert!(config.schema.is_introspection());
         assert!(config.schema.has_remote_schema());
@@ -1051,7 +1051,7 @@ documents: "**/*.graphql"
 schema:
   url: https://api.example.com/graphql
 ";
-        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
 
         assert!(config.schema.is_introspection());
         let introspection = config.schema.introspection_config().unwrap();
@@ -1090,7 +1090,7 @@ schema:
       X-API-Key: my-key
 documents: "**/*.graphql"
 "#;
-        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
 
         assert!(config.schema.is_introspection());
         assert!(config.schema.has_remote_schema());
@@ -1113,7 +1113,7 @@ documents: "**/*.graphql"
 schema:
   https://api.example.com/graphql: {}
 ";
-        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
 
         assert!(config.schema.is_introspection());
         let introspection = config.schema.introspection_config().unwrap();
@@ -1131,7 +1131,7 @@ schema:
     timeout: 60
     retry: 3
 ";
-        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
 
         let introspection = config.schema.introspection_config().unwrap();
         assert_eq!(introspection.url, "https://api.example.com/graphql");
@@ -1147,7 +1147,7 @@ schema:
       headers:
         Authorization: "Bearer token"
 "#;
-        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
 
         assert!(config.schema.is_introspection());
         let introspection = config.schema.introspection_config().unwrap();
@@ -1164,7 +1164,7 @@ schema:
 schema:
   - https://api.example.com/graphql: {}
 ";
-        let config: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
 
         assert!(config.schema.is_introspection());
         let introspection = config.schema.introspection_config().unwrap();
@@ -1195,11 +1195,11 @@ mod schema_sync_tests {
     /// Validate a YAML config string against both serde and JSON schema
     fn validate_config(yaml: &str) -> (bool, bool, String) {
         // Try serde deserialization
-        let serde_result = serde_yaml::from_str::<GraphQLConfig>(yaml);
+        let serde_result = serde_yml::from_str::<GraphQLConfig>(yaml);
         let serde_valid = serde_result.is_ok();
 
         // Convert to JSON for schema validation
-        let json_value: Result<serde_json::Value, _> = serde_yaml::from_str(yaml);
+        let json_value: Result<serde_json::Value, _> = serde_yml::from_str(yaml);
         let schema_valid = if let Ok(value) = json_value {
             let schema = load_schema();
             let compiled = jsonschema::draft7::new(&schema).expect("Failed to compile JSON schema");

@@ -143,7 +143,7 @@ pub fn load_config_from_str(contents: &str, path: &Path) -> Result<GraphQLConfig
 
 /// Parse YAML configuration
 fn parse_yaml(contents: &str, path: &Path) -> Result<GraphQLConfig> {
-    serde_yaml::from_str(contents).map_err(|e| ConfigError::Invalid {
+    serde_yml::from_str(contents).map_err(|e| ConfigError::Invalid {
         path: path.to_path_buf(),
         message: format!("YAML parse error: {e}"),
     })
