@@ -319,6 +319,10 @@
             "requireDescription": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires descriptions on type definitions"
+            },
+            "requireFieldOfTypeQueryInMutationResult": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Requires mutation result types to include a field of the Query type"
             }
           },
           "additionalProperties": {
