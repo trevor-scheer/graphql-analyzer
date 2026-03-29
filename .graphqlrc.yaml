@@ -143,3 +143,4 @@ projects:
           noHashtagDescription: warn
           noTypenamePrefix: warn
           noUnreachableTypes: warn
+          uniqueEnumValueNames: warn

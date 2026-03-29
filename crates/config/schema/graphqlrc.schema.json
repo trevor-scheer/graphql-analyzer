@@ -307,6 +307,10 @@
             "noUnreachableTypes": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Detects types that are not reachable from any root operation type"
+            },
+            "uniqueEnumValueNames": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Detects duplicate enum value names across different enum types"
             }
           },
           "additionalProperties": {
