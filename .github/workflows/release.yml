@@ -288,3 +288,18 @@ jobs:
             echo "Publishing $vsix"
             npx vsce publish --packagePath "$vsix"
           done
+
+  # Update the Homebrew tap formula with the new CLI version
+  update-homebrew-formula:
+    needs: [check-release, release]
+    if: needs.check-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Update Homebrew formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION=$(grep -m1 '^version = ' crates/cli/Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          python3 scripts/update-homebrew-formula.py "$VERSION"
