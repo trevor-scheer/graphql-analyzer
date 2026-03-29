@@ -1,8 +1,9 @@
 /// Registry of all available lint rules
 use crate::rules::{
-    AlphabetizeRuleImpl, NoAnonymousOperationsRuleImpl, NoDeprecatedRuleImpl,
-    OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl, RequireIdFieldRuleImpl,
-    UniqueNamesRuleImpl, UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
+    AlphabetizeRuleImpl, LoneExecutableDefinitionRuleImpl, NoAnonymousOperationsRuleImpl,
+    NoDeprecatedRuleImpl, OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl,
+    RequireIdFieldRuleImpl, UniqueNamesRuleImpl, UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl,
+    UnusedVariablesRuleImpl,
 };
 use crate::traits::{
     DocumentSchemaLintRule, ProjectLintRule, StandaloneDocumentLintRule, StandaloneSchemaLintRule,
@@ -15,6 +16,7 @@ static STANDALONE_DOCUMENT_RULES: LazyLock<Vec<Arc<dyn StandaloneDocumentLintRul
     LazyLock::new(|| {
         vec![
             Arc::new(AlphabetizeRuleImpl),
+            Arc::new(LoneExecutableDefinitionRuleImpl),
             Arc::new(NoAnonymousOperationsRuleImpl),
             Arc::new(OperationNameSuffixRuleImpl),
             Arc::new(RedundantFieldsRuleImpl),
