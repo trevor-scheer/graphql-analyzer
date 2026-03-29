@@ -582,6 +582,7 @@ mod tests {
     use std::io::Write;
     use tempfile::TempDir;
 
+    #[allow(clippy::unnecessary_wraps)]
     fn lint_extensions(
         lint_value: serde_json::Value,
     ) -> Option<StdHashMap<String, serde_json::Value>> {
