@@ -144,3 +144,5 @@ projects:
           noTypenamePrefix: warn
           noUnreachableTypes: warn
           uniqueEnumValueNames: warn
+          requireDeprecationReason: warn
+          requireDescription: warn
