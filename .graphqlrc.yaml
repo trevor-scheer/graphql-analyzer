@@ -134,3 +134,4 @@ projects:
         rules:
           alphabetize: [warn, { selections: true, arguments: true, variables: true }]
           loneExecutableDefinition: warn
+          namingConvention: warn

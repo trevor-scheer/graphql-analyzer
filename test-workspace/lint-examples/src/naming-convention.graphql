@@ -1,0 +1,15 @@
+# Demonstrates: namingConvention
+# Operation names should be PascalCase, variables should be camelCase.
+
+query get_users($UserId: ID!) {
+  user(id: $UserId) {
+    id
+    name
+  }
+}
+
+fragment user_fields on User {
+  id
+  name
+  email
+}
