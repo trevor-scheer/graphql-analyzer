@@ -5,7 +5,8 @@
 use crate::service::McpService;
 use crate::types::{
     DocumentSymbolsParams, FileDiagnosticsParams, FilePositionParams, FindReferencesParams,
-    ValidateDocumentParams, WorkspaceSymbolsParams,
+    IntrospectEndpointParams, OperationsParams, QueryComplexityParams, SchemaSdlParams,
+    SchemaTypesParams, TypeInfoParams, ValidateDocumentParams, WorkspaceSymbolsParams,
 };
 use rmcp::handler::server::tool::{ToolCallContext, ToolRouter};
 use rmcp::handler::server::wrapper::Parameters;
@@ -338,6 +339,160 @@ impl GraphQLToolRouter {
             )])),
         }
     }
+
+    #[tool(
+        name = "get_schema_types",
+        description = "List all types in the schema with their kind and basic metadata. Optionally filter by kind (object, interface, union, enum, scalar, input_object). Returns JSON with {types[{name, kind, description?, field_count, implements?, is_extension?}], count, stats}."
+    )]
+    pub async fn get_schema_types(
+        &self,
+        params: Parameters<SchemaTypesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let service = self.service.lock().await;
+        let result = service.schema_types(params.0.kind.as_deref(), params.0.project.as_deref());
+        match result {
+            Some(types) => {
+                let json = serde_json::to_string(&types).unwrap_or_else(|_| "{}".to_string());
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            None => Ok(CallToolResult::success(vec![Content::text(
+                r#"{"types":[],"count":0,"stats":{"objects":0,"interfaces":0,"unions":0,"enums":0,"scalars":0,"input_objects":0,"total_fields":0,"directives":0}}"#,
+            )])),
+        }
+    }
+
+    #[tool(
+        name = "get_type_info",
+        description = "Get full details about a specific named type including fields, arguments, interfaces, directives, enum values, and union members. Returns JSON with {name, kind, description?, implements?, fields?, directives?, enum_values?, union_members?}."
+    )]
+    pub async fn get_type_info(
+        &self,
+        params: Parameters<TypeInfoParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let service = self.service.lock().await;
+        let result = service.type_info(&params.0.type_name, params.0.project.as_deref());
+        match result {
+            Some(info) => {
+                let json = serde_json::to_string(&info).unwrap_or_else(|_| "{}".to_string());
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            None => Ok(CallToolResult::success(vec![Content::text(format!(
+                r#"{{"error":"Type '{}' not found"}}"#,
+                params.0.type_name
+            ))])),
+        }
+    }
+
+    #[tool(
+        name = "get_schema_sdl",
+        description = "Return the full merged schema as SDL text. This reconstructs SDL from the resolved types with all extensions merged. Returns JSON with {sdl, type_count}."
+    )]
+    pub async fn get_schema_sdl(
+        &self,
+        params: Parameters<SchemaSdlParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let service = self.service.lock().await;
+        let result = service.schema_sdl(params.0.project.as_deref());
+        match result {
+            Some(sdl) => {
+                let json = serde_json::to_string(&sdl).unwrap_or_else(|_| "{}".to_string());
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            None => Ok(CallToolResult::success(vec![Content::text(
+                r#"{"sdl":"","type_count":0}"#,
+            )])),
+        }
+    }
+
+    #[tool(
+        name = "get_operations",
+        description = "Extract all operations from the loaded project with names, types, variables, and fragment dependencies. Optionally filter by file path. Returns JSON with {operations[{name?, operation_type, file, variables?, fragment_dependencies?}], count}."
+    )]
+    pub async fn get_operations(
+        &self,
+        params: Parameters<OperationsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let service = self.service.lock().await;
+        let result = service.operations(params.0.file_path.as_deref(), params.0.project.as_deref());
+        match result {
+            Some(ops) => {
+                let json = serde_json::to_string(&ops).unwrap_or_else(|_| "{}".to_string());
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            None => Ok(CallToolResult::success(vec![Content::text(
+                r#"{"operations":[],"count":0}"#,
+            )])),
+        }
+    }
+
+    #[tool(
+        name = "get_query_complexity",
+        description = "Calculate complexity scores for operations. Returns total complexity, depth, per-field breakdown, and warnings. Optionally filter by operation name. Returns JSON with {operations[{operation_name, operation_type, total_complexity, depth, breakdown, warnings?, file}], count}."
+    )]
+    pub async fn get_query_complexity(
+        &self,
+        params: Parameters<QueryComplexityParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let service = self.service.lock().await;
+        let result = service.query_complexity(
+            params.0.operation_name.as_deref(),
+            params.0.project.as_deref(),
+        );
+        match result {
+            Some(complexity) => {
+                let json = serde_json::to_string(&complexity).unwrap_or_else(|_| "{}".to_string());
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            None => Ok(CallToolResult::success(vec![Content::text(
+                r#"{"operations":[],"count":0}"#,
+            )])),
+        }
+    }
+
+    #[tool(
+        name = "introspect_endpoint",
+        description = "Fetch a schema from a remote GraphQL endpoint via introspection and return the SDL. Supports custom headers for authentication. Returns JSON with {sdl, url}."
+    )]
+    pub async fn introspect_endpoint(
+        &self,
+        params: Parameters<IntrospectEndpointParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Don't hold the service lock during HTTP — run introspection directly
+        let result = run_introspection(&params.0.url, params.0.headers.as_ref()).await;
+        match result {
+            Ok(introspection) => {
+                let json =
+                    serde_json::to_string(&introspection).unwrap_or_else(|_| "{}".to_string());
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                r#"{{"error":"{e}"}}"#
+            ))])),
+        }
+    }
+}
+
+async fn run_introspection(
+    url: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
+) -> Result<crate::types::IntrospectEndpointResult, String> {
+    let mut client = graphql_introspect::IntrospectionClient::new();
+    if let Some(headers) = headers {
+        for (key, value) in headers {
+            client = client.with_header(key, value);
+        }
+    }
+
+    let response = client
+        .execute(url)
+        .await
+        .map_err(|e| format!("Introspection failed: {e}"))?;
+
+    let sdl = graphql_introspect::introspection_to_sdl(&response);
+    Ok(crate::types::IntrospectEndpointResult {
+        sdl,
+        url: url.to_string(),
+    })
 }
 
 impl ServerHandler for GraphQLToolRouter {
@@ -351,8 +506,12 @@ impl ServerHandler for GraphQLToolRouter {
                 "GraphQL MCP server providing schema-aware validation, linting, and code intelligence. \
                  Use validate_document to check if GraphQL operations are valid. \
                  Use lint_document to get best practice suggestions. \
+                 Use get_schema_types, get_type_info, and get_schema_sdl to explore the schema. \
                  Use goto_definition, find_references, hover, document_symbols, workspace_symbols, \
                  and get_completions for code navigation on loaded project files. \
+                 Use get_operations to extract operations with their variables and fragment dependencies. \
+                 Use get_query_complexity to analyze operation complexity. \
+                 Use introspect_endpoint to fetch a schema from a remote URL. \
                  Use get_file_diagnostics for per-file diagnostics.",
             )
     }

@@ -1389,6 +1389,7 @@ dependencies = [
  "anyhow",
  "glob",
  "graphql-config",
+ "graphql-hir",
  "graphql-ide",
  "graphql-introspect",
  "graphql-linter",
