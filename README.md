@@ -16,9 +16,10 @@ Install **[GraphQL Analyzer](https://marketplace.visualstudio.com/items?itemName
 
 ### 2. Configure Your Project
 
-Create a `.graphqlrc.yml` in your project root:
+Create a config file in your project root (`.graphqlrc.yml`, `.graphqlrc.toml`, or `.graphqlrc.json`):
 
 ```yaml
+# .graphqlrc.yml
 schema: "schema.graphql"
 documents: "src/**/*.{graphql,ts,tsx}"
 ```
