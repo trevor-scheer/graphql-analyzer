@@ -95,21 +95,62 @@ export default defineConfig({
           label: "Rules",
           items: [
             { label: "Rules Catalog", slug: "rules/catalog" },
+            { label: "alphabetize", slug: "rules/alphabetize" },
+            { label: "description-style", slug: "rules/description-style" },
+            { label: "input-name", slug: "rules/input-name" },
+            {
+              label: "lone-executable-definition",
+              slug: "rules/lone-executable-definition",
+            },
+            { label: "naming-convention", slug: "rules/naming-convention" },
             {
               label: "no-anonymous-operations",
               slug: "rules/no-anonymous-operations",
             },
             { label: "no-deprecated", slug: "rules/no-deprecated" },
-            { label: "redundant-fields", slug: "rules/redundant-fields" },
-            { label: "require-id-field", slug: "rules/require-id-field" },
-            { label: "unique-names", slug: "rules/unique-names" },
-            { label: "unused-fields", slug: "rules/unused-fields" },
-            { label: "unused-fragments", slug: "rules/unused-fragments" },
-            { label: "unused-variables", slug: "rules/unused-variables" },
+            { label: "no-duplicate-fields", slug: "rules/no-duplicate-fields" },
+            {
+              label: "no-hashtag-description",
+              slug: "rules/no-hashtag-description",
+            },
+            {
+              label: "no-one-place-fragments",
+              slug: "rules/no-one-place-fragments",
+            },
+            {
+              label: "no-scalar-result-type-on-mutation",
+              slug: "rules/no-scalar-result-type-on-mutation",
+            },
+            { label: "no-typename-prefix", slug: "rules/no-typename-prefix" },
+            {
+              label: "no-unreachable-types",
+              slug: "rules/no-unreachable-types",
+            },
             {
               label: "operation-name-suffix",
               slug: "rules/operation-name-suffix",
             },
+            { label: "redundant-fields", slug: "rules/redundant-fields" },
+            {
+              label: "require-deprecation-reason",
+              slug: "rules/require-deprecation-reason",
+            },
+            { label: "require-description", slug: "rules/require-description" },
+            {
+              label: "require-field-of-type-query-in-mutation-result",
+              slug: "rules/require-field-of-type-query-in-mutation-result",
+            },
+            { label: "require-id-field", slug: "rules/require-id-field" },
+            { label: "selection-set-depth", slug: "rules/selection-set-depth" },
+            { label: "strict-id-in-types", slug: "rules/strict-id-in-types" },
+            {
+              label: "unique-enum-value-names",
+              slug: "rules/unique-enum-value-names",
+            },
+            { label: "unique-names", slug: "rules/unique-names" },
+            { label: "unused-fields", slug: "rules/unused-fields" },
+            { label: "unused-fragments", slug: "rules/unused-fragments" },
+            { label: "unused-variables", slug: "rules/unused-variables" },
           ],
         },
         {

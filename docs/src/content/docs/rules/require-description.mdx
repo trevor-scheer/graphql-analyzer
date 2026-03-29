@@ -1,0 +1,41 @@
+---
+title: require-description
+description: Require descriptions on type definitions.
+---
+
+| Property         | Value                   |
+| ---------------- | ----------------------- |
+| Config name      | `requireDescription` |
+| Default severity | `—`                 |
+| Context          | Schema                |
+| In recommended   | No                     |
+
+## What it checks
+
+Require descriptions on type definitions.
+
+## Examples
+
+```graphql
+# ❌ Bad — type without description
+type User {
+  id: ID!
+}
+```
+
+```graphql
+# ✅ Good — type with description
+"Represents a registered user"
+type User {
+  id: ID!
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  lint:
+    rules:
+      requireDescription: warn
+```

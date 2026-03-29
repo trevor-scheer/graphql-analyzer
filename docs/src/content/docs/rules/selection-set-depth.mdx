@@ -1,0 +1,52 @@
+---
+title: selection-set-depth
+description: Limit selection set nesting depth.
+---
+
+| Property         | Value                   |
+| ---------------- | ----------------------- |
+| Config name      | `selectionSetDepth` |
+| Default severity | `—`                 |
+| Context          | Document                |
+| In recommended   | No                     |
+
+## What it checks
+
+Limit selection set nesting depth.
+
+## Examples
+
+```graphql
+# ❌ Bad — too deeply nested
+query Deep {
+  a {
+    b {
+      c {
+        d {
+          id
+        }
+      }
+    }
+  }
+}
+```
+
+```graphql
+# ✅ Good — reasonable depth
+query Shallow {
+  user {
+    posts {
+      id
+    }
+  }
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  lint:
+    rules:
+      selectionSetDepth: [warn, { maxDepth: 3 }]
+```

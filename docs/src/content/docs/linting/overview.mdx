@@ -18,24 +18,41 @@ The `recommended` preset enables rules that are objectively beneficial without b
 
 ## The `recommended` preset
 
-| Rule                    | Severity | Description                                  |
-| ----------------------- | -------- | -------------------------------------------- |
-| `noAnonymousOperations` | error    | Require named operations                     |
-| `noDeprecated`          | warn     | Alert on deprecated field usage              |
-| `redundantFields`       | warn     | Detect fields duplicated by fragment spreads |
-| `unusedFragments`       | warn     | Detect unused fragment definitions           |
-| `unusedFields`          | warn     | Detect unused schema fields                  |
+| Rule                        | Severity | Description                                  |
+| --------------------------- | -------- | -------------------------------------------- |
+| `noAnonymousOperations`     | error    | Require named operations                     |
+| `noDeprecated`              | warn     | Alert on deprecated field usage              |
+| `noDuplicateFields`         | warn     | Disallow duplicate fields in selection sets  |
+| `noHashtagDescription`      | warn     | Disallow # comments as type descriptions     |
+| `noUnreachableTypes`        | warn     | Detect types unreachable from root operations|
+| `redundantFields`           | warn     | Detect fields duplicated by fragment spreads |
+| `requireDeprecationReason`  | warn     | Require reason in @deprecated directives     |
+| `uniqueEnumValueNames`      | warn     | Detect duplicate enum values across enums    |
+| `unusedFragments`           | warn     | Detect unused fragment definitions           |
+| `unusedFields`              | warn     | Detect unused schema fields                  |
 
 ## Additional rules
 
 These rules are available but not in the `recommended` preset — enable them based on your project's needs:
 
-| Rule                  | Description                                |
-| --------------------- | ------------------------------------------ |
-| `uniqueNames`         | Ensure operation/fragment names are unique |
-| `requireIdField`      | Require `id` field for cache normalization |
-| `operationNameSuffix` | Enforce operation name conventions         |
-| `unusedVariables`     | Detect unused query variables              |
+| Rule                                        | Description                                |
+| ------------------------------------------- | ------------------------------------------ |
+| `alphabetize`                               | Enforce alphabetical ordering              |
+| `descriptionStyle`                          | Enforce block vs inline description style  |
+| `inputName`                                 | Require configurable suffix on input types |
+| `loneExecutableDefinition`                  | Require one operation or fragment per file |
+| `namingConvention`                          | Enforce naming conventions                 |
+| `noOnePlaceFragments`                       | Detect fragments used in only one place    |
+| `noScalarResultTypeOnMutation`              | Require mutations to return object types   |
+| `noTypenamePrefix`                          | Disallow field names prefixed with type name|
+| `operationNameSuffix`                       | Enforce operation name conventions         |
+| `requireDescription`                        | Require descriptions on type definitions   |
+| `requireFieldOfTypeQueryInMutationResult`   | Require Query field in mutation results    |
+| `requireIdField`                            | Require `id` field for cache normalization |
+| `selectionSetDepth`                         | Limit selection set nesting depth          |
+| `strictIdInTypes`                           | Require ID field in object types           |
+| `uniqueNames`                               | Ensure operation/fragment names are unique |
+| `unusedVariables`                            | Detect unused query variables              |
 
 See the [Rules Catalog](/graphql-analyzer/rules/catalog/) for details on each rule.
 

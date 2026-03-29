@@ -1,0 +1,42 @@
+---
+title: no-typename-prefix
+description: Disallow field names prefixed with type name.
+---
+
+| Property         | Value                   |
+| ---------------- | ----------------------- |
+| Config name      | `noTypenamePrefix` |
+| Default severity | `—`                 |
+| Context          | Schema                |
+| In recommended   | No                     |
+
+## What it checks
+
+Disallow field names prefixed with type name.
+
+## Examples
+
+```graphql
+# ❌ Bad — field prefixed with type name
+type User {
+  userId: ID!
+  userName: String
+}
+```
+
+```graphql
+# ✅ Good — clean field names
+type User {
+  id: ID!
+  name: String
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  lint:
+    rules:
+      noTypenamePrefix: warn
+```

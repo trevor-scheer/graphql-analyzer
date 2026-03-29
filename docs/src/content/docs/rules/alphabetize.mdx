@@ -1,0 +1,48 @@
+---
+title: alphabetize
+description: Enforce alphabetical ordering of selections, arguments, and variables.
+---
+
+| Property         | Value                   |
+| ---------------- | ----------------------- |
+| Config name      | `alphabetize` |
+| Default severity | `—`                 |
+| Context          | Document                |
+| In recommended   | No                     |
+
+## What it checks
+
+Enforce alphabetical ordering of selections, arguments, and variables.
+
+## Examples
+
+```graphql
+# ❌ Bad — unsorted fields
+query GetUser {
+  user {
+    name
+    id
+    email
+  }
+}
+```
+
+```graphql
+# ✅ Good — alphabetized fields
+query GetUser {
+  user {
+    email
+    id
+    name
+  }
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  lint:
+    rules:
+      alphabetize: [warn, { selections: true, arguments: true, variables: true }]
+```
