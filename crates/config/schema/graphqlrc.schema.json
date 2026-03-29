@@ -323,6 +323,10 @@
             "requireFieldOfTypeQueryInMutationResult": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires mutation result types to include a field of the Query type"
+            },
+            "strictIdInTypes": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Requires object types to have an ID field"
             }
           },
           "additionalProperties": {

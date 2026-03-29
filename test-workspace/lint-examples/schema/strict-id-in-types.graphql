@@ -1,0 +1,30 @@
+# Demonstrates: strictIdInTypes
+# These object types are missing an 'id' field of type ID.
+
+"""
+A metric data point
+"""
+type Metric {
+  """
+  Metric name
+  """
+  name: String!
+  """
+  Metric value
+  """
+  value: Float!
+}
+
+"""
+A coordinate pair
+"""
+type Coordinate {
+  """
+  Latitude
+  """
+  lat: Float!
+  """
+  Longitude
+  """
+  lng: Float!
+}
