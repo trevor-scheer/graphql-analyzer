@@ -1,10 +1,10 @@
 /// Registry of all available lint rules
 use crate::rules::{
-    AlphabetizeRuleImpl, LoneExecutableDefinitionRuleImpl, NamingConventionRuleImpl,
-    NoAnonymousOperationsRuleImpl, NoDeprecatedRuleImpl, NoDuplicateFieldsRuleImpl,
-    NoOnePlaceFragmentsRuleImpl, OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl,
-    RequireIdFieldRuleImpl, SelectionSetDepthRuleImpl, UniqueNamesRuleImpl, UnusedFieldsRuleImpl,
-    UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
+    AlphabetizeRuleImpl, DescriptionStyleRuleImpl, LoneExecutableDefinitionRuleImpl,
+    NamingConventionRuleImpl, NoAnonymousOperationsRuleImpl, NoDeprecatedRuleImpl,
+    NoDuplicateFieldsRuleImpl, NoOnePlaceFragmentsRuleImpl, OperationNameSuffixRuleImpl,
+    RedundantFieldsRuleImpl, RequireIdFieldRuleImpl, SelectionSetDepthRuleImpl,
+    UniqueNamesRuleImpl, UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
 };
 use crate::traits::{
     DocumentSchemaLintRule, ProjectLintRule, StandaloneDocumentLintRule, StandaloneSchemaLintRule,
@@ -52,7 +52,7 @@ static PROJECT_RULES: LazyLock<Vec<Arc<dyn ProjectLintRule>>> = LazyLock::new(||
 /// Lazily initialized standalone schema rules.
 /// Rules are created once and reused across all calls.
 static STANDALONE_SCHEMA_RULES: LazyLock<Vec<Arc<dyn StandaloneSchemaLintRule>>> =
-    LazyLock::new(Vec::new);
+    LazyLock::new(|| vec![Arc::new(DescriptionStyleRuleImpl)]);
 
 #[must_use]
 pub fn standalone_document_rules() -> &'static [Arc<dyn StandaloneDocumentLintRule>] {

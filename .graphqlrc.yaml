@@ -138,3 +138,4 @@ projects:
           noDuplicateFields: warn
           selectionSetDepth: [warn, { maxDepth: 3 }]
           noOnePlaceFragments: warn
+          descriptionStyle: warn
