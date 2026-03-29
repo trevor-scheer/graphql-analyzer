@@ -1,11 +1,27 @@
 ---
 title: Embedded GraphQL
-description: Full IDE support for GraphQL in TypeScript and JavaScript files.
+description: Full IDE support for GraphQL in TypeScript, JavaScript, Vue, Svelte, and Astro files.
 ---
 
-GraphQL Analyzer provides full IDE support for GraphQL embedded in TypeScript and JavaScript files via tagged template literals.
+GraphQL Analyzer provides full IDE support for GraphQL embedded in TypeScript, JavaScript, Vue, Svelte, and Astro files via tagged template literals.
 
-## Supported patterns
+## Supported file types
+
+| File type               | Extensions                   | How GraphQL is found                                    |
+| ----------------------- | ---------------------------- | ------------------------------------------------------- |
+| TypeScript / JavaScript | `.ts`, `.tsx`, `.js`, `.jsx` | Tagged template literals (`gql`, `graphql`)             |
+| Vue                     | `.vue`                       | `<script>` / `<script setup>` blocks → tagged templates |
+| Svelte                  | `.svelte`                    | `<script>` blocks → tagged templates                    |
+| Astro                   | `.astro`                     | Frontmatter (`---`) section → tagged templates          |
+
+All IDE features work inside embedded GraphQL regardless of file type:
+
+- Diagnostics at correct positions
+- Go to definition
+- Find references
+- Hover information
+
+## TypeScript / JavaScript
 
 ```typescript
 import { gql } from "graphql-tag";
@@ -20,16 +36,68 @@ const query = gql`
 `;
 ```
 
-All IDE features work inside the template literal:
+## Vue Single File Components
 
-- Diagnostics at correct positions
-- Go to definition
-- Find references
-- Hover information
+GraphQL is extracted from `<script>` and `<script setup>` blocks, including `lang="ts"` variants:
+
+```vue
+<script setup lang="ts">
+import { gql } from "graphql-tag";
+
+const query = gql`
+  query GetUser($id: ID!) {
+    user(id: $id) {
+      id
+      name
+    }
+  }
+`;
+</script>
+
+<template>
+  <!-- ... -->
+</template>
+```
+
+## Svelte components
+
+GraphQL is extracted from `<script>` blocks, including `lang="ts"` and `context="module"` variants:
+
+```svelte
+<script lang="ts">
+  import { gql } from "graphql-tag";
+
+  const query = gql`
+    query GetUser($id: ID!) {
+      user(id: $id) { id name }
+    }
+  `;
+</script>
+```
+
+## Astro pages
+
+GraphQL is extracted from the frontmatter section (between `---` fences):
+
+```astro
+---
+import { gql } from "graphql-tag";
+
+const query = gql`
+  query GetUser($id: ID!) {
+    user(id: $id) { id name }
+  }
+`;
+---
+
+<html>
+  <!-- ... -->
+</html>
+```
 
 ## How it works
 
-The analyzer extracts GraphQL from tagged template literals and maps positions between the TypeScript/JavaScript file and the extracted GraphQL. This means error positions, go-to-definition targets, and hover information all point to the correct location in your source file.
+The analyzer extracts GraphQL from tagged template literals and maps positions between the source file and the extracted GraphQL. For Vue, Svelte, and Astro files, `<script>` blocks (or frontmatter) are first extracted, then processed through the same TypeScript/JavaScript pipeline. This means error positions, go-to-definition targets, and hover information all point to the correct location in your source file.
 
 ## Configuring extraction
 
@@ -60,3 +128,11 @@ import { gql } from "custom-unknown-module";
 ```
 
 Add custom modules to `extractConfig.modules` in your config.
+
+**GraphQL not detected in Vue/Svelte/Astro files?**
+
+Make sure your `documents` glob includes the file extensions:
+
+```yaml
+documents: "src/**/*.{graphql,ts,tsx,vue,svelte,astro}"
+```

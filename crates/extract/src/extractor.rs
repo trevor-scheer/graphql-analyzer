@@ -111,7 +111,8 @@ pub fn extract_from_source(
         Language::TypeScript | Language::JavaScript => {
             extract_from_js_family(source, language, config, path)
         }
-        _ => Err(ExtractError::UnsupportedLanguage(language)),
+        Language::Vue | Language::Svelte => extract_from_sfc(source, config, path),
+        Language::Astro => extract_from_astro(source, config, path),
     }
 }
 
@@ -164,6 +165,197 @@ fn extract_from_js_family(
     module.visit_with(&mut visitor);
 
     Ok(visitor.extracted)
+}
+
+/// A script block extracted from a Vue/Svelte SFC or Astro frontmatter.
+struct ScriptBlock<'a> {
+    content: &'a str,
+    /// Byte offset of the script content within the original file
+    offset: usize,
+    /// Whether the script content is TypeScript
+    is_typescript: bool,
+}
+
+/// Extract GraphQL from a Vue or Svelte single-file component.
+///
+/// Finds `<script>` blocks (including `<script setup>` in Vue), determines
+/// the language from the `lang` attribute, extracts the inner content, and
+/// passes it through the JS/TS extraction pipeline.
+fn extract_from_sfc(
+    source: &str,
+    config: &ExtractConfig,
+    path: &str,
+) -> Result<Vec<ExtractedGraphQL>> {
+    let blocks = find_script_blocks(source);
+    if blocks.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut results = Vec::new();
+    for block in &blocks {
+        let script_lang = if block.is_typescript {
+            Language::TypeScript
+        } else {
+            Language::JavaScript
+        };
+        let extracted = extract_from_js_family(block.content, script_lang, config, path)?;
+        for mut item in extracted {
+            item.location.offset += block.offset;
+            item.location.range = Range::new(
+                position_from_offset(source, item.location.offset),
+                position_from_offset(source, item.location.offset + item.location.length),
+            );
+            results.push(item);
+        }
+    }
+
+    Ok(results)
+}
+
+/// Extract GraphQL from an Astro file's frontmatter (between `---` fences).
+///
+/// Astro frontmatter is always TypeScript.
+fn extract_from_astro(
+    source: &str,
+    config: &ExtractConfig,
+    path: &str,
+) -> Result<Vec<ExtractedGraphQL>> {
+    let Some(block) = find_astro_frontmatter(source) else {
+        return Ok(Vec::new());
+    };
+
+    let extracted = extract_from_js_family(block.content, Language::TypeScript, config, path)?;
+    let mut results = Vec::new();
+    for mut item in extracted {
+        item.location.offset += block.offset;
+        item.location.range = Range::new(
+            position_from_offset(source, item.location.offset),
+            position_from_offset(source, item.location.offset + item.location.length),
+        );
+        results.push(item);
+    }
+
+    Ok(results)
+}
+
+/// Find the Astro frontmatter block (content between the first `---` pair).
+fn find_astro_frontmatter(source: &str) -> Option<ScriptBlock<'_>> {
+    // Astro frontmatter starts at the very beginning with `---`
+    let trimmed = source.trim_start();
+    let leading_whitespace = source.len() - trimmed.len();
+
+    if !trimmed.starts_with("---") {
+        return None;
+    }
+
+    let fence_start = leading_whitespace;
+    let content_start = fence_start + 3;
+    // Skip the newline after the opening fence
+    let content_start = source[content_start..]
+        .find('\n')
+        .map_or(content_start, |i| content_start + i + 1);
+
+    // Find the closing fence
+    let rest = &source[content_start..];
+    // Look for `---` on its own line
+    for (i, line) in rest.lines().enumerate() {
+        if line.trim() == "---" {
+            let line_offset: usize = rest.lines().take(i).map(|l| l.len() + 1).sum();
+            let content = &source[content_start..content_start + line_offset];
+            return Some(ScriptBlock {
+                content,
+                offset: content_start,
+                is_typescript: true,
+            });
+        }
+    }
+
+    None
+}
+
+/// Find `<script>` blocks in a Vue or Svelte SFC.
+fn find_script_blocks(source: &str) -> Vec<ScriptBlock<'_>> {
+    let mut blocks = Vec::new();
+    let mut search_from = 0;
+
+    while search_from < source.len() {
+        let rest = &source[search_from..];
+
+        // Find opening <script tag (case-insensitive)
+        let open_tag_start = match rest
+            .as_bytes()
+            .windows(7)
+            .position(|w| w.eq_ignore_ascii_case(b"<script"))
+        {
+            Some(pos) => search_from + pos,
+            None => break,
+        };
+
+        // Find the end of the opening tag `>`
+        let tag_content_start = open_tag_start + 7;
+        let tag_rest = &source[tag_content_start..];
+        let tag_end = match tag_rest.find('>') {
+            Some(pos) => tag_content_start + pos,
+            None => break,
+        };
+
+        // Parse attributes from the opening tag
+        let attrs = &source[tag_content_start..tag_end];
+
+        // In Vue, skip <script> blocks that don't have setup or lang attrs
+        // that indicate it's a plain script (both <script> and <script setup> are valid)
+        let is_typescript = detect_script_lang_typescript(attrs);
+
+        let content_start = tag_end + 1;
+
+        // Find closing </script> tag
+        let close_rest = &source[content_start..];
+        let close_pos = match close_rest
+            .as_bytes()
+            .windows(9)
+            .position(|w| w.eq_ignore_ascii_case(b"</script>"))
+        {
+            Some(pos) => content_start + pos,
+            None => break,
+        };
+
+        let content = &source[content_start..close_pos];
+        blocks.push(ScriptBlock {
+            content,
+            offset: content_start,
+            is_typescript,
+        });
+
+        search_from = close_pos + 9;
+    }
+
+    blocks
+}
+
+/// Detect if a script tag's attributes indicate TypeScript.
+///
+/// Returns true for `lang="ts"`, `lang="typescript"`, or when the attribute
+/// is absent (defaulting to TS since most modern projects use TypeScript).
+fn detect_script_lang_typescript(attrs: &str) -> bool {
+    // Extract the lang attribute value
+    if let Some(lang_pos) = attrs.find("lang") {
+        let after_lang = &attrs[lang_pos + 4..];
+        let after_eq = after_lang.trim_start().strip_prefix('=');
+        if let Some(after_eq) = after_eq {
+            let after_eq = after_eq.trim_start();
+            let lang_value = if let Some(stripped) = after_eq.strip_prefix('"') {
+                stripped.split('"').next()
+            } else if let Some(stripped) = after_eq.strip_prefix('\'') {
+                stripped.split('\'').next()
+            } else {
+                after_eq.split_whitespace().next()
+            };
+            return matches!(lang_value, Some("ts" | "typescript" | "tsx"));
+        }
+    }
+
+    // No lang attribute: Vue and Svelte default to JS per framework specs
+    false
 }
 
 /// Visitor to extract GraphQL from JavaScript/TypeScript AST
@@ -1001,6 +1193,381 @@ const query = gql`query GetUser { user { id } }`;
 
             assert_eq!(result.len(), 1);
             assert!(result[0].source.contains("query GetUser"));
+        }
+    }
+
+    mod vue_tests {
+        use super::*;
+
+        #[test]
+        fn test_extract_from_vue_sfc_with_ts() {
+            let source = r#"<template>
+  <div>{{ data?.user?.name }}</div>
+</template>
+
+<script lang="ts">
+import { gql } from 'graphql-tag';
+
+const GET_USER = gql`
+  query GetUser($id: ID!) {
+    user(id: $id) {
+      id
+      name
+    }
+  }
+`;
+
+export default {
+  data() { return {}; }
+};
+</script>
+"#;
+            let config = ExtractConfig::default();
+            let result = extract_from_source(source, Language::Vue, &config, "test.vue").unwrap();
+
+            assert_eq!(result.len(), 1);
+            assert!(result[0].source.contains("query GetUser"));
+            assert_eq!(result[0].tag_name, Some("gql".to_string()));
+            // Offset should point into the original file, past the <template> and <script> tag
+            assert!(result[0].location.offset > 50);
+        }
+
+        #[test]
+        fn test_extract_from_vue_sfc_with_js() {
+            let source = r"<template>
+  <div>Hello</div>
+</template>
+
+<script>
+import { gql } from '@apollo/client';
+
+const QUERY = gql`query GetPosts { posts { id } }`;
+</script>
+";
+            let config = ExtractConfig::default();
+            let result = extract_from_source(source, Language::Vue, &config, "test.vue").unwrap();
+
+            assert_eq!(result.len(), 1);
+            assert!(result[0].source.contains("query GetPosts"));
+        }
+
+        #[test]
+        fn test_extract_from_vue_script_setup() {
+            let source = r#"<script setup lang="ts">
+import { gql } from 'graphql-tag';
+
+const GET_DATA = gql`
+  query GetData {
+    items { id name }
+  }
+`;
+</script>
+
+<template>
+  <div>Hello</div>
+</template>
+"#;
+            let config = ExtractConfig::default();
+            let result = extract_from_source(source, Language::Vue, &config, "test.vue").unwrap();
+
+            assert_eq!(result.len(), 1);
+            assert!(result[0].source.contains("query GetData"));
+        }
+
+        #[test]
+        fn test_extract_from_vue_both_script_blocks() {
+            let source = r#"<script lang="ts">
+import { gql } from 'graphql-tag';
+const FRAGMENT = gql`fragment UserFields on User { id name }`;
+</script>
+
+<script setup lang="ts">
+import { gql } from 'graphql-tag';
+const QUERY = gql`query GetUser { user { ...UserFields } }`;
+</script>
+
+<template><div /></template>
+"#;
+            let config = ExtractConfig::default();
+            let result = extract_from_source(source, Language::Vue, &config, "test.vue").unwrap();
+
+            assert_eq!(result.len(), 2);
+            assert!(result[0].source.contains("fragment UserFields"));
+            assert!(result[1].source.contains("query GetUser"));
+        }
+
+        #[test]
+        fn test_vue_no_script_block() {
+            let source = r"<template>
+  <div>Template only component</div>
+</template>
+
+<style scoped>
+div { color: red; }
+</style>
+";
+            let config = ExtractConfig::default();
+            let result = extract_from_source(source, Language::Vue, &config, "test.vue").unwrap();
+
+            assert!(result.is_empty());
+        }
+
+        #[test]
+        fn test_vue_offset_maps_to_original_file() {
+            let source = r#"<template><div /></template>
+
+<script lang="ts">
+import { gql } from 'graphql-tag';
+const Q = gql`query Test { field }`;
+</script>
+"#;
+            let config = ExtractConfig::default();
+            let result = extract_from_source(source, Language::Vue, &config, "test.vue").unwrap();
+
+            assert_eq!(result.len(), 1);
+            let loc = &result[0].location;
+            // The offset should point to the GraphQL content in the original file
+            let extracted_from_original = &source[loc.offset..loc.offset + loc.length];
+            assert_eq!(extracted_from_original, result[0].source);
+        }
+    }
+
+    mod svelte_tests {
+        use super::*;
+
+        #[test]
+        fn test_extract_from_svelte_with_ts() {
+            let source = r#"<script lang="ts">
+  import { gql } from 'graphql-tag';
+
+  const GET_USER = gql`
+    query GetUser {
+      user { id name }
+    }
+  `;
+</script>
+
+<main>
+  <h1>Hello</h1>
+</main>
+"#;
+            let config = ExtractConfig::default();
+            let result =
+                extract_from_source(source, Language::Svelte, &config, "test.svelte").unwrap();
+
+            assert_eq!(result.len(), 1);
+            assert!(result[0].source.contains("query GetUser"));
+        }
+
+        #[test]
+        fn test_extract_from_svelte_with_js() {
+            let source = r"<script>
+  import { gql } from '@apollo/client';
+
+  const QUERY = gql`query GetPosts { posts { id } }`;
+</script>
+
+<p>Content</p>
+";
+            let config = ExtractConfig::default();
+            let result =
+                extract_from_source(source, Language::Svelte, &config, "test.svelte").unwrap();
+
+            assert_eq!(result.len(), 1);
+            assert!(result[0].source.contains("query GetPosts"));
+        }
+
+        #[test]
+        fn test_svelte_context_module_script() {
+            // Svelte allows <script context="module"> for module-level code
+            let source = r#"<script context="module" lang="ts">
+  import { gql } from 'graphql-tag';
+  export const SHARED = gql`query Shared { config { version } }`;
+</script>
+
+<script lang="ts">
+  import { gql } from 'graphql-tag';
+  const LOCAL = gql`query Local { user { id } }`;
+</script>
+
+<p>Content</p>
+"#;
+            let config = ExtractConfig::default();
+            let result =
+                extract_from_source(source, Language::Svelte, &config, "test.svelte").unwrap();
+
+            assert_eq!(result.len(), 2);
+            assert!(result[0].source.contains("query Shared"));
+            assert!(result[1].source.contains("query Local"));
+        }
+
+        #[test]
+        fn test_svelte_no_script_block() {
+            let source = r"<p>Just markup</p>";
+            let config = ExtractConfig::default();
+            let result =
+                extract_from_source(source, Language::Svelte, &config, "test.svelte").unwrap();
+            assert!(result.is_empty());
+        }
+
+        #[test]
+        fn test_svelte_offset_maps_to_original_file() {
+            let source = r#"<script lang="ts">
+import { gql } from 'graphql-tag';
+const Q = gql`query Test { field }`;
+</script>
+
+<p>Content</p>
+"#;
+            let config = ExtractConfig::default();
+            let result =
+                extract_from_source(source, Language::Svelte, &config, "test.svelte").unwrap();
+
+            assert_eq!(result.len(), 1);
+            let loc = &result[0].location;
+            let extracted_from_original = &source[loc.offset..loc.offset + loc.length];
+            assert_eq!(extracted_from_original, result[0].source);
+        }
+    }
+
+    mod astro_tests {
+        use super::*;
+
+        #[test]
+        fn test_extract_from_astro_frontmatter() {
+            let source = r"---
+import { gql } from 'graphql-tag';
+
+const GET_DATA = gql`
+  query GetData {
+    posts { id title }
+  }
+`;
+---
+
+<html>
+  <body>
+    <h1>Hello</h1>
+  </body>
+</html>
+";
+            let config = ExtractConfig::default();
+            let result =
+                extract_from_source(source, Language::Astro, &config, "test.astro").unwrap();
+
+            assert_eq!(result.len(), 1);
+            assert!(result[0].source.contains("query GetData"));
+        }
+
+        #[test]
+        fn test_astro_no_frontmatter() {
+            let source = r"<html><body><h1>Hello</h1></body></html>";
+            let config = ExtractConfig::default();
+            let result =
+                extract_from_source(source, Language::Astro, &config, "test.astro").unwrap();
+            assert!(result.is_empty());
+        }
+
+        #[test]
+        fn test_astro_multiple_queries() {
+            let source = r"---
+import { gql } from '@apollo/client';
+
+const QUERY1 = gql`query Q1 { users { id } }`;
+const QUERY2 = gql`query Q2 { posts { id } }`;
+---
+
+<html><body /></html>
+";
+            let config = ExtractConfig::default();
+            let result =
+                extract_from_source(source, Language::Astro, &config, "test.astro").unwrap();
+
+            assert_eq!(result.len(), 2);
+            assert!(result[0].source.contains("query Q1"));
+            assert!(result[1].source.contains("query Q2"));
+        }
+
+        #[test]
+        fn test_astro_offset_maps_to_original_file() {
+            let source = r"---
+import { gql } from 'graphql-tag';
+const Q = gql`query Test { field }`;
+---
+
+<html><body /></html>
+";
+            let config = ExtractConfig::default();
+            let result =
+                extract_from_source(source, Language::Astro, &config, "test.astro").unwrap();
+
+            assert_eq!(result.len(), 1);
+            let loc = &result[0].location;
+            let extracted_from_original = &source[loc.offset..loc.offset + loc.length];
+            assert_eq!(extracted_from_original, result[0].source);
+        }
+
+        #[test]
+        fn test_astro_empty_frontmatter() {
+            let source = r"---
+---
+
+<html><body /></html>
+";
+            let config = ExtractConfig::default();
+            let result =
+                extract_from_source(source, Language::Astro, &config, "test.astro").unwrap();
+            assert!(result.is_empty());
+        }
+    }
+
+    mod script_block_tests {
+        use super::*;
+
+        #[test]
+        fn test_find_script_blocks_basic() {
+            let source = r#"<script lang="ts">
+const x = 1;
+</script>"#;
+            let blocks = find_script_blocks(source);
+            assert_eq!(blocks.len(), 1);
+            assert!(blocks[0].is_typescript);
+            assert!(blocks[0].content.contains("const x = 1;"));
+        }
+
+        #[test]
+        fn test_find_script_blocks_no_lang() {
+            let source = r"<script>
+const x = 1;
+</script>";
+            let blocks = find_script_blocks(source);
+            assert_eq!(blocks.len(), 1);
+            assert!(!blocks[0].is_typescript);
+        }
+
+        #[test]
+        fn test_detect_lang_variants() {
+            assert!(detect_script_lang_typescript(r#" lang="ts""#));
+            assert!(detect_script_lang_typescript(r#" lang="typescript""#));
+            assert!(detect_script_lang_typescript(r#" lang="tsx""#));
+            assert!(detect_script_lang_typescript(r" lang='ts'"));
+            assert!(!detect_script_lang_typescript(r#" lang="js""#));
+            assert!(!detect_script_lang_typescript(""));
+        }
+
+        #[test]
+        fn test_find_astro_frontmatter() {
+            let source = "---\nconst x = 1;\n---\n<html />";
+            let block = find_astro_frontmatter(source).unwrap();
+            assert!(block.is_typescript);
+            assert!(block.content.contains("const x = 1;"));
+            assert_eq!(block.offset, 4); // after "---\n"
+        }
+
+        #[test]
+        fn test_no_astro_frontmatter() {
+            let source = "<html><body /></html>";
+            assert!(find_astro_frontmatter(source).is_none());
         }
     }
 }

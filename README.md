@@ -2,7 +2,7 @@
 
 A fast, Rust-powered GraphQL tooling suite with IDE support, CLI validation, and AI agent integration.
 
-GraphQL Analyzer provides real-time validation, navigation, and linting for GraphQL projects. It works with pure `.graphql` files and embedded GraphQL in TypeScript/JavaScript, with full support for multi-project workspaces and remote schema introspection.
+GraphQL Analyzer provides real-time validation, navigation, and linting for GraphQL projects. It works with pure `.graphql` files and embedded GraphQL in TypeScript/JavaScript, Vue, Svelte, and Astro components, with full support for multi-project workspaces and remote schema introspection.
 
 Under the hood, the analyzer uses a query-based architecture with incremental computation via [Salsa](https://github.com/salsa-rs/salsa). This means only the parts of your project affected by a change are recomputed, keeping the IDE responsive even in large codebases.
 
@@ -21,12 +21,12 @@ Create a config file in your project root (`.graphqlrc.yml`, `.graphqlrc.toml`, 
 ```yaml
 # .graphqlrc.yml
 schema: "schema.graphql"
-documents: "src/**/*.{graphql,ts,tsx}"
+documents: "src/**/*.{graphql,ts,tsx,vue,svelte,astro}"
 ```
 
 ### 3. Start Coding
 
-Open any GraphQL file or TypeScript/JavaScript file with embedded GraphQL. You'll get:
+Open any GraphQL file, TypeScript/JavaScript file, or Vue/Svelte/Astro component with embedded GraphQL. You'll get:
 
 - **Real-time validation** - Instant feedback on errors
 - **Go to definition** - Jump to types, fragments, and fields
@@ -61,7 +61,7 @@ For full CLI documentation, see the **[CLI README](crates/cli/README.md)**.
 
 ```yaml
 schema: "schema.graphql"
-documents: "src/**/*.{graphql,ts,tsx}"
+documents: "src/**/*.{graphql,ts,tsx,vue,svelte,astro}"
 
 extensions:
   lint:

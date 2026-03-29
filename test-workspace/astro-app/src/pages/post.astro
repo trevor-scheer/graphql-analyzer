@@ -1,0 +1,35 @@
+---
+import { gql } from "graphql-tag";
+
+const GET_POST = gql`
+  query GetPost($id: ID!) {
+    post(id: $id) {
+      id
+      title
+      body
+      author {
+        id
+        name
+      }
+    }
+  }
+`;
+
+const CREATE_POST = gql`
+  mutation CreatePost($title: String!, $body: String!) {
+    createPost(title: $title, body: $body) {
+      id
+      title
+    }
+  }
+`;
+
+const postId = Astro.params.id;
+---
+
+<html>
+  <head><title>Post</title></head>
+  <body>
+    <h1>Post {postId}</h1>
+  </body>
+</html>
