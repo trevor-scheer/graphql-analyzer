@@ -275,6 +275,10 @@
             "namingConvention": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Enforces naming conventions for operations, fragments, and variables"
+            },
+            "noDuplicateFields": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Disallows duplicate fields within the same selection set"
             }
           },
           "additionalProperties": {

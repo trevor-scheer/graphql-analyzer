@@ -135,3 +135,4 @@ projects:
           alphabetize: [warn, { selections: true, arguments: true, variables: true }]
           loneExecutableDefinition: warn
           namingConvention: warn
+          noDuplicateFields: warn
