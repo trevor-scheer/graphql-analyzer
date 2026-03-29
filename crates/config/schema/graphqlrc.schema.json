@@ -11,9 +11,7 @@
     {
       "description": "Multi-project configuration",
       "type": "object",
-      "required": [
-        "projects"
-      ],
+      "required": ["projects"],
       "properties": {
         "projects": {
           "type": "object",
@@ -28,9 +26,7 @@
   "definitions": {
     "ProjectConfig": {
       "type": "object",
-      "required": [
-        "schema"
-      ],
+      "required": ["schema"],
       "properties": {
         "schema": {
           "$ref": "#/definitions/SchemaConfig",
@@ -113,9 +109,7 @@
     "IntrospectionSchemaConfig": {
       "type": "object",
       "description": "Configuration for introspecting a remote GraphQL endpoint",
-      "required": [
-        "url"
-      ],
+      "required": ["url"],
       "properties": {
         "url": {
           "type": "string",
@@ -159,11 +153,7 @@
     "ClientConfig": {
       "type": "string",
       "description": "GraphQL client library. Determines which client-side directives are available for validation.",
-      "enum": [
-        "apollo",
-        "relay",
-        "none"
-      ]
+      "enum": ["apollo", "relay", "none"]
     },
     "ExtractConfig": {
       "type": "object",
@@ -180,10 +170,7 @@
           "items": {
             "type": "string"
           },
-          "default": [
-            "gql",
-            "graphql"
-          ]
+          "default": ["gql", "graphql"]
         },
         "modules": {
           "type": "array",
@@ -212,9 +199,7 @@
       "oneOf": [
         {
           "type": "string",
-          "enum": [
-            "recommended"
-          ],
+          "enum": ["recommended"],
           "description": "Use a preset: lint: recommended"
         },
         {
@@ -222,9 +207,7 @@
           "description": "Use multiple presets: lint: [recommended]",
           "items": {
             "type": "string",
-            "enum": [
-              "recommended"
-            ]
+            "enum": ["recommended"]
           }
         },
         {
@@ -298,9 +281,7 @@
       "oneOf": [
         {
           "type": "string",
-          "enum": [
-            "recommended"
-          ],
+          "enum": ["recommended"],
           "description": "Single preset: extends: recommended"
         },
         {
@@ -308,9 +289,7 @@
           "description": "Multiple presets: extends: [recommended]",
           "items": {
             "type": "string",
-            "enum": [
-              "recommended"
-            ]
+            "enum": ["recommended"]
           }
         }
       ]
@@ -341,9 +320,7 @@
         {
           "type": "object",
           "description": "Object style: { severity: warn, options: {...} }",
-          "required": [
-            "severity"
-          ],
+          "required": ["severity"],
           "properties": {
             "severity": {
               "$ref": "#/definitions/LintSeverity"
@@ -358,11 +335,7 @@
     },
     "LintSeverity": {
       "type": "string",
-      "enum": [
-        "off",
-        "warn",
-        "error"
-      ],
+      "enum": ["off", "warn", "error"],
       "description": "Severity level for a lint rule"
     }
   }
