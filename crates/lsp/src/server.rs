@@ -1818,6 +1818,7 @@ impl LanguageServer for GraphQLLanguageServer {
                 name: "GraphQL Language Server".to_string(),
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),
             }),
+            offset_encoding: None,
         })
     }
 

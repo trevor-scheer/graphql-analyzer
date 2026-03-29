@@ -29,7 +29,7 @@ graphql --config path/to/.graphqlrc.yml validate
 
 ## Basic configuration
 
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Tabs, TabItem } from "@astrojs/starlight/components";
 
 <Tabs>
   <TabItem label="YAML">
@@ -75,6 +75,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
         rules:
           noDeprecated: warn
     ```
+
   </TabItem>
   <TabItem label="TOML">
     ```toml
@@ -87,6 +88,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
     [extensions.lint.rules]
     noDeprecated = "warn"
     ```
+
   </TabItem>
 </Tabs>
 
@@ -118,6 +120,7 @@ For monorepos or projects with multiple GraphQL schemas:
     schema = "client/schema.graphql"
     documents = "client/**/*.{graphql,tsx}"
     ```
+
   </TabItem>
 </Tabs>
 
@@ -137,17 +140,10 @@ module.exports = {
 
 <Tabs>
   <TabItem label="YAML">
-    ```yaml
-    # .graphqlrc.yml (equivalent)
-    schema: schema.graphql
-    documents: src/**/*.graphql
-    ```
+    ```yaml # .graphqlrc.yml (equivalent) schema: schema.graphql documents: src/**/*.graphql ```
   </TabItem>
   <TabItem label="TOML">
-    ```toml
-    # .graphqlrc.toml (equivalent)
-    schema = "schema.graphql"
-    documents = "src/**/*.graphql"
+    ```toml # .graphqlrc.toml (equivalent) schema = "schema.graphql" documents = "src/**/*.graphql"
     ```
   </TabItem>
 </Tabs>
