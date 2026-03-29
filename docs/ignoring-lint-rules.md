@@ -115,15 +115,15 @@ This distinction helps you tell apart stale directives (remove entirely) from ov
 
 Rule names in ignore comments use `camelCase`, matching the config file format:
 
-| Rule Name                 | Description                           |
-| ------------------------- | ------------------------------------- |
+| Rule Name               | Description                           |
+| ----------------------- | ------------------------------------- |
 | `noAnonymousOperations` | Named operations required             |
-| `noDeprecated`           | Deprecated field usage                |
-| `redundantFields`        | Fields duplicated by fragment spreads |
-| `unusedVariables`        | Unused query variables                |
-| `unusedFragments`        | Unused fragment definitions           |
-| `unusedFields`           | Schema fields never queried           |
-| `uniqueNames`            | Duplicate operation/fragment names    |
+| `noDeprecated`          | Deprecated field usage                |
+| `redundantFields`       | Fields duplicated by fragment spreads |
+| `unusedVariables`       | Unused query variables                |
+| `unusedFragments`       | Unused fragment definitions           |
+| `unusedFields`          | Schema fields never queried           |
+| `uniqueNames`           | Duplicate operation/fragment names    |
 | `requireIdField`        | Missing id field in selections        |
 | `operationNameSuffix`   | Operation name suffix conventions     |
 
