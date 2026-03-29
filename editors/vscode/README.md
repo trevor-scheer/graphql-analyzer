@@ -29,12 +29,15 @@ A VS Code extension that provides comprehensive GraphQL language support includi
 ### Code Intelligence
 
 - **Hover Information**: Type details and descriptions for GraphQL elements
-- **Works with embedded GraphQL**: Supports GraphQL in TypeScript/JavaScript template literals
+- **Works with embedded GraphQL**: Supports GraphQL in TypeScript/JavaScript, Vue, Svelte, and Astro files
 
 ### Multi-Language Support
 
 - Pure GraphQL files (`.graphql`, `.gql`)
 - Embedded GraphQL in TypeScript/JavaScript (`gql` tagged templates)
+- Vue Single File Components (`.vue`)
+- Svelte components (`.svelte`)
+- Astro pages (`.astro`)
 - Automatic position adjustment for embedded queries
 
 ## Installation
@@ -80,7 +83,7 @@ Linting is configured via `.graphqlrc.yaml` in your project root. Rule names use
 ```yaml
 # Basic configuration
 schema: "schema.graphql"
-documents: "src/**/*.{graphql,ts,tsx}"
+documents: "src/**/*.{graphql,ts,tsx,vue,svelte,astro}"
 
 # Lint configuration under extensions.lint
 extensions:

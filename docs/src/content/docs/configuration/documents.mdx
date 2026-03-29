@@ -12,7 +12,7 @@ The `documents` field tells GraphQL Analyzer where to find your GraphQL operatio
 documents: "src/**/*.graphql"
 
 # Multiple file types
-documents: "src/**/*.{graphql,ts,tsx}"
+documents: "src/**/*.{graphql,ts,tsx,vue,svelte,astro}"
 ```
 
 ## Multiple patterns
@@ -23,6 +23,9 @@ documents:
   - "src/**/*.gql"
   - "src/**/*.tsx"
   - "src/**/*.ts"
+  - "src/**/*.vue"
+  - "src/**/*.svelte"
+  - "src/**/*.astro"
 ```
 
 ## Excluding files
@@ -36,9 +39,9 @@ documents:
   - "!src/**/*.spec.ts"
 ```
 
-## Embedded GraphQL in TypeScript/JavaScript
+## Embedded GraphQL
 
-When you include `.ts`, `.tsx`, `.js`, or `.jsx` files, GraphQL Analyzer automatically extracts GraphQL from tagged template literals:
+When you include `.ts`, `.tsx`, `.js`, `.jsx`, `.vue`, `.svelte`, or `.astro` files, GraphQL Analyzer automatically extracts GraphQL from tagged template literals:
 
 ```typescript
 import { gql } from "graphql-tag";
@@ -52,6 +55,8 @@ const query = gql`
   }
 `;
 ```
+
+For Vue, Svelte, and Astro files, the analyzer first extracts `<script>` blocks (or Astro frontmatter), then runs the same extraction pipeline. See [Embedded GraphQL](/graphql-analyzer/ide-features/embedded-graphql/) for details and examples.
 
 ### Configuring extraction
 

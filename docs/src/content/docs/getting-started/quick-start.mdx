@@ -25,12 +25,12 @@ Create a `.graphqlrc.yml` in your project root:
 
 ```yaml
 schema: "schema.graphql"
-documents: "src/**/*.{graphql,ts,tsx}"
+documents: "src/**/*.{graphql,ts,tsx,vue,svelte,astro}"
 ```
 
 ## 3. Start coding
 
-Open any GraphQL file or TypeScript/JavaScript file with embedded GraphQL. You'll get:
+Open any GraphQL file, TypeScript/JavaScript file, or Vue/Svelte/Astro component with embedded GraphQL. You'll get:
 
 - **Real-time validation** — Instant feedback on errors
 - **Go to definition** — Jump to types, fragments, and fields
@@ -43,7 +43,7 @@ Add lint rules to your configuration:
 
 ```yaml
 schema: "schema.graphql"
-documents: "src/**/*.{graphql,ts,tsx}"
+documents: "src/**/*.{graphql,ts,tsx,vue,svelte,astro}"
 
 extensions:
   lint:

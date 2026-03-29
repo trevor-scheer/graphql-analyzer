@@ -1,6 +1,6 @@
 # graphql-extract
 
-A Rust library for extracting GraphQL queries, mutations, and fragments from TypeScript and JavaScript source files.
+A Rust library for extracting GraphQL queries, mutations, and fragments from TypeScript, JavaScript, Vue, Svelte, and Astro source files.
 
 ## Features
 
@@ -66,6 +66,9 @@ let lang = Language::from_path("file.tsx")?;
 
 let lang = Language::from_path("file.jsx")?;
 // lang == Language::JavaScript
+
+let lang = Language::from_path("component.vue")?;
+// lang == Language::Vue
 ```
 
 ## Supported Patterns
@@ -153,6 +156,37 @@ const document = graphql(
 ```
 
 The extractor processes the first argument (the template literal) and ignores additional arguments.
+
+## Framework Support
+
+### Vue Single File Components
+
+Extracts GraphQL from `<script>` and `<script setup>` blocks in `.vue` files, including `lang="ts"` variants.
+
+```vue
+<script setup lang="ts">
+import { gql } from "graphql-tag";
+
+const query = gql`
+  query GetUser {
+    user {
+      id
+      name
+    }
+  }
+`;
+</script>
+```
+
+### Svelte Components
+
+Extracts GraphQL from `<script>` blocks in `.svelte` files, including `lang="ts"` and `context="module"` variants.
+
+### Astro Pages
+
+Extracts GraphQL from the frontmatter (`---` fenced) section of `.astro` files.
+
+All three frameworks work by extracting `<script>` blocks (or frontmatter) and delegating to the existing TypeScript/JavaScript extraction pipeline. This means all the same tagged template patterns, import tracking, and configuration options apply within framework files.
 
 ## Configuration
 
@@ -268,6 +302,9 @@ Extracts GraphQL from a source string. The `path` is used in error messages and 
 pub enum Language {
     TypeScript,
     JavaScript,
+    Vue,
+    Svelte,
+    Astro,
 }
 
 impl Language {
@@ -279,6 +316,9 @@ File extensions:
 
 - `.ts`, `.tsx` → TypeScript
 - `.js`, `.jsx` → JavaScript
+- `.vue` → Vue
+- `.svelte` → Svelte
+- `.astro` → Astro
 
 #### ExtractionResult
 
