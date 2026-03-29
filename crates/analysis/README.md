@@ -13,8 +13,6 @@ Instead of imperative "validate all files" functions, validation is expressed as
 ```rust
 // Main entry point - get all diagnostics for a file
 let diagnostics = file_diagnostics(db, content, metadata);
-
-let project_diagnostics = project_wide_diagnostics(db);
 ```
 
 ## Architecture
@@ -22,9 +20,16 @@ let project_diagnostics = project_wide_diagnostics(db);
 ```
 file_diagnostics()
 ├── Syntax errors (from parse)
-├── Schema validation (for schema files)
-├── Document validation (for operations/fragments)
+├── Validation diagnostics (apollo-compiler)
+│   ├── Field selection validation against schema
+│   ├── Argument validation (required args, correct types)
+│   ├── Fragment spread resolution and type checking
+│   ├── Variable usage and type validation
+│   └── Circular fragment detection
 └── Lint diagnostics (from graphql-linter integration)
+    ├── Document lints (standalone)
+    ├── Document+schema lints
+    └── Schema lints
 ```
 
 ### Validation Layers
@@ -33,41 +38,31 @@ file_diagnostics()
    - Parse errors from apollo-parser
    - File-local, cached by Salsa
 
-2. **Schema Validation** (`schema_validation.rs`)
-   - ✅ Duplicate type names within a file
-   - ✅ Field type existence checking
-   - ✅ Interface implementation validation:
-     - Interface is actually an interface type
-     - All interface fields are implemented
-     - Field types match interface requirements
-     - Required arguments are present
-   - ✅ Union member validation:
-     - Members exist in schema
-     - Members are object types
-   - ✅ Input type validation:
-     - Input object fields use valid input types
-   - ✅ Argument type validation
+2. **Apollo-Compiler Validation** (`validation.rs`)
+   - Field selection validation against schema types
+   - Argument validation (required args, correct types)
+   - Fragment spread resolution and type checking
+   - Variable usage and type validation
+   - Circular fragment detection
+   - Type coercion validation
+   - Cross-file fragment resolution via transitive dependency collection
 
 3. **Document Validation** (`document_validation.rs`)
-   - ✅ Operation name uniqueness (project-wide)
-   - ✅ Fragment name uniqueness (project-wide)
-   - ✅ Fragment type condition validation:
-     - Type exists in schema
-     - Type is object, interface, or union
-   - ✅ Variable type validation:
-     - Types exist in schema
-     - Types are valid input types
-   - ✅ Root type checking (Query/Mutation/Subscription)
-   - ⏳ Field selections against schema (deferred to apollo-compiler integration)
+   - Operation name uniqueness (project-wide)
+   - Fragment name uniqueness (project-wide)
+   - Fragment type condition validation
+   - Variable type validation
+   - Root type checking (Query/Mutation/Subscription)
 
 4. **Lint Integration** (`lint_integration.rs`)
    - Integration with `graphql-linter` crate
-   - Document-level lints (require_id_field, no_deprecated, etc.)
-   - Schema-level lints (TODO)
+   - Document-level lints (standalone, no schema required)
+   - Document+schema lints (require schema context)
+   - Schema-level lints
 
 5. **Project-Wide Lints** (`project_lints.rs`)
+   - Unused fragments (with transitive resolution)
    - Unused fields
-   - Unused fragments
    - Only run when explicitly requested
 
 ## Incrementality in Action
@@ -93,9 +88,9 @@ query GetUser {
 
 **What stays cached:**
 
-- `schema_types()` - schema unchanged ✅
-- `all_fragments()` - no fragment changes ✅
-- Bodies of other operations ✅
+- `schema_types()` - schema unchanged
+- `all_fragments()` - no fragment changes
+- Bodies of other operations
 
 **Result:** Only this operation validated, rest cached (~1-5ms vs 50-500ms)
 
@@ -118,8 +113,8 @@ type User {
 
 **What stays cached:**
 
-- `file_structure()` for document files ✅
-- `all_fragments()` ✅
+- `file_structure()` for document files
+- `all_fragments()`
 
 **Result:** Schema and all documents revalidated (~10-50ms)
 
@@ -139,55 +134,6 @@ pub struct Diagnostic {
 
 Ranges use LSP-style positions (0-indexed line/column).
 
-## Comparison to Current Implementation
-
-| Current                              | New (Query-Based)                        |
-| ------------------------------------ | ---------------------------------------- |
-| `validate_all_files()` - imperative  | `file_diagnostics()` - declarative query |
-| Manual dependency tracking           | Automatic via Salsa                      |
-| `ValidationMode::Quick/Smart/Full`   | Automatic fine-grained invalidation      |
-| Project-wide lints run on every save | Opt-in, incremental                      |
-| Locking entire indices               | Lock-free query evaluation               |
-| Hard to test individual steps        | Each query independently testable        |
-
-## Current Status
-
-**Phase 3 (Analysis) - Complete** ✅
-
-- ✅ Core diagnostic types
-- ✅ `file_diagnostics()` query
-- ✅ Schema validation (basic structure checks)
-- ✅ Document validation (name uniqueness)
-- ✅ Lint integration (placeholder)
-- ✅ Project-wide lints (placeholder)
-- ⚠️ Full schema/document validation (TODO)
-- ⚠️ Linter bridge (TODO)
-
-## Future Work
-
-### Phase 4: Complete Validation
-
-1. **Schema Validation**
-   - Field type existence checking
-   - Interface implementation validation
-   - Union member validation
-   - Directive validation
-
-2. **Document Validation**
-   - Field selection validation against schema
-   - Variable type checking
-   - Fragment spread validation
-   - Argument validation
-
-3. **Linter Bridge**
-   - Convert HIR to SchemaIndex/DocumentIndex
-   - Call graphql-linter methods
-   - Convert diagnostics back to our format
-
-### Phase 5: IDE Integration
-
-Use these queries in the LSP for real-time diagnostics with automatic incrementality.
-
 ## Testing
 
 Run tests with:
@@ -195,12 +141,6 @@ Run tests with:
 ```bash
 cargo test --package graphql-analysis
 ```
-
-Tests verify:
-
-- Diagnostic creation and formatting
-- Query behavior with empty database
-- Project-wide diagnostics gating
 
 ## Dependencies
 

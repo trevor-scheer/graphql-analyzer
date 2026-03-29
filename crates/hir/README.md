@@ -1,7 +1,5 @@
 # GraphQL HIR (High-level Intermediate Representation)
 
-## Phase 2: Semantics Layer
-
 This crate provides semantic queries on top of syntax, implementing the cache invariants that enable efficient incremental computation.
 
 ## Architecture
@@ -19,9 +17,7 @@ The HIR layer separates **structure** from **bodies**:
 
 This separation enables fine-grained incremental recomputation via Salsa.
 
-## Current Implementation Status
-
-### ✅ Implemented
+## Implementation
 
 1. **HIR Types**:
    - `TypeId`, `FieldId`, `FragmentId`, `OperationId` - Salsa-based identifiers
@@ -43,38 +39,7 @@ This separation enables fine-grained incremental recomputation via Salsa.
    - `schema_types()` - Collects all types from schema files
    - `all_fragments()` - Collects all fragments from document files
    - `all_operations()` - Collects all operations from document files
-   - `operation_fragment_deps()` - Direct fragment dependencies (simplified)
-
-### ⚠️ Known Limitations (Phase 2)
-
-1. **Apollo-Parser API Mismatch**: Current implementation uses `apollo_parser::ast` but version 0.8 uses `cst` (Concrete Syntax Tree). Needs refactoring to use CST API.
-
-2. **Salsa Tracked Struct Syntax**: Some tracked structs need lifetime parameter adjustments to compile with Salsa 0.25.
-
-3. **FileRegistry Missing**: The `GraphQLHirDatabase` trait has stub methods for `schema_files()` and `document_files()` that return empty vectors. A proper FileRegistry needs to be implemented to map FileIds to FileContent/FileMetadata.
-
-4. **Transitive Fragment Resolution**: The `operation_fragment_deps()` query currently only returns direct dependencies. Full transitive resolution requires FileRegistry to look up fragment files.
-
-### 📋 TODO (Future Phases)
-
-1. **Fix Apollo-Parser Integration**:
-   - Update all `apollo_parser::ast` imports to `apollo_parser::cst`
-   - Update all AST node traversal to use CST API
-   - Test with actual GraphQL documents
-
-2. **Implement FileRegistry**:
-   - Add Salsa-tracked registry mapping FileId → (FileContent, FileMetadata)
-   - Update database trait methods to return actual file data
-   - Add methods for registering/unregistering files
-
-3. **Complete Fragment Resolution**:
-   - Implement full transitive fragment dependency resolution
-   - Handle circular fragment references gracefully
-
-4. **Add Type Queries**:
-   - `type_fields()` - Get all fields of a type (with extensions merged)
-   - `field_data()` - Get detailed field information
-   - `type_by_name()` - Look up types by name
+   - `operation_fragment_deps()` - Direct fragment dependencies
 
 ## Cache Invariant Tests
 
@@ -115,7 +80,7 @@ This ensures IDE responsiveness: users edit operations frequently, and we must N
 4. **Immutable Data**: All types are `Clone` and never modified in place
 5. **Fine-Grained Invalidation**: Structure changes don't invalidate unrelated bodies
 
-## Example Usage (Future)
+## Example Usage
 
 ```rust
 use graphql_hir::*;
@@ -149,14 +114,13 @@ Compared to direct CST access:
 
 ## Integration
 
-This crate will be used by:
+This crate is used by:
 
-- `graphql-analysis` - Validation and linting (Phase 3)
-- `graphql-ide` - Language features (Phase 4)
-- `graphql-lsp` - LSP protocol adapter (Phase 5)
+- `graphql-analysis` - Validation and linting
+- `graphql-ide` - Language features (hover, go-to-definition, completions, etc.)
+- `graphql-lsp` - LSP protocol adapter
 
 ## References
 
-- [Phase 2 Design Document](../../../.claude/notes/active/lsp-rearchitecture/02-SEMANTICS.md)
 - [Rust-Analyzer HIR Layer](https://rust-analyzer.github.io/book/contributing/architecture.html#HIR)
 - [Salsa Documentation](https://github.com/salsa-rs/salsa)
