@@ -2,6 +2,21 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.1.15 (2026-03-29)
+
+### Features
+
+- Rename lint rule names from snake_case to camelCase for consistency with config format ([#811](https://github.com/trevor-scheer/graphql-analyzer/pull/811))
+- Support inline lint ignore comments for per-case suppression of lint rules
+- Add Vue, Svelte, and Astro framework support for GraphQL extraction ([#787](https://github.com/trevor-scheer/graphql-analyzer/pull/787))
+
+### Fixes
+
+- Fix parentheses in `graphql()` calls being colored as GraphQL instead of TypeScript ([#800](https://github.com/trevor-scheer/graphql-analyzer/pull/800))
+- Fix report issue command URL encoding ([#793](https://github.com/trevor-scheer/graphql-analyzer/pull/793))
+- Add documentation for 17 new lint rules (broken out from #613)
+- Reset extension health state and status bar on server restart
+
 ## 0.1.14 (2026-03-16)
 
 ### Fixes

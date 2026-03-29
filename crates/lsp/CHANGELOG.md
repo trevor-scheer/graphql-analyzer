@@ -2,6 +2,40 @@
 
 All notable changes to the GraphQL LSP will be documented in this file.
 
+## 0.1.12 (2026-03-29)
+
+### Features
+
+- Rename lint rule names from snake_case to camelCase for consistency with config format ([#811](https://github.com/trevor-scheer/graphql-analyzer/pull/811))
+- Add environment variable interpolation (`${VAR}` and `${VAR:default}`) in config files ([#788](https://github.com/trevor-scheer/graphql-analyzer/pull/788))
+- Support JSON introspection result files as schema source ([#789](https://github.com/trevor-scheer/graphql-analyzer/pull/789))
+- Support inline lint ignore comments for per-case suppression of lint rules
+- Support package.json "graphql" key for config discovery ([#791](https://github.com/trevor-scheer/graphql-analyzer/pull/791))
+- Add noDuplicateFields, noUnreachableTypes, requireDeprecationReason, noHashtagDescription, and uniqueEnumValueNames to the recommended lint preset
+- Add TOML config format support (.graphqlrc.toml, graphql.config.toml) ([#792](https://github.com/trevor-scheer/graphql-analyzer/pull/792))
+- Support URL-with-headers inline schema syntax from graphql-config standard ([#790](https://github.com/trevor-scheer/graphql-analyzer/pull/790))
+- Add Vue, Svelte, and Astro framework support for GraphQL extraction ([#787](https://github.com/trevor-scheer/graphql-analyzer/pull/787))
+
+### Fixes
+
+- Add `alphabetize` lint rule to enforce alphabetical ordering of fields, arguments, and variables ([#614](https://github.com/trevor-scheer/graphql-analyzer/pull/614))
+- Add `descriptionStyle` lint rule: Enforces consistent description style (block vs inline) (broken out from #613)
+- Add `inputName` lint rule: Enforces that input type names end with a specific suffix (broken out from #613)
+- Add `loneExecutableDefinition` lint rule: Requires each file to contain only one executable definition (operation or fragment) (broken out from #613)
+- Add `namingConvention` lint rule: Enforces naming conventions for operations, fragments, and variables (broken out from #613)
+- Add `noDuplicateFields` lint rule: Disallows duplicate fields within the same selection set (broken out from #613)
+- Add `noHashtagDescription` lint rule: Disallows using # comments as type descriptions in schema (broken out from #613)
+- Add `noOnePlaceFragments` lint rule: Detects fragments that are used in only one place and could be inlined (broken out from #613)
+- Add `noScalarResultTypeOnMutation` lint rule: Disallows scalar return types on mutation fields (broken out from #613)
+- Add `noTypenamePrefix` lint rule: Disallows field names that are prefixed with their parent type name (broken out from #613)
+- Add `noUnreachableTypes` lint rule: Detects types that are not reachable from any root operation type (broken out from #613)
+- Add `requireFieldOfTypeQueryInMutationResult` lint rule: Requires mutation result types to include a field of the Query type (broken out from #613)
+- Add `requireDeprecationReason` and `requireDescription` lint rules (broken out from #613)
+- Add schema lint rule execution infrastructure ([#812](https://github.com/trevor-scheer/graphql-analyzer/pull/812))
+- Add `selectionSetDepth` lint rule: Limits the depth of selection set nesting to prevent overly complex queries (broken out from #613)
+- Add `strictIdInTypes` lint rule: Requires object types to have an ID field (broken out from #613)
+- Add `uniqueEnumValueNames` lint rule: Detects duplicate enum value names across different enum types (broken out from #613)
+
 ## 0.1.11 (2026-03-16)
 
 ### Fixes
