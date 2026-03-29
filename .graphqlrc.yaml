@@ -125,3 +125,11 @@ projects:
     documents: "test-workspace/misconfigured-documents/query.graphql"
     extensions:
       client: none
+
+  lint-examples:
+    schema: "test-workspace/lint-examples/schema/**/*.graphql"
+    documents: "test-workspace/lint-examples/src/**/*.graphql"
+    extensions:
+      lint:
+        rules:
+          alphabetize: [warn, { selections: true, arguments: true, variables: true }]
