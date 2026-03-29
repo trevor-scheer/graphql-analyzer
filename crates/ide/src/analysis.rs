@@ -5,13 +5,16 @@ use parking_lot::RwLock;
 
 use crate::database::IdeDatabase;
 use crate::file_registry::FileRegistry;
+use crate::helpers;
 use crate::helpers::{adjust_range_for_line_offset, convert_diagnostic, offset_range_to_range};
 use crate::symbol::{find_fragment_definition_full_range, find_operation_definition_ranges};
 use crate::types::{
     CodeLens, CodeLensInfo, ComplexityAnalysis, Diagnostic, DocumentSymbol, FieldComplexity,
     FieldCoverageReport, FieldUsageInfo, FilePath, FoldingRange, FragmentReference, FragmentUsage,
-    HoverResult, InlayHint, Location, Position, ProjectStatus, Range, RenameResult, SchemaStats,
-    SelectionRange, SignatureHelp, WorkspaceSymbol,
+    HoverResult, InlayHint, Location, OperationSummary, OperationVariableInfo, Position,
+    ProjectStatus, Range, RenameResult, SchemaStats, SchemaTypeEntry, SelectionRange,
+    SignatureHelp, TypeArgumentInfo, TypeDirectiveArgumentInfo, TypeDirectiveInfo,
+    TypeEnumValueInfo, TypeFieldInfo, TypeInfo, WorkspaceSymbol,
 };
 use crate::{
     code_lenses, completion, folding_ranges, goto_definition, hover, inlay_hints, references,
@@ -1051,6 +1054,190 @@ impl Analysis {
         deps
     }
 
+    /// Access the raw HIR `TypeDefMap` for the schema
+    ///
+    /// The callback receives a reference to the merged type map. This avoids
+    /// cloning the entire map when only a derived value (like SDL text) is needed.
+    pub fn with_schema_types<R>(&self, f: impl FnOnce(&graphql_hir::TypeDefMap) -> R) -> R {
+        let project_files = self.project_files.expect("no project files loaded");
+        let types = graphql_hir::schema_types(&self.db, project_files);
+        f(types)
+    }
+
+    /// List all schema types with lightweight metadata
+    pub fn schema_type_list(
+        &self,
+        kind_filter: Option<&str>,
+    ) -> (Vec<SchemaTypeEntry>, SchemaStats) {
+        let stats = self.schema_stats();
+        let Some(project_files) = self.project_files else {
+            return (Vec::new(), stats);
+        };
+
+        let types = graphql_hir::schema_types(&self.db, project_files);
+        let mut entries: Vec<SchemaTypeEntry> = types
+            .values()
+            .filter(|td| {
+                if let Some(filter) = kind_filter {
+                    type_def_kind_str(td.kind) == filter
+                } else {
+                    true
+                }
+            })
+            .map(|td| SchemaTypeEntry {
+                name: td.name.to_string(),
+                kind: type_def_kind_str(td.kind).to_string(),
+                description: td.description.as_ref().map(ToString::to_string),
+                field_count: td.fields.len(),
+                implements: td.implements.iter().map(ToString::to_string).collect(),
+                is_extension: td.is_extension,
+            })
+            .collect();
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
+        (entries, stats)
+    }
+
+    /// Get full details about a specific named type
+    pub fn type_info(&self, type_name: &str) -> Option<TypeInfo> {
+        let project_files = self.project_files?;
+        let types = graphql_hir::schema_types(&self.db, project_files);
+        let td = types.get(type_name)?;
+
+        Some(TypeInfo {
+            name: td.name.to_string(),
+            kind: type_def_kind_str(td.kind).to_string(),
+            description: td.description.as_ref().map(ToString::to_string),
+            implements: td.implements.iter().map(ToString::to_string).collect(),
+            fields: td
+                .fields
+                .iter()
+                .map(|f| TypeFieldInfo {
+                    name: f.name.to_string(),
+                    type_ref: helpers::format_type_ref(&f.type_ref),
+                    description: f.description.as_ref().map(ToString::to_string),
+                    arguments: f
+                        .arguments
+                        .iter()
+                        .map(|a| TypeArgumentInfo {
+                            name: a.name.to_string(),
+                            type_ref: helpers::format_type_ref(&a.type_ref),
+                            description: a.description.as_ref().map(ToString::to_string),
+                            default_value: a.default_value.as_ref().map(ToString::to_string),
+                        })
+                        .collect(),
+                    is_deprecated: f.is_deprecated,
+                    deprecation_reason: f.deprecation_reason.as_ref().map(ToString::to_string),
+                    directives: f
+                        .directives
+                        .iter()
+                        .map(|d| TypeDirectiveInfo {
+                            name: d.name.to_string(),
+                            arguments: d
+                                .arguments
+                                .iter()
+                                .map(|a| TypeDirectiveArgumentInfo {
+                                    name: a.name.to_string(),
+                                    value: a.value.to_string(),
+                                })
+                                .collect(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+            directives: td
+                .directives
+                .iter()
+                .map(|d| TypeDirectiveInfo {
+                    name: d.name.to_string(),
+                    arguments: d
+                        .arguments
+                        .iter()
+                        .map(|a| TypeDirectiveArgumentInfo {
+                            name: a.name.to_string(),
+                            value: a.value.to_string(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+            enum_values: td
+                .enum_values
+                .iter()
+                .map(|v| TypeEnumValueInfo {
+                    name: v.name.to_string(),
+                    description: v.description.as_ref().map(ToString::to_string),
+                    is_deprecated: v.is_deprecated,
+                    deprecation_reason: v.deprecation_reason.as_ref().map(ToString::to_string),
+                })
+                .collect(),
+            union_members: td.union_members.iter().map(ToString::to_string).collect(),
+        })
+    }
+
+    /// Extract all operations with their metadata and fragment dependencies
+    pub fn operations_summary(&self, file_filter: Option<&FilePath>) -> Vec<OperationSummary> {
+        let Some(project_files) = self.project_files else {
+            return Vec::new();
+        };
+
+        let operations = graphql_hir::all_operations(&self.db, project_files);
+        let registry = self.registry.read();
+
+        let mut results = Vec::new();
+        for op in operations.iter() {
+            let Some(file_path) = registry.get_path(op.file_id) else {
+                continue;
+            };
+
+            if let Some(filter) = file_filter {
+                if file_path.as_str() != filter.as_str() {
+                    continue;
+                }
+            }
+
+            let Some(content) = registry.get_content(op.file_id) else {
+                continue;
+            };
+            let Some(metadata) = registry.get_metadata(op.file_id) else {
+                continue;
+            };
+
+            // Get fragment dependencies from the operation body
+            let body = graphql_hir::operation_body(&self.db, content, metadata, op.index);
+            let mut fragment_deps: Vec<String> = body
+                .fragment_spreads
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            fragment_deps.sort();
+
+            #[allow(clippy::match_same_arms)]
+            let op_type = match op.operation_type {
+                graphql_hir::OperationType::Query => "query",
+                graphql_hir::OperationType::Mutation => "mutation",
+                graphql_hir::OperationType::Subscription => "subscription",
+                _ => "query",
+            };
+
+            results.push(OperationSummary {
+                name: op.name.as_ref().map(ToString::to_string),
+                operation_type: op_type.to_string(),
+                file: file_path,
+                variables: op
+                    .variables
+                    .iter()
+                    .map(|v| OperationVariableInfo {
+                        name: v.name.to_string(),
+                        type_ref: helpers::format_type_ref(&v.type_ref),
+                        default_value: v.default_value.as_ref().map(ToString::to_string),
+                    })
+                    .collect(),
+                fragment_dependencies: fragment_deps,
+            });
+        }
+
+        results
+    }
+
     /// Get code lenses for a file
     ///
     /// Returns code lenses for fragment definitions showing reference counts.
@@ -1202,4 +1389,16 @@ fn get_type_info(
         }
     }
     (false, "Unknown".to_string())
+}
+
+fn type_def_kind_str(kind: graphql_hir::TypeDefKind) -> &'static str {
+    match kind {
+        graphql_hir::TypeDefKind::Object => "object",
+        graphql_hir::TypeDefKind::Interface => "interface",
+        graphql_hir::TypeDefKind::Union => "union",
+        graphql_hir::TypeDefKind::Enum => "enum",
+        graphql_hir::TypeDefKind::Scalar => "scalar",
+        graphql_hir::TypeDefKind::InputObject => "input_object",
+        _ => "unknown",
+    }
 }

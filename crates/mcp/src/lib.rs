@@ -37,6 +37,7 @@
 //! GraphQLMcpServer::run_with_analysis(analysis, transport).await?;
 //! ```
 
+mod sdl_printer;
 mod service;
 mod tools;
 mod types;
