@@ -283,6 +283,10 @@
             "selectionSetDepth": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Limits the depth of selection set nesting to prevent overly complex queries"
+            },
+            "noOnePlaceFragments": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Detects fragments that are used in only one place and could be inlined"
             }
           },
           "additionalProperties": {

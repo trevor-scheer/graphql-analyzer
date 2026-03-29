@@ -2,9 +2,9 @@
 use crate::rules::{
     AlphabetizeRuleImpl, LoneExecutableDefinitionRuleImpl, NamingConventionRuleImpl,
     NoAnonymousOperationsRuleImpl, NoDeprecatedRuleImpl, NoDuplicateFieldsRuleImpl,
-    OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl, RequireIdFieldRuleImpl,
-    SelectionSetDepthRuleImpl, UniqueNamesRuleImpl, UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl,
-    UnusedVariablesRuleImpl,
+    NoOnePlaceFragmentsRuleImpl, OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl,
+    RequireIdFieldRuleImpl, SelectionSetDepthRuleImpl, UniqueNamesRuleImpl, UnusedFieldsRuleImpl,
+    UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
 };
 use crate::traits::{
     DocumentSchemaLintRule, ProjectLintRule, StandaloneDocumentLintRule, StandaloneSchemaLintRule,
@@ -42,6 +42,7 @@ static DOCUMENT_SCHEMA_RULES: LazyLock<Vec<Arc<dyn DocumentSchemaLintRule>>> =
 /// Rules are created once and reused across all calls.
 static PROJECT_RULES: LazyLock<Vec<Arc<dyn ProjectLintRule>>> = LazyLock::new(|| {
     vec![
+        Arc::new(NoOnePlaceFragmentsRuleImpl),
         Arc::new(UniqueNamesRuleImpl),
         Arc::new(UnusedFieldsRuleImpl),
         Arc::new(UnusedFragmentsRuleImpl),
