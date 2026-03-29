@@ -1,0 +1,141 @@
+"""
+The root query type
+"""
+type Query {
+  """
+  Get a user by ID
+  """
+  user(id: ID!): User
+  """
+  List all users
+  """
+  users: [User!]!
+  """
+  Get a post by ID
+  """
+  post(id: ID!): Post
+  """
+  List all posts
+  """
+  posts: [Post!]!
+}
+
+"""
+The root mutation type
+"""
+type Mutation {
+  """
+  Create a new user
+  """
+  createUser(name: String!, email: String!): CreateUserResult!
+}
+
+"""
+Result of creating a user
+"""
+type CreateUserResult {
+  """
+  The created user
+  """
+  user: User!
+  """
+  Query for refetching
+  """
+  query: Query!
+}
+
+"""
+A user in the system
+"""
+type User {
+  """
+  Unique identifier
+  """
+  id: ID!
+  """
+  User's display name
+  """
+  name: String!
+  """
+  User's email address
+  """
+  email: String!
+  """
+  Posts authored by this user
+  """
+  posts: [Post!]!
+  """
+  User's profile
+  """
+  profile: Profile
+  """
+  Deprecated: use 'name' instead
+  """
+  username: String @deprecated(reason: "Use 'name' instead")
+}
+
+"""
+A blog post
+"""
+type Post {
+  """
+  Unique identifier
+  """
+  id: ID!
+  """
+  Post title
+  """
+  title: String!
+  """
+  Post content
+  """
+  body: String!
+  """
+  The post author
+  """
+  author: User!
+  """
+  Comments on this post
+  """
+  comments: [Comment!]!
+}
+
+"""
+A comment on a post
+"""
+type Comment {
+  """
+  Unique identifier
+  """
+  id: ID!
+  """
+  Comment text
+  """
+  text: String!
+  """
+  Comment author
+  """
+  author: User!
+  """
+  Replies to this comment
+  """
+  replies: [Comment!]!
+}
+
+"""
+User profile information
+"""
+type Profile {
+  """
+  Unique identifier
+  """
+  id: ID!
+  """
+  Biography text
+  """
+  bio: String
+  """
+  Avatar URL
+  """
+  avatarUrl: String
+}
