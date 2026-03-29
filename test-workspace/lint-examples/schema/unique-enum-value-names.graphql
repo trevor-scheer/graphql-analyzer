@@ -1,0 +1,20 @@
+# Demonstrates: uniqueEnumValueNames
+# The value "ACTIVE" appears in both enums, causing a collision warning.
+
+"""
+Task status
+"""
+enum TaskStatus {
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+"""
+Account status
+"""
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
