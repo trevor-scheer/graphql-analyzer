@@ -271,6 +271,10 @@
             "loneExecutableDefinition": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires each file to contain only one executable definition (operation or fragment)"
+            },
+            "namingConvention": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforces naming conventions for operations, fragments, and variables"
             }
           },
           "additionalProperties": {

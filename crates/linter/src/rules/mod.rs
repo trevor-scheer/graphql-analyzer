@@ -27,6 +27,7 @@ pub fn get_operation_kind(op_type: &cst::OperationType) -> OperationKind {
 
 mod alphabetize;
 mod lone_executable_definition;
+mod naming_convention;
 mod no_anonymous_operations;
 mod no_deprecated;
 mod operation_name_suffix;
@@ -39,6 +40,7 @@ mod unused_variables;
 
 pub use alphabetize::AlphabetizeRuleImpl;
 pub use lone_executable_definition::LoneExecutableDefinitionRuleImpl;
+pub use naming_convention::NamingConventionRuleImpl;
 pub use no_anonymous_operations::NoAnonymousOperationsRuleImpl;
 pub use no_deprecated::NoDeprecatedRuleImpl;
 pub use operation_name_suffix::OperationNameSuffixRuleImpl;
