@@ -71,16 +71,15 @@ use tokio::sync::Mutex;
 ///
 /// This server exposes GraphQL analysis capabilities to AI agents via the
 /// Model Context Protocol. It can run standalone or embedded within the LSP.
-#[allow(dead_code)]
 pub struct GraphQLMcpServer {
-    service: Arc<Mutex<McpService>>,
+    _service: Arc<Mutex<McpService>>,
 }
 
 impl GraphQLMcpServer {
     /// Create a new MCP server with a fresh AnalysisHost
     pub fn new() -> Self {
         Self {
-            service: Arc::new(Mutex::new(McpService::new())),
+            _service: Arc::new(Mutex::new(McpService::new())),
         }
     }
 
@@ -89,7 +88,7 @@ impl GraphQLMcpServer {
     /// Use this for embedded mode where the LSP and MCP share state.
     pub fn with_analysis(analysis: graphql_ide::Analysis) -> Self {
         Self {
-            service: Arc::new(Mutex::new(McpService::with_analysis(analysis))),
+            _service: Arc::new(Mutex::new(McpService::with_analysis(analysis))),
         }
     }
 

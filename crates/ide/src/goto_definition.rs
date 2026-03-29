@@ -118,7 +118,7 @@ pub fn goto_definition(
 
             let def_parse = graphql_syntax::parse(db, def_content, def_metadata);
 
-            let range = find_fragment_definition_in_parse(&def_parse, &name, def_content, db)?;
+            let range = find_fragment_definition_in_parse(&def_parse, &name)?;
 
             Some(vec![Location::new(file_path, range)])
         }

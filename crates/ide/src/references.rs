@@ -107,9 +107,7 @@ pub fn find_fragment_references(
             {
                 let def_parse = graphql_syntax::parse(db, def_content, def_metadata);
 
-                if let Some(range) =
-                    find_fragment_definition_in_parse(&def_parse, fragment_name, def_content, db)
-                {
+                if let Some(range) = find_fragment_definition_in_parse(&def_parse, fragment_name) {
                     locations.push(Location::new(file_path, range));
                 }
             }
@@ -140,7 +138,7 @@ pub fn find_fragment_references(
 
         let parse = graphql_syntax::parse(db, content, metadata);
 
-        let spread_ranges = find_fragment_spreads_in_parse(&parse, fragment_name, content, db);
+        let spread_ranges = find_fragment_spreads_in_parse(&parse, fragment_name);
 
         for range in spread_ranges {
             locations.push(Location::new(file_path.clone(), range));
@@ -177,9 +175,7 @@ fn find_type_references(
             {
                 let def_parse = graphql_syntax::parse(db, def_content, def_metadata);
 
-                if let Some(range) =
-                    find_type_definition_in_parse(&def_parse, type_name, def_content, db)
-                {
+                if let Some(range) = find_type_definition_in_parse(&def_parse, type_name) {
                     locations.push(Location::new(file_path, range));
                 }
             }
@@ -208,7 +204,7 @@ fn find_type_references(
 
         let parse = graphql_syntax::parse(db, content, metadata);
 
-        let type_ranges = find_type_references_in_parse(&parse, type_name, content, db);
+        let type_ranges = find_type_references_in_parse(&parse, type_name);
 
         for range in type_ranges {
             locations.push(Location::new(file_path.clone(), range));
@@ -308,8 +304,7 @@ pub fn find_field_references(
 
         let parse = graphql_syntax::parse(db, content, metadata);
 
-        let field_ranges =
-            find_field_usages_in_parse(&parse, type_name, field_name, schema_types, content, db);
+        let field_ranges = find_field_usages_in_parse(&parse, type_name, field_name, schema_types);
 
         for range in field_ranges {
             locations.push(Location::new(file_path.clone(), range));
