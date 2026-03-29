@@ -303,6 +303,10 @@
             "noTypenamePrefix": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Disallows field names that are prefixed with their parent type name"
+            },
+            "noUnreachableTypes": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Detects types that are not reachable from any root operation type"
             }
           },
           "additionalProperties": {
