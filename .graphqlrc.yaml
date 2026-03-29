@@ -148,3 +148,4 @@ projects:
           requireDescription: warn
           requireFieldOfTypeQueryInMutationResult: warn
           strictIdInTypes: warn
+          noScalarResultTypeOnMutation: warn
