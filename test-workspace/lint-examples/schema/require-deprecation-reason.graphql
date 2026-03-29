@@ -1,0 +1,31 @@
+# Demonstrates: requireDeprecationReason
+# These fields use @deprecated without providing a reason.
+
+"""
+Legacy settings
+"""
+type LegacySettings {
+  """
+  Unique identifier
+  """
+  id: ID!
+  """
+  Current value
+  """
+  newValue: String!
+  """
+  Old value - deprecated without reason
+  """
+  oldValue: String @deprecated
+}
+
+"""
+Status values
+"""
+enum DeprecationStatus {
+  ACTIVE
+  """
+  No longer used
+  """
+  LEGACY @deprecated
+}

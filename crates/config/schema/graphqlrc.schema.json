@@ -311,6 +311,14 @@
             "uniqueEnumValueNames": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Detects duplicate enum value names across different enum types"
+            },
+            "requireDeprecationReason": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Requires a reason argument in @deprecated directives"
+            },
+            "requireDescription": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Requires descriptions on type definitions"
             }
           },
           "additionalProperties": {

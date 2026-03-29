@@ -1,0 +1,16 @@
+# Demonstrates: requireDescription
+# These types are missing descriptions, which the rule will flag.
+
+type UndocumentedType {
+  id: ID!
+  value: String!
+}
+
+enum UndocumentedEnum {
+  FOO
+  BAR
+}
+
+interface UndocumentedInterface {
+  id: ID!
+}

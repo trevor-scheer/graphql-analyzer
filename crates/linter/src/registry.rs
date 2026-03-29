@@ -4,9 +4,10 @@ use crate::rules::{
     LoneExecutableDefinitionRuleImpl, NamingConventionRuleImpl, NoAnonymousOperationsRuleImpl,
     NoDeprecatedRuleImpl, NoDuplicateFieldsRuleImpl, NoHashtagDescriptionRuleImpl,
     NoOnePlaceFragmentsRuleImpl, NoTypenamePrefixRuleImpl, NoUnreachableTypesRuleImpl,
-    OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl, RequireIdFieldRuleImpl,
-    SelectionSetDepthRuleImpl, UniqueEnumValueNamesRuleImpl, UniqueNamesRuleImpl,
-    UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
+    OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl, RequireDeprecationReasonRuleImpl,
+    RequireDescriptionRuleImpl, RequireIdFieldRuleImpl, SelectionSetDepthRuleImpl,
+    UniqueEnumValueNamesRuleImpl, UniqueNamesRuleImpl, UnusedFieldsRuleImpl,
+    UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
 };
 use crate::traits::{
     DocumentSchemaLintRule, ProjectLintRule, StandaloneDocumentLintRule, StandaloneSchemaLintRule,
@@ -61,6 +62,8 @@ static STANDALONE_SCHEMA_RULES: LazyLock<Vec<Arc<dyn StandaloneSchemaLintRule>>>
             Arc::new(NoHashtagDescriptionRuleImpl),
             Arc::new(NoTypenamePrefixRuleImpl),
             Arc::new(NoUnreachableTypesRuleImpl),
+            Arc::new(RequireDeprecationReasonRuleImpl),
+            Arc::new(RequireDescriptionRuleImpl),
             Arc::new(UniqueEnumValueNamesRuleImpl),
         ]
     });
