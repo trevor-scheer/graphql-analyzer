@@ -68,6 +68,11 @@ pub struct ExtractedGraphQL {
 
     /// The tag name used (e.g., "gql", "graphql"), if any
     pub tag_name: Option<String>,
+
+    /// File-level byte range of the enclosing TS/JS declaration when this
+    /// block is the sole GraphQL content in that declaration.
+    /// `None` for pure GraphQL files or when the declaration has multiple declarators.
+    pub declaration_range: Option<(usize, usize)>,
 }
 
 /// Extract GraphQL from a file
@@ -106,6 +111,7 @@ pub fn extract_from_source(
                     ),
                 ),
                 tag_name: None,
+                declaration_range: None,
             }])
         }
         Language::TypeScript | Language::JavaScript => {
@@ -368,6 +374,8 @@ struct GraphQLVisitor<'a> {
     imports: std::collections::HashMap<String, String>,
     /// Track comments for magic comment detection
     pending_comments: Vec<(usize, String)>,
+    /// Declaration range set by `visit_var_decl`/`visit_export_decl` for single-declarator statements
+    current_declaration_range: Option<(usize, usize)>,
 }
 
 impl<'a> GraphQLVisitor<'a> {
@@ -378,6 +386,7 @@ impl<'a> GraphQLVisitor<'a> {
             extracted: Vec::new(),
             imports: std::collections::HashMap::new(),
             pending_comments: Vec::new(),
+            current_declaration_range: None,
         }
     }
 
@@ -420,6 +429,7 @@ impl<'a> GraphQLVisitor<'a> {
                 source: raw_str.to_string(),
                 location: SourceLocation::new(start_offset, length, Range::new(start_pos, end_pos)),
                 tag_name,
+                declaration_range: self.current_declaration_range,
             });
         }
 
@@ -435,7 +445,67 @@ impl<'a> GraphQLVisitor<'a> {
     }
 }
 
+/// Extend a byte range to cover the full line(s), including leading whitespace,
+/// trailing semicolon, and trailing newline.
+fn extend_to_line_bounds(source: &str, start: usize, end: usize) -> (usize, usize) {
+    // Extend backward to line start
+    let line_start = source[..start].rfind('\n').map_or(0, |pos| pos + 1);
+
+    // Extend forward past `;` and trailing `\n`
+    let mut line_end = end;
+    let rest = &source[end..];
+    let trimmed = rest.trim_start_matches([' ', '\t']);
+    if let Some(after_semi) = trimmed.strip_prefix(';') {
+        line_end = source.len() - after_semi.len();
+        if after_semi.starts_with('\n') {
+            line_end += 1;
+        } else if after_semi.starts_with("\r\n") {
+            line_end += 2;
+        }
+    } else if rest.starts_with('\n') {
+        line_end += 1;
+    } else if rest.starts_with("\r\n") {
+        line_end += 2;
+    }
+
+    (line_start, line_end)
+}
+
 impl swc_core::ecma::visit::Visit for GraphQLVisitor<'_> {
+    /// Track single-declarator variable declarations so we can capture
+    /// the full declaration range for single-definition GraphQL blocks.
+    fn visit_var_decl(&mut self, decl: &swc_core::ecma::ast::VarDecl) {
+        use swc_core::ecma::visit::VisitWith;
+
+        if decl.decls.len() == 1 {
+            let start = decl.span.lo.0 as usize - 1;
+            let end = decl.span.hi.0 as usize - 1;
+            self.current_declaration_range = Some(extend_to_line_bounds(self.source, start, end));
+        }
+
+        decl.visit_children_with(self);
+        self.current_declaration_range = None;
+    }
+
+    /// Track exported variable declarations to capture the wider span
+    /// including the `export` keyword.
+    fn visit_export_decl(&mut self, export: &swc_core::ecma::ast::ExportDecl) {
+        use swc_core::ecma::ast::Decl;
+        use swc_core::ecma::visit::VisitWith;
+
+        if let Decl::Var(var_decl) = &export.decl {
+            if var_decl.decls.len() == 1 {
+                let start = export.span.lo.0 as usize - 1;
+                let end = export.span.hi.0 as usize - 1;
+                self.current_declaration_range =
+                    Some(extend_to_line_bounds(self.source, start, end));
+            }
+        }
+
+        export.visit_children_with(self);
+        self.current_declaration_range = None;
+    }
+
     /// Visit import declarations to track GraphQL imports
     fn visit_import_decl(&mut self, import: &swc_core::ecma::ast::ImportDecl) {
         use swc_core::ecma::visit::VisitWith;
@@ -574,6 +644,7 @@ impl swc_core::ecma::visit::Visit for GraphQLVisitor<'_> {
                                     Range::new(start_pos, end_pos),
                                 ),
                                 tag_name: None,
+                                declaration_range: self.current_declaration_range,
                             });
                         }
                     }
@@ -601,6 +672,7 @@ impl swc_core::ecma::visit::Visit for GraphQLVisitor<'_> {
                                 Range::new(start_pos, end_pos),
                             ),
                             tag_name: None,
+                            declaration_range: self.current_declaration_range,
                         });
                     }
                 }
@@ -635,6 +707,7 @@ impl swc_core::ecma::visit::Visit for GraphQLVisitor<'_> {
                                 Range::new(start_pos, end_pos),
                             ),
                             tag_name: None,
+                            declaration_range: self.current_declaration_range,
                         });
                     }
                 }

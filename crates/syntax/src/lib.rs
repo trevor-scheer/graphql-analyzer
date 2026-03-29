@@ -70,6 +70,8 @@ pub struct ExtractedBlock {
     pub line: u32,
     /// Character offset in the line (0-based, UTF-16 code units)
     pub character: u32,
+    /// File-level byte range of the enclosing TS/JS declaration, if applicable
+    pub declaration_range: Option<(usize, usize)>,
 }
 
 /// A reference to a GraphQL document within a parsed file.
@@ -91,6 +93,8 @@ pub struct DocumentRef<'a> {
     pub byte_offset: usize,
     /// The GraphQL source text
     pub source: &'a str,
+    /// File-level byte range of the enclosing TS/JS declaration, if applicable
+    pub declaration_range: Option<(usize, usize)>,
 }
 
 impl DocumentRef<'_> {
@@ -135,6 +139,7 @@ impl Parse {
             column_offset: block.character,
             byte_offset: block.offset,
             source: &block.source,
+            declaration_range: block.declaration_range,
         })
     }
 
@@ -210,6 +215,7 @@ fn parse_graphql(content: &str, uri: &str) -> Parse {
         offset: 0,
         line: 0,
         character: 0,
+        declaration_range: None,
     };
 
     Parse {
@@ -273,6 +279,7 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -
             offset: block.location.offset,
             line: block.location.range.start.line,
             character: block.location.range.start.character,
+            declaration_range: block.declaration_range,
         });
     }
 
@@ -1020,6 +1027,7 @@ mod tests {
                     offset: 100,
                     line: 5,
                     character: 10,
+                    declaration_range: None,
                 },
                 ExtractedBlock {
                     source: Arc::from("query Q2 { post { id } }"),
@@ -1031,6 +1039,7 @@ mod tests {
                     offset: 200,
                     line: 10,
                     character: 15,
+                    declaration_range: None,
                 },
             ],
             errors: vec![],
