@@ -131,4 +131,5 @@ projects:
     documents: "test-workspace/lint-examples/src/**/*.graphql"
     extensions:
       lint:
-        rules: {}
+        rules:
+          alphabetize: [warn, { selections: true, arguments: true, variables: true }]

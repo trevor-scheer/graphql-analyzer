@@ -263,6 +263,10 @@
             "operationNameSuffix": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Require operation names to have a specific suffix (Query, Mutation, Subscription)"
+            },
+            "alphabetize": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforce alphabetical ordering of fields, arguments, and variables in selections"
             }
           },
           "additionalProperties": {

@@ -25,6 +25,7 @@ pub fn get_operation_kind(op_type: &cst::OperationType) -> OperationKind {
     }
 }
 
+mod alphabetize;
 mod no_anonymous_operations;
 mod no_deprecated;
 mod operation_name_suffix;
@@ -35,6 +36,7 @@ mod unused_fields;
 mod unused_fragments;
 mod unused_variables;
 
+pub use alphabetize::AlphabetizeRuleImpl;
 pub use no_anonymous_operations::NoAnonymousOperationsRuleImpl;
 pub use no_deprecated::NoDeprecatedRuleImpl;
 pub use operation_name_suffix::OperationNameSuffixRuleImpl;
