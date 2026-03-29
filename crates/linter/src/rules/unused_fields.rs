@@ -10,7 +10,7 @@ pub struct UnusedFieldsRuleImpl;
 
 impl LintRule for UnusedFieldsRuleImpl {
     fn name(&self) -> &'static str {
-        "unused_fields"
+        "unusedFields"
     }
 
     fn description(&self) -> &'static str {
@@ -124,7 +124,7 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
                 );
 
                 let diag =
-                    LintDiagnostic::warning(field_info.span.clone(), message, "unused_fields");
+                    LintDiagnostic::warning(field_info.span.clone(), message, "unusedFields");
 
                 diagnostics_by_file
                     .entry(field_info.file_id)

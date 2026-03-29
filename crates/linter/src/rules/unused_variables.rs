@@ -23,7 +23,7 @@ pub struct UnusedVariablesRuleImpl;
 
 impl LintRule for UnusedVariablesRuleImpl {
     fn name(&self) -> &'static str {
-        "unused_variables"
+        "unusedVariables"
     }
 
     fn description(&self) -> &'static str {
@@ -162,7 +162,7 @@ fn check_operation_for_unused_variables(
                 LintDiagnostic::warning(
                     doc.span(var.name_start, var.name_end),
                     message,
-                    "unused_variables",
+                    "unusedVariables",
                 )
                 .with_fix(fix),
             );

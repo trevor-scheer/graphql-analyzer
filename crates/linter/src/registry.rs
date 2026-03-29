@@ -107,10 +107,10 @@ mod tests {
     #[test]
     fn test_all_rule_names_includes_expected_rules() {
         let names = all_rule_names();
-        assert!(names.contains(&"no_anonymous_operations"));
-        assert!(names.contains(&"no_deprecated"));
-        assert!(names.contains(&"unique_names"));
-        assert!(names.contains(&"unused_fragments"));
+        assert!(names.contains(&"noAnonymousOperations"));
+        assert!(names.contains(&"noDeprecated"));
+        assert!(names.contains(&"uniqueNames"));
+        assert!(names.contains(&"unusedFragments"));
     }
 
     #[test]
@@ -146,23 +146,6 @@ mod tests {
         }
     }
 
-    /// Convert `snake_case` to `camelCase` (e.g., `no_deprecated` -> `noDeprecated`)
-    fn snake_to_camel(s: &str) -> String {
-        let mut result = String::with_capacity(s.len());
-        let mut capitalize_next = false;
-        for c in s.chars() {
-            if c == '_' {
-                capitalize_next = true;
-            } else if capitalize_next {
-                result.push(c.to_ascii_uppercase());
-                capitalize_next = false;
-            } else {
-                result.push(c);
-            }
-        }
-        result
-    }
-
     /// Test that all lint rules are documented in the JSON schema for autocomplete.
     ///
     /// When you add a new lint rule, you must also add it to the schema at:
@@ -190,9 +173,9 @@ mod tests {
             .map(|obj| obj.keys().cloned().collect())
             .unwrap_or_default();
 
-        // Get all rule names from registry (snake_case) and convert to camelCase
+        // Rule names are already camelCase, matching the schema directly
         let registry_rules: std::collections::HashSet<String> =
-            all_rule_names().into_iter().map(snake_to_camel).collect();
+            all_rule_names().into_iter().map(String::from).collect();
 
         // Find rules missing from schema
         let missing_from_schema: Vec<_> = registry_rules.difference(&schema_rules).collect();

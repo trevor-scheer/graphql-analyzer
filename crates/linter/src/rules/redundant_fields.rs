@@ -31,7 +31,7 @@ pub struct RedundantFieldsRuleImpl;
 
 impl LintRule for RedundantFieldsRuleImpl {
     fn name(&self) -> &'static str {
-        "redundant_fields"
+        "redundantFields"
     }
 
     fn description(&self) -> &'static str {
@@ -382,7 +382,7 @@ fn check_selection_set_for_redundancy(
                         LintDiagnostic::warning(
                             doc.span(start_offset, end_offset),
                             message,
-                            "redundant_fields",
+                            "redundantFields",
                         )
                         .with_fix(fix),
                     );
@@ -456,7 +456,7 @@ fn check_selection_set_for_redundancy(
                         LintDiagnostic::warning(
                             doc.span(start_offset, end_offset),
                             message,
-                            "redundant_fields",
+                            "redundantFields",
                         )
                         .with_fix(fix),
                     );

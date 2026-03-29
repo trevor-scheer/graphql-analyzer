@@ -15,7 +15,7 @@ pub struct NoDeprecatedRuleImpl;
 
 impl LintRule for NoDeprecatedRuleImpl {
     fn name(&self) -> &'static str {
-        "no_deprecated"
+        "noDeprecated"
     }
 
     fn description(&self) -> &'static str {
@@ -163,7 +163,7 @@ fn check_selection_set(
                                 doc.span(offset, offset + field_name.as_ref().len()),
                                 LintSeverity::Warning,
                                 message,
-                                "no_deprecated",
+                                "noDeprecated",
                             ));
                         }
 
@@ -204,7 +204,7 @@ fn check_selection_set(
                                                 doc.span(offset, offset + arg_name.as_ref().len()),
                                                 LintSeverity::Warning,
                                                 message,
-                                                "no_deprecated",
+                                                "noDeprecated",
                                             ));
                                         }
                                     }
@@ -305,7 +305,7 @@ fn check_value_for_deprecated_enum(
                                     doc.span(offset, offset + enum_name.as_ref().len()),
                                     LintSeverity::Warning,
                                     message,
-                                    "no_deprecated",
+                                    "noDeprecated",
                                 ));
                                 // Found the enum, no need to check other types
                                 break;

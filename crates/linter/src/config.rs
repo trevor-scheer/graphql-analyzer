@@ -1,38 +1,5 @@
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-/// Convert a `camelCase` string to `snake_case`.
-///
-/// This is used to allow config files to use `camelCase` rule names (e.g., `noDeprecated`)
-/// while the Rust code uses `snake_case` (e.g., `no_deprecated`).
-fn camel_to_snake(s: &str) -> String {
-    let mut result = String::with_capacity(s.len() + 4);
-    for (i, c) in s.chars().enumerate() {
-        if c.is_uppercase() {
-            if i > 0 {
-                result.push('_');
-            }
-            result.push(c.to_ascii_lowercase());
-        } else {
-            result.push(c);
-        }
-    }
-    result
-}
-
-/// Deserialize a `HashMap` with `camelCase` keys converted to `snake_case`.
-fn deserialize_rules_map<'de, D>(
-    deserializer: D,
-) -> Result<HashMap<String, LintRuleConfig>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let map: HashMap<String, LintRuleConfig> = HashMap::deserialize(deserializer)?;
-    Ok(map
-        .into_iter()
-        .map(|(k, v)| (camel_to_snake(&k), v))
-        .collect())
-}
 
 /// Severity level for a lint rule
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -207,13 +174,8 @@ pub struct FullLintConfig {
 
     /// Rule configurations (optional)
     ///
-    /// In config files, rule names should be `camelCase` (e.g., `noDeprecated`).
-    /// They are automatically converted to `snake_case` internally (e.g., `no_deprecated`).
-    #[serde(
-        default,
-        skip_serializing_if = "HashMap::is_empty",
-        deserialize_with = "deserialize_rules_map"
-    )]
+    /// Rule names use `camelCase` (e.g., `noDeprecated`), matching the config file format.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub rules: HashMap<String, LintRuleConfig>,
 }
 
@@ -231,20 +193,20 @@ pub struct FullLintConfig {
 /// # Fine-grained rules only (no presets)
 /// lint:
 ///   rules:
-///     unique_names: error
-///     no_deprecated: warn
+///     uniqueNames: error
+///     noDeprecated: warn
 ///
 /// # Preset with overrides
 /// lint:
 ///   extends: recommended
 ///   rules:
-///     no_deprecated: off
+///     noDeprecated: off
 ///
 /// # Multiple presets with overrides
 /// lint:
 ///   extends: [recommended, strict]
 ///   rules:
-///     require_id_field: off
+///     requireIdField: off
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -385,8 +347,8 @@ impl LintConfig {
     /// without being opinionated about architecture choices.
     fn recommended_severity(rule_name: &str) -> Option<LintSeverity> {
         match rule_name {
-            "no_anonymous_operations" => Some(LintSeverity::Error),
-            "no_deprecated" | "redundant_fields" | "unused_fragments" | "unused_fields" => {
+            "noAnonymousOperations" => Some(LintSeverity::Error),
+            "noDeprecated" | "redundantFields" | "unusedFragments" | "unusedFields" => {
                 Some(LintSeverity::Warn)
             }
             _ => None,
@@ -412,10 +374,10 @@ mod tests {
             config,
             LintConfig::Preset(ExtendsConfig::Single(ref s)) if s == "recommended"
         ));
-        // unique_names is not in recommended (it's opinionated - only needed for PQs)
-        assert!(!config.is_enabled("unique_names"));
-        assert!(config.is_enabled("no_deprecated"));
-        assert!(config.is_enabled("unused_fields"));
+        // uniqueNames is not in recommended (it's opinionated - only needed for PQs)
+        assert!(!config.is_enabled("uniqueNames"));
+        assert!(config.is_enabled("noDeprecated"));
+        assert!(config.is_enabled("unusedFields"));
     }
 
     #[test]
@@ -426,9 +388,9 @@ mod tests {
             config,
             LintConfig::Preset(ExtendsConfig::Multiple(_))
         ));
-        // unique_names is not in recommended (it's opinionated - only needed for PQs)
-        assert!(!config.is_enabled("unique_names"));
-        assert!(config.is_enabled("no_deprecated"));
+        // uniqueNames is not in recommended (it's opinionated - only needed for PQs)
+        assert!(!config.is_enabled("uniqueNames"));
+        assert!(config.is_enabled("noDeprecated"));
     }
 
     #[test]
@@ -440,14 +402,14 @@ rules:
 ";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
-            config.get_severity("unique_names"),
+            config.get_severity("uniqueNames"),
             Some(LintSeverity::Error)
         );
         assert_eq!(
-            config.get_severity("no_deprecated"),
+            config.get_severity("noDeprecated"),
             Some(LintSeverity::Warn)
         );
-        assert_eq!(config.get_severity("require_id_field"), None);
+        assert_eq!(config.get_severity("requireIdField"), None);
     }
 
     #[test]
@@ -458,10 +420,10 @@ rules:
   noDeprecated: off
 ";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
-        // unique_names and require_id_field are not in recommended (opinionated rules)
-        assert!(!config.is_enabled("unique_names"));
-        assert!(!config.is_enabled("no_deprecated"));
-        assert!(!config.is_enabled("require_id_field"));
+        // uniqueNames and requireIdField are not in recommended (opinionated rules)
+        assert!(!config.is_enabled("uniqueNames"));
+        assert!(!config.is_enabled("noDeprecated"));
+        assert!(!config.is_enabled("requireIdField"));
     }
 
     #[test]
@@ -472,9 +434,9 @@ rules:
   unusedFields: warn
 ";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
-        // unique_names is not in recommended (opinionated)
-        assert!(!config.is_enabled("unique_names"));
-        assert!(config.is_enabled("unused_fields"));
+        // uniqueNames is not in recommended (opinionated)
+        assert!(!config.is_enabled("uniqueNames"));
+        assert!(config.is_enabled("unusedFields"));
     }
 
     #[test]
@@ -486,16 +448,13 @@ rules:
   requireIdField: off
 ";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.get_severity("uniqueNames"), Some(LintSeverity::Warn));
         assert_eq!(
-            config.get_severity("unique_names"),
-            Some(LintSeverity::Warn)
-        );
-        assert_eq!(
-            config.get_severity("require_id_field"),
+            config.get_severity("requireIdField"),
             Some(LintSeverity::Off)
         );
         assert_eq!(
-            config.get_severity("no_deprecated"),
+            config.get_severity("noDeprecated"),
             Some(LintSeverity::Warn)
         );
     }
@@ -521,23 +480,23 @@ rules:
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not_a_rule"));
+        assert!(result.unwrap_err().contains("notARule"));
     }
 
     #[test]
     fn test_default_no_rules_enabled() {
         let config = LintConfig::default();
-        assert!(!config.is_enabled("unique_names"));
-        assert!(!config.is_enabled("no_deprecated"));
+        assert!(!config.is_enabled("uniqueNames"));
+        assert!(!config.is_enabled("noDeprecated"));
     }
 
     #[test]
     fn test_recommended_constructor() {
         let config = LintConfig::recommended();
-        // unique_names is not in recommended (opinionated - only needed for PQs)
-        assert_eq!(config.get_severity("unique_names"), None);
+        // uniqueNames is not in recommended (opinionated - only needed for PQs)
+        assert_eq!(config.get_severity("uniqueNames"), None);
         assert_eq!(
-            config.get_severity("no_deprecated"),
+            config.get_severity("noDeprecated"),
             Some(LintSeverity::Warn)
         );
     }
@@ -550,11 +509,11 @@ rules:
 "#;
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
-            config.get_severity("require_id_field"),
+            config.get_severity("requireIdField"),
             Some(LintSeverity::Warn)
         );
 
-        let options = config.get_options("require_id_field").unwrap();
+        let options = config.get_options("requireIdField").unwrap();
         let fields = options.get("fields").unwrap().as_array().unwrap();
         assert_eq!(fields.len(), 2);
         assert_eq!(fields[0].as_str().unwrap(), "id");
@@ -569,10 +528,10 @@ rules:
 ";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
-            config.get_severity("require_id_field"),
+            config.get_severity("requireIdField"),
             Some(LintSeverity::Error)
         );
-        assert!(config.get_options("require_id_field").is_none());
+        assert!(config.get_options("requireIdField").is_none());
     }
 
     #[test]
@@ -586,11 +545,11 @@ rules:
 "#;
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
-            config.get_severity("require_id_field"),
+            config.get_severity("requireIdField"),
             Some(LintSeverity::Warn)
         );
 
-        let options = config.get_options("require_id_field").unwrap();
+        let options = config.get_options("requireIdField").unwrap();
         let fields = options.get("fields").unwrap().as_array().unwrap();
         assert_eq!(fields.len(), 2);
         assert_eq!(fields[0].as_str().unwrap(), "id");
@@ -604,13 +563,13 @@ rules:
   requireIdField: warn
 ";
         let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
-        assert!(config.get_options("require_id_field").is_none());
+        assert!(config.get_options("requireIdField").is_none());
     }
 
     #[test]
     fn test_get_options_returns_none_for_preset() {
         let config = LintConfig::recommended();
-        assert!(config.get_options("require_id_field").is_none());
+        assert!(config.get_options("requireIdField").is_none());
     }
 
     #[test]
@@ -626,37 +585,23 @@ rules:
 
         // Simple severity
         assert_eq!(
-            config.get_severity("no_deprecated"),
+            config.get_severity("noDeprecated"),
             Some(LintSeverity::Warn)
         );
-        assert!(config.get_options("no_deprecated").is_none());
+        assert!(config.get_options("noDeprecated").is_none());
 
         // ESLint array style
         assert_eq!(
-            config.get_severity("require_id_field"),
+            config.get_severity("requireIdField"),
             Some(LintSeverity::Error)
         );
-        assert!(config.get_options("require_id_field").is_some());
+        assert!(config.get_options("requireIdField").is_some());
 
         // Object style without options
         assert_eq!(
-            config.get_severity("unique_names"),
+            config.get_severity("uniqueNames"),
             Some(LintSeverity::Error)
         );
-        assert!(config.get_options("unique_names").is_none());
-    }
-
-    #[test]
-    fn test_camel_to_snake_conversion() {
-        assert_eq!(camel_to_snake("noDeprecated"), "no_deprecated");
-        assert_eq!(camel_to_snake("requireIdField"), "require_id_field");
-        assert_eq!(camel_to_snake("uniqueNames"), "unique_names");
-        assert_eq!(camel_to_snake("unusedFields"), "unused_fields");
-        assert_eq!(
-            camel_to_snake("noAnonymousOperations"),
-            "no_anonymous_operations"
-        );
-        assert_eq!(camel_to_snake("already_snake"), "already_snake");
-        assert_eq!(camel_to_snake("simple"), "simple");
+        assert!(config.get_options("uniqueNames").is_none());
     }
 }

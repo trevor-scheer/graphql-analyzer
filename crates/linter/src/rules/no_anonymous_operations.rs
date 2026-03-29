@@ -34,7 +34,7 @@ pub struct NoAnonymousOperationsRuleImpl;
 
 impl LintRule for NoAnonymousOperationsRuleImpl {
     fn name(&self) -> &'static str {
-        "no_anonymous_operations"
+        "noAnonymousOperations"
     }
 
     fn description(&self) -> &'static str {
@@ -118,7 +118,7 @@ fn check_operation_has_name(
             doc.span(start_offset, end_offset),
             LintSeverity::Error,
             message,
-            "no_anonymous_operations",
+            "noAnonymousOperations",
         ));
     }
 }

@@ -23,7 +23,7 @@ struct FragmentInfo {
 
 impl LintRule for UnusedFragmentsRuleImpl {
     fn name(&self) -> &'static str {
-        "unused_fragments"
+        "unusedFragments"
     }
 
     fn description(&self) -> &'static str {
@@ -111,9 +111,8 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
                     vec![TextEdit::delete(frag_info.def_start, frag_info.def_end)],
                 );
 
-                let diag =
-                    LintDiagnostic::warning(frag_info.name_span, message, "unused_fragments")
-                        .with_fix(fix);
+                let diag = LintDiagnostic::warning(frag_info.name_span, message, "unusedFragments")
+                    .with_fix(fix);
 
                 diagnostics_by_file
                     .entry(frag_info.file_id)
