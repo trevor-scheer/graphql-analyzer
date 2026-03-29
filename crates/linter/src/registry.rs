@@ -4,7 +4,9 @@ use crate::rules::{
     OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl, RequireIdFieldRuleImpl,
     UniqueNamesRuleImpl, UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
 };
-use crate::traits::{DocumentSchemaLintRule, ProjectLintRule, StandaloneDocumentLintRule};
+use crate::traits::{
+    DocumentSchemaLintRule, ProjectLintRule, StandaloneDocumentLintRule, StandaloneSchemaLintRule,
+};
 use std::sync::{Arc, LazyLock};
 
 /// Lazily initialized standalone document rules.
@@ -40,6 +42,11 @@ static PROJECT_RULES: LazyLock<Vec<Arc<dyn ProjectLintRule>>> = LazyLock::new(||
     ]
 });
 
+/// Lazily initialized standalone schema rules.
+/// Rules are created once and reused across all calls.
+static STANDALONE_SCHEMA_RULES: LazyLock<Vec<Arc<dyn StandaloneSchemaLintRule>>> =
+    LazyLock::new(Vec::new);
+
 #[must_use]
 pub fn standalone_document_rules() -> &'static [Arc<dyn StandaloneDocumentLintRule>] {
     &STANDALONE_DOCUMENT_RULES
@@ -56,6 +63,11 @@ pub fn project_rules() -> &'static [Arc<dyn ProjectLintRule>] {
 }
 
 #[must_use]
+pub fn standalone_schema_rules() -> &'static [Arc<dyn StandaloneSchemaLintRule>] {
+    &STANDALONE_SCHEMA_RULES
+}
+
+#[must_use]
 pub fn all_rule_names() -> Vec<&'static str> {
     let mut names = Vec::new();
 
@@ -66,6 +78,9 @@ pub fn all_rule_names() -> Vec<&'static str> {
         names.push(rule.name());
     }
     for rule in project_rules() {
+        names.push(rule.name());
+    }
+    for rule in standalone_schema_rules() {
         names.push(rule.name());
     }
 
@@ -142,6 +157,14 @@ mod tests {
     #[test]
     fn test_project_rules_have_valid_metadata() {
         for rule in project_rules() {
+            assert!(!rule.name().is_empty());
+            assert!(!rule.description().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_standalone_schema_rules_have_valid_metadata() {
+        for rule in standalone_schema_rules() {
             assert!(!rule.name().is_empty());
             assert!(!rule.description().is_empty());
         }
