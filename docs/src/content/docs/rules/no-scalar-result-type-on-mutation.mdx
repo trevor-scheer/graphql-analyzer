@@ -1,0 +1,44 @@
+---
+title: no-scalar-result-type-on-mutation
+description: Require mutations to return object types.
+---
+
+| Property         | Value                   |
+| ---------------- | ----------------------- |
+| Config name      | `noScalarResultTypeOnMutation` |
+| Default severity | `—`                 |
+| Context          | Schema                |
+| In recommended   | No                     |
+
+## What it checks
+
+Require mutations to return object types.
+
+## Examples
+
+```graphql
+# ❌ Bad — mutation returns scalar
+type Mutation {
+  deleteUser(id: ID!): Boolean
+}
+```
+
+```graphql
+# ✅ Good — mutation returns object type
+type Mutation {
+  deleteUser(id: ID!): DeleteUserPayload
+}
+
+type DeleteUserPayload {
+  success: Boolean!
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  lint:
+    rules:
+      noScalarResultTypeOnMutation: warn
+```
