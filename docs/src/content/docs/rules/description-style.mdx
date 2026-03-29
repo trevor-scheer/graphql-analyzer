@@ -3,12 +3,12 @@ title: description-style
 description: Enforce block vs inline description style.
 ---
 
-| Property         | Value                   |
-| ---------------- | ----------------------- |
+| Property         | Value              |
+| ---------------- | ------------------ |
 | Config name      | `descriptionStyle` |
-| Default severity | `—`                 |
-| Context          | Schema                |
-| In recommended   | No                     |
+| Default severity | `—`                |
+| Context          | Schema             |
+| In recommended   | No                 |
 
 ## What it checks
 
@@ -18,7 +18,8 @@ Enforce block vs inline description style.
 
 ```graphql
 # ❌ Bad — inline description on multi-line type
-"A user" type User {
+"A user"
+type User {
   id: ID!
   name: String
 }

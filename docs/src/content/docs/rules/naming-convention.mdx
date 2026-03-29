@@ -3,12 +3,12 @@ title: naming-convention
 description: Enforce naming conventions for operations, fragments, and variables.
 ---
 
-| Property         | Value                   |
-| ---------------- | ----------------------- |
+| Property         | Value              |
+| ---------------- | ------------------ |
 | Config name      | `namingConvention` |
-| Default severity | `—`                 |
-| Context          | Document                |
-| In recommended   | No                     |
+| Default severity | `—`                |
+| Context          | Document           |
+| In recommended   | No                 |
 
 ## What it checks
 
@@ -19,14 +19,18 @@ Enforce naming conventions for operations, fragments, and variables.
 ```graphql
 # ❌ Bad — inconsistent naming
 query get_user {
-  user { id }
+  user {
+    id
+  }
 }
 ```
 
 ```graphql
 # ✅ Good — PascalCase operation name
 query GetUser {
-  user { id }
+  user {
+    id
+  }
 }
 ```
 

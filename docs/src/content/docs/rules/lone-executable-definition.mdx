@@ -3,12 +3,12 @@ title: lone-executable-definition
 description: Require one operation or fragment per file.
 ---
 
-| Property         | Value                   |
-| ---------------- | ----------------------- |
+| Property         | Value                      |
+| ---------------- | -------------------------- |
 | Config name      | `loneExecutableDefinition` |
-| Default severity | `—`                 |
-| Context          | Document                |
-| In recommended   | No                     |
+| Default severity | `—`                        |
+| Context          | Document                   |
+| In recommended   | No                         |
 
 ## What it checks
 
@@ -19,18 +19,24 @@ Require one operation or fragment per file.
 ```graphql
 # ❌ Bad — multiple operations in one file
 query GetUser {
-  user { id }
+  user {
+    id
+  }
 }
 
 query GetPosts {
-  posts { id }
+  posts {
+    id
+  }
 }
 ```
 
 ```graphql
 # ✅ Good — one operation per file
 query GetUser {
-  user { id }
+  user {
+    id
+  }
 }
 ```
 
