@@ -142,3 +142,4 @@ projects:
           inputName: warn
           noHashtagDescription: warn
           noTypenamePrefix: warn
+          noUnreachableTypes: warn

@@ -1,0 +1,35 @@
+# Demonstrates: noUnreachableTypes
+# These types are not reachable from any root type (Query, Mutation, Subscription).
+
+"""
+An orphaned entity not referenced by any root type
+"""
+type OrphanedEntity {
+  """
+  Unique identifier
+  """
+  id: ID!
+  """
+  Some data
+  """
+  data: String!
+}
+
+"""
+An unreachable interface
+"""
+interface Auditable {
+  """
+  Audit timestamp
+  """
+  auditedAt: String
+}
+
+"""
+An unreachable enum
+"""
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
