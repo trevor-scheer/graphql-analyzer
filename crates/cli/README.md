@@ -13,7 +13,13 @@ Command-line tool for validating and linting GraphQL projects.
 
 ## Installation
 
-### Via Installation Script (Recommended)
+### Homebrew (macOS/Linux)
+
+```bash
+brew install trevor-scheer/graphql-analyzer/graphql-analyzer
+```
+
+### Via Installation Script
 
 **macOS and Linux:**
 
