@@ -295,6 +295,10 @@
             "inputName": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Enforces that input type names end with a specific suffix"
+            },
+            "noHashtagDescription": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Disallows using # comments as type descriptions in schema"
             }
           },
           "additionalProperties": {
