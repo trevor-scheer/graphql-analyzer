@@ -19,6 +19,10 @@ struct FragmentInfo {
     def_start: usize,
     /// Byte offset of the end of the fragment definition (for fix range)
     def_end: usize,
+    /// File-level byte range of the enclosing TS/JS declaration
+    declaration_range: Option<(usize, usize)>,
+    /// Number of GraphQL definitions in the containing block
+    block_def_count: usize,
 }
 
 impl LintRule for UnusedFragmentsRuleImpl {
@@ -78,6 +82,8 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
                         name_span: doc.span(name_range.start, name_range.end),
                         def_start: def_range.start,
                         def_end: def_range.end,
+                        declaration_range: doc.declaration_range,
+                        block_def_count: doc.ast.definitions.len(),
                     });
                 }
             }
@@ -106,13 +112,38 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
                     frag_info.name
                 );
 
-                let fix = CodeFix::new(
-                    format!("Remove unused fragment '{}'", frag_info.name),
-                    vec![TextEdit::delete(frag_info.def_start, frag_info.def_end)],
-                );
+                // For single-definition TS/JS blocks with a declaration range,
+                // delete the entire declaration using file-level coordinates
+                let (name_span, fix) =
+                    if frag_info.block_def_count == 1 && frag_info.declaration_range.is_some() {
+                        let (decl_start, decl_end) = frag_info.declaration_range.unwrap();
+                        let byte_offset = frag_info.name_span.byte_offset;
 
-                let diag = LintDiagnostic::warning(frag_info.name_span, message, "unusedFragments")
-                    .with_fix(fix);
+                        // File-level name span for the diagnostic underline
+                        let file_name_span = graphql_syntax::SourceSpan {
+                            start: byte_offset + frag_info.name_span.start,
+                            end: byte_offset + frag_info.name_span.end,
+                            source: None,
+                            line_offset: 0,
+                            byte_offset: 0,
+                        };
+
+                        let fix = CodeFix::new(
+                            format!("Remove unused fragment '{}'", frag_info.name),
+                            vec![TextEdit::delete(decl_start, decl_end)],
+                        );
+
+                        (file_name_span, fix)
+                    } else {
+                        let fix = CodeFix::new(
+                            format!("Remove unused fragment '{}'", frag_info.name),
+                            vec![TextEdit::delete(frag_info.def_start, frag_info.def_end)],
+                        );
+                        (frag_info.name_span, fix)
+                    };
+
+                let diag =
+                    LintDiagnostic::warning(name_span, message, "unusedFragments").with_fix(fix);
 
                 diagnostics_by_file
                     .entry(frag_info.file_id)
@@ -332,6 +363,43 @@ mod tests {
         let deleted_text = &source[fix.edits[0].offset_range.start..fix.edits[0].offset_range.end];
         assert!(deleted_text.starts_with("fragment Unused"));
         assert!(deleted_text.ends_with('}'));
+    }
+
+    #[test]
+    fn test_ts_single_fragment_fix_deletes_declaration() {
+        let db = RootDatabase::default();
+        let rule = UnusedFragmentsRuleImpl;
+
+        let source =
+            "import { gql } from 'graphql-tag';\nconst F = gql`fragment Unused on User { name }`;\n";
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.ts"),
+            Language::TypeScript,
+            DocumentKind::Executable,
+        );
+
+        let project_files = create_test_project_files(&db, &[(file_id, content, metadata)]);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        let file_diags = diagnostics
+            .get(&file_id)
+            .expect("Expected diagnostics for file");
+        assert_eq!(file_diags.len(), 1);
+
+        let diag = &file_diags[0];
+        assert!(diag.has_fix());
+        let fix = diag.fix.as_ref().unwrap();
+
+        // Fix should delete the entire TS declaration, not just the GraphQL content
+        let deleted = &source[fix.edits[0].offset_range.start..fix.edits[0].offset_range.end];
+        assert!(
+            deleted.contains("const F"),
+            "Fix should delete the TS declaration, got: {deleted:?}",
+        );
     }
 
     #[test]
