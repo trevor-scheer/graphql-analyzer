@@ -199,14 +199,14 @@ mod tests {
     }
 
     fn count_diagnostics(diagnostics: &HashMap<FileId, Vec<LintDiagnostic>>) -> usize {
-        diagnostics.values().map(|v| v.len()).sum()
+        diagnostics.values().map(Vec::len).sum()
     }
 
     #[test]
     fn test_resty_prefixes_flagged() {
         let db = RootDatabase::default();
         let rule = RestyFieldNamesRuleImpl;
-        let schema = r#"
+        let schema = r"
             type Query {
                 getUser: User
                 listUsers: [User]
@@ -220,7 +220,7 @@ mod tests {
                 id: ID!
                 name: String!
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         assert_eq!(count_diagnostics(&diagnostics), 7);
@@ -230,7 +230,7 @@ mod tests {
     fn test_valid_names_not_flagged() {
         let db = RootDatabase::default();
         let rule = RestyFieldNamesRuleImpl;
-        let schema = r#"
+        let schema = r"
             type Query {
                 getter: String
                 listing: [String]
@@ -239,7 +239,7 @@ mod tests {
                 putter: String
                 patching: String
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         assert_eq!(count_diagnostics(&diagnostics), 0);
@@ -249,13 +249,13 @@ mod tests {
     fn test_exact_prefix_match_flagged() {
         let db = RootDatabase::default();
         let rule = RestyFieldNamesRuleImpl;
-        let schema = r#"
+        let schema = r"
             type Query {
                 fetch: String
                 get: String
                 list: [String]
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         assert_eq!(count_diagnostics(&diagnostics), 3);
@@ -265,7 +265,7 @@ mod tests {
     fn test_custom_prefixes() {
         let db = RootDatabase::default();
         let rule = RestyFieldNamesRuleImpl;
-        let schema = r#"
+        let schema = r"
             type Query {
                 getUser: User
                 findUser: User
@@ -274,7 +274,7 @@ mod tests {
             type User {
                 id: ID!
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let options = serde_json::json!({ "prefixes": ["find", "search"] });
         let diagnostics = rule.check(&db, project_files, Some(&options));
@@ -286,7 +286,7 @@ mod tests {
     fn test_empty_prefixes_no_diagnostics() {
         let db = RootDatabase::default();
         let rule = RestyFieldNamesRuleImpl;
-        let schema = r#"
+        let schema = r"
             type Query {
                 getUser: User
                 listUsers: [User]
@@ -294,7 +294,7 @@ mod tests {
             type User {
                 id: ID!
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let options = serde_json::json!({ "prefixes": [] });
         let diagnostics = rule.check(&db, project_files, Some(&options));
@@ -326,14 +326,14 @@ mod tests {
     fn test_interface_fields_checked() {
         let db = RootDatabase::default();
         let rule = RestyFieldNamesRuleImpl;
-        let schema = r#"
+        let schema = r"
             type Query {
                 id: ID!
             }
             interface Node {
                 getById: ID!
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         assert_eq!(count_diagnostics(&diagnostics), 1);
@@ -343,14 +343,14 @@ mod tests {
     fn test_input_object_fields_checked() {
         let db = RootDatabase::default();
         let rule = RestyFieldNamesRuleImpl;
-        let schema = r#"
+        let schema = r"
             type Query {
                 id: ID!
             }
             input CreateUserInput {
                 getField: String
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         assert_eq!(count_diagnostics(&diagnostics), 1);
