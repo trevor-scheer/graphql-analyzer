@@ -59,6 +59,7 @@ mod require_nullable_fields_with_oneof;
 mod require_nullable_result_in_root;
 mod require_selections;
 mod require_type_pattern_with_oneof;
+mod resty_field_names;
 mod selection_set_depth;
 mod strict_id_in_types;
 mod unique_enum_value_names;
@@ -98,6 +99,7 @@ pub use require_nullable_fields_with_oneof::RequireNullableFieldsWithOneofRuleIm
 pub use require_nullable_result_in_root::RequireNullableResultInRootRuleImpl;
 pub use require_selections::RequireSelectionsRuleImpl;
 pub use require_type_pattern_with_oneof::RequireTypePatternWithOneofRuleImpl;
+pub use resty_field_names::RestyFieldNamesRuleImpl;
 pub use selection_set_depth::SelectionSetDepthRuleImpl;
 pub use strict_id_in_types::StrictIdInTypesRuleImpl;
 pub use unique_enum_value_names::UniqueEnumValueNamesRuleImpl;

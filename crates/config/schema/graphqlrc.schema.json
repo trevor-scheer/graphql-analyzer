@@ -371,6 +371,10 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Enforces that types with @oneOf directive contain both 'ok' and 'error' fields"
             },
+            "restyFieldNames": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Warns when field names use REST-style prefixes like get, list, post, etc."
+            },
             "strictIdInTypes": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires object types to have an ID field"
