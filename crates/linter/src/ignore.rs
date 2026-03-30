@@ -88,10 +88,16 @@ pub fn parse_ignore_directives(source: &str) -> Vec<IgnoreDirective> {
                 rules: Vec::new(),
             });
         } else if let Some(rule_list) = rest.strip_prefix(':') {
-            // rule_list is a sub-slice of line (via trim -> strip_prefix chain),
-            // so pointer arithmetic gives us its exact position within line.
-            let rule_list_file_offset =
-                line_start + (rule_list.as_ptr() as usize - line.as_ptr() as usize);
+            // Find the byte offset of rule_list within line by locating the
+            // colon after the ignore prefix — rule_list starts immediately
+            // after it. We search from the ignore prefix onward to avoid
+            // matching an unrelated colon earlier in the line.
+            let prefix_pos = line.find(IGNORE_PREFIX).unwrap();
+            let colon_pos = prefix_pos
+                + IGNORE_PREFIX.len()
+                + line[prefix_pos + IGNORE_PREFIX.len()..].find(':').unwrap()
+                + 1;
+            let rule_list_file_offset = line_start + colon_pos;
 
             let mut rules = Vec::new();
             let mut pos = 0;
