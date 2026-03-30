@@ -324,6 +324,10 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires mutation result types to include a field of the Query type"
             },
+            "restyFieldNames": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Warns when field names use REST-style prefixes like get, list, post, etc."
+            },
             "strictIdInTypes": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires object types to have an ID field"
