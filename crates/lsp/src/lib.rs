@@ -4,6 +4,7 @@
 //! server communicating over stdio. It's typically invoked via `graphql lsp`.
 
 mod conversions;
+mod handlers;
 mod server;
 pub mod trace_capture;
 mod workspace;
