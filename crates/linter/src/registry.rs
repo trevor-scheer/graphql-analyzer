@@ -1,3 +1,4 @@
+use crate::diagnostics::LintSeverity;
 /// Registry of all available lint rules
 use crate::rules::{
     AlphabetizeRuleImpl, DescriptionStyleRuleImpl, InputNameRuleImpl,
@@ -11,8 +12,10 @@ use crate::rules::{
     UniqueNamesRuleImpl, UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
 };
 use crate::traits::{
-    DocumentSchemaLintRule, ProjectLintRule, StandaloneDocumentLintRule, StandaloneSchemaLintRule,
+    DocumentSchemaLintRule, LintRule, ProjectLintRule, StandaloneDocumentLintRule,
+    StandaloneSchemaLintRule,
 };
+use std::fmt;
 use std::sync::{Arc, LazyLock};
 
 /// Lazily initialized standalone document rules.
@@ -111,6 +114,63 @@ pub fn all_rule_names() -> Vec<&'static str> {
 
     names.sort_unstable();
     names
+}
+
+/// Category of a lint rule based on what it analyzes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleCategory {
+    Schema,
+    Document,
+    Project,
+}
+
+impl fmt::Display for RuleCategory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Schema => write!(f, "schema"),
+            Self::Document => write!(f, "document"),
+            Self::Project => write!(f, "project"),
+        }
+    }
+}
+
+/// Metadata about a lint rule, for discovery and documentation.
+#[derive(Debug, Clone)]
+pub struct RuleInfo {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub default_severity: LintSeverity,
+    pub category: RuleCategory,
+}
+
+fn collect_rule_info(rule: &dyn LintRule, category: RuleCategory) -> RuleInfo {
+    RuleInfo {
+        name: rule.name(),
+        description: rule.description(),
+        default_severity: rule.default_severity(),
+        category,
+    }
+}
+
+/// Returns metadata for all registered lint rules, grouped by category.
+#[must_use]
+pub fn all_rule_info() -> Vec<RuleInfo> {
+    let mut info = Vec::new();
+
+    for rule in standalone_schema_rules() {
+        info.push(collect_rule_info(rule.as_ref(), RuleCategory::Schema));
+    }
+    for rule in standalone_document_rules() {
+        info.push(collect_rule_info(rule.as_ref(), RuleCategory::Document));
+    }
+    for rule in document_schema_rules() {
+        info.push(collect_rule_info(rule.as_ref(), RuleCategory::Document));
+    }
+    for rule in project_rules() {
+        info.push(collect_rule_info(rule.as_ref(), RuleCategory::Project));
+    }
+
+    info
 }
 
 #[cfg(test)]
