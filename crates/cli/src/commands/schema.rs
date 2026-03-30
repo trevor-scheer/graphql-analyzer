@@ -29,6 +29,14 @@ pub enum SchemaCommands {
     ///
     /// The endpoint can be specified either as a URL argument or loaded from the
     /// GraphQL config file using --project.
+    #[command(after_help = "\
+Examples:
+  graphql schema download https://api.example.com/graphql
+  graphql schema download --project my-api
+  graphql schema download https://api.example.com/graphql -o schema.graphql
+  graphql schema download https://api.example.com/graphql -H \"Authorization: Bearer token\"
+  graphql schema download https://api.example.com/graphql --format json
+")]
     Download {
         /// GraphQL endpoint URL to introspect (optional if --project is used)
         #[arg(value_name = "URL")]
