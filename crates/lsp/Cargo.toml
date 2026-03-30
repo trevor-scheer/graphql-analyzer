@@ -34,7 +34,7 @@ apollo-parser = { workspace = true }
 tower-lsp-server = { workspace = true }
 
 # Async
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt", "io-std", "time"] }
 
 # Concurrency
 dashmap = { workspace = true }

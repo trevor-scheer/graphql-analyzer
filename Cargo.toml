@@ -46,7 +46,7 @@ apollo-parser = "0.8"
 apollo-compiler = { git = "https://github.com/trevor-scheer/apollo-rs.git", branch = "parse_with_offset" }
 
 # Async
-tokio = { version = "1.48", features = ["full"] }
+tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
 
 # LSP
 tower-lsp-server = "0.23"

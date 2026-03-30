@@ -15,10 +15,10 @@ serde_json = { workspace = true }
 reqwest = { workspace = true }
 thiserror = { workspace = true }
 tracing = "0.1"
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["time"] }
 
 [lints]
 workspace = true
