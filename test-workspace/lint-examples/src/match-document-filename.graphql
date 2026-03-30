@@ -1,0 +1,7 @@
+# This file name matches the operation name in kebab-case style
+query MatchDocumentFilename {
+  user {
+    id
+    name
+  }
+}
