@@ -239,14 +239,7 @@ mod tests {
             DocumentKind::Executable,
         );
         let project_files = create_test_project_files(db);
-        rule.check(
-            db,
-            file_id,
-            content,
-            metadata,
-            project_files,
-            options,
-        )
+        rule.check(db, file_id, content, metadata, project_files, options)
     }
 
     #[test]
