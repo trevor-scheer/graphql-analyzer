@@ -226,7 +226,7 @@ mod tests {
         db: &RootDatabase,
         source: &str,
         uri: &str,
-        options: Option<serde_json::Value>,
+        options: Option<&serde_json::Value>,
     ) -> Vec<LintDiagnostic> {
         let rule = MatchDocumentFilenameRuleImpl;
         let file_id = FileId::new(0);
@@ -245,7 +245,7 @@ mod tests {
             content,
             metadata,
             project_files,
-            options.as_ref(),
+            options,
         )
     }
 
@@ -279,10 +279,10 @@ mod tests {
     #[test]
     fn test_multiple_definitions_uses_first_operation() {
         let db = RootDatabase::default();
-        let source = r#"
+        let source = r"
 fragment UserFields on User { id name }
 query GetUser { user { ...UserFields } }
-"#;
+";
         let diagnostics = check_rule(&db, source, "file:///project/GetUser.graphql", None);
         assert_eq!(diagnostics.len(), 0);
     }
@@ -321,7 +321,7 @@ query GetUser { user { ...UserFields } }
             &db,
             "query GetUser { user { id } }",
             "file:///project/get-user.graphql",
-            Some(options),
+            Some(&options),
         );
         assert_eq!(diagnostics.len(), 0);
     }
@@ -334,7 +334,7 @@ query GetUser { user { ...UserFields } }
             &db,
             "query GetUser { user { id } }",
             "file:///project/GetUser.graphql",
-            Some(options),
+            Some(&options),
         );
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("get-user"));
@@ -348,7 +348,7 @@ query GetUser { user { ...UserFields } }
             &db,
             "query GetUser { user { id } }",
             "file:///project/get_user.graphql",
-            Some(options),
+            Some(&options),
         );
         assert_eq!(diagnostics.len(), 0);
     }
@@ -361,7 +361,7 @@ query GetUser { user { ...UserFields } }
             &db,
             "query GetUser { user { id } }",
             "file:///project/getUser.graphql",
-            Some(options),
+            Some(&options),
         );
         assert_eq!(diagnostics.len(), 0);
     }
