@@ -1,0 +1,12 @@
+extend type Query {
+  "Non-nullable root field — triggers requireNullableResultInRoot"
+  currentUser: User!
+
+  "Nullable root field — no warning"
+  viewer: User
+}
+
+extend type Mutation {
+  "Non-nullable mutation field — triggers requireNullableResultInRoot"
+  deleteAccount: Boolean!
+}
