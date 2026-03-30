@@ -105,9 +105,19 @@ multiple_crate_versions = "allow"
 too_many_lines = "allow"
 cast_possible_truncation = "allow"
 similar_names = "allow"
+# Visibility into unwrap/expect usage — warn only, not deny
+unwrap_used = "warn"
+expect_used = "warn"
 
 [workspace.lints.rust]
-warnings = "deny"
+# Note: `warnings = "deny"` was removed to allow clippy::unwrap_used and
+# clippy::expect_used to remain at warn level without being promoted to errors.
+# All clippy lint groups are already set to deny directly above.
+# Explicitly deny the rustc lint groups that `warnings = "deny"` previously covered.
+unused = { level = "deny", priority = -1 }
+nonstandard_style = { level = "deny", priority = -1 }
+# let_underscore_drop is too strict for this codebase (fires on `let _ = future.await`)
+let_underscore_drop = "allow"
 
 # The profile that 'dist' will build with
 [profile.dist]
