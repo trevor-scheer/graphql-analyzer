@@ -142,11 +142,11 @@ mod tests {
     fn test_disallow_subscription() {
         let db = RootDatabase::default();
         let rule = NoRootTypeRuleImpl;
-        let schema = r#"
+        let schema = r"
             type Query { hello: String }
             type Mutation { doSomething: Boolean }
             type Subscription { onEvent: String }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let opts = make_options(&["Subscription"]);
         let diagnostics = rule.check(&db, project_files, Some(&opts));
@@ -160,10 +160,10 @@ mod tests {
     fn test_disallow_mutation() {
         let db = RootDatabase::default();
         let rule = NoRootTypeRuleImpl;
-        let schema = r#"
+        let schema = r"
             type Query { hello: String }
             type Mutation { doSomething: Boolean }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let opts = make_options(&["Mutation"]);
         let diagnostics = rule.check(&db, project_files, Some(&opts));
@@ -176,11 +176,11 @@ mod tests {
     fn test_allows_types_not_in_disallow_list() {
         let db = RootDatabase::default();
         let rule = NoRootTypeRuleImpl;
-        let schema = r#"
+        let schema = r"
             type Query { hello: String }
             type Mutation { doSomething: Boolean }
             type Subscription { onEvent: String }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let opts = make_options(&["Subscription"]);
         let diagnostics = rule.check(&db, project_files, Some(&opts));
@@ -195,11 +195,11 @@ mod tests {
     fn test_empty_disallow_list_produces_no_diagnostics() {
         let db = RootDatabase::default();
         let rule = NoRootTypeRuleImpl;
-        let schema = r#"
+        let schema = r"
             type Query { hello: String }
             type Mutation { doSomething: Boolean }
             type Subscription { onEvent: String }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let opts = make_options(&[]);
         let diagnostics = rule.check(&db, project_files, Some(&opts));
@@ -211,10 +211,10 @@ mod tests {
     fn test_no_options_produces_no_diagnostics() {
         let db = RootDatabase::default();
         let rule = NoRootTypeRuleImpl;
-        let schema = r#"
+        let schema = r"
             type Query { hello: String }
             type Mutation { doSomething: Boolean }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -238,11 +238,11 @@ mod tests {
     fn test_disallow_multiple_root_types() {
         let db = RootDatabase::default();
         let rule = NoRootTypeRuleImpl;
-        let schema = r#"
+        let schema = r"
             type Query { hello: String }
             type Mutation { doSomething: Boolean }
             type Subscription { onEvent: String }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let opts = make_options(&["Mutation", "Subscription"]);
         let diagnostics = rule.check(&db, project_files, Some(&opts));
