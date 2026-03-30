@@ -1,0 +1,116 @@
+{
+  "Query Operation": {
+    "prefix": "query",
+    "body": [
+      "query ${1:OperationName} {",
+      "  $0",
+      "}"
+    ],
+    "description": "Query operation"
+  },
+  "Query with Variables": {
+    "prefix": "queryv",
+    "body": [
+      "query ${1:OperationName}($$${2:var}: ${3:Type}) {",
+      "  $0",
+      "}"
+    ],
+    "description": "Query operation with variables"
+  },
+  "Mutation Operation": {
+    "prefix": "mutation",
+    "body": [
+      "mutation ${1:OperationName}($$${2:input}: ${3:InputType}!) {",
+      "  $0",
+      "}"
+    ],
+    "description": "Mutation operation"
+  },
+  "Subscription Operation": {
+    "prefix": "subscription",
+    "body": [
+      "subscription ${1:OperationName} {",
+      "  $0",
+      "}"
+    ],
+    "description": "Subscription operation"
+  },
+  "Fragment Definition": {
+    "prefix": "fragment",
+    "body": [
+      "fragment ${1:FragmentName} on ${2:TypeName} {",
+      "  $0",
+      "}"
+    ],
+    "description": "Fragment definition"
+  },
+  "Type Definition": {
+    "prefix": "type",
+    "body": [
+      "type ${1:TypeName} {",
+      "  $0",
+      "}"
+    ],
+    "description": "Object type definition"
+  },
+  "Input Type": {
+    "prefix": "input",
+    "body": [
+      "input ${1:InputName} {",
+      "  $0",
+      "}"
+    ],
+    "description": "Input type definition"
+  },
+  "Enum Definition": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:EnumName} {",
+      "  $0",
+      "}"
+    ],
+    "description": "Enum type definition"
+  },
+  "Interface Definition": {
+    "prefix": "interface",
+    "body": [
+      "interface ${1:InterfaceName} {",
+      "  $0",
+      "}"
+    ],
+    "description": "Interface type definition"
+  },
+  "Union Definition": {
+    "prefix": "union",
+    "body": [
+      "union ${1:UnionName} = ${1:Type1} | ${2:Type2}",
+      "$0"
+    ],
+    "description": "Union type definition"
+  },
+  "Scalar Definition": {
+    "prefix": "scalar",
+    "body": [
+      "scalar ${1:ScalarName}",
+      "$0"
+    ],
+    "description": "Custom scalar definition"
+  },
+  "Directive Definition": {
+    "prefix": "directive",
+    "body": [
+      "directive @${1:directiveName}(${2:arg}: ${3:Type}) on ${4|FIELD,OBJECT,INTERFACE,UNION,ENUM,INPUT_OBJECT,SCALAR,FIELD_DEFINITION,ARGUMENT_DEFINITION,ENUM_VALUE,INPUT_FIELD_DEFINITION,SCHEMA|}",
+      "$0"
+    ],
+    "description": "Directive definition"
+  },
+  "Extend Type": {
+    "prefix": "extend",
+    "body": [
+      "extend type ${1:TypeName} {",
+      "  $0",
+      "}"
+    ],
+    "description": "Type extension"
+  }
+}

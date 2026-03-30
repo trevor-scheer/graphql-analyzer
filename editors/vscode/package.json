@@ -217,6 +217,12 @@
         "url": "./schema/graphqlrc.schema.json"
       }
     ],
+    "snippets": [
+      {
+        "language": "graphql",
+        "path": "./snippets/graphql.json"
+      }
+    ],
     "keybindings": [
       {
         "command": "graphql-analyzer.restartServer",
