@@ -300,6 +300,10 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Disallows using # comments as type descriptions in schema"
             },
+            "noRootType": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Disallows specific root operation types (Query, Mutation, Subscription) for schema governance"
+            },
             "noTypenamePrefix": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Disallows field names that are prefixed with their parent type name"
