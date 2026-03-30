@@ -375,7 +375,7 @@ mod tests {
     #[test]
     fn test_simple_preset() {
         let yaml = r"recommended";
-        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
         assert!(matches!(
             config,
             LintConfig::Preset(ExtendsConfig::Single(ref s)) if s == "recommended"
@@ -394,7 +394,7 @@ mod tests {
     #[test]
     fn test_preset_list() {
         let yaml = r"[recommended]";
-        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
         assert!(matches!(
             config,
             LintConfig::Preset(ExtendsConfig::Multiple(_))
@@ -411,7 +411,7 @@ rules:
   uniqueNames: error
   noDeprecated: warn
 ";
-        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
         assert_eq!(
             config.get_severity("uniqueNames"),
             Some(LintSeverity::Error)
@@ -430,7 +430,7 @@ extends: recommended
 rules:
   noDeprecated: off
 ";
-        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
         // uniqueNames and requireIdField are not in recommended (opinionated rules)
         assert!(!config.is_enabled("uniqueNames"));
         assert!(!config.is_enabled("noDeprecated"));
@@ -444,7 +444,7 @@ extends: [recommended]
 rules:
   unusedFields: warn
 ";
-        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
         // uniqueNames is not in recommended (opinionated)
         assert!(!config.is_enabled("uniqueNames"));
         assert!(config.is_enabled("unusedFields"));
@@ -458,7 +458,7 @@ rules:
   uniqueNames: warn
   requireIdField: off
 ";
-        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
         assert_eq!(config.get_severity("uniqueNames"), Some(LintSeverity::Warn));
         assert_eq!(
             config.get_severity("requireIdField"),
@@ -488,7 +488,7 @@ rules:
 rules:
   notARule: error
 ";
-        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("notARule"));
@@ -518,7 +518,7 @@ rules:
 rules:
   requireIdField: [warn, { fields: ["id", "nodeId"] }]
 "#;
-        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
         assert_eq!(
             config.get_severity("requireIdField"),
             Some(LintSeverity::Warn)
@@ -537,7 +537,7 @@ rules:
 rules:
   requireIdField: [error]
 ";
-        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
         assert_eq!(
             config.get_severity("requireIdField"),
             Some(LintSeverity::Error)
@@ -554,7 +554,7 @@ rules:
     options:
       fields: ["id", "uuid"]
 "#;
-        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
         assert_eq!(
             config.get_severity("requireIdField"),
             Some(LintSeverity::Warn)
@@ -573,7 +573,7 @@ rules:
 rules:
   requireIdField: warn
 ";
-        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
         assert!(config.get_options("requireIdField").is_none());
     }
 
@@ -592,7 +592,7 @@ rules:
   uniqueNames:
     severity: error
 "#;
-        let config: LintConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
 
         // Simple severity
         assert_eq!(
