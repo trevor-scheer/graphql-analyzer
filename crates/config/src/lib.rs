@@ -2,6 +2,7 @@ mod config;
 mod env;
 mod error;
 mod loader;
+pub mod suggestions;
 mod validation;
 
 pub use config::{
