@@ -139,12 +139,9 @@ pub fn find_block_for_position(
 }
 
 /// Find a fragment definition in a parsed file, handling all document types uniformly
-#[allow(unused_variables)]
 pub fn find_fragment_definition_in_parse(
     parse: &graphql_syntax::Parse,
     fragment_name: &str,
-    content: graphql_base_db::FileContent,
-    db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
 ) -> Option<Range> {
     for doc in parse.documents() {
         if let Some((start_offset, end_offset)) =
@@ -160,12 +157,9 @@ pub fn find_fragment_definition_in_parse(
 }
 
 /// Find a type definition in a parsed file, handling all document types uniformly
-#[allow(unused_variables)]
 pub fn find_type_definition_in_parse(
     parse: &graphql_syntax::Parse,
     type_name: &str,
-    content: graphql_base_db::FileContent,
-    db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
 ) -> Option<Range> {
     for doc in parse.documents() {
         if let Some((start_offset, end_offset)) = find_type_definition_range(doc.tree, type_name) {
@@ -179,12 +173,9 @@ pub fn find_type_definition_in_parse(
 }
 
 /// Find all fragment spreads in a parsed file, handling all document types uniformly
-#[allow(unused_variables)]
 pub fn find_fragment_spreads_in_parse(
     parse: &graphql_syntax::Parse,
     fragment_name: &str,
-    content: graphql_base_db::FileContent,
-    db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
 ) -> Vec<Range> {
     let mut results = Vec::new();
 
@@ -203,13 +194,7 @@ pub fn find_fragment_spreads_in_parse(
 }
 
 /// Find all type references in a parsed file, handling all document types uniformly
-#[allow(unused_variables)]
-pub fn find_type_references_in_parse(
-    parse: &graphql_syntax::Parse,
-    type_name: &str,
-    content: graphql_base_db::FileContent,
-    db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
-) -> Vec<Range> {
+pub fn find_type_references_in_parse(parse: &graphql_syntax::Parse, type_name: &str) -> Vec<Range> {
     let mut results = Vec::new();
 
     for doc in parse.documents() {
@@ -227,14 +212,11 @@ pub fn find_type_references_in_parse(
 }
 
 /// Find field usages in a parsed file that match the given type and field name
-#[allow(unused_variables)]
 pub fn find_field_usages_in_parse(
     parse: &graphql_syntax::Parse,
     type_name: &str,
     field_name: &str,
     schema_types: &std::collections::HashMap<std::sync::Arc<str>, graphql_hir::TypeDef>,
-    content: graphql_base_db::FileContent,
-    db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
 ) -> Vec<Range> {
     let mut results = Vec::new();
 

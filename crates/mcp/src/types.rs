@@ -39,22 +39,6 @@ pub struct ValidateDocumentResult {
     pub diagnostics: Vec<DiagnosticInfo>,
 }
 
-/// Parameters for the lint_document tool
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct LintDocumentParams {
-    /// The GraphQL document content to lint
-    pub document: String,
-
-    /// Optional file path for better error messages
-    #[serde(default)]
-    pub file_path: Option<String>,
-
-    /// Whether to include auto-fix suggestions
-    #[serde(default)]
-    pub include_fixes: bool,
-}
-
 /// Result of linting a GraphQL document
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LintResult {

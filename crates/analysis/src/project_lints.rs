@@ -1,5 +1,4 @@
 use crate::{Diagnostic, DiagnosticRange, GraphQLAnalysisDatabase};
-use graphql_hir::{FieldId, FragmentId};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
@@ -73,7 +72,7 @@ impl TypeCoverage {
 pub fn find_unused_fields(
     db: &dyn GraphQLAnalysisDatabase,
     project_files: graphql_base_db::ProjectFiles,
-) -> Arc<Vec<(FieldId, Diagnostic)>> {
+) -> Arc<Vec<Diagnostic>> {
     let schema = graphql_hir::schema_types(db, project_files);
 
     // Use per-file aggregation of schema coordinates (cached per-file).
@@ -87,16 +86,12 @@ pub fn find_unused_fields(
                 field_name: field.name.clone(),
             };
             if !used_coordinates.contains(&coord) {
-                let field_id = FieldId::new(unsafe { salsa::Id::from_index(0) });
-                unused.push((
-                    field_id,
-                    Diagnostic::warning(
-                        format!(
-                            "Field '{type_name}.{}' is never used in any operation",
-                            field.name
-                        ),
-                        DiagnosticRange::default(),
+                unused.push(Diagnostic::warning(
+                    format!(
+                        "Field '{type_name}.{}' is never used in any operation",
+                        field.name
                     ),
+                    DiagnosticRange::default(),
                 ));
             }
         }
@@ -119,7 +114,7 @@ pub fn find_unused_fields(
 pub fn find_unused_fragments(
     db: &dyn GraphQLAnalysisDatabase,
     project_files: graphql_base_db::ProjectFiles,
-) -> Arc<Vec<(FragmentId, Diagnostic)>> {
+) -> Arc<Vec<Diagnostic>> {
     let all_fragments = graphql_hir::all_fragments(db, project_files);
 
     // Seed only from operations -- fragments spread by other fragments
@@ -144,14 +139,9 @@ pub fn find_unused_fragments(
     let mut unused = Vec::new();
     for fragment_name in all_fragments.keys() {
         if !transitively_used.contains(fragment_name) {
-            let fragment_id = FragmentId::new(unsafe { salsa::Id::from_index(0) });
-
-            unused.push((
-                fragment_id,
-                Diagnostic::warning(
-                    format!("Fragment '{fragment_name}' is never used"),
-                    DiagnosticRange::default(),
-                ),
+            unused.push(Diagnostic::warning(
+                format!("Fragment '{fragment_name}' is never used"),
+                DiagnosticRange::default(),
             ));
         }
     }
@@ -729,7 +719,7 @@ mod tests {
         let unused = find_unused_fields(&db, project_files);
 
         assert_eq!(unused.len(), 1);
-        assert!(unused[0].1.message.contains("User.email"));
+        assert!(unused[0].message.contains("User.email"));
     }
 
     #[test]
@@ -800,7 +790,7 @@ mod tests {
         let unused = find_unused_fields(&db, project_files);
 
         assert_eq!(unused.len(), 1);
-        assert!(unused[0].1.message.contains("User.age"));
+        assert!(unused[0].message.contains("User.age"));
     }
 
     #[test]
@@ -874,7 +864,7 @@ mod tests {
         let unused = find_unused_fields(&db, project_files);
 
         assert_eq!(unused.len(), 2);
-        let messages: Vec<Arc<str>> = unused.iter().map(|(_, d)| d.message.clone()).collect();
+        let messages: Vec<Arc<str>> = unused.iter().map(|d| d.message.clone()).collect();
         assert!(messages.iter().any(|m| m.contains("User.name")));
         assert!(messages.iter().any(|m| m.contains("Post.content")));
     }
@@ -950,7 +940,7 @@ mod tests {
         let unused = find_unused_fields(&db, project_files);
 
         assert_eq!(unused.len(), 2);
-        let messages: Vec<Arc<str>> = unused.iter().map(|(_, d)| d.message.clone()).collect();
+        let messages: Vec<Arc<str>> = unused.iter().map(|d| d.message.clone()).collect();
         assert!(messages.iter().any(|m| m.contains("User.name")));
         assert!(messages.iter().any(|m| m.contains("User.phone")));
     }
@@ -1034,7 +1024,7 @@ mod tests {
 
         let unused = find_unused_fragments(&db, project_files);
 
-        let unused_names: Vec<&str> = unused.iter().map(|(_, d)| d.message.as_ref()).collect();
+        let unused_names: Vec<&str> = unused.iter().map(|d| d.message.as_ref()).collect();
 
         // Both OrphanA and OrphanB should be unused -- they are not reachable
         // from any operation.
