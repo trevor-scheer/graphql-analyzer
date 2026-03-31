@@ -33,6 +33,7 @@ apollo-parser = { workspace = true }
 
 # CLI
 clap = { workspace = true }
+clap_complete = { workspace = true }
 
 # Async
 tokio = { workspace = true }

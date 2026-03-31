@@ -6,7 +6,7 @@ mod watch;
 
 pub use exit_code::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -177,6 +177,13 @@ enum Commands {
         preload: Option<Vec<String>>,
     },
 
+    /// Generate shell completions
+    #[command(name = "completions")]
+    Completions {
+        /// Shell to generate completions for
+        shell: clap_complete::Shell,
+    },
+
     /// Start the Language Server Protocol (LSP) server
     ///
     /// This command starts the GraphQL language server, which provides IDE features
@@ -280,6 +287,11 @@ async fn main() -> anyhow::Result<()> {
             no_preload,
             preload,
         } => commands::mcp::run(workspace, no_preload, preload).await,
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            clap_complete::generate(shell, &mut cmd, "graphql", &mut std::io::stdout());
+            Ok(())
+        }
         Commands::Lsp => unreachable!("handled above"),
     };
 
