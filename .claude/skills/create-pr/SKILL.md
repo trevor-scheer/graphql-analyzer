@@ -2,7 +2,7 @@
 name: create-pr
 description: Create pull requests following project standards. Use when opening a PR, preparing changes for review, or running gh pr create.
 user-invocable: true
-allowed-tools: Bash(gh *), Bash(git *), Bash(cargo fmt *), Bash(cargo clippy *), Bash(cargo test *), Bash(knope *), Read, Edit, Write, Grep, Glob
+allowed-tools: Bash(gh *), Bash(git *), Bash(cargo fmt *), Bash(cargo clippy *), Bash(cargo test *), Bash(npm *), Bash(cd docs *), Bash(knope *), Read, Edit, Write, Grep, Glob
 ---
 
 # Creating Pull Requests
@@ -13,13 +13,56 @@ Follow these standards when creating PRs for this project.
 
 ### 1. Verify All Checks Pass
 
+**Rust checks:**
+
 ```bash
 cargo fmt --check
 cargo clippy
 cargo test
 ```
 
-### 2. Create a Changeset (if needed)
+**npm checks** (from repo root):
+
+```bash
+npm run lint
+npm run fmt:check
+npm run typecheck
+```
+
+**Docs site** (if any `docs/` files changed):
+
+```bash
+cd docs && npm run build
+```
+
+Fix any issues before proceeding. All of these are enforced by CI — catching them locally avoids failed checks on the PR.
+
+### 2. Update Documentation
+
+Before creating the PR, review whether your changes require documentation updates. Check the diff (`git diff main...HEAD`) and apply the rules below.
+
+**Docs site** (`docs/src/content/docs/`):
+
+| What changed | What to update |
+| --- | --- |
+| New lint rule | Create `docs/src/content/docs/rules/<rule-name>.mdx` and add it to the sidebar in `docs/astro.config.mjs`. Update `docs/src/content/docs/rules/catalog.mdx`. |
+| Changed lint rule behavior/options | Update the rule's `.mdx` in `docs/src/content/docs/rules/` |
+| New/changed CLI command or flag | Update the relevant page in `docs/src/content/docs/cli/` |
+| New/changed IDE feature | Update the relevant page in `docs/src/content/docs/ide-features/` |
+| New/changed configuration option | Update the relevant page in `docs/src/content/docs/configuration/` |
+| New/changed editor setup | Update the relevant page in `docs/src/content/docs/editors/` |
+
+**Crate READMEs** (`crates/*/README.md`):
+
+Update a crate's README when you change its public API, add/remove major functionality, or change how it's intended to be used. Internal refactoring doesn't need README updates.
+
+**Root README** (`README.md`):
+
+Update when adding new top-level features, changing installation instructions, or modifying the project's public-facing description.
+
+**Skip documentation updates for:** internal refactoring, test-only changes, CI changes, dependency bumps.
+
+### 3. Create a Changeset (if needed)
 
 For user-facing changes (features, bug fixes, breaking changes), create a changeset:
 
@@ -125,9 +168,10 @@ EOF
 
 ## Checklist
 
-- [ ] All tests pass locally
-- [ ] Clippy is clean
-- [ ] Code is formatted
+- [ ] Rust checks pass (`cargo fmt --check`, `cargo clippy`, `cargo test`)
+- [ ] npm checks pass (`npm run lint`, `npm run fmt:check`, `npm run typecheck`)
+- [ ] Docs site builds (`cd docs && npm run build`) — if docs/ files changed
+- [ ] Documentation updated (docs site, crate READMEs, root README) — if user-facing behavior changed
 - [ ] Changeset created with PR link (if user-facing changes)
 - [ ] Commits follow conventional format
 - [ ] PR title is descriptive (no emoji)
