@@ -1166,6 +1166,7 @@ version = "0.1.8"
 dependencies = [
  "anyhow",
  "apollo-parser 0.8.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ariadne",
  "clap",
  "colored",
  "glob",

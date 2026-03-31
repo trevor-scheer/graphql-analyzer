@@ -49,6 +49,7 @@ notify = { workspace = true }
 # Terminal UI
 colored = "3.0"
 indicatif = "0.18"
+ariadne = "0.6"
 
 # Logging
 tracing = "0.1"

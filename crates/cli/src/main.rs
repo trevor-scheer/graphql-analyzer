@@ -2,6 +2,7 @@ mod analysis;
 mod commands;
 mod exit_code;
 mod progress;
+pub(crate) mod rendering;
 mod watch;
 
 pub use exit_code::ExitCode;
