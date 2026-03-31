@@ -1,0 +1,86 @@
+---
+title: require-selections
+description: Require specific fields in selection sets for cache normalization.
+---
+
+| Property         | Value               |
+| ---------------- | ------------------- |
+| Config name      | `requireSelections` |
+| Default severity | error               |
+| Context          | Document-Schema     |
+| In recommended   | No                  |
+
+## What it checks
+
+Enforces that selection sets on object types include specific fields (by default, `id`). This is essential for client-side cache normalization in tools like Apollo Client and urql, which rely on a consistent identifier field to merge and deduplicate objects.
+
+Unlike `require-id-field`, which only checks types that happen to have an `id` field, this rule requires the specified fields to be selected on **all** object types, helping you catch missing selections project-wide.
+
+## Examples
+
+Given this schema:
+
+```graphql
+type User {
+  id: ID!
+  name: String!
+}
+
+type Post {
+  id: ID!
+  title: String!
+  author: User!
+}
+```
+
+```graphql
+# ❌ Bad — missing id field in nested selection
+query GetPost {
+  post {
+    id
+    title
+    author {
+      name
+    }
+  }
+}
+```
+
+```graphql
+# ✅ Good — id selected at every level
+query GetPost {
+  post {
+    id
+    title
+    author {
+      id
+      name
+    }
+  }
+}
+```
+
+## Options
+
+| Option   | Type       | Default  | Description                                        |
+| -------- | ---------- | -------- | -------------------------------------------------- |
+| `fields` | `string[]` | `["id"]` | Field names to require in every object selection set |
+
+## Configuration
+
+```yaml
+# Default: require 'id'
+extensions:
+  lint:
+    rules:
+      requireSelections: error
+
+# Require both id and __typename
+extensions:
+  lint:
+    rules:
+      requireSelections:
+        severity: error
+        options:
+          fields: ["id", "__typename"]
+```
