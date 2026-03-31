@@ -635,13 +635,13 @@ mod tests {
         writeln!(schema_file, "query GetUser {{ user {{ id }} }}").unwrap();
         writeln!(schema_file, "fragment UserFields on User {{ id name }}").unwrap();
 
-        let project_config = ProjectConfig {
-            schema: SchemaConfig::Path("schema/*.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: None,
-        };
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema/*.graphql".to_string()),
+            None,
+            None,
+            None,
+            None,
+        );
 
         let result = CliAnalysisHost::from_project_config(&project_config, workspace_path);
 
@@ -688,13 +688,13 @@ mod tests {
         writeln!(bad_doc_file, "type BadType {{ id: ID! }}").unwrap();
         writeln!(bad_doc_file, "interface BadInterface {{ name: String }}").unwrap();
 
-        let project_config = ProjectConfig {
-            schema: SchemaConfig::Path("schema/*.graphql".to_string()),
-            documents: Some(DocumentsConfig::Pattern("docs/*.graphql".to_string())),
-            include: None,
-            exclude: None,
-            extensions: None,
-        };
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema/*.graphql".to_string()),
+            Some(DocumentsConfig::Pattern("docs/*.graphql".to_string())),
+            None,
+            None,
+            None,
+        );
 
         let result = CliAnalysisHost::from_project_config(&project_config, workspace_path);
 
@@ -735,13 +735,13 @@ mod tests {
         writeln!(doc_file, "query GetUser {{ user {{ id }} }}").unwrap();
         writeln!(doc_file, "fragment UserFields on User {{ id name }}").unwrap();
 
-        let project_config = ProjectConfig {
-            schema: SchemaConfig::Path("schema/*.graphql".to_string()),
-            documents: Some(DocumentsConfig::Pattern("docs/*.graphql".to_string())),
-            include: None,
-            exclude: None,
-            extensions: None,
-        };
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema/*.graphql".to_string()),
+            Some(DocumentsConfig::Pattern("docs/*.graphql".to_string())),
+            None,
+            None,
+            None,
+        );
 
         let result = CliAnalysisHost::from_project_config(&project_config, workspace_path);
 
@@ -767,13 +767,13 @@ mod tests {
         let mut schema_file = std::fs::File::create(schema_dir.join("schema.graphql")).unwrap();
         writeln!(schema_file, "type Query {{ hello: String }}").unwrap();
 
-        let project_config = ProjectConfig {
-            schema: SchemaConfig::Path("schema/*.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: None,
-        };
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema/*.graphql".to_string()),
+            None,
+            None,
+            None,
+            None,
+        );
 
         let host = CliAnalysisHost::from_project_config(&project_config, workspace_path).unwrap();
         assert!(host.schema_loaded());
@@ -788,13 +788,13 @@ mod tests {
         let workspace_path = temp_dir.path();
 
         // Point at a pattern that matches nothing
-        let project_config = ProjectConfig {
-            schema: SchemaConfig::Path("nonexistent/*.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: None,
-        };
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("nonexistent/*.graphql".to_string()),
+            None,
+            None,
+            None,
+            None,
+        );
 
         let host = CliAnalysisHost::from_project_config(&project_config, workspace_path).unwrap();
         assert!(!host.schema_loaded());

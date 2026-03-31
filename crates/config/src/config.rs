@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::OnceLock;
 
 /// Top-level GraphQL configuration.
 /// Either a single project or multiple named projects.
@@ -149,61 +150,29 @@ impl GraphQLConfig {
     ) -> Option<crate::FileType> {
         let rel_path = doc_path.strip_prefix(workspace_root).ok()?;
         let rel_path_str = rel_path.to_string_lossy();
+        let compiled = config.compiled_patterns();
 
         // Check explicit excludes first
-        if let Some(ref excludes) = config.exclude {
-            for pattern in excludes {
-                for expanded in Self::expand_braces(pattern) {
-                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
-                        if glob_pattern.matches(&rel_path_str) {
-                            return None;
-                        }
-                    }
-                }
-            }
+        if compiled.exclude.iter().any(|p| p.matches(&rel_path_str)) {
+            return None;
         }
 
         // Check if file is in include scope
-        let in_include_scope = config.include.as_ref().is_none_or(|includes| {
-            for pattern in includes {
-                for expanded in Self::expand_braces(pattern) {
-                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
-                        if glob_pattern.matches(&rel_path_str) {
-                            return true;
-                        }
-                    }
-                }
-            }
-            false
-        });
+        let in_include_scope =
+            config.include.is_none() || compiled.include.iter().any(|p| p.matches(&rel_path_str));
 
         if !in_include_scope {
             return None;
         }
 
         // Check schema patterns first
-        let schema_patterns = config.schema.paths();
-        for pattern in &schema_patterns {
-            for expanded in Self::expand_braces(pattern) {
-                if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
-                    if glob_pattern.matches(&rel_path_str) {
-                        return Some(crate::FileType::Schema);
-                    }
-                }
-            }
+        if compiled.schema.iter().any(|p| p.matches(&rel_path_str)) {
+            return Some(crate::FileType::Schema);
         }
 
         // Check document patterns
-        if let Some(ref documents) = config.documents {
-            for pattern in documents.patterns() {
-                for expanded in Self::expand_braces(pattern) {
-                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
-                        if glob_pattern.matches(&rel_path_str) {
-                            return Some(crate::FileType::Document);
-                        }
-                    }
-                }
-            }
+        if compiled.documents.iter().any(|p| p.matches(&rel_path_str)) {
+            return Some(crate::FileType::Document);
         }
 
         None
@@ -230,80 +199,49 @@ impl GraphQLConfig {
             config.documents.as_ref().map_or(0, |d| d.patterns().len())
         );
 
+        let compiled = config.compiled_patterns();
+
         // Check explicit excludes first
-        if let Some(ref excludes) = config.exclude {
-            tracing::debug!("Checking exclude patterns: {:?}", excludes);
-            for pattern in excludes {
-                for expanded in Self::expand_braces(pattern) {
-                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
-                        if glob_pattern.matches(&rel_path_str) {
-                            return false;
-                        }
-                    }
-                }
-            }
+        if compiled.exclude.iter().any(|p| p.matches(&rel_path_str)) {
+            return false;
         }
 
         // Determine if file is in project scope based on include/exclude patterns
-        let in_include_scope = config.include.as_ref().is_none_or(|includes| {
-            tracing::debug!("Checking include patterns: {:?}", includes);
-            let mut matched = false;
-            for pattern in includes {
-                for expanded in Self::expand_braces(pattern) {
-                    tracing::debug!("  Testing include pattern: {}", expanded);
-                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
-                        if glob_pattern.matches(&rel_path_str) {
-                            tracing::debug!("    ✓ Matched include pattern: {}", expanded);
-                            matched = true;
-                            break;
-                        }
-                    }
-                }
+        let in_include_scope = config.include.is_none()
+            || compiled.include.iter().any(|p| {
+                let matched = p.matches(&rel_path_str);
                 if matched {
-                    break;
+                    tracing::debug!("    Matched include pattern: {}", p);
                 }
-            }
-            if !matched {
-                tracing::debug!("No include patterns matched, file excluded");
-            }
-            matched
-        });
+                matched
+            });
 
         // If file is not in include scope, it doesn't match this project
         if !in_include_scope {
+            tracing::debug!("No include patterns matched, file excluded");
             return false;
         }
 
         // Check if file matches schema patterns
-        let schema_patterns = config.schema.paths();
-        tracing::debug!("Checking schema patterns: {:?}", schema_patterns);
-        for pattern in &schema_patterns {
-            for expanded in Self::expand_braces(pattern) {
-                tracing::debug!("  Testing schema pattern: {}", expanded);
-                if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
-                    if glob_pattern.matches(&rel_path_str) {
-                        tracing::debug!("    ✓ Matched schema pattern: {}", expanded);
-                        return true;
-                    }
-                }
+        if compiled.schema.iter().any(|p| {
+            let matched = p.matches(&rel_path_str);
+            if matched {
+                tracing::debug!("    Matched schema pattern: {}", p);
             }
+            matched
+        }) {
+            return true;
         }
 
-        // Check if file matches document patterns (if specified)
-        if let Some(ref documents) = config.documents {
-            let patterns = documents.patterns();
-            tracing::debug!("Checking document patterns: {:?}", patterns);
-            for pattern in patterns {
-                for expanded in Self::expand_braces(pattern) {
-                    tracing::debug!("  Testing document pattern: {}", expanded);
-                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
-                        if glob_pattern.matches(&rel_path_str) {
-                            tracing::debug!("    ✓ Matched document pattern: {}", expanded);
-                            return true;
-                        }
-                    }
-                }
+        // Check if file matches document patterns
+        if compiled.documents.iter().any(|p| {
+            let matched = p.matches(&rel_path_str);
+            if matched {
+                tracing::debug!("    Matched document pattern: {}", p);
             }
+            matched
+        }) {
+            return true;
         }
 
         // Neither schema nor document patterns matched
@@ -363,8 +301,59 @@ impl GraphQLConfig {
     }
 }
 
+/// Pre-compiled glob patterns for a project, cached to avoid repeated
+/// brace expansion and pattern compilation on every file-match check.
+#[derive(Clone)]
+struct CompiledPatterns {
+    exclude: Vec<glob::Pattern>,
+    include: Vec<glob::Pattern>,
+    schema: Vec<glob::Pattern>,
+    documents: Vec<glob::Pattern>,
+}
+
+impl CompiledPatterns {
+    fn compile(config: &ProjectConfig) -> Self {
+        let compile_list = |raw_patterns: &[String]| -> Vec<glob::Pattern> {
+            raw_patterns
+                .iter()
+                .flat_map(|p| GraphQLConfig::expand_braces(p))
+                .filter_map(|expanded| glob::Pattern::new(&expanded).ok())
+                .collect()
+        };
+
+        let exclude = config
+            .exclude
+            .as_deref()
+            .map_or_else(Vec::new, compile_list);
+        let include = config
+            .include
+            .as_deref()
+            .map_or_else(Vec::new, compile_list);
+
+        let schema_paths: Vec<String> = config
+            .schema
+            .paths()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let schema = compile_list(&schema_paths);
+
+        let doc_patterns: Vec<String> = config.documents.as_ref().map_or_else(Vec::new, |d| {
+            d.patterns().into_iter().map(String::from).collect()
+        });
+        let documents = compile_list(&doc_patterns);
+
+        Self {
+            exclude,
+            include,
+            schema,
+            documents,
+        }
+    }
+}
+
 /// Configuration for a single GraphQL project
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectConfig {
     /// Schema source(s)
@@ -385,9 +374,75 @@ pub struct ProjectConfig {
     /// Tool-specific extensions (includes lint configuration)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extensions: Option<HashMap<String, serde_json::Value>>,
+
+    /// Cached compiled glob patterns (lazily initialized on first use)
+    #[serde(skip)]
+    compiled_patterns: OnceLock<CompiledPatterns>,
 }
 
+impl std::fmt::Debug for ProjectConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProjectConfig")
+            .field("schema", &self.schema)
+            .field("documents", &self.documents)
+            .field("include", &self.include)
+            .field("exclude", &self.exclude)
+            .field("extensions", &self.extensions)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Clone for ProjectConfig {
+    fn clone(&self) -> Self {
+        Self {
+            schema: self.schema.clone(),
+            documents: self.documents.clone(),
+            include: self.include.clone(),
+            exclude: self.exclude.clone(),
+            extensions: self.extensions.clone(),
+            compiled_patterns: OnceLock::new(),
+        }
+    }
+}
+
+impl PartialEq for ProjectConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.schema == other.schema
+            && self.documents == other.documents
+            && self.include == other.include
+            && self.exclude == other.exclude
+            && self.extensions == other.extensions
+    }
+}
+
+impl Eq for ProjectConfig {}
+
 impl ProjectConfig {
+    /// Create a new `ProjectConfig`.
+    #[must_use]
+    pub fn new(
+        schema: SchemaConfig,
+        documents: Option<DocumentsConfig>,
+        include: Option<Vec<String>>,
+        exclude: Option<Vec<String>>,
+        extensions: Option<HashMap<String, serde_json::Value>>,
+    ) -> Self {
+        Self {
+            schema,
+            documents,
+            include,
+            exclude,
+            extensions,
+            compiled_patterns: OnceLock::new(),
+        }
+    }
+
+    /// Get the compiled glob patterns, lazily initializing on first access.
+    fn compiled_patterns(&self) -> &CompiledPatterns {
+        self.compiled_patterns
+            .get_or_init(|| CompiledPatterns::compile(self))
+    }
+
     /// Get the lint configuration from extensions.
     ///
     /// Lint configuration should be specified under `extensions.lint`:
@@ -649,6 +704,7 @@ mod tests {
             include: None,
             exclude: None,
             extensions: None,
+            compiled_patterns: OnceLock::new(),
         }));
 
         assert!(!config.is_multi_project());
@@ -668,6 +724,7 @@ mod tests {
                 include: None,
                 exclude: None,
                 extensions: None,
+                compiled_patterns: OnceLock::new(),
             },
         );
         projects.insert(
@@ -678,6 +735,7 @@ mod tests {
                 include: None,
                 exclude: None,
                 extensions: None,
+                compiled_patterns: OnceLock::new(),
             },
         );
 
@@ -798,6 +856,7 @@ extensions:
             include: None,
             exclude: None,
             extensions: None,
+            compiled_patterns: OnceLock::new(),
         }));
 
         let workspace_root = PathBuf::from("/workspace");
@@ -822,6 +881,7 @@ extensions:
                 include: None,
                 exclude: None,
                 extensions: None,
+                compiled_patterns: OnceLock::new(),
             },
         );
         projects.insert(
@@ -832,6 +892,7 @@ extensions:
                 include: None,
                 exclude: None,
                 extensions: None,
+                compiled_patterns: OnceLock::new(),
             },
         );
 
@@ -870,6 +931,7 @@ extensions:
                 include: Some(vec!["src/**".to_string()]),
                 exclude: Some(vec!["**/__tests__/**".to_string()]),
                 extensions: None,
+                compiled_patterns: OnceLock::new(),
             },
         );
 
@@ -944,6 +1006,7 @@ extensions:
                 include: None,
                 exclude: None,
                 extensions: None,
+                compiled_patterns: OnceLock::new(),
             },
         );
 
@@ -983,6 +1046,7 @@ extensions:
                 include: None,
                 exclude: None,
                 extensions: None,
+                compiled_patterns: OnceLock::new(),
             },
         );
 

@@ -90,13 +90,13 @@ mod tests {
 
     #[test]
     fn test_single_project_config_works_without_project_flag() {
-        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
-            schema: SchemaConfig::Path("schema.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: None,
-        }));
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            None,
+        )));
 
         // Should work - single project configs don't require --project
         assert!(!config.is_multi_project());
@@ -107,23 +107,23 @@ mod tests {
         let mut projects = HashMap::new();
         projects.insert(
             "default".to_string(),
-            ProjectConfig {
-                schema: SchemaConfig::Path("schema.graphql".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            },
+            ProjectConfig::new(
+                SchemaConfig::Path("schema.graphql".to_string()),
+                None,
+                None,
+                None,
+                None,
+            ),
         );
         projects.insert(
             "other".to_string(),
-            ProjectConfig {
-                schema: SchemaConfig::Path("schema.graphql".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            },
+            ProjectConfig::new(
+                SchemaConfig::Path("schema.graphql".to_string()),
+                None,
+                None,
+                None,
+                None,
+            ),
         );
 
         let config = GraphQLConfig::Multi { projects };
@@ -138,23 +138,23 @@ mod tests {
         let mut projects = HashMap::new();
         projects.insert(
             "api".to_string(),
-            ProjectConfig {
-                schema: SchemaConfig::Path("schema.graphql".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            },
+            ProjectConfig::new(
+                SchemaConfig::Path("schema.graphql".to_string()),
+                None,
+                None,
+                None,
+                None,
+            ),
         );
         projects.insert(
             "web".to_string(),
-            ProjectConfig {
-                schema: SchemaConfig::Path("schema.graphql".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            },
+            ProjectConfig::new(
+                SchemaConfig::Path("schema.graphql".to_string()),
+                None,
+                None,
+                None,
+                None,
+            ),
         );
 
         let config = GraphQLConfig::Multi { projects };
