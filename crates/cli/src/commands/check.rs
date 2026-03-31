@@ -8,7 +8,7 @@
 //! because it only loads the project once.
 
 use crate::analysis::CliAnalysisHost;
-use crate::commands::common::CommandContext;
+use crate::commands::common::{CommandContext, StdinInput};
 use crate::watch::{FileWatcher, WatchConfig, WatchMode};
 use crate::{ExitCode, OutputFormat, OutputOptions};
 use anyhow::Result;
@@ -59,6 +59,7 @@ pub fn run(
     format: OutputFormat,
     watch: bool,
     output_opts: OutputOptions,
+    stdin_input: Option<&StdinInput>,
 ) -> Result<()> {
     if watch {
         return run_watch_mode(config_path, project_name, format);
@@ -87,7 +88,7 @@ pub fn run(
     };
 
     let load_start = std::time::Instant::now();
-    let host = CliAnalysisHost::from_project_config(&project_config, &ctx.base_dir)
+    let mut host = CliAnalysisHost::from_project_config(&project_config, &ctx.base_dir)
         .map_err(|e| {
             if matches!(format, OutputFormat::Human) {
                 eprintln!("{} {}", "✗ Failed to load project:".red(), e);
@@ -97,6 +98,11 @@ pub fn run(
             ExitCode::SchemaError.exit();
         })
         .unwrap();
+
+    // Inject stdin content as a virtual document file
+    if let Some(input) = stdin_input {
+        host.add_stdin_document(&input.filename, &input.content);
+    }
 
     if let Some(pb) = spinner {
         pb.finish_and_clear();

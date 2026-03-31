@@ -1,5 +1,5 @@
 use crate::analysis::CliAnalysisHost;
-use crate::commands::common::CommandContext;
+use crate::commands::common::{CommandContext, StdinInput};
 use crate::watch::{FileWatcher, WatchConfig, WatchMode};
 use crate::{ExitCode, OutputFormat, OutputOptions};
 use anyhow::Result;
@@ -7,7 +7,7 @@ use colored::Colorize;
 use graphql_ide::DiagnosticSeverity;
 use std::path::PathBuf;
 
-#[tracing::instrument(skip(config_path, project_name, format, output_opts), fields(project = ?project_name))]
+#[tracing::instrument(skip(config_path, project_name, format, output_opts, stdin_input), fields(project = ?project_name))]
 pub fn run(
     config_path: Option<PathBuf>,
     project_name: Option<&str>,
@@ -15,6 +15,7 @@ pub fn run(
     watch: bool,
     syntax_only: bool,
     output_opts: OutputOptions,
+    stdin_input: Option<&StdinInput>,
 ) -> Result<()> {
     // Define diagnostic output structure for collecting errors
     struct DiagnosticOutput {
@@ -52,7 +53,7 @@ pub fn run(
 
     let load_start = std::time::Instant::now();
     let _load_projects_span = tracing::info_span!("load_projects").entered();
-    let host = CliAnalysisHost::from_project_config(&project_config, &ctx.base_dir)
+    let mut host = CliAnalysisHost::from_project_config(&project_config, &ctx.base_dir)
         .map_err(|e| {
             if matches!(format, OutputFormat::Human) {
                 eprintln!("{} {}", "✗ Failed to load project:".red(), e);
@@ -62,6 +63,11 @@ pub fn run(
             ExitCode::SchemaError.exit();
         })
         .unwrap();
+
+    // Inject stdin content as a virtual document file
+    if let Some(input) = stdin_input {
+        host.add_stdin_document(&input.filename, &input.content);
+    }
 
     if let Some(pb) = spinner {
         pb.finish_and_clear();
@@ -99,8 +105,8 @@ pub fn run(
         ExitCode::ConfigError.exit();
     }
 
-    // Check if any documents were loaded
-    if host.document_count() == 0 {
+    // Check if any documents were loaded (skip when reading from stdin)
+    if host.document_count() == 0 && stdin_input.is_none() {
         if matches!(format, OutputFormat::Human) {
             eprintln!(
                 "{} {}",

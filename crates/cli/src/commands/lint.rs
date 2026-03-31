@@ -1,5 +1,5 @@
 use crate::analysis::CliAnalysisHost;
-use crate::commands::common::CommandContext;
+use crate::commands::common::{CommandContext, FixMode, StdinInput};
 use crate::commands::fix::{apply_fixes, collect_fixable_diagnostics, display_dry_run};
 use crate::watch::{FileWatcher, WatchConfig, WatchMode};
 use crate::{ExitCode, OutputFormat, OutputOptions};
@@ -31,12 +31,12 @@ pub fn run(
     project_name: Option<&str>,
     format: OutputFormat,
     watch: bool,
-    fix: bool,
-    fix_dry_run: bool,
+    fix_mode: FixMode,
     output_opts: OutputOptions,
+    stdin_input: Option<&StdinInput>,
 ) -> Result<()> {
     if watch {
-        if fix || fix_dry_run {
+        if matches!(fix_mode, FixMode::Apply | FixMode::DryRun) {
             eprintln!(
                 "{}",
                 "Warning: --fix and --fix-dry-run are ignored in watch mode".yellow()
@@ -68,7 +68,12 @@ pub fn run(
     };
 
     let load_start = std::time::Instant::now();
-    let host = CliAnalysisHost::from_project_config(&project_config, &ctx.base_dir)?;
+    let mut host = CliAnalysisHost::from_project_config(&project_config, &ctx.base_dir)?;
+
+    // Inject stdin content as a virtual document file
+    if let Some(input) = stdin_input {
+        host.add_stdin_document(&input.filename, &input.content);
+    }
 
     if let Some(pb) = spinner {
         pb.finish_and_clear();
@@ -91,7 +96,9 @@ pub fn run(
 
     // Handle fix modes
     let mut fixes_applied = 0;
-    let host = if fix || fix_dry_run {
+    let host = if fix_mode == FixMode::Off {
+        host
+    } else {
         let spinner = if matches!(format, OutputFormat::Human) && output_opts.show_progress {
             Some(crate::progress::spinner("Collecting fixable issues..."))
         } else {
@@ -106,7 +113,7 @@ pub fn run(
         }
 
         if fixes_applied > 0 {
-            if fix_dry_run {
+            if fix_mode == FixMode::DryRun {
                 display_dry_run(&fixes, format);
                 host
             } else {
@@ -117,8 +124,6 @@ pub fn run(
         } else {
             host
         }
-    } else {
-        host
     };
 
     // Run lints
@@ -307,12 +312,12 @@ pub fn run(
         println!();
 
         // Report fixes if any were applied/detected
-        if fixes_applied > 0 && fix {
+        if fixes_applied > 0 && fix_mode == FixMode::Apply {
             println!(
                 "{}",
                 format!("✓ Fixed {fixes_applied} issue(s)").green().bold()
             );
-        } else if fixes_applied > 0 && fix_dry_run {
+        } else if fixes_applied > 0 && fix_mode == FixMode::DryRun {
             println!(
                 "{}",
                 format!("ℹ Would fix {fixes_applied} issue(s)")

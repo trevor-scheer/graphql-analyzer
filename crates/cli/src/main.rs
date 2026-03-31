@@ -61,13 +61,21 @@ enum Commands {
         format: OutputFormat,
 
         /// Watch mode - re-validate on file changes
-        #[arg(short, long)]
+        #[arg(short, long, conflicts_with = "stdin")]
         watch: bool,
 
         /// Skip schema validation and only check document syntax.
         /// By default, validate requires a schema and will fail if none is configured.
         #[arg(long)]
         syntax_only: bool,
+
+        /// Read GraphQL content from stdin instead of files
+        #[arg(long)]
+        stdin: bool,
+
+        /// Virtual filename for stdin content (used for project resolution and diagnostics)
+        #[arg(long, requires = "stdin")]
+        stdin_filename: Option<String>,
     },
 
     /// Run custom lint rules on GraphQL documents
@@ -77,16 +85,24 @@ enum Commands {
         format: OutputFormat,
 
         /// Watch mode - re-lint on file changes
-        #[arg(short, long)]
+        #[arg(short, long, conflicts_with = "stdin")]
         watch: bool,
 
         /// Automatically fix lint issues that have safe fixes
-        #[arg(long, conflicts_with = "fix_dry_run")]
+        #[arg(long, conflicts_with_all = ["fix_dry_run", "stdin"])]
         fix: bool,
 
         /// Show what would be fixed without modifying files
-        #[arg(long, conflicts_with = "fix")]
+        #[arg(long, conflicts_with_all = ["fix", "stdin"])]
         fix_dry_run: bool,
+
+        /// Read GraphQL content from stdin instead of files
+        #[arg(long)]
+        stdin: bool,
+
+        /// Virtual filename for stdin content (used for project resolution and diagnostics)
+        #[arg(long, requires = "stdin")]
+        stdin_filename: Option<String>,
     },
 
     /// Run all checks (validate + lint) in a single pass
@@ -99,8 +115,16 @@ enum Commands {
         format: OutputFormat,
 
         /// Watch mode - re-check on file changes
-        #[arg(short, long)]
+        #[arg(short, long, conflicts_with = "stdin")]
         watch: bool,
+
+        /// Read GraphQL content from stdin instead of files
+        #[arg(long)]
+        stdin: bool,
+
+        /// Virtual filename for stdin content (used for project resolution and diagnostics)
+        #[arg(long, requires = "stdin")]
+        stdin_filename: Option<String>,
     },
 
     /// List all deprecated field usages across the project
@@ -222,35 +246,74 @@ async fn main() -> anyhow::Result<()> {
             format,
             watch,
             syntax_only,
-        } => commands::validate::run(
-            cli.config,
-            cli.project.as_deref(),
-            format,
-            watch,
-            syntax_only,
-            output_opts,
-        ),
+            stdin,
+            stdin_filename,
+        } => {
+            let stdin_input = if stdin {
+                Some(commands::common::StdinInput::read(stdin_filename)?)
+            } else {
+                None
+            };
+            commands::validate::run(
+                cli.config,
+                cli.project.as_deref(),
+                format,
+                watch,
+                syntax_only,
+                output_opts,
+                stdin_input.as_ref(),
+            )
+        }
         Commands::Lint {
             format,
             watch,
             fix,
             fix_dry_run,
-        } => commands::lint::run(
-            cli.config,
-            cli.project.as_deref(),
+            stdin,
+            stdin_filename,
+        } => {
+            let stdin_input = if stdin {
+                Some(commands::common::StdinInput::read(stdin_filename)?)
+            } else {
+                None
+            };
+            let fix_mode = if fix {
+                commands::common::FixMode::Apply
+            } else if fix_dry_run {
+                commands::common::FixMode::DryRun
+            } else {
+                commands::common::FixMode::Off
+            };
+            commands::lint::run(
+                cli.config,
+                cli.project.as_deref(),
+                format,
+                watch,
+                fix_mode,
+                output_opts,
+                stdin_input.as_ref(),
+            )
+        }
+        Commands::Check {
             format,
             watch,
-            fix,
-            fix_dry_run,
-            output_opts,
-        ),
-        Commands::Check { format, watch } => commands::check::run(
-            cli.config,
-            cli.project.as_deref(),
-            format,
-            watch,
-            output_opts,
-        ),
+            stdin,
+            stdin_filename,
+        } => {
+            let stdin_input = if stdin {
+                Some(commands::common::StdinInput::read(stdin_filename)?)
+            } else {
+                None
+            };
+            commands::check::run(
+                cli.config,
+                cli.project.as_deref(),
+                format,
+                watch,
+                output_opts,
+                stdin_input.as_ref(),
+            )
+        }
         Commands::Deprecations { format } => {
             commands::deprecations::run(cli.config, cli.project.as_deref(), format)
         }
