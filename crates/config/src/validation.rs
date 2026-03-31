@@ -607,23 +607,23 @@ mod tests {
                 let mut map = std::collections::HashMap::new();
                 map.insert(
                     "project1".to_string(),
-                    ProjectConfig {
-                        schema: SchemaConfig::Path("schema/*.graphql".to_string()),
-                        documents: None,
-                        include: None,
-                        exclude: None,
-                        extensions: None,
-                    },
+                    ProjectConfig::new(
+                        SchemaConfig::Path("schema/*.graphql".to_string()),
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
                 );
                 map.insert(
                     "project2".to_string(),
-                    ProjectConfig {
-                        schema: SchemaConfig::Path("schema/*.graphql".to_string()),
-                        documents: None,
-                        include: None,
-                        exclude: None,
-                        extensions: None,
-                    },
+                    ProjectConfig::new(
+                        SchemaConfig::Path("schema/*.graphql".to_string()),
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
                 );
                 map
             },
@@ -665,23 +665,23 @@ mod tests {
                 let mut map = std::collections::HashMap::new();
                 map.insert(
                     "project1".to_string(),
-                    ProjectConfig {
-                        schema: SchemaConfig::Path("schema1/*.graphql".to_string()),
-                        documents: None,
-                        include: None,
-                        exclude: None,
-                        extensions: None,
-                    },
+                    ProjectConfig::new(
+                        SchemaConfig::Path("schema1/*.graphql".to_string()),
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
                 );
                 map.insert(
                     "project2".to_string(),
-                    ProjectConfig {
-                        schema: SchemaConfig::Path("schema2/*.graphql".to_string()),
-                        documents: None,
-                        include: None,
-                        exclude: None,
-                        extensions: None,
-                    },
+                    ProjectConfig::new(
+                        SchemaConfig::Path("schema2/*.graphql".to_string()),
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
                 );
                 map
             },
@@ -809,13 +809,13 @@ projects:
         let temp_dir = TempDir::new().unwrap();
         let workspace_path = temp_dir.path();
 
-        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
-            schema: SchemaConfig::Path("nonexistent/*.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: None,
-        }));
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("nonexistent/*.graphql".to_string()),
+            None,
+            None,
+            None,
+            None,
+        )));
 
         let errors = validate(&config, workspace_path, None);
         let unmatched: Vec<_> = errors
@@ -837,13 +837,13 @@ projects:
         let temp_dir = TempDir::new().unwrap();
         let workspace_path = temp_dir.path();
 
-        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
-            schema: SchemaConfig::Path("https://example.com/graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: None,
-        }));
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("https://example.com/graphql".to_string()),
+            None,
+            None,
+            None,
+            None,
+        )));
 
         let errors = validate(&config, workspace_path, None);
         let unmatched: Vec<_> = errors
@@ -869,13 +869,13 @@ projects:
             }
         });
 
-        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
-            schema: SchemaConfig::Path("schema.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: lint_extensions(lint_value),
-        }));
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            lint_extensions(lint_value),
+        )));
 
         let ctx = LintValidationContext {
             valid_rule_names: &["knownRule"],
@@ -899,13 +899,13 @@ projects:
         let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
         writeln!(f, "type Query {{ hello: String }}").unwrap();
 
-        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
-            schema: SchemaConfig::Path("schema.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: lint_extensions(serde_json::json!("nonexistent")),
-        }));
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            lint_extensions(serde_json::json!("nonexistent")),
+        )));
 
         let ctx = LintValidationContext {
             valid_rule_names: &[],
@@ -929,16 +929,16 @@ projects:
         let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
         writeln!(f, "type Query {{ hello: String }}").unwrap();
 
-        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
-            schema: SchemaConfig::Path("schema.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: lint_extensions(serde_json::json!({
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            lint_extensions(serde_json::json!({
                 "extends": "recommended",
                 "rules": { "myRule": "error" }
             })),
-        }));
+        )));
 
         let ctx = LintValidationContext {
             valid_rule_names: &["myRule"],
@@ -961,16 +961,16 @@ projects:
         let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
         writeln!(f, "type Query {{ hello: String }}").unwrap();
 
-        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
-            schema: SchemaConfig::Path("schema.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: lint_extensions(serde_json::json!({
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            lint_extensions(serde_json::json!({
                 "extends": ["recommended", "strict"],
                 "rules": {}
             })),
-        }));
+        )));
 
         let ctx = LintValidationContext {
             valid_rule_names: &[],
