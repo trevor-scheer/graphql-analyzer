@@ -35,7 +35,9 @@ impl CommandContext {
                     let searched_files = CONFIG_FILES
                         .iter()
                         .map(|f| format!("  - {f}"))
-                        .chain(std::iter::once("  - package.json (with \"graphql\" key)".to_string()))
+                        .chain(std::iter::once(
+                            "  - package.json (with \"graphql\" key)".to_string(),
+                        ))
                         .collect::<Vec<_>>()
                         .join("\n");
                     anyhow::anyhow!(
