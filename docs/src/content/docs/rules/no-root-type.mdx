@@ -1,0 +1,62 @@
+---
+title: no-root-type
+description: Disallow specific root types in the schema.
+---
+
+| Property         | Value        |
+| ---------------- | ------------ |
+| Config name      | `noRootType` |
+| Default severity | error        |
+| Context          | Schema       |
+| In recommended   | No           |
+
+## What it checks
+
+Disallows specific root operation types (Query, Mutation, Subscription) from being defined in the schema. This is useful for enforcing architectural decisions, such as preventing a schema from exposing subscriptions or mutations.
+
+## Examples
+
+With `disallow: ["Subscription"]`:
+
+```graphql
+# ❌ Bad — schema defines a disallowed root type
+type Subscription {
+  messageAdded: Message
+}
+```
+
+```graphql
+# ✅ Good — only allowed root types are defined
+type Query {
+  messages: [Message!]!
+}
+
+type Mutation {
+  sendMessage(text: String!): Message
+}
+```
+
+## Options
+
+| Option     | Type       | Default | Description                                                       |
+| ---------- | ---------- | ------- | ----------------------------------------------------------------- |
+| `disallow` | `string[]` | —       | Root types to disallow: `"Query"`, `"Mutation"`, `"Subscription"` |
+
+## Configuration
+
+```yaml
+# Disallow subscriptions
+extensions:
+  lint:
+    rules:
+      noRootType: [error, { disallow: ["Subscription"] }]
+
+# Disallow mutations and subscriptions
+extensions:
+  lint:
+    rules:
+      noRootType:
+        severity: error
+        options:
+          disallow: ["Mutation", "Subscription"]
+```
