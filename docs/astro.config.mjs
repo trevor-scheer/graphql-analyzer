@@ -117,6 +117,7 @@ export default defineConfig({
               label: "no-one-place-fragments",
               slug: "rules/no-one-place-fragments",
             },
+            { label: "no-root-type", slug: "rules/no-root-type" },
             {
               label: "no-scalar-result-type-on-mutation",
               slug: "rules/no-scalar-result-type-on-mutation",
