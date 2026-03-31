@@ -149,3 +149,4 @@ projects:
           requireFieldOfTypeQueryInMutationResult: warn
           strictIdInTypes: warn
           noScalarResultTypeOnMutation: warn
+          matchDocumentFilename: [warn, { style: "kebabCase" }]

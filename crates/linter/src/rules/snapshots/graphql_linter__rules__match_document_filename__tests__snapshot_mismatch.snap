@@ -1,0 +1,6 @@
+---
+source: crates/linter/src/rules/match_document_filename.rs
+assertion_line: 416
+expression: messages
+---
+- "File name 'wrong-file' doesn't match operation name 'GetAllUsers' (expected 'GetAllUsers')"
