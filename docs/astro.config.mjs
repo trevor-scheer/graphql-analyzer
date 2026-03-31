@@ -102,6 +102,10 @@ export default defineConfig({
               label: "lone-executable-definition",
               slug: "rules/lone-executable-definition",
             },
+            {
+              label: "match-document-filename",
+              slug: "rules/match-document-filename",
+            },
             { label: "naming-convention", slug: "rules/naming-convention" },
             {
               label: "no-anonymous-operations",

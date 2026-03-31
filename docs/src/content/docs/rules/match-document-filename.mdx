@@ -1,0 +1,63 @@
+---
+title: match-document-filename
+description: Enforce file names to match the operation or fragment name.
+---
+
+| Property         | Value                   |
+| ---------------- | ----------------------- |
+| Config name      | `matchDocumentFilename` |
+| Default severity | warn                    |
+| Context          | Document                |
+| In recommended   | No                      |
+
+## What it checks
+
+Enforces that the file name of a `.graphql` document matches the name of the operation or fragment defined inside it. This keeps a project organized and makes it easy to locate a specific operation or fragment by file name.
+
+You can configure the expected casing style for file names.
+
+## Examples
+
+With `style: "PascalCase"`:
+
+```graphql
+# ⚠️ Warning — file is named get-user.graphql
+query GetUser {
+  user {
+    id
+    name
+  }
+}
+```
+
+```graphql
+# ✅ Good — file is named GetUser.graphql
+query GetUser {
+  user {
+    id
+    name
+  }
+}
+```
+
+## Options
+
+| Option  | Type     | Default        | Description                                                            |
+| ------- | -------- | -------------- | ---------------------------------------------------------------------- |
+| `style` | `string` | `"PascalCase"` | Expected casing: `"PascalCase"`, `"camelCase"`, `"kebabCase"`, `"snakeCase"` |
+
+## Configuration
+
+```yaml
+# Default: PascalCase
+extensions:
+  lint:
+    rules:
+      matchDocumentFilename: warn
+
+# Use kebab-case filenames
+extensions:
+  lint:
+    rules:
+      matchDocumentFilename: [warn, { style: "kebabCase" }]
+```
