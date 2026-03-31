@@ -464,6 +464,21 @@ impl CliAnalysisHost {
         (depths, usages)
     }
 
+    /// Add stdin content as a virtual document file.
+    ///
+    /// The content is added using the provided path for diagnostics display
+    /// and project resolution. The file is treated as a GraphQL executable document.
+    pub fn add_stdin_document(&mut self, path: &Path, content: &str) {
+        let file_path = FilePath::from_path(path);
+        self.host.add_file(
+            &file_path,
+            content,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        self.document_files.push(path.to_path_buf());
+    }
+
     /// Update a file in the analysis host (used by watch mode)
     pub fn update_file(
         &mut self,

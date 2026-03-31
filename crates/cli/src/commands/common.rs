@@ -4,6 +4,56 @@ use colored::Colorize;
 use graphql_config::{find_config, load_config, GraphQLConfig};
 use std::path::PathBuf;
 
+/// Fix behavior for commands that support `--fix` / `--fix-dry-run`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FixMode {
+    /// Do not fix anything (default)
+    Off,
+    /// Apply fixes to files on disk
+    Apply,
+    /// Show what would be fixed without writing changes
+    DryRun,
+}
+
+/// Parsed stdin input for commands that support `--stdin`
+#[derive(Debug, Clone)]
+pub struct StdinInput {
+    /// The content read from stdin
+    pub content: String,
+    /// The virtual filename used for project resolution and diagnostics
+    pub filename: PathBuf,
+}
+
+impl StdinInput {
+    /// Read stdin content and resolve the virtual filename.
+    ///
+    /// If `stdin_filename` is provided, it is resolved relative to the current directory.
+    /// Otherwise, defaults to `<cwd>/stdin.graphql`.
+    pub fn read(stdin_filename: Option<String>) -> Result<Self> {
+        use std::io::Read;
+
+        let mut content = String::new();
+        std::io::stdin()
+            .read_to_string(&mut content)
+            .context("Failed to read from stdin")?;
+
+        let cwd = std::env::current_dir().context("Failed to get current directory")?;
+        let filename = match stdin_filename {
+            Some(name) => {
+                let p = PathBuf::from(&name);
+                if p.is_absolute() {
+                    p
+                } else {
+                    cwd.join(p)
+                }
+            }
+            None => cwd.join("stdin.graphql"),
+        };
+
+        Ok(Self { content, filename })
+    }
+}
+
 /// Common context for all CLI commands that require config and project selection
 pub struct CommandContext {
     pub config: GraphQLConfig,
