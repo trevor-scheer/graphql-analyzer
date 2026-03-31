@@ -244,6 +244,10 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Require selection of ID fields on object types"
             },
+            "requireSelections": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforce required field selections (e.g. id, __typename) on object types for cache normalization"
+            },
             "unusedFragments": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Warn about fragments that are defined but never used"
