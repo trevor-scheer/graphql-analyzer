@@ -147,5 +147,6 @@ projects:
           requireDeprecationReason: warn
           requireDescription: warn
           requireFieldOfTypeQueryInMutationResult: warn
+          restyFieldNames: warn
           strictIdInTypes: warn
           noScalarResultTypeOnMutation: warn
