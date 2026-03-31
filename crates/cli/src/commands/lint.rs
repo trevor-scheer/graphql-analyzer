@@ -27,6 +27,7 @@ struct FileDiagnostics {
     warnings: Vec<DiagnosticOutput>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     config_path: Option<PathBuf>,
     project_name: Option<&str>,
@@ -34,6 +35,7 @@ pub fn run(
     watch: bool,
     fix: bool,
     fix_dry_run: bool,
+    max_warnings: Option<usize>,
     output_opts: OutputOptions,
 ) -> Result<()> {
     if watch {
@@ -347,6 +349,13 @@ pub fn run(
 
     if total_errors > 0 {
         ExitCode::ValidationError.exit();
+    }
+
+    if let Some(max) = max_warnings {
+        if total_warnings > max {
+            eprintln!("\ngraphql-analyzer found {total_warnings} warning(s) (threshold: {max})");
+            ExitCode::WarningThresholdExceeded.exit();
+        }
     }
 
     Ok(())

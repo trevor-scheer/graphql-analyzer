@@ -108,6 +108,10 @@ Examples:
         /// Show what would be fixed without modifying files
         #[arg(long, conflicts_with = "fix")]
         fix_dry_run: bool,
+
+        /// Maximum number of warnings allowed before returning a non-zero exit code
+        #[arg(long)]
+        max_warnings: Option<usize>,
     },
 
     /// Run all checks (validate + lint) in a single pass
@@ -132,6 +136,10 @@ Examples:
         /// Watch mode - re-check on file changes
         #[arg(short, long)]
         watch: bool,
+
+        /// Maximum number of warnings allowed before returning a non-zero exit code
+        #[arg(long)]
+        max_warnings: Option<usize>,
     },
 
     /// List all deprecated field usages across the project
@@ -312,6 +320,7 @@ async fn main() -> anyhow::Result<()> {
             watch,
             fix,
             fix_dry_run,
+            max_warnings,
         } => commands::lint::run(
             cli.config,
             cli.project.as_deref(),
@@ -319,13 +328,19 @@ async fn main() -> anyhow::Result<()> {
             watch,
             fix,
             fix_dry_run,
+            max_warnings,
             output_opts,
         ),
-        Commands::Check { format, watch } => commands::check::run(
+        Commands::Check {
+            format,
+            watch,
+            max_warnings,
+        } => commands::check::run(
             cli.config,
             cli.project.as_deref(),
             format,
             watch,
+            max_warnings,
             output_opts,
         ),
         Commands::Deprecations { format } => {
