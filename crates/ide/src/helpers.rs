@@ -86,6 +86,21 @@ pub fn convert_diagnostic(diag: &graphql_analysis::Diagnostic) -> crate::types::
         code: diag.code.as_ref().map(ToString::to_string),
         source: diag.source.to_string(),
         fix: None, // Fixes are handled separately via lint_diagnostics_with_fixes
+        help: diag.help.as_ref().map(ToString::to_string),
+        url: diag.url.as_ref().map(ToString::to_string),
+        tags: diag
+            .tags
+            .iter()
+            .map(|t| match t {
+                graphql_analysis::DiagnosticTag::Unnecessary => {
+                    crate::types::DiagnosticTag::Unnecessary
+                }
+                graphql_analysis::DiagnosticTag::Deprecated => {
+                    crate::types::DiagnosticTag::Deprecated
+                }
+            })
+            .collect(),
+        related: Vec::new(),
     }
 }
 

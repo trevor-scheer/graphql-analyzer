@@ -159,12 +159,19 @@ fn check_selection_set(
                                 },
                             );
 
-                            diagnostics.push(LintDiagnostic::new(
-                                doc.span(offset, offset + field_name.as_ref().len()),
-                                LintSeverity::Warning,
-                                message,
-                                "noDeprecated",
-                            ));
+                            diagnostics.push(
+                                LintDiagnostic::new(
+                                    doc.span(offset, offset + field_name.as_ref().len()),
+                                    LintSeverity::Warning,
+                                    message,
+                                    "noDeprecated",
+                                )
+                                .with_help(
+                                    "Use the replacement field if one is specified in the deprecation reason",
+                                )
+                                .with_url(crate::diagnostics::rule_doc_url("noDeprecated"))
+                                .with_tag(crate::diagnostics::DiagnosticTag::Deprecated),
+                            );
                         }
 
                         // Check arguments for deprecation
@@ -200,12 +207,19 @@ fn check_selection_set(
                                                     },
                                                 );
 
-                                            diagnostics.push(LintDiagnostic::new(
-                                                doc.span(offset, offset + arg_name.as_ref().len()),
-                                                LintSeverity::Warning,
-                                                message,
-                                                "noDeprecated",
-                                            ));
+                                            diagnostics.push(
+                                                LintDiagnostic::new(
+                                                    doc.span(offset, offset + arg_name.as_ref().len()),
+                                                    LintSeverity::Warning,
+                                                    message,
+                                                    "noDeprecated",
+                                                )
+                                                .with_help(
+                                                    "Use the replacement field if one is specified in the deprecation reason",
+                                                )
+                                                .with_url(crate::diagnostics::rule_doc_url("noDeprecated"))
+                                                .with_tag(crate::diagnostics::DiagnosticTag::Deprecated),
+                                            );
                                         }
                                     }
 
@@ -301,12 +315,19 @@ fn check_value_for_deprecated_enum(
                                     },
                                 );
 
-                                diagnostics.push(LintDiagnostic::new(
-                                    doc.span(offset, offset + enum_name.as_ref().len()),
-                                    LintSeverity::Warning,
-                                    message,
-                                    "noDeprecated",
-                                ));
+                                diagnostics.push(
+                                    LintDiagnostic::new(
+                                        doc.span(offset, offset + enum_name.as_ref().len()),
+                                        LintSeverity::Warning,
+                                        message,
+                                        "noDeprecated",
+                                    )
+                                    .with_help(
+                                        "Use the replacement field if one is specified in the deprecation reason",
+                                    )
+                                    .with_url(crate::diagnostics::rule_doc_url("noDeprecated"))
+                                    .with_tag(crate::diagnostics::DiagnosticTag::Deprecated),
+                                );
                                 // Found the enum, no need to check other types
                                 break;
                             }

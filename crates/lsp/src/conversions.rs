@@ -98,12 +98,46 @@ pub fn convert_ide_diagnostic(diag: graphql_ide::Diagnostic) -> Diagnostic {
         graphql_ide::DiagnosticSeverity::Hint => DiagnosticSeverity::HINT,
     };
 
+    let code_description = diag.url.map(|url| lsp_types::CodeDescription {
+        href: url.parse().expect("Invalid URL in diagnostic"),
+    });
+
+    let tags: Vec<lsp_types::DiagnosticTag> = diag
+        .tags
+        .iter()
+        .map(|t| match t {
+            graphql_ide::DiagnosticTag::Unnecessary => lsp_types::DiagnosticTag::UNNECESSARY,
+            graphql_ide::DiagnosticTag::Deprecated => lsp_types::DiagnosticTag::DEPRECATED,
+        })
+        .collect();
+
+    let related_information: Vec<lsp_types::DiagnosticRelatedInformation> = diag
+        .related
+        .iter()
+        .map(|r| lsp_types::DiagnosticRelatedInformation {
+            location: convert_ide_location(&r.location),
+            message: r.message.clone(),
+        })
+        .collect();
+
+    let mut message = diag.message;
+    if let Some(ref help) = diag.help {
+        message = format!("{message}\nhelp: {help}");
+    }
+
     Diagnostic {
         range: convert_ide_range(diag.range),
         severity: Some(severity),
         code: diag.code.map(lsp_types::NumberOrString::String),
+        code_description,
         source: Some(diag.source),
-        message: diag.message,
+        message,
+        tags: if tags.is_empty() { None } else { Some(tags) },
+        related_information: if related_information.is_empty() {
+            None
+        } else {
+            Some(related_information)
+        },
         ..Default::default()
     }
 }
@@ -455,6 +489,10 @@ mod tests {
             source: "graphql".to_string(),
             code: Some("unknown-field".to_string()),
             fix: None,
+            help: None,
+            url: None,
+            tags: Vec::new(),
+            related: Vec::new(),
         };
         let lsp_diag = convert_ide_diagnostic(ide_diag);
         assert_eq!(lsp_diag.severity, Some(DiagnosticSeverity::ERROR));
@@ -474,6 +512,10 @@ mod tests {
             source: "linter".to_string(),
             code: None,
             fix: None,
+            help: None,
+            url: None,
+            tags: Vec::new(),
+            related: Vec::new(),
         };
         let lsp_diag = convert_ide_diagnostic(ide_diag);
         assert_eq!(lsp_diag.severity, Some(DiagnosticSeverity::WARNING));

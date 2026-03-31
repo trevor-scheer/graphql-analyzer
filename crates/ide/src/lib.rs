@@ -68,15 +68,15 @@ mod symbols;
 // Re-export types from the types module
 pub use types::{
     CodeFix, CodeLens, CodeLensCommand, CodeLensInfo, CompletionItem, CompletionKind,
-    ComplexityAnalysis, Diagnostic, DiagnosticSeverity, DocumentLoadResult, DocumentSymbol,
-    FieldComplexity, FieldCoverageReport, FieldUsageInfo, FilePath, FoldingRange, FoldingRangeKind,
-    FragmentReference, FragmentUsage, HoverResult, InlayHint, InlayHintKind, InsertTextFormat,
-    Location, OperationSummary, OperationVariableInfo, ParameterInformation, PendingIntrospection,
-    Position, ProjectStatus, Range, RenameResult, SchemaContentError, SchemaLoadResult,
-    SchemaStats, SchemaTypeEntry, SelectionRange, SemanticToken, SemanticTokenModifiers,
-    SemanticTokenType, SignatureHelp, SignatureInformation, SymbolKind, TextEdit, TypeArgumentInfo,
-    TypeCoverageInfo, TypeDirectiveArgumentInfo, TypeDirectiveInfo, TypeEnumValueInfo,
-    TypeFieldInfo, TypeInfo, WorkspaceSymbol,
+    ComplexityAnalysis, Diagnostic, DiagnosticSeverity, DiagnosticTag, DocumentLoadResult,
+    DocumentSymbol, FieldComplexity, FieldCoverageReport, FieldUsageInfo, FilePath, FoldingRange,
+    FoldingRangeKind, FragmentReference, FragmentUsage, HoverResult, InlayHint, InlayHintKind,
+    InsertTextFormat, Location, OperationSummary, OperationVariableInfo, ParameterInformation,
+    PendingIntrospection, Position, ProjectStatus, Range, RelatedInformation, RenameResult,
+    SchemaContentError, SchemaLoadResult, SchemaStats, SchemaTypeEntry, SelectionRange,
+    SemanticToken, SemanticTokenModifiers, SemanticTokenType, SignatureHelp, SignatureInformation,
+    SymbolKind, TextEdit, TypeArgumentInfo, TypeCoverageInfo, TypeDirectiveArgumentInfo,
+    TypeDirectiveInfo, TypeEnumValueInfo, TypeFieldInfo, TypeInfo, WorkspaceSymbol,
 };
 
 // `FileRegistry` is owned by `AnalysisHost` and not exposed publicly. Snapshots
