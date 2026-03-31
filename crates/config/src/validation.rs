@@ -3,6 +3,7 @@
 //! Provides validation for GraphQL configuration files, returning structured
 //! errors that can be easily converted to diagnostics by consumers.
 
+use crate::suggestions::did_you_mean;
 use crate::GraphQLConfig;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -92,11 +93,16 @@ pub enum ConfigValidationError {
         file_type: FileType,
     },
     /// An unknown lint rule name was specified in config.
-    UnknownLintRule { project: String, rule_name: String },
+    UnknownLintRule {
+        project: String,
+        rule_name: String,
+        suggestion: Option<String>,
+    },
     /// An unknown preset name was specified in config.
     UnknownPreset {
         project: String,
         preset_name: String,
+        suggestion: Option<String>,
     },
 }
 
@@ -177,12 +183,22 @@ impl ConfigValidationError {
             } => {
                 format!("No {file_type} files found for project '{project}'.")
             }
-            Self::UnknownLintRule { rule_name, .. } => {
-                format!("Unknown lint rule: '{rule_name}'.")
-            }
-            Self::UnknownPreset { preset_name, .. } => {
-                format!("Unknown lint preset: '{preset_name}'.")
-            }
+            Self::UnknownLintRule {
+                rule_name,
+                suggestion,
+                ..
+            } => match suggestion {
+                Some(s) => format!("Unknown lint rule: '{rule_name}'. Did you mean '{s}'?"),
+                None => format!("Unknown lint rule: '{rule_name}'."),
+            },
+            Self::UnknownPreset {
+                preset_name,
+                suggestion,
+                ..
+            } => match suggestion {
+                Some(s) => format!("Unknown lint preset: '{preset_name}'. Did you mean '{s}'?"),
+                None => format!("Unknown lint preset: '{preset_name}'."),
+            },
         }
     }
 
@@ -460,11 +476,19 @@ fn validate_lint_value(
     preset_set: &HashSet<&str>,
     errors: &mut Vec<ConfigValidationError>,
 ) {
+    let suggest_preset = |name: &str| -> Option<String> {
+        did_you_mean(name, preset_set.iter().copied()).map(String::from)
+    };
+    let suggest_rule = |name: &str| -> Option<String> {
+        did_you_mean(name, rule_set.iter().copied()).map(String::from)
+    };
+
     match value {
         // `lint: "recommended"` — a single preset name
         serde_json::Value::String(name) => {
             if !preset_set.contains(name.as_str()) {
                 errors.push(ConfigValidationError::UnknownPreset {
+                    suggestion: suggest_preset(name),
                     project: project_name.to_string(),
                     preset_name: name.clone(),
                 });
@@ -476,6 +500,7 @@ fn validate_lint_value(
                 if let Some(name) = item.as_str() {
                     if !preset_set.contains(name) {
                         errors.push(ConfigValidationError::UnknownPreset {
+                            suggestion: suggest_preset(name),
                             project: project_name.to_string(),
                             preset_name: name.to_string(),
                         });
@@ -491,6 +516,7 @@ fn validate_lint_value(
                     serde_json::Value::String(name) => {
                         if !preset_set.contains(name.as_str()) {
                             errors.push(ConfigValidationError::UnknownPreset {
+                                suggestion: suggest_preset(name),
                                 project: project_name.to_string(),
                                 preset_name: name.clone(),
                             });
@@ -501,6 +527,7 @@ fn validate_lint_value(
                             if let Some(name) = item.as_str() {
                                 if !preset_set.contains(name) {
                                     errors.push(ConfigValidationError::UnknownPreset {
+                                        suggestion: suggest_preset(name),
                                         project: project_name.to_string(),
                                         preset_name: name.to_string(),
                                     });
@@ -517,6 +544,7 @@ fn validate_lint_value(
                 for rule_name in rules.keys() {
                     if !rule_set.contains(rule_name.as_str()) {
                         errors.push(ConfigValidationError::UnknownLintRule {
+                            suggestion: suggest_rule(rule_name),
                             project: project_name.to_string(),
                             rule_name: rule_name.clone(),
                         });
@@ -794,12 +822,14 @@ projects:
         let error = ConfigValidationError::UnknownLintRule {
             project: "test".to_string(),
             rule_name: "badRule".to_string(),
+            suggestion: None,
         };
         assert_eq!(error.severity(), Severity::Error);
 
         let error = ConfigValidationError::UnknownPreset {
             project: "test".to_string(),
             preset_name: "badPreset".to_string(),
+            suggestion: None,
         };
         assert_eq!(error.severity(), Severity::Error);
     }
@@ -984,6 +1014,123 @@ projects:
             .collect();
         assert_eq!(unknown.len(), 1);
         assert!(unknown[0].message().contains("strict"));
+    }
+
+    #[test]
+    fn test_unknown_rule_with_suggestion() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
+        writeln!(f, "type Query {{ hello: String }}").unwrap();
+
+        let lint_value = serde_json::json!({
+            "rules": {
+                "noAnonymous": "error"
+            }
+        });
+
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
+            schema: SchemaConfig::Path("schema.graphql".to_string()),
+            documents: None,
+            include: None,
+            exclude: None,
+            extensions: lint_extensions(lint_value),
+        }));
+
+        let ctx = LintValidationContext {
+            valid_rule_names: &["noAnonymousOperations", "noDeprecatedUsage"],
+            valid_presets: &[],
+        };
+
+        let errors = validate(&config, workspace_path, Some(&ctx));
+        let unknown: Vec<_> = errors
+            .iter()
+            .filter(|e| e.code() == "unknown-lint-rule")
+            .collect();
+        assert_eq!(unknown.len(), 1);
+        assert!(
+            unknown[0]
+                .message()
+                .contains("Did you mean 'noAnonymousOperations'?"),
+            "Expected suggestion in message, got: {}",
+            unknown[0].message()
+        );
+    }
+
+    #[test]
+    fn test_unknown_preset_with_suggestion() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
+        writeln!(f, "type Query {{ hello: String }}").unwrap();
+
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
+            schema: SchemaConfig::Path("schema.graphql".to_string()),
+            documents: None,
+            include: None,
+            exclude: None,
+            extensions: lint_extensions(serde_json::json!("recomended")),
+        }));
+
+        let ctx = LintValidationContext {
+            valid_rule_names: &[],
+            valid_presets: &["recommended", "strict"],
+        };
+
+        let errors = validate(&config, workspace_path, Some(&ctx));
+        let unknown: Vec<_> = errors
+            .iter()
+            .filter(|e| e.code() == "unknown-preset")
+            .collect();
+        assert_eq!(unknown.len(), 1);
+        assert!(
+            unknown[0].message().contains("Did you mean 'recommended'?"),
+            "Expected suggestion in message, got: {}",
+            unknown[0].message()
+        );
+    }
+
+    #[test]
+    fn test_unknown_rule_no_suggestion_for_unrelated_name() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
+        writeln!(f, "type Query {{ hello: String }}").unwrap();
+
+        let lint_value = serde_json::json!({
+            "rules": {
+                "totallyWrong": "error"
+            }
+        });
+
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
+            schema: SchemaConfig::Path("schema.graphql".to_string()),
+            documents: None,
+            include: None,
+            exclude: None,
+            extensions: lint_extensions(lint_value),
+        }));
+
+        let ctx = LintValidationContext {
+            valid_rule_names: &["noAnonymousOperations"],
+            valid_presets: &[],
+        };
+
+        let errors = validate(&config, workspace_path, Some(&ctx));
+        let unknown: Vec<_> = errors
+            .iter()
+            .filter(|e| e.code() == "unknown-lint-rule")
+            .collect();
+        assert_eq!(unknown.len(), 1);
+        // Should NOT contain a suggestion since the input is too different
+        assert!(
+            !unknown[0].message().contains("Did you mean"),
+            "Should not suggest for unrelated name, got: {}",
+            unknown[0].message()
+        );
     }
 
     #[test]
