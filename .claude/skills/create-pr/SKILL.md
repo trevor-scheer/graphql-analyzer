@@ -43,14 +43,14 @@ Before creating the PR, review whether your changes require documentation update
 
 **Docs site** (`docs/src/content/docs/`):
 
-| What changed | What to update |
-| --- | --- |
-| New lint rule | Create `docs/src/content/docs/rules/<rule-name>.mdx` and add it to the sidebar in `docs/astro.config.mjs`. Update `docs/src/content/docs/rules/catalog.mdx`. |
-| Changed lint rule behavior/options | Update the rule's `.mdx` in `docs/src/content/docs/rules/` |
-| New/changed CLI command or flag | Update the relevant page in `docs/src/content/docs/cli/` |
-| New/changed IDE feature | Update the relevant page in `docs/src/content/docs/ide-features/` |
-| New/changed configuration option | Update the relevant page in `docs/src/content/docs/configuration/` |
-| New/changed editor setup | Update the relevant page in `docs/src/content/docs/editors/` |
+| What changed                       | What to update                                                                                                                                               |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| New lint rule                      | Create `docs/src/content/docs/rules/<rule-name>.mdx` and add it to the sidebar in `docs/astro.config.mjs`. Update `docs/src/content/docs/rules/catalog.mdx`. |
+| Changed lint rule behavior/options | Update the rule's `.mdx` in `docs/src/content/docs/rules/`                                                                                                   |
+| New/changed CLI command or flag    | Update the relevant page in `docs/src/content/docs/cli/`                                                                                                     |
+| New/changed IDE feature            | Update the relevant page in `docs/src/content/docs/ide-features/`                                                                                            |
+| New/changed configuration option   | Update the relevant page in `docs/src/content/docs/configuration/`                                                                                           |
+| New/changed editor setup           | Update the relevant page in `docs/src/content/docs/editors/`                                                                                                 |
 
 **Crate READMEs** (`crates/*/README.md`):
 
