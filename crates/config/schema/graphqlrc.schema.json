@@ -331,6 +331,10 @@
             "noScalarResultTypeOnMutation": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Disallows scalar return types on mutation fields"
+            },
+            "requireNullableResultInRoot": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Warns when root type fields have non-nullable return types"
             }
           },
           "additionalProperties": {
