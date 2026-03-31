@@ -1,22 +1,8 @@
 use crate::ExitCode;
 use anyhow::{Context, Result};
 use colored::Colorize;
-use graphql_config::{find_config, load_config, GraphQLConfig, ProjectConfig};
+use graphql_config::{find_config, load_config, GraphQLConfig, ProjectConfig, CONFIG_FILES};
 use std::path::PathBuf;
-
-/// Config file names searched for, matching the order in `graphql_config::loader`.
-const CONFIG_FILE_NAMES: &[&str] = &[
-    ".graphqlrc.yml",
-    ".graphqlrc.yaml",
-    ".graphqlrc.json",
-    ".graphqlrc.toml",
-    ".graphqlrc",
-    "graphql.config.yml",
-    "graphql.config.yaml",
-    "graphql.config.json",
-    "graphql.config.toml",
-    "package.json (with \"graphql\" key)",
-];
 
 /// Common context for all CLI commands that require config and project selection
 pub struct CommandContext {
@@ -46,9 +32,10 @@ impl CommandContext {
             find_config(&current_dir)
                 .context("Failed to search for config")?
                 .ok_or_else(|| {
-                    let searched_files = CONFIG_FILE_NAMES
+                    let searched_files = CONFIG_FILES
                         .iter()
                         .map(|f| format!("  - {f}"))
+                        .chain(std::iter::once("  - package.json (with \"graphql\" key)".to_string()))
                         .collect::<Vec<_>>()
                         .join("\n");
                     anyhow::anyhow!(
