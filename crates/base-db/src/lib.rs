@@ -1,3 +1,15 @@
+//! Core database types for the GraphQL analyzer.
+//!
+//! Provides [Salsa](https://github.com/salsa-rs/salsa) input types that model a
+//! GraphQL project's file state: content, metadata, and identity lists. These
+//! inputs sit at the bottom of the query stack — higher layers (`graphql-syntax`,
+//! `graphql-hir`, `graphql-analysis`) derive cached queries from them.
+//!
+//! File identity (`SchemaFileIds` / `DocumentFileIds`) is tracked separately from
+//! file content (`FileContent`) so that adding or removing a file only invalidates
+//! queries that care about the file list, while editing a file only invalidates
+//! queries for that specific file.
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
