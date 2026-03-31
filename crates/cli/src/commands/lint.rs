@@ -355,6 +355,10 @@ pub fn run(
         if total_warnings > max {
             eprintln!("\ngraphql-analyzer found {total_warnings} warning(s) (threshold: {max})");
             ExitCode::WarningThresholdExceeded.exit();
+        } else if total_warnings < max {
+            eprintln!(
+                "\nYou can lower --max-warnings to {total_warnings} (currently {max})"
+            );
         }
     }
 
