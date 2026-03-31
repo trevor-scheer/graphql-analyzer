@@ -296,16 +296,16 @@ export function add(a: number, b: number): number {
         )
         .unwrap();
 
-        let config = graphql_config::ProjectConfig {
-            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
-            documents: Some(graphql_config::DocumentsConfig::Patterns(vec![
+        let config = graphql_config::ProjectConfig::new(
+            graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            Some(graphql_config::DocumentsConfig::Patterns(vec![
                 "src/**/*.ts".to_string(),
                 "src/**/*.graphql".to_string(),
             ])),
-            include: None,
-            exclude: None,
-            extensions: None,
-        };
+            None,
+            None,
+            None,
+        );
 
         let extract_config = graphql_extract::ExtractConfig::default();
         let result = discover_document_files(&config, temp_dir.path(), &extract_config);

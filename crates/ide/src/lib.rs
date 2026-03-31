@@ -3604,13 +3604,13 @@ export const typeDefs = gql`
             file.write_all(ts_schema_content.as_bytes()).unwrap();
 
             // Create config
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path("schema.ts".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            };
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("schema.ts".to_string()),
+                None,
+                None,
+                None,
+                None,
+            );
 
             // Load schemas
             let mut host = AnalysisHost::new();
@@ -3667,13 +3667,13 @@ export const postType = gql`
             let mut file = std::fs::File::create(&ts_path).unwrap();
             file.write_all(ts_content.as_bytes()).unwrap();
 
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path("schema.ts".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            };
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("schema.ts".to_string()),
+                None,
+                None,
+                None,
+                None,
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -3722,13 +3722,13 @@ export const postType = gql`
             let mut file = std::fs::File::create(&ts_path).unwrap();
             file.write_all(ts_content.as_bytes()).unwrap();
 
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path("schema.ts".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            };
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("schema.ts".to_string()),
+                None,
+                None,
+                None,
+                None,
+            );
 
             let mut host = AnalysisHost::new();
             let _ = host
@@ -3794,16 +3794,16 @@ export const typeDefs = gql`
             file.write_all(ts_content.as_bytes()).unwrap();
 
             // Use multiple schema paths
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Paths(vec![
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Paths(vec![
                     "base.graphql".to_string(),
                     "types.ts".to_string(),
                 ]),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            };
+                None,
+                None,
+                None,
+                None,
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -3842,13 +3842,13 @@ export function greet(name: string) {
             let mut file = std::fs::File::create(&ts_path).unwrap();
             file.write_all(ts_content.as_bytes()).unwrap();
 
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path("utils.ts".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            };
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("utils.ts".to_string()),
+                None,
+                None,
+                None,
+                None,
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -3886,13 +3886,13 @@ export const typeDefs = gql`
             let mut file = std::fs::File::create(&js_path).unwrap();
             file.write_all(js_content.as_bytes()).unwrap();
 
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path("schema.js".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            };
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("schema.js".to_string()),
+                None,
+                None,
+                None,
+                None,
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -3918,8 +3918,8 @@ export const typeDefs = gql`
             let temp_dir = tempfile::tempdir().unwrap();
 
             // Config with introspection endpoint
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Introspection(
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Introspection(
                     graphql_config::IntrospectionSchemaConfig {
                         url: "https://api.example.com/graphql".to_string(),
                         headers: Some(
@@ -3931,11 +3931,11 @@ export const typeDefs = gql`
                         retry: Some(3),
                     },
                 ),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            };
+                None,
+                None,
+                None,
+                None,
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -3973,15 +3973,13 @@ export const typeDefs = gql`
             let temp_dir = tempfile::tempdir().unwrap();
 
             // Config with URL pattern (simpler than full introspection config)
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path(
-                    "https://api.example.com/graphql".to_string(),
-                ),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            };
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("https://api.example.com/graphql".to_string()),
+                None,
+                None,
+                None,
+                None,
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -4047,16 +4045,16 @@ export const typeDefs = gql`
             let schema_path = temp_dir.path().join("schema.graphql");
             std::fs::write(&schema_path, schema_content).unwrap();
 
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: Some(HashMap::from([(
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+                None,
+                None,
+                None,
+                Some(HashMap::from([(
                     "client".to_string(),
                     serde_json::Value::String("apollo".to_string()),
                 )])),
-            };
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -4085,16 +4083,16 @@ export const typeDefs = gql`
             let schema_path = temp_dir.path().join("schema.graphql");
             std::fs::write(&schema_path, schema_content).unwrap();
 
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: Some(HashMap::from([(
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+                None,
+                None,
+                None,
+                Some(HashMap::from([(
                     "client".to_string(),
                     serde_json::Value::String("relay".to_string()),
                 )])),
-            };
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -4122,16 +4120,16 @@ export const typeDefs = gql`
             let schema_path = temp_dir.path().join("schema.graphql");
             std::fs::write(&schema_path, schema_content).unwrap();
 
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: Some(HashMap::from([(
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+                None,
+                None,
+                None,
+                Some(HashMap::from([(
                     "client".to_string(),
                     serde_json::Value::String("none".to_string()),
                 )])),
-            };
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -4356,15 +4354,15 @@ query GetUser {
         let mut doc_file = std::fs::File::create(&doc_path).unwrap();
         doc_file.write_all(doc_content.as_bytes()).unwrap();
 
-        let config = graphql_config::ProjectConfig {
-            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
-            documents: Some(graphql_config::DocumentsConfig::Pattern(
+        let config = graphql_config::ProjectConfig::new(
+            graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            Some(graphql_config::DocumentsConfig::Pattern(
                 "*.graphql".to_string(),
             )),
-            include: None,
-            exclude: None,
-            extensions: None,
-        };
+            None,
+            None,
+            None,
+        );
 
         let mut host = AnalysisHost::new();
         host.load_schemas_from_config(&config, temp_dir.path())
@@ -5144,13 +5142,13 @@ export const RATE_LIMIT_QUERY = gql`
         ts_file.write_all(ts_content.as_bytes()).unwrap();
 
         // Create config that includes both schema and TS documents
-        let config = graphql_config::ProjectConfig {
-            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
-            documents: Some(graphql_config::DocumentsConfig::Pattern("*.ts".to_string())),
-            include: None,
-            exclude: None,
-            extensions: None,
-        };
+        let config = graphql_config::ProjectConfig::new(
+            graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            Some(graphql_config::DocumentsConfig::Pattern("*.ts".to_string())),
+            None,
+            None,
+            None,
+        );
 
         // Create host and load files from config (simulating LSP initialization)
         let mut host = AnalysisHost::new();
@@ -5234,13 +5232,13 @@ export const RATE_LIMIT_QUERY = gql`
         ts_file.write_all(ts_content.as_bytes()).unwrap();
 
         // Create config
-        let config = graphql_config::ProjectConfig {
-            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
-            documents: Some(graphql_config::DocumentsConfig::Pattern("*.ts".to_string())),
-            include: None,
-            exclude: None,
-            extensions: None,
-        };
+        let config = graphql_config::ProjectConfig::new(
+            graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            Some(graphql_config::DocumentsConfig::Pattern("*.ts".to_string())),
+            None,
+            None,
+            None,
+        );
 
         // Create host and load files from config (simulating LSP initialization)
         let mut host = AnalysisHost::new();
