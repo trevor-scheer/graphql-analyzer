@@ -1,6 +1,7 @@
 use crate::analysis::CliAnalysisHost;
 use crate::commands::common::CommandContext;
 use crate::commands::fix::{apply_fixes, collect_fixable_diagnostics, display_dry_run};
+use crate::rendering;
 use crate::watch::{FileWatcher, WatchConfig, WatchMode};
 use crate::{ExitCode, OutputFormat, OutputOptions};
 use anyhow::Result;
@@ -141,7 +142,7 @@ pub fn run(
     let mut files_with_diagnostics: std::collections::HashMap<String, FileDiagnostics> =
         std::collections::HashMap::new();
 
-    for (file_path, diagnostics) in all_diagnostics {
+    for (file_path, diagnostics) in &all_diagnostics {
         let file_path_str = file_path.to_string_lossy().to_string();
 
         for diag in diagnostics {
@@ -160,9 +161,9 @@ pub fn run(
                 column: (diag.range.start.character + 1) as usize,
                 end_line: (diag.range.end.line + 1) as usize,
                 end_column: (diag.range.end.character + 1) as usize,
-                message: diag.message,
+                message: diag.message.clone(),
                 severity: severity_string,
-                rule: diag.code,
+                rule: diag.code.clone(),
             };
 
             let file_diags = files_with_diagnostics
@@ -198,33 +199,30 @@ pub fn run(
 
     match format {
         OutputFormat::Human => {
-            // Print all warnings
-            for warning in &all_warnings {
-                println!(
-                    "\n{}:{}:{}: {} {}",
-                    warning.file_path,
-                    warning.line,
-                    warning.column,
-                    "warning:".yellow().bold(),
-                    warning.message.yellow()
-                );
-                if let Some(ref rule) = warning.rule {
-                    println!("  {}: {}", "rule".dimmed(), rule.dimmed());
-                }
-            }
+            // Render diagnostics with source code snippets using ariadne.
+            // We re-iterate the original diagnostics to preserve the full
+            // Diagnostic type needed by the renderer.
+            for (file_path, diagnostics) in &all_diagnostics {
+                let file_path_str = file_path.to_string_lossy();
+                let source_text = std::fs::read_to_string(file_path).ok();
 
-            // Print all errors
-            for error in &all_errors {
-                println!(
-                    "\n{}:{}:{}: {} {}",
-                    error.file_path,
-                    error.line,
-                    error.column,
-                    "error:".red().bold(),
-                    error.message.red()
-                );
-                if let Some(ref rule) = error.rule {
-                    println!("  {}: {}", "rule".dimmed(), rule.dimmed());
+                for diag in diagnostics {
+                    if let Some(ref source) = source_text {
+                        if rendering::render_diagnostic(&file_path_str, source, diag) {
+                            continue;
+                        }
+                    }
+                    // Fallback: simple format when source can't be loaded
+                    let line = diag.range.start.line + 1;
+                    let col = diag.range.start.character + 1;
+                    let (sev_label, msg_styled) = match diag.severity {
+                        DiagnosticSeverity::Error => ("error:".red().bold(), diag.message.red()),
+                        _ => ("warning:".yellow().bold(), diag.message.yellow()),
+                    };
+                    println!("\n{file_path_str}:{line}:{col}: {sev_label} {msg_styled}");
+                    if let Some(ref rule) = diag.code {
+                        println!("  {}: {}", "rule".dimmed(), rule.dimmed());
+                    }
                 }
             }
         }
