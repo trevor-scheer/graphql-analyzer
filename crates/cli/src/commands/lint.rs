@@ -282,8 +282,14 @@ pub fn run(
                     .map(|r| format!(" [{r}]"))
                     .unwrap_or_default();
                 println!(
-                    "::warning file={},line={},col={}::{}{}",
-                    warning.file_path, warning.line, warning.column, warning.message, rule_suffix
+                    "::warning file={},line={},col={},endLine={},endColumn={}::{}{}",
+                    warning.file_path,
+                    warning.line,
+                    warning.column,
+                    warning.end_line,
+                    warning.end_column,
+                    warning.message,
+                    rule_suffix
                 );
             }
 
@@ -294,10 +300,45 @@ pub fn run(
                     .map(|r| format!(" [{r}]"))
                     .unwrap_or_default();
                 println!(
-                    "::error file={},line={},col={}::{}{}",
-                    error.file_path, error.line, error.column, error.message, rule_suffix
+                    "::error file={},line={},col={},endLine={},endColumn={}::{}{}",
+                    error.file_path,
+                    error.line,
+                    error.column,
+                    error.end_line,
+                    error.end_column,
+                    error.message,
+                    rule_suffix
                 );
             }
+        }
+        OutputFormat::Sarif => {
+            use crate::commands::sarif::{self, SarifLevel, SarifResult};
+
+            let mut sarif_results = Vec::new();
+            for diags in files_with_diagnostics.values() {
+                for d in diags.warnings.iter().chain(diags.errors.iter()) {
+                    sarif_results.push(SarifResult {
+                        rule_id: d.rule.clone().unwrap_or_else(|| "lint".to_string()),
+                        message: d.message.clone(),
+                        level: match d.severity.as_str() {
+                            "error" => SarifLevel::Error,
+                            "warning" => SarifLevel::Warning,
+                            _ => SarifLevel::Note,
+                        },
+                        file_path: d.file_path.clone(),
+                        start_line: d.line,
+                        start_column: d.column,
+                        end_line: d.end_line,
+                        end_column: d.end_column,
+                    });
+                }
+            }
+
+            let output = sarif::format_sarif(&sarif_results, &ctx.base_dir);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&output).unwrap_or_default()
+            );
         }
     }
 

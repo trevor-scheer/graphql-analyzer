@@ -337,11 +337,13 @@ pub fn run(
 
                 if issue.line > 0 {
                     println!(
-                        "::{} file={},line={},col={}::{}{}",
+                        "::{} file={},line={},col={},endLine={},endColumn={}::{}{}",
                         severity,
                         issue.file_path,
                         issue.line,
                         issue.column,
+                        issue.end_line,
+                        issue.end_column,
                         issue.message,
                         rule_suffix
                     );
@@ -349,6 +351,36 @@ pub fn run(
                     println!("::{}::{}{}", severity, issue.message, rule_suffix);
                 }
             }
+        }
+        OutputFormat::Sarif => {
+            use crate::commands::sarif::{self, SarifLevel, SarifResult};
+
+            let sarif_results: Vec<SarifResult> = all_issues
+                .iter()
+                .map(|issue| SarifResult {
+                    rule_id: issue
+                        .rule
+                        .clone()
+                        .unwrap_or_else(|| issue.source.to_string()),
+                    message: issue.message.clone(),
+                    level: match issue.severity.as_str() {
+                        "error" => SarifLevel::Error,
+                        "warning" => SarifLevel::Warning,
+                        _ => SarifLevel::Note,
+                    },
+                    file_path: issue.file_path.clone(),
+                    start_line: issue.line,
+                    start_column: issue.column,
+                    end_line: issue.end_line,
+                    end_column: issue.end_column,
+                })
+                .collect();
+
+            let output = sarif::format_sarif(&sarif_results, &ctx.base_dir);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&output).unwrap_or_default()
+            );
         }
     }
 

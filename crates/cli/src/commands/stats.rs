@@ -113,7 +113,9 @@ pub fn run(
     // Display statistics
     match format {
         OutputFormat::Human => print_human_stats(&stats),
-        OutputFormat::Json | OutputFormat::Github => print_json_stats(&stats),
+        OutputFormat::Json | OutputFormat::Github | OutputFormat::Sarif => {
+            print_json_stats(&stats);
+        }
     }
 
     Ok(())
