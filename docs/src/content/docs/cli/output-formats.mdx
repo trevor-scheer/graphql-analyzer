@@ -81,25 +81,31 @@ graphql check --format sarif > results.sarif
 {
   "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
   "version": "2.1.0",
-  "runs": [{
-    "tool": {
-      "driver": {
-        "name": "graphql-analyzer",
-        "rules": [{ "id": "noAnonymousOperations", "shortDescription": { "text": "..." } }]
-      }
-    },
-    "results": [{
-      "ruleId": "noAnonymousOperations",
-      "level": "error",
-      "message": { "text": "All operations must be named" },
-      "locations": [{
-        "physicalLocation": {
-          "artifactLocation": { "uri": "src/queries.graphql" },
-          "region": { "startLine": 1, "startColumn": 1 }
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "graphql-analyzer",
+          "rules": [{ "id": "noAnonymousOperations", "shortDescription": { "text": "..." } }]
         }
-      }]
-    }]
-  }]
+      },
+      "results": [
+        {
+          "ruleId": "noAnonymousOperations",
+          "level": "error",
+          "message": { "text": "All operations must be named" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/queries.graphql" },
+                "region": { "startLine": 1, "startColumn": 1 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }
 ```
 
