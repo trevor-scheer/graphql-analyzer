@@ -151,6 +151,7 @@ export default defineConfig({
             { label: "requireNullableResultInRoot", slug: "rules/requireNullableResultInRoot" },
             { label: "requireSelections", slug: "rules/requireSelections" },
             { label: "requireTypePatternWithOneof", slug: "rules/requireTypePatternWithOneof" },
+            { label: "restyFieldNames", slug: "rules/restyFieldNames" },
             { label: "selectionSetDepth", slug: "rules/selectionSetDepth" },
             { label: "strictIdInTypes", slug: "rules/strictIdInTypes" },
             {
