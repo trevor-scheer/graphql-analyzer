@@ -13,7 +13,7 @@ use crate::watch::{FileWatcher, WatchConfig, WatchMode};
 use crate::{ExitCode, OutputFormat, OutputOptions};
 use anyhow::Result;
 use colored::Colorize;
-use graphql_ide::DiagnosticSeverity;
+use graphql_ide::{Diagnostic, DiagnosticSeverity};
 use std::path::PathBuf;
 
 /// Diagnostic output structure for unified display
@@ -119,6 +119,9 @@ pub fn run(
 
     // Collect all diagnostics
     let mut all_issues: Vec<DiagnosticOutput> = Vec::new();
+    // Keep original diagnostics grouped by file for ariadne rendering
+    let mut original_diagnostics: std::collections::HashMap<PathBuf, Vec<Diagnostic>> =
+        std::collections::HashMap::new();
 
     // Run validation
     let spinner = if matches!(format, OutputFormat::Human) && output_opts.show_progress {
@@ -141,11 +144,15 @@ pub fn run(
                     column: (diag.range.start.character + 1) as usize,
                     end_line: (diag.range.end.line + 1) as usize,
                     end_column: (diag.range.end.character + 1) as usize,
-                    message: diag.message,
+                    message: diag.message.clone(),
                     severity: "error".to_string(),
                     source: DiagnosticSource::Validation,
-                    rule: diag.code,
+                    rule: diag.code.clone(),
                 });
+                original_diagnostics
+                    .entry(file_path.clone())
+                    .or_default()
+                    .push(diag);
             }
         }
     }
@@ -172,11 +179,15 @@ pub fn run(
                 column: (diag.range.start.character + 1) as usize,
                 end_line: (diag.range.end.line + 1) as usize,
                 end_column: (diag.range.end.character + 1) as usize,
-                message: diag.message,
+                message: diag.message.clone(),
                 severity: severity_string,
                 source: DiagnosticSource::Lint,
-                rule: diag.code,
+                rule: diag.code.clone(),
             });
+            original_diagnostics
+                .entry(file_path.clone())
+                .or_default()
+                .push(diag);
         }
     }
 
