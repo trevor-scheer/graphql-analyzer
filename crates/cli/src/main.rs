@@ -258,6 +258,17 @@ Examples:
         preload: Option<Vec<String>>,
     },
 
+    /// List all available lint rules
+    #[command(name = "list-rules")]
+    ListRules,
+
+    /// Show details about a lint rule
+    #[command(name = "explain")]
+    Explain {
+        /// Rule name to explain
+        rule: String,
+    },
+
     /// Start the Language Server Protocol (LSP) server
     ///
     /// This command starts the GraphQL language server, which provides IDE features
@@ -372,6 +383,8 @@ async fn main() -> anyhow::Result<()> {
             no_preload,
             preload,
         } => commands::mcp::run(workspace, no_preload, preload).await,
+        Commands::ListRules => commands::list_rules::run(),
+        Commands::Explain { rule } => commands::explain::run(&rule),
         Commands::Lsp => unreachable!("handled above"),
     };
 

@@ -16,8 +16,8 @@ pub use diagnostics::{
 };
 pub use graphql_syntax::SourceSpan;
 pub use registry::{
-    all_rule_names, document_schema_rules, project_rules, standalone_document_rules,
-    standalone_schema_rules,
+    all_rule_info, all_rule_names, document_schema_rules, project_rules, standalone_document_rules,
+    standalone_schema_rules, RuleCategory, RuleInfo,
 };
 pub use traits::{
     DocumentSchemaLintRule, LintRule, ProjectLintRule, StandaloneDocumentLintRule,
