@@ -8,6 +8,7 @@ pub mod fragments;
 pub mod lint;
 pub mod lsp;
 pub mod mcp;
+pub(crate) mod sarif;
 pub mod schema;
 pub mod stats;
 pub mod validate;

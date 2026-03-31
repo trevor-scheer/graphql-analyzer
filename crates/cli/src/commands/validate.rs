@@ -21,6 +21,8 @@ pub fn run(
         file_path: String,
         line: usize,
         column: usize,
+        end_line: usize,
+        end_column: usize,
         message: String,
     }
 
@@ -169,6 +171,8 @@ pub fn run(
                     // graphql-ide uses 0-based, CLI output uses 1-based
                     line: (diag.range.start.line + 1) as usize,
                     column: (diag.range.start.character + 1) as usize,
+                    end_line: (diag.range.end.line + 1) as usize,
+                    end_column: (diag.range.end.character + 1) as usize,
                     message: diag.message,
                 };
 
@@ -257,13 +261,41 @@ pub fn run(
             for error in &all_errors {
                 if error.line > 0 {
                     println!(
-                        "::error file={},line={},col={}::{}",
-                        error.file_path, error.line, error.column, error.message
+                        "::error file={},line={},col={},endLine={},endColumn={}::{}",
+                        error.file_path,
+                        error.line,
+                        error.column,
+                        error.end_line,
+                        error.end_column,
+                        error.message
                     );
                 } else {
                     println!("::error ::{}", error.message);
                 }
             }
+        }
+        OutputFormat::Sarif => {
+            use crate::commands::sarif::{self, SarifLevel, SarifResult};
+
+            let sarif_results: Vec<SarifResult> = all_errors
+                .iter()
+                .map(|error| SarifResult {
+                    rule_id: "validation".to_string(),
+                    message: error.message.clone(),
+                    level: SarifLevel::Error,
+                    file_path: error.file_path.clone(),
+                    start_line: error.line,
+                    start_column: error.column,
+                    end_line: error.end_line,
+                    end_column: error.end_column,
+                })
+                .collect();
+
+            let output = sarif::format_sarif(&sarif_results, &ctx.base_dir);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&output).unwrap_or_default()
+            );
         }
     }
 
