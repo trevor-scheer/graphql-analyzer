@@ -67,13 +67,13 @@ mod symbols;
 // Re-export types from the types module
 pub use types::{
     CodeFix, CodeLens, CodeLensCommand, CodeLensInfo, CompletionItem, CompletionKind,
-    ComplexityAnalysis, Diagnostic, DiagnosticSeverity, DocumentLoadResult, DocumentSymbol,
-    FieldComplexity, FieldCoverageReport, FieldUsageInfo, FilePath, FoldingRange, FoldingRangeKind,
-    FragmentReference, FragmentUsage, HoverResult, InlayHint, InlayHintKind, InsertTextFormat,
-    Location, ParameterInformation, PendingIntrospection, Position, ProjectStatus, Range,
-    RenameResult, SchemaContentError, SchemaLoadResult, SchemaStats, SelectionRange, SemanticToken,
-    SemanticTokenModifiers, SemanticTokenType, SignatureHelp, SignatureInformation, SymbolKind,
-    TextEdit, TypeCoverageInfo, WorkspaceSymbol,
+    ComplexityAnalysis, Diagnostic, DiagnosticSeverity, DiagnosticTag, DocumentLoadResult,
+    DocumentSymbol, FieldComplexity, FieldCoverageReport, FieldUsageInfo, FilePath, FoldingRange,
+    FoldingRangeKind, FragmentReference, FragmentUsage, HoverResult, InlayHint, InlayHintKind,
+    InsertTextFormat, Location, ParameterInformation, PendingIntrospection, Position,
+    ProjectStatus, Range, RelatedInformation, RenameResult, SchemaContentError, SchemaLoadResult,
+    SchemaStats, SelectionRange, SemanticToken, SemanticTokenModifiers, SemanticTokenType,
+    SignatureHelp, SignatureInformation, SymbolKind, TextEdit, TypeCoverageInfo, WorkspaceSymbol,
 };
 
 // Re-export file registry

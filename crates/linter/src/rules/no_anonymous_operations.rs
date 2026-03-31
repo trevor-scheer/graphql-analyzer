@@ -114,12 +114,16 @@ fn check_operation_has_name(
             "Anonymous {operation_type} operation. All operations should have explicit names for better monitoring and debugging"
         );
 
-        diagnostics.push(LintDiagnostic::new(
-            doc.span(start_offset, end_offset),
-            LintSeverity::Error,
-            message,
-            "noAnonymousOperations",
-        ));
+        diagnostics.push(
+            LintDiagnostic::new(
+                doc.span(start_offset, end_offset),
+                LintSeverity::Error,
+                message,
+                "noAnonymousOperations",
+            )
+            .with_help("Add a name to your operation, e.g. 'query MyQuery { ... }'")
+            .with_url(crate::diagnostics::rule_doc_url("noAnonymousOperations")),
+        );
     }
 }
 

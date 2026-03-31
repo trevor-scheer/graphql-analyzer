@@ -1,4 +1,4 @@
-/// A text edit representing a change to apply to fix a lint issue
+/// A text edit representing a change to apply to fix a lint issue.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextEdit {
     /// Byte offset range in the file (or block for TS/JS files)
@@ -65,6 +65,15 @@ impl CodeFix {
     }
 }
 
+/// A tag attached to a diagnostic providing additional classification
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DiagnosticTag {
+    /// The diagnostic marks code as unnecessary (e.g., unused fragments)
+    Unnecessary,
+    /// The diagnostic marks code as deprecated
+    Deprecated,
+}
+
 /// Lint-specific diagnostic with byte offsets (not line/column).
 ///
 /// The `span` field carries both the byte offset range and block context
@@ -82,6 +91,12 @@ pub struct LintDiagnostic {
     pub rule: String,
     /// Optional auto-fix for this diagnostic
     pub fix: Option<CodeFix>,
+    /// Optional help text explaining how to resolve the issue
+    pub help: Option<String>,
+    /// Optional documentation URL for the rule
+    pub url: Option<String>,
+    /// Diagnostic tags for additional classification
+    pub tags: Vec<DiagnosticTag>,
 }
 
 impl LintDiagnostic {
@@ -99,6 +114,9 @@ impl LintDiagnostic {
             message: message.into(),
             rule: rule.into(),
             fix: None,
+            help: None,
+            url: None,
+            tags: Vec::new(),
         }
     }
 
@@ -115,6 +133,9 @@ impl LintDiagnostic {
             message: message.into(),
             rule: rule.into(),
             fix: None,
+            help: None,
+            url: None,
+            tags: Vec::new(),
         }
     }
 
@@ -131,6 +152,9 @@ impl LintDiagnostic {
             message: message.into(),
             rule: rule.into(),
             fix: None,
+            help: None,
+            url: None,
+            tags: Vec::new(),
         }
     }
 
@@ -147,6 +171,9 @@ impl LintDiagnostic {
             message: message.into(),
             rule: rule.into(),
             fix: None,
+            help: None,
+            url: None,
+            tags: Vec::new(),
         }
     }
 
@@ -154,6 +181,27 @@ impl LintDiagnostic {
     #[must_use]
     pub fn with_fix(mut self, fix: CodeFix) -> Self {
         self.fix = Some(fix);
+        self
+    }
+
+    /// Add help text explaining how to resolve the issue
+    #[must_use]
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help = Some(help.into());
+        self
+    }
+
+    /// Add a documentation URL for the rule
+    #[must_use]
+    pub fn with_url(mut self, url: impl Into<String>) -> Self {
+        self.url = Some(url.into());
+        self
+    }
+
+    /// Add a diagnostic tag for additional classification
+    #[must_use]
+    pub fn with_tag(mut self, tag: DiagnosticTag) -> Self {
+        self.tags.push(tag);
         self
     }
 
@@ -210,6 +258,12 @@ impl std::fmt::Display for LintSeverity {
             Self::Info => write!(f, "info"),
         }
     }
+}
+
+/// Generate a documentation URL for a lint rule
+#[must_use]
+pub fn rule_doc_url(rule_name: &str) -> String {
+    format!("https://graphql-analyzer.dev/rules/{rule_name}")
 }
 
 #[cfg(test)]

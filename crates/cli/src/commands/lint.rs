@@ -225,6 +225,9 @@ pub fn run(
                     if let Some(ref rule) = diag.code {
                         println!("  {}: {}", "rule".dimmed(), rule.dimmed());
                     }
+                    if let Some(ref help) = diag.help {
+                        println!("  {}: {}", "help".cyan(), help);
+                    }
                 }
             }
         }

@@ -27,6 +27,7 @@ struct DiagnosticOutput {
     severity: String,
     source: DiagnosticSource,
     rule: Option<String>,
+    help: Option<String>,
 }
 
 /// Source of the diagnostic (validation or lint)
@@ -149,6 +150,7 @@ pub fn run(
                     severity: "error".to_string(),
                     source: DiagnosticSource::Validation,
                     rule: diag.code.clone(),
+                    help: diag.help.clone(),
                 });
                 original_diagnostics
                     .entry(file_path.clone())
@@ -184,6 +186,7 @@ pub fn run(
                 severity: severity_string,
                 source: DiagnosticSource::Lint,
                 rule: diag.code.clone(),
+                help: diag.help.clone(),
             });
             original_diagnostics
                 .entry(file_path.clone())
@@ -267,6 +270,9 @@ pub fn run(
 
                 if let Some(ref rule) = issue.rule {
                     println!("  {}: {}", "rule".dimmed(), rule.dimmed());
+                }
+                if let Some(ref help) = issue.help {
+                    println!("  {}: {}", "help".cyan(), help);
                 }
             }
         }
