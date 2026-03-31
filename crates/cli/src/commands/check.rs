@@ -58,6 +58,7 @@ pub fn run(
     project_name: Option<&str>,
     format: OutputFormat,
     watch: bool,
+    max_warnings: Option<usize>,
     output_opts: OutputOptions,
 ) -> Result<()> {
     if watch {
@@ -389,6 +390,15 @@ pub fn run(
 
     if total_errors > 0 {
         ExitCode::ValidationError.exit();
+    }
+
+    if let Some(max) = max_warnings {
+        if total_warnings > max {
+            eprintln!("\ngraphql-analyzer found {total_warnings} warning(s) (threshold: {max})");
+            ExitCode::WarningThresholdExceeded.exit();
+        } else if total_warnings < max {
+            eprintln!("\nYou can lower --max-warnings to {total_warnings} (currently {max})");
+        }
     }
 
     Ok(())

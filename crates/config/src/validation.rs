@@ -1030,13 +1030,13 @@ projects:
             }
         });
 
-        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
-            schema: SchemaConfig::Path("schema.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: lint_extensions(lint_value),
-        }));
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            lint_extensions(lint_value),
+        )));
 
         let ctx = LintValidationContext {
             valid_rule_names: &["noAnonymousOperations", "noDeprecatedUsage"],
@@ -1066,13 +1066,13 @@ projects:
         let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
         writeln!(f, "type Query {{ hello: String }}").unwrap();
 
-        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
-            schema: SchemaConfig::Path("schema.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: lint_extensions(serde_json::json!("recomended")),
-        }));
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            lint_extensions(serde_json::json!("recomended")),
+        )));
 
         let ctx = LintValidationContext {
             valid_rule_names: &[],
@@ -1106,13 +1106,13 @@ projects:
             }
         });
 
-        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
-            schema: SchemaConfig::Path("schema.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: lint_extensions(lint_value),
-        }));
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            lint_extensions(lint_value),
+        )));
 
         let ctx = LintValidationContext {
             valid_rule_names: &["noAnonymousOperations"],
