@@ -2,6 +2,15 @@
 
 use std::sync::Arc;
 
+/// A tag attached to a diagnostic providing additional classification
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DiagnosticTag {
+    /// The diagnostic marks code as unnecessary (e.g., unused fragments)
+    Unnecessary,
+    /// The diagnostic marks code as deprecated
+    Deprecated,
+}
+
 /// A diagnostic message (error, warning, or info)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -15,6 +24,12 @@ pub struct Diagnostic {
     pub source: Arc<str>,
     /// Optional diagnostic code
     pub code: Option<Arc<str>>,
+    /// Optional help text explaining how to resolve the issue
+    pub help: Option<Arc<str>>,
+    /// Optional documentation URL for the rule
+    pub url: Option<Arc<str>>,
+    /// Diagnostic tags for additional classification
+    pub tags: Vec<DiagnosticTag>,
 }
 
 impl Diagnostic {
@@ -27,6 +42,9 @@ impl Diagnostic {
             range,
             source: "graphql-analysis".into(),
             code: None,
+            help: None,
+            url: None,
+            tags: Vec::new(),
         }
     }
 
@@ -39,6 +57,9 @@ impl Diagnostic {
             range,
             source: "graphql-analysis".into(),
             code: None,
+            help: None,
+            url: None,
+            tags: Vec::new(),
         }
     }
 
@@ -51,6 +72,9 @@ impl Diagnostic {
             range,
             source: "graphql-analysis".into(),
             code: None,
+            help: None,
+            url: None,
+            tags: Vec::new(),
         }
     }
 
@@ -69,6 +93,9 @@ impl Diagnostic {
             range,
             source: source.into(),
             code: Some(code.into()),
+            help: None,
+            url: None,
+            tags: Vec::new(),
         }
     }
 }

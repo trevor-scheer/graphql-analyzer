@@ -535,6 +535,9 @@ fn unused_ignore_diagnostics(
                     },
                     source: "graphql-linter".into(),
                     code: Some("unused_ignore".into()),
+                    help: None,
+                    url: None,
+                    tags: vec![crate::DiagnosticTag::Unnecessary],
                 }]
             }
             graphql_linter::ignore::UnusedIgnore::UnusedRules { rules, .. } => rules
@@ -561,6 +564,9 @@ fn unused_ignore_diagnostics(
                         },
                         source: "graphql-linter".into(),
                         code: Some("unused_ignore".into()),
+                        help: None,
+                        url: None,
+                        tags: vec![crate::DiagnosticTag::Unnecessary],
                     }
                 })
                 .collect(),
@@ -681,6 +687,20 @@ fn convert_lint_diagnostics(
                 },
                 source: "graphql-linter".into(),
                 code: Some(rule_name.to_string().into()),
+                help: ld.help.map(Into::into),
+                url: ld.url.map(Into::into),
+                tags: ld
+                    .tags
+                    .into_iter()
+                    .map(|t| match t {
+                        graphql_linter::DiagnosticTag::Unnecessary => {
+                            crate::DiagnosticTag::Unnecessary
+                        }
+                        graphql_linter::DiagnosticTag::Deprecated => {
+                            crate::DiagnosticTag::Deprecated
+                        }
+                    })
+                    .collect(),
             })
         })
         .collect()

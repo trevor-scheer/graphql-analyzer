@@ -63,6 +63,9 @@ fn collect_apollo_diagnostics(errors: &DiagnosticList) -> HashMap<Arc<str>, Vec<
                 range,
                 source: "apollo-compiler".into(),
                 code: None,
+                help: None,
+                url: None,
+                tags: Vec::new(),
             });
     }
 
@@ -255,6 +258,9 @@ mod tests {
                 range: DiagnosticRange::default(),
                 source: "test".into(),
                 code: None,
+                help: None,
+                url: None,
+                tags: Vec::new(),
             }],
         );
 

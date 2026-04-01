@@ -78,6 +78,9 @@ fn syntax_diagnostics(
             },
             source: "graphql-parser".into(),
             code: None,
+            help: None,
+            url: None,
+            tags: Vec::new(),
         });
     }
 
@@ -121,6 +124,9 @@ fn file_validation_diagnostics_impl(
             },
             source: "graphql-parser".into(),
             code: None,
+            help: None,
+            url: None,
+            tags: Vec::new(),
         });
     }
 

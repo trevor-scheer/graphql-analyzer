@@ -257,6 +257,22 @@ pub enum DiagnosticSeverity {
     Hint,
 }
 
+/// A tag attached to a diagnostic providing additional classification
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DiagnosticTag {
+    /// The diagnostic marks code as unnecessary (e.g., unused fragments)
+    Unnecessary,
+    /// The diagnostic marks code as deprecated
+    Deprecated,
+}
+
+/// Related information for a diagnostic (e.g., the definition site for an error)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelatedInformation {
+    pub location: Location,
+    pub message: String,
+}
+
 /// Diagnostic (error, warning, hint)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -267,6 +283,14 @@ pub struct Diagnostic {
     pub source: String,
     /// Optional auto-fix for this diagnostic
     pub fix: Option<CodeFix>,
+    /// Optional help text explaining how to resolve the issue
+    pub help: Option<String>,
+    /// Optional documentation URL for the rule
+    pub url: Option<String>,
+    /// Diagnostic tags for additional classification
+    pub tags: Vec<DiagnosticTag>,
+    /// Related information (e.g., definition sites, other occurrences)
+    pub related: Vec<RelatedInformation>,
 }
 
 impl Diagnostic {
@@ -283,6 +307,10 @@ impl Diagnostic {
             code: None,
             source: source.into(),
             fix: None,
+            help: None,
+            url: None,
+            tags: Vec::new(),
+            related: Vec::new(),
         }
     }
 
@@ -295,6 +323,30 @@ impl Diagnostic {
     #[must_use]
     pub fn with_fix(mut self, fix: CodeFix) -> Self {
         self.fix = Some(fix);
+        self
+    }
+
+    #[must_use]
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help = Some(help.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_url(mut self, url: impl Into<String>) -> Self {
+        self.url = Some(url.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_tag(mut self, tag: DiagnosticTag) -> Self {
+        self.tags.push(tag);
+        self
+    }
+
+    #[must_use]
+    pub fn with_related(mut self, related: RelatedInformation) -> Self {
+        self.related.push(related);
         self
     }
 }
