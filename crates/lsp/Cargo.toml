@@ -59,6 +59,9 @@ opentelemetry-semantic-conventions = { workspace = true }
 tempfile = "3.0"
 glob.workspace = true
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }
+
 [build-dependencies]
 vergen-git2 = { version = "9.1", features = ["build", "cargo"] }
 
