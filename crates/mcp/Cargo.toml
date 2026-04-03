@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 # Internal dependencies
 graphql-ide = { path = "../ide" }
+graphql-hir = { path = "../hir" }
 graphql-config = { path = "../config" }
 graphql-introspect = { path = "../introspect" }
 graphql-linter = { path = "../linter" }

@@ -1221,6 +1221,92 @@ impl ComplexityAnalysis {
     }
 }
 
+/// A lightweight summary of a schema type for listing
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SchemaTypeEntry {
+    pub name: String,
+    pub kind: String,
+    pub description: Option<String>,
+    pub field_count: usize,
+    pub implements: Vec<String>,
+    pub is_extension: bool,
+}
+
+/// Full details about a specific schema type
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeInfo {
+    pub name: String,
+    pub kind: String,
+    pub description: Option<String>,
+    pub implements: Vec<String>,
+    pub fields: Vec<TypeFieldInfo>,
+    pub directives: Vec<TypeDirectiveInfo>,
+    pub enum_values: Vec<TypeEnumValueInfo>,
+    pub union_members: Vec<String>,
+}
+
+/// A field in a type definition
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeFieldInfo {
+    pub name: String,
+    pub type_ref: String,
+    pub description: Option<String>,
+    pub arguments: Vec<TypeArgumentInfo>,
+    pub is_deprecated: bool,
+    pub deprecation_reason: Option<String>,
+    pub directives: Vec<TypeDirectiveInfo>,
+}
+
+/// An argument on a field or directive
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeArgumentInfo {
+    pub name: String,
+    pub type_ref: String,
+    pub description: Option<String>,
+    pub default_value: Option<String>,
+}
+
+/// A directive applied to a schema element
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeDirectiveInfo {
+    pub name: String,
+    pub arguments: Vec<TypeDirectiveArgumentInfo>,
+}
+
+/// An argument passed to a directive
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeDirectiveArgumentInfo {
+    pub name: String,
+    pub value: String,
+}
+
+/// An enum value in an enum type
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeEnumValueInfo {
+    pub name: String,
+    pub description: Option<String>,
+    pub is_deprecated: bool,
+    pub deprecation_reason: Option<String>,
+}
+
+/// Summary of an operation for document analysis
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperationSummary {
+    pub name: Option<String>,
+    pub operation_type: String,
+    pub file: FilePath,
+    pub variables: Vec<OperationVariableInfo>,
+    pub fragment_dependencies: Vec<String>,
+}
+
+/// A variable defined on an operation
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperationVariableInfo {
+    pub name: String,
+    pub type_ref: String,
+    pub default_value: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
