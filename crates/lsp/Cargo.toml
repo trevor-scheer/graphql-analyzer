@@ -38,6 +38,7 @@ tokio = { workspace = true, features = ["sync", "rt", "io-std", "time"] }
 
 # Concurrency
 dashmap = { workspace = true }
+parking_lot = { workspace = true }
 
 # Utilities
 serde = { workspace = true }
@@ -58,6 +59,9 @@ opentelemetry-semantic-conventions = { workspace = true }
 # Temp files for TypeScript extraction
 tempfile = "3.0"
 glob.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }
 
 [build-dependencies]
 vergen-git2 = { version = "9.1", features = ["build", "cargo"] }

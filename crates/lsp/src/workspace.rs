@@ -759,4 +759,96 @@ mod tests {
         manager.remove_document_version("file.graphql");
         assert!(manager.update_document_version("file.graphql", 1));
     }
+
+    /// Regression test for deadlock when rapidly editing schema files.
+    ///
+    /// Reproduces the scenario where `add_file_and_snapshot` blocks the async
+    /// runtime because a previous Salsa snapshot is still held by a
+    /// `spawn_blocking` task. The Salsa setter waits for all snapshots to be
+    /// dropped before it can proceed, and if the setter runs on the async
+    /// runtime thread, it starves.
+    ///
+    /// Uses a single-threaded runtime to make the bug deterministic: if the
+    /// Salsa setter blocks the one runtime thread, no other async work can
+    /// proceed. The test uses an OS-level thread timeout to detect the hang
+    /// (tokio's own timers can't fire when the runtime thread is blocked).
+    #[test]
+    fn test_add_file_and_snapshot_does_not_block_async_runtime() {
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+
+            rt.block_on(async {
+                let host = ProjectHost::new();
+                let path = graphql_ide::FilePath::new("file:///test.graphql");
+
+                // Step 1: Add a file and get a snapshot
+                let (_is_new, snapshot) = host
+                    .add_file_and_snapshot(
+                        &path,
+                        "type Query { hello: String }",
+                        graphql_ide::Language::GraphQL,
+                        graphql_ide::DocumentKind::Schema,
+                    )
+                    .await;
+
+                // Step 2: Hold the snapshot on a blocking thread (simulates
+                // spawn_blocking diagnostics computation)
+                let (held_tx, held_rx) = tokio::sync::oneshot::channel::<()>();
+                let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+
+                tokio::task::spawn_blocking(move || {
+                    let _ = held_tx.send(());
+                    let _ = release_rx.blocking_recv();
+                    drop(snapshot);
+                });
+
+                held_rx.await.unwrap();
+
+                // Step 3: Start the mutation as a spawned task so we can
+                // observe whether the runtime stays responsive.
+                let host_clone = host.clone();
+                let mutation_handle = tokio::spawn(async move {
+                    host_clone
+                        .add_file_and_snapshot(
+                            &graphql_ide::FilePath::new("file:///test.graphql"),
+                            "type Query { hello: String! }",
+                            graphql_ide::Language::GraphQL,
+                            graphql_ide::DocumentKind::Schema,
+                        )
+                        .await
+                });
+
+                // Yield to let the mutation task start executing
+                tokio::task::yield_now().await;
+
+                // Step 4: Check if the runtime is still responsive. If the
+                // mutation blocked the runtime thread (bug), this sleep can
+                // never complete because the thread is stuck in the Salsa
+                // setter. If the mutation runs in spawn_blocking (fix), the
+                // runtime thread is free and this completes normally.
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+                // Clean up
+                let _ = release_tx.send(());
+                let _ = mutation_handle.await;
+            });
+
+            let _ = done_tx.send(());
+        });
+
+        // OS-level timeout: tokio timers can't fire when the runtime is
+        // blocked, so we detect the hang from an external thread.
+        let result = done_rx.recv_timeout(Duration::from_secs(5));
+        assert!(
+            result.is_ok(),
+            "add_file_and_snapshot blocked the async runtime waiting for \
+             a Salsa snapshot to be dropped — the Salsa setter must run \
+             in spawn_blocking, not on the async thread"
+        );
+    }
 }
