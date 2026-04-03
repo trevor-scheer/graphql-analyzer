@@ -13,7 +13,7 @@ categories = ["config", "parser-implementations"]
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yml = { workspace = true }
-toml = "0.8"
+toml = "0.9"
 thiserror = { workspace = true }
 glob = { workspace = true }
 strsim = { workspace = true }
