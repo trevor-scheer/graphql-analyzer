@@ -1,5 +1,5 @@
 ---
-graphql-lsp: patch
+graphql-analyzer-lsp: patch
 graphql-analyzer-vscode: patch
 ---
 
