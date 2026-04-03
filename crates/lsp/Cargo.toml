@@ -38,7 +38,6 @@ tokio = { workspace = true, features = ["sync", "rt", "io-std", "time"] }
 
 # Concurrency
 dashmap = { workspace = true }
-parking_lot = { workspace = true }
 
 # Utilities
 serde = { workspace = true }

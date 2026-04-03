@@ -31,10 +31,20 @@ const LOCK_TIMEOUT: Duration = Duration::from_millis(500);
 /// by only exposing safe access methods:
 /// - `try_snapshot()`: Read access with timeout (for request handlers)
 /// - `with_write()`: Write access for background tasks (no timeout, but caller is responsible)
+/// - `add_file_and_snapshot()`: Write + snapshot for `did_change` (runs on `spawn_blocking`)
 ///
-/// Request handlers should ONLY use `try_snapshot()`. If they need write access,
-/// they're doing something wrong - writes should happen in `did_open`/`did_change`
-/// handlers or background tasks.
+/// ## Salsa Snapshot Safety
+///
+/// Salsa setters block until all outstanding snapshots are dropped. If a setter
+/// runs on the async runtime while a `spawn_blocking` task holds a snapshot,
+/// the runtime thread is blocked and can't drive other tasks — deadlock.
+///
+/// `add_file_and_snapshot` (the hot path during editing) uses `lock_owned()` +
+/// `spawn_blocking` so the setter blocks a pool thread instead of the runtime.
+///
+/// `with_write` runs on the async thread and is safe only when no snapshots are
+/// outstanding (initialization, config reload). Do NOT use it on the editing
+/// hot path.
 #[derive(Clone)]
 pub struct ProjectHost {
     inner: Arc<Mutex<AnalysisHost>>,
@@ -72,9 +82,11 @@ impl ProjectHost {
     ///
     /// This acquires the lock WITHOUT a timeout. Only use this for:
     /// - Background initialization tasks
-    /// - `did_open`/`did_change` handlers (which need to update content)
+    /// - Config reload handlers
     ///
-    /// The closure should complete quickly - don't do file I/O while holding the lock!
+    /// **WARNING**: This runs the closure on the async thread. Safe only when
+    /// no Salsa snapshots are outstanding (i.e., not during active editing).
+    /// For the editing hot path, use `add_file_and_snapshot` instead.
     pub async fn with_write<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut AnalysisHost) -> R,
@@ -90,6 +102,8 @@ impl ProjectHost {
     /// `add_file_and_snapshot` which properly handles project file rebuilding.
     ///
     /// Doing both in one lock acquisition avoids double-locking.
+    ///
+    /// **WARNING**: Same async-thread caveat as `with_write`.
     #[allow(dead_code)]
     pub async fn write_and_snapshot<F, R>(&self, f: F) -> (R, graphql_ide::Analysis)
     where
@@ -107,6 +121,11 @@ impl ProjectHost {
     /// - For new files: rebuilds project file index before creating snapshot
     /// - For existing files: just updates content
     ///
+    /// Uses `lock_owned()` + `spawn_blocking` so the Salsa setter (which may
+    /// block waiting for outstanding snapshots from previous diagnostics
+    /// computations to be dropped) blocks a pool thread instead of the async
+    /// runtime. This prevents the deadlock triggered by rapid schema edits.
+    ///
     /// Returns `(is_new_file, Analysis)` tuple.
     pub async fn add_file_and_snapshot(
         &self,
@@ -115,8 +134,20 @@ impl ProjectHost {
         language: graphql_ide::Language,
         document_kind: graphql_ide::DocumentKind,
     ) -> (bool, graphql_ide::Analysis) {
-        let mut guard = self.inner.lock().await;
-        guard.update_file_and_snapshot(path, content, language, document_kind)
+        let mut guard = Arc::clone(&self.inner).lock_owned().await;
+        let path = path.clone();
+        let content = content.to_string();
+        match tokio::task::spawn_blocking(move || {
+            guard.update_file_and_snapshot(&path, &content, language, document_kind)
+        })
+        .await
+        {
+            Ok(result) => result,
+            Err(e) => {
+                tracing::error!("Blocking task panicked in add_file_and_snapshot: {e}");
+                panic!("add_file_and_snapshot: blocking task panicked: {e}");
+            }
+        }
     }
 }
 
