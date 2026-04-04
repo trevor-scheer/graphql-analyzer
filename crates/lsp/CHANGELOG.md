@@ -2,6 +2,17 @@
 
 All notable changes to the GraphQL LSP will be documented in this file.
 
+## 0.1.14 (2026-04-04)
+
+### Features
+
+- Add `require-selections` lint rule for cache normalization ([#944](https://github.com/trevor-scheer/graphql-analyzer/pull/944))
+
+### Fixes
+
+- Add "did you mean?" suggestions for config typos ([#932](https://github.com/trevor-scheer/graphql-analyzer/pull/932))
+- Fix LSP deadlock during rapid schema edits in large codebases ([#949](https://github.com/trevor-scheer/graphql-analyzer/pull/949))
+
 ## 0.1.13 (2026-03-30)
 
 ### Features
