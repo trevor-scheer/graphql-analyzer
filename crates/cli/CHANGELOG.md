@@ -2,6 +2,20 @@
 
 All notable changes to the GraphQL CLI will be documented in this file.
 
+## 0.1.10 (2026-04-04)
+
+### Features
+
+- Show source code snippets in CLI diagnostic output ([#941](https://github.com/trevor-scheer/graphql-analyzer/pull/941))
+- Add `--max-warnings` flag for gradual lint adoption ([#938](https://github.com/trevor-scheer/graphql-analyzer/pull/938))
+- Add `require-selections` lint rule for cache normalization ([#944](https://github.com/trevor-scheer/graphql-analyzer/pull/944))
+
+### Fixes
+
+- Add usage examples and aliases to CLI help text ([#927](https://github.com/trevor-scheer/graphql-analyzer/pull/927))
+- Add "did you mean?" suggestions for config typos ([#932](https://github.com/trevor-scheer/graphql-analyzer/pull/932))
+- Fix config validation test compilation after glob caching refactor ([#948](https://github.com/trevor-scheer/graphql-analyzer/pull/948))
+
 ## 0.1.9 (2026-03-30)
 
 ### Fixes
