@@ -141,6 +141,7 @@ export default defineConfig({
               slug: "rules/require-field-of-type-query-in-mutation-result",
             },
             { label: "require-id-field", slug: "rules/require-id-field" },
+            { label: "require-selections", slug: "rules/require-selections" },
             { label: "selection-set-depth", slug: "rules/selection-set-depth" },
             { label: "strict-id-in-types", slug: "rules/strict-id-in-types" },
             {

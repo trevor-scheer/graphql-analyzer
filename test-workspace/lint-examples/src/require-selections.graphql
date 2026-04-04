@@ -1,0 +1,40 @@
+# Triggers requireSelections: selection sets on types with `id` must include it
+
+# Missing `id` on User - should error
+query GetUserWithoutId {
+  user(id: "1") {
+    name
+    email
+  }
+}
+
+# Has `id` on User - no error
+query GetUserWithId {
+  user(id: "1") {
+    id
+    name
+    email
+  }
+}
+
+# Missing `id` on nested Post - should error
+query GetUserPostsWithoutId {
+  user(id: "1") {
+    id
+    posts {
+      title
+      body
+    }
+  }
+}
+
+# Profile has `id` but it's selected - no error
+query GetUserProfile {
+  user(id: "1") {
+    id
+    profile {
+      id
+      bio
+    }
+  }
+}
