@@ -88,12 +88,12 @@ impl AnalysisHost {
         document_kind: DocumentKind,
     ) -> bool {
         let lock_id = next_ide_lock_id();
-        tracing::info!(lock_id, path = %path.as_str(), "add_file: acquiring registry write lock");
+        tracing::debug!(lock_id, path = %path.as_str(), "add_file: acquiring registry write lock");
         let mut registry = self.registry.write();
-        tracing::info!(lock_id, "add_file: acquired registry write lock");
+        tracing::debug!(lock_id, "add_file: acquired registry write lock");
         let (_, _, _, is_new) =
             registry.add_file(&mut self.db, path, content, language, document_kind);
-        tracing::info!(lock_id, is_new, "add_file: releasing registry write lock");
+        tracing::debug!(lock_id, is_new, "add_file: releasing registry write lock");
         is_new
     }
 
@@ -106,9 +106,16 @@ impl AnalysisHost {
     /// Returns the list of `LoadedFile` structs for building indexes.
     pub fn add_discovered_files(&mut self, files: &[DiscoveredFile]) -> Vec<LoadedFile> {
         let lock_id = next_ide_lock_id();
-        tracing::info!(lock_id, count = files.len(), "add_discovered_files: acquiring registry write lock");
+        tracing::debug!(
+            lock_id,
+            count = files.len(),
+            "add_discovered_files: acquiring registry write lock"
+        );
         let mut registry = self.registry.write();
-        tracing::info!(lock_id, "add_discovered_files: acquired registry write lock");
+        tracing::debug!(
+            lock_id,
+            "add_discovered_files: acquired registry write lock"
+        );
         let mut loaded = Vec::with_capacity(files.len());
 
         for file in files {
@@ -126,7 +133,11 @@ impl AnalysisHost {
             });
         }
 
-        tracing::info!(lock_id, count = loaded.len(), "add_discovered_files: releasing registry write lock");
+        tracing::debug!(
+            lock_id,
+            count = loaded.len(),
+            "add_discovered_files: releasing registry write lock"
+        );
         loaded
     }
 
@@ -140,15 +151,24 @@ impl AnalysisHost {
     /// access it via `db.project_files()`.
     pub fn rebuild_project_files(&mut self) {
         let lock_id = next_ide_lock_id();
-        tracing::info!(lock_id, "rebuild_project_files: acquiring registry write lock");
+        tracing::debug!(
+            lock_id,
+            "rebuild_project_files: acquiring registry write lock"
+        );
         let mut registry = self.registry.write();
-        tracing::info!(lock_id, "rebuild_project_files: acquired registry write lock");
+        tracing::debug!(
+            lock_id,
+            "rebuild_project_files: acquired registry write lock"
+        );
         registry.rebuild_project_files(&mut self.db);
 
         // Sync project_files from registry to database
         // This enables queries to access project_files via db.project_files()
         self.db.project_files_input = registry.project_files();
-        tracing::info!(lock_id, "rebuild_project_files: releasing registry write lock");
+        tracing::debug!(
+            lock_id,
+            "rebuild_project_files: releasing registry write lock"
+        );
     }
 
     /// Add multiple files in batch, then rebuild the project index once
@@ -174,9 +194,13 @@ impl AnalysisHost {
     /// ```
     pub fn add_files_batch(&mut self, files: &[(FilePath, &str, Language, DocumentKind)]) {
         let lock_id = next_ide_lock_id();
-        tracing::info!(lock_id, count = files.len(), "add_files_batch: acquiring registry write lock");
+        tracing::debug!(
+            lock_id,
+            count = files.len(),
+            "add_files_batch: acquiring registry write lock"
+        );
         let mut registry = self.registry.write();
-        tracing::info!(lock_id, "add_files_batch: acquired registry write lock");
+        tracing::debug!(lock_id, "add_files_batch: acquired registry write lock");
         let mut any_new = false;
 
         for (path, content, language, document_kind) in files {
@@ -191,7 +215,11 @@ impl AnalysisHost {
             // Sync project_files from registry to database
             self.db.project_files_input = registry.project_files();
         }
-        tracing::info!(lock_id, any_new, "add_files_batch: releasing registry write lock");
+        tracing::debug!(
+            lock_id,
+            any_new,
+            "add_files_batch: releasing registry write lock"
+        );
     }
 
     /// Update a file and optionally create a snapshot in a single lock acquisition
@@ -212,17 +240,23 @@ impl AnalysisHost {
         document_kind: DocumentKind,
     ) -> (bool, Analysis) {
         let lock_id = next_ide_lock_id();
-        tracing::info!(lock_id, path = %path.as_str(), "update_file_and_snapshot: acquiring registry write lock");
+        tracing::debug!(lock_id, path = %path.as_str(), "update_file_and_snapshot: acquiring registry write lock");
         // Single lock acquisition for both operations
         let mut registry = self.registry.write();
-        tracing::info!(lock_id, "update_file_and_snapshot: acquired registry write lock");
+        tracing::debug!(
+            lock_id,
+            "update_file_and_snapshot: acquired registry write lock"
+        );
         let (_, _, _, is_new) =
             registry.add_file(&mut self.db, path, content, language, document_kind);
 
         // If this is a new file, rebuild the index before creating snapshot
         // This also syncs project_files to self.db.project_files_input
         if is_new {
-            tracing::info!(lock_id, "update_file_and_snapshot: new file, rebuilding project files");
+            tracing::debug!(
+                lock_id,
+                "update_file_and_snapshot: new file, rebuilding project files"
+            );
             registry.rebuild_project_files(&mut self.db);
             // Sync project_files from registry to database
             self.db.project_files_input = registry.project_files();
@@ -230,11 +264,19 @@ impl AnalysisHost {
 
         let project_files = self.db.project_files_input;
         // Release the lock before creating the snapshot (no longer needed)
-        tracing::info!(lock_id, is_new, "update_file_and_snapshot: releasing registry write lock");
+        tracing::debug!(
+            lock_id,
+            is_new,
+            "update_file_and_snapshot: releasing registry write lock"
+        );
         drop(registry);
 
         let snapshot_id = next_snapshot_id();
-        tracing::info!(lock_id, snapshot_id, "update_file_and_snapshot: creating Salsa snapshot (db.clone)");
+        tracing::debug!(
+            lock_id,
+            snapshot_id,
+            "update_file_and_snapshot: creating Salsa snapshot (db.clone)"
+        );
         let snapshot = Analysis {
             db: self.db.clone(),
             registry: Arc::clone(&self.registry),
@@ -249,25 +291,29 @@ impl AnalysisHost {
     #[must_use]
     pub fn contains_file(&self, path: &FilePath) -> bool {
         let lock_id = next_ide_lock_id();
-        tracing::info!(lock_id, path = %path.as_str(), "contains_file: acquiring registry read lock");
+        tracing::debug!(lock_id, path = %path.as_str(), "contains_file: acquiring registry read lock");
         let registry = self.registry.read();
-        tracing::info!(lock_id, "contains_file: acquired registry read lock");
+        tracing::debug!(lock_id, "contains_file: acquired registry read lock");
         let result = registry.get_file_id(path).is_some();
-        tracing::info!(lock_id, result, "contains_file: releasing registry read lock");
+        tracing::debug!(
+            lock_id,
+            result,
+            "contains_file: releasing registry read lock"
+        );
         result
     }
 
     /// Remove a file from the host
     pub fn remove_file(&mut self, path: &FilePath) {
         let lock_id = next_ide_lock_id();
-        tracing::info!(lock_id, path = %path.as_str(), "remove_file: acquiring registry write lock");
+        tracing::debug!(lock_id, path = %path.as_str(), "remove_file: acquiring registry write lock");
         let mut registry = self.registry.write();
-        tracing::info!(lock_id, "remove_file: acquired registry write lock");
+        tracing::debug!(lock_id, "remove_file: acquired registry write lock");
         if let Some(file_id) = registry.get_file_id(path) {
             registry.remove_file(file_id);
             registry.rebuild_project_files(&mut self.db);
         }
-        tracing::info!(lock_id, "remove_file: releasing registry write lock");
+        tracing::debug!(lock_id, "remove_file: releasing registry write lock");
     }
 
     /// Load schema files from a project configuration
@@ -773,15 +819,19 @@ impl AnalysisHost {
     /// Returns an iterator of `FilePath` for all registered files.
     pub fn files(&self) -> Vec<FilePath> {
         let lock_id = next_ide_lock_id();
-        tracing::info!(lock_id, "files: acquiring registry read lock");
+        tracing::debug!(lock_id, "files: acquiring registry read lock");
         let registry = self.registry.read();
-        tracing::info!(lock_id, "files: acquired registry read lock");
+        tracing::debug!(lock_id, "files: acquired registry read lock");
         let result: Vec<FilePath> = registry
             .all_file_ids()
             .into_iter()
             .filter_map(|file_id| registry.get_path(file_id))
             .collect();
-        tracing::info!(lock_id, count = result.len(), "files: releasing registry read lock");
+        tracing::debug!(
+            lock_id,
+            count = result.len(),
+            "files: releasing registry read lock"
+        );
         result
     }
 
@@ -813,7 +863,7 @@ impl AnalysisHost {
         }
 
         let snapshot_id = next_snapshot_id();
-        tracing::info!(snapshot_id, "snapshot: creating Salsa snapshot (db.clone)");
+        tracing::debug!(snapshot_id, "snapshot: creating Salsa snapshot (db.clone)");
         Analysis {
             db: self.db.clone(),
             registry: Arc::clone(&self.registry),

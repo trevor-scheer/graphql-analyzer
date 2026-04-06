@@ -80,14 +80,23 @@ impl ProjectHost {
     /// allowing the handler to return early instead of blocking.
     pub async fn try_snapshot(&self) -> Option<graphql_ide::Analysis> {
         let lock_id = next_lock_id();
-        tracing::info!(lock_id, "try_snapshot: waiting for ProjectHost lock (timeout=500ms)");
+        tracing::debug!(
+            lock_id,
+            "try_snapshot: waiting for ProjectHost lock (timeout=500ms)"
+        );
         if let Ok(guard) = tokio::time::timeout(LOCK_TIMEOUT, self.inner.lock()).await {
-            tracing::info!(lock_id, "try_snapshot: acquired ProjectHost lock");
+            tracing::debug!(lock_id, "try_snapshot: acquired ProjectHost lock");
             let snapshot = guard.snapshot();
-            tracing::info!(lock_id, "try_snapshot: releasing ProjectHost lock (snapshot created)");
+            tracing::debug!(
+                lock_id,
+                "try_snapshot: releasing ProjectHost lock (snapshot created)"
+            );
             Some(snapshot)
         } else {
-            tracing::warn!(lock_id, "try_snapshot: TIMED OUT waiting for ProjectHost lock");
+            tracing::warn!(
+                lock_id,
+                "try_snapshot: TIMED OUT waiting for ProjectHost lock"
+            );
             None
         }
     }
@@ -106,11 +115,11 @@ impl ProjectHost {
         F: FnOnce(&mut AnalysisHost) -> R,
     {
         let lock_id = next_lock_id();
-        tracing::info!(lock_id, "with_write: waiting for ProjectHost lock");
+        tracing::debug!(lock_id, "with_write: waiting for ProjectHost lock");
         let mut guard = self.inner.lock().await;
-        tracing::info!(lock_id, "with_write: acquired ProjectHost lock");
+        tracing::debug!(lock_id, "with_write: acquired ProjectHost lock");
         let result = f(&mut guard);
-        tracing::info!(lock_id, "with_write: releasing ProjectHost lock");
+        tracing::debug!(lock_id, "with_write: releasing ProjectHost lock");
         result
     }
 
@@ -129,12 +138,15 @@ impl ProjectHost {
         F: FnOnce(&mut AnalysisHost) -> R,
     {
         let lock_id = next_lock_id();
-        tracing::info!(lock_id, "write_and_snapshot: waiting for ProjectHost lock");
+        tracing::debug!(lock_id, "write_and_snapshot: waiting for ProjectHost lock");
         let mut guard = self.inner.lock().await;
-        tracing::info!(lock_id, "write_and_snapshot: acquired ProjectHost lock");
+        tracing::debug!(lock_id, "write_and_snapshot: acquired ProjectHost lock");
         let result = f(&mut guard);
         let snapshot = guard.snapshot();
-        tracing::info!(lock_id, "write_and_snapshot: releasing ProjectHost lock (snapshot created)");
+        tracing::debug!(
+            lock_id,
+            "write_and_snapshot: releasing ProjectHost lock (snapshot created)"
+        );
         (result, snapshot)
     }
 
@@ -158,22 +170,31 @@ impl ProjectHost {
         document_kind: graphql_ide::DocumentKind,
     ) -> (bool, graphql_ide::Analysis) {
         let lock_id = next_lock_id();
-        tracing::info!(lock_id, path = %path.as_str(), "add_file_and_snapshot: waiting for ProjectHost lock (lock_owned)");
+        tracing::debug!(lock_id, path = %path.as_str(), "add_file_and_snapshot: waiting for ProjectHost lock (lock_owned)");
         let mut guard = Arc::clone(&self.inner).lock_owned().await;
-        tracing::info!(lock_id, path = %path.as_str(), "add_file_and_snapshot: acquired ProjectHost lock, spawning blocking task");
+        tracing::debug!(lock_id, path = %path.as_str(), "add_file_and_snapshot: acquired ProjectHost lock, spawning blocking task");
         let path = path.clone();
         let content = content.to_string();
         match tokio::task::spawn_blocking(move || {
-            tracing::info!(lock_id, "add_file_and_snapshot: blocking task started (calling update_file_and_snapshot)");
+            tracing::debug!(
+                lock_id,
+                "add_file_and_snapshot: blocking task started (calling update_file_and_snapshot)"
+            );
             let result = guard.update_file_and_snapshot(&path, &content, language, document_kind);
-            tracing::info!(lock_id, "add_file_and_snapshot: blocking task done, releasing ProjectHost lock");
+            tracing::debug!(
+                lock_id,
+                "add_file_and_snapshot: blocking task done, releasing ProjectHost lock"
+            );
             result
         })
         .await
         {
             Ok(result) => result,
             Err(e) => {
-                tracing::error!(lock_id, "Blocking task panicked in add_file_and_snapshot: {e}");
+                tracing::error!(
+                    lock_id,
+                    "Blocking task panicked in add_file_and_snapshot: {e}"
+                );
                 panic!("add_file_and_snapshot: blocking task panicked: {e}");
             }
         }

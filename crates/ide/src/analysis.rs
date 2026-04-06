@@ -63,7 +63,10 @@ impl Clone for Analysis {
 
 impl Drop for Analysis {
     fn drop(&mut self) {
-        tracing::info!(snapshot_id = self.snapshot_id, "Analysis::drop: dropping Salsa snapshot");
+        tracing::debug!(
+            snapshot_id = self.snapshot_id,
+            "Analysis::drop: dropping Salsa snapshot"
+        );
     }
 }
 
