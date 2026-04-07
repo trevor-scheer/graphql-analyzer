@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL LSP will be documented in this file.
 
+## 0.1.15 (2026-04-07)
+
+### Fixes
+
+- Add tracing logs at every lock acquire/release point in `ProjectHost` and `AnalysisHost`, plus Salsa snapshot creation/clone/drop, to help diagnose deadlocks during rapid consecutive schema file edits.
+
 ## 0.1.14 (2026-04-04)
 
 ### Features
