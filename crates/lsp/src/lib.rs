@@ -145,6 +145,45 @@ pub fn init_tracing() -> Option<trace_capture::ReloadHandle> {
     init_tracing_without_otel()
 }
 
+/// Install a panic hook that routes panic info through `tracing`.
+///
+/// Without this, panics inside `spawn_blocking` are reported by the runtime as
+/// `JoinError("task N panicked")` with no location, no message, and no
+/// backtrace — useless for diagnosing bugs in IDE feature code. The hook
+/// captures the panic message, source location, and (if `RUST_BACKTRACE` is
+/// set) a backtrace, and emits them as a single `tracing::error!` event tagged
+/// with the panicking thread name. The previous panic handler still runs after
+/// the hook, so process behavior is unchanged for fatal panics and the default
+/// stderr formatting still works.
+pub fn install_panic_hook() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = if let Some(l) = info.location() {
+            format!("{}:{}:{}", l.file(), l.line(), l.column())
+        } else {
+            "<unknown>".to_string()
+        };
+        let payload = info.payload();
+        let message = if let Some(s) = payload.downcast_ref::<String>() {
+            s.as_str()
+        } else if let Some(s) = payload.downcast_ref::<&'static str>() {
+            *s
+        } else {
+            "<non-string panic payload>"
+        };
+        let thread = std::thread::current();
+        let thread_name = thread.name().unwrap_or("<unnamed>");
+        let backtrace = std::backtrace::Backtrace::capture();
+        tracing::error!(
+            thread = thread_name,
+            location = %location,
+            backtrace = %backtrace,
+            "panic: {message}"
+        );
+        prev(info);
+    }));
+}
+
 /// Run the GraphQL language server over stdio.
 ///
 /// This function initializes tracing and starts the LSP server,
@@ -160,6 +199,7 @@ pub fn init_tracing() -> Option<trace_capture::ReloadHandle> {
 /// ```
 pub async fn run_server() {
     let reload_handle = init_tracing();
+    install_panic_hook();
 
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();

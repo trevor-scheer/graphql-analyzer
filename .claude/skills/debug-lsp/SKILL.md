@@ -111,6 +111,16 @@ Look for:
 3. Test LSP directly (see above)
 4. Check for panics in logs
 
+### Panics in `spawn_blocking` workers
+
+**Symptoms**: `tracing::error!` lines like `Blocking task ended abnormally: panic: ...` or `Analysis task ended abnormally: panic: ...`. Individual requests fail but the server stays up.
+
+**What to look for**:
+
+- The improved panic logging extracts the actual panic payload (string or `&'static str`) from `JoinError::into_panic()`. The default `JoinError` Display only says `task N panicked` — useless. If you see the bare `task N panicked` form, you're on an old binary.
+- A global panic hook (installed in `install_panic_hook` in `crates/lsp/src/lib.rs`) emits `tracing::error!` with the message, source location, and a backtrace if `RUST_BACKTRACE=1` is set. Set the env var on the LSP server process to get backtraces.
+- Common offenders: stale byte offsets in cached lint diagnostics colliding with a freshly-built `LineIndex` after rapid edits. `LineIndex::line_col` clamps and warns rather than panicking, but if you see `LineIndex::line_col offset is past end of source` or `landed mid-character` warnings, that's a pre-existing bug somewhere in the diagnostics pipeline that needs investigation.
+
 ### Hangs / Deadlocks
 
 **Symptoms**: LSP stops responding, CPU stays high

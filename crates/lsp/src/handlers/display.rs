@@ -138,7 +138,20 @@ pub(crate) async fn handle_code_lens(
 
     server
         .with_analysis(&uri, move |analysis, file_path| {
-            let uri = Uri::from_str(&file_path.0).expect("valid URI from FilePath");
+            // If the FilePath doesn't round-trip through `Uri::from_str` (rare,
+            // happens for virtual / in-memory schemes), log and skip rather
+            // than panicking the spawn_blocking worker.
+            let uri = match Uri::from_str(&file_path.0) {
+                Ok(uri) => uri,
+                Err(e) => {
+                    tracing::warn!(
+                        path = %file_path.0,
+                        error = %e,
+                        "code_lens: failed to parse FilePath as URI, skipping",
+                    );
+                    return None;
+                }
+            };
             let mut lsp_code_lenses: Vec<CodeLens> = Vec::new();
 
             // Code lenses for deprecated fields (in schema files)
