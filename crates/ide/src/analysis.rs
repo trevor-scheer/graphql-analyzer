@@ -71,6 +71,24 @@ impl Drop for Analysis {
 }
 
 impl Analysis {
+    /// Resolve a `FilePath` to its `(FileContent, FileMetadata)` via Salsa.
+    ///
+    /// Returns `None` if the file is not in the project. Goes through the
+    /// `FilePathMap` salsa input rather than `self.registry.read()` so that
+    /// snapshots never take a parking_lot lock — the lock-ordering deadlock
+    /// against the host's Salsa setter cannot occur.
+    fn lookup_file(
+        &self,
+        path: &FilePath,
+    ) -> Option<(graphql_base_db::FileId, graphql_base_db::FileContent, graphql_base_db::FileMetadata)>
+    {
+        let project_files = self.project_files?;
+        let uri: std::sync::Arc<str> = std::sync::Arc::from(path.as_str());
+        let file_id = graphql_base_db::file_id_for_uri(&self.db, project_files, uri)?;
+        let (content, metadata) = graphql_base_db::file_lookup(&self.db, project_files, file_id)?;
+        Some((file_id, content, metadata))
+    }
+
     /// Get diagnostics for a file
     ///
     /// Returns syntax errors, validation errors, and lint warnings.
@@ -81,22 +99,8 @@ impl Analysis {
         fields(uri = %file.as_str())
     )]
     pub fn diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let Some(file_id) = registry.get_file_id(file) else {
-                return Vec::new();
-            };
-
-            let Some(content) = registry.get_content(file_id) else {
-                return Vec::new();
-            };
-            let Some(metadata) = registry.get_metadata(file_id) else {
-                return Vec::new();
-            };
-            drop(registry);
-
-            (content, metadata)
+        let Some((_, content, metadata)) = self.lookup_file(file) else {
+            return Vec::new();
         };
 
         let analysis_diagnostics =
@@ -139,11 +143,7 @@ impl Analysis {
         };
 
         let (is_schema, is_document, changed_file_id) = {
-            let registry = self.registry.read();
-            let Some(file_id) = registry.get_file_id(changed_file) else {
-                return result;
-            };
-            let Some(metadata) = registry.get_metadata(file_id) else {
+            let Some((file_id, _, metadata)) = self.lookup_file(changed_file) else {
                 return result;
             };
             (
@@ -353,22 +353,8 @@ impl Analysis {
     /// Returns only GraphQL spec validation errors, not custom lint rule violations.
     /// Use this for the `validate` command to avoid duplicating lint checks.
     pub fn validation_diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let Some(file_id) = registry.get_file_id(file) else {
-                return Vec::new();
-            };
-
-            let Some(content) = registry.get_content(file_id) else {
-                return Vec::new();
-            };
-            let Some(metadata) = registry.get_metadata(file_id) else {
-                return Vec::new();
-            };
-            drop(registry);
-
-            (content, metadata)
+        let Some((_, content, metadata)) = self.lookup_file(file) else {
+            return Vec::new();
         };
 
         let analysis_diagnostics = graphql_analysis::file_validation_diagnostics(
@@ -388,22 +374,8 @@ impl Analysis {
     ///
     /// Returns only custom lint rule violations, not GraphQL spec validation errors.
     pub fn lint_diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let Some(file_id) = registry.get_file_id(file) else {
-                return Vec::new();
-            };
-
-            let Some(content) = registry.get_content(file_id) else {
-                return Vec::new();
-            };
-            let Some(metadata) = registry.get_metadata(file_id) else {
-                return Vec::new();
-            };
-            drop(registry);
-
-            (content, metadata)
+        let Some((_, content, metadata)) = self.lookup_file(file) else {
+            return Vec::new();
         };
 
         let lint_diagnostics = graphql_analysis::lint_integration::lint_file(
@@ -570,22 +542,8 @@ impl Analysis {
         &self,
         file: &FilePath,
     ) -> Vec<graphql_linter::LintDiagnostic> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let Some(file_id) = registry.get_file_id(file) else {
-                return Vec::new();
-            };
-
-            let Some(content) = registry.get_content(file_id) else {
-                return Vec::new();
-            };
-            let Some(metadata) = registry.get_metadata(file_id) else {
-                return Vec::new();
-            };
-            drop(registry);
-
-            (content, metadata)
+        let Some((_, content, metadata)) = self.lookup_file(file) else {
+            return Vec::new();
         };
 
         graphql_analysis::lint_integration::lint_file_with_fixes(
