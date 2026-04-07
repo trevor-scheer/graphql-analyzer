@@ -17,10 +17,19 @@ use dashmap::DashMap;
 use graphql_ide::AnalysisHost;
 use lsp_types::Uri;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tower_lsp_server::ls_types as lsp_types;
+
+/// Global counter for unique lock operation IDs.
+/// Each lock acquire gets a unique ID so acquire/release pairs can be correlated in logs.
+static LOCK_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_lock_id() -> u64 {
+    LOCK_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 /// Default timeout for acquiring host locks during LSP requests.
 const LOCK_TIMEOUT: Duration = Duration::from_millis(500);
@@ -70,10 +79,24 @@ impl ProjectHost {
     /// Returns `None` if the lock can't be acquired within the timeout,
     /// allowing the handler to return early instead of blocking.
     pub async fn try_snapshot(&self) -> Option<graphql_ide::Analysis> {
+        let lock_id = next_lock_id();
+        tracing::debug!(
+            lock_id,
+            "try_snapshot: waiting for ProjectHost lock (timeout=500ms)"
+        );
         if let Ok(guard) = tokio::time::timeout(LOCK_TIMEOUT, self.inner.lock()).await {
-            Some(guard.snapshot())
+            tracing::debug!(lock_id, "try_snapshot: acquired ProjectHost lock");
+            let snapshot = guard.snapshot();
+            tracing::debug!(
+                lock_id,
+                "try_snapshot: releasing ProjectHost lock (snapshot created)"
+            );
+            Some(snapshot)
         } else {
-            tracing::debug!("Timed out waiting for analysis host lock");
+            tracing::warn!(
+                lock_id,
+                "try_snapshot: TIMED OUT waiting for ProjectHost lock"
+            );
             None
         }
     }
@@ -91,8 +114,13 @@ impl ProjectHost {
     where
         F: FnOnce(&mut AnalysisHost) -> R,
     {
+        let lock_id = next_lock_id();
+        tracing::debug!(lock_id, "with_write: waiting for ProjectHost lock");
         let mut guard = self.inner.lock().await;
-        f(&mut guard)
+        tracing::debug!(lock_id, "with_write: acquired ProjectHost lock");
+        let result = f(&mut guard);
+        tracing::debug!(lock_id, "with_write: releasing ProjectHost lock");
+        result
     }
 
     /// Execute a write operation and get a snapshot in one lock acquisition.
@@ -109,9 +137,16 @@ impl ProjectHost {
     where
         F: FnOnce(&mut AnalysisHost) -> R,
     {
+        let lock_id = next_lock_id();
+        tracing::debug!(lock_id, "write_and_snapshot: waiting for ProjectHost lock");
         let mut guard = self.inner.lock().await;
+        tracing::debug!(lock_id, "write_and_snapshot: acquired ProjectHost lock");
         let result = f(&mut guard);
         let snapshot = guard.snapshot();
+        tracing::debug!(
+            lock_id,
+            "write_and_snapshot: releasing ProjectHost lock (snapshot created)"
+        );
         (result, snapshot)
     }
 
@@ -134,17 +169,32 @@ impl ProjectHost {
         language: graphql_ide::Language,
         document_kind: graphql_ide::DocumentKind,
     ) -> (bool, graphql_ide::Analysis) {
+        let lock_id = next_lock_id();
+        tracing::debug!(lock_id, path = %path.as_str(), "add_file_and_snapshot: waiting for ProjectHost lock (lock_owned)");
         let mut guard = Arc::clone(&self.inner).lock_owned().await;
+        tracing::debug!(lock_id, path = %path.as_str(), "add_file_and_snapshot: acquired ProjectHost lock, spawning blocking task");
         let path = path.clone();
         let content = content.to_string();
         match tokio::task::spawn_blocking(move || {
-            guard.update_file_and_snapshot(&path, &content, language, document_kind)
+            tracing::debug!(
+                lock_id,
+                "add_file_and_snapshot: blocking task started (calling update_file_and_snapshot)"
+            );
+            let result = guard.update_file_and_snapshot(&path, &content, language, document_kind);
+            tracing::debug!(
+                lock_id,
+                "add_file_and_snapshot: blocking task done, releasing ProjectHost lock"
+            );
+            result
         })
         .await
         {
             Ok(result) => result,
             Err(e) => {
-                tracing::error!("Blocking task panicked in add_file_and_snapshot: {e}");
+                tracing::error!(
+                    lock_id,
+                    "Blocking task panicked in add_file_and_snapshot: {e}"
+                );
                 panic!("add_file_and_snapshot: blocking task panicked: {e}");
             }
         }

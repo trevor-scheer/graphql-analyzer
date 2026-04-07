@@ -1,7 +1,11 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+
+/// Global counter for cloned snapshot IDs.
+static CLONE_SNAPSHOT_ID: AtomicU64 = AtomicU64::new(1_000_000);
 
 use crate::database::IdeDatabase;
 use crate::file_registry::FileRegistry;
@@ -30,13 +34,40 @@ use crate::{
 /// **You must drop all `Analysis` instances before calling any mutating method**
 /// on the host (like `add_file`, `remove_file`, etc.). Failure to do so will
 /// cause a hang/deadlock due to Salsa's single-writer, multi-reader model.
-#[derive(Clone)]
 pub struct Analysis {
     pub(crate) db: IdeDatabase,
     pub(crate) registry: Arc<RwLock<FileRegistry>>,
     /// Cached `ProjectFiles` for HIR queries
     /// This is fetched from the registry when the snapshot is created
     pub(crate) project_files: Option<graphql_base_db::ProjectFiles>,
+    /// Unique ID for tracking snapshot lifecycle in logs
+    pub(crate) snapshot_id: u64,
+}
+
+impl Clone for Analysis {
+    fn clone(&self) -> Self {
+        let clone_id = CLONE_SNAPSHOT_ID.fetch_add(1, Ordering::Relaxed);
+        tracing::info!(
+            original_snapshot_id = self.snapshot_id,
+            clone_snapshot_id = clone_id,
+            "Analysis::clone: cloning Salsa snapshot"
+        );
+        Self {
+            db: self.db.clone(),
+            registry: Arc::clone(&self.registry),
+            project_files: self.project_files,
+            snapshot_id: clone_id,
+        }
+    }
+}
+
+impl Drop for Analysis {
+    fn drop(&mut self) {
+        tracing::debug!(
+            snapshot_id = self.snapshot_id,
+            "Analysis::drop: dropping Salsa snapshot"
+        );
+    }
 }
 
 impl Analysis {
