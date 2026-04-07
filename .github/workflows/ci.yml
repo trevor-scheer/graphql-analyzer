@@ -69,7 +69,7 @@ jobs:
           shared-key: "ci-test"
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@ad7375e0bba1919d6e57488597dede2841199079 # nextest
+        uses: taiki-e/install-action@e4a20fc209496305a1472c4b47c1de1088f31630 # nextest
         with:
           tool: nextest
 
