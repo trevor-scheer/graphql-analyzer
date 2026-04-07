@@ -2,12 +2,6 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
-## 0.1.17 (2026-04-07)
-
-### Fixes
-
-- Bundle updated LSP server with lock acquire/release tracing to help diagnose deadlocks during rapid consecutive schema file edits ([#958](https://github.com/trevor-scheer/graphql-analyzer/pull/958))
-
 ## 0.1.16 (2026-04-04)
 
 ### Features
