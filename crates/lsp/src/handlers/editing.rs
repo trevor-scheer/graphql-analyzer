@@ -220,8 +220,21 @@ pub(crate) async fn handle_code_action(
             let content = analysis.file_content(&file_path)?;
 
             let file_line_index = graphql_syntax::LineIndex::new(&content);
-            // Reconstruct URI for workspace edit keys
-            let uri = Uri::from_str(&file_path.0).expect("valid URI from FilePath");
+            // Reconstruct URI for workspace edit keys. If parsing fails — which
+            // can happen for virtual paths or in-memory schemes that don't
+            // round-trip cleanly through `Uri::from_str` — log and skip rather
+            // than panicking the spawn_blocking worker.
+            let uri = match Uri::from_str(&file_path.0) {
+                Ok(uri) => uri,
+                Err(e) => {
+                    tracing::warn!(
+                        path = %file_path.0,
+                        error = %e,
+                        "code_action: failed to parse FilePath as URI, skipping",
+                    );
+                    return None;
+                }
+            };
 
             for diag in lint_diagnostics {
                 let Some(ref fix) = diag.fix else {

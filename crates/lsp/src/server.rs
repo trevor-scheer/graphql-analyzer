@@ -687,10 +687,12 @@ impl GraphQLLanguageServer {
         };
 
         let file_path = graphql_ide::FilePath::new(uri.to_string());
+        let uri_for_log = uri.to_string();
         let result = tokio::task::spawn_blocking(move || f(analysis, file_path))
             .await
-            .map_err(|e| {
-                tracing::error!("Analysis task panicked: {e}");
+            .map_err(|join_err| {
+                let payload = describe_join_error(join_err);
+                tracing::error!(uri = %uri_for_log, "Analysis task ended abnormally: {payload}");
                 Error::internal_error()
             })?;
         Ok(result)
@@ -714,8 +716,9 @@ impl GraphQLLanguageServer {
     {
         match tokio::task::spawn_blocking(f).await {
             Ok(result) => Some(result),
-            Err(e) => {
-                tracing::error!("Blocking task panicked: {e}");
+            Err(join_err) => {
+                let payload = describe_join_error(join_err);
+                tracing::error!("Blocking task ended abnormally: {payload}");
                 None
             }
         }
@@ -1404,6 +1407,33 @@ documents: "**/*.graphql"
             workspace_uri
         );
     }
+}
+
+/// Convert a `tokio::task::JoinError` into a printable description that
+/// includes the actual panic payload (string or `&'static str`) for panic
+/// errors. The default `Display` impl on `JoinError` only says "task N
+/// panicked", which is useless for diagnosing what actually went wrong —
+/// the panic location and any backtrace also need to be captured by the
+/// panic hook (see `install_panic_hook` in `lib.rs`).
+///
+/// Consumes the error because `into_panic()` requires ownership.
+fn describe_join_error(join_err: tokio::task::JoinError) -> String {
+    if join_err.is_cancelled() {
+        return "cancelled".to_string();
+    }
+    if !join_err.is_panic() {
+        return join_err.to_string();
+    }
+    // is_panic() guarantees into_panic() returns the payload.
+    let payload: Box<dyn std::any::Any + Send> = join_err.into_panic();
+    let msg = if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else if let Some(s) = payload.downcast_ref::<&'static str>() {
+        (*s).to_string()
+    } else {
+        "<non-string panic payload>".to_string()
+    };
+    format!("panic: {msg}")
 }
 
 impl LanguageServer for GraphQLLanguageServer {
