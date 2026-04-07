@@ -13,7 +13,7 @@ use apollo_parser::cst::{CstNode, Definition, Selection};
 
 use crate::helpers::{format_type_ref, offset_to_position};
 use crate::types::{FilePath, InlayHint, InlayHintKind, Position, Range};
-use crate::FileRegistry;
+use crate::DbFiles;
 
 /// Get inlay hints for a file.
 ///
@@ -24,7 +24,7 @@ use crate::FileRegistry;
 /// If `range` is provided, only returns hints within that range for efficiency.
 pub fn inlay_hints(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     project_files: Option<graphql_base_db::ProjectFiles>,
     file: &FilePath,
     range: Option<Range>,

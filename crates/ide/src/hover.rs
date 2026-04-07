@@ -12,14 +12,14 @@ use std::sync::Arc;
 use crate::helpers::{find_block_for_position, format_type_ref, position_to_offset};
 use crate::symbol::{find_parent_type_at_offset, find_symbol_at_offset, Symbol};
 use crate::types::{FilePath, HoverResult, Position};
-use crate::FileRegistry;
+use crate::DbFiles;
 
 /// Get hover information at a position.
 ///
 /// Returns documentation, type information, etc.
 pub fn hover(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     project_files: Option<graphql_base_db::ProjectFiles>,
     file: &FilePath,
     position: Position,

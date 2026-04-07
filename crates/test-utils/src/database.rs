@@ -12,7 +12,7 @@
 
 use graphql_base_db::{
     DocumentFileIds, DocumentKind, FileContent, FileEntry, FileEntryMap, FileId, FileMetadata,
-    FileUri, Language, ProjectFiles, SchemaFileIds,
+    FilePathMap, FileUri, Language, ProjectFiles, SchemaFileIds,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -127,5 +127,22 @@ pub fn create_project_files<DB: salsa::Database>(
     let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
     let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
 
-    ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+    // Build a FilePathMap from the metadata URIs so test fixtures support the
+    // same Salsa-backed path lookups as production code.
+    let mut uri_to_id: HashMap<Arc<str>, FileId> = HashMap::new();
+    let mut id_to_uri: HashMap<FileId, Arc<str>> = HashMap::new();
+    for (id, _, metadata) in schema_files.iter().chain(document_files.iter()) {
+        let uri: Arc<str> = Arc::from(metadata.uri(db).as_str());
+        uri_to_id.insert(uri.clone(), *id);
+        id_to_uri.insert(*id, uri);
+    }
+    let file_path_map = FilePathMap::new(db, Arc::new(uri_to_id), Arc::new(id_to_uri));
+
+    ProjectFiles::new(
+        db,
+        schema_file_ids,
+        document_file_ids,
+        file_entry_map,
+        file_path_map,
+    )
 }

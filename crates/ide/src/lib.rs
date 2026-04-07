@@ -40,6 +40,7 @@ mod diagnostics_for_change_tests;
 
 // Infrastructure modules
 mod database;
+mod db_files;
 mod discovery;
 mod file_registry;
 mod helpers;
@@ -76,8 +77,9 @@ pub use types::{
     TextEdit, TypeCoverageInfo, WorkspaceSymbol,
 };
 
-// Re-export file registry
-pub use file_registry::FileRegistry;
+// `FileRegistry` is owned by `AnalysisHost` and not exposed publicly. Snapshots
+// access file lookups through the `DbFiles` Salsa-backed view.
+pub(crate) use db_files::DbFiles;
 
 // Re-export for use in symbol module and LSP
 pub use helpers::{path_to_file_uri, unwrap_type_to_name};

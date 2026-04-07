@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::types::Position;
-use crate::FileRegistry;
+use crate::DbFiles;
 use crate::{SemanticToken, SemanticTokenModifiers, SemanticTokenType};
 
 /// Get semantic tokens for a file.
@@ -17,7 +17,7 @@ use crate::{SemanticToken, SemanticTokenModifiers, SemanticTokenType};
 /// including deprecation status for fields.
 pub fn semantic_tokens(
     db: &dyn graphql_hir::GraphQLHirDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     project_files: Option<graphql_base_db::ProjectFiles>,
     file: &crate::FilePath,
 ) -> Vec<SemanticToken> {

@@ -160,7 +160,11 @@ pub fn file_lookup(
 ///
 /// Backed by the `FilePathMap` Salsa input. Returns `None` if the file is not
 /// in the project. Cached against `FilePathMap`, so unaffected by content edits.
+///
+/// Salsa tracked queries require owned key arguments, so `uri` is taken by
+/// value even though we only borrow it for the lookup.
 #[salsa::tracked]
+#[allow(clippy::needless_pass_by_value)]
 pub fn file_id_for_uri(
     db: &dyn salsa::Database,
     project_files: ProjectFiles,
@@ -186,10 +190,7 @@ pub fn uri_for_file_id(
 /// Cheaper than iterating `schema_file_ids` and `document_file_ids` separately
 /// when the caller doesn't care about the kind split.
 #[salsa::tracked]
-pub fn all_file_ids(
-    db: &dyn salsa::Database,
-    project_files: ProjectFiles,
-) -> Arc<Vec<FileId>> {
+pub fn all_file_ids(db: &dyn salsa::Database, project_files: ProjectFiles) -> Arc<Vec<FileId>> {
     let path_map = project_files.file_path_map(db);
     let ids: Vec<FileId> = path_map.id_to_uri(db).keys().copied().collect();
     Arc::new(ids)

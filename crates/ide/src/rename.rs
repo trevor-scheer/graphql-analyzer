@@ -12,12 +12,12 @@ use apollo_parser::cst::CstNode;
 use crate::helpers::{find_block_for_position, offset_range_to_range, position_to_offset};
 use crate::symbol::{find_symbol_at_offset, Symbol};
 use crate::types::{FilePath, Location, Position, Range, RenameResult, TextEdit};
-use crate::FileRegistry;
+use crate::DbFiles;
 
 /// Check if the symbol at a position can be renamed, returning its range.
 pub fn prepare_rename(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     file: &FilePath,
     position: Position,
 ) -> Option<Range> {
@@ -52,7 +52,7 @@ pub fn prepare_rename(
 /// Rename the symbol at a position to a new name.
 pub fn rename(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     project_files: Option<graphql_base_db::ProjectFiles>,
     file: &FilePath,
     position: Position,
@@ -84,7 +84,7 @@ pub fn rename(
 /// Rename a fragment across all files in the project.
 fn rename_fragment(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     project_files: Option<graphql_base_db::ProjectFiles>,
     old_name: &str,
     new_name: &str,
@@ -108,7 +108,7 @@ fn rename_fragment(
 /// Rename an operation name within a single file.
 fn rename_operation(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     file: &FilePath,
     old_name: &str,
     new_name: &str,
@@ -143,7 +143,7 @@ fn rename_operation(
 /// Rename a variable within the containing operation (definition + all usages).
 fn rename_variable(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     file: &FilePath,
     old_name: &str,
     new_name: &str,

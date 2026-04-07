@@ -12,7 +12,7 @@ use crate::symbol::{
     find_type_definition_full_range, SymbolRanges,
 };
 use crate::types::{DocumentSymbol, FilePath, Location, SymbolKind, WorkspaceSymbol};
-use crate::FileRegistry;
+use crate::DbFiles;
 
 /// Get document symbols for a file (hierarchical outline).
 ///
@@ -20,7 +20,7 @@ use crate::FileRegistry;
 /// This powers the "Go to Symbol in Editor" (Cmd+Shift+O) feature.
 pub fn document_symbols(
     db: &dyn graphql_hir::GraphQLHirDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     file: &FilePath,
 ) -> Vec<DocumentSymbol> {
     let (content, metadata, file_id) = {
@@ -117,7 +117,7 @@ pub fn document_symbols(
 /// This powers the "Go to Symbol in Workspace" (Cmd+T) feature.
 pub fn workspace_symbols(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     project_files: Option<graphql_base_db::ProjectFiles>,
     query: &str,
 ) -> Vec<WorkspaceSymbol> {
@@ -327,7 +327,7 @@ fn get_field_children_from_map(
 /// Get location for a type definition.
 fn get_type_location(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     type_def: &graphql_hir::TypeDef,
 ) -> Option<Location> {
     let file_path = registry.get_path(type_def.file_id)?;
@@ -353,7 +353,7 @@ fn get_type_location(
 /// Get location for a fragment definition.
 fn get_fragment_location(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     fragment: &graphql_hir::FragmentStructure,
 ) -> Option<Location> {
     let file_path = registry.get_path(fragment.file_id)?;
@@ -379,7 +379,7 @@ fn get_fragment_location(
 /// Get location for an operation definition.
 fn get_operation_location(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     operation: &graphql_hir::OperationStructure,
 ) -> Option<Location> {
     let op_name = operation.name.as_ref()?;

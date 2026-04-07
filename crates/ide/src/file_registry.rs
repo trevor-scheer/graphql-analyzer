@@ -46,7 +46,7 @@ pub struct FileRegistry {
     document_file_ids: Option<DocumentFileIds>,
     /// Per-file entry map for granular invalidation
     file_entry_map: Option<FileEntryMap>,
-    /// URI ↔ FileId resolution stored in Salsa so snapshots can resolve paths
+    /// URI ↔ `FileId` resolution stored in Salsa so snapshots can resolve paths
     /// without taking any side-channel lock.
     file_path_map: Option<FilePathMap>,
     /// The `ProjectFiles` input that tracks all files in the project
@@ -147,18 +147,6 @@ impl FileRegistry {
         self.id_to_uri
             .get(&file_id)
             .map(|s| FilePath::new(s.clone()))
-    }
-
-    /// Get `FileContent` for a file ID
-    #[must_use]
-    pub fn get_content(&self, file_id: FileId) -> Option<FileContent> {
-        self.id_to_content.get(&file_id).copied()
-    }
-
-    /// Get `FileMetadata` for a file ID
-    #[must_use]
-    pub fn get_metadata(&self, file_id: FileId) -> Option<FileMetadata> {
-        self.id_to_metadata.get(&file_id).copied()
     }
 
     /// Remove a file from the registry
@@ -327,12 +315,6 @@ impl FileRegistry {
             ));
         }
     }
-
-    /// Get the `FileEntry` for a file ID
-    #[must_use]
-    pub fn get_entry(&self, file_id: FileId) -> Option<FileEntry> {
-        self.id_to_entry.get(&file_id).copied()
-    }
 }
 
 #[cfg(test)]
@@ -362,10 +344,6 @@ mod tests {
 
         // Should be able to look up by file ID
         assert_eq!(registry.get_path(file_id), Some(path.clone()));
-
-        // Should have content and metadata
-        assert!(registry.get_content(file_id).is_some());
-        assert!(registry.get_metadata(file_id).is_some());
     }
 
     #[test]
@@ -386,7 +364,7 @@ mod tests {
         assert!(is_new1);
 
         // Update same file
-        let (file_id2, _content2, _, is_new2) = registry.add_file(
+        let (file_id2, content2, _, is_new2) = registry.add_file(
             &mut db,
             &path,
             "type Query { world: String }",
@@ -400,12 +378,8 @@ mod tests {
         // Should reuse the same file ID
         assert_eq!(file_id1, file_id2);
 
-        // Content should be updated
-        let updated_content = registry.get_content(file_id2).unwrap();
-        assert_eq!(
-            updated_content.text(&db).as_ref(),
-            "type Query { world: String }"
-        );
+        // Content should be updated (returned FileContent reflects the new text)
+        assert_eq!(content2.text(&db).as_ref(), "type Query { world: String }");
     }
 
     #[test]

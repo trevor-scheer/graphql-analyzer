@@ -14,14 +14,14 @@ use crate::helpers::{
 };
 use crate::symbol::{find_parent_type_at_offset, find_symbol_at_offset, Symbol};
 use crate::types::{FilePath, Location, Position};
-use crate::{helpers::find_block_for_position, symbol, FileRegistry};
+use crate::{helpers::find_block_for_position, symbol, DbFiles};
 
 /// Get goto definition locations for the symbol at a position.
 ///
 /// Returns the definition location(s) for types, fields, fragments, etc.
 pub fn goto_definition(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     project_files: Option<graphql_base_db::ProjectFiles>,
     file: &FilePath,
     position: Position,

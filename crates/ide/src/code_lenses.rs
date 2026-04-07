@@ -8,14 +8,14 @@ use crate::helpers::{adjust_range_for_line_offset, offset_range_to_range};
 use crate::references::find_field_references;
 use crate::symbol::find_fragment_definition_full_range;
 use crate::types::{CodeLens, CodeLensCommand, CodeLensInfo, FilePath, FragmentUsage};
-use crate::FileRegistry;
+use crate::DbFiles;
 
 /// Get code lenses for a file.
 ///
 /// Returns code lenses for fragment definitions showing reference counts.
 pub fn code_lenses(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     project_files: Option<graphql_base_db::ProjectFiles>,
     file: &FilePath,
     fragment_usages: &[FragmentUsage],
@@ -87,7 +87,7 @@ pub fn code_lenses(
 /// including the usage count and locations for navigation.
 pub fn deprecated_field_code_lenses(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     project_files: Option<graphql_base_db::ProjectFiles>,
     file: &FilePath,
 ) -> Vec<CodeLensInfo> {

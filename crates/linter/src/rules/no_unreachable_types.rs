@@ -164,7 +164,17 @@ mod tests {
         let schema_file_ids = SchemaFileIds::new(db, Arc::new(vec![file_id]));
         let document_file_ids = DocumentFileIds::new(db, Arc::new(vec![]));
         let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
-        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        )
     }
 
     #[test]
