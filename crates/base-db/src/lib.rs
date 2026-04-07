@@ -99,12 +99,31 @@ pub struct FileEntryMap {
     pub entries: Arc<HashMap<FileId, FileEntry>>,
 }
 
+/// Input: Bidirectional URI ↔ FileId map.
+///
+/// Lives in Salsa rather than behind a side-channel `RwLock` so that snapshots
+/// can resolve paths through `&db` instead of reaching back into the host. This
+/// is what makes `Analysis` snapshots truly immutable: they observe the path
+/// table at their snapshot revision, not the host's live state.
+///
+/// This input changes ONLY when files are added or removed. Content edits do
+/// not bump it, so path-lookup queries stay cached across keystroke edits.
+#[salsa::input]
+pub struct FilePathMap {
+    /// URI string → FileId. Keys are `Arc<str>` so we can interchange with
+    /// `FileUri` / the IDE's `FilePath` without copying.
+    pub uri_to_id: Arc<HashMap<Arc<str>, FileId>>,
+    /// FileId → URI string (reverse direction).
+    pub id_to_uri: Arc<HashMap<FileId, Arc<str>>>,
+}
+
 /// Input: Project file tracking with granular inputs
 /// This struct provides access to both file identity (stable) and file content (dynamic).
 ///
 /// Queries should choose their dependencies carefully:
 /// - Depend on `schema_file_ids` or `document_file_ids` for "what files exist" (stable)
 /// - Depend on `file_entry_map` for per-file granular lookup
+/// - Depend on `file_path_map` for URI ↔ FileId resolution
 /// - Call per-file queries with specific `FileContent` to get per-file caching
 #[salsa::input]
 pub struct ProjectFiles {
@@ -115,6 +134,8 @@ pub struct ProjectFiles {
     /// Per-file entry map for granular invalidation
     /// Each `FileEntry` can be updated independently without invalidating other files
     pub file_entry_map: FileEntryMap,
+    /// URI ↔ FileId resolution. Stable across content edits.
+    pub file_path_map: FilePathMap,
 }
 
 /// Query to look up a single file's content and metadata.
@@ -133,6 +154,45 @@ pub fn file_lookup(
     let entries = file_entry_map.entries(db);
     let entry = entries.get(&file_id)?;
     Some((entry.content(db), entry.metadata(db)))
+}
+
+/// Resolve a URI string to its `FileId`, if any.
+///
+/// Backed by the `FilePathMap` Salsa input. Returns `None` if the file is not
+/// in the project. Cached against `FilePathMap`, so unaffected by content edits.
+#[salsa::tracked]
+pub fn file_id_for_uri(
+    db: &dyn salsa::Database,
+    project_files: ProjectFiles,
+    uri: Arc<str>,
+) -> Option<FileId> {
+    let path_map = project_files.file_path_map(db);
+    path_map.uri_to_id(db).get(&uri).copied()
+}
+
+/// Resolve a `FileId` back to its URI string, if any.
+#[salsa::tracked]
+pub fn uri_for_file_id(
+    db: &dyn salsa::Database,
+    project_files: ProjectFiles,
+    file_id: FileId,
+) -> Option<Arc<str>> {
+    let path_map = project_files.file_path_map(db);
+    path_map.id_to_uri(db).get(&file_id).cloned()
+}
+
+/// Return all `FileId`s currently registered in the project.
+///
+/// Cheaper than iterating `schema_file_ids` and `document_file_ids` separately
+/// when the caller doesn't care about the kind split.
+#[salsa::tracked]
+pub fn all_file_ids(
+    db: &dyn salsa::Database,
+    project_files: ProjectFiles,
+) -> Arc<Vec<FileId>> {
+    let path_map = project_files.file_path_map(db);
+    let ids: Vec<FileId> = path_map.id_to_uri(db).keys().copied().collect();
+    Arc::new(ids)
 }
 
 #[cfg(test)]
