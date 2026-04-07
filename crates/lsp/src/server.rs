@@ -1417,7 +1417,7 @@ documents: "**/*.graphql"
 /// panic hook (see `install_panic_hook` in `lib.rs`).
 ///
 /// Consumes the error because `into_panic()` requires ownership.
-fn describe_join_error(join_err: tokio::task::JoinError) -> String {
+pub(crate) fn describe_join_error(join_err: tokio::task::JoinError) -> String {
     if join_err.is_cancelled() {
         return "cancelled".to_string();
     }

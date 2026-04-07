@@ -71,7 +71,6 @@ strsim = "0.11"
 
 # Utilities
 dashmap = "6.1"
-parking_lot = "0.12"
 
 # Logging and Tracing
 tracing = "0.1"

@@ -123,32 +123,37 @@ Look for:
 
 ### Hangs / Deadlocks
 
-**Symptoms**: LSP stops responding, CPU stays high
+**Symptoms**: LSP stops responding, CPU stays low (workers parked, not spinning)
 
-**Likely cause**: Salsa deadlock from concurrent access
+**Likely cause**: a Salsa setter is waiting on a snapshot to drop, and something is preventing the snapshot from dropping.
 
 **Debug steps**:
 
-1. Enable RUST_LOG=debug
-2. Look for "acquiring lock" messages without corresponding releases
-3. Check for snapshot not being dropped before setter calls
-4. Consult `salsa.md` agent for deadlock patterns
+1. Enable `RUST_LOG=debug`
+2. Find the most recent `did_change` log line and confirm `add_file_and_snapshot` started but never returned. The blocking task is parked inside the Salsa setter.
+3. Identify which task still holds an `Analysis` snapshot. Common culprits: an in-flight `diagnostics_for_change` running in `spawn_blocking`, a debounced publish-diagnostics task, a `references`/`workspace_symbols` request handler.
+4. Verify that task isn't waiting on something the writer holds. The original deadlock class — snapshot waiting on `registry.read()` while writer held `registry.write()` — was eliminated structurally by moving file lookups into Salsa (`FilePathMap`), so any new occurrence implies a fresh shared lock somewhere. Find it.
+5. Consult the `salsa.md` SME agent for the full pattern catalog and the April 2026 incident writeup.
 
-**Common fix**: Ensure snapshots are dropped before mutations:
+**The structural rule** (see `crates/CLAUDE.md` "Snapshot/Host Lock Discipline"): `Analysis` snapshots and `AnalysisHost` must not share any non-Salsa lock. If you need snapshot-visible data, put it in a Salsa input. If you find yourself adding an `Arc<RwLock<...>>` to `AnalysisHost` whose contents a snapshot would also read, **stop and reach for a `#[salsa::input]` instead**.
+
+**The lifecycle rule** still applies for code that explicitly mixes snapshots and mutations on the same task:
 
 ```rust
 // WRONG
-let snapshot = db.clone();
+let snapshot = host.snapshot();
 let result = snapshot.some_query();
-db.set_input(...); // Deadlock!
+host.add_file(...); // Hangs: snapshot still alive on this task
 
 // RIGHT
 let result = {
-    let snapshot = db.clone();
+    let snapshot = host.snapshot();
     snapshot.some_query()
 }; // snapshot dropped
-db.set_input(...); // Safe
+host.add_file(...); // Safe
 ```
+
+The regression test for the structural fix is `crates/lsp/src/workspace.rs::test_concurrent_snapshot_lookups_during_writer` — run it locally if you suspect a new shared-lock deadlock has crept in.
 
 ### Incorrect Diagnostics
 

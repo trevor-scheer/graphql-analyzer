@@ -22,6 +22,8 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use tower_lsp_server::ls_types as lsp_types;
 
+use crate::server::describe_join_error;
+
 /// Default timeout for acquiring host locks during LSP requests.
 const LOCK_TIMEOUT: Duration = Duration::from_millis(500);
 
@@ -114,17 +116,26 @@ impl ProjectHost {
         document_kind: graphql_ide::DocumentKind,
     ) -> (bool, graphql_ide::Analysis) {
         let mut guard = Arc::clone(&self.inner).lock_owned().await;
-        let path = path.clone();
+        let path_str = path.as_str().to_string();
+        let path_owned = path.clone();
         let content = content.to_string();
         match tokio::task::spawn_blocking(move || {
-            guard.update_file_and_snapshot(&path, &content, language, document_kind)
+            guard.update_file_and_snapshot(&path_owned, &content, language, document_kind)
         })
         .await
         {
             Ok(result) => result,
-            Err(e) => {
-                tracing::error!("Blocking task panicked in add_file_and_snapshot: {e}");
-                panic!("add_file_and_snapshot: blocking task panicked: {e}");
+            Err(join_err) => {
+                let payload = describe_join_error(join_err);
+                tracing::error!(
+                    path = %path_str,
+                    "add_file_and_snapshot: blocking task ended abnormally: {payload}",
+                );
+                // Re-raise so the caller's request fails loudly rather than the
+                // server silently degrading. The OwnedMutexGuard moved into the
+                // closure has already been dropped during unwinding, so the
+                // host's tokio Mutex is released.
+                panic!("add_file_and_snapshot: blocking task panicked: {payload}");
             }
         }
     }
