@@ -2,6 +2,13 @@
 
 All notable changes to the GraphQL LSP will be documented in this file.
 
+## 0.1.16 (2026-04-10)
+
+### Fixes
+
+- Eliminate the `FileRegistry` parking_lot `RwLock` from `Analysis` snapshots, which removes a class of LSP deadlocks triggered by rapid schema file edits. The previous fixes (#779, #784, #949) all worked around the same root cause: snapshots reached back into the host through a side-channel `RwLock` whose writer-blocks-readers semantics created a lock-ordering cycle with Salsa's setter/snapshot protocol. URI ↔ FileId resolution now lives in Salsa as a `FilePathMap` input, so snapshots resolve paths through `&db` and never share a non-Salsa lock with the host.
+- Fix LSP server panics during rapid schema edits. `LineIndex::line_col` previously asserted that the byte offset was in-bounds and on a char boundary, panicking the `spawn_blocking` worker when a Salsa-cached lint diagnostic span survived a content edit and was then converted against a freshly-built `LineIndex` for the new (shorter) source. The function now clamps stale offsets to the end of source and snaps mid-character offsets to the nearest preceding boundary, emitting a `tracing::warn!` so the upstream bug stays visible without crashing the server. Also makes the `Uri::from_str` call sites in the `code_action` and `code_lens` handlers fall back to skipping the request rather than panicking, and installs a global panic hook plus a `JoinError`-payload extractor so future panics surface their actual message and backtrace in the logs instead of the useless `task N panicked`.
+
 ## 0.1.15 (2026-04-07)
 
 ### Fixes
