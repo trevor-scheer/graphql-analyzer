@@ -14,14 +14,14 @@ use crate::helpers::{
 };
 use crate::symbol::{find_schema_field_parent_type, find_symbol_at_offset, Symbol};
 use crate::types::{FilePath, Location, Position};
-use crate::FileRegistry;
+use crate::DbFiles;
 
 /// Find all references to the symbol at a position.
 ///
 /// Returns locations of all usages of types, fields, fragments, etc.
 pub fn find_references(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     project_files: Option<graphql_base_db::ProjectFiles>,
     file: &FilePath,
     position: Position,
@@ -83,7 +83,7 @@ pub fn find_references(
 /// Find all references to a fragment.
 pub fn find_fragment_references(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     project_files: Option<graphql_base_db::ProjectFiles>,
     fragment_name: &str,
     include_declaration: bool,
@@ -151,7 +151,7 @@ pub fn find_fragment_references(
 /// Find all references to a type.
 fn find_type_references(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     project_files: Option<graphql_base_db::ProjectFiles>,
     type_name: &str,
     include_declaration: bool,
@@ -217,7 +217,7 @@ fn find_type_references(
 /// Find all references to a field on a specific type.
 pub fn find_field_references(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     project_files: Option<graphql_base_db::ProjectFiles>,
     type_name: &str,
     field_name: &str,

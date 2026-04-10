@@ -281,7 +281,17 @@ mod tests {
         file_entries.insert(doc_file_id, doc_entry);
         let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(file_entries));
 
-        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        )
     }
 
     #[test]

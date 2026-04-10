@@ -17,14 +17,14 @@ use crate::symbol::{
     find_parent_type_at_offset, find_symbol_at_offset, is_in_selection_set, Symbol,
 };
 use crate::types::{CompletionItem, CompletionKind, FilePath, InsertTextFormat, Position};
-use crate::FileRegistry;
+use crate::DbFiles;
 
 /// Get completions at a position.
 ///
 /// Returns a list of completion items appropriate for the context.
 pub fn completions(
     db: &dyn graphql_hir::GraphQLHirDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     project_files: Option<graphql_base_db::ProjectFiles>,
     file: &FilePath,
     position: Position,

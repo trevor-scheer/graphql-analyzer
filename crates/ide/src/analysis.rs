@@ -2,13 +2,11 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use parking_lot::RwLock;
-
 /// Global counter for cloned snapshot IDs.
 static CLONE_SNAPSHOT_ID: AtomicU64 = AtomicU64::new(1_000_000);
 
 use crate::database::IdeDatabase;
-use crate::file_registry::FileRegistry;
+use crate::db_files::DbFiles;
 use crate::helpers::{adjust_range_for_line_offset, convert_diagnostic, offset_range_to_range};
 use crate::symbol::{find_fragment_definition_full_range, find_operation_definition_ranges};
 use crate::types::{
@@ -23,22 +21,23 @@ use crate::{
     SemanticToken,
 };
 
-/// Immutable snapshot of the analysis state
+/// Immutable snapshot of the analysis state.
 ///
-/// Can be cheaply cloned and used from multiple threads.
-/// All IDE feature queries go through this.
+/// Cheap to clone and safe to use from multiple threads. All IDE feature
+/// queries go through this. Lookups (path → `FileId`, `FileId` → content,
+/// etc.) resolve through Salsa inputs (`FilePathMap`, `FileEntryMap`); the
+/// snapshot never reaches back into the host through a side-channel lock.
 ///
 /// # Lifecycle Warning
 ///
-/// This snapshot shares Salsa storage with its parent [`AnalysisHost`](crate::AnalysisHost).
-/// **You must drop all `Analysis` instances before calling any mutating method**
-/// on the host (like `add_file`, `remove_file`, etc.). Failure to do so will
-/// cause a hang/deadlock due to Salsa's single-writer, multi-reader model.
+/// This snapshot shares Salsa storage with its parent
+/// [`AnalysisHost`](crate::AnalysisHost). **You must drop all `Analysis`
+/// instances before calling any mutating method on the host.** Salsa setters
+/// block until all outstanding snapshots have been dropped.
 pub struct Analysis {
     pub(crate) db: IdeDatabase,
-    pub(crate) registry: Arc<RwLock<FileRegistry>>,
-    /// Cached `ProjectFiles` for HIR queries
-    /// This is fetched from the registry when the snapshot is created
+    /// Cached `ProjectFiles` snapshot, captured at the moment this `Analysis`
+    /// was created. Drives all file lookups via Salsa-tracked queries.
     pub(crate) project_files: Option<graphql_base_db::ProjectFiles>,
     /// Unique ID for tracking snapshot lifecycle in logs
     pub(crate) snapshot_id: u64,
@@ -54,7 +53,6 @@ impl Clone for Analysis {
         );
         Self {
             db: self.db.clone(),
-            registry: Arc::clone(&self.registry),
             project_files: self.project_files,
             snapshot_id: clone_id,
         }
@@ -71,6 +69,27 @@ impl Drop for Analysis {
 }
 
 impl Analysis {
+    /// Resolve a `FilePath` to its `(FileContent, FileMetadata)` via Salsa.
+    ///
+    /// Returns `None` if the file is not in the project. Goes through the
+    /// `FilePathMap` salsa input rather than `self.registry.read()` so that
+    /// snapshots never take a `parking_lot` lock — the lock-ordering deadlock
+    /// against the host's Salsa setter cannot occur.
+    fn lookup_file(
+        &self,
+        path: &FilePath,
+    ) -> Option<(
+        graphql_base_db::FileId,
+        graphql_base_db::FileContent,
+        graphql_base_db::FileMetadata,
+    )> {
+        let project_files = self.project_files?;
+        let uri: std::sync::Arc<str> = std::sync::Arc::from(path.as_str());
+        let file_id = graphql_base_db::file_id_for_uri(&self.db, project_files, uri)?;
+        let (content, metadata) = graphql_base_db::file_lookup(&self.db, project_files, file_id)?;
+        Some((file_id, content, metadata))
+    }
+
     /// Get diagnostics for a file
     ///
     /// Returns syntax errors, validation errors, and lint warnings.
@@ -81,22 +100,8 @@ impl Analysis {
         fields(uri = %file.as_str())
     )]
     pub fn diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let Some(file_id) = registry.get_file_id(file) else {
-                return Vec::new();
-            };
-
-            let Some(content) = registry.get_content(file_id) else {
-                return Vec::new();
-            };
-            let Some(metadata) = registry.get_metadata(file_id) else {
-                return Vec::new();
-            };
-            drop(registry);
-
-            (content, metadata)
+        let Some((_, content, metadata)) = self.lookup_file(file) else {
+            return Vec::new();
         };
 
         let analysis_diagnostics =
@@ -139,11 +144,7 @@ impl Analysis {
         };
 
         let (is_schema, is_document, changed_file_id) = {
-            let registry = self.registry.read();
-            let Some(file_id) = registry.get_file_id(changed_file) else {
-                return result;
-            };
-            let Some(metadata) = registry.get_metadata(file_id) else {
+            let Some((file_id, _, metadata)) = self.lookup_file(changed_file) else {
                 return result;
             };
             (
@@ -156,7 +157,7 @@ impl Analysis {
         if is_schema {
             // Schema change: re-validate all document files
             let document_files: Vec<FilePath> = {
-                let registry = self.registry.read();
+                let registry = DbFiles::new(&self.db, self.project_files);
                 registry
                     .all_file_ids()
                     .into_iter()
@@ -225,7 +226,7 @@ impl Analysis {
         changed_file_id: graphql_base_db::FileId,
         project_files: graphql_base_db::ProjectFiles,
     ) -> Vec<FilePath> {
-        let registry = self.registry.read();
+        let registry = DbFiles::new(&self.db, self.project_files);
 
         // Get fragments and operations defined in the changed file
         let (content, metadata) = {
@@ -353,22 +354,8 @@ impl Analysis {
     /// Returns only GraphQL spec validation errors, not custom lint rule violations.
     /// Use this for the `validate` command to avoid duplicating lint checks.
     pub fn validation_diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let Some(file_id) = registry.get_file_id(file) else {
-                return Vec::new();
-            };
-
-            let Some(content) = registry.get_content(file_id) else {
-                return Vec::new();
-            };
-            let Some(metadata) = registry.get_metadata(file_id) else {
-                return Vec::new();
-            };
-            drop(registry);
-
-            (content, metadata)
+        let Some((_, content, metadata)) = self.lookup_file(file) else {
+            return Vec::new();
         };
 
         let analysis_diagnostics = graphql_analysis::file_validation_diagnostics(
@@ -388,22 +375,8 @@ impl Analysis {
     ///
     /// Returns only custom lint rule violations, not GraphQL spec validation errors.
     pub fn lint_diagnostics(&self, file: &FilePath) -> Vec<Diagnostic> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let Some(file_id) = registry.get_file_id(file) else {
-                return Vec::new();
-            };
-
-            let Some(content) = registry.get_content(file_id) else {
-                return Vec::new();
-            };
-            let Some(metadata) = registry.get_metadata(file_id) else {
-                return Vec::new();
-            };
-            drop(registry);
-
-            (content, metadata)
+        let Some((_, content, metadata)) = self.lookup_file(file) else {
+            return Vec::new();
         };
 
         let lint_diagnostics = graphql_analysis::lint_integration::lint_file(
@@ -421,8 +394,8 @@ impl Analysis {
     /// Returns tokens for syntax highlighting with semantic information,
     /// including deprecation status for fields.
     pub fn semantic_tokens(&self, file: &FilePath) -> Vec<SemanticToken> {
-        let registry = self.registry.read();
-        semantic_tokens::semantic_tokens(&self.db, &registry, self.project_files, file)
+        let registry = DbFiles::new(&self.db, self.project_files);
+        semantic_tokens::semantic_tokens(&self.db, registry, self.project_files, file)
     }
 
     /// Get folding ranges for a file
@@ -433,8 +406,8 @@ impl Analysis {
     /// - Selection sets
     /// - Block comments
     pub fn folding_ranges(&self, file: &FilePath) -> Vec<FoldingRange> {
-        let registry = self.registry.read();
-        folding_ranges::folding_ranges(&self.db, &registry, file)
+        let registry = DbFiles::new(&self.db, self.project_files);
+        folding_ranges::folding_ranges(&self.db, registry, file)
     }
 
     /// Get inlay hints for a file within an optional range.
@@ -444,8 +417,8 @@ impl Analysis {
     ///
     /// If `range` is provided, only returns hints within that range for efficiency.
     pub fn inlay_hints(&self, file: &FilePath, range: Option<Range>) -> Vec<InlayHint> {
-        let registry = self.registry.read();
-        inlay_hints::inlay_hints(&self.db, &registry, self.project_files, file, range)
+        let registry = DbFiles::new(&self.db, self.project_files);
+        inlay_hints::inlay_hints(&self.db, registry, self.project_files, file, range)
     }
 
     /// Get project-wide lint diagnostics (e.g., unused fields, unique names)
@@ -459,7 +432,7 @@ impl Analysis {
         );
 
         let mut results = HashMap::new();
-        let registry = self.registry.read();
+        let registry = DbFiles::new(&self.db, self.project_files);
 
         for (file_id, diagnostics) in diagnostics_by_file_id.iter() {
             if let Some(file_path) = registry.get_path(*file_id) {
@@ -488,7 +461,7 @@ impl Analysis {
 
         // Get all registered files
         let all_file_paths: Vec<FilePath> = {
-            let registry = self.registry.read();
+            let registry = DbFiles::new(&self.db, self.project_files);
             registry
                 .all_file_ids()
                 .into_iter()
@@ -570,22 +543,8 @@ impl Analysis {
         &self,
         file: &FilePath,
     ) -> Vec<graphql_linter::LintDiagnostic> {
-        let (content, metadata) = {
-            let registry = self.registry.read();
-
-            let Some(file_id) = registry.get_file_id(file) else {
-                return Vec::new();
-            };
-
-            let Some(content) = registry.get_content(file_id) else {
-                return Vec::new();
-            };
-            let Some(metadata) = registry.get_metadata(file_id) else {
-                return Vec::new();
-            };
-            drop(registry);
-
-            (content, metadata)
+        let Some((_, content, metadata)) = self.lookup_file(file) else {
+            return Vec::new();
         };
 
         graphql_analysis::lint_integration::lint_file_with_fixes(
@@ -609,7 +568,7 @@ impl Analysis {
             );
 
         let mut results = HashMap::new();
-        let registry = self.registry.read();
+        let registry = DbFiles::new(&self.db, self.project_files);
 
         for (file_id, diagnostics) in diagnostics_by_file_id {
             if let Some(file_path) = registry.get_path(file_id) {
@@ -626,7 +585,7 @@ impl Analysis {
     ///
     /// Returns the text content of the file if it exists in the registry.
     pub fn file_content(&self, file: &FilePath) -> Option<String> {
-        let registry = self.registry.read();
+        let registry = DbFiles::new(&self.db, self.project_files);
         let file_id = registry.get_file_id(file)?;
         let content = registry.get_content(file_id)?;
         Some(content.text(&self.db).to_string())
@@ -700,7 +659,7 @@ impl Analysis {
 
         for operation in operations.iter() {
             // Get file information for this operation
-            let registry = self.registry.read();
+            let registry = DbFiles::new(&self.db, self.project_files);
             let Some(file_path) = registry.get_path(operation.file_id) else {
                 continue;
             };
@@ -710,7 +669,6 @@ impl Analysis {
             let Some(metadata) = registry.get_metadata(operation.file_id) else {
                 continue;
             };
-            drop(registry);
 
             // Get operation body
             let body = graphql_hir::operation_body(&self.db, content, metadata, operation.index);
@@ -786,32 +744,32 @@ impl Analysis {
     ///
     /// Returns a list of completion items appropriate for the context.
     pub fn completions(&self, file: &FilePath, position: Position) -> Option<Vec<CompletionItem>> {
-        let registry = self.registry.read();
-        completion::completions(&self.db, &registry, self.project_files, file, position)
+        let registry = DbFiles::new(&self.db, self.project_files);
+        completion::completions(&self.db, registry, self.project_files, file, position)
     }
 
     /// Get hover information at a position
     ///
     /// Returns documentation, type information, etc.
     pub fn hover(&self, file: &FilePath, position: Position) -> Option<HoverResult> {
-        let registry = self.registry.read();
-        hover::hover(&self.db, &registry, self.project_files, file, position)
+        let registry = DbFiles::new(&self.db, self.project_files);
+        hover::hover(&self.db, registry, self.project_files, file, position)
     }
 
     /// Get signature help at a position
     ///
     /// Returns argument information when inside a field or directive argument list.
     pub fn signature_help(&self, file: &FilePath, position: Position) -> Option<SignatureHelp> {
-        let registry = self.registry.read();
-        signature_help::signature_help(&self.db, &registry, self.project_files, file, position)
+        let registry = DbFiles::new(&self.db, self.project_files);
+        signature_help::signature_help(&self.db, registry, self.project_files, file, position)
     }
 
     /// Get goto definition locations for the symbol at a position
     ///
     /// Returns the definition location(s) for types, fields, fragments, etc.
     pub fn goto_definition(&self, file: &FilePath, position: Position) -> Option<Vec<Location>> {
-        let registry = self.registry.read();
-        goto_definition::goto_definition(&self.db, &registry, self.project_files, file, position)
+        let registry = DbFiles::new(&self.db, self.project_files);
+        goto_definition::goto_definition(&self.db, registry, self.project_files, file, position)
     }
 
     /// Find all references to the symbol at a position
@@ -823,10 +781,10 @@ impl Analysis {
         position: Position,
         include_declaration: bool,
     ) -> Option<Vec<Location>> {
-        let registry = self.registry.read();
+        let registry = DbFiles::new(&self.db, self.project_files);
         references::find_references(
             &self.db,
-            &registry,
+            registry,
             self.project_files,
             file,
             position,
@@ -836,8 +794,8 @@ impl Analysis {
 
     /// Check if the symbol at a position can be renamed, returning its range.
     pub fn prepare_rename(&self, file: &FilePath, position: Position) -> Option<Range> {
-        let registry = self.registry.read();
-        rename::prepare_rename(&self.db, &registry, file, position)
+        let registry = DbFiles::new(&self.db, self.project_files);
+        rename::prepare_rename(&self.db, registry, file, position)
     }
 
     /// Rename the symbol at a position to a new name.
@@ -847,10 +805,10 @@ impl Analysis {
         position: Position,
         new_name: &str,
     ) -> Option<RenameResult> {
-        let registry = self.registry.read();
+        let registry = DbFiles::new(&self.db, self.project_files);
         rename::rename(
             &self.db,
-            &registry,
+            registry,
             self.project_files,
             file,
             position,
@@ -864,10 +822,10 @@ impl Analysis {
         fragment_name: &str,
         include_declaration: bool,
     ) -> Vec<Location> {
-        let registry = self.registry.read();
+        let registry = DbFiles::new(&self.db, self.project_files);
         references::find_fragment_references(
             &self.db,
-            &registry,
+            registry,
             self.project_files,
             fragment_name,
             include_declaration,
@@ -885,8 +843,8 @@ impl Analysis {
         file: &FilePath,
         positions: &[Position],
     ) -> Vec<Option<SelectionRange>> {
-        let registry = self.registry.read();
-        selection_range::selection_ranges(&self.db, &registry, file, positions)
+        let registry = DbFiles::new(&self.db, self.project_files);
+        selection_range::selection_ranges(&self.db, registry, file, positions)
     }
 
     /// Get code lenses for deprecated fields in a schema file
@@ -894,8 +852,8 @@ impl Analysis {
     /// Returns code lens information for each deprecated field definition,
     /// including the usage count and locations for navigation.
     pub fn deprecated_field_code_lenses(&self, file: &FilePath) -> Vec<CodeLensInfo> {
-        let registry = self.registry.read();
-        code_lenses::deprecated_field_code_lenses(&self.db, &registry, self.project_files, file)
+        let registry = DbFiles::new(&self.db, self.project_files);
+        code_lenses::deprecated_field_code_lenses(&self.db, registry, self.project_files, file)
     }
 
     /// Get document symbols for a file (hierarchical outline)
@@ -903,8 +861,8 @@ impl Analysis {
     /// Returns types, operations, and fragments with their fields as children.
     /// This powers the "Go to Symbol in Editor" (Cmd+Shift+O) feature.
     pub fn document_symbols(&self, file: &FilePath) -> Vec<DocumentSymbol> {
-        let registry = self.registry.read();
-        symbols::document_symbols(&self.db, &registry, file)
+        let registry = DbFiles::new(&self.db, self.project_files);
+        symbols::document_symbols(&self.db, registry, file)
     }
 
     /// Search for workspace symbols matching a query
@@ -912,8 +870,8 @@ impl Analysis {
     /// Returns matching types, operations, and fragments across all files.
     /// This powers the "Go to Symbol in Workspace" (Cmd+T) feature.
     pub fn workspace_symbols(&self, query: &str) -> Vec<WorkspaceSymbol> {
-        let registry = self.registry.read();
-        symbols::workspace_symbols(&self.db, &registry, self.project_files, query)
+        let registry = DbFiles::new(&self.db, self.project_files);
+        symbols::workspace_symbols(&self.db, registry, self.project_files, query)
     }
 
     /// Get schema statistics
@@ -952,15 +910,13 @@ impl Analysis {
             };
 
             // Skip built-in directive files
-            let registry = self.registry.read();
+            let registry = DbFiles::new(&self.db, self.project_files);
             if let Some(path) = registry.get_path(*file_id) {
                 let path_str = path.as_str();
                 if path_str == "client_builtins.graphql" || path_str == "schema_builtins.graphql" {
-                    drop(registry);
                     continue;
                 }
             }
-            drop(registry);
 
             let parse = graphql_syntax::parse(&self.db, content, metadata);
             // Count directive definitions by checking if the definition is a directive
@@ -1024,11 +980,10 @@ impl Analysis {
         &self,
         fragment: &graphql_hir::FragmentStructure,
     ) -> Option<(FilePath, Range)> {
-        let registry = self.registry.read();
+        let registry = DbFiles::new(&self.db, self.project_files);
         let file_path = registry.get_path(fragment.file_id)?;
         let content = registry.get_content(fragment.file_id)?;
         let metadata = registry.get_metadata(fragment.file_id)?;
-        drop(registry);
 
         let parse = graphql_syntax::parse(&self.db, content, metadata);
 
@@ -1087,10 +1042,10 @@ impl Analysis {
     /// Returns code lenses for fragment definitions showing reference counts.
     pub fn code_lenses(&self, file: &FilePath) -> Vec<CodeLens> {
         let fragment_usages = self.fragment_usages();
-        let registry = self.registry.read();
+        let registry = DbFiles::new(&self.db, self.project_files);
         code_lenses::code_lenses(
             &self.db,
-            &registry,
+            registry,
             self.project_files,
             file,
             &fragment_usages,

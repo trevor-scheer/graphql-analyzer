@@ -17,43 +17,40 @@ use dashmap::DashMap;
 use graphql_ide::AnalysisHost;
 use lsp_types::Uri;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tower_lsp_server::ls_types as lsp_types;
 
-/// Global counter for unique lock operation IDs.
-/// Each lock acquire gets a unique ID so acquire/release pairs can be correlated in logs.
-static LOCK_ID: AtomicU64 = AtomicU64::new(1);
-
-fn next_lock_id() -> u64 {
-    LOCK_ID.fetch_add(1, Ordering::Relaxed)
-}
+use crate::server::describe_join_error;
 
 /// Default timeout for acquiring host locks during LSP requests.
 const LOCK_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// A wrapper around `AnalysisHost` that enforces safe access patterns.
 ///
-/// This type prevents handlers from accidentally holding the lock without a timeout
-/// by only exposing safe access methods:
-/// - `try_snapshot()`: Read access with timeout (for request handlers)
-/// - `with_write()`: Write access for background tasks (no timeout, but caller is responsible)
-/// - `add_file_and_snapshot()`: Write + snapshot for `did_change` (runs on `spawn_blocking`)
+/// Exposes only:
+/// - [`try_snapshot`](Self::try_snapshot): timed read access for request
+///   handlers, returns `None` if the host is busy.
+/// - [`with_write`](Self::with_write): untimed write access for
+///   initialization and config reload paths.
+/// - [`add_file_and_snapshot`](Self::add_file_and_snapshot): the editing
+///   hot path. Runs on `spawn_blocking` because the underlying Salsa setter
+///   waits for in-flight snapshots to drop.
 ///
 /// ## Salsa Snapshot Safety
 ///
-/// Salsa setters block until all outstanding snapshots are dropped. If a setter
-/// runs on the async runtime while a `spawn_blocking` task holds a snapshot,
-/// the runtime thread is blocked and can't drive other tasks — deadlock.
+/// Salsa setters block until all outstanding snapshot clones are dropped. If
+/// a setter ran on the async runtime while a `spawn_blocking` task held a
+/// snapshot, the runtime thread would be blocked and could not drive the
+/// task that owns the snapshot — deadlock. `add_file_and_snapshot` therefore
+/// uses `lock_owned()` + `spawn_blocking` so the setter parks a pool thread
+/// instead of the runtime.
 ///
-/// `add_file_and_snapshot` (the hot path during editing) uses `lock_owned()` +
-/// `spawn_blocking` so the setter blocks a pool thread instead of the runtime.
-///
-/// `with_write` runs on the async thread and is safe only when no snapshots are
-/// outstanding (initialization, config reload). Do NOT use it on the editing
-/// hot path.
+/// In-flight snapshots can no longer take a `parking_lot` lock against the
+/// host (snapshots resolve everything through Salsa inputs), so the only
+/// remaining concern is the runtime starvation above — the lock-ordering
+/// deadlock class is gone.
 #[derive(Clone)]
 pub struct ProjectHost {
     inner: Arc<Mutex<AnalysisHost>>,
@@ -75,93 +72,42 @@ impl ProjectHost {
 
     /// Try to get a snapshot with a timeout.
     ///
-    /// This is the ONLY way request handlers should access the analysis.
-    /// Returns `None` if the lock can't be acquired within the timeout,
-    /// allowing the handler to return early instead of blocking.
+    /// The only way request handlers should access analysis. Returns `None`
+    /// if the lock can't be acquired within the timeout, allowing the handler
+    /// to return early instead of blocking the runtime thread.
     pub async fn try_snapshot(&self) -> Option<graphql_ide::Analysis> {
-        let lock_id = next_lock_id();
-        tracing::debug!(
-            lock_id,
-            "try_snapshot: waiting for ProjectHost lock (timeout=500ms)"
-        );
-        if let Ok(guard) = tokio::time::timeout(LOCK_TIMEOUT, self.inner.lock()).await {
-            tracing::debug!(lock_id, "try_snapshot: acquired ProjectHost lock");
-            let snapshot = guard.snapshot();
-            tracing::debug!(
-                lock_id,
-                "try_snapshot: releasing ProjectHost lock (snapshot created)"
-            );
-            Some(snapshot)
-        } else {
-            tracing::warn!(
-                lock_id,
-                "try_snapshot: TIMED OUT waiting for ProjectHost lock"
-            );
-            None
-        }
+        let Ok(guard) = tokio::time::timeout(LOCK_TIMEOUT, self.inner.lock()).await else {
+            tracing::warn!("try_snapshot: timed out waiting for ProjectHost lock");
+            return None;
+        };
+        Some(guard.snapshot())
     }
 
     /// Execute a write operation on the host.
     ///
-    /// This acquires the lock WITHOUT a timeout. Only use this for:
+    /// Acquires the lock without a timeout. Use only for:
     /// - Background initialization tasks
     /// - Config reload handlers
     ///
-    /// **WARNING**: This runs the closure on the async thread. Safe only when
-    /// no Salsa snapshots are outstanding (i.e., not during active editing).
-    /// For the editing hot path, use `add_file_and_snapshot` instead.
+    /// Runs the closure on the async thread. Safe whenever the work is short
+    /// and not on the editing hot path; for `did_change` use
+    /// [`add_file_and_snapshot`](Self::add_file_and_snapshot) instead.
     pub async fn with_write<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut AnalysisHost) -> R,
     {
-        let lock_id = next_lock_id();
-        tracing::debug!(lock_id, "with_write: waiting for ProjectHost lock");
         let mut guard = self.inner.lock().await;
-        tracing::debug!(lock_id, "with_write: acquired ProjectHost lock");
-        let result = f(&mut guard);
-        tracing::debug!(lock_id, "with_write: releasing ProjectHost lock");
-        result
-    }
-
-    /// Execute a write operation and get a snapshot in one lock acquisition.
-    ///
-    /// This is a generic helper for cases where you need to perform a write
-    /// operation and immediately get a snapshot. For file additions, prefer
-    /// `add_file_and_snapshot` which properly handles project file rebuilding.
-    ///
-    /// Doing both in one lock acquisition avoids double-locking.
-    ///
-    /// **WARNING**: Same async-thread caveat as `with_write`.
-    #[allow(dead_code)]
-    pub async fn write_and_snapshot<F, R>(&self, f: F) -> (R, graphql_ide::Analysis)
-    where
-        F: FnOnce(&mut AnalysisHost) -> R,
-    {
-        let lock_id = next_lock_id();
-        tracing::debug!(lock_id, "write_and_snapshot: waiting for ProjectHost lock");
-        let mut guard = self.inner.lock().await;
-        tracing::debug!(lock_id, "write_and_snapshot: acquired ProjectHost lock");
-        let result = f(&mut guard);
-        let snapshot = guard.snapshot();
-        tracing::debug!(
-            lock_id,
-            "write_and_snapshot: releasing ProjectHost lock (snapshot created)"
-        );
-        (result, snapshot)
+        f(&mut guard)
     }
 
     /// Add or update a file and get a snapshot in one lock acquisition.
     ///
-    /// This properly handles both new and existing files:
-    /// - For new files: rebuilds project file index before creating snapshot
-    /// - For existing files: just updates content
+    /// New files automatically rebuild the project file index before
+    /// snapshotting; existing files just bump the file's `FileContent`.
     ///
-    /// Uses `lock_owned()` + `spawn_blocking` so the Salsa setter (which may
-    /// block waiting for outstanding snapshots from previous diagnostics
-    /// computations to be dropped) blocks a pool thread instead of the async
-    /// runtime. This prevents the deadlock triggered by rapid schema edits.
-    ///
-    /// Returns `(is_new_file, Analysis)` tuple.
+    /// Runs on `spawn_blocking` so the Salsa setter — which may park waiting
+    /// for outstanding snapshots from previous diagnostics computations to be
+    /// dropped — blocks a pool thread rather than the async runtime.
     pub async fn add_file_and_snapshot(
         &self,
         path: &graphql_ide::FilePath,
@@ -169,33 +115,27 @@ impl ProjectHost {
         language: graphql_ide::Language,
         document_kind: graphql_ide::DocumentKind,
     ) -> (bool, graphql_ide::Analysis) {
-        let lock_id = next_lock_id();
-        tracing::debug!(lock_id, path = %path.as_str(), "add_file_and_snapshot: waiting for ProjectHost lock (lock_owned)");
         let mut guard = Arc::clone(&self.inner).lock_owned().await;
-        tracing::debug!(lock_id, path = %path.as_str(), "add_file_and_snapshot: acquired ProjectHost lock, spawning blocking task");
-        let path = path.clone();
+        let path_str = path.as_str().to_string();
+        let path_owned = path.clone();
         let content = content.to_string();
         match tokio::task::spawn_blocking(move || {
-            tracing::debug!(
-                lock_id,
-                "add_file_and_snapshot: blocking task started (calling update_file_and_snapshot)"
-            );
-            let result = guard.update_file_and_snapshot(&path, &content, language, document_kind);
-            tracing::debug!(
-                lock_id,
-                "add_file_and_snapshot: blocking task done, releasing ProjectHost lock"
-            );
-            result
+            guard.update_file_and_snapshot(&path_owned, &content, language, document_kind)
         })
         .await
         {
             Ok(result) => result,
-            Err(e) => {
+            Err(join_err) => {
+                let payload = describe_join_error(join_err);
                 tracing::error!(
-                    lock_id,
-                    "Blocking task panicked in add_file_and_snapshot: {e}"
+                    path = %path_str,
+                    "add_file_and_snapshot: blocking task ended abnormally: {payload}",
                 );
-                panic!("add_file_and_snapshot: blocking task panicked: {e}");
+                // Re-raise so the caller's request fails loudly rather than the
+                // server silently degrading. The OwnedMutexGuard moved into the
+                // closure has already been dropped during unwinding, so the
+                // host's tokio Mutex is released.
+                panic!("add_file_and_snapshot: blocking task panicked: {payload}");
             }
         }
     }
@@ -930,6 +870,121 @@ mod tests {
             "add_file_and_snapshot blocked the async runtime waiting for \
              a Salsa snapshot to be dropped — the Salsa setter must run \
              in spawn_blocking, not on the async thread"
+        );
+    }
+
+    /// Regression test for the lock-ordering deadlock that motivated the
+    /// `FilePathMap` refactor.
+    ///
+    /// **The bug**: snapshots used to hold a `parking_lot::RwLock` read on the
+    /// host's `FileRegistry` to resolve file paths. The `did_change` writer
+    /// took the same `RwLock` for write inside `update_file_and_snapshot`,
+    /// then called a Salsa setter that waits for outstanding snapshots to
+    /// drop. With a long-running snapshot taking repeated `registry.read()`
+    /// calls, `parking_lot`'s writer-preferring policy starved those reads,
+    /// the snapshot couldn't drop, and the setter parked forever. Two
+    /// `spawn_blocking` worker threads, each waiting on the other.
+    ///
+    /// **The fix verified here**: snapshots resolve everything via Salsa
+    /// (`FilePathMap`, `FileEntryMap`), so they hold no `parking_lot` lock
+    /// and the cycle is structurally impossible.
+    ///
+    /// The test seeds the host with a schema and 50 documents, then runs a
+    /// long-lived snapshot in `spawn_blocking` that loops over file lookups
+    /// (`diagnostics`, `file_content`, `workspace_symbols`) while a
+    /// concurrent task drives `add_file_and_snapshot` 20 times with new file
+    /// URIs (forcing the new-file path that previously held the registry
+    /// write lock across the Salsa setter). On a single-threaded runtime
+    /// with an OS-level 10s timeout, this hangs pre-refactor and finishes
+    /// quickly post-refactor.
+    #[test]
+    fn test_concurrent_snapshot_lookups_during_writer() {
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+
+            rt.block_on(async {
+                let host = ProjectHost::new();
+
+                // Seed: schema + 50 documents.
+                let schema_path = graphql_ide::FilePath::new("file:///schema.graphql");
+                let _ = host
+                    .add_file_and_snapshot(
+                        &schema_path,
+                        "type Query { hello: String, items: [Item] } \
+                         type Item { id: ID!, name: String }",
+                        graphql_ide::Language::GraphQL,
+                        graphql_ide::DocumentKind::Schema,
+                    )
+                    .await;
+                for i in 0..50 {
+                    let doc_path = graphql_ide::FilePath::new(format!("file:///doc-{i}.graphql"));
+                    let _ = host
+                        .add_file_and_snapshot(
+                            &doc_path,
+                            "query Q { hello }",
+                            graphql_ide::Language::GraphQL,
+                            graphql_ide::DocumentKind::Executable,
+                        )
+                        .await;
+                }
+
+                // Take a fresh snapshot and hand it to a blocking worker that
+                // exercises the same lookups (`diagnostics`, `file_content`,
+                // `workspace_symbols`) the LSP would on the read path. Each
+                // call goes through the Salsa-backed file lookups; pre-refactor
+                // these would have taken `registry.read()` and parked once a
+                // writer was queued.
+                let snapshot = host.try_snapshot().await.expect("snapshot");
+                let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+                let reader = tokio::task::spawn_blocking(move || {
+                    for _ in 0..200 {
+                        for i in 0..50 {
+                            let p = graphql_ide::FilePath::new(format!("file:///doc-{i}.graphql"));
+                            let _ = snapshot.diagnostics(&p);
+                            let _ = snapshot.file_content(&p);
+                        }
+                        let _ = snapshot.workspace_symbols("Q");
+                    }
+                    // Hold the snapshot until the writer loop signals done so
+                    // we exercise the "snapshot in flight while writer runs"
+                    // condition that triggers the deadlock pre-refactor.
+                    let _ = release_rx.blocking_recv();
+                    drop(snapshot);
+                });
+
+                // Concurrently, drive 20 new-file additions. Each one forces
+                // a `rebuild_project_files` and the Salsa setter that
+                // previously parked on snapshot drop.
+                for i in 0..20 {
+                    let new_path = graphql_ide::FilePath::new(format!("file:///new-{i}.graphql"));
+                    let _ = host
+                        .add_file_and_snapshot(
+                            &new_path,
+                            "query NewQ { hello }",
+                            graphql_ide::Language::GraphQL,
+                            graphql_ide::DocumentKind::Executable,
+                        )
+                        .await;
+                }
+
+                let _ = release_tx.send(());
+                let _ = reader.await;
+            });
+
+            let _ = done_tx.send(());
+        });
+
+        let result = done_rx.recv_timeout(Duration::from_secs(10));
+        assert!(
+            result.is_ok(),
+            "Concurrent snapshot lookups deadlocked the writer — snapshots \
+             must resolve all file lookups through Salsa, never through a \
+             side-channel parking_lot lock shared with the host."
         );
     }
 }

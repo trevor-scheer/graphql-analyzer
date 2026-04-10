@@ -14,7 +14,17 @@ fn create_empty_project_files(db: &RootDatabase) -> graphql_base_db::ProjectFile
     let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![]));
     let file_entry_map =
         graphql_base_db::FileEntryMap::new(db, Arc::new(std::collections::HashMap::new()));
-    graphql_base_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+    graphql_base_db::ProjectFiles::new(
+        db,
+        schema_file_ids,
+        document_file_ids,
+        file_entry_map,
+        graphql_base_db::FilePathMap::new(
+            db,
+            std::sync::Arc::new(std::collections::HashMap::new()),
+            std::sync::Arc::new(std::collections::HashMap::new()),
+        ),
+    )
 }
 
 /// Run all standalone document rules on a source

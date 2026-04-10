@@ -72,3 +72,20 @@ These features must NOT be removed or degraded:
 - Prefer typed accessor methods on `WorkspaceManager` (e.g., `get_host`, `all_hosts`, `projects_for_workspace`) over direct field access — these enforce the clone-before-await contract by returning owned values
 - The `hosts` field on `WorkspaceManager` is private for this reason; all callers must go through the typed API
 - Same applies to `std::sync::Mutex`, `parking_lot::RwLock`, and any other non-`tokio::sync` lock type
+
+## Snapshot/Host Lock Discipline
+
+**`Analysis` snapshots and `AnalysisHost` MUST NOT share any non-Salsa lock.**
+
+Salsa setters block until all outstanding `db.clone()` snapshots are dropped. If a snapshot reaches back into the host through any other lock (parking_lot, std::sync, tokio::sync — doesn't matter), you have a lock-ordering cycle waiting to happen:
+
+1. Snapshot holds a Salsa db clone, acquires the side-channel lock for a lookup.
+2. Host writer wants the side-channel lock for write, parks behind the snapshot.
+3. Eventually the snapshot tries to reacquire the side-channel lock for its next lookup; with a writer queued, it parks too.
+4. Writer's Salsa setter is now waiting on the snapshot to drop. Snapshot is waiting on the writer to release the lock. **Deadlock between two `spawn_blocking` workers.**
+
+The fix is structural: any state that snapshots need to read must live **inside Salsa** as an input or tracked query, not behind a side-channel lock. URI ↔ FileId resolution lives in the `FilePathMap` Salsa input (`crates/base-db/src/lib.rs`); file content + metadata live in `FileEntryMap`. Snapshots access both through the `DbFiles` adapter (`crates/ide/src/db_files.rs`), which only takes a `&dyn salsa::Database`. There is no `FileRegistry` reference, no `Arc<RwLock<...>>`, nothing the snapshot can park on except Salsa itself.
+
+**If you find yourself wanting to add an `Arc<RwLock<X>>` field to `AnalysisHost` that snapshots will also read, stop and put `X` in a Salsa input instead.** This was the root cause of #779, #784, #949, and the architectural fix that finally killed the class. The historical incident is documented in the `salsa.md` SME agent under "Pitfall 2".
+
+The `tokio::sync::Mutex<AnalysisHost>` in `ProjectHost` is fine and required — it serializes writers and is on the async side, so snapshots never touch it. The bad pattern is a _parking_lot_ (or any sync) lock that both sides hold.

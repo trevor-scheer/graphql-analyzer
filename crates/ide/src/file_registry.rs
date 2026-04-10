@@ -17,7 +17,7 @@
 
 use graphql_base_db::{
     DocumentFileIds, DocumentKind, FileContent, FileEntry, FileEntryMap, FileId, FileMetadata,
-    FileUri, Language, ProjectFiles, SchemaFileIds,
+    FilePathMap, FileUri, Language, ProjectFiles, SchemaFileIds,
 };
 use salsa::Setter;
 use std::collections::HashMap;
@@ -46,6 +46,9 @@ pub struct FileRegistry {
     document_file_ids: Option<DocumentFileIds>,
     /// Per-file entry map for granular invalidation
     file_entry_map: Option<FileEntryMap>,
+    /// URI ↔ `FileId` resolution stored in Salsa so snapshots can resolve paths
+    /// without taking any side-channel lock.
+    file_path_map: Option<FilePathMap>,
     /// The `ProjectFiles` input that tracks all files in the project
     project_files: Option<ProjectFiles>,
 }
@@ -144,18 +147,6 @@ impl FileRegistry {
         self.id_to_uri
             .get(&file_id)
             .map(|s| FilePath::new(s.clone()))
-    }
-
-    /// Get `FileContent` for a file ID
-    #[must_use]
-    pub fn get_content(&self, file_id: FileId) -> Option<FileContent> {
-        self.id_to_content.get(&file_id).copied()
-    }
-
-    /// Get `FileMetadata` for a file ID
-    #[must_use]
-    pub fn get_metadata(&self, file_id: FileId) -> Option<FileMetadata> {
-        self.id_to_metadata.get(&file_id).copied()
     }
 
     /// Remove a file from the registry
@@ -265,6 +256,39 @@ impl FileRegistry {
         };
         self.file_entry_map = Some(file_entry_map);
 
+        // Build the URI ↔ FileId tables. Snapshots will resolve paths via these
+        // through Salsa, never through the registry parking_lot lock.
+        let uri_to_id_map: HashMap<Arc<str>, FileId> = self
+            .uri_to_id
+            .iter()
+            .map(|(k, v)| (Arc::<str>::from(k.as_str()), *v))
+            .collect();
+        let id_to_uri_map: HashMap<FileId, Arc<str>> = self
+            .id_to_uri
+            .iter()
+            .map(|(k, v)| (*k, Arc::<str>::from(v.as_str())))
+            .collect();
+
+        // Create or update the FilePathMap input.
+        // Only bump it when the key set actually changes (file add/remove); pure
+        // content edits leave the URI ↔ FileId mapping untouched and must not
+        // invalidate path-lookup queries.
+        let file_path_map = if let Some(existing) = self.file_path_map {
+            let existing_id_to_uri = existing.id_to_uri(db);
+            let keys_match = existing_id_to_uri.len() == id_to_uri_map.len()
+                && existing_id_to_uri
+                    .keys()
+                    .all(|k| id_to_uri_map.contains_key(k));
+            if !keys_match {
+                existing.set_uri_to_id(db).to(Arc::new(uri_to_id_map));
+                existing.set_id_to_uri(db).to(Arc::new(id_to_uri_map));
+            }
+            existing
+        } else {
+            FilePathMap::new(db, Arc::new(uri_to_id_map), Arc::new(id_to_uri_map))
+        };
+        self.file_path_map = Some(file_path_map);
+
         // Create or update the ProjectFiles input
         // Only update child references if they actually changed
         if let Some(existing) = self.project_files {
@@ -277,6 +301,9 @@ impl FileRegistry {
             if existing.file_entry_map(db) != file_entry_map {
                 existing.set_file_entry_map(db).to(file_entry_map);
             }
+            if existing.file_path_map(db) != file_path_map {
+                existing.set_file_path_map(db).to(file_path_map);
+            }
             self.project_files = Some(existing);
         } else {
             self.project_files = Some(ProjectFiles::new(
@@ -284,14 +311,9 @@ impl FileRegistry {
                 schema_file_ids,
                 document_file_ids,
                 file_entry_map,
+                file_path_map,
             ));
         }
-    }
-
-    /// Get the `FileEntry` for a file ID
-    #[must_use]
-    pub fn get_entry(&self, file_id: FileId) -> Option<FileEntry> {
-        self.id_to_entry.get(&file_id).copied()
     }
 }
 
@@ -322,10 +344,6 @@ mod tests {
 
         // Should be able to look up by file ID
         assert_eq!(registry.get_path(file_id), Some(path.clone()));
-
-        // Should have content and metadata
-        assert!(registry.get_content(file_id).is_some());
-        assert!(registry.get_metadata(file_id).is_some());
     }
 
     #[test]
@@ -346,7 +364,7 @@ mod tests {
         assert!(is_new1);
 
         // Update same file
-        let (file_id2, _content2, _, is_new2) = registry.add_file(
+        let (file_id2, content2, _, is_new2) = registry.add_file(
             &mut db,
             &path,
             "type Query { world: String }",
@@ -360,12 +378,8 @@ mod tests {
         // Should reuse the same file ID
         assert_eq!(file_id1, file_id2);
 
-        // Content should be updated
-        let updated_content = registry.get_content(file_id2).unwrap();
-        assert_eq!(
-            updated_content.text(&db).as_ref(),
-            "type Query { world: String }"
-        );
+        // Content should be updated (returned FileContent reflects the new text)
+        assert_eq!(content2.text(&db).as_ref(), "type Query { world: String }");
     }
 
     #[test]

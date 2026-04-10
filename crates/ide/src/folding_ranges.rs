@@ -8,7 +8,7 @@
 
 use crate::helpers::{adjust_range_for_line_offset, offset_range_to_range};
 use crate::types::{FilePath, FoldingRange, FoldingRangeKind};
-use crate::FileRegistry;
+use crate::DbFiles;
 use apollo_parser::cst::{CstNode, Definition};
 
 /// Get folding ranges for a file.
@@ -20,7 +20,7 @@ use apollo_parser::cst::{CstNode, Definition};
 /// - Block comments
 pub fn folding_ranges(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     file: &FilePath,
 ) -> Vec<FoldingRange> {
     let Some(file_id) = registry.get_file_id(file) else {

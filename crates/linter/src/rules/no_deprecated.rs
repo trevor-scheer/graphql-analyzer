@@ -377,8 +377,17 @@ mod tests {
         file_entries.insert(schema_file_id, schema_entry);
         file_entries.insert(doc_file_id, doc_entry);
         let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(file_entries));
-        let project_files =
-            ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map);
+        let project_files = ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        );
 
         (doc_file_id, doc_content, doc_metadata, project_files)
     }

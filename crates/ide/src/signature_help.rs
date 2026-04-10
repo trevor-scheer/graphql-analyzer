@@ -10,7 +10,7 @@ use crate::helpers::{
 };
 use crate::symbol::find_parent_type_at_offset;
 use crate::types::{FilePath, ParameterInformation, Position, SignatureHelp, SignatureInformation};
-use crate::FileRegistry;
+use crate::DbFiles;
 
 /// Get signature help at a position.
 ///
@@ -18,7 +18,7 @@ use crate::FileRegistry;
 /// directive argument list.
 pub fn signature_help(
     db: &dyn graphql_hir::GraphQLHirDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     project_files: Option<graphql_base_db::ProjectFiles>,
     file: &FilePath,
     position: Position,
