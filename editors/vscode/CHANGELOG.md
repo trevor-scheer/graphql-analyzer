@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.1.18 (2026-04-10)
+
+### Fixes
+
+- Bundle the LSP fix for panics during rapid schema edits.
+
 ## 0.1.17 (2026-04-07)
 
 ### Fixes
