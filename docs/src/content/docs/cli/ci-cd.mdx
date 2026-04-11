@@ -74,20 +74,8 @@ fi
 
 ## Enabling expensive rules in CI
 
-Some lint rules (like `unusedFields`) are too expensive for real-time editor feedback but work well in CI. Use [tool-specific overrides](/graphql-analyzer/configuration/tool-overrides/):
+Some lint rules (like `unusedFields`) are too expensive for real-time editor feedback but work well in CI. You can enable them via CLI flags:
 
-```yaml
-extensions:
-  lint:
-    extends: recommended
-
-  cli:
-    lint:
-      rules:
-        unusedFields: error # Enable in CI
-
-  lsp:
-    lint:
-      rules:
-        unusedFields: off # Disable in editor
+```bash
+graphql check --rule unusedFields=error --rule unusedFragments=error
 ```

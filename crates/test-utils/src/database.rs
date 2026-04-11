@@ -12,7 +12,7 @@
 
 use graphql_base_db::{
     DocumentFileIds, DocumentKind, FileContent, FileEntry, FileEntryMap, FileId, FileMetadata,
-    FilePathMap, FileUri, Language, ProjectFiles, SchemaFileIds,
+    FilePathMap, FileUri, Language, ProjectFiles, ResolvedSchemaFileIds, SchemaFileIds,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -138,10 +138,13 @@ pub fn create_project_files<DB: salsa::Database>(
     }
     let file_path_map = FilePathMap::new(db, Arc::new(uri_to_id), Arc::new(id_to_uri));
 
+    let resolved_schema_file_ids = ResolvedSchemaFileIds::new(db, Arc::new(Vec::new()));
+
     ProjectFiles::new(
         db,
         schema_file_ids,
         document_file_ids,
+        resolved_schema_file_ids,
         file_entry_map,
         file_path_map,
     )

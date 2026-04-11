@@ -11,7 +11,8 @@ Add to your `.graphqlrc.yml`:
 
 ```yaml
 extensions:
-  lint: recommended
+  graphql-analyzer:
+    lint: recommended
 ```
 
 The `recommended` preset enables rules that are objectively beneficial without being opinionated about architecture choices.
@@ -66,4 +67,4 @@ Rules run in different contexts depending on how much information they need:
 | Document-Schema     | Single document + schema   | Fast  | LSP + CLI        |
 | Project-Wide        | All documents + schema     | Slow  | CLI (by default) |
 
-Project-wide rules are disabled in the LSP by default for performance. Use [tool-specific overrides](/graphql-analyzer/configuration/tool-overrides/) to enable them in CI only.
+Project-wide rules can be slow on large projects. If you experience latency in the editor, disable them in config and enable them in CI via `graphql check --rule unusedFields=error`.

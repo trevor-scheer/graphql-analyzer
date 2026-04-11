@@ -53,11 +53,12 @@ Lint rules are configured in `.graphqlrc.yml`:
 
 ```yaml
 extensions:
-  lint:
-    extends: recommended
-    rules:
-      noDeprecated: warn
-      uniqueNames: error
+  graphql-analyzer:
+    lint:
+      extends: recommended
+      rules:
+        noDeprecated: warn
+        uniqueNames: error
 ```
 
 See [Linting Configuration](/graphql-analyzer/linting/configuration/) and the [Rules Catalog](/graphql-analyzer/rules/catalog/) for all available rules.

@@ -112,6 +112,7 @@ fn create_project_files(db: &mut RootDatabase) -> ProjectFiles {
         db,
         schema_file_ids,
         document_file_ids,
+        graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
         file_entry_map,
         empty_file_path_map(db),
     )
@@ -245,6 +246,7 @@ fn bench_golden_invariant(c: &mut Criterion) {
                     &db,
                     schema_file_ids,
                     document_file_ids,
+                    graphql_base_db::ResolvedSchemaFileIds::new(&db, std::sync::Arc::new(vec![])),
                     file_entry_map,
                     empty_file_path_map(&db),
                 );
@@ -346,6 +348,7 @@ fn bench_per_file_granular_caching(c: &mut Criterion) {
                     &db,
                     schema_file_ids,
                     document_file_ids,
+                    graphql_base_db::ResolvedSchemaFileIds::new(&db, std::sync::Arc::new(vec![])),
                     file_entry_map,
                     empty_file_path_map(&db),
                 );
@@ -418,6 +421,7 @@ fn bench_fragment_resolution_cold(c: &mut Criterion) {
                     &db,
                     schema_file_ids,
                     document_file_ids,
+                    graphql_base_db::ResolvedSchemaFileIds::new(&db, std::sync::Arc::new(vec![])),
                     file_entry_map,
                     empty_file_path_map(&db),
                 );
@@ -471,6 +475,7 @@ fn bench_fragment_resolution_warm(c: &mut Criterion) {
             &db,
             schema_file_ids,
             document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(&db, std::sync::Arc::new(vec![])),
             file_entry_map,
             empty_file_path_map(&db),
         );

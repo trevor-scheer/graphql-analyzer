@@ -17,7 +17,7 @@
 
 use graphql_base_db::{
     DocumentFileIds, DocumentKind, FileContent, FileEntry, FileEntryMap, FileId, FileMetadata,
-    FilePathMap, FileUri, Language, ProjectFiles, SchemaFileIds,
+    FilePathMap, FileUri, Language, ProjectFiles, ResolvedSchemaFileIds, SchemaFileIds,
 };
 use salsa::Setter;
 use std::collections::HashMap;
@@ -44,6 +44,8 @@ pub struct FileRegistry {
     schema_file_ids: Option<SchemaFileIds>,
     /// Granular input tracking document file IDs only - changes on file add/remove
     document_file_ids: Option<DocumentFileIds>,
+    /// Granular input tracking resolved schema file IDs
+    resolved_schema_file_ids: Option<ResolvedSchemaFileIds>,
     /// Per-file entry map for granular invalidation
     file_entry_map: Option<FileEntryMap>,
     /// URI ↔ `FileId` resolution stored in Salsa so snapshots can resolve paths
@@ -51,6 +53,8 @@ pub struct FileRegistry {
     file_path_map: Option<FilePathMap>,
     /// The `ProjectFiles` input that tracks all files in the project
     project_files: Option<ProjectFiles>,
+    /// File IDs that belong to the resolved schema (not the source schema)
+    resolved_file_ids: std::collections::HashSet<FileId>,
 }
 
 impl FileRegistry {
@@ -170,6 +174,14 @@ impl FileRegistry {
         self.project_files
     }
 
+    /// Mark a file as belonging to the resolved schema.
+    ///
+    /// Resolved schema files are tracked in a separate `ResolvedSchemaFileIds`
+    /// input and excluded from the source `SchemaFileIds` list.
+    pub fn mark_as_resolved_schema(&mut self, file_id: FileId) {
+        self.resolved_file_ids.insert(file_id);
+    }
+
     /// Rebuild the `ProjectFiles` input from current state
     /// This should be called after files are added or removed
     ///
@@ -187,6 +199,7 @@ impl FileRegistry {
     {
         let mut schema_ids = Vec::new();
         let mut document_ids = Vec::new();
+        let mut resolved_ids = Vec::new();
         let mut file_entries: HashMap<FileId, FileEntry> = HashMap::new();
 
         // Collect all file data first without calling db methods
@@ -206,7 +219,11 @@ impl FileRegistry {
 
             // Categorize by document kind for ID lists
             if metadata.is_schema(db) {
-                schema_ids.push(file_id);
+                if self.resolved_file_ids.contains(&file_id) {
+                    resolved_ids.push(file_id);
+                } else {
+                    schema_ids.push(file_id);
+                }
             } else if metadata.is_document(db) {
                 document_ids.push(file_id);
             }
@@ -237,6 +254,18 @@ impl FileRegistry {
             DocumentFileIds::new(db, Arc::new(document_ids))
         };
         self.document_file_ids = Some(document_file_ids);
+
+        // Create or update the ResolvedSchemaFileIds input
+        let resolved_schema_file_ids = if let Some(existing) = self.resolved_schema_file_ids {
+            let existing_ids = existing.ids(db);
+            if existing_ids.as_slice() != resolved_ids.as_slice() {
+                existing.set_ids(db).to(Arc::new(resolved_ids));
+            }
+            existing
+        } else {
+            ResolvedSchemaFileIds::new(db, Arc::new(resolved_ids))
+        };
+        self.resolved_schema_file_ids = Some(resolved_schema_file_ids);
 
         // Create or update the FileEntryMap input
         // Only update if the set of files has changed (entries point to same FileEntry objects)
@@ -298,6 +327,11 @@ impl FileRegistry {
             if existing.document_file_ids(db) != document_file_ids {
                 existing.set_document_file_ids(db).to(document_file_ids);
             }
+            if existing.resolved_schema_file_ids(db) != resolved_schema_file_ids {
+                existing
+                    .set_resolved_schema_file_ids(db)
+                    .to(resolved_schema_file_ids);
+            }
             if existing.file_entry_map(db) != file_entry_map {
                 existing.set_file_entry_map(db).to(file_entry_map);
             }
@@ -310,6 +344,7 @@ impl FileRegistry {
                 db,
                 schema_file_ids,
                 document_file_ids,
+                resolved_schema_file_ids,
                 file_entry_map,
                 file_path_map,
             ));

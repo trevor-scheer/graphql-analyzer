@@ -4047,14 +4047,15 @@ export const typeDefs = gql`
             let schema_path = temp_dir.path().join("schema.graphql");
             std::fs::write(&schema_path, schema_content).unwrap();
 
+            let analyzer_ext = serde_json::json!({"client": "apollo"});
             let config = graphql_config::ProjectConfig::new(
                 graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
                 None,
                 None,
                 None,
                 Some(HashMap::from([(
-                    "client".to_string(),
-                    serde_json::Value::String("apollo".to_string()),
+                    "graphql-analyzer".to_string(),
+                    analyzer_ext,
                 )])),
             );
 
@@ -4085,14 +4086,15 @@ export const typeDefs = gql`
             let schema_path = temp_dir.path().join("schema.graphql");
             std::fs::write(&schema_path, schema_content).unwrap();
 
+            let analyzer_ext = serde_json::json!({"client": "relay"});
             let config = graphql_config::ProjectConfig::new(
                 graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
                 None,
                 None,
                 None,
                 Some(HashMap::from([(
-                    "client".to_string(),
-                    serde_json::Value::String("relay".to_string()),
+                    "graphql-analyzer".to_string(),
+                    analyzer_ext,
                 )])),
             );
 

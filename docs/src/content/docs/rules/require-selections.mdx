@@ -71,16 +71,18 @@ query GetPost {
 ```yaml
 # Default: require 'id'
 extensions:
-  lint:
-    rules:
-      requireSelections: error
+  graphql-analyzer:
+    lint:
+      rules:
+        requireSelections: error
 
 # Require both id and __typename
 extensions:
-  lint:
-    rules:
-      requireSelections:
-        severity: error
-        options:
-          fields: ["id", "__typename"]
+  graphql-analyzer:
+    lint:
+      rules:
+        requireSelections:
+          severity: error
+          options:
+            fields: ["id", "__typename"]
 ```

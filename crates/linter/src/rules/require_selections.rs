@@ -651,6 +651,7 @@ mod tests {
             db,
             schema_file_ids,
             document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
             file_entry_map,
             graphql_base_db::FilePathMap::new(
                 db,
@@ -711,6 +712,7 @@ mod tests {
             db,
             schema_file_ids,
             document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
             file_entry_map,
             graphql_base_db::FilePathMap::new(
                 db,

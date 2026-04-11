@@ -137,6 +137,18 @@ schema: https://api.example.com/graphql
 
 Note: This library only parses and validates the configuration structure. Actual schema loading (including introspection for URLs) is handled by consumers of this library.
 
+### Resolved Schema
+
+When your build pipeline transforms the schema (directive-based codegen, federation composition, etc.), you can point to the build output so queries validate against the final schema:
+
+```yaml
+extensions:
+  graphql-analyzer:
+    resolvedSchema: "generated/schema.graphql"
+```
+
+Source schema files are still used for goto-definition and hover. The resolved schema is used for query validation and completions. SDL validation on source files is skipped since they may be intentionally incomplete.
+
 ### Document Patterns
 
 Documents can include GraphQL files and files with embedded GraphQL:

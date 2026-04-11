@@ -53,19 +53,37 @@ pub fn goto_definition(
 
     match symbol {
         Symbol::FieldName { name } => {
+            // Try source schema first for navigation, fallback to resolved
+            let source_types = graphql_hir::source_schema_types(db, project_files);
             let schema_types = graphql_hir::schema_types(db, project_files);
 
-            let parent_type_name =
+            let resolve_parent = |types: &graphql_hir::TypeDefMap| -> Option<String> {
                 if let Some(parent_ctx) = find_parent_type_at_offset(block_context.tree, offset) {
                     symbol::walk_type_stack_to_offset(
                         block_context.tree,
-                        schema_types,
+                        types,
                         offset,
                         &parent_ctx.root_type,
-                    )?
+                    )
                 } else {
-                    symbol::find_schema_field_parent_type(block_context.tree, offset)?
-                };
+                    symbol::find_schema_field_parent_type(block_context.tree, offset)
+                }
+            };
+
+            // Try source types first, then resolved
+            let (types, parent_type_name) = resolve_parent(source_types)
+                .and_then(|ptn| {
+                    let td = source_types.get(ptn.as_str())?;
+                    if td.fields.iter().any(|f| f.name.as_ref() == name) {
+                        Some((source_types, ptn))
+                    } else {
+                        None
+                    }
+                })
+                .or_else(|| {
+                    let ptn = resolve_parent(schema_types)?;
+                    Some((schema_types, ptn))
+                })?;
 
             tracing::debug!(
                 "Field '{}' - resolved parent type '{}'",
@@ -73,7 +91,7 @@ pub fn goto_definition(
                 parent_type_name
             );
 
-            let type_def = schema_types.get(parent_type_name.as_str())?;
+            let type_def = types.get(parent_type_name.as_str())?;
             let field = type_def.fields.iter().find(|f| f.name.as_ref() == name)?;
 
             let file_path = registry.get_path(field.file_id)?;
@@ -123,18 +141,35 @@ pub fn goto_definition(
             Some(vec![Location::new(file_path, range)])
         }
         Symbol::TypeName { name } => {
+            // Try source schema type locations first
             let type_index = graphql_hir::type_definition_location_index(db, project_files);
-            let entries = type_index.get(name.as_str())?;
             let mut locations = Vec::new();
 
-            for (file_id, name_range) in entries {
-                if let Some(file_path) = registry.get_path(*file_id) {
-                    let content = registry.get_content(*file_id)?;
-                    let line_index = graphql_syntax::line_index(db, content);
-                    let start: usize = name_range.start().into();
-                    let end: usize = name_range.end().into();
-                    let range = offset_range_to_range(&line_index, start, end);
-                    locations.push(Location::new(file_path, range));
+            if let Some(entries) = type_index.get(name.as_str()) {
+                for (file_id, name_range) in entries {
+                    if let Some(file_path) = registry.get_path(*file_id) {
+                        let content = registry.get_content(*file_id)?;
+                        let line_index = graphql_syntax::line_index(db, content);
+                        let start: usize = name_range.start().into();
+                        let end: usize = name_range.end().into();
+                        let range = offset_range_to_range(&line_index, start, end);
+                        locations.push(Location::new(file_path, range));
+                    }
+                }
+            }
+
+            // Fallback to resolved schema if source has no locations
+            if locations.is_empty() && graphql_hir::has_resolved_schema(db, project_files) {
+                let resolved_types = graphql_hir::schema_types(db, project_files);
+                if let Some(type_def) = resolved_types.get(name.as_str()) {
+                    if let Some(file_path) = registry.get_path(type_def.file_id) {
+                        let content = registry.get_content(type_def.file_id)?;
+                        let line_index = graphql_syntax::line_index(db, content);
+                        let start: usize = type_def.name_range.start().into();
+                        let end: usize = type_def.name_range.end().into();
+                        let range = offset_range_to_range(&line_index, start, end);
+                        locations.push(Location::new(file_path, range));
+                    }
                 }
             }
 
@@ -162,29 +197,33 @@ pub fn goto_definition(
         }
         Symbol::ArgumentName { name } => {
             let parent_context = find_parent_type_at_offset(block_context.tree, offset)?;
-            let schema_types = graphql_hir::schema_types(db, project_files);
-
             let field_name = crate::helpers::find_field_name_at_offset(block_context.tree, offset)?;
 
-            let parent_type_name = symbol::walk_type_stack_to_offset(
-                block_context.tree,
-                schema_types,
-                offset,
-                &parent_context.root_type,
-            )?;
+            // Try source schema first, fallback to resolved
+            let source_types = graphql_hir::source_schema_types(db, project_files);
+            let schema_types = graphql_hir::schema_types(db, project_files);
 
-            let type_def = schema_types.get(parent_type_name.as_str())?;
-            let field = type_def
-                .fields
-                .iter()
-                .find(|f| f.name.as_ref() == field_name)?;
-            let arg = field.arguments.iter().find(|a| a.name.as_ref() == name)?;
+            let find_arg = |types: &graphql_hir::TypeDefMap| -> Option<(graphql_base_db::FileId, graphql_hir::TextRange)> {
+                let parent_type_name = symbol::walk_type_stack_to_offset(
+                    block_context.tree,
+                    types,
+                    offset,
+                    &parent_context.root_type,
+                )?;
+                let type_def = types.get(parent_type_name.as_str())?;
+                let field = type_def.fields.iter().find(|f| f.name.as_ref() == field_name)?;
+                let arg = field.arguments.iter().find(|a| a.name.as_ref() == name)?;
+                Some((arg.file_id, arg.name_range))
+            };
 
-            let file_path = registry.get_path(arg.file_id)?;
-            let content = registry.get_content(arg.file_id)?;
+            let (arg_file_id, arg_name_range) =
+                find_arg(source_types).or_else(|| find_arg(schema_types))?;
+
+            let file_path = registry.get_path(arg_file_id)?;
+            let content = registry.get_content(arg_file_id)?;
             let line_index = graphql_syntax::line_index(db, content);
-            let start: usize = arg.name_range.start().into();
-            let end: usize = arg.name_range.end().into();
+            let start: usize = arg_name_range.start().into();
+            let end: usize = arg_name_range.end().into();
             let range = offset_range_to_range(&line_index, start, end);
 
             Some(vec![Location::new(file_path, range)])

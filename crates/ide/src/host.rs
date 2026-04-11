@@ -468,6 +468,42 @@ impl AnalysisHost {
             }
         }
 
+        // Load resolved schema file if configured
+        if let Some(resolved_path) = config.resolved_schema() {
+            let resolved_full = base_dir.join(&resolved_path);
+            if resolved_full.is_file() {
+                match std::fs::read_to_string(&resolved_full) {
+                    Ok(resolved_content) => {
+                        let file_uri = path_to_file_uri(&resolved_full);
+                        let file_path = FilePath::new(file_uri);
+                        let (file_id, _, _, _) = self.registry.add_file(
+                            &mut self.db,
+                            &file_path,
+                            &resolved_content,
+                            Language::GraphQL,
+                            DocumentKind::Schema,
+                        );
+                        self.registry.mark_as_resolved_schema(file_id);
+                        loaded_paths.push(resolved_full);
+                        count += 1;
+                        tracing::info!("Loaded resolved schema from '{}'", resolved_path);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to read resolved schema '{}': {}",
+                            resolved_full.display(),
+                            e
+                        );
+                    }
+                }
+            } else {
+                tracing::debug!(
+                    "Resolved schema file not found (yet): {}",
+                    resolved_full.display()
+                );
+            }
+        }
+
         tracing::info!(
             "Loaded {} schema file(s) ({} paths tracked), {} pending introspection(s)",
             count,

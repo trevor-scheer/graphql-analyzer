@@ -458,7 +458,7 @@ fn validate_lint_config(
         };
 
         validate_lint_value(
-            lint_value,
+            &lint_value,
             project_name,
             &rule_set,
             &preset_set,
@@ -614,8 +614,13 @@ mod tests {
     fn lint_extensions(
         lint_value: serde_json::Value,
     ) -> Option<StdHashMap<String, serde_json::Value>> {
+        let mut analyzer = serde_json::Map::new();
+        analyzer.insert("lint".to_string(), lint_value);
         let mut map = StdHashMap::new();
-        map.insert("lint".to_string(), lint_value);
+        map.insert(
+            "graphql-analyzer".to_string(),
+            serde_json::Value::Object(analyzer),
+        );
         Some(map)
     }
 

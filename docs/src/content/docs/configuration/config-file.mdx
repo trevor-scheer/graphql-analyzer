@@ -70,10 +70,11 @@ import { Tabs, TabItem } from "@astrojs/starlight/components";
     documents: "src/**/*.{graphql,ts,tsx}"
 
     extensions:
-      lint:
-        extends: recommended
-        rules:
-          noDeprecated: warn
+      graphql-analyzer:
+        lint:
+          extends: recommended
+          rules:
+            noDeprecated: warn
     ```
 
   </TabItem>
@@ -82,10 +83,10 @@ import { Tabs, TabItem } from "@astrojs/starlight/components";
     schema = "schema.graphql"
     documents = "src/**/*.{graphql,ts,tsx}"
 
-    [extensions.lint]
+    [extensions.graphql-analyzer.lint]
     extends = "recommended"
 
-    [extensions.lint.rules]
+    [extensions.graphql-analyzer.lint.rules]
     noDeprecated = "warn"
     ```
 

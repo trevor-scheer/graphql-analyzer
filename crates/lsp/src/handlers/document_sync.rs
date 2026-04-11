@@ -316,9 +316,32 @@ pub(crate) async fn handle_did_change_watched_files(
                 }
                 _ => {}
             }
+            continue;
+        }
+
+        // Check if the changed file is a resolved schema
+        let resolved_match: Option<(String, String)> = server
+            .workspace
+            .resolved_schema_paths
+            .iter()
+            .find(|entry| entry.value() == &config_path)
+            .map(|entry| {
+                let (ws, proj) = entry.key();
+                (ws.clone(), proj.clone())
+            });
+
+        if let Some((ws_uri, proj_name)) = resolved_match {
+            if matches!(
+                change.typ,
+                FileChangeType::CREATED | FileChangeType::CHANGED
+            ) {
+                server
+                    .reload_resolved_schema(&ws_uri, &proj_name, &config_path)
+                    .await;
+            }
         } else {
             tracing::debug!(
-                "Changed file is not a tracked config file: {:?}",
+                "Changed file is not a tracked config or resolved schema file: {:?}",
                 config_path
             );
         }

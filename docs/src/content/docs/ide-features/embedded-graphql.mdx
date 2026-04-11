@@ -105,10 +105,11 @@ By default, the tool recognizes `gql` imported from `graphql-tag`. Customize whi
 
 ```yaml
 extensions:
-  extractConfig:
-    tagIdentifiers: ["gql", "graphql", "query"]
-    modules: ["graphql-tag", "@apollo/client", "custom-gql"]
-    allowGlobalIdentifiers: true
+  graphql-analyzer:
+    extractConfig:
+      tagIdentifiers: ["gql", "graphql", "query"]
+      modules: ["graphql-tag", "@apollo/client", "custom-gql"]
+      allowGlobalIdentifiers: true
 ```
 
 See [Documents configuration](/graphql-analyzer/configuration/documents/) for details.

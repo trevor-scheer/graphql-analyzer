@@ -37,11 +37,12 @@ query GetUser {
 
 ```yaml
 extensions:
-  lint:
-    rules:
-      uniqueNames: error # or warn, off
+  graphql-analyzer:
+    lint:
+      rules:
+        uniqueNames: error # or warn, off
 ```
 
 ## Note
 
-This is a project-wide rule — it checks all documents together. It may be slower on large projects. Consider enabling it in CI only via [tool-specific overrides](/graphql-analyzer/configuration/tool-overrides/).
+This is a project-wide rule — it checks all documents together. It may be slower on large projects.
