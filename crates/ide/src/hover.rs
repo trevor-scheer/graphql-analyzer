@@ -177,7 +177,8 @@ pub fn hover(
             let locations: Vec<&str> = directive
                 .locations
                 .iter()
-                .map(|l| format_directive_location(l))
+                .copied()
+                .map(format_directive_location)
                 .collect();
             write!(hover_text, "**Locations:** {}\n\n", locations.join(" | ")).ok();
 
@@ -190,13 +191,12 @@ pub fn hover(
                 for arg in &directive.arguments {
                     let type_str = format_type_ref(&arg.type_ref);
                     if let Some(default) = &arg.default_value {
-                        write!(hover_text, "- `{}: {} = {}`\n", arg.name, type_str, default)
-                            .ok();
+                        writeln!(hover_text, "- `{}: {} = {}`", arg.name, type_str, default).ok();
                     } else {
-                        write!(hover_text, "- `{}: {}`\n", arg.name, type_str).ok();
+                        writeln!(hover_text, "- `{}: {}`", arg.name, type_str).ok();
                     }
                 }
-                write!(hover_text, "\n").ok();
+                writeln!(hover_text).ok();
             }
 
             if let Some(desc) = &directive.description {
@@ -235,7 +235,7 @@ pub fn hover(
 }
 
 pub(crate) fn format_directive_location(
-    location: &graphql_hir::DirectiveLocationKind,
+    location: graphql_hir::DirectiveLocationKind,
 ) -> &'static str {
     use graphql_hir::DirectiveLocationKind;
     match location {

@@ -491,7 +491,7 @@ fn find_directive_usages_in_tree(
                     collect_from_directives(&directives, target_directive, &mut results);
                 }
             }
-            _ => {}
+            Definition::DirectiveDefinition(_) => {}
         }
     }
 
