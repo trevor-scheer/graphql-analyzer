@@ -45,7 +45,11 @@ pub fn prepare_rename(
             Some(range)
         }
         // Schema symbols cannot be renamed through document operations
-        Symbol::TypeName { .. } | Symbol::FieldName { .. } | Symbol::ArgumentName { .. } => None,
+        Symbol::TypeName { .. }
+        | Symbol::FieldName { .. }
+        | Symbol::ArgumentName { .. }
+        | Symbol::DirectiveName { .. }
+        | Symbol::DirectiveArgumentName { .. } => None,
     }
 }
 
@@ -77,7 +81,11 @@ pub fn rename(
         }
         Symbol::OperationName { name } => rename_operation(db, registry, file, &name, new_name),
         Symbol::VariableReference { name } => rename_variable(db, registry, file, &name, new_name),
-        Symbol::TypeName { .. } | Symbol::FieldName { .. } | Symbol::ArgumentName { .. } => None,
+        Symbol::TypeName { .. }
+        | Symbol::FieldName { .. }
+        | Symbol::ArgumentName { .. }
+        | Symbol::DirectiveName { .. }
+        | Symbol::DirectiveArgumentName { .. } => None,
     }
 }
 

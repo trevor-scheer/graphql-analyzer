@@ -189,6 +189,13 @@ pub enum Symbol {
     VariableReference { name: String },
     /// An argument name in a field or directive
     ArgumentName { name: String },
+    /// A directive name (@directiveName)
+    DirectiveName { name: String },
+    /// An argument name within a directive's argument list
+    DirectiveArgumentName {
+        directive_name: String,
+        argument_name: String,
+    },
 }
 
 /// Find the symbol at a specific byte offset in the document
@@ -491,53 +498,95 @@ fn check_definition(definition: &cst::Definition, byte_offset: usize) -> Option<
         cst::Definition::FragmentDefinition(frag) => check_fragment_definition(frag, byte_offset),
         cst::Definition::ObjectTypeDefinition(obj) => {
             check_type_definition_name(obj.name(), byte_offset)
+                .or_else(|| {
+                    obj.directives()
+                        .and_then(|d| check_directives_for_symbol(&d, byte_offset))
+                })
                 .or_else(|| check_implements_interfaces(obj.implements_interfaces(), byte_offset))
                 .or_else(|| check_fields_definition(obj.fields_definition(), byte_offset))
         }
         cst::Definition::InterfaceTypeDefinition(iface) => {
             check_type_definition_name(iface.name(), byte_offset)
-                .or_else(|| check_implements_interfaces(iface.implements_interfaces(), byte_offset))
+                .or_else(|| {
+                    iface
+                        .directives()
+                        .and_then(|d| check_directives_for_symbol(&d, byte_offset))
+                })
+                .or_else(|| {
+                    check_implements_interfaces(iface.implements_interfaces(), byte_offset)
+                })
                 .or_else(|| check_fields_definition(iface.fields_definition(), byte_offset))
         }
         cst::Definition::ObjectTypeExtension(ext) => {
             check_type_definition_name(ext.name(), byte_offset)
+                .or_else(|| {
+                    ext.directives()
+                        .and_then(|d| check_directives_for_symbol(&d, byte_offset))
+                })
                 .or_else(|| check_implements_interfaces(ext.implements_interfaces(), byte_offset))
                 .or_else(|| check_fields_definition(ext.fields_definition(), byte_offset))
         }
         cst::Definition::InterfaceTypeExtension(ext) => {
             check_type_definition_name(ext.name(), byte_offset)
+                .or_else(|| {
+                    ext.directives()
+                        .and_then(|d| check_directives_for_symbol(&d, byte_offset))
+                })
                 .or_else(|| check_implements_interfaces(ext.implements_interfaces(), byte_offset))
                 .or_else(|| check_fields_definition(ext.fields_definition(), byte_offset))
         }
-        cst::Definition::UnionTypeDefinition(union) => {
-            check_type_definition_name(union.name(), byte_offset).or_else(|| {
-                if let Some(members) = union.union_member_types() {
-                    for member in members.named_types() {
-                        if let Some(name) = member.name() {
-                            if is_within_range(&name, byte_offset) {
-                                return Some(Symbol::TypeName {
-                                    name: name.text().to_string(),
-                                });
+        cst::Definition::UnionTypeDefinition(union_def) => {
+            check_type_definition_name(union_def.name(), byte_offset)
+                .or_else(|| {
+                    union_def
+                        .directives()
+                        .and_then(|d| check_directives_for_symbol(&d, byte_offset))
+                })
+                .or_else(|| {
+                    if let Some(members) = union_def.union_member_types() {
+                        for member in members.named_types() {
+                            if let Some(name) = member.name() {
+                                if is_within_range(&name, byte_offset) {
+                                    return Some(Symbol::TypeName {
+                                        name: name.text().to_string(),
+                                    });
+                                }
                             }
                         }
                     }
-                }
-                None
-            })
+                    None
+                })
         }
         cst::Definition::EnumTypeDefinition(enum_def) => {
-            check_type_definition_name(enum_def.name(), byte_offset)
+            check_type_definition_name(enum_def.name(), byte_offset).or_else(|| {
+                enum_def
+                    .directives()
+                    .and_then(|d| check_directives_for_symbol(&d, byte_offset))
+            })
         }
         cst::Definition::ScalarTypeDefinition(scalar) => {
-            check_type_definition_name(scalar.name(), byte_offset)
+            check_type_definition_name(scalar.name(), byte_offset).or_else(|| {
+                scalar
+                    .directives()
+                    .and_then(|d| check_directives_for_symbol(&d, byte_offset))
+            })
         }
         cst::Definition::ScalarTypeExtension(ext) => {
-            check_type_definition_name(ext.name(), byte_offset)
+            check_type_definition_name(ext.name(), byte_offset).or_else(|| {
+                ext.directives()
+                    .and_then(|d| check_directives_for_symbol(&d, byte_offset))
+            })
         }
         cst::Definition::InputObjectTypeDefinition(input) => {
-            check_type_definition_name(input.name(), byte_offset).or_else(|| {
-                check_input_fields_definition(input.input_fields_definition(), byte_offset)
-            })
+            check_type_definition_name(input.name(), byte_offset)
+                .or_else(|| {
+                    input
+                        .directives()
+                        .and_then(|d| check_directives_for_symbol(&d, byte_offset))
+                })
+                .or_else(|| {
+                    check_input_fields_definition(input.input_fields_definition(), byte_offset)
+                })
         }
         _ => None,
     }
@@ -568,6 +617,16 @@ fn check_fields_definition(
                         return Some(symbol);
                     }
                 }
+                if let Some(directives) = arg.directives() {
+                    if let Some(symbol) = check_directives_for_symbol(&directives, byte_offset) {
+                        return Some(symbol);
+                    }
+                }
+            }
+        }
+        if let Some(directives) = field.directives() {
+            if let Some(symbol) = check_directives_for_symbol(&directives, byte_offset) {
+                return Some(symbol);
             }
         }
     }
@@ -582,6 +641,11 @@ fn check_input_fields_definition(
     for field in fields.input_value_definitions() {
         if let Some(ty) = field.ty() {
             if let Some(symbol) = check_type_reference(&ty, byte_offset) {
+                return Some(symbol);
+            }
+        }
+        if let Some(directives) = field.directives() {
+            if let Some(symbol) = check_directives_for_symbol(&directives, byte_offset) {
                 return Some(symbol);
             }
         }
@@ -662,6 +726,12 @@ fn check_operation(op: &cst::OperationDefinition, byte_offset: usize) -> Option<
         }
     }
 
+    if let Some(directives) = op.directives() {
+        if let Some(symbol) = check_directives_for_symbol(&directives, byte_offset) {
+            return Some(symbol);
+        }
+    }
+
     if let Some(selection_set) = op.selection_set() {
         if let Some(symbol) = check_selection_set(&selection_set, byte_offset) {
             return Some(symbol);
@@ -691,6 +761,12 @@ fn check_fragment_definition(frag: &cst::FragmentDefinition, byte_offset: usize)
                     });
                 }
             }
+        }
+    }
+
+    if let Some(directives) = frag.directives() {
+        if let Some(symbol) = check_directives_for_symbol(&directives, byte_offset) {
+            return Some(symbol);
         }
     }
 
@@ -753,6 +829,45 @@ fn check_value(value: &cst::Value, byte_offset: usize) -> Option<Symbol> {
     None
 }
 
+fn check_directives_for_symbol(
+    directives: &cst::Directives,
+    byte_offset: usize,
+) -> Option<Symbol> {
+    for directive in directives.directives() {
+        if let Some(name) = directive.name() {
+            if is_within_range(&name, byte_offset) {
+                return Some(Symbol::DirectiveName {
+                    name: name.text().to_string(),
+                });
+            }
+        }
+        if let Some(arguments) = directive.arguments() {
+            let args_range = arguments.syntax().text_range();
+            let args_start: usize = args_range.start().into();
+            let args_end: usize = args_range.end().into();
+            if byte_offset >= args_start && byte_offset <= args_end {
+                let directive_name = directive.name()?.text().to_string();
+                for arg in arguments.arguments() {
+                    if let Some(arg_name) = arg.name() {
+                        if is_within_range(&arg_name, byte_offset) {
+                            return Some(Symbol::DirectiveArgumentName {
+                                directive_name,
+                                argument_name: arg_name.text().to_string(),
+                            });
+                        }
+                    }
+                    if let Some(value) = arg.value() {
+                        if let Some(symbol) = check_value(&value, byte_offset) {
+                            return Some(symbol);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 fn check_selection_set(selection_set: &cst::SelectionSet, byte_offset: usize) -> Option<Symbol> {
     for selection in selection_set.selections() {
         match selection {
@@ -771,6 +886,12 @@ fn check_selection_set(selection_set: &cst::SelectionSet, byte_offset: usize) ->
                     }
                 }
 
+                if let Some(directives) = field.directives() {
+                    if let Some(symbol) = check_directives_for_symbol(&directives, byte_offset) {
+                        return Some(symbol);
+                    }
+                }
+
                 if let Some(nested) = field.selection_set() {
                     if let Some(symbol) = check_selection_set(&nested, byte_offset) {
                         return Some(symbol);
@@ -785,6 +906,12 @@ fn check_selection_set(selection_set: &cst::SelectionSet, byte_offset: usize) ->
                         });
                     }
                 }
+
+                if let Some(directives) = spread.directives() {
+                    if let Some(symbol) = check_directives_for_symbol(&directives, byte_offset) {
+                        return Some(symbol);
+                    }
+                }
             }
             cst::Selection::InlineFragment(inline_frag) => {
                 if let Some(type_cond) = inline_frag.type_condition() {
@@ -796,6 +923,12 @@ fn check_selection_set(selection_set: &cst::SelectionSet, byte_offset: usize) ->
                                 });
                             }
                         }
+                    }
+                }
+
+                if let Some(directives) = inline_frag.directives() {
+                    if let Some(symbol) = check_directives_for_symbol(&directives, byte_offset) {
+                        return Some(symbol);
                     }
                 }
 

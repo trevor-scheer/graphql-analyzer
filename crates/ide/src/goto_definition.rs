@@ -244,5 +244,6 @@ pub fn goto_definition(
             }
             None
         }
+        Symbol::DirectiveName { .. } | Symbol::DirectiveArgumentName { .. } => None,
     }
 }
