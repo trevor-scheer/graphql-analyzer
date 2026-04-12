@@ -326,6 +326,8 @@ pub enum SymbolKind {
     Union,
     /// Enum type
     Enum,
+    /// Directive definition
+    Directive,
 }
 
 /// A document symbol (hierarchical structure for outline view)

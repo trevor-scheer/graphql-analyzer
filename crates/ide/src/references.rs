@@ -8,9 +8,10 @@
 use std::sync::Arc;
 
 use crate::helpers::{
-    find_block_for_position, find_field_usages_in_parse, find_fragment_definition_in_parse,
-    find_fragment_spreads_in_parse, find_type_definition_in_parse, find_type_references_in_parse,
-    offset_range_to_range, position_to_offset,
+    find_block_for_position, find_directive_definition_in_parse, find_directive_usages_in_parse,
+    find_field_usages_in_parse, find_fragment_definition_in_parse, find_fragment_spreads_in_parse,
+    find_type_definition_in_parse, find_type_references_in_parse, offset_range_to_range,
+    position_to_offset,
 };
 use crate::symbol::{find_schema_field_parent_type, find_symbol_at_offset, Symbol};
 use crate::types::{FilePath, Location, Position};
@@ -76,6 +77,13 @@ pub fn find_references(
                 include_declaration,
             ))
         }
+        Symbol::DirectiveName { name } => Some(find_directive_references(
+            db,
+            registry,
+            project_files,
+            &name,
+            include_declaration,
+        )),
         _ => None,
     }
 }
@@ -307,6 +315,81 @@ pub fn find_field_references(
         let field_ranges = find_field_usages_in_parse(&parse, type_name, field_name, schema_types);
 
         for range in field_ranges {
+            locations.push(Location::new(file_path.clone(), range));
+        }
+    }
+
+    locations
+}
+
+/// Find all references to a directive.
+fn find_directive_references(
+    db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
+    registry: DbFiles<'_>,
+    project_files: Option<graphql_base_db::ProjectFiles>,
+    directive_name: &str,
+    include_declaration: bool,
+) -> Vec<Location> {
+    let mut locations = Vec::new();
+    let Some(project_files) = project_files else {
+        return locations;
+    };
+
+    // Prefer source schema for declaration location
+    let source_directives = graphql_hir::source_schema_directives(db, project_files);
+    let resolved_directives = graphql_hir::schema_directives(db, project_files);
+
+    if include_declaration {
+        if let Some(directive) = source_directives
+            .get(directive_name)
+            .or_else(|| resolved_directives.get(directive_name))
+        {
+            if let Some(file_path) = registry.get_path(directive.file_id) {
+                if let (Some(content), Some(metadata)) = (
+                    registry.get_content(directive.file_id),
+                    registry.get_metadata(directive.file_id),
+                ) {
+                    let def_parse = graphql_syntax::parse(db, content, metadata);
+                    if let Some(range) =
+                        find_directive_definition_in_parse(&def_parse, directive_name)
+                    {
+                        locations.push(Location::new(file_path, range));
+                    }
+                }
+            }
+        }
+    }
+
+    // Scan schema files for usages
+    let schema_ids = project_files.schema_file_ids(db).ids(db);
+    for file_id in schema_ids.iter() {
+        let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        else {
+            continue;
+        };
+        let Some(file_path) = registry.get_path(*file_id) else {
+            continue;
+        };
+
+        let parse = graphql_syntax::parse(db, content, metadata);
+        for range in find_directive_usages_in_parse(&parse, directive_name) {
+            locations.push(Location::new(file_path.clone(), range));
+        }
+    }
+
+    // Scan document files for usages
+    let doc_ids = project_files.document_file_ids(db).ids(db);
+    for file_id in doc_ids.iter() {
+        let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
+        else {
+            continue;
+        };
+        let Some(file_path) = registry.get_path(*file_id) else {
+            continue;
+        };
+
+        let parse = graphql_syntax::parse(db, content, metadata);
+        for range in find_directive_usages_in_parse(&parse, directive_name) {
             locations.push(Location::new(file_path.clone(), range));
         }
     }

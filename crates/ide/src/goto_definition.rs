@@ -244,5 +244,43 @@ pub fn goto_definition(
             }
             None
         }
+        Symbol::DirectiveName { name } => {
+            // Try source schema first for navigation, fallback to resolved
+            let source_directives = graphql_hir::source_schema_directives(db, project_files);
+            let directive = source_directives
+                .get(name.as_str())
+                .or_else(|| graphql_hir::schema_directives(db, project_files).get(name.as_str()))?;
+
+            let file_path = registry.get_path(directive.file_id)?;
+            let content = registry.get_content(directive.file_id)?;
+            let line_index = graphql_syntax::line_index(db, content);
+            let start: usize = directive.name_range.start().into();
+            let end: usize = directive.name_range.end().into();
+            let range = offset_range_to_range(&line_index, start, end);
+
+            Some(vec![Location::new(file_path, range)])
+        }
+        Symbol::DirectiveArgumentName {
+            directive_name,
+            argument_name,
+        } => {
+            let source_directives = graphql_hir::source_schema_directives(db, project_files);
+            let directive = source_directives.get(directive_name.as_str()).or_else(|| {
+                graphql_hir::schema_directives(db, project_files).get(directive_name.as_str())
+            })?;
+            let arg = directive
+                .arguments
+                .iter()
+                .find(|a| a.name.as_ref() == argument_name)?;
+
+            let file_path = registry.get_path(arg.file_id)?;
+            let content = registry.get_content(arg.file_id)?;
+            let line_index = graphql_syntax::line_index(db, content);
+            let start: usize = arg.name_range.start().into();
+            let end: usize = arg.name_range.end().into();
+            let range = offset_range_to_range(&line_index, start, end);
+
+            Some(vec![Location::new(file_path, range)])
+        }
     }
 }
