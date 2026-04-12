@@ -1,21 +1,33 @@
-# Pre-commit Hooks
+# Git Hooks
 
-This directory contains the git pre-commit hook configuration.
+This directory contains the git hook configuration.
 
 ## How it works
 
 - `Cargo.toml` configures [cargo-husky](https://github.com/rhysd/cargo-husky) to automatically install git hooks during build
-- cargo-husky runs `cargo clippy` and `cargo fmt --check` on Rust code
-- `pre-commit.sh` contains additional custom checks (e.g., linting VSCode extension TypeScript files)
+- Hooks are stored in `.cargo-husky/hooks/` and copied to `.git/hooks/` by cargo-husky
+- **pre-commit**: Checks formatting and linting for staged files
+- **pre-push**: Runs the full check suite (fmt, clippy, lint, tests) for changed files before pushing
 
 ## Setup
 
 The hooks are automatically installed when you build the project with `cargo build`.
 
-To manually update the git hook after modifying `pre-commit.sh`, rebuild the project or manually edit `.git/hooks/pre-commit` to source the custom script.
+To manually reinstall hooks after modifying them, run:
+```bash
+cargo test -p husky-hooks
+```
 
-## Custom checks
+## Hooks
 
-- **VSCode extension formatting**: Runs `prettier --check` when staging changes to `editors/vscode/`
-- **VSCode extension linting**: Runs `oxlint` when staging changes to `editors/vscode/`
-- **GraphQL formatting**: Runs `oxfmt --check` when staging changes to `.graphql` files
+### pre-commit
+Runs on staged files before each commit:
+- **Rust formatting**: `cargo fmt --check` (for `.rs` files)
+- **Rust linting**: `cargo clippy` (for `.rs`/`.toml` files)
+- **TS/JS linting**: `npm run lint` (for `.ts`/`.tsx`/`.js`/`.jsx` files)
+- **Multi-format checking**: `npm run fmt:check` (for `.graphql`/`.ts`/`.js`/`.md`/`.yaml`/`.json` files)
+
+### pre-push
+Runs on all changed files (vs remote) before each push:
+- All the same checks as pre-commit
+- **Tests**: `cargo test` (for `.rs`/`.toml` files)
