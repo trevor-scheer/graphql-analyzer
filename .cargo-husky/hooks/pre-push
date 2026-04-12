@@ -1,0 +1,60 @@
+#!/bin/sh
+#
+# Pre-push checks: ensure lint, formatting, and tests pass before pushing.
+# Installed by cargo-husky.
+#
+
+set -e
+
+# Get the range of commits being pushed
+remote="$1"
+url="$2"
+
+while read local_ref local_sha remote_ref remote_sha; do
+    # Skip deletes
+    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+        continue
+    fi
+
+    # For new branches, compare against main
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        remote_sha=$(git merge-base HEAD main 2>/dev/null || echo "")
+        if [ -z "$remote_sha" ]; then
+            # Can't determine base, run all checks
+            remote_sha="HEAD~1"
+        fi
+    fi
+
+    # Get list of changed files in the push
+    changed_files=$(git diff --name-only "$remote_sha" "$local_sha" 2>/dev/null || git diff --name-only HEAD~1 HEAD)
+
+    # Check Rust formatting if any Rust files changed
+    if echo "$changed_files" | grep -qE '\.rs$'; then
+        echo '+cargo fmt --check'
+        cargo fmt --check
+    fi
+
+    # Run clippy if any Rust or TOML files changed
+    if echo "$changed_files" | grep -qE '\.(rs|toml)$'; then
+        echo '+cargo clippy --workspace --all-targets --all-features -- -D warnings'
+        cargo clippy --workspace --all-targets --all-features -- -D warnings
+    fi
+
+    # Lint TS/JS files if any changed
+    if echo "$changed_files" | grep -qE '\.(ts|tsx|js|jsx)$'; then
+        echo '+npm run lint'
+        npm run lint
+    fi
+
+    # Check formatting with oxfmt for supported file types
+    if echo "$changed_files" | grep -qE '\.(graphql|ts|tsx|js|md|yaml|yml|toml|json)$'; then
+        echo '+npm run fmt:check'
+        npm run fmt:check
+    fi
+
+    # Run tests if any source files changed
+    if echo "$changed_files" | grep -qE '\.(rs|toml)$'; then
+        echo '+cargo test'
+        cargo test
+    fi
+done
