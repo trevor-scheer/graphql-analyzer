@@ -2,6 +2,21 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.2.0 (2026-04-12)
+
+### Breaking Changes
+
+#### Namespace extensions under `extensions.graphql-analyzer` and add resolved schema support ([#966](https://github.com/trevor-scheer/graphql-analyzer/pull/966))
+
+BREAKING: `client`, `lint`, and `extractConfig` must now be nested under `extensions.graphql-analyzer` in `.graphqlrc.yaml`.
+
+New: `resolvedSchema` config option to validate queries against a build-generated schema while keeping source files for navigation.
+
+### Features
+
+- Add directive IDE features: go-to-definition, hover, find references, and document/workspace symbols ([#969](https://github.com/trevor-scheer/graphql-analyzer/pull/969))
+- Show inlay type hints on non-leaf (object type) fields in queries ([#970](https://github.com/trevor-scheer/graphql-analyzer/pull/970))
+
 ## 0.1.18 (2026-04-10)
 
 ### Fixes
