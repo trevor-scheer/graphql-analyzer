@@ -48,10 +48,6 @@ export default defineConfig({
               label: "Multi-Project Workspaces",
               slug: "configuration/multi-project",
             },
-            {
-              label: "Tool-Specific Overrides",
-              slug: "configuration/tool-overrides",
-            },
           ],
         },
         {

@@ -46,7 +46,8 @@ query Shallow {
 
 ```yaml
 extensions:
-  lint:
-    rules:
-      selectionSetDepth: [warn, { maxDepth: 3 }]
+  graphql-analyzer:
+    lint:
+      rules:
+        selectionSetDepth: [warn, { maxDepth: 3 }]
 ```

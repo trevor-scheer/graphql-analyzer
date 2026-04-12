@@ -88,7 +88,39 @@ pub fn merged_schema_with_diagnostics(
     project_files: graphql_base_db::ProjectFiles,
 ) -> MergedSchemaResult {
     tracing::debug!("merged_schema: Starting schema merge with diagnostics");
+
+    // When a resolved schema is configured, merge only those files (the
+    // build-generated schema is already complete; source files may be
+    // intentionally incomplete).
+    let resolved_ids = project_files.resolved_schema_file_ids(db).ids(db);
+    if !resolved_ids.is_empty() {
+        // Include builtins from source schema IDs + resolved files
+        let source_ids = project_files.schema_file_ids(db).ids(db);
+        let mut combined: Vec<graphql_base_db::FileId> = source_ids
+            .iter()
+            .copied()
+            .filter(|fid| {
+                graphql_base_db::file_lookup(db, project_files, *fid).is_some_and(|(_, meta)| {
+                    let uri = meta.uri(db);
+                    uri.as_str().ends_with("schema_builtins.graphql")
+                        || uri.as_str().ends_with("client_builtins.graphql")
+                })
+            })
+            .collect();
+        combined.extend(resolved_ids.iter().copied());
+        return build_merged_schema(db, project_files, &combined);
+    }
+
     let schema_ids = project_files.schema_file_ids(db).ids(db);
+    build_merged_schema(db, project_files, &schema_ids)
+}
+
+/// Build a merged schema from the given file IDs and return validation diagnostics.
+fn build_merged_schema(
+    db: &dyn GraphQLAnalysisDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+    schema_ids: &[graphql_base_db::FileId],
+) -> MergedSchemaResult {
     tracing::debug!(schema_file_count = schema_ids.len(), "Found schema files");
 
     // Check if we have any user schema files (excluding builtins)
@@ -112,7 +144,7 @@ pub fn merged_schema_with_diagnostics(
 
     let mut builder = apollo_compiler::schema::SchemaBuilder::new().adopt_orphan_extensions();
 
-    for file_id in schema_ids.iter() {
+    for file_id in schema_ids {
         let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
         else {
             continue;
@@ -120,9 +152,6 @@ pub fn merged_schema_with_diagnostics(
         let uri = metadata.uri(db);
 
         if metadata.requires_extraction(db) {
-            // For TS/JS files, extract GraphQL blocks and parse each with source_offset.
-            // source_offset bakes the line/column offset into the parser so all diagnostics
-            // from apollo-compiler automatically have correct positions in the original file.
             let parse = graphql_syntax::parse(db, content, metadata);
 
             for doc in parse.documents() {
@@ -134,8 +163,6 @@ pub fn merged_schema_with_diagnostics(
                 parser.parse_into_schema_builder(doc.source, uri.as_str(), &mut builder);
             }
         } else {
-            // For pure GraphQL files, use the original approach with parse_into_schema_builder.
-            // This properly handles syntax errors and maintains existing behavior.
             let text = content.text(db);
             tracing::debug!(uri = ?uri, "Adding schema file to merge");
             let mut parser = Parser::new();

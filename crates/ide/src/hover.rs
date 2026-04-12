@@ -61,6 +61,7 @@ pub fn hover(
     match symbol {
         Symbol::FieldName { name } => {
             let types = graphql_hir::schema_types(db, project_files);
+            let source_types = graphql_hir::source_schema_types(db, project_files);
 
             let parent_type_name =
                 if let Some(parent_ctx) = find_parent_type_at_offset(block_context.tree, offset) {
@@ -86,7 +87,17 @@ pub fn hover(
                 .iter()
                 .find(|f| f.name.as_ref() == name)?;
 
+            // Check if field only exists in the resolved schema
+            let from_resolved = graphql_hir::has_resolved_schema(db, project_files)
+                && source_types
+                    .get(parent_type_name.as_str())
+                    .and_then(|td| td.fields.iter().find(|f| f.name.as_ref() == name))
+                    .is_none();
+
             let mut hover_text = format!("**Field:** `{name}`\n\n");
+            if from_resolved {
+                write!(hover_text, "*(resolved schema)*\n\n").ok();
+            }
             let field_type = format_type_ref(&field.type_ref);
             write!(hover_text, "**Type:** `{field_type}`\n\n").ok();
 

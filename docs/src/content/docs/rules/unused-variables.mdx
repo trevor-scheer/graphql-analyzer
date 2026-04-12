@@ -38,7 +38,8 @@ query GetUser($id: ID!) {
 
 ```yaml
 extensions:
-  lint:
-    rules:
-      unusedVariables: warn # or error, off
+  graphql-analyzer:
+    lint:
+      rules:
+        unusedVariables: warn # or error, off
 ```

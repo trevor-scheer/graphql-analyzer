@@ -20,26 +20,24 @@ Edit schema → All documents re-validated (schema is a shared dependency)
 | Rule budget     | Fast rules only      | All rules   |
 | Typical latency | Milliseconds         | Seconds     |
 
-## Disabling expensive rules in the LSP
+## Expensive rules
 
-Project-wide rules analyze all documents together and can be slow. Disable them in the LSP and run them in CI:
+Project-wide rules like `unusedFields` and `unusedFragments` analyze all documents together and can be slow in very large projects. If you experience latency in the editor, disable them in your config and run them in CI instead:
 
 ```yaml
 extensions:
-  lint:
-    extends: recommended
-
-  lsp:
+  graphql-analyzer:
     lint:
+      extends: recommended
       rules:
         unusedFields: off
         unusedFragments: off
+```
 
-  cli:
-    lint:
-      rules:
-        unusedFields: error
-        unusedFragments: error
+Then in CI, enable them explicitly:
+
+```bash
+graphql check --rule unusedFields=error --rule unusedFragments=error
 ```
 
 ## Structure/body separation

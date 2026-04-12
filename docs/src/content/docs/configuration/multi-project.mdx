@@ -28,16 +28,18 @@ projects:
     schema: packages/web/schema.graphql
     documents: packages/web/src/**/*.{graphql,tsx}
     extensions:
-      lint:
-        extends: recommended
+      graphql-analyzer:
+        lint:
+          extends: recommended
   api:
     schema: packages/api/schema/**/*.graphql
     documents: packages/api/src/**/*.graphql
     extensions:
-      lint:
-        extends: recommended
-        rules:
-          unusedFields: error
+      graphql-analyzer:
+        lint:
+          extends: recommended
+          rules:
+            unusedFields: error
 ```
 
 ## Using with the CLI
@@ -67,18 +69,21 @@ projects:
     schema: packages/web/schema.graphql
     documents: packages/web/src/**/*.{graphql,tsx}
     extensions:
-      lint:
-        extends: recommended
+      graphql-analyzer:
+        lint:
+          extends: recommended
   mobile:
     schema: packages/mobile/schema.graphql
     documents: packages/mobile/src/**/*.{graphql,ts}
     extensions:
-      lint:
-        extends: recommended
+      graphql-analyzer:
+        lint:
+          extends: recommended
   api:
     schema: packages/api/schema/**/*.graphql
     documents: packages/api/src/**/*.graphql
     extensions:
-      lint:
-        extends: recommended
+      graphql-analyzer:
+        lint:
+          extends: recommended
 ```

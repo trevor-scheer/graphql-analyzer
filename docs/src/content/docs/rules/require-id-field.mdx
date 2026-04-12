@@ -57,22 +57,25 @@ query GetUser {
 ```yaml
 # Default: require 'id' field
 extensions:
-  lint:
-    rules:
-      requireIdField: warn
+  graphql-analyzer:
+    lint:
+      rules:
+        requireIdField: warn
 
 # Require a different field (e.g., for Relay-style nodeId)
 extensions:
-  lint:
-    rules:
-      requireIdField: [warn, { fields: ["nodeId"] }]
+  graphql-analyzer:
+    lint:
+      rules:
+        requireIdField: [warn, { fields: ["nodeId"] }]
 
 # Require multiple fields
 extensions:
-  lint:
-    rules:
-      requireIdField:
-        severity: warn
-        options:
-          fields: ["id", "uuid"]
+  graphql-analyzer:
+    lint:
+      rules:
+        requireIdField:
+          severity: warn
+          options:
+            fields: ["id", "uuid"]
 ```

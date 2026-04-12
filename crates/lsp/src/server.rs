@@ -150,7 +150,7 @@ async fn load_workspaces_background(
         "Registering config file watchers"
     );
 
-    let watchers: Vec<FileSystemWatcher> = config_paths
+    let mut watchers: Vec<FileSystemWatcher> = config_paths
         .iter()
         .filter_map(|path| {
             let filename = path.file_name()?.to_str()?;
@@ -160,6 +160,21 @@ async fn load_workspaces_background(
             })
         })
         .collect();
+
+    // Also watch resolved schema files
+    let resolved_paths: Vec<PathBuf> = workspace
+        .resolved_schema_paths
+        .iter()
+        .map(|entry| entry.value().clone())
+        .collect();
+    for path in &resolved_paths {
+        if let Some(filename) = path.file_name().and_then(|f| f.to_str()) {
+            watchers.push(FileSystemWatcher {
+                glob_pattern: lsp_types::GlobPattern::String(format!("**/{filename}")),
+                kind: Some(lsp_types::WatchKind::all()),
+            });
+        }
+    }
 
     let registration = lsp_types::Registration {
         id: "graphql-config-watcher".to_string(),
@@ -380,22 +395,15 @@ async fn load_all_project_files_background(
         tracing::debug!("Loading project: {}", project_name);
 
         let extract_config = project_config
-            .extensions
-            .as_ref()
-            .and_then(|extensions| extensions.get("extractConfig"))
-            .and_then(|extract_config_value| {
-                serde_json::from_value::<graphql_extract::ExtractConfig>(
-                    extract_config_value.clone(),
-                )
-                .ok()
-            })
+            .extract_config()
+            .and_then(|v| serde_json::from_value::<graphql_extract::ExtractConfig>(v).ok())
             .unwrap_or_default();
 
         let lint_config =
             project_config
                 .lint()
                 .map_or_else(graphql_linter::LintConfig::default, |lint_value| {
-                    serde_json::from_value::<graphql_linter::LintConfig>(lint_value.clone())
+                    serde_json::from_value::<graphql_linter::LintConfig>(lint_value)
                         .unwrap_or_default()
                 });
 
@@ -1093,25 +1101,21 @@ documents: "**/*.graphql"
             let project_start = std::time::Instant::now();
             tracing::debug!("Loading project: {}", project_name);
             let extract_config = project_config
-                .extensions
-                .as_ref()
-                .and_then(|extensions| extensions.get("extractConfig"))
-                .and_then(|extract_config_value| {
-                    match serde_json::from_value::<graphql_extract::ExtractConfig>(
-                        extract_config_value.clone(),
-                    ) {
+                .extract_config()
+                .and_then(
+                    |v| match serde_json::from_value::<graphql_extract::ExtractConfig>(v) {
                         Ok(config) => Some(config),
                         Err(e) => {
                             tracing::warn!("Failed to parse extract config: {e}, using defaults");
                             None
                         }
-                    }
-                })
+                    },
+                )
                 .unwrap_or_default();
 
             let lint_config = project_config.lint().map_or_else(
                 graphql_linter::LintConfig::default,
-                |lint_value| match serde_json::from_value::<graphql_linter::LintConfig>(lint_value.clone()) {
+                |lint_value| match serde_json::from_value::<graphql_linter::LintConfig>(lint_value) {
                     Ok(cfg) => cfg,
                     Err(e) => {
                         tracing::warn!("Failed to parse lint config for project '{}': {}. Using default lint config.", project_name, e);
@@ -1162,6 +1166,15 @@ documents: "**/*.graphql"
                     (schema_result, docs, doc_result)
                 })
                 .await;
+
+            // Track resolved schema path for file watching
+            if let Some(resolved_path) = project_config.resolved_schema() {
+                let resolved_full = workspace_path.join(&resolved_path);
+                self.workspace.resolved_schema_paths.insert(
+                    (workspace_uri.to_string(), project_name.to_string()),
+                    resolved_full,
+                );
+            }
 
             let no_user_schema = schema_result.has_no_user_schema();
             let pending_introspections = schema_result.pending_introspections.clone();
@@ -1359,6 +1372,68 @@ documents: "**/*.graphql"
                         tracing::debug!("Memory: {}", line.trim());
                     }
                 }
+            }
+        }
+    }
+
+    /// Reload a resolved schema file that changed on disk.
+    ///
+    /// Re-reads the file, updates the host, and republishes diagnostics for
+    /// all document files in the affected project.
+    pub(crate) async fn reload_resolved_schema(
+        &self,
+        workspace_uri: &str,
+        project_name: &str,
+        resolved_path: &Path,
+    ) {
+        tracing::info!(
+            "Reloading resolved schema for project '{}': {}",
+            project_name,
+            resolved_path.display()
+        );
+
+        let Some(host) = self.workspace.get_host(workspace_uri, project_name) else {
+            return;
+        };
+
+        let Ok(content) = std::fs::read_to_string(resolved_path) else {
+            tracing::warn!(
+                "Failed to read resolved schema file: {}",
+                resolved_path.display()
+            );
+            return;
+        };
+
+        let file_uri = graphql_ide::path_to_file_uri(resolved_path);
+        let file_path = graphql_ide::FilePath::new(file_uri);
+
+        host.with_write(|h| {
+            h.add_file(
+                &file_path,
+                &content,
+                graphql_ide::Language::GraphQL,
+                graphql_ide::DocumentKind::Schema,
+            );
+        })
+        .await;
+
+        // Republish diagnostics for all files
+        if let Some(snapshot) = host.try_snapshot().await {
+            let Some(diag_map) = Self::blocking(move || snapshot.all_diagnostics()).await else {
+                return;
+            };
+            for (fp, diagnostics) in &diag_map {
+                let Ok(file_uri) = Uri::from_str(fp.as_str()) else {
+                    continue;
+                };
+                let lsp_diagnostics: Vec<Diagnostic> = diagnostics
+                    .iter()
+                    .cloned()
+                    .map(convert_ide_diagnostic)
+                    .collect();
+                self.client
+                    .publish_diagnostics(file_uri, lsp_diagnostics, None)
+                    .await;
             }
         }
     }

@@ -65,10 +65,11 @@ By default, the tool recognizes `gql` imported from common modules. You can cust
 ```yaml
 documents: "src/**/*.tsx"
 extensions:
-  extractConfig:
-    tagIdentifiers: ["gql", "graphql", "query"]
-    modules: ["graphql-tag", "@apollo/client", "custom-gql"]
-    allowGlobalIdentifiers: true
+  graphql-analyzer:
+    extractConfig:
+      tagIdentifiers: ["gql", "graphql", "query"]
+      modules: ["graphql-tag", "@apollo/client", "custom-gql"]
+      allowGlobalIdentifiers: true
 ```
 
 | Option                   | Default           | Description                      |

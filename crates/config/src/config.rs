@@ -61,7 +61,7 @@ impl GraphQLConfig {
     /// For single-project configs, returns the project's lint config from extensions
     /// For multi-project configs, returns None (each project has its own)
     #[must_use]
-    pub fn lint_config(&self) -> Option<&serde_json::Value> {
+    pub fn lint_config(&self) -> Option<serde_json::Value> {
         match self {
             Self::Single(config) => config.lint(),
             Self::Multi { .. } => None,
@@ -443,43 +443,62 @@ impl ProjectConfig {
             .get_or_init(|| CompiledPatterns::compile(self))
     }
 
-    /// Get the lint configuration from extensions.
-    ///
-    /// Lint configuration should be specified under `extensions.lint`:
-    /// ```yaml
-    /// extensions:
-    ///   lint:
-    ///     extends: recommended
-    ///     rules:
-    ///       noDeprecated: warn
-    /// ```
-    #[must_use]
-    pub fn lint(&self) -> Option<&serde_json::Value> {
-        self.extensions.as_ref().and_then(|ext| ext.get("lint"))
+    /// Get the parsed `graphql-analyzer` extensions block, if present.
+    fn analyzer_extensions(&self) -> Option<AnalyzerExtensions> {
+        let ext = self.extensions.as_ref()?;
+        let analyzer_value = ext.get("graphql-analyzer")?;
+        serde_json::from_value(analyzer_value.clone()).ok()
     }
 
-    /// Get the client configuration from extensions.
-    ///
-    /// Client configuration specifies which GraphQL client library is being used,
-    /// which determines the built-in client directives available for validation:
-    /// ```yaml
-    /// extensions:
-    ///   client: apollo
-    /// ```
+    /// Get the lint configuration from `extensions.graphql-analyzer.lint`.
+    #[must_use]
+    pub fn lint(&self) -> Option<serde_json::Value> {
+        self.analyzer_extensions()?.lint
+    }
+
+    /// Get the client configuration from `extensions.graphql-analyzer.client`.
     #[must_use]
     pub fn client(&self) -> Option<ClientConfig> {
-        let value = self.extensions.as_ref().and_then(|ext| ext.get("client"))?;
-
-        if let Ok(config) = serde_json::from_value(value.clone()) {
-            Some(config)
-        } else {
-            tracing::warn!(
-                "Unrecognized client config value: {}. Expected one of: apollo, relay, none",
-                value
-            );
-            None
-        }
+        self.analyzer_extensions()?.client
     }
+
+    /// Get the resolved schema path from extensions.
+    ///
+    /// When configured, queries are validated against this built-generated schema
+    /// instead of the source schema files.
+    /// ```yaml
+    /// extensions:
+    ///   graphql-analyzer:
+    ///     resolvedSchema: "generated/schema.graphql"
+    /// ```
+    #[must_use]
+    pub fn resolved_schema(&self) -> Option<String> {
+        self.analyzer_extensions()?.resolved_schema
+    }
+
+    /// Get the extract configuration from `extensions.graphql-analyzer.extractConfig`.
+    #[must_use]
+    pub fn extract_config(&self) -> Option<serde_json::Value> {
+        self.analyzer_extensions()?.extract_config
+    }
+}
+
+/// Typed deserialization of `extensions.graphql-analyzer` block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalyzerExtensions {
+    /// Path to a build-generated resolved schema file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_schema: Option<String>,
+    /// Client library configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client: Option<ClientConfig>,
+    /// Lint configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lint: Option<serde_json::Value>,
+    /// Extract configuration for TS/JS files.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extract_config: Option<serde_json::Value>,
 }
 
 /// GraphQL client library configuration.
@@ -790,7 +809,8 @@ mod tests {
         let yaml = r"
 schema: schema.graphql
 extensions:
-  client: apollo
+  graphql-analyzer:
+    client: apollo
 ";
         let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
         assert_eq!(config.client(), Some(ClientConfig::Apollo));
@@ -801,7 +821,8 @@ extensions:
         let yaml = r"
 schema: schema.graphql
 extensions:
-  client: relay
+  graphql-analyzer:
+    client: relay
 ";
         let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
         assert_eq!(config.client(), Some(ClientConfig::Relay));
@@ -812,7 +833,8 @@ extensions:
         let yaml = r"
 schema: schema.graphql
 extensions:
-  client: none
+  graphql-analyzer:
+    client: none
 ";
         let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
         assert_eq!(config.client(), Some(ClientConfig::None));
@@ -1352,7 +1374,8 @@ schema:
             r"
 schema: schema.graphql
 extensions:
-  client: apollo
+  graphql-analyzer:
+    client: apollo
 ",
             "client: apollo",
         );
@@ -1364,7 +1387,8 @@ extensions:
             r"
 schema: schema.graphql
 extensions:
-  client: relay
+  graphql-analyzer:
+    client: relay
 ",
             "client: relay",
         );
@@ -1376,7 +1400,8 @@ extensions:
             r"
 schema: schema.graphql
 extensions:
-  client: none
+  graphql-analyzer:
+    client: none
 ",
             "client: none",
         );
@@ -1388,8 +1413,9 @@ extensions:
             r"
 schema: schema.graphql
 extensions:
-  client: apollo
-  lint: recommended
+  graphql-analyzer:
+    client: apollo
+    lint: recommended
 ",
             "lint preset as string",
         );
@@ -1401,8 +1427,9 @@ extensions:
             r"
 schema: schema.graphql
 extensions:
-  client: relay
-  lint: [recommended]
+  graphql-analyzer:
+    client: relay
+    lint: [recommended]
 ",
             "lint preset as array",
         );
@@ -1414,12 +1441,13 @@ extensions:
             r"
 schema: schema.graphql
 extensions:
-  client: none
-  lint:
-    extends: recommended
-    rules:
-      noDeprecated: warn
-      uniqueNames: error
+  graphql-analyzer:
+    client: none
+    lint:
+      extends: recommended
+      rules:
+        noDeprecated: warn
+        uniqueNames: error
 ",
             "lint extends with rules",
         );
@@ -1431,10 +1459,11 @@ extensions:
             r#"
 schema: schema.graphql
 extensions:
-  client: apollo
-  lint:
-    rules:
-      requireIdField: [warn, { fields: ["id", "nodeId"] }]
+  graphql-analyzer:
+    client: apollo
+    lint:
+      rules:
+        requireIdField: [warn, { fields: ["id", "nodeId"] }]
 "#,
             "lint ESLint array style",
         );
@@ -1446,13 +1475,14 @@ extensions:
             r#"
 schema: schema.graphql
 extensions:
-  client: apollo
-  lint:
-    rules:
-      requireIdField:
-        severity: error
-        options:
-          fields: ["id"]
+  graphql-analyzer:
+    client: apollo
+    lint:
+      rules:
+        requireIdField:
+          severity: error
+          options:
+            fields: ["id"]
 "#,
             "lint object style with options",
         );
@@ -1464,11 +1494,12 @@ extensions:
             r#"
 schema: schema.graphql
 extensions:
-  client: apollo
-  extractConfig:
-    tagIdentifiers: ["gql", "graphql"]
-    modules: ["@apollo/client"]
-    allowGlobalIdentifiers: true
+  graphql-analyzer:
+    client: apollo
+    extractConfig:
+      tagIdentifiers: ["gql", "graphql"]
+      modules: ["@apollo/client"]
+      allowGlobalIdentifiers: true
 "#,
             "extract config",
         );
@@ -1481,8 +1512,9 @@ extensions:
             r"
 schema: schema.graphql
 extensions:
-  client: none
-  lint: recommended
+  graphql-analyzer:
+    client: none
+    lint: recommended
   customTool:
     setting: value
 ",

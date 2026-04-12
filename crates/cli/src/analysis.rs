@@ -37,7 +37,7 @@ impl CliAnalysisHost {
 
         if let Some(lint_value) = project_config.lint() {
             tracing::debug!("Raw lint configuration: {lint_value:?}");
-            match serde_json::from_value::<graphql_linter::LintConfig>(lint_value.clone()) {
+            match serde_json::from_value::<graphql_linter::LintConfig>(lint_value) {
                 Ok(lint_config) => {
                     if let Err(validation_error) = lint_config.validate() {
                         return Err(anyhow::anyhow!(

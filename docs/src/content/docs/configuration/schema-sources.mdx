@@ -48,3 +48,38 @@ projects:
   client:
     schema: https://api.example.com/graphql
 ```
+
+## Resolved schema
+
+If your build pipeline transforms the schema (e.g., composing subgraphs, stripping federation directives, or applying code generation), the source `.graphql` files may not represent the final schema used at runtime. The `resolvedSchema` option lets you point the analyzer at the build output while keeping source files for navigation and linting.
+
+### When to use it
+
+- Your schema goes through a build step before deployment (e.g., `rover supergraph compose`, codegen)
+- Source schema files contain directives or syntax that would fail standard SDL validation
+- You want validation against the final, resolved schema but still want to navigate and lint source files
+
+### Configuration
+
+```yaml
+schema: "src/schema/**/*.graphql"
+documents: "src/**/*.{graphql,ts,tsx}"
+
+extensions:
+  graphql-analyzer:
+    resolvedSchema: "dist/schema.graphql"
+```
+
+The `resolvedSchema` value is a path to a single SDL file (globs are not supported).
+
+### How it works
+
+| Concern            | Behavior                                                                                                           |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| **Validation**     | Operations are validated against the resolved schema                                                               |
+| **Navigation**     | Go-to-definition prefers source files, falling back to the resolved schema if the definition isn't found in source |
+| **SDL validation** | Skipped on source schema files (since they may not be valid standalone)                                            |
+| **Linting**        | Lint rules run on source schema files                                                                              |
+| **Hover**          | Shows an indicator when a type comes from the resolved schema                                                      |
+
+This means you get the best of both worlds: accurate validation against what actually runs in production, and ergonomic navigation and linting against the files you edit.

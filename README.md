@@ -69,6 +69,18 @@ extensions:
       noDeprecated: warn
 ```
 
+### Resolved Schema
+
+If your build pipeline transforms schemas (e.g., directive-based transforms), queries can be validated against the build output instead of the source SDL:
+
+```yaml
+extensions:
+  graphql-analyzer:
+    resolvedSchema: "generated/schema.graphql"
+```
+
+When configured, query validation and completions use the resolved schema while goto-definition and hover prefer source files (falling back to the resolved schema for generated fields).
+
 For multi-project setups and advanced configuration, see the **[Configuration Guide](crates/config/README.md)**.
 
 ## Documentation

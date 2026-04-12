@@ -9,28 +9,31 @@ The simplest configuration:
 
 ```yaml
 extensions:
-  lint: recommended
+  graphql-analyzer:
+    lint: recommended
 ```
 
 ## Preset with overrides
 
 ```yaml
 extensions:
-  lint:
-    extends: recommended
-    rules:
-      noDeprecated: off # Disable a recommended rule
-      requireIdField: error # Enable an additional rule
+  graphql-analyzer:
+    lint:
+      extends: recommended
+      rules:
+        noDeprecated: off # Disable a recommended rule
+        requireIdField: error # Enable an additional rule
 ```
 
 ## Rules only (no preset)
 
 ```yaml
 extensions:
-  lint:
-    rules:
-      uniqueNames: error
-      noDeprecated: warn
+  graphql-analyzer:
+    lint:
+      rules:
+        uniqueNames: error
+        noDeprecated: warn
 ```
 
 ## Severity levels
@@ -48,18 +51,20 @@ Some rules accept additional configuration via array or object syntax:
 ```yaml
 # Array syntax: [severity, options]
 extensions:
-  lint:
-    rules:
-      requireIdField: [warn, { fields: ["id", "uuid"] }]
+  graphql-analyzer:
+    lint:
+      rules:
+        requireIdField: [warn, { fields: ["id", "uuid"] }]
 
 # Object syntax
 extensions:
-  lint:
-    rules:
-      requireIdField:
-        severity: warn
-        options:
-          fields: ["id", "uuid"]
+  graphql-analyzer:
+    lint:
+      rules:
+        requireIdField:
+          severity: warn
+          options:
+            fields: ["id", "uuid"]
 ```
 
 ## Rule name format

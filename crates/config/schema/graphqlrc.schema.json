@@ -66,19 +66,30 @@
         },
         "extensions": {
           "type": "object",
-          "description": "Tool-specific extensions",
+          "description": "Tool-specific extensions (namespaced by tool)",
           "properties": {
-            "client": {
-              "$ref": "#/definitions/ClientConfig",
-              "description": "GraphQL client library used in this project, determines available client-side directives"
-            },
-            "lint": {
-              "$ref": "#/definitions/LintConfig",
-              "description": "Linting configuration for GraphQL documents"
-            },
-            "extractConfig": {
-              "$ref": "#/definitions/ExtractConfig",
-              "description": "Configuration for extracting GraphQL from TypeScript/JavaScript files"
+            "graphql-analyzer": {
+              "type": "object",
+              "description": "GraphQL Analyzer configuration",
+              "properties": {
+                "client": {
+                  "$ref": "#/definitions/ClientConfig",
+                  "description": "GraphQL client library used in this project, determines available client-side directives"
+                },
+                "lint": {
+                  "$ref": "#/definitions/LintConfig",
+                  "description": "Linting configuration for GraphQL documents"
+                },
+                "extractConfig": {
+                  "$ref": "#/definitions/ExtractConfig",
+                  "description": "Configuration for extracting GraphQL from TypeScript/JavaScript files"
+                },
+                "resolvedSchema": {
+                  "type": "string",
+                  "description": "Path to a resolved/final schema file. When set, queries are validated against this schema instead of the source schema files. Source files are still used for go-to-definition navigation. Useful when a build pipeline transforms the schema (e.g. directive-based transforms)."
+                }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": true

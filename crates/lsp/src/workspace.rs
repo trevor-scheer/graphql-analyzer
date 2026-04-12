@@ -188,6 +188,10 @@ pub struct WorkspaceManager {
     /// Reverse index: file URI → (`workspace_uri`, `project_name`)
     /// Provides O(1) lookup instead of O(n) iteration over all hosts
     pub file_to_project: DashMap<String, (String, String)>,
+
+    /// Resolved schema paths per (`workspace_uri`, `project_name`).
+    /// Used to detect changes to resolved schema files and reload them.
+    pub resolved_schema_paths: DashMap<(String, String), PathBuf>,
 }
 
 impl WorkspaceManager {
@@ -203,6 +207,7 @@ impl WorkspaceManager {
             document_versions: DashMap::new(),
             document_contents: DashMap::new(),
             file_to_project: DashMap::new(),
+            resolved_schema_paths: DashMap::new(),
         }
     }
 

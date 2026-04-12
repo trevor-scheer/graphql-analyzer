@@ -42,7 +42,8 @@ query GetUser {
 
 ```yaml
 extensions:
-  lint:
-    rules:
-      alphabetize: [warn, { selections: true, arguments: true, variables: true }]
+  graphql-analyzer:
+    lint:
+      rules:
+        alphabetize: [warn, { selections: true, arguments: true, variables: true }]
 ```

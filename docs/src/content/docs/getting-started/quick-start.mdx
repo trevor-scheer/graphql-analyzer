@@ -46,8 +46,9 @@ schema: "schema.graphql"
 documents: "src/**/*.{graphql,ts,tsx,vue,svelte,astro}"
 
 extensions:
-  lint:
-    extends: recommended
+  graphql-analyzer:
+    lint:
+      extends: recommended
 ```
 
 The `recommended` preset enables rules that are objectively beneficial without being opinionated. See [Linting Overview](/graphql-analyzer/linting/overview/) for details.

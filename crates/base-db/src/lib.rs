@@ -5,7 +5,7 @@
 //! inputs sit at the bottom of the query stack — higher layers (`graphql-syntax`,
 //! `graphql-hir`, `graphql-analysis`) derive cached queries from them.
 //!
-//! File identity (`SchemaFileIds` / `DocumentFileIds`) is tracked separately from
+//! File identity (`SchemaFileIds` / `DocumentFileIds` / `ResolvedSchemaFileIds`) is tracked separately from
 //! file content (`FileContent`) so that adding or removing a file only invalidates
 //! queries that care about the file list, while editing a file only invalidates
 //! queries for that specific file.
@@ -74,6 +74,19 @@ pub struct DocumentFileIds {
     pub ids: Arc<Vec<FileId>>,
 }
 
+/// Input: Resolved schema file ID list (identity only).
+///
+/// When a project has a `resolvedSchema` configured, queries are validated
+/// against this schema instead of the source `SchemaFileIds`. Source files
+/// are still used for navigation (goto-definition, hover) and lint rules.
+///
+/// Empty when no resolved schema is configured (the default).
+#[salsa::input]
+pub struct ResolvedSchemaFileIds {
+    /// List of resolved schema file IDs
+    pub ids: Arc<Vec<FileId>>,
+}
+
 /// A single file's entry - bundles content and metadata as one Salsa input.
 /// This enables true per-file granular caching: when file A changes, only
 /// file A's FileEntry is updated, and queries for file B remain cached.
@@ -131,6 +144,9 @@ pub struct ProjectFiles {
     pub schema_file_ids: SchemaFileIds,
     /// Document file IDs - only changes when document files are added/removed
     pub document_file_ids: DocumentFileIds,
+    /// Resolved schema file IDs - only populated when `resolvedSchema` is configured.
+    /// When non-empty, queries validate against these files instead of `schema_file_ids`.
+    pub resolved_schema_file_ids: ResolvedSchemaFileIds,
     /// Per-file entry map for granular invalidation
     /// Each `FileEntry` can be updated independently without invalidating other files
     pub file_entry_map: FileEntryMap,
