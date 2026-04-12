@@ -6818,4 +6818,118 @@ directive @skip(if: Boolean!) on FIELD"#,
         assert!(hover.contents.contains("maxAge"));
         assert!(hover.contents.contains("Int"));
     }
+
+    #[test]
+    fn test_document_symbols_includes_directives() {
+        let mut host = AnalysisHost::new();
+        let path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &path,
+            "directive @cacheControl(maxAge: Int) on FIELD_DEFINITION\n\ntype Query {\n  hello: String\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let symbols = snapshot.document_symbols(&path);
+        let directive_sym = symbols.iter().find(|s| s.name == "@cacheControl");
+        assert!(
+            directive_sym.is_some(),
+            "Should include directive definition in document symbols"
+        );
+        assert_eq!(directive_sym.unwrap().kind, SymbolKind::Directive);
+    }
+
+    #[test]
+    fn test_workspace_symbols_includes_directives() {
+        let mut host = AnalysisHost::new();
+        let path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &path,
+            "directive @cacheControl(maxAge: Int) on FIELD_DEFINITION\n\ntype Query {\n  hello: String\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let symbols = snapshot.workspace_symbols("cache");
+        let directive_sym = symbols.iter().find(|s| s.name == "@cacheControl");
+        assert!(
+            directive_sym.is_some(),
+            "Should include directive definition in workspace symbols"
+        );
+        assert_eq!(directive_sym.unwrap().kind, SymbolKind::Directive);
+    }
+
+    #[test]
+    fn test_find_references_directive() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "directive @deprecated(reason: String) on FIELD_DEFINITION\n\ntype Query {\n  oldField: String @deprecated(reason: \"use newField\")\n  newField: String\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Without declaration - just usages
+        // Position on @deprecated usage: line 3, inside "deprecated"
+        let result = snapshot.find_references(&schema_path, Position::new(3, 21), false);
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn test_find_references_directive_with_declaration() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        // "directive @tag(name: String!) on FIELD_DEFINITION\n\ntype Query {\n  a: String @tag(name: \"public\")\n  b: Int @tag(name: \"internal\")\n}"
+        host.add_file(
+            &schema_path,
+            "directive @tag(name: String!) on FIELD_DEFINITION\n\ntype Query {\n  a: String @tag(name: \"public\")\n  b: Int @tag(name: \"internal\")\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Position on @tag usage: line 3 "  a: String @tag(...)" -> "@tag" starts at col 12, "tag" at col 13
+        let result = snapshot.find_references(&schema_path, Position::new(3, 13), true);
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert_eq!(locations.len(), 3); // declaration + 2 usages
+    }
+
+    #[test]
+    fn test_find_references_directive_across_files() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "directive @myDir on QUERY\n\ntype Query { hello: String }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "query Foo @myDir {\n  hello\n}",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Position on @myDir usage in query file: "query Foo @myDir" -> "myDir" starts at col 11
+        let result = snapshot.find_references(&doc_path, Position::new(0, 11), true);
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert_eq!(locations.len(), 2); // declaration + usage in query file
+    }
 }

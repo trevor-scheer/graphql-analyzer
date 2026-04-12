@@ -125,6 +125,7 @@ pub const fn convert_ide_symbol_kind(kind: graphql_ide::SymbolKind) -> lsp_types
         graphql_ide::SymbolKind::Union | graphql_ide::SymbolKind::Enum => {
             lsp_types::SymbolKind::ENUM
         }
+        graphql_ide::SymbolKind::Directive => lsp_types::SymbolKind::EVENT,
     }
 }
 
@@ -499,6 +500,10 @@ mod tests {
         assert_eq!(
             convert_ide_symbol_kind(graphql_ide::SymbolKind::Interface),
             lsp_types::SymbolKind::INTERFACE
+        );
+        assert_eq!(
+            convert_ide_symbol_kind(graphql_ide::SymbolKind::Directive),
+            lsp_types::SymbolKind::EVENT
         );
     }
 

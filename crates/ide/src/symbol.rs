@@ -1709,6 +1709,22 @@ pub fn extract_all_definitions(
                     ));
                 }
             }
+            cst::Definition::DirectiveDefinition(dir) => {
+                if let Some(name) = dir.name() {
+                    let name_range = name.syntax().text_range();
+                    let def_range = dir.syntax().text_range();
+                    results.push((
+                        format!("@{}", name.text()),
+                        "directive",
+                        SymbolRanges {
+                            name_start: name_range.start().into(),
+                            name_end: name_range.end().into(),
+                            def_start: def_range.start().into(),
+                            def_end: def_range.end().into(),
+                        },
+                    ));
+                }
+            }
             _ => {}
         }
     }
