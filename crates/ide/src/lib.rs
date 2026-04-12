@@ -1264,6 +1264,76 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
     }
 
     #[test]
+    fn test_goto_definition_directive_name() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "directive @cacheControl(maxAge: Int) on FIELD_DEFINITION\n\ntype Query {\n  hello: String @cacheControl(maxAge: 30)\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Cursor on "cacheControl" in the field usage (line 3, after the @)
+        let result = snapshot.goto_definition(&schema_path, Position::new(3, 18));
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].range.start.line, 0);
+    }
+
+    #[test]
+    fn test_goto_definition_directive_argument_name() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "directive @cacheControl(maxAge: Int) on FIELD_DEFINITION\n\ntype Query {\n  hello: String @cacheControl(maxAge: 30)\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Cursor on "maxAge" in usage (line 3)
+        let result = snapshot.goto_definition(&schema_path, Position::new(3, 31));
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].range.start.line, 0);
+    }
+
+    #[test]
+    fn test_goto_definition_directive_on_operation() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "directive @myDirective on QUERY\n\ntype Query { hello: String }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "query MyQuery @myDirective {\n  hello\n}",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let result = snapshot.goto_definition(&doc_path, Position::new(0, 17));
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), "file:///schema.graphql");
+        assert_eq!(locations[0].range.start.line, 0);
+    }
+
+    #[test]
     fn test_find_references_fragment() {
         let mut host = AnalysisHost::new();
 
