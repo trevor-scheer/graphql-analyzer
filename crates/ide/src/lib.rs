@@ -6777,4 +6777,45 @@ directive @skip(if: Boolean!) on FIELD"#,
         );
         assert_eq!(query_refs.len(), 1, "Should have 1 usage in query file");
     }
+
+    #[test]
+    fn test_hover_on_directive_usage() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "\"Cache control directive\"\ndirective @cacheControl(maxAge: Int) repeatable on FIELD_DEFINITION\n\ntype Query {\n  hello: String @cacheControl(maxAge: 30)\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let result = snapshot.hover(&schema_path, Position::new(4, 18));
+        assert!(result.is_some());
+        let hover = result.unwrap();
+        assert!(hover.contents.contains("@cacheControl"));
+        assert!(hover.contents.contains("FIELD_DEFINITION"));
+        assert!(hover.contents.contains("Repeatable"));
+    }
+
+    #[test]
+    fn test_hover_on_directive_argument() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "\"Cache control\"\ndirective @cacheControl(\"Max age in seconds\" maxAge: Int = 60) on FIELD_DEFINITION\n\ntype Query {\n  hello: String @cacheControl(maxAge: 30)\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let result = snapshot.hover(&schema_path, Position::new(4, 31));
+        assert!(result.is_some());
+        let hover = result.unwrap();
+        assert!(hover.contents.contains("maxAge"));
+        assert!(hover.contents.contains("Int"));
+    }
 }

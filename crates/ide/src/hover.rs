@@ -168,6 +168,95 @@ pub fn hover(
 
             Some(HoverResult::new(hover_text))
         }
+        Symbol::DirectiveName { name } => {
+            let directives = graphql_hir::schema_directives(db, project_files);
+            let directive = directives.get(name.as_str())?;
+
+            let mut hover_text = format!("**Directive:** `@{name}`\n\n");
+
+            let locations: Vec<&str> = directive
+                .locations
+                .iter()
+                .map(|l| format_directive_location(l))
+                .collect();
+            write!(hover_text, "**Locations:** {}\n\n", locations.join(" | ")).ok();
+
+            if directive.repeatable {
+                write!(hover_text, "**Repeatable:** yes\n\n").ok();
+            }
+
+            if !directive.arguments.is_empty() {
+                write!(hover_text, "**Arguments:**\n\n").ok();
+                for arg in &directive.arguments {
+                    let type_str = format_type_ref(&arg.type_ref);
+                    if let Some(default) = &arg.default_value {
+                        write!(hover_text, "- `{}: {} = {}`\n", arg.name, type_str, default)
+                            .ok();
+                    } else {
+                        write!(hover_text, "- `{}: {}`\n", arg.name, type_str).ok();
+                    }
+                }
+                write!(hover_text, "\n").ok();
+            }
+
+            if let Some(desc) = &directive.description {
+                write!(hover_text, "---\n\n{desc}\n\n").ok();
+            }
+
+            Some(HoverResult::new(hover_text))
+        }
+        Symbol::DirectiveArgumentName {
+            directive_name,
+            argument_name,
+        } => {
+            let directives = graphql_hir::schema_directives(db, project_files);
+            let directive = directives.get(directive_name.as_str())?;
+            let arg = directive
+                .arguments
+                .iter()
+                .find(|a| a.name.as_ref() == argument_name)?;
+
+            let type_str = format_type_ref(&arg.type_ref);
+            let mut hover_text = format!("**Argument:** `{argument_name}: {type_str}`\n\n");
+            write!(hover_text, "**Directive:** `@{directive_name}`\n\n").ok();
+
+            if let Some(default) = &arg.default_value {
+                write!(hover_text, "**Default:** `{default}`\n\n").ok();
+            }
+
+            if let Some(desc) = &arg.description {
+                write!(hover_text, "---\n\n{desc}\n\n").ok();
+            }
+
+            Some(HoverResult::new(hover_text))
+        }
         _ => Some(HoverResult::new(format!("Symbol: {symbol:?}"))),
+    }
+}
+
+pub(crate) fn format_directive_location(
+    location: &graphql_hir::DirectiveLocationKind,
+) -> &'static str {
+    use graphql_hir::DirectiveLocationKind;
+    match location {
+        DirectiveLocationKind::Query => "QUERY",
+        DirectiveLocationKind::Mutation => "MUTATION",
+        DirectiveLocationKind::Subscription => "SUBSCRIPTION",
+        DirectiveLocationKind::Field => "FIELD",
+        DirectiveLocationKind::FragmentDefinition => "FRAGMENT_DEFINITION",
+        DirectiveLocationKind::FragmentSpread => "FRAGMENT_SPREAD",
+        DirectiveLocationKind::InlineFragment => "INLINE_FRAGMENT",
+        DirectiveLocationKind::VariableDefinition => "VARIABLE_DEFINITION",
+        DirectiveLocationKind::Schema => "SCHEMA",
+        DirectiveLocationKind::Scalar => "SCALAR",
+        DirectiveLocationKind::Object => "OBJECT",
+        DirectiveLocationKind::FieldDefinition => "FIELD_DEFINITION",
+        DirectiveLocationKind::ArgumentDefinition => "ARGUMENT_DEFINITION",
+        DirectiveLocationKind::Interface => "INTERFACE",
+        DirectiveLocationKind::Union => "UNION",
+        DirectiveLocationKind::Enum => "ENUM",
+        DirectiveLocationKind::EnumValue => "ENUM_VALUE",
+        DirectiveLocationKind::InputObject => "INPUT_OBJECT",
+        DirectiveLocationKind::InputFieldDefinition => "INPUT_FIELD_DEFINITION",
     }
 }
