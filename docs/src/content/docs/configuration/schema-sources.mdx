@@ -74,12 +74,12 @@ The `resolvedSchema` value is a path to a single SDL file (globs are not support
 
 ### How it works
 
-| Concern              | Behavior                                                                 |
-| -------------------- | ------------------------------------------------------------------------ |
-| **Validation**       | Operations are validated against the resolved schema                     |
-| **Navigation**       | Go-to-definition prefers source files, falling back to the resolved schema if the definition isn't found in source |
-| **SDL validation**   | Skipped on source schema files (since they may not be valid standalone)  |
-| **Linting**          | Lint rules run on source schema files                                    |
-| **Hover**            | Shows an indicator when a type comes from the resolved schema            |
+| Concern            | Behavior                                                                                                           |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| **Validation**     | Operations are validated against the resolved schema                                                               |
+| **Navigation**     | Go-to-definition prefers source files, falling back to the resolved schema if the definition isn't found in source |
+| **SDL validation** | Skipped on source schema files (since they may not be valid standalone)                                            |
+| **Linting**        | Lint rules run on source schema files                                                                              |
+| **Hover**          | Shows an indicator when a type comes from the resolved schema                                                      |
 
 This means you get the best of both worlds: accurate validation against what actually runs in production, and ergonomic navigation and linting against the files you edit.

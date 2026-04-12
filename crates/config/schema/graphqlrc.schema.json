@@ -86,7 +86,7 @@
                 },
                 "resolvedSchema": {
                   "type": "string",
-                  "description": "Path to a resolved/final schema file. When set, queries are validated against this schema instead of the source schema files. Source files are still used for go-to-definition navigation. Useful when a build pipeline transforms the schema (directive-based codegen, federation composition, etc.)."
+                  "description": "Path to a resolved/final schema file. When set, queries are validated against this schema instead of the source schema files. Source files are still used for go-to-definition navigation. Useful when a build pipeline transforms the schema (e.g. directive-based transforms)."
                 }
               },
               "additionalProperties": false

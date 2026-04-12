@@ -243,7 +243,7 @@ Configuration for extracting GraphQL from TypeScript/JavaScript files:
 
 Path to a resolved/final schema file. When set, queries are validated against this schema instead of the source schema files. Source files are still used for go-to-definition navigation.
 
-This is useful when your build pipeline transforms the schema (directive-based codegen, federation composition, etc.) and the source SDL doesn't match the runtime schema.
+This is useful when your build pipeline transforms the schema (e.g. directive-based transforms) and the source SDL doesn't match the runtime schema.
 
 ## Updating the Schema
 

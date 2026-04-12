@@ -139,7 +139,7 @@ Note: This library only parses and validates the configuration structure. Actual
 
 ### Resolved Schema
 
-When your build pipeline transforms the schema (directive-based codegen, federation composition, etc.), you can point to the build output so queries validate against the final schema:
+When your build pipeline transforms the schema (e.g. directive-based transforms), you can point to the build output so queries validate against the final schema:
 
 ```yaml
 extensions:

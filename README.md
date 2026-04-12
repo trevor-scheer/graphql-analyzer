@@ -71,7 +71,7 @@ extensions:
 
 ### Resolved Schema
 
-If your build pipeline transforms schemas (e.g., directive-based codegen, federation composition), queries can be validated against the build output instead of the source SDL:
+If your build pipeline transforms schemas (e.g., directive-based transforms), queries can be validated against the build output instead of the source SDL:
 
 ```yaml
 extensions:
