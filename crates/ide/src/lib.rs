@@ -6907,6 +6907,68 @@ directive @skip(if: Boolean!) on FIELD"#,
     }
 
     #[test]
+    fn test_find_references_directive_from_definition() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "directive @tag(name: String!) on FIELD_DEFINITION\n\ntype Query {\n  a: String @tag(name: \"public\")\n  b: Int @tag(name: \"internal\")\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Cursor on "tag" in the directive DEFINITION (line 0, col 11 = 't' in 'tag')
+        let result = snapshot.find_references(&schema_path, Position::new(0, 11), true);
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert_eq!(locations.len(), 3); // declaration + 2 usages
+    }
+
+    #[test]
+    fn test_goto_definition_from_directive_definition() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "directive @cacheControl(maxAge: Int) on FIELD_DEFINITION\n\ntype Query {\n  hello: String @cacheControl(maxAge: 30)\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Cursor on "cacheControl" in the directive definition (line 0)
+        let result = snapshot.goto_definition(&schema_path, Position::new(0, 12));
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].range.start.line, 0);
+    }
+
+    #[test]
+    fn test_hover_on_directive_definition() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "\"Cache control\"\ndirective @cacheControl(maxAge: Int) on FIELD_DEFINITION\n\ntype Query {\n  hello: String\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Cursor on "cacheControl" in the directive definition (line 1)
+        let result = snapshot.hover(&schema_path, Position::new(1, 12));
+        assert!(result.is_some());
+        let hover = result.unwrap();
+        assert!(hover.contents.contains("@cacheControl"));
+        assert!(hover.contents.contains("FIELD_DEFINITION"));
+    }
+
+    #[test]
     fn test_find_references_directive_across_files() {
         let mut host = AnalysisHost::new();
         let schema_path = FilePath::new("file:///schema.graphql");

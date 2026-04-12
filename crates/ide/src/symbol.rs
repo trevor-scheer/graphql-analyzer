@@ -586,6 +586,35 @@ fn check_definition(definition: &cst::Definition, byte_offset: usize) -> Option<
                     check_input_fields_definition(input.input_fields_definition(), byte_offset)
                 })
         }
+        cst::Definition::DirectiveDefinition(dir) => {
+            if let Some(name) = dir.name() {
+                if is_within_range(&name, byte_offset) {
+                    return Some(Symbol::DirectiveName {
+                        name: name.text().to_string(),
+                    });
+                }
+            }
+            if let Some(args) = dir.arguments_definition() {
+                for arg in args.input_value_definitions() {
+                    if let Some(arg_name) = arg.name() {
+                        if is_within_range(&arg_name, byte_offset) {
+                            let directive_name =
+                                dir.name().map(|n| n.text().to_string()).unwrap_or_default();
+                            return Some(Symbol::DirectiveArgumentName {
+                                directive_name,
+                                argument_name: arg_name.text().to_string(),
+                            });
+                        }
+                    }
+                    if let Some(ty) = arg.ty() {
+                        if let Some(symbol) = check_type_reference(&ty, byte_offset) {
+                            return Some(symbol);
+                        }
+                    }
+                }
+            }
+            None
+        }
         _ => None,
     }
 }
