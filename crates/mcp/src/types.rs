@@ -410,6 +410,7 @@ fn symbol_kind_str(kind: graphql_ide::SymbolKind) -> &'static str {
         graphql_ide::SymbolKind::Interface => "interface",
         graphql_ide::SymbolKind::Union => "union",
         graphql_ide::SymbolKind::Enum => "enum",
+        graphql_ide::SymbolKind::Directive => "directive",
     }
 }
 

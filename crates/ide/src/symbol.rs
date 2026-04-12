@@ -512,9 +512,7 @@ fn check_definition(definition: &cst::Definition, byte_offset: usize) -> Option<
                         .directives()
                         .and_then(|d| check_directives_for_symbol(&d, byte_offset))
                 })
-                .or_else(|| {
-                    check_implements_interfaces(iface.implements_interfaces(), byte_offset)
-                })
+                .or_else(|| check_implements_interfaces(iface.implements_interfaces(), byte_offset))
                 .or_else(|| check_fields_definition(iface.fields_definition(), byte_offset))
         }
         cst::Definition::ObjectTypeExtension(ext) => {
@@ -829,10 +827,7 @@ fn check_value(value: &cst::Value, byte_offset: usize) -> Option<Symbol> {
     None
 }
 
-fn check_directives_for_symbol(
-    directives: &cst::Directives,
-    byte_offset: usize,
-) -> Option<Symbol> {
+fn check_directives_for_symbol(directives: &cst::Directives, byte_offset: usize) -> Option<Symbol> {
     for directive in directives.directives() {
         if let Some(name) = directive.name() {
             if is_within_range(&name, byte_offset) {
