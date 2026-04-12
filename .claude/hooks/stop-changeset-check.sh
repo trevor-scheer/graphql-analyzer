@@ -60,7 +60,8 @@ if [[ -n "$new_changeset" ]]; then
   exit 0
 fi
 
-echo "This branch has user-facing changes but no changeset. Create one in .changeset/ for the changelog." >&2
+echo "Reminder: This branch has user-facing changes but no changeset yet." >&2
+echo "If this change needs a changelog entry, create one in .changeset/ before opening a PR." >&2
 echo "" >&2
 echo "Format:" >&2
 echo "  ---" >&2
@@ -70,5 +71,5 @@ echo "" >&2
 echo "  Description of the change ([#PR](url))" >&2
 echo "" >&2
 echo "Packages: graphql-analyzer-cli, graphql-analyzer-lsp, graphql-analyzer-mcp, graphql-analyzer-vscode" >&2
-echo "Skip this if the change is internal refactoring, CI-only, or test-only." >&2
-exit 2
+echo "No action needed if the change is internal refactoring, CI-only, or test-only." >&2
+exit 0
