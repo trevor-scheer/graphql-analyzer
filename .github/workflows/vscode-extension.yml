@@ -64,7 +64,7 @@ jobs:
 
       - name: Install cross
         if: matrix.cross
-        uses: taiki-e/install-action@e817a04815cfabd3af8bd4263504b0d4488d4ea3 # cross
+        uses: taiki-e/install-action@2067d837eafccfa9556a2d3509fa3d0ed2df599a # cross
         with:
           tool: cross
 
@@ -73,14 +73,14 @@ jobs:
 
       - name: Upload LSP binary (Unix)
         if: runner.os != 'Windows'
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: lsp-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/graphql-lsp
 
       - name: Upload LSP binary (Windows)
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: lsp-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/graphql-lsp.exe
@@ -141,7 +141,7 @@ jobs:
         run: npx vsce package --target ${{ matrix.vscode_target }}
 
       - name: Upload VSIX
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: vsix-${{ matrix.vscode_target }}
           path: editors/vscode/*.vsix
