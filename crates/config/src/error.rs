@@ -11,7 +11,7 @@ pub enum ConfigError {
     Io(#[from] io::Error),
 
     #[error("YAML parse error: {0}")]
-    YamlParse(#[from] serde_yml::Error),
+    YamlParse(#[from] serde_saphyr::Error),
 
     #[error("JSON parse error: {0}")]
     JsonParse(#[from] serde_json::Error),

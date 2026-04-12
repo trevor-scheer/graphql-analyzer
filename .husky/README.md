@@ -14,6 +14,7 @@ This directory contains the git hook configuration.
 The hooks are automatically installed when you build the project with `cargo build`.
 
 To manually reinstall hooks after modifying them, run:
+
 ```bash
 cargo test -p husky-hooks
 ```
@@ -21,13 +22,17 @@ cargo test -p husky-hooks
 ## Hooks
 
 ### pre-commit
+
 Runs on staged files before each commit:
+
 - **Rust formatting**: `cargo fmt --check` (for `.rs` files)
 - **Rust linting**: `cargo clippy` (for `.rs`/`.toml` files)
 - **TS/JS linting**: `npm run lint` (for `.ts`/`.tsx`/`.js`/`.jsx` files)
 - **Multi-format checking**: `npm run fmt:check` (for `.graphql`/`.ts`/`.js`/`.md`/`.yaml`/`.json` files)
 
 ### pre-push
+
 Runs on all changed files (vs remote) before each push:
+
 - All the same checks as pre-commit
 - **Tests**: `cargo test` (for `.rs`/`.toml` files)

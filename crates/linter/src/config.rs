@@ -1,14 +1,54 @@
-use serde::{Deserialize, Serialize};
+use serde::de::{self, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 
 /// Severity level for a lint rule
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Custom deserializer handles YAML 1.1 boolean coercion where bare `off`
+/// is parsed as boolean `false` by spec-compliant YAML parsers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum LintSeverity {
     Off,
     Warn,
     Error,
+}
+
+impl<'de> Deserialize<'de> for LintSeverity {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct SeverityVisitor;
+
+        impl Visitor<'_> for SeverityVisitor {
+            type Value = LintSeverity;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a severity: 'off', 'warn', or 'error'")
+            }
+
+            fn visit_bool<E: de::Error>(self, v: bool) -> Result<Self::Value, E> {
+                if v {
+                    Err(E::custom("boolean `true` is not a valid severity"))
+                } else {
+                    Ok(LintSeverity::Off)
+                }
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                match v {
+                    "off" => Ok(LintSeverity::Off),
+                    "warn" => Ok(LintSeverity::Warn),
+                    "error" => Ok(LintSeverity::Error),
+                    _ => Err(E::custom(format!("unknown severity: {v}"))),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(SeverityVisitor)
+    }
 }
 
 impl std::fmt::Display for LintSeverity {
@@ -73,10 +113,8 @@ impl LintRuleConfig {
 impl<'de> Deserialize<'de> for LintRuleConfig {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de>,
+        D: Deserializer<'de>,
     {
-        use serde::de::{self, MapAccess, SeqAccess, Visitor};
-
         struct LintRuleConfigVisitor;
 
         impl<'de> Visitor<'de> for LintRuleConfigVisitor {
@@ -88,6 +126,21 @@ impl<'de> Deserialize<'de> for LintRuleConfig {
                      an array [severity, options], \
                      or an object { severity, options }",
                 )
+            }
+
+            fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                // YAML 1.1 treats `off`/`no`/`false` as boolean false and
+                // `on`/`yes`/`true` as boolean true. Map false → Off severity.
+                if value {
+                    Err(E::custom(
+                        "boolean `true` is not a valid severity; use 'off', 'warn', or 'error'",
+                    ))
+                } else {
+                    Ok(LintRuleConfig::Severity(LintSeverity::Off))
+                }
             }
 
             fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
@@ -375,7 +428,7 @@ mod tests {
     #[test]
     fn test_simple_preset() {
         let yaml = r"recommended";
-        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
         assert!(matches!(
             config,
             LintConfig::Preset(ExtendsConfig::Single(ref s)) if s == "recommended"
@@ -394,7 +447,7 @@ mod tests {
     #[test]
     fn test_preset_list() {
         let yaml = r"[recommended]";
-        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
         assert!(matches!(
             config,
             LintConfig::Preset(ExtendsConfig::Multiple(_))
@@ -411,7 +464,7 @@ rules:
   uniqueNames: error
   noDeprecated: warn
 ";
-        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
         assert_eq!(
             config.get_severity("uniqueNames"),
             Some(LintSeverity::Error)
@@ -430,7 +483,7 @@ extends: recommended
 rules:
   noDeprecated: off
 ";
-        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
         // uniqueNames and requireIdField are not in recommended (opinionated rules)
         assert!(!config.is_enabled("uniqueNames"));
         assert!(!config.is_enabled("noDeprecated"));
@@ -444,7 +497,7 @@ extends: [recommended]
 rules:
   unusedFields: warn
 ";
-        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
         // uniqueNames is not in recommended (opinionated)
         assert!(!config.is_enabled("uniqueNames"));
         assert!(config.is_enabled("unusedFields"));
@@ -458,7 +511,7 @@ rules:
   uniqueNames: warn
   requireIdField: off
 ";
-        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
         assert_eq!(config.get_severity("uniqueNames"), Some(LintSeverity::Warn));
         assert_eq!(
             config.get_severity("requireIdField"),
@@ -488,7 +541,7 @@ rules:
 rules:
   notARule: error
 ";
-        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("notARule"));
@@ -518,7 +571,7 @@ rules:
 rules:
   requireIdField: [warn, { fields: ["id", "nodeId"] }]
 "#;
-        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
         assert_eq!(
             config.get_severity("requireIdField"),
             Some(LintSeverity::Warn)
@@ -537,7 +590,7 @@ rules:
 rules:
   requireIdField: [error]
 ";
-        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
         assert_eq!(
             config.get_severity("requireIdField"),
             Some(LintSeverity::Error)
@@ -554,7 +607,7 @@ rules:
     options:
       fields: ["id", "uuid"]
 "#;
-        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
         assert_eq!(
             config.get_severity("requireIdField"),
             Some(LintSeverity::Warn)
@@ -573,7 +626,7 @@ rules:
 rules:
   requireIdField: warn
 ";
-        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
         assert!(config.get_options("requireIdField").is_none());
     }
 
@@ -592,7 +645,7 @@ rules:
   uniqueNames:
     severity: error
 "#;
-        let config: LintConfig = serde_yml::from_str(yaml).unwrap();
+        let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
 
         // Simple severity
         assert_eq!(
