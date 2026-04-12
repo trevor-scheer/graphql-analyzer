@@ -5653,13 +5653,17 @@ type Post {
         let snapshot = host.snapshot();
         let hints = snapshot.inlay_hints(&doc_path, None);
 
-        // Should have hints for both __typename and name
+        // Should have hints for user (object type), __typename, and name
         assert_eq!(
             hints.len(),
-            2,
-            "Expected 2 inlay hints (for __typename and name), got {}",
+            3,
+            "Expected 3 inlay hints (user, __typename, name), got {}",
             hints.len()
         );
+
+        // Check user shows User type hint
+        let user_hint = hints.iter().find(|h| h.label == ": User");
+        assert!(user_hint.is_some(), "Expected user hint with 'User' type");
 
         // Check __typename shows String! hint
         let typename_hint = hints.iter().find(|h| h.label == ": String!");
@@ -5667,6 +5671,67 @@ type Post {
             typename_hint.is_some(),
             "Expected __typename hint with 'String!' type"
         );
+    }
+
+    #[test]
+    fn test_inlay_hints_object_type_fields() {
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            r#"type Query { user(id: ID!): User }
+type User {
+  name: String!
+  posts: [Post!]!
+}
+type Post {
+  title: String!
+}"#,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            // Non-leaf fields with and without arguments
+            r#"query {
+  user(id: "1") {
+    name
+    posts {
+      title
+    }
+  }
+}"#,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let hints = snapshot.inlay_hints(&doc_path, None);
+
+        let hint_labels: Vec<&str> = hints.iter().map(|h| h.label.as_str()).collect();
+
+        // Non-leaf fields should get type hints too
+        assert!(
+            hint_labels.contains(&": User"),
+            "Expected User type hint for user field, got: {hint_labels:?}"
+        );
+        assert!(
+            hint_labels.contains(&": [Post]!"),
+            "Expected [Post]! type hint for posts field, got: {hint_labels:?}"
+        );
+
+        // user(id: "1") hint should appear after the arguments
+        let user_hint = hints.iter().find(|h| h.label == ": User").unwrap();
+        let name_hint = hints.iter().find(|h| h.label == ": String!").unwrap();
+        // user hint should be on line 1, after the closing paren of args
+        assert_eq!(user_hint.position.line, 1);
+        // name hint should be on a later line
+        assert!(name_hint.position.line > user_hint.position.line);
     }
 
     // =============================================================================
