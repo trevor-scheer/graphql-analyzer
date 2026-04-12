@@ -245,8 +245,13 @@ pub fn goto_definition(
             None
         }
         Symbol::DirectiveName { name } => {
-            let directives = graphql_hir::schema_directives(db, project_files);
-            let directive = directives.get(name.as_str())?;
+            // Try source schema first for navigation, fallback to resolved
+            let source_directives = graphql_hir::source_schema_directives(db, project_files);
+            let directive = source_directives
+                .get(name.as_str())
+                .or_else(|| {
+                    graphql_hir::schema_directives(db, project_files).get(name.as_str())
+                })?;
 
             let file_path = registry.get_path(directive.file_id)?;
             let content = registry.get_content(directive.file_id)?;
@@ -261,8 +266,13 @@ pub fn goto_definition(
             directive_name,
             argument_name,
         } => {
-            let directives = graphql_hir::schema_directives(db, project_files);
-            let directive = directives.get(directive_name.as_str())?;
+            let source_directives = graphql_hir::source_schema_directives(db, project_files);
+            let directive = source_directives
+                .get(directive_name.as_str())
+                .or_else(|| {
+                    graphql_hir::schema_directives(db, project_files)
+                        .get(directive_name.as_str())
+                })?;
             let arg = directive
                 .arguments
                 .iter()

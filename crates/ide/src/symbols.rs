@@ -163,7 +163,7 @@ pub fn workspace_symbols(
         }
     }
 
-    let directives = graphql_hir::schema_directives(db, project_files);
+    let directives = graphql_hir::source_schema_directives(db, project_files);
     for (dir_name, directive) in directives {
         let search_name = format!("@{dir_name}");
         if search_name.to_lowercase().contains(&query_lower)

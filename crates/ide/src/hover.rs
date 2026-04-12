@@ -169,8 +169,11 @@ pub fn hover(
             Some(HoverResult::new(hover_text))
         }
         Symbol::DirectiveName { name } => {
-            let directives = graphql_hir::schema_directives(db, project_files);
-            let directive = directives.get(name.as_str())?;
+            let source_directives = graphql_hir::source_schema_directives(db, project_files);
+            let resolved_directives = graphql_hir::schema_directives(db, project_files);
+            let directive = source_directives
+                .get(name.as_str())
+                .or_else(|| resolved_directives.get(name.as_str()))?;
 
             let mut hover_text = format!("**Directive:** `@{name}`\n\n");
 
@@ -209,8 +212,11 @@ pub fn hover(
             directive_name,
             argument_name,
         } => {
-            let directives = graphql_hir::schema_directives(db, project_files);
-            let directive = directives.get(directive_name.as_str())?;
+            let source_directives = graphql_hir::source_schema_directives(db, project_files);
+            let resolved_directives = graphql_hir::schema_directives(db, project_files);
+            let directive = source_directives
+                .get(directive_name.as_str())
+                .or_else(|| resolved_directives.get(directive_name.as_str()))?;
             let arg = directive
                 .arguments
                 .iter()

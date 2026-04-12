@@ -335,10 +335,15 @@ fn find_directive_references(
         return locations;
     };
 
-    let directives = graphql_hir::schema_directives(db, project_files);
+    // Prefer source schema for declaration location
+    let source_directives = graphql_hir::source_schema_directives(db, project_files);
+    let resolved_directives = graphql_hir::schema_directives(db, project_files);
 
     if include_declaration {
-        if let Some(directive) = directives.get(directive_name) {
+        if let Some(directive) = source_directives
+            .get(directive_name)
+            .or_else(|| resolved_directives.get(directive_name))
+        {
             if let Some(file_path) = registry.get_path(directive.file_id) {
                 if let (Some(content), Some(metadata)) = (
                     registry.get_content(directive.file_id),
