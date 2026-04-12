@@ -1,7 +1,7 @@
 //! Inlay hints feature implementation.
 //!
 //! This module provides IDE inlay hints functionality:
-//! - Field return types (displayed after scalar field selections)
+//! - Field return types (displayed after field selections)
 //!
 //! Note: Variable definition types are NOT shown as hints since they already
 //! have explicit type annotations in the GraphQL syntax.
@@ -17,9 +17,10 @@ use crate::DbFiles;
 
 /// Get inlay hints for a file.
 ///
-/// Returns inlay hints showing return types after scalar field selections.
-/// Hints are only shown for leaf fields (fields without nested selection sets)
-/// since the return type is not visible in the query syntax.
+/// Returns inlay hints showing return types for all field selections.
+/// For leaf fields, the hint appears after the field name/alias.
+/// For non-leaf fields, the hint appears after arguments (if any) and
+/// before the opening brace of the selection set.
 ///
 /// If `range` is provided, only returns hints within that range for efficiency.
 pub fn inlay_hints(
@@ -182,25 +183,33 @@ fn collect_selection_set_hints(
                         .iter()
                         .find(|f| f.name.as_ref() == field_name)
                     {
-                        // If there's no selection set, show the type hint
-                        // (for scalar fields, showing the type is most useful)
-                        if field.selection_set().is_none() {
-                            let end_offset: usize = end_node.into();
-                            let position = offset_to_position(line_index, end_offset);
-                            let adjusted = adjust_position_for_line_offset(position, line_offset);
+                        let nested = field.selection_set();
 
-                            if should_include_position(adjusted, range) {
-                                let type_str = format_type_ref(&field_def.type_ref);
-                                hints.push(InlayHint::new(
-                                    adjusted,
-                                    format!(": {type_str}"),
-                                    InlayHintKind::Type,
-                                ));
-                            }
+                        // For non-leaf fields, position hint after arguments
+                        // (before the opening brace) when present
+                        let hint_end_node = if nested.is_some() {
+                            field
+                                .arguments()
+                                .map_or(end_node, |args| args.syntax().text_range().end())
+                        } else {
+                            end_node
+                        };
+
+                        let end_offset: usize = hint_end_node.into();
+                        let position = offset_to_position(line_index, end_offset);
+                        let adjusted = adjust_position_for_line_offset(position, line_offset);
+
+                        if should_include_position(adjusted, range) {
+                            let type_str = format_type_ref(&field_def.type_ref);
+                            hints.push(InlayHint::new(
+                                adjusted,
+                                format!(": {type_str}"),
+                                InlayHintKind::Type,
+                            ));
                         }
 
                         // Recurse into nested selection sets
-                        if let Some(nested) = field.selection_set() {
+                        if let Some(nested) = nested {
                             let field_type_name = field_def.type_ref.name.as_ref();
                             collect_selection_set_hints(
                                 &nested,
