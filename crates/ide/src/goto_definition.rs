@@ -249,9 +249,7 @@ pub fn goto_definition(
             let source_directives = graphql_hir::source_schema_directives(db, project_files);
             let directive = source_directives
                 .get(name.as_str())
-                .or_else(|| {
-                    graphql_hir::schema_directives(db, project_files).get(name.as_str())
-                })?;
+                .or_else(|| graphql_hir::schema_directives(db, project_files).get(name.as_str()))?;
 
             let file_path = registry.get_path(directive.file_id)?;
             let content = registry.get_content(directive.file_id)?;
@@ -267,12 +265,9 @@ pub fn goto_definition(
             argument_name,
         } => {
             let source_directives = graphql_hir::source_schema_directives(db, project_files);
-            let directive = source_directives
-                .get(directive_name.as_str())
-                .or_else(|| {
-                    graphql_hir::schema_directives(db, project_files)
-                        .get(directive_name.as_str())
-                })?;
+            let directive = source_directives.get(directive_name.as_str()).or_else(|| {
+                graphql_hir::schema_directives(db, project_files).get(directive_name.as_str())
+            })?;
             let arg = directive
                 .arguments
                 .iter()
