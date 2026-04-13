@@ -75,17 +75,17 @@
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(git commit:*)",
+            "if": "Bash(git commit*)",
             "command": "cargo fmt --check && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test"
           },
           {
             "type": "command",
-            "if": "Bash(git push:*)",
+            "if": "Bash(git push*)",
             "command": "cargo fmt --check && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test"
           },
           {
             "type": "command",
-            "if": "Bash(git:*)",
+            "if": "Bash(git*)",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-no-verify.sh"
           }
         ]
