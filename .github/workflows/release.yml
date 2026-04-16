@@ -289,6 +289,33 @@ jobs:
             npx vsce publish --packagePath "$vsix"
           done
 
+  # Publish VS Code extension to Open VSX Registry
+  publish-openvsx:
+    needs: [check-release, build-vscode, release]
+    if: needs.check-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "24"
+
+      - name: Download all VSIX artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: vscode-extension-*
+          path: vsix-artifacts
+          merge-multiple: true
+
+      - name: Publish to Open VSX Registry
+        env:
+          OVSX_PAT: ${{ secrets.OPENVSX_ACCESS_TOKEN }}
+        run: |
+          for vsix in vsix-artifacts/*.vsix; do
+            echo "Publishing $vsix"
+            npx ovsx publish "$vsix" --pat "$OVSX_PAT"
+          done
+
   # Update the Homebrew tap formula with the new CLI version
   update-homebrew-formula:
     needs: [check-release, release]
