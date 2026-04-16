@@ -309,7 +309,7 @@ jobs:
 
       - name: Publish to Open VSX Registry
         env:
-          OVSX_PAT: ${{ secrets.OPENVSX_ACCESS_TOKEN }}
+          OVSX_PAT: ${{ secrets.OPENVSX_PUBLISH_PAT }}
         run: |
           for vsix in vsix-artifacts/*.vsix; do
             echo "Publishing $vsix"
