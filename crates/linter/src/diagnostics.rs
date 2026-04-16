@@ -355,4 +355,47 @@ mod tests {
         assert!(diag.has_fix());
         assert_eq!(diag.fix.unwrap().label, "Fix it");
     }
+
+    #[test]
+    fn test_diagnostic_with_help() {
+        let span = graphql_syntax::SourceSpan::default();
+        let diag = LintDiagnostic::warning(span, "msg", "rule").with_help("Try X instead");
+        assert_eq!(diag.help.as_deref(), Some("Try X instead"));
+    }
+
+    #[test]
+    fn test_diagnostic_with_url() {
+        let span = graphql_syntax::SourceSpan::default();
+        let diag =
+            LintDiagnostic::warning(span, "msg", "rule").with_url("https://example.com/rule");
+        assert_eq!(diag.url.as_deref(), Some("https://example.com/rule"));
+    }
+
+    #[test]
+    fn test_diagnostic_with_tag() {
+        let span = graphql_syntax::SourceSpan::default();
+        let diag = LintDiagnostic::warning(span, "msg", "rule")
+            .with_tag(DiagnosticTag::Unnecessary)
+            .with_tag(DiagnosticTag::Deprecated);
+        assert_eq!(diag.tags.len(), 2);
+        assert_eq!(diag.tags[0], DiagnosticTag::Unnecessary);
+        assert_eq!(diag.tags[1], DiagnosticTag::Deprecated);
+    }
+
+    #[test]
+    fn test_diagnostic_defaults() {
+        let span = graphql_syntax::SourceSpan::default();
+        let diag = LintDiagnostic::warning(span, "msg", "rule");
+        assert!(diag.help.is_none());
+        assert!(diag.url.is_none());
+        assert!(diag.tags.is_empty());
+    }
+
+    #[test]
+    fn test_rule_doc_url_format() {
+        assert_eq!(
+            rule_doc_url("noDeprecated"),
+            "https://graphql-analyzer.dev/rules/noDeprecated"
+        );
+    }
 }

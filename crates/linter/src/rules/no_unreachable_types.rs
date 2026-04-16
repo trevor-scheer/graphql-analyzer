@@ -121,15 +121,21 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
                 diagnostics_by_file
                     .entry(type_def.file_id)
                     .or_default()
-                    .push(LintDiagnostic::new(
-                        span,
-                        LintSeverity::Warning,
-                        format!(
-                            "{kind_name} '{}' is not reachable from any root type",
-                            type_def.name
-                        ),
-                        "noUnreachableTypes",
-                    ));
+                    .push(
+                        LintDiagnostic::new(
+                            span,
+                            LintSeverity::Warning,
+                            format!(
+                                "{kind_name} '{}' is not reachable from any root type",
+                                type_def.name
+                            ),
+                            "noUnreachableTypes",
+                        )
+                        .with_help(
+                            "Remove the unreachable type, or reference it from a reachable type",
+                        )
+                        .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary),
+                    );
             }
         }
 

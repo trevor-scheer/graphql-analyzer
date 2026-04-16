@@ -169,7 +169,6 @@ fn check_selection_set(
                                 .with_help(
                                     "Use the replacement field if one is specified in the deprecation reason",
                                 )
-                                .with_url(crate::diagnostics::rule_doc_url("noDeprecated"))
                                 .with_tag(crate::diagnostics::DiagnosticTag::Deprecated),
                             );
                         }
@@ -217,7 +216,6 @@ fn check_selection_set(
                                                 .with_help(
                                                     "Use the replacement field if one is specified in the deprecation reason",
                                                 )
-                                                .with_url(crate::diagnostics::rule_doc_url("noDeprecated"))
                                                 .with_tag(crate::diagnostics::DiagnosticTag::Deprecated),
                                             );
                                         }
@@ -325,7 +323,6 @@ fn check_value_for_deprecated_enum(
                                     .with_help(
                                         "Use the replacement field if one is specified in the deprecation reason",
                                     )
-                                    .with_url(crate::diagnostics::rule_doc_url("noDeprecated"))
                                     .with_tag(crate::diagnostics::DiagnosticTag::Deprecated),
                                 );
                                 // Found the enum, no need to check other types
@@ -463,6 +460,19 @@ query GetUser {
         assert!(diagnostics[0].message.contains("username"));
         assert!(diagnostics[0].message.contains("deprecated"));
         assert!(diagnostics[0].message.contains("Use name instead"));
+
+        // Enrichment: deprecated-class rules should carry help text and the
+        // Deprecated tag so editors can render them appropriately.
+        assert!(
+            diagnostics[0].help.is_some(),
+            "noDeprecated should include help text"
+        );
+        assert!(
+            diagnostics[0]
+                .tags
+                .contains(&crate::diagnostics::DiagnosticTag::Deprecated),
+            "noDeprecated should tag diagnostics as Deprecated"
+        );
     }
 
     #[test]

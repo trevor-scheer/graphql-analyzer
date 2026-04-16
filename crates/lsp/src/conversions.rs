@@ -98,9 +98,13 @@ pub fn convert_ide_diagnostic(diag: graphql_ide::Diagnostic) -> Diagnostic {
         graphql_ide::DiagnosticSeverity::Hint => DiagnosticSeverity::HINT,
     };
 
-    let code_description = diag.url.map(|url| lsp_types::CodeDescription {
-        href: url.parse().expect("Invalid URL in diagnostic"),
-    });
+    // If a URL fails to parse, drop it rather than panic — the diagnostic
+    // itself is still useful without the documentation link.
+    let code_description = diag
+        .url
+        .as_deref()
+        .and_then(|url| url.parse().ok())
+        .map(|href| lsp_types::CodeDescription { href });
 
     let tags: Vec<lsp_types::DiagnosticTag> = diag
         .tags
@@ -111,15 +115,8 @@ pub fn convert_ide_diagnostic(diag: graphql_ide::Diagnostic) -> Diagnostic {
         })
         .collect();
 
-    let related_information: Vec<lsp_types::DiagnosticRelatedInformation> = diag
-        .related
-        .iter()
-        .map(|r| lsp_types::DiagnosticRelatedInformation {
-            location: convert_ide_location(&r.location),
-            message: r.message.clone(),
-        })
-        .collect();
-
+    // LSP has no dedicated `help` field, so we append help text to the message.
+    // Clients that render `codeDescription` will still see the doc link separately.
     let mut message = diag.message;
     if let Some(ref help) = diag.help {
         message = format!("{message}\nhelp: {help}");
@@ -133,11 +130,6 @@ pub fn convert_ide_diagnostic(diag: graphql_ide::Diagnostic) -> Diagnostic {
         source: Some(diag.source),
         message,
         tags: if tags.is_empty() { None } else { Some(tags) },
-        related_information: if related_information.is_empty() {
-            None
-        } else {
-            Some(related_information)
-        },
         ..Default::default()
     }
 }
@@ -492,7 +484,6 @@ mod tests {
             help: None,
             url: None,
             tags: Vec::new(),
-            related: Vec::new(),
         };
         let lsp_diag = convert_ide_diagnostic(ide_diag);
         assert_eq!(lsp_diag.severity, Some(DiagnosticSeverity::ERROR));
@@ -515,10 +506,107 @@ mod tests {
             help: None,
             url: None,
             tags: Vec::new(),
-            related: Vec::new(),
         };
         let lsp_diag = convert_ide_diagnostic(ide_diag);
         assert_eq!(lsp_diag.severity, Some(DiagnosticSeverity::WARNING));
+    }
+
+    #[test]
+    fn test_convert_ide_diagnostic_with_help_appends_to_message() {
+        let ide_diag = graphql_ide::Diagnostic {
+            severity: graphql_ide::DiagnosticSeverity::Warning,
+            message: "Field is deprecated".to_string(),
+            range: graphql_ide::Range::new(
+                graphql_ide::Position::new(0, 0),
+                graphql_ide::Position::new(0, 0),
+            ),
+            source: "linter".to_string(),
+            code: Some("noDeprecated".to_string()),
+            fix: None,
+            help: Some("Use the replacement field".to_string()),
+            url: None,
+            tags: Vec::new(),
+        };
+        let lsp_diag = convert_ide_diagnostic(ide_diag);
+        assert_eq!(
+            lsp_diag.message,
+            "Field is deprecated\nhelp: Use the replacement field"
+        );
+    }
+
+    #[test]
+    fn test_convert_ide_diagnostic_with_url_sets_code_description() {
+        let ide_diag = graphql_ide::Diagnostic {
+            severity: graphql_ide::DiagnosticSeverity::Warning,
+            message: "msg".to_string(),
+            range: graphql_ide::Range::new(
+                graphql_ide::Position::new(0, 0),
+                graphql_ide::Position::new(0, 0),
+            ),
+            source: "linter".to_string(),
+            code: Some("noDeprecated".to_string()),
+            fix: None,
+            help: None,
+            url: Some("https://graphql-analyzer.dev/rules/noDeprecated".to_string()),
+            tags: Vec::new(),
+        };
+        let lsp_diag = convert_ide_diagnostic(ide_diag);
+        let desc = lsp_diag
+            .code_description
+            .expect("code_description should be set when url is provided");
+        assert_eq!(
+            desc.href.as_str(),
+            "https://graphql-analyzer.dev/rules/noDeprecated"
+        );
+    }
+
+    #[test]
+    fn test_convert_ide_diagnostic_with_invalid_url_drops_code_description() {
+        let ide_diag = graphql_ide::Diagnostic {
+            severity: graphql_ide::DiagnosticSeverity::Warning,
+            message: "msg".to_string(),
+            range: graphql_ide::Range::new(
+                graphql_ide::Position::new(0, 0),
+                graphql_ide::Position::new(0, 0),
+            ),
+            source: "linter".to_string(),
+            code: None,
+            fix: None,
+            help: None,
+            url: Some("not a valid url".to_string()),
+            tags: Vec::new(),
+        };
+        let lsp_diag = convert_ide_diagnostic(ide_diag);
+        assert!(
+            lsp_diag.code_description.is_none(),
+            "invalid URL should be dropped rather than panic"
+        );
+    }
+
+    #[test]
+    fn test_convert_ide_diagnostic_tags() {
+        let ide_diag = graphql_ide::Diagnostic {
+            severity: graphql_ide::DiagnosticSeverity::Warning,
+            message: "msg".to_string(),
+            range: graphql_ide::Range::new(
+                graphql_ide::Position::new(0, 0),
+                graphql_ide::Position::new(0, 0),
+            ),
+            source: "linter".to_string(),
+            code: None,
+            fix: None,
+            help: None,
+            url: None,
+            tags: vec![
+                graphql_ide::DiagnosticTag::Unnecessary,
+                graphql_ide::DiagnosticTag::Deprecated,
+            ],
+        };
+        let lsp_diag = convert_ide_diagnostic(ide_diag);
+        let tags = lsp_diag.tags.expect("tags should be present");
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags[0], lsp_types::DiagnosticTag::UNNECESSARY);
+        assert_eq!(tags[1], lsp_types::DiagnosticTag::DEPRECATED);
     }
 
     #[test]

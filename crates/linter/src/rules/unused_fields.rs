@@ -124,7 +124,9 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
                 );
 
                 let diag =
-                    LintDiagnostic::warning(field_info.span.clone(), message, "unusedFields");
+                    LintDiagnostic::warning(field_info.span.clone(), message, "unusedFields")
+                        .with_help("Remove the unused field, or add it to an operation or fragment")
+                        .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary);
 
                 diagnostics_by_file
                     .entry(field_info.file_id)

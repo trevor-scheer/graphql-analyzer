@@ -125,7 +125,9 @@ impl ProjectLintRule for NoOnePlaceFragmentsRuleImpl {
                                         "Fragment '{name}' is used in only one place. Consider inlining it."
                                     ),
                                     "noOnePlaceFragments",
-                                ),
+                                )
+                                .with_help("Inline the fragment at its single usage site")
+                                .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary),
                             );
                         }
                     }

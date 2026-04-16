@@ -145,7 +145,6 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
                 let diag = LintDiagnostic::warning(name_span, message, "unusedFragments")
                     .with_fix(fix)
                     .with_help("Remove unused fragments or reference them in an operation")
-                    .with_url(crate::diagnostics::rule_doc_url("unusedFragments"))
                     .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary);
 
                 diagnostics_by_file

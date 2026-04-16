@@ -121,8 +121,7 @@ fn check_operation_has_name(
                 message,
                 "noAnonymousOperations",
             )
-            .with_help("Add a name to your operation, e.g. 'query MyQuery { ... }'")
-            .with_url(crate::diagnostics::rule_doc_url("noAnonymousOperations")),
+            .with_help("Add a name to your operation, e.g. 'query MyQuery { ... }'"),
         );
     }
 }

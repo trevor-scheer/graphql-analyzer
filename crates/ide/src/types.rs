@@ -266,13 +266,6 @@ pub enum DiagnosticTag {
     Deprecated,
 }
 
-/// Related information for a diagnostic (e.g., the definition site for an error)
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RelatedInformation {
-    pub location: Location,
-    pub message: String,
-}
-
 /// Diagnostic (error, warning, hint)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -289,8 +282,6 @@ pub struct Diagnostic {
     pub url: Option<String>,
     /// Diagnostic tags for additional classification
     pub tags: Vec<DiagnosticTag>,
-    /// Related information (e.g., definition sites, other occurrences)
-    pub related: Vec<RelatedInformation>,
 }
 
 impl Diagnostic {
@@ -310,7 +301,6 @@ impl Diagnostic {
             help: None,
             url: None,
             tags: Vec::new(),
-            related: Vec::new(),
         }
     }
 
@@ -341,12 +331,6 @@ impl Diagnostic {
     #[must_use]
     pub fn with_tag(mut self, tag: DiagnosticTag) -> Self {
         self.tags.push(tag);
-        self
-    }
-
-    #[must_use]
-    pub fn with_related(mut self, related: RelatedInformation) -> Self {
-        self.related.push(related);
         self
     }
 }

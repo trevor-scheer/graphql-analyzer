@@ -330,7 +330,6 @@ pub(crate) async fn handle_code_action(
                                 }
                             })
                             .collect(),
-                        related: Vec::new(),
                     })]),
                     edit: Some(workspace_edit),
                     command: None,

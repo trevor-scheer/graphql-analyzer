@@ -100,7 +100,6 @@ pub fn convert_diagnostic(diag: &graphql_analysis::Diagnostic) -> crate::types::
                 }
             })
             .collect(),
-        related: Vec::new(),
     }
 }
 
