@@ -45,10 +45,11 @@ mod types;
 pub use service::McpService;
 pub use tools::GraphQLToolRouter;
 pub use types::{
-    CompletionInfo, CompletionsResult, DiagnosticInfo, DiagnosticSeverity, DocumentSymbolsResult,
-    FileDiagnostics, FileValidationResult, HoverResultInfo, LintResult, LoadProjectResult,
-    LocationInfo, LocationResult, LocationsResult, ProjectDiagnosticsResult, RangeInfo, SymbolInfo,
-    ValidateDocumentParams, ValidateDocumentResult, WorkspaceSymbolInfo, WorkspaceSymbolsResult,
+    CompletionInfo, CompletionsResult, DiagnosticInfo, DiagnosticSeverity, DiagnosticTagInfo,
+    DocumentSymbolsResult, FileDiagnostics, FileValidationResult, HoverResultInfo, LintResult,
+    LoadProjectResult, LocationInfo, LocationResult, LocationsResult, ProjectDiagnosticsResult,
+    RangeInfo, SymbolInfo, ValidateDocumentParams, ValidateDocumentResult, WorkspaceSymbolInfo,
+    WorkspaceSymbolsResult,
 };
 
 /// Configuration for which projects to preload at startup

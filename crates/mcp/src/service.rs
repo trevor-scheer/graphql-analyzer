@@ -423,6 +423,9 @@ impl McpService {
                     range: None,
                     rule: None,
                     fix: None,
+                    help: None,
+                    url: None,
+                    tags: Vec::new(),
                 }],
             };
         };
@@ -490,13 +493,7 @@ impl McpService {
 
         let diagnostics = lint_diagnostics
             .into_iter()
-            .map(|d| DiagnosticInfo {
-                severity: d.severity.into(),
-                message: d.message,
-                range: Some(d.range.into()),
-                rule: None,
-                fix: None,
-            })
+            .map(DiagnosticInfo::from)
             .collect();
 
         LintResult {

@@ -125,6 +125,37 @@ pub struct DiagnosticInfo {
     /// Auto-fix suggestion if available
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fix: Option<FixSuggestion>,
+
+    /// Actionable suggestion explaining how to resolve the issue
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
+
+    /// Documentation URL for the rule
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+
+    /// Diagnostic tags (e.g., "unnecessary", "deprecated")
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub tags: Vec<DiagnosticTagInfo>,
+}
+
+/// Diagnostic tag classifications
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum DiagnosticTagInfo {
+    /// Marks code that is unnecessary or unused
+    Unnecessary,
+    /// Marks code that is deprecated
+    Deprecated,
+}
+
+impl From<graphql_ide::DiagnosticTag> for DiagnosticTagInfo {
+    fn from(tag: graphql_ide::DiagnosticTag) -> Self {
+        match tag {
+            graphql_ide::DiagnosticTag::Unnecessary => DiagnosticTagInfo::Unnecessary,
+            graphql_ide::DiagnosticTag::Deprecated => DiagnosticTagInfo::Deprecated,
+        }
+    }
 }
 
 /// Severity level for diagnostics
@@ -812,8 +843,11 @@ impl From<graphql_ide::Diagnostic> for DiagnosticInfo {
             severity: diag.severity.into(),
             message: diag.message,
             range: Some(diag.range.into()),
-            rule: None,
+            rule: diag.code,
             fix: None,
+            help: diag.help,
+            url: diag.url,
+            tags: diag.tags.into_iter().map(Into::into).collect(),
         }
     }
 }

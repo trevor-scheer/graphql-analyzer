@@ -316,6 +316,20 @@ pub(crate) async fn handle_code_action(
                         code: Some(diag.rule.clone()),
                         source: "graphql-linter".to_string(),
                         fix: None,
+                        help: diag.help.clone(),
+                        url: diag.url.clone(),
+                        tags: diag
+                            .tags
+                            .iter()
+                            .map(|t| match t {
+                                graphql_linter::DiagnosticTag::Unnecessary => {
+                                    graphql_ide::DiagnosticTag::Unnecessary
+                                }
+                                graphql_linter::DiagnosticTag::Deprecated => {
+                                    graphql_ide::DiagnosticTag::Deprecated
+                                }
+                            })
+                            .collect(),
                     })]),
                     edit: Some(workspace_edit),
                     command: None,

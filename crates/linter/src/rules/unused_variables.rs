@@ -164,7 +164,9 @@ fn check_operation_for_unused_variables(
                     message,
                     "unusedVariables",
                 )
-                .with_fix(fix),
+                .with_fix(fix)
+                .with_help("Remove the unused variable declaration")
+                .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary),
             );
         }
     }

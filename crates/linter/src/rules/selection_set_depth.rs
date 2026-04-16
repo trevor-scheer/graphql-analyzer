@@ -128,14 +128,19 @@ fn check_depth(
                                 || "anonymous operation".to_string(),
                                 |n| format!("'{n}'"),
                             );
-                            diagnostics.push(LintDiagnostic::new(
-                                doc.span(start, end),
-                                LintSeverity::Warning,
-                                format!(
-                                    "Selection set depth {new_depth} exceeds maximum of {max_depth} in {def_desc}"
+                            diagnostics.push(
+                                LintDiagnostic::new(
+                                    doc.span(start, end),
+                                    LintSeverity::Warning,
+                                    format!(
+                                        "Selection set depth {new_depth} exceeds maximum of {max_depth} in {def_desc}"
+                                    ),
+                                    "selectionSetDepth",
+                                )
+                                .with_help(
+                                    "Split the query or extract nested selections into fragments to reduce depth",
                                 ),
-                                "selectionSetDepth",
-                            ));
+                            );
                         }
                     } else {
                         check_depth(

@@ -70,12 +70,17 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
                 diagnostics_by_file
                     .entry(type_def.file_id)
                     .or_default()
-                    .push(LintDiagnostic::new(
-                        span,
-                        LintSeverity::Warning,
-                        format!("{kind_name} '{}' is missing a description", type_def.name),
-                        "requireDescription",
-                    ));
+                    .push(
+                        LintDiagnostic::new(
+                            span,
+                            LintSeverity::Warning,
+                            format!("{kind_name} '{}' is missing a description", type_def.name),
+                            "requireDescription",
+                        )
+                        .with_help(
+                            "Add a description string above the definition to document its purpose",
+                        ),
+                    );
             }
         }
 

@@ -76,15 +76,18 @@ impl StandaloneSchemaLintRule for NoScalarResultTypeOnMutationRuleImpl {
                 diagnostics_by_file
                     .entry(mutation_type.file_id)
                     .or_default()
-                    .push(LintDiagnostic::new(
-                        span,
-                        LintSeverity::Warning,
-                        format!(
-                            "Mutation field '{}' returns scalar type '{}'. Mutations should return object types.",
-                            field.name, return_type_name
-                        ),
-                        "noScalarResultTypeOnMutation",
-                    ));
+                    .push(
+                        LintDiagnostic::new(
+                            span,
+                            LintSeverity::Warning,
+                            format!(
+                                "Mutation field '{}' returns scalar type '{}'. Mutations should return object types.",
+                                field.name, return_type_name
+                            ),
+                            "noScalarResultTypeOnMutation",
+                        )
+                        .with_help("Return an object type that wraps the result so future fields can be added without breaking clients"),
+                    );
             }
         }
 

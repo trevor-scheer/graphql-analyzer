@@ -535,6 +535,9 @@ fn unused_ignore_diagnostics(
                     },
                     source: "graphql-linter".into(),
                     code: Some("unused_ignore".into()),
+                    help: None,
+                    url: None,
+                    tags: vec![crate::DiagnosticTag::Unnecessary],
                 }]
             }
             graphql_linter::ignore::UnusedIgnore::UnusedRules { rules, .. } => rules
@@ -561,6 +564,9 @@ fn unused_ignore_diagnostics(
                         },
                         source: "graphql-linter".into(),
                         code: Some("unused_ignore".into()),
+                        help: None,
+                        url: None,
+                        tags: vec![crate::DiagnosticTag::Unnecessary],
                     }
                 })
                 .collect(),
@@ -681,7 +687,49 @@ fn convert_lint_diagnostics(
                 },
                 source: "graphql-linter".into(),
                 code: Some(rule_name.to_string().into()),
+                help: ld.help.map(Into::into),
+                url: Some(resolve_rule_url(ld.url, rule_name).into()),
+                tags: ld
+                    .tags
+                    .into_iter()
+                    .map(|t| match t {
+                        graphql_linter::DiagnosticTag::Unnecessary => {
+                            crate::DiagnosticTag::Unnecessary
+                        }
+                        graphql_linter::DiagnosticTag::Deprecated => {
+                            crate::DiagnosticTag::Deprecated
+                        }
+                    })
+                    .collect(),
             })
         })
         .collect()
+}
+
+/// Pick a documentation URL for a lint diagnostic, falling back to the
+/// canonical per-rule URL when the rule didn't set one explicitly.
+fn resolve_rule_url(explicit: Option<String>, rule_name: &str) -> String {
+    explicit.unwrap_or_else(|| graphql_linter::rule_doc_url(rule_name))
+}
+
+#[cfg(test)]
+mod url_resolution_tests {
+    use super::*;
+
+    #[test]
+    fn falls_back_to_canonical_url_when_not_set() {
+        assert_eq!(
+            resolve_rule_url(None, "unusedFields"),
+            "https://trevor-scheer.github.io/graphql-analyzer/rules/unused-fields/"
+        );
+    }
+
+    #[test]
+    fn respects_rule_provided_url() {
+        let custom = "https://docs.example.com/custom-rule".to_string();
+        assert_eq!(
+            resolve_rule_url(Some(custom.clone()), "unusedFields"),
+            custom
+        );
+    }
 }

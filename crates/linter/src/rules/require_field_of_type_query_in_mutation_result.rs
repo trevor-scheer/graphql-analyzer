@@ -79,15 +79,20 @@ impl StandaloneSchemaLintRule for RequireFieldOfTypeQueryInMutationResultRuleImp
                 diagnostics_by_file
                     .entry(mutation_type.file_id)
                     .or_default()
-                    .push(LintDiagnostic::new(
-                        span,
-                        LintSeverity::Warning,
-                        format!(
-                            "Mutation field '{}' result type '{}' should include a field of type '{}'",
-                            field.name, return_type_name, query_type_name
-                        ),
-                        "requireFieldOfTypeQueryInMutationResult",
-                    ));
+                    .push(
+                        LintDiagnostic::new(
+                            span,
+                            LintSeverity::Warning,
+                            format!(
+                                "Mutation field '{}' result type '{}' should include a field of type '{}'",
+                                field.name, return_type_name, query_type_name
+                            ),
+                            "requireFieldOfTypeQueryInMutationResult",
+                        )
+                        .with_help(format!(
+                            "Add a field returning '{query_type_name}' to the mutation payload so clients can refetch in the same round trip"
+                        )),
+                    );
             }
         }
 

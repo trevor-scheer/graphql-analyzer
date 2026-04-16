@@ -13,7 +13,7 @@ use crate::watch::{FileWatcher, WatchConfig, WatchMode};
 use crate::{ExitCode, OutputFormat, OutputOptions};
 use anyhow::Result;
 use colored::Colorize;
-use graphql_ide::{Diagnostic, DiagnosticSeverity};
+use graphql_ide::{Diagnostic, DiagnosticSeverity, DiagnosticTag};
 use std::path::PathBuf;
 
 /// Diagnostic output structure for unified display
@@ -27,6 +27,16 @@ struct DiagnosticOutput {
     severity: String,
     source: DiagnosticSource,
     rule: Option<String>,
+    help: Option<String>,
+    url: Option<String>,
+    tags: Vec<DiagnosticTag>,
+}
+
+fn tag_name(tag: &DiagnosticTag) -> &'static str {
+    match tag {
+        DiagnosticTag::Unnecessary => "unnecessary",
+        DiagnosticTag::Deprecated => "deprecated",
+    }
 }
 
 /// Source of the diagnostic (validation or lint)
@@ -143,6 +153,9 @@ pub fn run(
                     severity: "error".to_string(),
                     source: DiagnosticSource::Validation,
                     rule: diag.code.clone(),
+                    help: diag.help.clone(),
+                    url: diag.url.clone(),
+                    tags: diag.tags.clone(),
                 });
                 original_diagnostics
                     .entry(file_path.clone())
@@ -178,6 +191,9 @@ pub fn run(
                 severity: severity_string,
                 source: DiagnosticSource::Lint,
                 rule: diag.code.clone(),
+                help: diag.help.clone(),
+                url: diag.url.clone(),
+                tags: diag.tags.clone(),
             });
             original_diagnostics
                 .entry(file_path.clone())
@@ -262,6 +278,12 @@ pub fn run(
                 if let Some(ref rule) = issue.rule {
                     println!("  {}: {}", "rule".dimmed(), rule.dimmed());
                 }
+                if let Some(ref help) = issue.help {
+                    println!("  {}: {}", "help".cyan(), help);
+                }
+                if let Some(ref url) = issue.url {
+                    println!("  {}: {}", "docs".dimmed(), url.dimmed());
+                }
             }
         }
         OutputFormat::Json => {
@@ -271,7 +293,10 @@ pub fn run(
                     "message": issue.message,
                     "severity": issue.severity,
                     "source": issue.source.to_string(),
-                    "rule": issue.rule
+                    "rule": issue.rule,
+                    "help": issue.help,
+                    "url": issue.url,
+                    "tags": issue.tags.iter().map(tag_name).collect::<Vec<_>>(),
                 });
                 if issue.line > 0 {
                     obj["location"] = serde_json::json!({

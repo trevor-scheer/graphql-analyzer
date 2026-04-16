@@ -82,6 +82,9 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
                         self.default_severity(),
                         message,
                         self.name().to_string(),
+                    )
+                    .with_help(
+                        "Rename one of the operations so each operation has a unique name across the project",
                     );
 
                     diagnostics_by_file.entry(*file_id).or_default().push(diag);
@@ -134,6 +137,9 @@ impl ProjectLintRule for UniqueNamesRuleImpl {
                         self.default_severity(),
                         message,
                         self.name().to_string(),
+                    )
+                    .with_help(
+                        "Rename one of the fragments so each fragment has a unique name across the project",
                     );
 
                     diagnostics_by_file.entry(*file_id).or_default().push(diag);

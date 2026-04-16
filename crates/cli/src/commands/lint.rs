@@ -6,7 +6,7 @@ use crate::watch::{FileWatcher, WatchConfig, WatchMode};
 use crate::{ExitCode, OutputFormat, OutputOptions};
 use anyhow::Result;
 use colored::Colorize;
-use graphql_ide::DiagnosticSeverity;
+use graphql_ide::{DiagnosticSeverity, DiagnosticTag};
 use std::path::PathBuf;
 
 /// Diagnostic output structure for collecting warnings and errors
@@ -19,6 +19,16 @@ struct DiagnosticOutput {
     message: String,
     severity: String,
     rule: Option<String>,
+    help: Option<String>,
+    url: Option<String>,
+    tags: Vec<DiagnosticTag>,
+}
+
+fn tag_name(tag: &DiagnosticTag) -> &'static str {
+    match tag {
+        DiagnosticTag::Unnecessary => "unnecessary",
+        DiagnosticTag::Deprecated => "deprecated",
+    }
 }
 
 /// File-level diagnostic grouping for JSON output
@@ -160,6 +170,9 @@ pub fn run(
                 message: diag.message.clone(),
                 severity: severity_string,
                 rule: diag.code.clone(),
+                help: diag.help.clone(),
+                url: diag.url.clone(),
+                tags: diag.tags.clone(),
             };
 
             let file_diags = files_with_diagnostics
@@ -219,6 +232,12 @@ pub fn run(
                     if let Some(ref rule) = diag.code {
                         println!("  {}: {}", "rule".dimmed(), rule.dimmed());
                     }
+                    if let Some(ref help) = diag.help {
+                        println!("  {}: {}", "help".cyan(), help);
+                    }
+                    if let Some(ref url) = diag.url {
+                        println!("  {}: {}", "docs".dimmed(), url.dimmed());
+                    }
                 }
             }
         }
@@ -229,6 +248,9 @@ pub fn run(
                     "message": d.message,
                     "severity": d.severity,
                     "rule": d.rule,
+                    "help": d.help,
+                    "url": d.url,
+                    "tags": d.tags.iter().map(tag_name).collect::<Vec<_>>(),
                     "location": {
                         "start": { "line": d.line, "column": d.column },
                         "end": { "line": d.end_line, "column": d.end_column }

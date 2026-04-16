@@ -384,7 +384,8 @@ fn check_selection_set_for_redundancy(
                             message,
                             "redundantFields",
                         )
-                        .with_fix(fix),
+                        .with_fix(fix)
+                        .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary),
                     );
                 }
             }
@@ -458,7 +459,8 @@ fn check_selection_set_for_redundancy(
                             message,
                             "redundantFields",
                         )
-                        .with_fix(fix),
+                        .with_fix(fix)
+                        .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary),
                     );
                 }
             }

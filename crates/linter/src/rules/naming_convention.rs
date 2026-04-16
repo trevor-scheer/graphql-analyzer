@@ -145,15 +145,21 @@ impl StandaloneDocumentLintRule for NamingConventionRuleImpl {
                             if !convention.check(&name) {
                                 let start: usize = name_node.syntax().text_range().start().into();
                                 let end: usize = name_node.syntax().text_range().end().into();
-                                diagnostics.push(LintDiagnostic::new(
-                                    doc.span(start, end),
-                                    LintSeverity::Warning,
-                                    format!(
-                                        "Operation name '{name}' should be in {} format",
+                                diagnostics.push(
+                                    LintDiagnostic::new(
+                                        doc.span(start, end),
+                                        LintSeverity::Warning,
+                                        format!(
+                                            "Operation name '{name}' should be in {} format",
+                                            convention.label()
+                                        ),
+                                        "namingConvention",
+                                    )
+                                    .with_help(format!(
+                                        "Rename the operation to use {} casing",
                                         convention.label()
-                                    ),
-                                    "namingConvention",
-                                ));
+                                    )),
+                                );
                             }
                         }
 
@@ -169,15 +175,21 @@ impl StandaloneDocumentLintRule for NamingConventionRuleImpl {
                                                     name_node.syntax().text_range().start().into();
                                                 let end: usize =
                                                     name_node.syntax().text_range().end().into();
-                                                diagnostics.push(LintDiagnostic::new(
-                                                    doc.span(start, end),
-                                                    LintSeverity::Warning,
-                                                    format!(
-                                                        "Variable '${name}' should be in {} format",
+                                                diagnostics.push(
+                                                    LintDiagnostic::new(
+                                                        doc.span(start, end),
+                                                        LintSeverity::Warning,
+                                                        format!(
+                                                            "Variable '${name}' should be in {} format",
+                                                            convention.label()
+                                                        ),
+                                                        "namingConvention",
+                                                    )
+                                                    .with_help(format!(
+                                                        "Rename the variable to use {} casing",
                                                         convention.label()
-                                                    ),
-                                                    "namingConvention",
-                                                ));
+                                                    )),
+                                                );
                                             }
                                         }
                                     }
@@ -194,15 +206,21 @@ impl StandaloneDocumentLintRule for NamingConventionRuleImpl {
                             if !convention.check(&name) {
                                 let start: usize = frag_name.syntax().text_range().start().into();
                                 let end: usize = frag_name.syntax().text_range().end().into();
-                                diagnostics.push(LintDiagnostic::new(
-                                    doc.span(start, end),
-                                    LintSeverity::Warning,
-                                    format!(
-                                        "Fragment name '{name}' should be in {} format",
+                                diagnostics.push(
+                                    LintDiagnostic::new(
+                                        doc.span(start, end),
+                                        LintSeverity::Warning,
+                                        format!(
+                                            "Fragment name '{name}' should be in {} format",
+                                            convention.label()
+                                        ),
+                                        "namingConvention",
+                                    )
+                                    .with_help(format!(
+                                        "Rename the fragment to use {} casing",
                                         convention.label()
-                                    ),
-                                    "namingConvention",
-                                ));
+                                    )),
+                                );
                             }
                         }
                     }

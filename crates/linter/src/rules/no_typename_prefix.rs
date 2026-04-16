@@ -63,17 +63,23 @@ impl StandaloneSchemaLintRule for NoTypenamePrefixRuleImpl {
                     diagnostics_by_file
                         .entry(type_def.file_id)
                         .or_default()
-                        .push(LintDiagnostic::new(
-                            span,
-                            LintSeverity::Warning,
-                            format!(
-                                "Field '{}' on type '{}' starts with the type name. Consider renaming to '{}'.",
-                                field.name,
-                                type_def.name,
+                        .push(
+                            LintDiagnostic::new(
+                                span,
+                                LintSeverity::Warning,
+                                format!(
+                                    "Field '{}' on type '{}' starts with the type name. Consider renaming to '{}'.",
+                                    field.name,
+                                    type_def.name,
+                                    &field.name[type_def.name.len()..]
+                                ),
+                                "noTypenamePrefix",
+                            )
+                            .with_help(format!(
+                                "Rename the field to '{}' to avoid repeating the parent type name",
                                 &field.name[type_def.name.len()..]
-                            ),
-                            "noTypenamePrefix",
-                        ));
+                            )),
+                        );
                 }
             }
         }

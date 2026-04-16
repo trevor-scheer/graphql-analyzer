@@ -86,7 +86,8 @@ impl StandaloneSchemaLintRule for NoHashtagDescriptionRuleImpl {
                                     LintSeverity::Warning,
                                     "Use string literals (\"\" or \"\"\"\"\"\") for descriptions instead of # comments. Comments won't appear in introspection.".to_string(),
                                     "noHashtagDescription",
-                                ),
+                                )
+                                .with_help("Replace the hashtag comment with a string or block string description above the definition"),
                             );
                         }
                     }

@@ -78,10 +78,8 @@ impl StandaloneSchemaLintRule for UniqueEnumValueNamesRuleImpl {
                     source: None,
                 };
 
-                diagnostics_by_file
-                    .entry(*file_id)
-                    .or_default()
-                    .push(LintDiagnostic::new(
+                diagnostics_by_file.entry(*file_id).or_default().push(
+                    LintDiagnostic::new(
                         span,
                         LintSeverity::Warning,
                         format!(
@@ -89,7 +87,11 @@ impl StandaloneSchemaLintRule for UniqueEnumValueNamesRuleImpl {
                             other_enums.join(", ")
                         ),
                         "uniqueEnumValueNames",
-                    ));
+                    )
+                    .with_help(
+                        "Rename one of the enum values so each value is unique across the schema",
+                    ),
+                );
             }
         }
 
