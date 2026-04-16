@@ -260,10 +260,32 @@ impl std::fmt::Display for LintSeverity {
     }
 }
 
-/// Generate a documentation URL for a lint rule
+/// Generate a documentation URL for a lint rule.
+///
+/// Rule names in code are camelCase (`noDeprecated`) while the docs site
+/// serves kebab-case slugs (`no-deprecated`), so the name is converted
+/// before building the URL.
 #[must_use]
 pub fn rule_doc_url(rule_name: &str) -> String {
-    format!("https://graphql-analyzer.dev/rules/{rule_name}")
+    format!(
+        "https://trevor-scheer.github.io/graphql-analyzer/rules/{}/",
+        camel_to_kebab(rule_name)
+    )
+}
+
+fn camel_to_kebab(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 4);
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_ascii_uppercase() {
+            if i > 0 {
+                out.push('-');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -395,7 +417,25 @@ mod tests {
     fn test_rule_doc_url_format() {
         assert_eq!(
             rule_doc_url("noDeprecated"),
-            "https://graphql-analyzer.dev/rules/noDeprecated"
+            "https://trevor-scheer.github.io/graphql-analyzer/rules/no-deprecated/"
         );
+    }
+
+    #[test]
+    fn test_rule_doc_url_multi_word_camel_case() {
+        assert_eq!(
+            rule_doc_url("requireFieldOfTypeQueryInMutationResult"),
+            "https://trevor-scheer.github.io/graphql-analyzer/rules/require-field-of-type-query-in-mutation-result/"
+        );
+    }
+
+    #[test]
+    fn test_camel_to_kebab_preserves_single_word() {
+        assert_eq!(camel_to_kebab("alphabetize"), "alphabetize");
+    }
+
+    #[test]
+    fn test_camel_to_kebab_converts_camel_case() {
+        assert_eq!(camel_to_kebab("noAnonymousOperations"), "no-anonymous-operations");
     }
 }

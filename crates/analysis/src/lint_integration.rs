@@ -720,7 +720,7 @@ mod url_resolution_tests {
     fn falls_back_to_canonical_url_when_not_set() {
         assert_eq!(
             resolve_rule_url(None, "unusedFields"),
-            "https://graphql-analyzer.dev/rules/unusedFields"
+            "https://trevor-scheer.github.io/graphql-analyzer/rules/unused-fields/"
         );
     }
 
