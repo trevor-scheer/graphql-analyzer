@@ -2,6 +2,17 @@
 
 All notable changes to the GraphQL CLI will be documented in this file.
 
+## 0.2.1 (2026-04-16)
+
+### Features
+
+- Add `list-rules` and `explain` CLI commands for rule discovery ([#933](https://github.com/trevor-scheer/graphql-analyzer/pull/933))
+- Add SARIF output format for GitHub code scanning ([#943](https://github.com/trevor-scheer/graphql-analyzer/pull/943))
+
+### Fixes
+
+- Improve error messages for config and introspection failures ([#940](https://github.com/trevor-scheer/graphql-analyzer/pull/940))
+
 ## 0.2.0 (2026-04-12)
 
 ### Breaking Changes

@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL MCP server will be documented in this file.
 
+## 0.1.9 (2026-04-16)
+
+### Features
+
+- Add 6 new MCP tools: schema exploration (`get_schema_types`, `get_type_info`, `get_schema_sdl`), document analysis (`get_operations`, `get_query_complexity`), and remote introspection (`introspect_endpoint`) ([#837](https://github.com/trevor-scheer/graphql-analyzer/pull/837))
+
 ## 0.1.8 (2026-03-29)
 
 ### Features

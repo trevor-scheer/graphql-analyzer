@@ -2,6 +2,12 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.2.1 (2026-04-16)
+
+### Fixes
+
+- Publish to Open VSX Registry ([#979](https://github.com/trevor-scheer/graphql-analyzer/pull/979))
+
 ## 0.2.0 (2026-04-12)
 
 ### Breaking Changes

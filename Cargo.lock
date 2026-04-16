@@ -1197,7 +1197,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "apollo-parser 0.8.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1384,7 +1384,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-mcp"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "glob",
