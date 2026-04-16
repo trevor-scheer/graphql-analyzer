@@ -24,6 +24,31 @@ jobs:
 
 Using `--format github` turns errors into pull request annotations.
 
+### GitHub Code Scanning (SARIF)
+
+For richer integration with GitHub's Security tab, use SARIF output:
+
+```yaml
+name: GraphQL Validation
+on: [pull_request]
+
+jobs:
+  graphql:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GraphQL CLI
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
+      - name: Check GraphQL
+        run: graphql check --format sarif > results.sarif
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+```
+
 To run validation and linting as separate steps:
 
 ```yaml

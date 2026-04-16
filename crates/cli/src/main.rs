@@ -289,6 +289,8 @@ enum OutputFormat {
     Json,
     /// GitHub Actions workflow commands for PR annotations
     Github,
+    /// SARIF (Static Analysis Results Interchange Format) for GitHub code scanning
+    Sarif,
 }
 
 #[tokio::main]
