@@ -436,6 +436,9 @@ mod tests {
 
     #[test]
     fn test_camel_to_kebab_converts_camel_case() {
-        assert_eq!(camel_to_kebab("noAnonymousOperations"), "no-anonymous-operations");
+        assert_eq!(
+            camel_to_kebab("noAnonymousOperations"),
+            "no-anonymous-operations"
+        );
     }
 }
