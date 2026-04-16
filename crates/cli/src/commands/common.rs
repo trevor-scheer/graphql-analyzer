@@ -1,7 +1,7 @@
 use crate::ExitCode;
 use anyhow::{Context, Result};
 use colored::Colorize;
-use graphql_config::{find_config, load_config, GraphQLConfig};
+use graphql_config::{find_config, load_config, GraphQLConfig, ProjectConfig, CONFIG_FILES};
 use std::path::PathBuf;
 
 /// Common context for all CLI commands that require config and project selection
@@ -31,7 +31,29 @@ impl CommandContext {
             let current_dir = std::env::current_dir()?;
             find_config(&current_dir)
                 .context("Failed to search for config")?
-                .context("No GraphQL config file found")?
+                .ok_or_else(|| {
+                    let searched_files = CONFIG_FILES
+                        .iter()
+                        .map(|f| format!("  - {f}"))
+                        .chain(std::iter::once(
+                            "  - package.json (with \"graphql\" key)".to_string(),
+                        ))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    anyhow::anyhow!(
+                        "No GraphQL config file found\n\n\
+                        Searched for these files (walking up from {dir}):\n\
+                        {searched_files}\n\n\
+                        To get started, create a {example} file:\n\n\
+                        {sample}\n\n\
+                        For more options, see: https://the-guild.dev/graphql/config/docs",
+                        dir = current_dir.display(),
+                        example = ".graphqlrc.yaml".cyan(),
+                        sample = "\
+schema: \"schema.graphql\"\n\
+documents: \"src/**/*.graphql\"",
+                    )
+                })?
         };
 
         let config = load_config(&config_path).context("Failed to load config")?;
@@ -68,6 +90,29 @@ impl CommandContext {
             .to_path_buf();
 
         Ok(Self { config, base_dir })
+    }
+
+    /// Look up a project by name with a helpful error listing available projects.
+    ///
+    /// Use this instead of manually calling `config.projects().find(...)` to get
+    /// consistent, actionable error messages across all commands.
+    pub fn get_project_config(&self, project_name: Option<&str>) -> Result<ProjectConfig> {
+        let selected_name = Self::get_project_name(project_name);
+        self.config
+            .projects()
+            .find(|(name, _)| *name == selected_name)
+            .map(|(_, cfg)| cfg.clone())
+            .ok_or_else(|| {
+                let available: Vec<_> = self
+                    .config
+                    .projects()
+                    .map(|(name, _)| format!("  - {name}"))
+                    .collect();
+                anyhow::anyhow!(
+                    "Project '{selected_name}' not found in config\n\nAvailable projects:\n{}",
+                    available.join("\n")
+                )
+            })
     }
 
     /// Get the project name to use based on user input.

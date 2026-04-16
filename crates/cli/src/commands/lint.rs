@@ -55,13 +55,7 @@ pub fn run(
     let ctx = CommandContext::load(config_path, project_name, "lint")?;
 
     // Get project config
-    let selected_name = CommandContext::get_project_name(project_name);
-    let project_config = ctx
-        .config
-        .projects()
-        .find(|(name, _)| *name == selected_name)
-        .map(|(_, cfg)| cfg.clone())
-        .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
+    let project_config = ctx.get_project_config(project_name)?;
 
     // Load and select project
     let spinner = if matches!(format, OutputFormat::Human) && output_opts.show_progress {
@@ -414,13 +408,7 @@ fn run_watch_mode(
     let ctx = CommandContext::load(config_path, project_name, "lint")?;
 
     // Get project config
-    let selected_name = CommandContext::get_project_name(project_name);
-    let project_config = ctx
-        .config
-        .projects()
-        .find(|(name, _)| *name == selected_name)
-        .map(|(_, cfg)| cfg.clone())
-        .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
+    let project_config = ctx.get_project_config(project_name)?;
 
     // Create watch config
     let watch_config = WatchConfig {
