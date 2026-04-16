@@ -104,6 +104,8 @@ pub enum ConfigValidationError {
         preset_name: String,
         suggestion: Option<String>,
     },
+    /// The resolved schema file was not found on disk.
+    ResolvedSchemaNotFound { project: String, path: String },
 }
 
 impl ConfigValidationError {
@@ -117,6 +119,7 @@ impl ConfigValidationError {
             Self::NoFilesFound { .. } => "no-files-found",
             Self::UnknownLintRule { .. } => "unknown-lint-rule",
             Self::UnknownPreset { .. } => "unknown-preset",
+            Self::ResolvedSchemaNotFound { .. } => "resolved-schema-not-found",
         }
     }
 
@@ -124,7 +127,9 @@ impl ConfigValidationError {
     #[must_use]
     pub fn severity(&self) -> Severity {
         match self {
-            Self::UnmatchedPattern { .. } | Self::NoFilesFound { .. } => Severity::Warning,
+            Self::UnmatchedPattern { .. }
+            | Self::NoFilesFound { .. }
+            | Self::ResolvedSchemaNotFound { .. } => Severity::Warning,
             Self::OverlappingPattern { .. }
             | Self::ContentMismatch { .. }
             | Self::UnknownLintRule { .. }
@@ -199,6 +204,9 @@ impl ConfigValidationError {
                 Some(s) => format!("Unknown lint preset: '{preset_name}'. Did you mean '{s}'?"),
                 None => format!("Unknown lint preset: '{preset_name}'."),
             },
+            Self::ResolvedSchemaNotFound { path, .. } => {
+                format!("Resolved schema file not found: '{path}'")
+            }
         }
     }
 
@@ -226,6 +234,9 @@ impl ConfigValidationError {
             Self::UnknownPreset { preset_name, .. } => {
                 find_pattern_location(config_content, preset_name, 0)
             }
+            Self::ResolvedSchemaNotFound { path, .. } => {
+                find_pattern_location(config_content, path, 0)
+            }
         }
     }
 }
@@ -246,6 +257,7 @@ pub fn validate(
     let mut errors = Vec::new();
     errors.extend(validate_file_uniqueness(config, workspace_path));
     errors.extend(validate_unmatched_patterns(config, workspace_path));
+    errors.extend(validate_resolved_schema(config, workspace_path));
     if let Some(ctx) = lint_context {
         errors.extend(validate_lint_config(config, ctx));
     }
@@ -435,6 +447,28 @@ fn validate_unmatched_patterns(
                 errors.push(ConfigValidationError::NoFilesFound {
                     project: project_name.to_string(),
                     file_type: FileType::Document,
+                });
+            }
+        }
+    }
+
+    errors
+}
+
+/// Validate that resolved schema paths point to existing files.
+fn validate_resolved_schema(
+    config: &GraphQLConfig,
+    workspace_path: &Path,
+) -> Vec<ConfigValidationError> {
+    let mut errors = Vec::new();
+
+    for (project_name, project_config) in config.projects() {
+        if let Some(resolved_path) = project_config.resolved_schema() {
+            let full_path = workspace_path.join(&resolved_path);
+            if !full_path.is_file() {
+                errors.push(ConfigValidationError::ResolvedSchemaNotFound {
+                    project: project_name.to_string(),
+                    path: resolved_path,
                 });
             }
         }
@@ -1136,6 +1170,96 @@ projects:
             "Should not suggest for unrelated name, got: {}",
             unknown[0].message()
         );
+    }
+
+    #[allow(clippy::unnecessary_wraps)]
+    fn resolved_schema_extensions(path: &str) -> Option<StdHashMap<String, serde_json::Value>> {
+        let mut analyzer = serde_json::Map::new();
+        analyzer.insert(
+            "resolvedSchema".to_string(),
+            serde_json::Value::String(path.to_string()),
+        );
+        let mut map = StdHashMap::new();
+        map.insert(
+            "graphql-analyzer".to_string(),
+            serde_json::Value::Object(analyzer),
+        );
+        Some(map)
+    }
+
+    #[test]
+    fn test_resolved_schema_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        // Create a schema file so we don't get unmatched-pattern noise
+        let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
+        writeln!(f, "type Query {{ hello: String }}").unwrap();
+
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            resolved_schema_extensions("nonexistent/schema.graphql"),
+        )));
+
+        let errors = validate(&config, workspace_path, None);
+        let resolved: Vec<_> = errors
+            .iter()
+            .filter(|e| e.code() == "resolved-schema-not-found")
+            .collect();
+        assert_eq!(resolved.len(), 1);
+        assert!(resolved[0].message().contains("nonexistent/schema.graphql"));
+        assert_eq!(resolved[0].severity(), Severity::Warning);
+    }
+
+    #[test]
+    fn test_resolved_schema_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        // Create schema files
+        let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
+        writeln!(f, "type Query {{ hello: String }}").unwrap();
+
+        let mut f = std::fs::File::create(workspace_path.join("resolved.graphql")).unwrap();
+        writeln!(f, "type Query {{ hello: String }}").unwrap();
+
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            resolved_schema_extensions("resolved.graphql"),
+        )));
+
+        let errors = validate(&config, workspace_path, None);
+        let resolved: Vec<_> = errors
+            .iter()
+            .filter(|e| e.code() == "resolved-schema-not-found")
+            .collect();
+        assert!(resolved.is_empty());
+    }
+
+    #[test]
+    fn test_resolved_schema_location_in_yaml() {
+        let config_content = r"
+schema: schema.graphql
+extensions:
+  graphql-analyzer:
+    resolvedSchema: generated/schema.graphql
+";
+
+        let error = ConfigValidationError::ResolvedSchemaNotFound {
+            project: "default".to_string(),
+            path: "generated/schema.graphql".to_string(),
+        };
+
+        let location = error.location(config_content);
+        assert!(location.is_some());
+        let loc = location.unwrap();
+        assert_eq!(loc.line, 4);
     }
 
     #[test]
