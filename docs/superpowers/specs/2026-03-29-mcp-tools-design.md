@@ -16,10 +16,12 @@ Two tools from the original issue (`get_completions`, `goto_definition`) are alr
 List all types in the loaded schema with their kind and basic metadata.
 
 **Parameters:**
+
 - `project` (optional string): Project name. Defaults to first/only loaded project.
 - `kind` (optional string): Filter by type kind — `"object"`, `"interface"`, `"union"`, `"enum"`, `"scalar"`, `"input_object"`. If omitted, returns all types.
 
 **Returns:**
+
 ```json
 {
   "types": [
@@ -53,10 +55,12 @@ List all types in the loaded schema with their kind and basic metadata.
 Get full details about a specific named type including fields, arguments, interfaces, directives, enum values, and union members.
 
 **Parameters:**
+
 - `type_name` (string, required): The name of the type to look up.
 - `project` (optional string): Project name.
 
 **Returns (for an object type):**
+
 ```json
 {
   "name": "User",
@@ -77,9 +81,7 @@ Get full details about a specific named type including fields, arguments, interf
       "name": "posts",
       "type": "[Post!]!",
       "description": null,
-      "arguments": [
-        { "name": "first", "type": "Int", "description": null, "default_value": null }
-      ],
+      "arguments": [{ "name": "first", "type": "Int", "description": null, "default_value": null }],
       "is_deprecated": false,
       "deprecation_reason": null,
       "directives": []
@@ -100,9 +102,11 @@ For enums, `enum_values` is populated. For unions, `union_members` is populated.
 Return the full merged schema as SDL text. This reconstructs SDL from the resolved HIR types (with extensions merged), giving agents a single canonical view of the schema.
 
 **Parameters:**
+
 - `project` (optional string): Project name.
 
 **Returns:**
+
 ```json
 {
   "sdl": "type Query {\n  user(id: ID!): User\n  ...\n}\n\ntype User implements Node {\n  id: ID!\n  ...\n}\n...",
@@ -128,10 +132,12 @@ The SDL printer lives in `crates/mcp/src/sdl_printer.rs` since it's specific to 
 Extract all operations from the loaded project with their names, types, variables, and fragment dependencies.
 
 **Parameters:**
+
 - `project` (optional string): Project name.
 - `file_path` (optional string): If provided, only return operations from this file.
 
 **Returns:**
+
 ```json
 {
   "operations": [
@@ -139,9 +145,7 @@ Extract all operations from the loaded project with their names, types, variable
       "name": "GetUser",
       "operation_type": "query",
       "file": "/path/to/queries.graphql",
-      "variables": [
-        { "name": "id", "type": "ID!", "default_value": null }
-      ],
+      "variables": [{ "name": "id", "type": "ID!", "default_value": null }],
       "fragment_dependencies": ["UserFields", "AddressFields"]
     }
   ],
@@ -156,10 +160,12 @@ Extract all operations from the loaded project with their names, types, variable
 Calculate complexity scores for operations in the project.
 
 **Parameters:**
+
 - `project` (optional string): Project name.
 - `operation_name` (optional string): If provided, only return complexity for this operation. Otherwise returns all.
 
 **Returns:**
+
 ```json
 {
   "operations": [
@@ -187,10 +193,12 @@ Calculate complexity scores for operations in the project.
 Fetch a schema from a remote GraphQL endpoint via introspection and return the SDL.
 
 **Parameters:**
+
 - `url` (string, required): The GraphQL endpoint URL.
 - `headers` (optional object): Additional HTTP headers (e.g., `{"Authorization": "Bearer token"}`).
 
 **Returns:**
+
 ```json
 {
   "sdl": "type Query { ... }",
@@ -203,9 +211,11 @@ Fetch a schema from a remote GraphQL endpoint via introspection and return the S
 ## Architecture
 
 ### New Files
+
 - `crates/mcp/src/sdl_printer.rs` — SDL reconstruction from HIR TypeDefMap
 
 ### Modified Files
+
 - `crates/mcp/src/types.rs` — New param/result types for all 6 tools
 - `crates/mcp/src/tools.rs` — 6 new `#[tool]` methods on `GraphQLToolRouter`
 - `crates/mcp/src/service.rs` — 6 new service methods
@@ -237,6 +247,7 @@ MCP Tool handler (#[tool] method)
 The SDL printer is a standalone function: `fn print_schema_sdl(types: &TypeDefMap) -> String`
 
 It iterates the TypeDefMap (sorted), and for each type emits:
+
 - Description (triple-quoted block string if multiline, inline `"..."` if single line)
 - Type keyword + name + implements clause (if any)
 - Fields with arguments, types, descriptions, directives, deprecation
@@ -245,6 +256,7 @@ It iterates the TypeDefMap (sorted), and for each type emits:
 - Directives on types
 
 It does NOT print:
+
 - Directive definitions (could be added later)
 - Schema definition block (the root types are implicit from `Query`/`Mutation`/`Subscription` type names)
 - Built-in scalars (`String`, `Int`, `Float`, `Boolean`, `ID`)
