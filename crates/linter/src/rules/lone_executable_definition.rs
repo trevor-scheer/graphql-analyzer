@@ -114,14 +114,17 @@ impl StandaloneDocumentLintRule for LoneExecutableDefinitionRuleImpl {
             for (kind, name, start, end) in all_defs.into_iter().skip(1) {
                 let def_desc =
                     name.map_or_else(|| format!("anonymous {kind}"), |n| format!("{kind} '{n}'"));
-                diagnostics.push(LintDiagnostic::new(
-                    doc.span(start, end),
-                    LintSeverity::Warning,
-                    format!(
-                        "Only one executable definition is allowed per file. Found additional {def_desc}."
-                    ),
-                    "loneExecutableDefinition",
-                ));
+                diagnostics.push(
+                    LintDiagnostic::new(
+                        doc.span(start, end),
+                        LintSeverity::Warning,
+                        format!(
+                            "Only one executable definition is allowed per file. Found additional {def_desc}."
+                        ),
+                        "loneExecutableDefinition",
+                    )
+                    .with_help("Move the extra definition into its own file"),
+                );
             }
         }
 

@@ -120,12 +120,19 @@ fn check_selection_set(
                         if let Some(name_node) = name_node {
                             let start: usize = name_node.syntax().text_range().start().into();
                             let end: usize = name_node.syntax().text_range().end().into();
-                            diagnostics.push(LintDiagnostic::new(
-                                doc.span(start, end),
-                                LintSeverity::Warning,
-                                format!("Field '{name}' is already selected in this selection set"),
-                                "noDuplicateFields",
-                            ));
+                            diagnostics.push(
+                                LintDiagnostic::new(
+                                    doc.span(start, end),
+                                    LintSeverity::Warning,
+                                    format!(
+                                        "Field '{name}' is already selected in this selection set"
+                                    ),
+                                    "noDuplicateFields",
+                                )
+                                .with_help(
+                                    "Remove the duplicate selection or give it a distinct alias",
+                                ),
+                            );
                         }
                     }
                 }

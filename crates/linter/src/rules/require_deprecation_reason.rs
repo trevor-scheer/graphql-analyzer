@@ -47,15 +47,20 @@ impl StandaloneSchemaLintRule for RequireDeprecationReasonRuleImpl {
                     diagnostics_by_file
                         .entry(type_def.file_id)
                         .or_default()
-                        .push(LintDiagnostic::new(
-                            span,
-                            LintSeverity::Warning,
-                            format!(
-                                "Field '{}.{}' is deprecated without a reason",
-                                type_def.name, field.name
+                        .push(
+                            LintDiagnostic::new(
+                                span,
+                                LintSeverity::Warning,
+                                format!(
+                                    "Field '{}.{}' is deprecated without a reason",
+                                    type_def.name, field.name
+                                ),
+                                "requireDeprecationReason",
+                            )
+                            .with_help(
+                                "Add a reason string to @deprecated explaining why and what to use instead",
                             ),
-                            "requireDeprecationReason",
-                        ));
+                        );
                 }
 
                 // Check arguments
@@ -74,15 +79,20 @@ impl StandaloneSchemaLintRule for RequireDeprecationReasonRuleImpl {
                         diagnostics_by_file
                             .entry(type_def.file_id)
                             .or_default()
-                            .push(LintDiagnostic::new(
-                                span,
-                                LintSeverity::Warning,
-                                format!(
-                                    "Argument '{}' on '{}.{}' is deprecated without a reason",
-                                    arg.name, type_def.name, field.name
+                            .push(
+                                LintDiagnostic::new(
+                                    span,
+                                    LintSeverity::Warning,
+                                    format!(
+                                        "Argument '{}' on '{}.{}' is deprecated without a reason",
+                                        arg.name, type_def.name, field.name
+                                    ),
+                                    "requireDeprecationReason",
+                                )
+                                .with_help(
+                                    "Add a reason string to @deprecated explaining why and what to use instead",
                                 ),
-                                "requireDeprecationReason",
-                            ));
+                            );
                     }
                 }
             }
@@ -103,15 +113,20 @@ impl StandaloneSchemaLintRule for RequireDeprecationReasonRuleImpl {
                     diagnostics_by_file
                         .entry(type_def.file_id)
                         .or_default()
-                        .push(LintDiagnostic::new(
-                            span,
-                            LintSeverity::Warning,
-                            format!(
-                                "Enum value '{}.{}' is deprecated without a reason",
-                                type_def.name, ev.name
+                        .push(
+                            LintDiagnostic::new(
+                                span,
+                                LintSeverity::Warning,
+                                format!(
+                                    "Enum value '{}.{}' is deprecated without a reason",
+                                    type_def.name, ev.name
+                                ),
+                                "requireDeprecationReason",
+                            )
+                            .with_help(
+                                "Add a reason string to @deprecated explaining why and what to use instead",
                             ),
-                            "requireDeprecationReason",
-                        ));
+                        );
                 }
             }
         }

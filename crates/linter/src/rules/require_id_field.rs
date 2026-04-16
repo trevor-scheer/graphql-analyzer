@@ -454,7 +454,10 @@ fn check_selection_set(
                     ),
                     "requireIdField",
                 )
-                .with_fix(fix),
+                .with_fix(fix)
+                .with_help(format!(
+                    "Add '{required_field}' to the selection set so clients can cache and refetch this object"
+                )),
             );
         }
     }

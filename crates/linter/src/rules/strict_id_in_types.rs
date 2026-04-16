@@ -68,7 +68,8 @@ impl StandaloneSchemaLintRule for StrictIdInTypesRuleImpl {
                 diagnostics_by_file
                     .entry(type_def.file_id)
                     .or_default()
-                    .push(LintDiagnostic::new(
+                    .push(
+                    LintDiagnostic::new(
                         span,
                         LintSeverity::Warning,
                         format!(
@@ -76,7 +77,11 @@ impl StandaloneSchemaLintRule for StrictIdInTypesRuleImpl {
                             type_def.name
                         ),
                         "strictIdInTypes",
-                    ));
+                    )
+                    .with_help(
+                        "Add an 'id: ID!' field so this type can be uniquely identified and cached",
+                    ),
+                );
             }
         }
 

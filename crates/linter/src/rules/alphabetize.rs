@@ -154,12 +154,19 @@ fn check_selection_set_order(
                         };
 
                         if let Some((start, end)) = start_offset {
-                            diagnostics.push(LintDiagnostic::new(
-                                doc.span(start, end),
-                                LintSeverity::Warning,
-                                format!("'{name}' should be before '{prev}' (alphabetical order)"),
-                                "alphabetize",
-                            ));
+                            diagnostics.push(
+                                LintDiagnostic::new(
+                                    doc.span(start, end),
+                                    LintSeverity::Warning,
+                                    format!(
+                                        "'{name}' should be before '{prev}' (alphabetical order)"
+                                    ),
+                                    "alphabetize",
+                                )
+                                .with_help(
+                                    "Reorder selections alphabetically by their response name",
+                                ),
+                            );
                         }
                     }
                 }
@@ -205,12 +212,17 @@ fn check_argument_order(
                 if name.to_lowercase() < prev.to_lowercase() {
                     let start: usize = name_node.syntax().text_range().start().into();
                     let end: usize = name_node.syntax().text_range().end().into();
-                    diagnostics.push(LintDiagnostic::new(
-                        doc.span(start, end),
-                        LintSeverity::Warning,
-                        format!("Argument '{name}' should be before '{prev}' (alphabetical order)"),
-                        "alphabetize",
-                    ));
+                    diagnostics.push(
+                        LintDiagnostic::new(
+                            doc.span(start, end),
+                            LintSeverity::Warning,
+                            format!(
+                                "Argument '{name}' should be before '{prev}' (alphabetical order)"
+                            ),
+                            "alphabetize",
+                        )
+                        .with_help("Reorder arguments alphabetically by name"),
+                    );
                 }
             }
             last_name = Some(name);
@@ -233,14 +245,17 @@ fn check_variable_order(
                     if name.to_lowercase() < prev.to_lowercase() {
                         let start: usize = name_node.syntax().text_range().start().into();
                         let end: usize = name_node.syntax().text_range().end().into();
-                        diagnostics.push(LintDiagnostic::new(
-                            doc.span(start, end),
-                            LintSeverity::Warning,
-                            format!(
-                                "Variable '${name}' should be before '${prev}' (alphabetical order)"
-                            ),
-                            "alphabetize",
-                        ));
+                        diagnostics.push(
+                            LintDiagnostic::new(
+                                doc.span(start, end),
+                                LintSeverity::Warning,
+                                format!(
+                                    "Variable '${name}' should be before '${prev}' (alphabetical order)"
+                                ),
+                                "alphabetize",
+                            )
+                            .with_help("Reorder variable definitions alphabetically by name"),
+                        );
                     }
                 }
                 last_name = Some(name);

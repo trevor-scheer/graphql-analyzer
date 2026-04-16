@@ -79,15 +79,21 @@ impl StandaloneSchemaLintRule for InputNameRuleImpl {
                 diagnostics_by_file
                     .entry(type_def.file_id)
                     .or_default()
-                    .push(LintDiagnostic::new(
-                        span,
-                        LintSeverity::Warning,
-                        format!(
-                            "Input type '{}' should end with '{}'",
-                            type_def.name, opts.suffix
-                        ),
-                        "inputName",
-                    ));
+                    .push(
+                        LintDiagnostic::new(
+                            span,
+                            LintSeverity::Warning,
+                            format!(
+                                "Input type '{}' should end with '{}'",
+                                type_def.name, opts.suffix
+                            ),
+                            "inputName",
+                        )
+                        .with_help(format!(
+                            "Rename the input type to end with '{}'",
+                            opts.suffix
+                        )),
+                    );
             }
         }
 

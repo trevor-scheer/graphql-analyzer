@@ -442,7 +442,10 @@ fn check_selection_set(
                     ),
                     "requireSelections",
                 )
-                .with_fix(fix),
+                .with_fix(fix)
+                .with_help(format!(
+                    "Add '{required_field}' to the selection set so the normalized cache can identify this object"
+                )),
             );
         }
     }

@@ -69,13 +69,18 @@ impl StandaloneDocumentLintRule for OperationNameSuffixRuleImpl {
                             let start_offset: usize = text_range.start().into();
                             let end_offset: usize = text_range.end().into();
 
-                            diagnostics.push(LintDiagnostic::warning(
-                                doc.span(start_offset, end_offset),
-                                format!(
-                                    "Operation name '{name_text}' should end with '{expected_suffix}'. Consider renaming to '{name_text}{expected_suffix}'."
-                                ),
-                                "operationNameSuffix",
-                            ));
+                            diagnostics.push(
+                                LintDiagnostic::warning(
+                                    doc.span(start_offset, end_offset),
+                                    format!(
+                                        "Operation name '{name_text}' should end with '{expected_suffix}'. Consider renaming to '{name_text}{expected_suffix}'."
+                                    ),
+                                    "operationNameSuffix",
+                                )
+                                .with_help(format!(
+                                    "Append '{expected_suffix}' to the operation name so its type is clear from the name"
+                                )),
+                            );
                         }
                     }
                 }

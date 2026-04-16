@@ -135,15 +135,15 @@ impl StandaloneSchemaLintRule for DescriptionStyleRuleImpl {
                             DescriptionStyleKind::Inline => "inline (\"...\")",
                         };
 
-                        diagnostics_by_file
-                            .entry(*file_id)
-                            .or_default()
-                            .push(LintDiagnostic::new(
+                        diagnostics_by_file.entry(*file_id).or_default().push(
+                            LintDiagnostic::new(
                                 doc.span(start, end.min(start + desc_str.len().min(30) + 6)),
                                 LintSeverity::Warning,
                                 format!("Description should use {expected} style"),
                                 "descriptionStyle",
-                            ));
+                            )
+                            .with_help(format!("Rewrite the description using {expected} syntax")),
+                        );
                     }
                 }
             }
