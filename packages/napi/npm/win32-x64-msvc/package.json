@@ -1,0 +1,8 @@
+{
+  "name": "@graphql-analyzer/napi-win32-x64-msvc",
+  "version": "0.0.1",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "main": "graphql-analyzer.win32-x64-msvc.node",
+  "files": ["graphql-analyzer.win32-x64-msvc.node"]
+}

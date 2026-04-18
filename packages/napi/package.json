@@ -20,5 +20,12 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "^2.18.0"
+  },
+  "optionalDependencies": {
+    "@graphql-analyzer/napi-darwin-arm64": "0.0.1",
+    "@graphql-analyzer/napi-darwin-x64": "0.0.1",
+    "@graphql-analyzer/napi-linux-x64-gnu": "0.0.1",
+    "@graphql-analyzer/napi-linux-arm64-gnu": "0.0.1",
+    "@graphql-analyzer/napi-win32-x64-msvc": "0.0.1"
   }
 }

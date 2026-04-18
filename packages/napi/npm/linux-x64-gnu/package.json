@@ -1,0 +1,8 @@
+{
+  "name": "@graphql-analyzer/napi-linux-x64-gnu",
+  "version": "0.0.1",
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "main": "graphql-analyzer.linux-x64-gnu.node",
+  "files": ["graphql-analyzer.linux-x64-gnu.node"]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "@graphql-analyzer/napi-darwin-x64",
+  "version": "0.0.1",
+  "os": ["darwin"],
+  "cpu": ["x64"],
+  "main": "graphql-analyzer.darwin-x64.node",
+  "files": ["graphql-analyzer.darwin-x64.node"]
+}
