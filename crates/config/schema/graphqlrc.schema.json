@@ -327,6 +327,10 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Detects duplicate enum value names across different enum types"
             },
+            "requireDeprecationDate": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Requires @deprecated directives to include a deletion date in the reason"
+            },
             "requireDeprecationReason": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires a reason argument in @deprecated directives"
