@@ -16,7 +16,8 @@ export default defineConfig({
         },
       ],
       editLink: {
-        baseUrl: "https://github.com/trevor-scheer/graphql-analyzer/edit/main/docs/",
+        baseUrl:
+          "https://github.com/trevor-scheer/graphql-analyzer/edit/main/docs/",
       },
       sidebar: [
         {
@@ -94,26 +95,47 @@ export default defineConfig({
             { label: "alphabetize", slug: "rules/alphabetize" },
             { label: "descriptionStyle", slug: "rules/descriptionStyle" },
             { label: "inputName", slug: "rules/inputName" },
-            { label: "loneExecutableDefinition", slug: "rules/loneExecutableDefinition" },
+            {
+              label: "loneExecutableDefinition",
+              slug: "rules/loneExecutableDefinition",
+            },
             { label: "namingConvention", slug: "rules/namingConvention" },
-            { label: "noAnonymousOperations", slug: "rules/noAnonymousOperations" },
+            {
+              label: "noAnonymousOperations",
+              slug: "rules/noAnonymousOperations",
+            },
             { label: "noDeprecated", slug: "rules/noDeprecated" },
             { label: "noDuplicateFields", slug: "rules/noDuplicateFields" },
-            { label: "noHashtagDescription", slug: "rules/noHashtagDescription" },
+            {
+              label: "noHashtagDescription",
+              slug: "rules/noHashtagDescription",
+            },
             { label: "noOnePlaceFragments", slug: "rules/noOnePlaceFragments" },
-            { label: "noScalarResultTypeOnMutation", slug: "rules/noScalarResultTypeOnMutation" },
+            {
+              label: "noScalarResultTypeOnMutation",
+              slug: "rules/noScalarResultTypeOnMutation",
+            },
             { label: "noTypenamePrefix", slug: "rules/noTypenamePrefix" },
             { label: "noUnreachableTypes", slug: "rules/noUnreachableTypes" },
             { label: "operationNameSuffix", slug: "rules/operationNameSuffix" },
             { label: "redundantFields", slug: "rules/redundantFields" },
-            { label: "requireDeprecationReason", slug: "rules/requireDeprecationReason" },
+            {
+              label: "requireDeprecationReason",
+              slug: "rules/requireDeprecationReason",
+            },
             { label: "requireDescription", slug: "rules/requireDescription" },
-            { label: "requireFieldOfTypeQueryInMutationResult", slug: "rules/requireFieldOfTypeQueryInMutationResult" },
+            {
+              label: "requireFieldOfTypeQueryInMutationResult",
+              slug: "rules/requireFieldOfTypeQueryInMutationResult",
+            },
             { label: "requireIdField", slug: "rules/requireIdField" },
             { label: "requireSelections", slug: "rules/requireSelections" },
             { label: "selectionSetDepth", slug: "rules/selectionSetDepth" },
             { label: "strictIdInTypes", slug: "rules/strictIdInTypes" },
-            { label: "uniqueEnumValueNames", slug: "rules/uniqueEnumValueNames" },
+            {
+              label: "uniqueEnumValueNames",
+              slug: "rules/uniqueEnumValueNames",
+            },
             { label: "uniqueNames", slug: "rules/uniqueNames" },
             { label: "unusedFields", slug: "rules/unusedFields" },
             { label: "unusedFragments", slug: "rules/unusedFragments" },
