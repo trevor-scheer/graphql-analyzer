@@ -1,0 +1,90 @@
+# Demonstrates: relayConnectionTypes
+# Connection types must follow the Relay specification with edges and pageInfo fields.
+
+"""
+Pagination info for connections
+"""
+type PageInfo {
+  """
+  Whether there are more items
+  """
+  hasNextPage: Boolean!
+  """
+  Whether there are previous items
+  """
+  hasPreviousPage: Boolean!
+  """
+  Cursor for the first item
+  """
+  startCursor: String
+  """
+  Cursor for the last item
+  """
+  endCursor: String
+}
+
+"""
+An edge in a connection
+"""
+type UserEdge {
+  """
+  The item at the end of the edge
+  """
+  node: User
+  """
+  A cursor for pagination
+  """
+  cursor: String!
+}
+
+"""
+A user in the system
+"""
+type User {
+  """
+  Unique identifier
+  """
+  id: ID!
+  """
+  Display name
+  """
+  name: String!
+}
+
+"""
+Bad: missing both edges and pageInfo fields
+"""
+type BadConnection {
+  """
+  Total count is not enough
+  """
+  totalCount: Int!
+}
+
+"""
+Bad: edges is not a list type
+"""
+type WrongEdgesConnection {
+  """
+  Should be a list type
+  """
+  edges: UserEdge
+  """
+  Correct pageInfo
+  """
+  pageInfo: PageInfo!
+}
+
+"""
+Bad: pageInfo is nullable
+"""
+type NullablePageInfoConnection {
+  """
+  Correct edges
+  """
+  edges: [UserEdge]
+  """
+  Should be non-null
+  """
+  pageInfo: PageInfo
+}
