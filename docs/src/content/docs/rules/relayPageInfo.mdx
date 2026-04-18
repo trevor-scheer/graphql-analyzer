@@ -1,0 +1,75 @@
+---
+slug: rules/relayPageInfo
+title: relayPageInfo
+description: Enforce that the PageInfo type follows the Relay specification.
+---
+
+| Property         | Value           |
+| ---------------- | --------------- |
+| Config name      | `relayPageInfo` |
+| Default severity | `—`             |
+| Context          | Schema          |
+| In recommended   | No              |
+
+## What it checks
+
+Enforces that the `PageInfo` type in your schema conforms to the [Relay Connection specification](https://relay.dev/graphql/connections.htm#sec-undefined.PageInfo). Specifically, it checks that:
+
+- `PageInfo` is an object type (not a scalar, enum, etc.)
+- It contains the four required fields with the correct types:
+  - `hasPreviousPage: Boolean!`
+  - `hasNextPage: Boolean!`
+  - `startCursor: String`
+  - `endCursor: String`
+
+Additional fields beyond the four required ones are allowed.
+
+## Examples
+
+```graphql
+# ❌ Bad — missing required fields
+type PageInfo {
+  totalCount: Int
+}
+```
+
+```graphql
+# ❌ Bad — wrong types (cursors must be nullable, booleans must be non-null)
+type PageInfo {
+  hasPreviousPage: Boolean
+  hasNextPage: Boolean
+  startCursor: String!
+  endCursor: String!
+}
+```
+
+```graphql
+# ✅ Good — all required fields with correct types
+type PageInfo {
+  hasPreviousPage: Boolean!
+  hasNextPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+```
+
+```graphql
+# ✅ Good — extra fields are fine
+type PageInfo {
+  hasPreviousPage: Boolean!
+  hasNextPage: Boolean!
+  startCursor: String
+  endCursor: String
+  totalCount: Int
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        relayPageInfo: warn
+```
