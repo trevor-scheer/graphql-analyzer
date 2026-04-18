@@ -1,0 +1,24 @@
+type Query {
+  user(id: ID!): User
+  users: [User!]!
+}
+
+type User {
+  id: ID!
+  name: String!
+  email: String!
+  posts: [Post!]!
+}
+
+# This should trigger no-hashtag-description
+# A blog post
+type Post {
+  id: ID!
+  PostTitle: String!
+  content: String!
+  author: User!
+}
+
+type Mutation {
+  deleteUser(id: ID!): Boolean
+}

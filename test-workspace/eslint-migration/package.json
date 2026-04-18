@@ -1,0 +1,14 @@
+{
+  "name": "eslint-migration-demo",
+  "private": true,
+  "scripts": {
+    "lint": "eslint .",
+    "lint:before": "eslint --config eslint.config.before.mjs .",
+    "lint:after": "eslint --config eslint.config.after.mjs ."
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "@graphql-eslint/eslint-plugin": "^4.0.0",
+    "@graphql-analyzer/eslint-plugin": "file:../../packages/eslint-plugin"
+  }
+}
