@@ -1,0 +1,17 @@
+# This file demonstrates the requireImportFragment rule.
+# Fragment spreads should have a corresponding import comment.
+
+# VALID: Fragment imported via comment
+# import UserFields from "user-fields.graphql"
+query GetUser {
+  user(id: "1") {
+    ...UserFields
+  }
+}
+
+# INVALID: Fragment used without an import comment
+query GetPost {
+  post(id: "1") {
+    ...PostFields
+  }
+}
