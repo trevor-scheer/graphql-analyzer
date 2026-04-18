@@ -1,0 +1,15 @@
+# Demonstrates: requireNullableResultInRoot
+# Root type fields should return nullable types for error resilience.
+# Non-null root fields cause null-bubbling to propagate errors to the
+# entire response.
+
+extend type Query {
+  """
+  Non-null return type - violates the rule
+  """
+  currentUser: User!
+  """
+  Non-null list return type - also violates the rule
+  """
+  allPosts: [Post!]!
+}
