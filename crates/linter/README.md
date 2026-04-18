@@ -385,6 +385,47 @@ query GetUser {
 }
 ```
 
+### require_deprecation_date
+
+**Type**: StandaloneSchemaRule
+
+Requires `@deprecated` directives to include a deletion date in the reason string. This helps teams track when deprecated fields, arguments, and enum values should be removed.
+
+The rule looks for a configurable keyword (default `deletionDate`) followed by `:` or `=` and a date value in the deprecation reason.
+
+**Options:**
+
+| Option         | Type     | Default          | Description                                          |
+| -------------- | -------- | ---------------- | ---------------------------------------------------- |
+| `argumentName` | `string` | `"deletionDate"` | The key to look for in the deprecation reason string |
+
+**Configuration examples:**
+
+```yaml
+# Default: look for 'deletionDate'
+extensions:
+  lint:
+    rules:
+      requireDeprecationDate: warn
+
+# Custom argument name
+extensions:
+  lint:
+    rules:
+      requireDeprecationDate: [warn, { argumentName: "removalDate" }]
+```
+
+**Example:**
+
+```graphql
+# Schema
+type User {
+  id: ID!
+  oldField: String @deprecated(reason: "Use newField, deletionDate: 2025-01-01")  # ✅ OK
+  legacy: String @deprecated(reason: "Use newField instead")  # ⚠️ Warning: missing deletion date
+}
+```
+
 ### no_deprecated
 
 **Type**: DocumentSchemaRule

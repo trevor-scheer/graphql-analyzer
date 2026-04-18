@@ -1,0 +1,107 @@
+---
+slug: rules/requireDeprecationDate
+title: requireDeprecationDate
+description: Require a deletion date in @deprecated directive reasons.
+---
+
+| Property         | Value                      |
+| ---------------- | -------------------------- |
+| Config name      | `requireDeprecationDate`   |
+| Default severity | —                          |
+| Context          | Schema                     |
+| In recommended   | No                         |
+
+## What it checks
+
+Requires `@deprecated` directives to include a deletion date in the reason string. This helps teams track when deprecated fields, arguments, and enum values should be removed by requiring a date pattern like `deletionDate: 01/01/2025` in the deprecation reason.
+
+The rule checks:
+- Fields on object and interface types
+- Field arguments
+- Enum values
+
+It looks for the configured argument name (default `deletionDate`) followed by `:` or `=` and a non-empty value in the reason string.
+
+## Examples
+
+```graphql
+# ❌ Bad — @deprecated without a deletion date
+type User {
+  id: ID!
+  oldField: String @deprecated(reason: "Use newField instead")
+}
+```
+
+```graphql
+# ❌ Bad — @deprecated with no reason at all
+type User {
+  id: ID!
+  oldField: String @deprecated
+}
+```
+
+```graphql
+# ✅ Good — @deprecated with a deletion date
+type User {
+  id: ID!
+  oldField: String @deprecated(reason: "Use newField instead, deletionDate: 01/01/2025")
+}
+```
+
+```graphql
+# ✅ Good — also works with = separator
+type User {
+  id: ID!
+  oldField: String @deprecated(reason: "Use newField, deletionDate = 2025-01-01")
+}
+```
+
+```graphql
+# ❌ Bad — enum value deprecated without a deletion date
+enum Status {
+  ACTIVE
+  LEGACY @deprecated(reason: "No longer used")
+}
+```
+
+```graphql
+# ✅ Good — enum value with a deletion date
+enum Status {
+  ACTIVE
+  LEGACY @deprecated(reason: "No longer used, deletionDate: 2025-06-01")
+}
+```
+
+## Options
+
+| Option         | Type     | Default          | Description                                               |
+| -------------- | -------- | ---------------- | --------------------------------------------------------- |
+| `argumentName` | `string` | `"deletionDate"` | The key to look for in the deprecation reason string      |
+
+## Configuration
+
+```yaml
+# Enable with default argument name (deletionDate)
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        requireDeprecationDate: warn
+
+# Use a custom argument name
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        requireDeprecationDate: [warn, { argumentName: "removalDate" }]
+
+# Object style
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        requireDeprecationDate:
+          severity: warn
+          options:
+            argumentName: "removalDate"
+```
