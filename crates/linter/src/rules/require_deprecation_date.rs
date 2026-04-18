@@ -253,11 +253,11 @@ mod tests {
         )
     }
 
-    fn check_with_options(schema: &str, options: Option<serde_json::Value>) -> Vec<LintDiagnostic> {
+    fn check_with_options(schema: &str, options: Option<&serde_json::Value>) -> Vec<LintDiagnostic> {
         let db = RootDatabase::default();
         let rule = RequireDeprecationDateRuleImpl;
         let project_files = create_schema_project(&db, schema);
-        let diagnostics = rule.check(&db, project_files, options.as_ref());
+        let diagnostics = rule.check(&db, project_files, options);
         diagnostics.into_values().flatten().collect()
     }
 
@@ -348,6 +348,7 @@ type User {
 
     #[test]
     fn test_custom_argument_name() {
+        let opts = serde_json::json!({ "argumentName": "removalDate" });
         let diagnostics = check_with_options(
             r#"
 type User {
@@ -355,13 +356,14 @@ type User {
     oldField: String @deprecated(reason: "Use newField, removalDate: 2025-03-01")
 }
 "#,
-            Some(serde_json::json!({ "argumentName": "removalDate" })),
+            Some(&opts),
         );
         assert!(diagnostics.is_empty());
     }
 
     #[test]
     fn test_custom_argument_name_missing() {
+        let opts = serde_json::json!({ "argumentName": "removalDate" });
         let diagnostics = check_with_options(
             r#"
 type User {
@@ -369,7 +371,7 @@ type User {
     oldField: String @deprecated(reason: "Use newField, deletionDate: 2025-03-01")
 }
 "#,
-            Some(serde_json::json!({ "argumentName": "removalDate" })),
+            Some(&opts),
         );
         assert_eq!(diagnostics.len(), 1);
     }
