@@ -140,12 +140,12 @@ mod tests {
     fn test_oneof_with_ok_and_error_is_valid() {
         let db = RootDatabase::default();
         let rule = RequireTypePatternWithOneofRuleImpl;
-        let schema = r#"
+        let schema = r"
             type DoSomethingResult @oneOf {
                 ok: DoSomethingSuccess
                 error: Error
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -156,11 +156,11 @@ mod tests {
     fn test_oneof_missing_error_field() {
         let db = RootDatabase::default();
         let rule = RequireTypePatternWithOneofRuleImpl;
-        let schema = r#"
+        let schema = r"
             type DoSomethingResult @oneOf {
                 ok: DoSomethingSuccess
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -172,11 +172,11 @@ mod tests {
     fn test_oneof_missing_ok_field() {
         let db = RootDatabase::default();
         let rule = RequireTypePatternWithOneofRuleImpl;
-        let schema = r#"
+        let schema = r"
             type DoSomethingResult @oneOf {
                 error: Error
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -188,12 +188,12 @@ mod tests {
     fn test_oneof_missing_both_fields() {
         let db = RootDatabase::default();
         let rule = RequireTypePatternWithOneofRuleImpl;
-        let schema = r#"
+        let schema = r"
             type DoSomethingResult @oneOf {
                 success: DoSomethingSuccess
                 failure: Error
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -206,11 +206,11 @@ mod tests {
     fn test_type_without_oneof_is_ignored() {
         let db = RootDatabase::default();
         let rule = RequireTypePatternWithOneofRuleImpl;
-        let schema = r#"
+        let schema = r"
             type DoSomethingResult {
                 success: Boolean
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -221,12 +221,12 @@ mod tests {
     fn test_input_type_with_oneof_missing_fields() {
         let db = RootDatabase::default();
         let rule = RequireTypePatternWithOneofRuleImpl;
-        let schema = r#"
+        let schema = r"
             input SearchInput @oneOf {
                 title: String
                 author: String
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -237,12 +237,12 @@ mod tests {
     fn test_input_type_with_oneof_and_ok_error_is_valid() {
         let db = RootDatabase::default();
         let rule = RequireTypePatternWithOneofRuleImpl;
-        let schema = r#"
+        let schema = r"
             input SearchInput @oneOf {
                 ok: String
                 error: String
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
