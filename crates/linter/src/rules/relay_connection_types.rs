@@ -115,17 +115,17 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                             .entry(type_def.file_id)
                             .or_default()
                             .push(
-                            LintDiagnostic::new(
-                                field_span,
-                                LintSeverity::Warning,
-                                format!(
+                                LintDiagnostic::new(
+                                    field_span,
+                                    LintSeverity::Warning,
+                                    format!(
                                     "'edges' field on connection type '{}' must return a list type",
                                     type_def.name
                                 ),
-                                RULE_NAME,
-                            )
-                            .with_help("Change the type to a list (e.g., '[UserEdge]')"),
-                        );
+                                    RULE_NAME,
+                                )
+                                .with_help("Change the type to a list (e.g., '[UserEdge]')"),
+                            );
                     }
                 }
             }
