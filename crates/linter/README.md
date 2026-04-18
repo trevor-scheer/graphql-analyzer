@@ -450,6 +450,26 @@ query {
 }
 ```
 
+### require_type_pattern_with_oneof
+
+**Type**: StandaloneSchemaRule
+
+Enforces that types with the `@oneOf` directive contain both `ok` and `error` fields, standardizing mutation result types with explicit success and failure cases.
+
+```graphql
+# Schema
+type DoSomethingResult @oneOf {
+  ok: DoSomethingSuccess
+  # ⚠️ Warning: missing 'error' field
+}
+
+# Fixed
+type DoSomethingResult @oneOf {
+  ok: DoSomethingSuccess
+  error: Error # ✅ OK
+}
+```
+
 ## Creating Custom Rules
 
 ### Document Schema Rules
