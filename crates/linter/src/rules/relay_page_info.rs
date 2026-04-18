@@ -231,14 +231,14 @@ mod tests {
     fn valid_page_info() {
         let db = RootDatabase::default();
         let rule = RelayPageInfoRuleImpl;
-        let schema = r#"
+        let schema = r"
             type PageInfo {
                 hasPreviousPage: Boolean!
                 hasNextPage: Boolean!
                 startCursor: String
                 endCursor: String
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -249,7 +249,7 @@ mod tests {
     fn valid_page_info_with_extra_fields() {
         let db = RootDatabase::default();
         let rule = RelayPageInfoRuleImpl;
-        let schema = r#"
+        let schema = r"
             type PageInfo {
                 hasPreviousPage: Boolean!
                 hasNextPage: Boolean!
@@ -257,7 +257,7 @@ mod tests {
                 endCursor: String
                 totalCount: Int
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -279,11 +279,11 @@ mod tests {
     fn missing_all_fields() {
         let db = RootDatabase::default();
         let rule = RelayPageInfoRuleImpl;
-        let schema = r#"
+        let schema = r"
             type PageInfo {
                 totalCount: Int
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -298,14 +298,14 @@ mod tests {
     fn wrong_type_for_has_next_page() {
         let db = RootDatabase::default();
         let rule = RelayPageInfoRuleImpl;
-        let schema = r#"
+        let schema = r"
             type PageInfo {
                 hasPreviousPage: Boolean!
                 hasNextPage: String
                 startCursor: String
                 endCursor: String
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -318,14 +318,14 @@ mod tests {
     fn nullable_boolean_fields() {
         let db = RootDatabase::default();
         let rule = RelayPageInfoRuleImpl;
-        let schema = r#"
+        let schema = r"
             type PageInfo {
                 hasPreviousPage: Boolean
                 hasNextPage: Boolean
                 startCursor: String
                 endCursor: String
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -340,14 +340,14 @@ mod tests {
         let rule = RelayPageInfoRuleImpl;
         // Cursors as non-null is stricter than required but still valid
         // Actually, the Relay spec says String (nullable), so non-null is wrong type
-        let schema = r#"
+        let schema = r"
             type PageInfo {
                 hasPreviousPage: Boolean!
                 hasNextPage: Boolean!
                 startCursor: String!
                 endCursor: String!
             }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
