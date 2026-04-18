@@ -253,11 +253,11 @@ mod tests {
     fn test_custom_root_type_names() {
         let db = RootDatabase::default();
         let rule = RequireNullableResultInRootRuleImpl;
-        let schema = r#"
+        let schema = r"
             schema { query: RootQuery }
             type RootQuery { user: User! }
             type User { id: ID! }
-        "#;
+        ";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
