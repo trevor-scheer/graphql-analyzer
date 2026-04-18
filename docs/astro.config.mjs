@@ -16,8 +16,7 @@ export default defineConfig({
         },
       ],
       editLink: {
-        baseUrl:
-          "https://github.com/trevor-scheer/graphql-analyzer/edit/main/docs/",
+        baseUrl: "https://github.com/trevor-scheer/graphql-analyzer/edit/main/docs/",
       },
       sidebar: [
         {
