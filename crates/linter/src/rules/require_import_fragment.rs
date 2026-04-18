@@ -240,8 +240,8 @@ query GetUser { user { ...UserFields } }"#;
 
     #[test]
     fn test_locally_defined_fragment_no_import_needed() {
-        let source = r#"fragment UserFields on User { name }
-query GetUser { user { ...UserFields } }"#;
+        let source = r"fragment UserFields on User { name }
+query GetUser { user { ...UserFields } }";
         let diagnostics = check(source);
         assert!(diagnostics.is_empty());
     }
@@ -314,8 +314,8 @@ query GetFeed { user { ...UserFields } posts { ...PostFields } }"#;
 
     #[test]
     fn test_import_with_single_quotes() {
-        let source = r#"# import UserFields from 'user.graphql'
-query GetUser { user { ...UserFields } }"#;
+        let source = r"# import UserFields from 'user.graphql'
+query GetUser { user { ...UserFields } }";
         let diagnostics = check(source);
         assert!(diagnostics.is_empty());
     }
