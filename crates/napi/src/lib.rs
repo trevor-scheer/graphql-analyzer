@@ -1,4 +1,8 @@
+mod types;
+
 use napi_derive::napi;
+
+pub use types::*;
 
 #[napi]
 pub fn get_version() -> String {
