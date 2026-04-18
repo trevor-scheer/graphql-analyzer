@@ -353,7 +353,10 @@ mod tests {
         )
     }
 
-    fn check_with_options(schema: &str, options: Option<&serde_json::Value>) -> Vec<LintDiagnostic> {
+    fn check_with_options(
+        schema: &str,
+        options: Option<&serde_json::Value>,
+    ) -> Vec<LintDiagnostic> {
         let db = RootDatabase::default();
         let rule = RelayEdgeTypesRuleImpl;
         let project_files = create_schema_project(&db, schema);
