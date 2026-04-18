@@ -244,8 +244,17 @@ export const processor = {
     ];
   },
   postprocess(messages: LintMessage[][], filename: string) {
-    // Map GraphQL block diagnostics back to host file locations
-    // using block offsets from extraction
+    const blocks = binding.extractGraphql(
+      fs.readFileSync(filename, 'utf8'),
+      path.extname(filename).slice(1),
+    );
+    // Last message group is from the original file — pass through
+    const originalMessages = messages.pop()!;
+    // Remap GraphQL block locations back to host file offsets
+    const remapped = messages.flatMap((group, i) =>
+      group.map((msg) => offsetMessage(msg, blocks[i].offset)),
+    );
+    return [...remapped, ...originalMessages];
   },
   supportsAutofix: true,
 };
