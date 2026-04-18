@@ -327,6 +327,10 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Detects duplicate enum value names across different enum types"
             },
+            "relayConnectionTypes": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforces Relay connection type conventions on types ending in 'Connection'"
+            },
             "requireDeprecationReason": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires a reason argument in @deprecated directives"
