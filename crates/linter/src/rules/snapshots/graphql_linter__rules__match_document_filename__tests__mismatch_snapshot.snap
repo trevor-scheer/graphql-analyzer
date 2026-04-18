@@ -1,0 +1,7 @@
+---
+source: crates/linter/src/rules/match_document_filename.rs
+assertion_line: 701
+expression: messages
+---
+- "Filename 'GetUser' does not match query name 'FetchUser'. Expected filename 'FetchUser'."
+- "Filename 'GetUser' does not match fragment name 'PostDetails'. Expected filename 'PostDetails'."
