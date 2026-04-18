@@ -34,7 +34,7 @@ New: `resolvedSchema` config option to validate queries against a build-generate
 
 ### Features
 
-- Add `require-selections` lint rule for cache normalization ([#944](https://github.com/trevor-scheer/graphql-analyzer/pull/944))
+- Add `requireSelections` lint rule for cache normalization ([#944](https://github.com/trevor-scheer/graphql-analyzer/pull/944))
 
 ### Fixes
 
