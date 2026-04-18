@@ -22,6 +22,7 @@ node_modules/
 .DS_Store
 
 # Build artifacts
+*.node
 *.exe
 *.dll
 *.so

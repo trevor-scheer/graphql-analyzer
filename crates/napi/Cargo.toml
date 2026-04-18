@@ -1,0 +1,22 @@
+[package]
+name = "graphql-analyzer-napi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2", features = ["napi9", "serde-json"] }
+napi-derive = "2"
+serde_json.workspace = true
+graphql-ide = { path = "../ide" }
+graphql-linter = { path = "../linter" }
+graphql-extract = { path = "../extract" }
+graphql-config = { path = "../config" }
+parking_lot = "0.12"
+
+[build-dependencies]
+napi-build = "2"
