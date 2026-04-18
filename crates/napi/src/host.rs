@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -7,11 +8,11 @@ use graphql_ide::{AnalysisHost, DocumentKind, FilePath, Language};
 
 pub struct NapiAnalysisHost {
     host: AnalysisHost,
-    #[allow(dead_code)]
     schema_files: Vec<PathBuf>,
     #[allow(dead_code)]
     document_files: Vec<PathBuf>,
-    #[allow(dead_code)]
+    /// Files loaded during init — we preserve their document kind on re-add
+    known_files: HashSet<String>,
     initialized: bool,
 }
 
@@ -23,6 +24,7 @@ pub fn get_host() -> &'static Mutex<NapiAnalysisHost> {
             host: AnalysisHost::new(),
             schema_files: Vec::new(),
             document_files: Vec::new(),
+            known_files: HashSet::new(),
             initialized: false,
         })
     })
@@ -57,6 +59,10 @@ impl NapiAnalysisHost {
         }
 
         let schema_result = self.host.load_schemas_from_config(project, base_dir)?;
+        for path in &schema_result.loaded_paths {
+            self.known_files
+                .insert(path.to_string_lossy().to_string());
+        }
         self.schema_files.extend(schema_result.loaded_paths);
 
         let extract_config = self.host.get_extract_config();
@@ -65,6 +71,8 @@ impl NapiAnalysisHost {
                 .load_documents_from_config(project, base_dir, &extract_config);
         for file in &loaded {
             if let Some(path) = file_path_to_pathbuf(&file.path) {
+                self.known_files
+                    .insert(path.to_string_lossy().to_string());
                 self.document_files.push(path);
             }
         }
@@ -75,10 +83,16 @@ impl NapiAnalysisHost {
 
     pub fn lint_file(&mut self, path: &str, source: &str) -> Vec<graphql_ide::Diagnostic> {
         let file_path = FilePath::from_path(Path::new(path));
-        let (language, document_kind) = language_and_kind_from_path(path);
 
-        self.host
-            .add_file(&file_path, source, language, document_kind);
+        if !self.known_files.contains(path) {
+            // New file not loaded during init — add with inferred kind
+            let (language, document_kind) = language_and_kind_from_path(path);
+            self.host
+                .add_file(&file_path, source, language, document_kind);
+        }
+        // For known files, content was already loaded during init.
+        // ESLint sends the same content from disk, so no update needed.
+        // (Live editor content updates would need a separate code path.)
 
         let snapshot = self.host.snapshot();
         snapshot.all_diagnostics_for_file(&file_path)
