@@ -2,6 +2,17 @@
 
 All notable changes to the GraphQL LSP will be documented in this file.
 
+## 0.2.1 (2026-04-18)
+
+### Features
+
+- Add help text, related locations, and documentation URLs to diagnostics ([#934](https://github.com/trevor-scheer/graphql-analyzer/pull/934))
+- Add `relayConnectionTypes` lint rule ([#984](https://github.com/trevor-scheer/graphql-analyzer/pull/984))
+
+### Fixes
+
+- Validate that `resolvedSchema` paths point to existing files ([#982](https://github.com/trevor-scheer/graphql-analyzer/pull/982))
+
 ## 0.2.0 (2026-04-12)
 
 ### Breaking Changes
