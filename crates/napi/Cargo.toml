@@ -17,6 +17,7 @@ graphql-linter = { path = "../linter" }
 graphql-extract = { path = "../extract" }
 graphql-config = { path = "../config" }
 parking_lot = "0.12"
+anyhow.workspace = true
 
 [build-dependencies]
 napi-build = "2"
