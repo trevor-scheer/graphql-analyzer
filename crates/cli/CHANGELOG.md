@@ -29,7 +29,7 @@ New: `resolvedSchema` config option to validate queries against a build-generate
 
 - Show source code snippets in CLI diagnostic output ([#941](https://github.com/trevor-scheer/graphql-analyzer/pull/941))
 - Add `--max-warnings` flag for gradual lint adoption ([#938](https://github.com/trevor-scheer/graphql-analyzer/pull/938))
-- Add `require-selections` lint rule for cache normalization ([#944](https://github.com/trevor-scheer/graphql-analyzer/pull/944))
+- Add `requireSelections` lint rule for cache normalization ([#944](https://github.com/trevor-scheer/graphql-analyzer/pull/944))
 
 ### Fixes
 

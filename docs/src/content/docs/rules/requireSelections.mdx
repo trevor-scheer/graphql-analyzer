@@ -1,5 +1,6 @@
 ---
-title: require-selections
+slug: rules/requireSelections
+title: requireSelections
 description: Require specific fields in selection sets for cache normalization.
 ---
 
@@ -14,7 +15,7 @@ description: Require specific fields in selection sets for cache normalization.
 
 Enforces that selection sets on object types include specific fields (by default, `id`). This is essential for client-side cache normalization in tools like Apollo Client and urql, which rely on a consistent identifier field to merge and deduplicate objects.
 
-Unlike `require-id-field`, which only checks types that happen to have an `id` field, this rule requires the specified fields to be selected on **all** object types, helping you catch missing selections project-wide.
+Unlike `requireIdField`, which only checks types that happen to have an `id` field, this rule requires the specified fields to be selected on **all** object types, helping you catch missing selections project-wide.
 
 ## Examples
 
