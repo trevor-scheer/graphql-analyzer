@@ -161,6 +161,7 @@ projects:
             requireFieldOfTypeQueryInMutationResult: warn
             strictIdInTypes: warn
             noScalarResultTypeOnMutation: warn
+            relayEdgeTypes: warn
             requireSelections: error
 
   resolved-schema:

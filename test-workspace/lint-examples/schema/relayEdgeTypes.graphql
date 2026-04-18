@@ -1,0 +1,55 @@
+interface Node {
+  id: ID!
+}
+
+# Valid: properly formed edge and connection types
+type UserEdge {
+  node: User
+  cursor: String!
+}
+
+type UserConnection {
+  edges: [UserEdge]
+  pageInfo: PageInfo!
+}
+
+type User implements Node {
+  id: ID!
+  name: String!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+# Invalid: edge type missing cursor field
+type PostEdge {
+  node: Post
+}
+
+type PostConnection {
+  edges: [PostEdge]
+}
+
+type Post implements Node {
+  id: ID!
+  title: String!
+}
+
+# Invalid: edge type with list node field
+type CommentEdge {
+  node: [Comment]
+  cursor: String!
+}
+
+type CommentConnection {
+  edges: [CommentEdge]
+}
+
+type Comment implements Node {
+  id: ID!
+  body: String!
+}
