@@ -158,6 +158,7 @@ projects:
             uniqueEnumValueNames: warn
             requireDeprecationReason: warn
             requireDescription: warn
+            relayArguments: warn
             requireFieldOfTypeQueryInMutationResult: warn
             strictIdInTypes: warn
             noScalarResultTypeOnMutation: warn
