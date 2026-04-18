@@ -32,3 +32,26 @@ pub fn lint_file(path: String, source: String) -> napi::Result<Vec<JsDiagnostic>
     let diagnostics = host.lint_file(&path, &source);
     Ok(diagnostics.into_iter().map(JsDiagnostic::from).collect())
 }
+
+#[napi]
+pub fn extract_graphql(source: String, language: String) -> napi::Result<Vec<JsExtractedBlock>> {
+    let lang = match language.as_str() {
+        "ts" | "tsx" | "typescript" => graphql_extract::Language::TypeScript,
+        "js" | "jsx" | "mjs" | "cjs" | "javascript" => graphql_extract::Language::JavaScript,
+        "vue" => graphql_extract::Language::Vue,
+        "svelte" => graphql_extract::Language::Svelte,
+        "astro" => graphql_extract::Language::Astro,
+        "graphql" | "gql" => graphql_extract::Language::GraphQL,
+        other => {
+            return Err(napi::Error::from_reason(format!(
+                "Unsupported language: {other}"
+            )));
+        }
+    };
+
+    let config = graphql_extract::ExtractConfig::default();
+    let blocks = graphql_extract::extract_from_source(&source, lang, &config, "<input>")
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+    Ok(blocks.into_iter().map(JsExtractedBlock::from).collect())
+}
