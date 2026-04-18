@@ -1,0 +1,14 @@
+directive @oneOf on INPUT_OBJECT
+
+# Valid: all fields are nullable in @oneOf input
+input FindUserInput @oneOf {
+  id: ID
+  email: String
+  username: String
+}
+
+# Invalid: non-null fields in @oneOf input
+input FindPostInput @oneOf {
+  id: ID!
+  slug: String!
+}

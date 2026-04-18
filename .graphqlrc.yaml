@@ -159,6 +159,7 @@ projects:
             requireDeprecationReason: warn
             requireDescription: warn
             requireFieldOfTypeQueryInMutationResult: warn
+            requireNullableFieldsWithOneof: error
             strictIdInTypes: warn
             noScalarResultTypeOnMutation: warn
             requireSelections: error

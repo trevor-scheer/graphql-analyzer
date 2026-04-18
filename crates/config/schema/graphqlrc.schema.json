@@ -339,6 +339,10 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires mutation result types to include a field of the Query type"
             },
+            "requireNullableFieldsWithOneof": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Requires all fields in @oneOf input types to be nullable"
+            },
             "strictIdInTypes": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires object types to have an ID field"
