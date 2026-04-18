@@ -385,6 +385,31 @@ query GetUser {
 }
 ```
 
+### require_import_fragment
+
+**Type**: StandaloneDocumentRule
+
+Requires fragment spreads to have a corresponding import comment when the fragment is defined in another file. This makes cross-file fragment dependencies explicit rather than relying on implicit global resolution. Fragments defined in the same document do not require an import.
+
+The expected import syntax is `# import FragmentName from "path/to/file.graphql"`. Multiple fragments can be comma-separated: `# import A, B from "file.graphql"`.
+
+```graphql
+# ⚠️ Warning: Fragment 'UserFields' is used without a corresponding import comment
+query GetUser {
+  user {
+    ...UserFields
+  }
+}
+
+# ✅ OK - fragment imported explicitly
+# import UserFields from "fragments/user.graphql"
+query GetUser {
+  user {
+    ...UserFields
+  }
+}
+```
+
 ### no_deprecated
 
 **Type**: DocumentSchemaRule
