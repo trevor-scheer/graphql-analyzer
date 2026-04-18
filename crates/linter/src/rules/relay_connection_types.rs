@@ -360,10 +360,10 @@ mod tests {
     #[test]
     fn multiple_connection_types() {
         let diagnostics = check_schema(
-            r#"
+            r"
             type UserConnection { edges: [UserEdge] pageInfo: PageInfo! }
             type PostConnection { totalCount: Int! }
-            "#,
+            ",
         );
         // PostConnection is missing both edges and pageInfo
         assert_eq!(diagnostics.len(), 2);
