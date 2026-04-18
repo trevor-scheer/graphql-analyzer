@@ -353,11 +353,11 @@ mod tests {
         )
     }
 
-    fn check_with_options(schema: &str, options: Option<serde_json::Value>) -> Vec<LintDiagnostic> {
+    fn check_with_options(schema: &str, options: Option<&serde_json::Value>) -> Vec<LintDiagnostic> {
         let db = RootDatabase::default();
         let rule = RelayEdgeTypesRuleImpl;
         let project_files = create_schema_project(&db, schema);
-        let diagnostics = rule.check(&db, project_files, options.as_ref());
+        let diagnostics = rule.check(&db, project_files, options);
         diagnostics.into_values().flatten().collect()
     }
 
@@ -551,8 +551,8 @@ mod tests {
                 edges: [UserItem]
             }
         ";
-        let diagnostics =
-            check_with_options(schema, Some(serde_json::json!({ "withEdgeSuffix": false })));
+        let opts = serde_json::json!({ "withEdgeSuffix": false });
+        let diagnostics = check_with_options(schema, Some(&opts));
         assert!(
             diagnostics.is_empty(),
             "Should pass with suffix check disabled: {diagnostics:?}"
@@ -596,10 +596,8 @@ mod tests {
                 edges: [UserEdge]
             }
         ";
-        let diagnostics = check_with_options(
-            schema,
-            Some(serde_json::json!({ "shouldImplementNode": false })),
-        );
+        let opts = serde_json::json!({ "shouldImplementNode": false });
+        let diagnostics = check_with_options(schema, Some(&opts));
         assert!(
             diagnostics.is_empty(),
             "Should pass with Node interface check disabled: {diagnostics:?}"
