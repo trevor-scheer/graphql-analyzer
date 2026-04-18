@@ -660,10 +660,10 @@ mod tests {
     #[test]
     fn test_mismatch_snapshot() {
         let diagnostics = check_with_uri(
-            r#"
+            r"
 query FetchUser { user { id } }
 fragment PostDetails on Post { id title }
-"#,
+",
             "file:///path/to/GetUser.graphql",
         );
         let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
