@@ -315,6 +315,28 @@ The rule handles:
 - Circular fragment references (prevents infinite loops)
 - Aliased fields (only same alias is considered redundant)
 
+### match_document_filename
+
+**Type**: StandaloneDocumentRule
+
+Enforces that operation and fragment names match the filename. For example, a file named `GetUser.graphql` should contain an operation named `GetUser`.
+
+The rule supports configurable naming styles (`camelCase`, `PascalCase`, `snake_case`, `kebab-case`, `matchDocumentStyle`) per definition type (query, mutation, subscription, fragment) and optional suffixes.
+
+```graphql
+# File: GetUser.graphql
+# Good - operation name matches filename
+query GetUser {
+  user { id name }
+}
+
+# File: GetUser.graphql
+# Bad - operation name doesn't match filename
+query FetchUser {
+  user { id name }
+}
+```
+
 ### require_id_field
 
 **Type**: DocumentSchemaRule
