@@ -134,13 +134,13 @@ mod tests {
     fn test_oneof_with_nullable_fields() {
         let db = RootDatabase::default();
         let rule = RequireNullableFieldsWithOneofRuleImpl;
-        let schema = r#"
+        let schema = r"
 input UserByInput @oneOf {
     id: ID
     email: String
     username: String
 }
-"#;
+";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -151,13 +151,13 @@ input UserByInput @oneOf {
     fn test_oneof_with_non_null_fields() {
         let db = RootDatabase::default();
         let rule = RequireNullableFieldsWithOneofRuleImpl;
-        let schema = r#"
+        let schema = r"
 input UserByInput @oneOf {
     id: ID!
     email: String!
     username: String
 }
-"#;
+";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -169,12 +169,12 @@ input UserByInput @oneOf {
     fn test_input_without_oneof_allows_non_null() {
         let db = RootDatabase::default();
         let rule = RequireNullableFieldsWithOneofRuleImpl;
-        let schema = r#"
+        let schema = r"
 input UserInput {
     id: ID!
     email: String!
 }
-"#;
+";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -185,12 +185,12 @@ input UserInput {
     fn test_non_input_types_ignored() {
         let db = RootDatabase::default();
         let rule = RequireNullableFieldsWithOneofRuleImpl;
-        let schema = r#"
+        let schema = r"
 type User {
     id: ID!
     name: String!
 }
-"#;
+";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -201,13 +201,13 @@ type User {
     fn test_oneof_all_non_null() {
         let db = RootDatabase::default();
         let rule = RequireNullableFieldsWithOneofRuleImpl;
-        let schema = r#"
+        let schema = r"
 input FindUserInput @oneOf {
     id: ID!
     email: String!
     username: String!
 }
-"#;
+";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
