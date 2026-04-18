@@ -367,7 +367,7 @@ mod tests {
 
     #[test]
     fn valid_relay_edge_type() {
-        let schema = r#"
+        let schema = r"
             interface Node {
                 id: ID!
             }
@@ -382,7 +382,7 @@ mod tests {
             type UserConnection {
                 edges: [UserEdge]
             }
-        "#;
+        ";
         let diagnostics = check(schema);
         assert!(
             diagnostics.is_empty(),
@@ -392,14 +392,14 @@ mod tests {
 
     #[test]
     fn missing_node_field() {
-        let schema = r#"
+        let schema = r"
             type UserEdge {
                 cursor: String!
             }
             type UserConnection {
                 edges: [UserEdge]
             }
-        "#;
+        ";
         let diagnostics = check(schema);
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("missing a 'node' field"));
@@ -407,7 +407,7 @@ mod tests {
 
     #[test]
     fn missing_cursor_field() {
-        let schema = r#"
+        let schema = r"
             interface Node { id: ID! }
             type User implements Node { id: ID! }
             type UserEdge {
@@ -416,7 +416,7 @@ mod tests {
             type UserConnection {
                 edges: [UserEdge]
             }
-        "#;
+        ";
         let diagnostics = check(schema);
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("missing a 'cursor' field"));
@@ -424,14 +424,14 @@ mod tests {
 
     #[test]
     fn missing_both_fields() {
-        let schema = r#"
+        let schema = r"
             type UserEdge {
                 someField: String
             }
             type UserConnection {
                 edges: [UserEdge]
             }
-        "#;
+        ";
         let diagnostics = check(schema);
         assert_eq!(diagnostics.len(), 2);
         let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
@@ -441,7 +441,7 @@ mod tests {
 
     #[test]
     fn node_field_must_not_be_list() {
-        let schema = r#"
+        let schema = r"
             interface Node { id: ID! }
             type User implements Node { id: ID! }
             type UserEdge {
@@ -451,7 +451,7 @@ mod tests {
             type UserConnection {
                 edges: [UserEdge]
             }
-        "#;
+        ";
         let diagnostics = check(schema);
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("must not return a list"));
@@ -459,7 +459,7 @@ mod tests {
 
     #[test]
     fn cursor_field_wrong_type() {
-        let schema = r#"
+        let schema = r"
             interface Node { id: ID! }
             type User implements Node { id: ID! }
             type UserEdge {
@@ -469,7 +469,7 @@ mod tests {
             type UserConnection {
                 edges: [UserEdge]
             }
-        "#;
+        ";
         let diagnostics = check(schema);
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
@@ -479,7 +479,7 @@ mod tests {
 
     #[test]
     fn cursor_field_allows_scalar() {
-        let schema = r#"
+        let schema = r"
             interface Node { id: ID! }
             type User implements Node { id: ID! }
             scalar Cursor
@@ -490,7 +490,7 @@ mod tests {
             type UserConnection {
                 edges: [UserEdge]
             }
-        "#;
+        ";
         let diagnostics = check(schema);
         assert!(
             diagnostics.is_empty(),
@@ -500,7 +500,7 @@ mod tests {
 
     #[test]
     fn cursor_field_allows_id() {
-        let schema = r#"
+        let schema = r"
             interface Node { id: ID! }
             type User implements Node { id: ID! }
             type UserEdge {
@@ -510,7 +510,7 @@ mod tests {
             type UserConnection {
                 edges: [UserEdge]
             }
-        "#;
+        ";
         let diagnostics = check(schema);
         assert!(
             diagnostics.is_empty(),
@@ -520,7 +520,7 @@ mod tests {
 
     #[test]
     fn edge_type_missing_suffix() {
-        let schema = r#"
+        let schema = r"
             interface Node { id: ID! }
             type User implements Node { id: ID! name: String! }
             type UserItem {
@@ -530,7 +530,7 @@ mod tests {
             type UserConnection {
                 edges: [UserItem]
             }
-        "#;
+        ";
         let diagnostics = check(schema);
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
@@ -540,7 +540,7 @@ mod tests {
 
     #[test]
     fn edge_suffix_disabled() {
-        let schema = r#"
+        let schema = r"
             interface Node { id: ID! }
             type User implements Node { id: ID! }
             type UserItem {
@@ -550,7 +550,7 @@ mod tests {
             type UserConnection {
                 edges: [UserItem]
             }
-        "#;
+        ";
         let diagnostics =
             check_with_options(schema, Some(serde_json::json!({ "withEdgeSuffix": false })));
         assert!(
@@ -561,7 +561,7 @@ mod tests {
 
     #[test]
     fn node_does_not_implement_node_interface() {
-        let schema = r#"
+        let schema = r"
             interface Node { id: ID! }
             type User {
                 id: ID!
@@ -574,7 +574,7 @@ mod tests {
             type UserConnection {
                 edges: [UserEdge]
             }
-        "#;
+        ";
         let diagnostics = check(schema);
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
@@ -584,7 +584,7 @@ mod tests {
 
     #[test]
     fn should_implement_node_disabled() {
-        let schema = r#"
+        let schema = r"
             type User {
                 id: ID!
             }
@@ -595,7 +595,7 @@ mod tests {
             type UserConnection {
                 edges: [UserEdge]
             }
-        "#;
+        ";
         let diagnostics = check_with_options(
             schema,
             Some(serde_json::json!({ "shouldImplementNode": false })),
@@ -608,23 +608,23 @@ mod tests {
 
     #[test]
     fn non_connection_types_ignored() {
-        let schema = r#"
+        let schema = r"
             type User {
                 name: String!
             }
-        "#;
+        ";
         let diagnostics = check(schema);
         assert!(diagnostics.is_empty());
     }
 
     #[test]
     fn connection_without_edges_field_ignored() {
-        let schema = r#"
+        let schema = r"
             type UserConnection {
                 nodes: [User]
             }
             type User { id: ID! }
-        "#;
+        ";
         let diagnostics = check(schema);
         assert!(diagnostics.is_empty());
     }
@@ -632,18 +632,18 @@ mod tests {
     #[test]
     fn edge_type_not_referenced_by_connection_ignored() {
         // An edge type that isn't used by any connection should not be checked
-        let schema = r#"
+        let schema = r"
             type UserEdge {
                 someField: String
             }
-        "#;
+        ";
         let diagnostics = check(schema);
         assert!(diagnostics.is_empty());
     }
 
     #[test]
     fn multiple_connections() {
-        let schema = r#"
+        let schema = r"
             interface Node { id: ID! }
             type User implements Node { id: ID! }
             type Post implements Node { id: ID! }
@@ -661,7 +661,7 @@ mod tests {
             type PostConnection {
                 edges: [PostEdge]
             }
-        "#;
+        ";
         let diagnostics = check(schema);
         assert!(
             diagnostics.is_empty(),
