@@ -1,0 +1,46 @@
+---
+slug: rules/requireNullableResultInRoot
+title: requireNullableResultInRoot
+description: Require root type fields to return nullable types for error resilience.
+---
+
+| Property         | Value                          |
+| ---------------- | ------------------------------ |
+| Config name      | `requireNullableResultInRoot`  |
+| Default severity | `—`                            |
+| Context          | Schema                         |
+| In recommended   | No                             |
+
+## What it checks
+
+Requires fields on root types (Query, Mutation, Subscription) to return nullable types. When a root field returns a non-null type and an error occurs at runtime, GraphQL's null-bubbling behavior propagates the null up to the nearest nullable parent — potentially nulling out the entire `data` response. Making root fields nullable isolates errors to the individual field that failed, keeping the rest of the response intact.
+
+The rule also works with custom root type names defined via a `schema` definition.
+
+## Examples
+
+```graphql
+# ❌ Bad — root fields return non-null types
+type Query {
+  user(id: ID!): User!
+  users: [User!]!
+}
+```
+
+```graphql
+# ✅ Good — root fields return nullable types
+type Query {
+  user(id: ID!): User
+  users: [User!]
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        requireNullableResultInRoot: warn
+```
