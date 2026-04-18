@@ -364,7 +364,7 @@ mod tests {
     fn check_with_uri_and_options(
         source: &str,
         uri: &str,
-        options: Option<serde_json::Value>,
+        options: Option<&serde_json::Value>,
     ) -> Vec<LintDiagnostic> {
         let db = RootDatabase::default();
         let rule = MatchDocumentFilenameRuleImpl;
@@ -384,7 +384,7 @@ mod tests {
             content,
             metadata,
             project_files,
-            options.as_ref(),
+            options,
         )
     }
 
@@ -545,7 +545,7 @@ mod tests {
         let diagnostics = check_with_uri_and_options(
             "query GetUser { user { id } }",
             "file:///path/to/getUser.graphql",
-            Some(options),
+            Some(&options),
         );
         assert!(diagnostics.is_empty());
     }
@@ -558,7 +558,7 @@ mod tests {
         let diagnostics = check_with_uri_and_options(
             "query GetUserById { user { id } }",
             "file:///path/to/get-user-by-id.graphql",
-            Some(options),
+            Some(&options),
         );
         assert!(diagnostics.is_empty());
     }
@@ -571,7 +571,7 @@ mod tests {
         let diagnostics = check_with_uri_and_options(
             "query GetUserById { user { id } }",
             "file:///path/to/get_user_by_id.graphql",
-            Some(options),
+            Some(&options),
         );
         assert!(diagnostics.is_empty());
     }
@@ -584,7 +584,7 @@ mod tests {
         let diagnostics = check_with_uri_and_options(
             "query get_user { user { id } }",
             "file:///path/to/GetUser.graphql",
-            Some(options),
+            Some(&options),
         );
         assert!(diagnostics.is_empty());
     }
@@ -599,7 +599,7 @@ mod tests {
         let diagnostics = check_with_uri_and_options(
             "query GetUser { user { id } }",
             "file:///path/to/GetUserQuery.graphql",
-            Some(options),
+            Some(&options),
         );
         assert!(diagnostics.is_empty());
     }
@@ -612,7 +612,7 @@ mod tests {
         let diagnostics = check_with_uri_and_options(
             "query GetUser { user { id } }",
             "file:///path/to/GetUser.graphql",
-            Some(options),
+            Some(&options),
         );
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("GetUserQuery"));
@@ -626,7 +626,7 @@ mod tests {
         let diagnostics = check_with_uri_and_options(
             "fragment UserFields on User { id name }",
             "file:///path/to/user-fields.fragment.graphql",
-            Some(options),
+            Some(&options),
         );
         assert!(diagnostics.is_empty());
     }
