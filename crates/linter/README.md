@@ -494,6 +494,7 @@ Enforces Relay-compliant pagination arguments on connection fields. Any field re
 | Option        | Type   | Default | Description                                                                                                     |
 | ------------- | ------ | ------- | --------------------------------------------------------------------------------------------------------------- |
 | `includeBoth` | `bool` | `true`  | When true, requires both forward and backward pagination arguments. When false, either direction is sufficient. |
+
 ### require_deprecation_date
 
 **Type**: StandaloneSchemaRule

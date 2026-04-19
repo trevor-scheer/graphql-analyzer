@@ -346,9 +346,6 @@
             "relayConnectionTypes": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Enforces Relay connection type conventions on types ending in 'Connection'"
-            "requireDeprecationDate": {
-              "$ref": "#/definitions/LintRuleConfig",
-              "description": "Requires @deprecated directives to include a deletion date in the reason"
             },
             "requireDeprecationReason": {
               "$ref": "#/definitions/LintRuleConfig",
@@ -385,6 +382,10 @@
             "relayArguments": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Enforces Relay-compliant pagination arguments on connection fields"
+            },
+            "requireDeprecationDate": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Requires @deprecated directives to include a deletion date"
             }
           },
           "additionalProperties": {

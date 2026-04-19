@@ -157,7 +157,6 @@ projects:
             noUnreachableTypes: warn
             uniqueEnumValueNames: warn
             relayConnectionTypes: warn
-            requireDeprecationDate: warn
             requireDeprecationReason: warn
             requireDescription: warn
             requireFieldOfTypeQueryInMutationResult: warn
@@ -171,6 +170,7 @@ projects:
             noRootType: warn
             matchDocumentFilename: warn
             relayArguments: warn
+            requireDeprecationDate: warn
             requireSelections: error
 
   resolved-schema:
