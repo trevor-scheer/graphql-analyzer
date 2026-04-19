@@ -165,6 +165,7 @@ projects:
             strictIdInTypes: warn
             noScalarResultTypeOnMutation: warn
             requireNullableResultInRoot: warn
+            relayEdgeTypes: warn
             requireSelections: error
 
   resolved-schema:

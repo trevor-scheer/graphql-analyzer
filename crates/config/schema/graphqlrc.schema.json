@@ -271,6 +271,10 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Warn about redundant field selections"
             },
+            "relayEdgeTypes": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforces Relay-compliant edge type definitions"
+            },
             "unusedVariables": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Warn about variables that are declared but never used"
