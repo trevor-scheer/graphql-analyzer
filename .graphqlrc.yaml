@@ -157,6 +157,7 @@ projects:
             noUnreachableTypes: warn
             uniqueEnumValueNames: warn
             relayConnectionTypes: warn
+            requireDeprecationDate: warn
             requireDeprecationReason: warn
             requireDescription: warn
             requireFieldOfTypeQueryInMutationResult: warn
