@@ -159,7 +159,6 @@ projects:
             relayConnectionTypes: warn
             requireDeprecationReason: warn
             requireDescription: warn
-            relayArguments: warn
             requireFieldOfTypeQueryInMutationResult: warn
             requireNullableFieldsWithOneof: error
             requireTypePatternWithOneof: warn
@@ -170,6 +169,7 @@ projects:
             requireImportFragment: warn
             noRootType: warn
             matchDocumentFilename: warn
+            relayArguments: warn
             requireSelections: error
 
   resolved-schema:

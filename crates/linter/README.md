@@ -482,6 +482,7 @@ extensions:
     rules:
       noRootType: [error, { disallow: ["mutation", "subscription"] }]
 ````
+
 ### relay_arguments
 
 **Type**: StandaloneSchemaRule
