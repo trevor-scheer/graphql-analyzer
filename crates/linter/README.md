@@ -327,13 +327,19 @@ The rule supports configurable naming styles (`camelCase`, `PascalCase`, `snake_
 # File: GetUser.graphql
 # Good - operation name matches filename
 query GetUser {
-  user { id name }
+  user {
+    id
+    name
+  }
 }
 
 # File: GetUser.graphql
 # Bad - operation name doesn't match filename
 query FetchUser {
-  user { id name }
+  user {
+    id
+    name
+  }
 }
 ```
 
