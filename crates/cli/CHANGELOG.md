@@ -2,6 +2,27 @@
 
 All notable changes to the GraphQL CLI will be documented in this file.
 
+## 0.2.2 (2026-04-19)
+
+### Features
+
+- Add help text, related locations, and documentation URLs to diagnostics ([#934](https://github.com/trevor-scheer/graphql-analyzer/pull/934))
+- Add `matchDocumentFilename` lint rule that enforces operation and fragment names match their filename
+- Add `relayArguments` lint rule to enforce Relay-compliant pagination arguments on connection fields ([#988](https://github.com/trevor-scheer/graphql-analyzer/pull/988))
+- Add `relayConnectionTypes` lint rule ([#984](https://github.com/trevor-scheer/graphql-analyzer/pull/984))
+- Add `relayEdgeTypes` lint rule to enforce Relay-compliant edge type definitions ([#992](https://github.com/trevor-scheer/graphql-analyzer/pull/992))
+- Add `relayPageInfo` lint rule to enforce Relay PageInfo type specification ([#986](https://github.com/trevor-scheer/graphql-analyzer/pull/986))
+- Add `requireDeprecationDate` lint rule
+- Add `requireImportFragment` lint rule ([#991](https://github.com/trevor-scheer/graphql-analyzer/pull/991))
+- Add `requireTypePatternWithOneof` lint rule enforcing that types with `@oneOf` contain both `ok` and `error` fields
+
+### Fixes
+
+- Add `noRootType` lint rule to disallow certain root type definitions in the schema
+- Add `requireNullableFieldsWithOneof` lint rule ([#985](https://github.com/trevor-scheer/graphql-analyzer/pull/985))
+- Add `requireNullableResultInRoot` lint rule ([#994](https://github.com/trevor-scheer/graphql-analyzer/pull/994))
+- Validate that `resolvedSchema` paths point to existing files ([#982](https://github.com/trevor-scheer/graphql-analyzer/pull/982))
+
 ## 0.2.1 (2026-04-16)
 
 ### Features
