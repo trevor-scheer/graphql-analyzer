@@ -494,6 +494,19 @@ Enforces Relay-compliant pagination arguments on connection fields. Any field re
 | Option        | Type   | Default | Description                                                                                                     |
 | ------------- | ------ | ------- | --------------------------------------------------------------------------------------------------------------- |
 | `includeBoth` | `bool` | `true`  | When true, requires both forward and backward pagination arguments. When false, either direction is sufficient. |
+### require_deprecation_date
+
+**Type**: StandaloneSchemaRule
+
+Requires `@deprecated` directives to include a deletion date in the reason string. This helps teams track when deprecated fields, arguments, and enum values should be removed.
+
+The rule looks for a configurable keyword (default `deletionDate`) followed by `:` or `=` and a date value in the deprecation reason.
+
+**Options:**
+
+| Option         | Type     | Default          | Description                                          |
+| -------------- | -------- | ---------------- | ---------------------------------------------------- |
+| `argumentName` | `string` | `"deletionDate"` | The key to look for in the deprecation reason string |
 
 **Configuration examples:**
 
@@ -509,6 +522,17 @@ extensions:
   lint:
     rules:
       relayArguments: [warn, { includeBoth: false }]
+# Default: look for 'deletionDate'
+extensions:
+  lint:
+    rules:
+      requireDeprecationDate: warn
+
+# Custom argument name
+extensions:
+  lint:
+    rules:
+      requireDeprecationDate: [warn, { argumentName: "removalDate" }]
 ```
 
 **Example:**
@@ -521,6 +545,9 @@ type User {
 
 type PostConnection {
   edges: [PostEdge]
+  id: ID!
+  oldField: String @deprecated(reason: "Use newField, deletionDate: 2025-01-01")  # ✅ OK
+  legacy: String @deprecated(reason: "Use newField instead")  # ⚠️ Warning: missing deletion date
 }
 ```
 
