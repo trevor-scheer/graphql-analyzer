@@ -1,0 +1,7 @@
+# relayPageInfo: Enforces that PageInfo follows the Relay specification
+
+# This PageInfo type is missing required fields and has wrong types
+type PageInfo {
+  hasNextPage: String
+  startCursor: String
+}

@@ -346,6 +346,9 @@
             "relayConnectionTypes": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Enforces Relay connection type conventions on types ending in 'Connection'"
+            "relayPageInfo": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforces that the PageInfo type follows the Relay specification"
             },
             "requireDeprecationReason": {
               "$ref": "#/definitions/LintRuleConfig",
