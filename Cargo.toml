@@ -49,7 +49,10 @@ apollo-compiler = { git = "https://github.com/trevor-scheer/apollo-rs.git", bran
 tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
 
 # LSP
-tower-lsp-server = "0.23"
+lsp-server = "0.7"
+lsp-types = "0.97"
+crossbeam-channel = "0.5"
+threadpool = "1.8"
 
 # CLI
 clap = { version = "4.5", features = ["derive"] }
@@ -70,7 +73,6 @@ swc_common = "21.0"
 strsim = "0.11"
 
 # Utilities
-dashmap = "6.1"
 
 # Logging and Tracing
 tracing = "0.1"
