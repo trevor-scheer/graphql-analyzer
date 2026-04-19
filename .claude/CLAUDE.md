@@ -101,7 +101,7 @@ Skills enforce important workflows. Skipping them leads to incomplete work.
 
 **Before opening a PR:**
 
-1. Run checks: `cargo fmt && cargo clippy && cargo test`
+1. Run checks: `cargo fmt && cargo clippy && cargo nextest run --workspace`
 2. **Create a changeset** for user-facing changes:
    ```bash
    knope document-change
