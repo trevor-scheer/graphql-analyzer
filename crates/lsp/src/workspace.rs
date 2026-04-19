@@ -122,7 +122,7 @@ impl WorkspaceManager {
 
         let doc_path = uri_to_file_path(document_uri)?;
         for (workspace_uri, workspace_path) in &self.workspace_roots {
-            if doc_path.as_ref().starts_with(workspace_path.as_path()) {
+            if doc_path.starts_with(workspace_path.as_path()) {
                 if let Some(config) = self.configs.get(workspace_uri.as_str()) {
                     if let Some(project_name) =
                         config.find_project_for_document(&doc_path, workspace_path)

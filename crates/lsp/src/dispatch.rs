@@ -16,65 +16,6 @@ impl<'a> RequestDispatcher<'a> {
         }
     }
 
-    /// Handle a request synchronously on the main thread (immutable state).
-    #[allow(dead_code)]
-    pub fn on<R>(&mut self, handler: fn(&GlobalState, R::Params) -> Option<R::Result>) -> &mut Self
-    where
-        R: lsp_types::request::Request,
-        R::Params: serde::de::DeserializeOwned + Send + 'static,
-        R::Result: serde::Serialize + Send + 'static,
-    {
-        let Some(req) = self.req.take() else {
-            return self;
-        };
-
-        match req.extract::<R::Params>(R::METHOD) {
-            Ok((id, params)) => {
-                let result = handler(self.state, params);
-                let response = lsp_server::Response::new_ok(id, result);
-                self.state.respond(response);
-            }
-            Err(ExtractError::MethodMismatch(req)) => {
-                self.req = Some(req);
-            }
-            Err(ExtractError::JsonError { method, error }) => {
-                tracing::error!(%method, %error, "invalid request params");
-            }
-        }
-        self
-    }
-
-    /// Handle a request that needs mutable access to `GlobalState` (runs on main thread).
-    #[allow(dead_code)]
-    pub fn on_mut<R>(
-        &mut self,
-        handler: fn(&mut GlobalState, R::Params) -> Option<R::Result>,
-    ) -> &mut Self
-    where
-        R: lsp_types::request::Request,
-        R::Params: serde::de::DeserializeOwned + Send + 'static,
-        R::Result: serde::Serialize + Send + 'static,
-    {
-        let Some(req) = self.req.take() else {
-            return self;
-        };
-
-        match req.extract::<R::Params>(R::METHOD) {
-            Ok((id, params)) => {
-                let result = handler(self.state, params);
-                let response = lsp_server::Response::new_ok(id, result);
-                self.state.respond(response);
-            }
-            Err(ExtractError::MethodMismatch(req)) => {
-                self.req = Some(req);
-            }
-            Err(ExtractError::JsonError { method, error }) => {
-                tracing::error!(%method, %error, "invalid request params");
-            }
-        }
-        self
-    }
-
     pub fn finish(&mut self) {
         if let Some(req) = self.req.take() {
             tracing::warn!(method = %req.method, "unhandled request");

@@ -31,8 +31,6 @@ pub struct Task {
 pub enum TaskResponse {
     Response(lsp_server::Response),
     PublishDiagnostics(Vec<(Uri, Vec<lsp_types::Diagnostic>)>),
-    #[allow(dead_code)]
-    Notification(lsp_server::Notification),
 }
 
 /// Request to fetch a remote schema via introspection (sent to async thread)

@@ -461,7 +461,7 @@ pub fn run_server() {
                 state
                     .workspace
                     .init_workspace_folders
-                    .insert(folder.uri.to_string(), path.into_owned());
+                    .insert(folder.uri.to_string(), path);
             }
         }
     }

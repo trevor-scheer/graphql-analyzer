@@ -1371,6 +1371,7 @@ dependencies = [
  "tracing-chrome",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "url",
  "vergen-git2",
 ]
 

@@ -69,11 +69,14 @@ fn try_dispatch_to_pool(state: &mut GlobalState, req: &Request) -> bool {
         TextDocumentPositionParams,
     };
 
-    // Dispatch pool-based handlers: extract params, clone URI, spawn on pool
+    // Pool-based handlers: check method first, only clone if matched.
+    // Each block returns true when the method matches (even if param extraction
+    // fails) so we don't fall through to the "unhandled" path.
 
-    {
-        let req_clone = req.clone();
-        if let Ok((id, params)) = req_clone.extract::<GotoDefinitionParams>(GotoDefinition::METHOD)
+    if req.method == GotoDefinition::METHOD {
+        if let Ok((id, params)) = req
+            .clone()
+            .extract::<GotoDefinitionParams>(GotoDefinition::METHOD)
         {
             let uri = params
                 .text_document_position_params
@@ -83,13 +86,12 @@ fn try_dispatch_to_pool(state: &mut GlobalState, req: &Request) -> bool {
             state.spawn_with_snapshot(id, &uri, move |snap| {
                 handlers::navigation::handle_goto_definition(snap, params)
             });
-            return true;
         }
+        return true;
     }
 
-    {
-        let req_clone = req.clone();
-        if let Ok((id, params)) = req_clone.extract::<HoverParams>(HoverRequest::METHOD) {
+    if req.method == HoverRequest::METHOD {
+        if let Ok((id, params)) = req.clone().extract::<HoverParams>(HoverRequest::METHOD) {
             let uri = params
                 .text_document_position_params
                 .text_document
@@ -98,121 +100,125 @@ fn try_dispatch_to_pool(state: &mut GlobalState, req: &Request) -> bool {
             state.spawn_with_snapshot(id, &uri, move |snap| {
                 handlers::display::handle_hover(snap, params)
             });
-            return true;
         }
+        return true;
     }
 
-    {
-        let req_clone = req.clone();
-        if let Ok((id, params)) = req_clone.extract::<CompletionParams>(Completion::METHOD) {
+    if req.method == Completion::METHOD {
+        if let Ok((id, params)) = req.clone().extract::<CompletionParams>(Completion::METHOD) {
             let uri = params.text_document_position.text_document.uri.clone();
             state.spawn_with_snapshot(id, &uri, move |snap| {
                 handlers::editing::handle_completion(snap, params)
             });
-            return true;
         }
+        return true;
     }
 
-    {
-        let req_clone = req.clone();
-        if let Ok((id, params)) = req_clone.extract::<ReferenceParams>(References::METHOD) {
+    if req.method == References::METHOD {
+        if let Ok((id, params)) = req.clone().extract::<ReferenceParams>(References::METHOD) {
             let uri = params.text_document_position.text_document.uri.clone();
             state.spawn_with_snapshot(id, &uri, move |snap| {
                 handlers::navigation::handle_references(snap, params)
             });
-            return true;
         }
+        return true;
     }
 
-    {
-        let req_clone = req.clone();
-        if let Ok((id, params)) =
-            req_clone.extract::<DocumentSymbolParams>(DocumentSymbolRequest::METHOD)
+    if req.method == DocumentSymbolRequest::METHOD {
+        if let Ok((id, params)) = req
+            .clone()
+            .extract::<DocumentSymbolParams>(DocumentSymbolRequest::METHOD)
         {
             let uri = params.text_document.uri.clone();
             state.spawn_with_snapshot(id, &uri, move |snap| {
                 handlers::navigation::handle_document_symbol(snap, params)
             });
-            return true;
         }
+        return true;
     }
 
-    {
-        let req_clone = req.clone();
-        if let Ok((id, params)) =
-            req_clone.extract::<SemanticTokensParams>(SemanticTokensFullRequest::METHOD)
+    if req.method == SemanticTokensFullRequest::METHOD {
+        if let Ok((id, params)) = req
+            .clone()
+            .extract::<SemanticTokensParams>(SemanticTokensFullRequest::METHOD)
         {
             let uri = params.text_document.uri.clone();
             state.spawn_with_snapshot(id, &uri, move |snap| {
                 handlers::display::handle_semantic_tokens_full(snap, params)
             });
-            return true;
         }
+        return true;
     }
 
-    {
-        let req_clone = req.clone();
-        if let Ok((id, params)) =
-            req_clone.extract::<SelectionRangeParams>(SelectionRangeRequest::METHOD)
+    if req.method == SelectionRangeRequest::METHOD {
+        if let Ok((id, params)) = req
+            .clone()
+            .extract::<SelectionRangeParams>(SelectionRangeRequest::METHOD)
         {
             let uri = params.text_document.uri.clone();
             state.spawn_with_snapshot(id, &uri, move |snap| {
                 handlers::display::handle_selection_range(snap, params)
             });
-            return true;
         }
+        return true;
     }
 
-    {
-        let req_clone = req.clone();
-        if let Ok((id, params)) = req_clone.extract::<CodeActionParams>(CodeActionRequest::METHOD) {
+    if req.method == CodeActionRequest::METHOD {
+        if let Ok((id, params)) = req
+            .clone()
+            .extract::<CodeActionParams>(CodeActionRequest::METHOD)
+        {
             let uri = params.text_document.uri.clone();
             state.spawn_with_snapshot(id, &uri, move |snap| {
                 handlers::editing::handle_code_action(snap, params)
             });
-            return true;
         }
+        return true;
     }
 
-    {
-        let req_clone = req.clone();
-        if let Ok((id, params)) = req_clone.extract::<CodeLensParams>(CodeLensRequest::METHOD) {
+    if req.method == CodeLensRequest::METHOD {
+        if let Ok((id, params)) = req
+            .clone()
+            .extract::<CodeLensParams>(CodeLensRequest::METHOD)
+        {
             let uri = params.text_document.uri.clone();
             state.spawn_with_snapshot(id, &uri, move |snap| {
                 handlers::display::handle_code_lens(snap, params)
             });
-            return true;
         }
+        return true;
     }
 
-    {
-        let req_clone = req.clone();
-        if let Ok((id, params)) =
-            req_clone.extract::<FoldingRangeParams>(FoldingRangeRequest::METHOD)
+    if req.method == FoldingRangeRequest::METHOD {
+        if let Ok((id, params)) = req
+            .clone()
+            .extract::<FoldingRangeParams>(FoldingRangeRequest::METHOD)
         {
             let uri = params.text_document.uri.clone();
             state.spawn_with_snapshot(id, &uri, move |snap| {
                 handlers::display::handle_folding_range(snap, params)
             });
-            return true;
         }
+        return true;
     }
 
-    {
-        let req_clone = req.clone();
-        if let Ok((id, params)) = req_clone.extract::<InlayHintParams>(InlayHintRequest::METHOD) {
+    if req.method == InlayHintRequest::METHOD {
+        if let Ok((id, params)) = req
+            .clone()
+            .extract::<InlayHintParams>(InlayHintRequest::METHOD)
+        {
             let uri = params.text_document.uri.clone();
             state.spawn_with_snapshot(id, &uri, move |snap| {
                 handlers::display::handle_inlay_hint(snap, params)
             });
-            return true;
         }
+        return true;
     }
 
-    {
-        let req_clone = req.clone();
-        if let Ok((id, params)) =
-            req_clone.extract::<SignatureHelpParams>(SignatureHelpRequest::METHOD)
+    if req.method == SignatureHelpRequest::METHOD {
+        if let Ok((id, params)) = req
+            .clone()
+            .extract::<SignatureHelpParams>(SignatureHelpRequest::METHOD)
         {
             let uri = params
                 .text_document_position_params
@@ -222,119 +228,97 @@ fn try_dispatch_to_pool(state: &mut GlobalState, req: &Request) -> bool {
             state.spawn_with_snapshot(id, &uri, move |snap| {
                 handlers::editing::handle_signature_help(snap, params)
             });
-            return true;
         }
+        return true;
     }
 
-    {
-        let req_clone = req.clone();
-        if let Ok((id, params)) = req_clone.extract::<RenameParams>(Rename::METHOD) {
+    if req.method == Rename::METHOD {
+        if let Ok((id, params)) = req.clone().extract::<RenameParams>(Rename::METHOD) {
             let uri = params.text_document_position.text_document.uri.clone();
             state.spawn_with_snapshot(id, &uri, move |snap| {
                 handlers::editing::handle_rename(snap, params)
             });
-            return true;
         }
+        return true;
     }
 
-    {
-        let req_clone = req.clone();
-        if let Ok((id, params)) =
-            req_clone.extract::<TextDocumentPositionParams>(PrepareRenameRequest::METHOD)
+    if req.method == PrepareRenameRequest::METHOD {
+        if let Ok((id, params)) = req
+            .clone()
+            .extract::<TextDocumentPositionParams>(PrepareRenameRequest::METHOD)
         {
             let uri = params.text_document.uri.clone();
             state.spawn_with_snapshot(id, &uri, move |snap| {
                 handlers::editing::handle_prepare_rename(snap, params)
             });
-            return true;
         }
+        return true;
     }
 
-    // Main-thread handlers (need mutable state or iterate all hosts)
-    let req_clone = req.clone();
-    match req_clone.extract::<lsp_types::ExecuteCommandParams>(
-        <lsp_types::request::ExecuteCommand as lsp_types::request::Request>::METHOD,
-    ) {
-        Ok((id, params)) => {
+    // Custom and main-thread handlers: same method-first pattern
+
+    if req.method == <lsp_types::request::ExecuteCommand as Request>::METHOD {
+        if let Ok((id, params)) = req.clone().extract::<lsp_types::ExecuteCommandParams>(
+            <lsp_types::request::ExecuteCommand as Request>::METHOD,
+        ) {
             let result = handlers::editing::handle_execute_command(state, params);
             state.respond(lsp_server::Response::new_ok(id, result));
-            return true;
         }
-        Err(lsp_server::ExtractError::MethodMismatch(_)) => {}
-        Err(lsp_server::ExtractError::JsonError { method, error }) => {
-            tracing::error!(%method, %error, "invalid request params");
-            return true;
-        }
+        return true;
     }
 
-    let req_clone = req.clone();
-    match req_clone.extract::<lsp_types::WorkspaceSymbolParams>(
-        <lsp_types::request::WorkspaceSymbolRequest as lsp_types::request::Request>::METHOD,
-    ) {
-        Ok((id, params)) => {
+    if req.method == <lsp_types::request::WorkspaceSymbolRequest as Request>::METHOD {
+        if let Ok((id, params)) = req.clone().extract::<lsp_types::WorkspaceSymbolParams>(
+            <lsp_types::request::WorkspaceSymbolRequest as Request>::METHOD,
+        ) {
             let result = handlers::navigation::handle_workspace_symbol(state, params);
             state.respond(lsp_server::Response::new_ok(id, result));
-            return true;
         }
-        Err(lsp_server::ExtractError::MethodMismatch(_)) => {}
-        Err(lsp_server::ExtractError::JsonError { method, error }) => {
-            tracing::error!(%method, %error, "invalid request params");
-            return true;
-        }
+        return true;
     }
 
-    // Custom methods
-    let req_clone = req.clone();
-    match req_clone
-        .extract::<crate::server::VirtualFileContentParams>("graphql-analyzer/virtualFileContent")
-    {
-        Ok((id, params)) => {
+    if req.method == "graphql-analyzer/virtualFileContent" {
+        if let Ok((id, params)) = req
+            .clone()
+            .extract::<crate::server::VirtualFileContentParams>(
+                "graphql-analyzer/virtualFileContent",
+            )
+        {
             let result = handlers::custom::handle_virtual_file_content(state, params);
             state.respond(lsp_server::Response::new_ok(id, result));
-            return true;
         }
-        Err(lsp_server::ExtractError::MethodMismatch(_)) => {}
-        Err(lsp_server::ExtractError::JsonError { method, error }) => {
-            tracing::error!(%method, %error, "invalid request params");
-            return true;
-        }
+        return true;
     }
 
-    let req_clone = req.clone();
-    match req_clone.extract::<serde_json::Value>("graphql-analyzer/ping") {
-        Ok((id, _)) => {
+    if req.method == "graphql-analyzer/ping" {
+        if let Ok((id, _)) = req
+            .clone()
+            .extract::<serde_json::Value>("graphql-analyzer/ping")
+        {
             let result = handlers::custom::handle_ping();
             state.respond(lsp_server::Response::new_ok(id, result));
-            return true;
         }
-        Err(lsp_server::ExtractError::MethodMismatch(_)) => {}
-        Err(_) => return true,
+        return true;
     }
 
-    let req_clone = req.clone();
-    match req_clone
-        .extract::<crate::trace_capture::TraceCaptureParams>("graphql-analyzer/traceCapture")
-    {
-        Ok((id, params)) => {
+    if req.method == "graphql-analyzer/traceCapture" {
+        if let Ok((id, params)) = req
+            .clone()
+            .extract::<crate::trace_capture::TraceCaptureParams>("graphql-analyzer/traceCapture")
+        {
             let result = handlers::custom::handle_trace_capture(state, params);
             state.respond(lsp_server::Response::new_ok(id, result));
-            return true;
         }
-        Err(lsp_server::ExtractError::MethodMismatch(_)) => {}
-        Err(_) => return true,
+        return true;
     }
 
-    // CodeLensResolve (passthrough)
-    let req_clone = req.clone();
-    match req_clone.extract::<lsp_types::CodeLens>(
-        <lsp_types::request::CodeLensResolve as lsp_types::request::Request>::METHOD,
-    ) {
-        Ok((id, code_lens)) => {
+    if req.method == <lsp_types::request::CodeLensResolve as Request>::METHOD {
+        if let Ok((id, code_lens)) = req.clone().extract::<lsp_types::CodeLens>(
+            <lsp_types::request::CodeLensResolve as Request>::METHOD,
+        ) {
             state.respond(lsp_server::Response::new_ok(id, code_lens));
-            return true;
         }
-        Err(lsp_server::ExtractError::MethodMismatch(_)) => {}
-        Err(_) => return true,
+        return true;
     }
 
     false
@@ -364,12 +348,6 @@ fn handle_task(state: &GlobalState, response: TaskResponse) {
             for (uri, diags) in diagnostics {
                 state.publish_diagnostics(uri, diags, None);
             }
-        }
-        TaskResponse::Notification(not) => {
-            state
-                .sender
-                .send(Message::Notification(not))
-                .expect("client channel open");
         }
     }
 }

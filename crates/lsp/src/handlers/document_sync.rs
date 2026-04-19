@@ -204,7 +204,6 @@ pub(crate) fn handle_did_change_watched_files(
             tracing::warn!("Failed to convert URI to file path: {:?}", uri);
             continue;
         };
-        let config_path = config_path.into_owned();
 
         let workspace_uri: Option<String> = state
             .workspace

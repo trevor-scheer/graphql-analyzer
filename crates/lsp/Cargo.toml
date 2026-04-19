@@ -56,6 +56,7 @@ opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
 opentelemetry-semantic-conventions = { workspace = true }
 
 # Temp files for TypeScript extraction
+url = "2"
 tempfile = "3.0"
 glob.workspace = true
 
