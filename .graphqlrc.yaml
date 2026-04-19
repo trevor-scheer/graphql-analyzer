@@ -163,6 +163,7 @@ projects:
             requireNullableFieldsWithOneof: error
             requireTypePatternWithOneof: warn
             strictIdInTypes: warn
+            noRootType: [error, { disallow: [subscription] }]
             noScalarResultTypeOnMutation: warn
             requireNullableResultInRoot: warn
             relayEdgeTypes: warn
