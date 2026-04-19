@@ -1,0 +1,45 @@
+---
+slug: rules/requireNullableFieldsWithOneof
+title: requireNullableFieldsWithOneof
+description: Require all fields in @oneOf input types to be nullable.
+---
+
+| Property         | Value                            |
+| ---------------- | -------------------------------- |
+| Config name      | `requireNullableFieldsWithOneof` |
+| Default severity | `—`                              |
+| Context          | Schema                           |
+| In recommended   | No                               |
+
+## What it checks
+
+Requires all fields in `@oneOf` input types to be nullable. The `@oneOf` directive indicates that exactly one field must be provided, so all fields must be optional (nullable). A non-null field would prevent valid `@oneOf` usage since the caller could never omit it.
+
+## Examples
+
+```graphql
+# ❌ Bad — non-null fields in @oneOf input type
+input UserByInput @oneOf {
+  id: ID!
+  email: String!
+}
+```
+
+```graphql
+# ✅ Good — all fields are nullable
+input UserByInput @oneOf {
+  id: ID
+  email: String
+  username: String
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        requireNullableFieldsWithOneof: error
+```
