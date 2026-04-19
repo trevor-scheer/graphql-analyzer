@@ -442,6 +442,17 @@ query GetUser {
     ...UserFields
   }
 }
+### no_root_type
+
+**Type**: StandaloneSchemaRule
+
+Disallows certain root type definitions (`Query`, `Mutation`, `Subscription`) from the schema. Requires a `disallow` option specifying which root types to forbid.
+
+```yaml
+extensions:
+  lint:
+    rules:
+      noRootType: [error, { disallow: ["mutation", "subscription"] }]
 ```
 
 ### no_deprecated

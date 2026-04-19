@@ -1,0 +1,72 @@
+---
+slug: rules/noRootType
+title: noRootType
+description: Disallow certain root type definitions in the schema.
+---
+
+| Property         | Value        |
+| ---------------- | ------------ |
+| Config name      | `noRootType` |
+| Default severity | `—`          |
+| Context          | Schema       |
+| In recommended   | No           |
+
+## What it checks
+
+Disallows specific root type definitions (`Query`, `Mutation`, `Subscription`) from appearing in the schema. This is useful for enforcing architectural constraints — for example, a read-only API might disallow `Mutation`, or a project that doesn't use real-time features might disallow `Subscription`.
+
+This rule requires the `disallow` option to be configured. Without it, no diagnostics are produced.
+
+## Examples
+
+```graphql
+# ❌ Bad — Mutation root type is disallowed
+type Query {
+  users: [User!]!
+}
+
+type Mutation {
+  deleteUser(id: ID!): Boolean
+}
+```
+
+```graphql
+# ✅ Good — only allowed root types are defined
+type Query {
+  users: [User!]!
+}
+```
+
+## Options
+
+| Option     | Type       | Default | Description                                                                  |
+| ---------- | ---------- | ------- | ---------------------------------------------------------------------------- |
+| `disallow` | `string[]` | `[]`    | Which root types to disallow. Valid values: `query`, `mutation`, `subscription` |
+
+## Configuration
+
+```yaml
+# Disallow mutations (read-only API)
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        noRootType: [error, { disallow: ["mutation"] }]
+
+# Disallow subscriptions
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        noRootType: [error, { disallow: ["subscription"] }]
+
+# Disallow both mutations and subscriptions
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        noRootType:
+          severity: error
+          options:
+            disallow: ["mutation", "subscription"]
+```
