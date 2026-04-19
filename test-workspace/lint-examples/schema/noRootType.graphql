@@ -1,0 +1,9 @@
+"""
+A subscription root type (disallowed by noRootType rule)
+"""
+type Subscription {
+  """
+  Subscribe to new posts
+  """
+  onPostCreated: Post
+}

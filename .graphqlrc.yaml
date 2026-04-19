@@ -167,6 +167,7 @@ projects:
             requireNullableResultInRoot: warn
             relayEdgeTypes: warn
             requireImportFragment: warn
+            noRootType: warn
             requireSelections: error
 
   resolved-schema:
