@@ -2,12 +2,12 @@ use crate::diagnostics::LintSeverity;
 /// Registry of all available lint rules
 use crate::rules::{
     AlphabetizeRuleImpl, DescriptionStyleRuleImpl, InputNameRuleImpl,
-    LoneExecutableDefinitionRuleImpl, NamingConventionRuleImpl, NoAnonymousOperationsRuleImpl,
-    NoDeprecatedRuleImpl, NoDuplicateFieldsRuleImpl, NoHashtagDescriptionRuleImpl,
-    NoOnePlaceFragmentsRuleImpl, NoRootTypeRuleImpl, NoScalarResultTypeOnMutationRuleImpl,
-    NoTypenamePrefixRuleImpl, NoUnreachableTypesRuleImpl, OperationNameSuffixRuleImpl,
-    RedundantFieldsRuleImpl, RelayConnectionTypesRuleImpl, RelayEdgeTypesRuleImpl,
-    RequireDeprecationReasonRuleImpl, RequireDescriptionRuleImpl,
+    LoneExecutableDefinitionRuleImpl, MatchDocumentFilenameRuleImpl, NamingConventionRuleImpl,
+    NoAnonymousOperationsRuleImpl, NoDeprecatedRuleImpl, NoDuplicateFieldsRuleImpl,
+    NoHashtagDescriptionRuleImpl, NoOnePlaceFragmentsRuleImpl, NoRootTypeRuleImpl,
+    NoScalarResultTypeOnMutationRuleImpl, NoTypenamePrefixRuleImpl, NoUnreachableTypesRuleImpl,
+    OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl, RelayConnectionTypesRuleImpl,
+    RelayEdgeTypesRuleImpl, RequireDeprecationReasonRuleImpl, RequireDescriptionRuleImpl,
     RequireFieldOfTypeQueryInMutationResultRuleImpl, RequireIdFieldRuleImpl,
     RequireImportFragmentRuleImpl, RequireNullableFieldsWithOneofRuleImpl,
     RequireNullableResultInRootRuleImpl, RequireSelectionsRuleImpl,
@@ -29,6 +29,7 @@ static STANDALONE_DOCUMENT_RULES: LazyLock<Vec<Arc<dyn StandaloneDocumentLintRul
         vec![
             Arc::new(AlphabetizeRuleImpl),
             Arc::new(LoneExecutableDefinitionRuleImpl),
+            Arc::new(MatchDocumentFilenameRuleImpl),
             Arc::new(NamingConventionRuleImpl),
             Arc::new(NoAnonymousOperationsRuleImpl),
             Arc::new(NoDuplicateFieldsRuleImpl),

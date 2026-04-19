@@ -168,6 +168,7 @@ projects:
             relayEdgeTypes: warn
             requireImportFragment: warn
             noRootType: warn
+            matchDocumentFilename: warn
             requireSelections: error
 
   resolved-schema:
