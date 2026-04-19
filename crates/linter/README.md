@@ -405,6 +405,20 @@ type Query {
 }
 ```
 
+### relay_edge_types
+
+**Type**: StandaloneSchemaRule
+
+Enforces that edge types used by Relay connection types follow the [Relay cursor connections specification](https://relay.dev/graphql/connections.htm). Edge types (referenced by a connection type's `edges` list field) must have a `node` field returning a named type and a `cursor` field returning `String` or a scalar.
+
+**Options:**
+
+| Option                        | Type      | Default | Description                                                     |
+| ----------------------------- | --------- | ------- | --------------------------------------------------------------- |
+| `withEdgeSuffix`              | `boolean` | `true`  | Edge type names must end with `Edge`                            |
+| `shouldImplementNode`         | `boolean` | `true`  | The type returned by `node` must implement the `Node` interface |
+| `listTypeCanWrapOnlyEdgeType` | `boolean` | `true`  | List fields on connection types may only wrap edge types        |
+
 ### no_deprecated
 
 **Type**: DocumentSchemaRule
