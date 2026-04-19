@@ -1,0 +1,146 @@
+---
+slug: rules/relayEdgeTypes
+title: relayEdgeTypes
+description: Enforce Relay-compliant edge type definitions.
+---
+
+| Property         | Value            |
+| ---------------- | ---------------- |
+| Config name      | `relayEdgeTypes` |
+| Default severity | —                |
+| Context          | Schema           |
+| In recommended   | No               |
+
+## What it checks
+
+Enforces that edge types used by Relay connection types follow the [Relay cursor connections specification](https://relay.dev/graphql/connections.htm). The rule identifies edge types by finding object types ending in `Connection` that have an `edges` list field, then validates the type returned by that field.
+
+Specifically, edge types must have:
+
+- A `node` field that returns a named type (not a list)
+- A `cursor` field that returns `String` or a scalar type
+
+Optionally, the rule also checks that:
+
+- Edge type names end with `Edge` (`withEdgeSuffix`)
+- The type returned by `node` implements the `Node` interface (`shouldImplementNode`)
+- List fields on connection types only wrap edge types (`listTypeCanWrapOnlyEdgeType`)
+
+This rule is **not in the `recommended` preset** because it's specific to projects using Relay-style pagination.
+
+## Examples
+
+```graphql
+# ✅ Good — valid Relay edge type
+interface Node {
+  id: ID!
+}
+
+type User implements Node {
+  id: ID!
+  name: String!
+}
+
+type UserEdge {
+  node: User
+  cursor: String!
+}
+
+type UserConnection {
+  edges: [UserEdge]
+}
+```
+
+```graphql
+# ⚠️ Warning — edge type missing 'node' field
+type UserEdge {
+  cursor: String!
+}
+
+type UserConnection {
+  edges: [UserEdge]
+}
+```
+
+```graphql
+# ⚠️ Warning — edge type missing 'cursor' field
+type UserEdge {
+  node: User
+}
+
+type UserConnection {
+  edges: [UserEdge]
+}
+```
+
+```graphql
+# ⚠️ Warning — node field must not return a list
+type UserEdge {
+  node: [User]
+  cursor: String!
+}
+
+type UserConnection {
+  edges: [UserEdge]
+}
+```
+
+```graphql
+# ⚠️ Warning — edge type name should end with 'Edge'
+type UserItem {
+  node: User
+  cursor: String!
+}
+
+type UserConnection {
+  edges: [UserItem]
+}
+```
+
+## Options
+
+| Option                         | Type      | Default | Description                                                  |
+| ------------------------------ | --------- | ------- | ------------------------------------------------------------ |
+| `withEdgeSuffix`               | `boolean` | `true`  | Edge type names must end with `Edge`                         |
+| `shouldImplementNode`          | `boolean` | `true`  | The type returned by `node` must implement the `Node` interface |
+| `listTypeCanWrapOnlyEdgeType`  | `boolean` | `true`  | List fields on connection types may only wrap edge types      |
+
+## Configuration
+
+```yaml
+# Enable with defaults
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        relayEdgeTypes: warn
+
+# Disable the edge suffix requirement
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        relayEdgeTypes: [warn, { withEdgeSuffix: false }]
+
+# Disable the Node interface check
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        relayEdgeTypes:
+          severity: warn
+          options:
+            shouldImplementNode: false
+
+# Disable all optional checks
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        relayEdgeTypes:
+          severity: warn
+          options:
+            withEdgeSuffix: false
+            shouldImplementNode: false
+            listTypeCanWrapOnlyEdgeType: false
+```
