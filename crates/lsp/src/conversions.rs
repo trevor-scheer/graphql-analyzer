@@ -6,11 +6,63 @@
 //!
 //! These conversions are stateless and can be used from any LSP handler.
 
+use std::borrow::Cow;
+use std::path::PathBuf;
+
 use lsp_types::{
     CodeLens, Command, Diagnostic, DiagnosticSeverity, FoldingRange, FoldingRangeKind, InlayHint,
     InlayHintKind, InlayHintLabel, Location, Position, Range, Uri,
 };
-use tower_lsp_server::ls_types as lsp_types;
+
+// =============================================================================
+// URI Helpers
+// =============================================================================
+
+/// Convert a `file://` URI to a filesystem path.
+///
+/// lsp-types 0.97 uses fluent-uri which doesn't provide `to_file_path()`.
+/// This implements the conversion for `file://` scheme URIs.
+pub fn uri_to_file_path(uri: &Uri) -> Option<Cow<'_, std::path::Path>> {
+    let s = uri.as_str();
+    if !s.starts_with("file://") {
+        return None;
+    }
+    // Strip "file://" prefix and percent-decode
+    let path_str = &s[7..];
+    // On Unix, file:// URIs look like file:///path/to/file
+    // The path starts with / already
+    let decoded = percent_decode(path_str);
+    Some(Cow::Owned(PathBuf::from(decoded)))
+}
+
+/// Simple percent-decoding for file paths.
+fn percent_decode(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.bytes();
+    while let Some(b) = chars.next() {
+        if b == b'%' {
+            let hi = chars.next().and_then(hex_val);
+            let lo = chars.next().and_then(hex_val);
+            if let (Some(h), Some(l)) = (hi, lo) {
+                result.push((h << 4 | l) as char);
+            } else {
+                result.push('%');
+            }
+        } else {
+            result.push(b as char);
+        }
+    }
+    result
+}
+
+fn hex_val(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
 
 // =============================================================================
 // Conversion Functions
