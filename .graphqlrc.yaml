@@ -170,6 +170,7 @@ projects:
             noRootType: warn
             matchDocumentFilename: warn
             relayArguments: warn
+            requireDeprecationDate: warn
             requireSelections: error
 
   resolved-schema:

@@ -1,0 +1,38 @@
+# Demonstrates: requireDeprecationDate
+# Deprecated fields and enum values should include a deletion date
+# in the deprecation reason string (e.g. "deletionDate: 01/01/2025").
+
+"""
+User account
+"""
+type DeprecationDateExample {
+  """
+  Unique identifier
+  """
+  id: ID!
+  """
+  Current name field
+  """
+  name: String!
+  """
+  Old name - deprecated without deletion date
+  """
+  oldName: String @deprecated(reason: "Use 'name' instead")
+  """
+  Legacy field - deprecated with deletion date
+  """
+  legacyField: String @deprecated(reason: "Use 'name' instead, deletionDate: 01/01/2025")
+}
+
+"""
+Priority levels
+"""
+enum DeprecationDatePriority {
+  HIGH
+  MEDIUM
+  LOW
+  """
+  No longer used
+  """
+  NONE @deprecated(reason: "No longer supported")
+}
