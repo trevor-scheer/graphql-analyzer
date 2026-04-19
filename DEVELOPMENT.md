@@ -37,16 +37,28 @@ cargo install --git https://github.com/trevor-scheer/graphql-analyzer graphql-cl
 
 ## Testing
 
+This project uses [cargo-nextest](https://nexte.st/) for running tests. It runs
+test binaries in parallel and provides better output than `cargo test`.
+
 ```bash
+# Install nextest
+cargo install cargo-nextest
+
 # Run all tests
-cargo test --workspace
+cargo nextest run --workspace
 
 # Run tests for a specific crate
-cargo test --package graphql-linter
+cargo nextest run --package graphql-linter
 
-# Run with output
-cargo test -- --nocapture
+# Run a specific test by name
+cargo nextest run --workspace test_name
+
+# Run with output (stdout visible)
+cargo nextest run --workspace --no-capture
 ```
+
+> **Note:** nextest doesn't support doctests. Run `cargo test --workspace --doc`
+> separately if needed.
 
 ## Linting and Formatting
 
