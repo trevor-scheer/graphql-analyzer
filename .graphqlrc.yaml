@@ -161,6 +161,7 @@ projects:
             requireDescription: warn
             requireFieldOfTypeQueryInMutationResult: warn
             requireNullableFieldsWithOneof: error
+            requireTypePatternWithOneof: warn
             strictIdInTypes: warn
             noScalarResultTypeOnMutation: warn
             requireNullableResultInRoot: warn
