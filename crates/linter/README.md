@@ -490,8 +490,8 @@ Enforces Relay-compliant pagination arguments on connection fields. Any field re
 
 **Options:**
 
-| Option        | Type   | Default | Description                                                                                                    |
-| ------------- | ------ | ------- | -------------------------------------------------------------------------------------------------------------- |
+| Option        | Type   | Default | Description                                                                                                     |
+| ------------- | ------ | ------- | --------------------------------------------------------------------------------------------------------------- |
 | `includeBoth` | `bool` | `true`  | When true, requires both forward and backward pagination arguments. When false, either direction is sufficient. |
 
 **Configuration examples:**
@@ -515,7 +515,7 @@ extensions:
 ```graphql
 # Schema
 type User {
-  posts(first: Int, after: String): PostConnection  # ⚠️ Warning: missing last/before
+  posts(first: Int, after: String): PostConnection # ⚠️ Warning: missing last/before
 }
 
 type PostConnection {
