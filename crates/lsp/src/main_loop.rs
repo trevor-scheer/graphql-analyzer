@@ -44,6 +44,8 @@ pub fn main_loop(connection: &Connection, state: &mut GlobalState) {
 }
 
 fn handle_request(state: &mut GlobalState, req: Request) {
+    state.in_flight.insert(req.id.clone());
+
     if try_dispatch_to_pool(state, &req) {
         return;
     }
@@ -330,6 +332,26 @@ fn handle_notification(state: &mut GlobalState, not: Notification) {
         DidSaveTextDocument,
     };
 
+    if not.method == "$/cancelRequest" {
+        if let Ok(params) = serde_json::from_value::<lsp_types::CancelParams>(not.params.clone()) {
+            let id = match params.id {
+                lsp_types::NumberOrString::Number(n) => lsp_server::RequestId::from(n),
+                lsp_types::NumberOrString::String(s) => lsp_server::RequestId::from(s),
+            };
+            // Only respond if the request is still pending; a response was
+            // not yet sent (or the worker beat the cancel notification).
+            if state.in_flight.contains(&id) {
+                tracing::debug!(?id, "request cancelled by client");
+                state.respond(lsp_server::Response::new_err(
+                    id,
+                    lsp_server::ErrorCode::RequestCanceled as i32,
+                    "cancelled".to_owned(),
+                ));
+            }
+        }
+        return;
+    }
+
     NotificationDispatcher::new(not, state)
         .on::<DidOpenTextDocument>(handlers::document_sync::handle_did_open)
         .on::<DidChangeTextDocument>(handlers::document_sync::handle_did_change)
@@ -339,10 +361,14 @@ fn handle_notification(state: &mut GlobalState, not: Notification) {
         .finish();
 }
 
-fn handle_task(state: &GlobalState, response: TaskResponse) {
+fn handle_task(state: &mut GlobalState, response: TaskResponse) {
     match response {
         TaskResponse::Response(resp) => {
-            state.respond(resp);
+            if state.in_flight.contains(&resp.id) {
+                state.respond(resp);
+            } else {
+                tracing::debug!(id = ?resp.id, "dropping response for cancelled request");
+            }
         }
         TaskResponse::PublishDiagnostics(diagnostics) => {
             for (uri, diags) in diagnostics {

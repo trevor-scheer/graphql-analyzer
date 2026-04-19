@@ -1,5 +1,7 @@
+use std::collections::HashSet;
+
 use crossbeam_channel::Sender;
-use lsp_server::Message;
+use lsp_server::{Message, RequestId};
 use lsp_types::Uri;
 
 use crate::workspace::WorkspaceManager;
@@ -21,6 +23,7 @@ pub struct GlobalState {
     pub introspection_result_receiver: crossbeam_channel::Receiver<IntrospectionResult>,
     #[allow(dead_code)]
     pub shutdown_requested: bool,
+    pub in_flight: HashSet<RequestId>,
 }
 
 /// A completed background task ready for the main thread to process.
@@ -73,6 +76,7 @@ impl GlobalState {
             introspection_request_sender,
             introspection_result_receiver,
             shutdown_requested: false,
+            in_flight: HashSet::new(),
         }
     }
 
@@ -86,7 +90,8 @@ impl GlobalState {
             .expect("client channel open");
     }
 
-    pub fn respond(&self, response: lsp_server::Response) {
+    pub fn respond(&mut self, response: lsp_server::Response) {
+        self.in_flight.remove(&response.id);
         self.sender
             .send(Message::Response(response))
             .expect("client channel open");
@@ -120,7 +125,7 @@ impl GlobalState {
     }
 
     /// Dispatch a read-only query to the thread pool.
-    pub fn spawn_with_snapshot<F, R>(&self, id: lsp_server::RequestId, uri: &Uri, f: F)
+    pub fn spawn_with_snapshot<F, R>(&mut self, id: lsp_server::RequestId, uri: &Uri, f: F)
     where
         F: FnOnce(GlobalStateSnapshot) -> Option<R> + Send + 'static,
         R: serde::Serialize + 'static,
