@@ -169,6 +169,7 @@ projects:
             requireImportFragment: warn
             noRootType: warn
             matchDocumentFilename: warn
+            relayArguments: warn
             requireSelections: error
 
   resolved-schema:

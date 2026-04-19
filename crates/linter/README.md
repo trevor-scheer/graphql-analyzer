@@ -483,6 +483,47 @@ extensions:
       noRootType: [error, { disallow: ["mutation", "subscription"] }]
 ````
 
+### relay_arguments
+
+**Type**: StandaloneSchemaRule
+
+Enforces Relay-compliant pagination arguments on connection fields. Any field returning a type whose name ends with "Connection" must include the proper pagination arguments: `first`/`after` (forward) and `last`/`before` (backward).
+
+**Options:**
+
+| Option        | Type   | Default | Description                                                                                                     |
+| ------------- | ------ | ------- | --------------------------------------------------------------------------------------------------------------- |
+| `includeBoth` | `bool` | `true`  | When true, requires both forward and backward pagination arguments. When false, either direction is sufficient. |
+
+**Configuration examples:**
+
+```yaml
+# Default: require both forward and backward pagination args
+extensions:
+  lint:
+    rules:
+      relayArguments: warn
+
+# Only require one direction
+extensions:
+  lint:
+    rules:
+      relayArguments: [warn, { includeBoth: false }]
+```
+
+**Example:**
+
+```graphql
+# Schema
+type User {
+  posts(first: Int, after: String): PostConnection # ⚠️ Warning: missing last/before
+}
+
+type PostConnection {
+  edges: [PostEdge]
+}
+```
+
 ### no_deprecated
 
 **Type**: DocumentSchemaRule
