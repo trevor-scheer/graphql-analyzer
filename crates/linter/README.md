@@ -394,14 +394,14 @@ Requires root type fields (Query, Mutation, Subscription) to return nullable typ
 ```graphql
 # Schema
 type Query {
-  user(id: ID!): User!  # ⚠️ Warning: Root field returns non-null type
-  posts: [Post!]!       # ⚠️ Warning: Root field returns non-null type
+  user(id: ID!): User! # ⚠️ Warning: Root field returns non-null type
+  posts: [Post!]! # ⚠️ Warning: Root field returns non-null type
 }
 
 # Fixed
 type Query {
-  user(id: ID!): User   # ✅ OK - nullable
-  posts: [Post!]        # ✅ OK - nullable outer type
+  user(id: ID!): User # ✅ OK - nullable
+  posts: [Post!] # ✅ OK - nullable outer type
 }
 ```
 
