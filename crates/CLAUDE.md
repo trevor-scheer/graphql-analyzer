@@ -60,32 +60,22 @@ These features must NOT be removed or degraded:
 
 ---
 
-## Async Safety: DashMap and Locks
+## LSP Threading Model
 
-**Never hold a `DashMap` `Ref` (or any non-async lock guard) across an `.await` point.**
+The LSP server uses a sync, single-threaded main loop (not async):
 
-`DashMap::get()` returns a `Ref<'_, K, V>` that holds a `parking_lot` shard read lock. If you hold this `Ref` as a local variable and then call `.await`, the current thread suspends while owning the lock. If another task on the Tokio runtime tries to acquire the same shard's write lock (e.g., via `DashMap::entry()`), it blocks. With a saturated thread pool, nothing can resume the suspended task to release the lock — **deadlock**.
+- **Main thread**: Owns all mutable state (`GlobalState`, `WorkspaceManager`, `AnalysisHost` instances). All state mutations happen here. No locks needed.
+- **Worker thread pool**: Executes read-only Salsa queries via `Analysis` snapshots. Results return to the main thread via crossbeam channel.
+- **Introspection thread**: Dedicated thread with a Tokio runtime for async HTTP introspection calls only.
 
-**Rules:**
+Snapshots are taken on the main thread and moved to workers. Workers never touch `GlobalState` or `AnalysisHost`. The main thread never blocks on workers — it processes their results as events in the next loop iteration.
 
-- Always call `.map(|r| r.clone())` on a `DashMap` reference before any `.await`
-- Prefer typed accessor methods on `WorkspaceManager` (e.g., `get_host`, `all_hosts`, `projects_for_workspace`) over direct field access — these enforce the clone-before-await contract by returning owned values
-- The `hosts` field on `WorkspaceManager` is private for this reason; all callers must go through the typed API
-- Same applies to `std::sync::Mutex`, `parking_lot::RwLock`, and any other non-`tokio::sync` lock type
+This eliminates the entire class of async/sync boundary deadlocks that the previous tower-lsp architecture was vulnerable to. There are no `DashMap`, `tokio::sync::Mutex`, or `Arc<RwLock<...>>` in the LSP crate.
 
-## Snapshot/Host Lock Discipline
+## Snapshot Safety (Still Applies)
 
 **`Analysis` snapshots and `AnalysisHost` MUST NOT share any non-Salsa lock.**
 
-Salsa setters block until all outstanding `db.clone()` snapshots are dropped. If a snapshot reaches back into the host through any other lock (parking_lot, std::sync, tokio::sync — doesn't matter), you have a lock-ordering cycle waiting to happen:
+Salsa setters block until all outstanding snapshots are dropped. In the sync architecture this is less dangerous (the main thread is the sole writer, and snapshots only live on worker threads), but the invariant still holds: any state that snapshots need to read must live **inside Salsa** as an input or tracked query. URI-to-FileId resolution lives in `FilePathMap`; file content + metadata live in `FileEntryMap`. Snapshots access both through the `DbFiles` adapter, which only takes a `&dyn salsa::Database`.
 
-1. Snapshot holds a Salsa db clone, acquires the side-channel lock for a lookup.
-2. Host writer wants the side-channel lock for write, parks behind the snapshot.
-3. Eventually the snapshot tries to reacquire the side-channel lock for its next lookup; with a writer queued, it parks too.
-4. Writer's Salsa setter is now waiting on the snapshot to drop. Snapshot is waiting on the writer to release the lock. **Deadlock between two `spawn_blocking` workers.**
-
-The fix is structural: any state that snapshots need to read must live **inside Salsa** as an input or tracked query, not behind a side-channel lock. URI ↔ FileId resolution lives in the `FilePathMap` Salsa input (`crates/base-db/src/lib.rs`); file content + metadata live in `FileEntryMap`. Snapshots access both through the `DbFiles` adapter (`crates/ide/src/db_files.rs`), which only takes a `&dyn salsa::Database`. There is no `FileRegistry` reference, no `Arc<RwLock<...>>`, nothing the snapshot can park on except Salsa itself.
-
-**If you find yourself wanting to add an `Arc<RwLock<X>>` field to `AnalysisHost` that snapshots will also read, stop and put `X` in a Salsa input instead.** This was the root cause of #779, #784, #949, and the architectural fix that finally killed the class. The historical incident is documented in the `salsa.md` SME agent under "Pitfall 2".
-
-The `tokio::sync::Mutex<AnalysisHost>` in `ProjectHost` is fine and required — it serializes writers and is on the async side, so snapshots never touch it. The bad pattern is a _parking_lot_ (or any sync) lock that both sides hold.
+**If you find yourself wanting to add an `Arc<RwLock<X>>` field to `AnalysisHost` that snapshots will also read, stop and put `X` in a Salsa input instead.** This was the root cause of #779, #784, #949.
