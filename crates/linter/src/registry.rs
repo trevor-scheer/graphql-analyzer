@@ -9,9 +9,9 @@ use crate::rules::{
     RelayConnectionTypesRuleImpl, RequireDeprecationReasonRuleImpl, RequireDescriptionRuleImpl,
     RequireFieldOfTypeQueryInMutationResultRuleImpl, RequireIdFieldRuleImpl,
     RequireNullableFieldsWithOneofRuleImpl, RequireNullableResultInRootRuleImpl,
-    RequireSelectionsRuleImpl, SelectionSetDepthRuleImpl, StrictIdInTypesRuleImpl,
-    UniqueEnumValueNamesRuleImpl, UniqueNamesRuleImpl, UnusedFieldsRuleImpl,
-    UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
+    RequireSelectionsRuleImpl, RequireTypePatternWithOneofRuleImpl, SelectionSetDepthRuleImpl,
+    StrictIdInTypesRuleImpl, UniqueEnumValueNamesRuleImpl, UniqueNamesRuleImpl,
+    UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
 };
 use crate::traits::{
     DocumentSchemaLintRule, LintRule, ProjectLintRule, StandaloneDocumentLintRule,
@@ -76,6 +76,7 @@ static STANDALONE_SCHEMA_RULES: LazyLock<Vec<Arc<dyn StandaloneSchemaLintRule>>>
             Arc::new(RequireFieldOfTypeQueryInMutationResultRuleImpl),
             Arc::new(RequireNullableFieldsWithOneofRuleImpl),
             Arc::new(RequireNullableResultInRootRuleImpl),
+            Arc::new(RequireTypePatternWithOneofRuleImpl),
             Arc::new(StrictIdInTypesRuleImpl),
             Arc::new(UniqueEnumValueNamesRuleImpl),
         ]

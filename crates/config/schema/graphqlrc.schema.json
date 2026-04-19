@@ -351,6 +351,10 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires root type fields to return nullable types for error resilience"
             },
+            "requireTypePatternWithOneof": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforces that types with @oneOf directive contain both 'ok' and 'error' fields"
+            },
             "strictIdInTypes": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires object types to have an ID field"
