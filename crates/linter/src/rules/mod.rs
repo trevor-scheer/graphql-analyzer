@@ -48,6 +48,7 @@ mod require_field_of_type_query_in_mutation_result;
 mod require_id_field;
 mod require_nullable_fields_with_oneof;
 mod require_nullable_result_in_root;
+mod require_import_fragment;
 mod require_selections;
 mod require_type_pattern_with_oneof;
 mod selection_set_depth;
@@ -81,6 +82,7 @@ pub use require_field_of_type_query_in_mutation_result::RequireFieldOfTypeQueryI
 pub use require_id_field::RequireIdFieldRuleImpl;
 pub use require_nullable_fields_with_oneof::RequireNullableFieldsWithOneofRuleImpl;
 pub use require_nullable_result_in_root::RequireNullableResultInRootRuleImpl;
+pub use require_import_fragment::RequireImportFragmentRuleImpl;
 pub use require_selections::RequireSelectionsRuleImpl;
 pub use require_type_pattern_with_oneof::RequireTypePatternWithOneofRuleImpl;
 pub use selection_set_depth::SelectionSetDepthRuleImpl;

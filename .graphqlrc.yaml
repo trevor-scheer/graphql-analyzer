@@ -162,6 +162,7 @@ projects:
             requireFieldOfTypeQueryInMutationResult: warn
             requireNullableFieldsWithOneof: error
             requireTypePatternWithOneof: warn
+            requireImportFragment: warn
             strictIdInTypes: warn
             noScalarResultTypeOnMutation: warn
             requireNullableResultInRoot: warn
