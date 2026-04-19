@@ -1,0 +1,10 @@
+# This file is named matchDocumentFilename.graphql
+# The rule checks that operation/fragment names match the filename
+
+# Bad - operation name doesn't match filename
+query GetUsers {
+  users {
+    id
+    name
+  }
+}

@@ -14,6 +14,15 @@ use crate::rules::{
     RequireTypePatternWithOneofRuleImpl, SelectionSetDepthRuleImpl, StrictIdInTypesRuleImpl,
     UniqueEnumValueNamesRuleImpl, UniqueNamesRuleImpl, UnusedFieldsRuleImpl,
     UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
+    LoneExecutableDefinitionRuleImpl, MatchDocumentFilenameRuleImpl, NamingConventionRuleImpl,
+    NoAnonymousOperationsRuleImpl, NoDeprecatedRuleImpl, NoDuplicateFieldsRuleImpl,
+    NoHashtagDescriptionRuleImpl, NoOnePlaceFragmentsRuleImpl,
+    NoScalarResultTypeOnMutationRuleImpl, NoTypenamePrefixRuleImpl, NoUnreachableTypesRuleImpl,
+    OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl, RequireDeprecationReasonRuleImpl,
+    RequireDescriptionRuleImpl, RequireFieldOfTypeQueryInMutationResultRuleImpl,
+    RequireIdFieldRuleImpl, RequireSelectionsRuleImpl, SelectionSetDepthRuleImpl,
+    StrictIdInTypesRuleImpl, UniqueEnumValueNamesRuleImpl, UniqueNamesRuleImpl,
+    UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
 };
 use crate::traits::{
     DocumentSchemaLintRule, LintRule, ProjectLintRule, StandaloneDocumentLintRule,
@@ -29,6 +38,7 @@ static STANDALONE_DOCUMENT_RULES: LazyLock<Vec<Arc<dyn StandaloneDocumentLintRul
         vec![
             Arc::new(AlphabetizeRuleImpl),
             Arc::new(LoneExecutableDefinitionRuleImpl),
+            Arc::new(MatchDocumentFilenameRuleImpl),
             Arc::new(NamingConventionRuleImpl),
             Arc::new(NoAnonymousOperationsRuleImpl),
             Arc::new(NoDuplicateFieldsRuleImpl),
