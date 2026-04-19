@@ -386,6 +386,10 @@
             "requireDeprecationDate": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires @deprecated directives to include a deletion date"
+            },
+            "relayPageInfo": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforces Relay PageInfo type requirements"
             }
           },
           "additionalProperties": {

@@ -171,6 +171,7 @@ projects:
             matchDocumentFilename: warn
             relayArguments: warn
             requireDeprecationDate: warn
+            relayPageInfo: warn
             requireSelections: error
 
   resolved-schema:
