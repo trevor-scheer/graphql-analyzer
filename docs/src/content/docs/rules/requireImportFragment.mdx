@@ -1,0 +1,83 @@
+---
+slug: rules/requireImportFragment
+title: requireImportFragment
+description: Require import comments for fragment spreads from other files.
+---
+
+| Property         | Value                    |
+| ---------------- | ------------------------ |
+| Config name      | `requireImportFragment`  |
+| Default severity | —                        |
+| Context          | Document                 |
+| In recommended   | No                       |
+
+## What it checks
+
+Requires that fragment spreads referencing fragments defined in other files have a corresponding import comment. This makes cross-file fragment dependencies explicit rather than relying on implicit global resolution.
+
+Fragments defined in the same document do not require an import comment.
+
+The expected import syntax is:
+
+```graphql
+# import FragmentName from "path/to/file.graphql"
+```
+
+Multiple fragments can be imported from the same file using comma-separated names:
+
+```graphql
+# import FragmentA, FragmentB from "path/to/file.graphql"
+```
+
+## Examples
+
+```graphql
+# ⚠️ Warning — fragment used without import
+query GetUser {
+  user {
+    ...UserFields # Warning: Fragment 'UserFields' is used without a corresponding import comment
+  }
+}
+```
+
+```graphql
+# ✅ Good — fragment imported explicitly
+# import UserFields from "fragments/user.graphql"
+query GetUser {
+  user {
+    ...UserFields
+  }
+}
+```
+
+```graphql
+# ✅ Good — locally defined fragment needs no import
+fragment UserFields on User {
+  id
+  name
+}
+
+query GetUser {
+  user {
+    ...UserFields
+  }
+}
+```
+
+## Configuration
+
+```yaml
+# Enable the rule
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        requireImportFragment: warn
+
+# Or as an error
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        requireImportFragment: error
+```
