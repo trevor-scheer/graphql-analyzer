@@ -8,10 +8,10 @@ use crate::rules::{
     NoUnreachableTypesRuleImpl, OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl,
     RelayConnectionTypesRuleImpl, RequireDeprecationReasonRuleImpl, RequireDescriptionRuleImpl,
     RequireFieldOfTypeQueryInMutationResultRuleImpl, RequireIdFieldRuleImpl,
-    RequireNullableFieldsWithOneofRuleImpl, RequireSelectionsRuleImpl, SelectionSetDepthRuleImpl,
-    RequireNullableResultInRootRuleImpl, RequireSelectionsRuleImpl, SelectionSetDepthRuleImpl,
-    StrictIdInTypesRuleImpl, UniqueEnumValueNamesRuleImpl, UniqueNamesRuleImpl,
-    UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
+    RequireNullableFieldsWithOneofRuleImpl, RequireNullableResultInRootRuleImpl,
+    RequireSelectionsRuleImpl, SelectionSetDepthRuleImpl, StrictIdInTypesRuleImpl,
+    UniqueEnumValueNamesRuleImpl, UniqueNamesRuleImpl, UnusedFieldsRuleImpl,
+    UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
 };
 use crate::traits::{
     DocumentSchemaLintRule, LintRule, ProjectLintRule, StandaloneDocumentLintRule,

@@ -346,6 +346,7 @@
             "requireNullableFieldsWithOneof": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires all fields in @oneOf input types to be nullable"
+            },
             "requireNullableResultInRoot": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires root type fields to return nullable types for error resilience"
