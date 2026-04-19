@@ -8,7 +8,7 @@ use crate::rules::{
     NoUnreachableTypesRuleImpl, OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl,
     RelayConnectionTypesRuleImpl, RelayEdgeTypesRuleImpl, RequireDeprecationReasonRuleImpl,
     RequireDescriptionRuleImpl, RequireFieldOfTypeQueryInMutationResultRuleImpl,
-    RequireIdFieldRuleImpl, RequireNullableFieldsWithOneofRuleImpl,
+    RequireIdFieldRuleImpl, RequireImportFragmentRuleImpl, RequireNullableFieldsWithOneofRuleImpl,
     RequireNullableResultInRootRuleImpl, RequireSelectionsRuleImpl,
     RequireTypePatternWithOneofRuleImpl, SelectionSetDepthRuleImpl, StrictIdInTypesRuleImpl,
     UniqueEnumValueNamesRuleImpl, UniqueNamesRuleImpl, UnusedFieldsRuleImpl,
@@ -33,6 +33,7 @@ static STANDALONE_DOCUMENT_RULES: LazyLock<Vec<Arc<dyn StandaloneDocumentLintRul
             Arc::new(NoDuplicateFieldsRuleImpl),
             Arc::new(OperationNameSuffixRuleImpl),
             Arc::new(RedundantFieldsRuleImpl),
+            Arc::new(RequireImportFragmentRuleImpl),
             Arc::new(SelectionSetDepthRuleImpl),
             Arc::new(UnusedVariablesRuleImpl),
         ]

@@ -255,6 +255,10 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Require selection of ID fields on object types"
             },
+            "requireImportFragment": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Require fragment spreads to have a corresponding import comment"
+            },
             "requireSelections": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Enforce required field selections (e.g. id, __typename) on object types for cache normalization"

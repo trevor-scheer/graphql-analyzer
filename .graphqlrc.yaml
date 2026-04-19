@@ -166,6 +166,7 @@ projects:
             noScalarResultTypeOnMutation: warn
             requireNullableResultInRoot: warn
             relayEdgeTypes: warn
+            requireImportFragment: warn
             requireSelections: error
 
   resolved-schema:
