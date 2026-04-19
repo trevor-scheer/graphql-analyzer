@@ -4,18 +4,19 @@ title: requireDeprecationDate
 description: Require a deletion date in @deprecated directive reasons.
 ---
 
-| Property         | Value                      |
-| ---------------- | -------------------------- |
-| Config name      | `requireDeprecationDate`   |
-| Default severity | —                          |
-| Context          | Schema                     |
-| In recommended   | No                         |
+| Property         | Value                    |
+| ---------------- | ------------------------ |
+| Config name      | `requireDeprecationDate` |
+| Default severity | —                        |
+| Context          | Schema                   |
+| In recommended   | No                       |
 
 ## What it checks
 
 Requires `@deprecated` directives to include a deletion date in the reason string. This helps teams track when deprecated fields, arguments, and enum values should be removed by requiring a date pattern like `deletionDate: 01/01/2025` in the deprecation reason.
 
 The rule checks:
+
 - Fields on object and interface types
 - Field arguments
 - Enum values
@@ -74,9 +75,9 @@ enum Status {
 
 ## Options
 
-| Option         | Type     | Default          | Description                                               |
-| -------------- | -------- | ---------------- | --------------------------------------------------------- |
-| `argumentName` | `string` | `"deletionDate"` | The key to look for in the deprecation reason string      |
+| Option         | Type     | Default          | Description                                          |
+| -------------- | -------- | ---------------- | ---------------------------------------------------- |
+| `argumentName` | `string` | `"deletionDate"` | The key to look for in the deprecation reason string |
 
 ## Configuration
 

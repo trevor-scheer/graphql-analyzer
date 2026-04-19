@@ -546,8 +546,8 @@ type User {
 type PostConnection {
   edges: [PostEdge]
   id: ID!
-  oldField: String @deprecated(reason: "Use newField, deletionDate: 2025-01-01")  # ✅ OK
-  legacy: String @deprecated(reason: "Use newField instead")  # ⚠️ Warning: missing deletion date
+  oldField: String @deprecated(reason: "Use newField, deletionDate: 2025-01-01") # ✅ OK
+  legacy: String @deprecated(reason: "Use newField instead") # ⚠️ Warning: missing deletion date
 }
 ```
 
