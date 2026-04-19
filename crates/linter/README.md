@@ -416,7 +416,7 @@ Enforces that edge types used by Relay connection types follow the [Relay cursor
 | ----------------------------- | --------- | ------- | --------------------------------------------------------------- |
 | `withEdgeSuffix`              | `boolean` | `true`  | Edge type names must end with `Edge`                            |
 | `shouldImplementNode`         | `boolean` | `true`  | The type returned by `node` must implement the `Node` interface |
-| `listTypeCanWrapOnlyEdgeType` | `boolean` | `true`  | List fields on connection types may only wrap edge types         |
+| `listTypeCanWrapOnlyEdgeType` | `boolean` | `true`  | List fields on connection types may only wrap edge types        |
 
 ### no_deprecated
 
