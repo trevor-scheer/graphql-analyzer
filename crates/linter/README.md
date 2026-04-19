@@ -404,6 +404,7 @@ type Query {
   posts: [Post!] # ✅ OK - nullable outer type
 }
 ```
+
 ### relay_edge_types
 
 **Type**: StandaloneSchemaRule
