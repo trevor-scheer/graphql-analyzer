@@ -385,6 +385,26 @@ query GetUser {
 }
 ```
 
+### require_nullable_result_in_root
+
+**Type**: StandaloneSchemaRule
+
+Requires root type fields (Query, Mutation, Subscription) to return nullable types. When a root field returns a non-null type and an error occurs, GraphQL's null-bubbling behavior propagates the null up to the nearest nullable parent — potentially nulling out the entire `data` response. Making root fields nullable isolates errors to the individual field that failed.
+
+```graphql
+# Schema
+type Query {
+  user(id: ID!): User! # ⚠️ Warning: Root field returns non-null type
+  posts: [Post!]! # ⚠️ Warning: Root field returns non-null type
+}
+
+# Fixed
+type Query {
+  user(id: ID!): User # ✅ OK - nullable
+  posts: [Post!] # ✅ OK - nullable outer type
+}
+```
+
 ### no_deprecated
 
 **Type**: DocumentSchemaRule

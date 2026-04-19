@@ -163,6 +163,7 @@ projects:
             requireNullableFieldsWithOneof: error
             strictIdInTypes: warn
             noScalarResultTypeOnMutation: warn
+            requireNullableResultInRoot: warn
             requireSelections: error
 
   resolved-schema:

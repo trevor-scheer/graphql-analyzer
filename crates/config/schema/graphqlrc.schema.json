@@ -347,6 +347,10 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires all fields in @oneOf input types to be nullable"
             },
+            "requireNullableResultInRoot": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Requires root type fields to return nullable types for error resilience"
+            },
             "strictIdInTypes": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires object types to have an ID field"
