@@ -63,7 +63,7 @@ ignore = "0.4"
 # HTTP
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 
-swc_core = { version = "62.0", features = ["ecma_parser", "ecma_ast", "ecma_visit"] }
+swc_core = { version = "64.0", features = ["ecma_parser", "ecma_ast", "ecma_visit"] }
 swc_common = "21.0"
 
 # Fuzzy matching
