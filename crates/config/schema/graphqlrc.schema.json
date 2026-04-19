@@ -278,6 +278,9 @@
             "relayEdgeTypes": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Enforces Relay-compliant edge type definitions"
+            "relayArguments": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforce Relay-compliant pagination arguments on connection fields"
             },
             "unusedVariables": {
               "$ref": "#/definitions/LintRuleConfig",
