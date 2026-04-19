@@ -146,7 +146,6 @@ projects:
           rules:
             alphabetize: [warn, { selections: true, arguments: true, variables: true }]
             loneExecutableDefinition: warn
-            matchDocumentFilename: warn
             namingConvention: warn
             noDuplicateFields: warn
             selectionSetDepth: [warn, { maxDepth: 3 }]
@@ -169,6 +168,7 @@ projects:
             relayEdgeTypes: warn
             requireImportFragment: warn
             noRootType: warn
+            matchDocumentFilename: warn
             requireSelections: error
 
   resolved-schema:
