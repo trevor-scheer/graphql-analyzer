@@ -1,0 +1,53 @@
+---
+slug: rules/requireTypePatternWithOneof
+title: requireTypePatternWithOneof
+description: Enforce that types with @oneOf contain both ok and error fields.
+---
+
+| Property         | Value                          |
+| ---------------- | ------------------------------ |
+| Config name      | `requireTypePatternWithOneof`  |
+| Default severity | `—`                            |
+| Context          | Schema                         |
+| In recommended   | No                             |
+
+## What it checks
+
+Enforces that types annotated with the `@oneOf` directive follow a result pattern by requiring both `ok` and `error` fields. This standardizes mutation result types so that both success and failure cases are always represented.
+
+The rule applies to any type (object or input) that has the `@oneOf` directive. If either the `ok` or `error` field is missing, a warning is reported on the type name.
+
+## Examples
+
+```graphql
+# ❌ Bad — @oneOf type missing the error field
+type DoSomethingResult @oneOf {
+  ok: DoSomethingSuccess
+}
+```
+
+```graphql
+# ❌ Bad — @oneOf type missing both ok and error fields
+type DoSomethingResult @oneOf {
+  success: DoSomethingSuccess
+  failure: Error
+}
+```
+
+```graphql
+# ✅ Good — @oneOf type with both ok and error
+type DoSomethingResult @oneOf {
+  ok: DoSomethingSuccess
+  error: Error
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        requireTypePatternWithOneof: warn
+```
