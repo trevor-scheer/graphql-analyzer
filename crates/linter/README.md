@@ -427,7 +427,7 @@ Requires fragment spreads to have a corresponding import comment when the fragme
 
 The expected import syntax is `# import FragmentName from "path/to/file.graphql"`. Multiple fragments can be comma-separated: `# import A, B from "file.graphql"`.
 
-```graphql
+````graphql
 # ⚠️ Warning: Fragment 'UserFields' is used without a corresponding import comment
 query GetUser {
   user {
@@ -453,7 +453,7 @@ extensions:
   lint:
     rules:
       noRootType: [error, { disallow: ["mutation", "subscription"] }]
-```
+````
 
 ### no_deprecated
 
