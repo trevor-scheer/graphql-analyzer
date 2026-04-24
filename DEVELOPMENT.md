@@ -70,6 +70,38 @@ cargo fmt
 cargo clippy --workspace
 ```
 
+## npm workspaces
+
+The repo is a single npm workspace root. All JavaScript/TypeScript packages
+are workspaces referenced from the root `package.json`:
+
+| Workspace                    | Contents                                      |
+| ---------------------------- | --------------------------------------------- |
+| `editors/vscode`             | VS Code extension                             |
+| `packages/core`              | `@graphql-analyzer/core` dispatcher (napi-rs) |
+| `packages/core/npm/<triple>` | Per-platform native addon stubs (5 packages)  |
+| `packages/eslint-plugin`     | `@graphql-analyzer/eslint-plugin`             |
+| `test-workspace/<project>`   | Fixture projects for LSP/CLI tests            |
+
+One `npm install` at the repo root wires everything together — workspace deps
+resolve via symlinks rather than going through the registry.
+
+### Root scripts
+
+| Script                | Runs                                                   |
+| --------------------- | ------------------------------------------------------ |
+| `npm run build`       | `build` in every workspace that defines it             |
+| `npm run build:debug` | `build:debug` in every workspace that defines it       |
+| `npm run compile`     | `compile` in every workspace that defines it (VS Code) |
+| `npm run watch`       | `watch` in every workspace that defines it (VS Code)   |
+| `npm run typecheck`   | `tsc -b` across the TypeScript project graph           |
+| `npm run lint`        | `oxlint .`                                             |
+| `npm run package`     | Package the VS Code extension                          |
+| `npm run test:unit`   | `test:unit` in every workspace that defines it         |
+| `npm run test:e2e`    | `test:e2e` in every workspace that defines it          |
+| `npm run fmt`         | `oxfmt --write .`                                      |
+| `npm run fmt:check`   | `oxfmt --check .` (CI-friendly; no writes)             |
+
 ## VS Code Extension Development
 
 ### Setup
@@ -103,6 +135,51 @@ To test a platform-specific extension build from a PR, comment `/build-extension
 - Build LSP binaries for all platforms
 - Package platform-specific VSIXs
 - Post a comment with download links
+
+## ESLint Plugin Development
+
+The ESLint plugin (`@graphql-analyzer/eslint-plugin`) is a thin TypeScript
+layer on top of `@graphql-analyzer/core`, which is the Rust analyzer compiled
+to a native Node addon via napi-rs.
+
+### One-time setup
+
+```bash
+# Build the native addon (debug — fast rebuilds; use `build` for release)
+npm run build:debug --workspace=@graphql-analyzer/core
+
+# Build the ESLint plugin TS sources
+npm run build --workspace=@graphql-analyzer/eslint-plugin
+```
+
+The debug build produces `packages/core/graphql-analyzer.<triple>.node`; the
+platform stubs under `packages/core/npm/<triple>/` pick up the `.node` file
+from there.
+
+### Testing changes end-to-end
+
+The `test-workspace/eslint-migration` project is a demo workspace configured
+to run both `@graphql-eslint/eslint-plugin` and `@graphql-analyzer/eslint-plugin`
+against the same fixtures for comparison.
+
+```bash
+# Run graphql-analyzer plugin
+npm run lint:after --workspace=eslint-migration
+
+# Run graphql-eslint for comparison
+npm run lint:before --workspace=eslint-migration
+```
+
+### Watch mode
+
+```bash
+# napi-rs doesn't have a watch mode; install cargo-watch (`cargo install cargo-watch`)
+# if you want auto-rebuild on Rust source changes.
+cargo watch -p graphql-analyzer-napi -s 'npm run build:debug --workspace=@graphql-analyzer/core'
+
+# Plugin TS watch
+npm run dev --workspace=@graphql-analyzer/eslint-plugin
+```
 
 ## Benchmarking
 
@@ -261,9 +338,13 @@ graphql-analyzer/
 │   ├── linter/       # Lint rules engine
 │   ├── lsp/          # LSP server
 │   ├── mcp/          # MCP server
+│   ├── napi/         # napi-rs native addon bindings
 │   └── syntax/       # Parsing layer
 ├── editors/
 │   └── vscode/       # VS Code extension
+├── packages/
+│   ├── core/         # @graphql-analyzer/core (dispatcher + platform stubs)
+│   └── eslint-plugin/# @graphql-analyzer/eslint-plugin
 ├── benches/          # Performance benchmarks
 └── tests/            # Integration tests
 ```
@@ -309,11 +390,23 @@ Changeset format:
 
 ```markdown
 ---
-graphql-lsp: minor
+graphql-analyzer-lsp: minor
 ---
 
 Add support for feature X
 ```
+
+Target one or more knope package names:
+
+| Change                                 | Target                           |
+| -------------------------------------- | -------------------------------- |
+| CLI feature or bug fix                 | `graphql-analyzer-cli`           |
+| LSP or VS Code extension change        | `graphql-analyzer-lsp` (coupled) |
+| MCP server change                      | `graphql-analyzer-mcp`           |
+| Native addon (Rust or any npm package) | `graphql-analyzer-core`          |
+| ESLint plugin (JS-only change)         | `graphql-analyzer-eslint-plugin` |
+
+See [`RELEASES.md`](./RELEASES.md) for the full release pipeline.
 
 ### Release Flow
 
