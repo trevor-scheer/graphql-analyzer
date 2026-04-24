@@ -1,0 +1,26 @@
+type Query {
+  user(id: ID!): User
+  users: [User!]!
+}
+
+type User {
+  id: ID!
+  name: String!
+  email: String!
+  posts: [Post!]!
+}
+
+# This should trigger no-hashtag-description
+# A blog post
+type Post {
+  id: ID!
+  # Intentionally violates the naming-convention rule (fields should be
+  # camelCase). Leave as-is — the fixture exercises lint-rule detection.
+  PostTitle: String!
+  content: String!
+  author: User!
+}
+
+type Mutation {
+  deleteUser(id: ID!): Boolean
+}
