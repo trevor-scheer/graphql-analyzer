@@ -145,6 +145,9 @@ const EXERCISED = {
     severity: 1,
     span: "full",
   },
+  // Coverage extended to nested nodes in #1011 (matches graphql-eslint's
+  // `getNodeName`-shaped diagnostic).
+  "description-style": { file: "schema.graphql", severity: 1, span: "full" },
 };
 
 test("rules shared with graphql-eslint fire on the same fixture files", async () => {

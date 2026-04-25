@@ -8,6 +8,7 @@ type Query {
   version: String!
 }
 
+"A user account"
 type User {
   id: ID!
   name: String!

@@ -9,3 +9,4 @@ extensions:
         noDuplicateFields: error
         requireNullableResultInRoot: warn
         requireFieldOfTypeQueryInMutationResult: warn
+        descriptionStyle: warn
