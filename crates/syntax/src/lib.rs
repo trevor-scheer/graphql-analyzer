@@ -178,11 +178,11 @@ pub fn parse(
 ) -> Parse {
     let uri = metadata.uri(db);
 
-    // Dispatch based on language: GraphQL parses directly, others need extraction
     #[cfg(feature = "extract")]
     if metadata.language(db).requires_extraction() {
         return extract_and_parse(db, &content.text(db), uri.as_str());
     }
+    // When the extract feature is off (wasm), all files parse as raw GraphQL.
     parse_graphql(&content.text(db), uri.as_str())
 }
 
