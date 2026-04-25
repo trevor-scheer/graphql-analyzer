@@ -13,11 +13,18 @@ pub trait TaskDispatcher: Send + Sync {
 
 // Task 6 will wire GlobalState to use this in place of its bare ThreadPool field.
 #[allow(dead_code)]
-pub struct ThreadPoolDispatcher(pub threadpool::ThreadPool);
+pub struct ThreadPoolDispatcher(threadpool::ThreadPool);
 
 impl TaskDispatcher for ThreadPoolDispatcher {
     fn execute(&self, work: Box<dyn FnOnce() + Send + 'static>) {
         self.0.execute(work);
+    }
+}
+
+impl ThreadPoolDispatcher {
+    #[allow(dead_code)]
+    pub fn new(pool: threadpool::ThreadPool) -> Self {
+        Self(pool)
     }
 }
 
@@ -301,7 +308,7 @@ mod dispatcher_tests {
     fn threadpool_dispatcher_runs_work_eventually() {
         let counter = Arc::new(AtomicUsize::new(0));
         let pool = threadpool::ThreadPool::with_name("test".into(), 2);
-        let dispatcher = ThreadPoolDispatcher(pool);
+        let dispatcher = ThreadPoolDispatcher::new(pool);
         let c = Arc::clone(&counter);
         dispatcher.execute(Box::new(move || {
             c.fetch_add(1, Ordering::SeqCst);
