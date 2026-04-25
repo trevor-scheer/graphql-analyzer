@@ -16,6 +16,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "graphql-lsp"
 path = "src/main.rs"
+required-features = ["native"]
 
 [dependencies]
 # Internal deps (unconditional)
@@ -80,7 +81,7 @@ native = [
     "extract",
     "introspect",
 ]
-wasm = []
+wasm = [] # Placeholder for future wasm-only deps (tracing-wasm, etc.); current gating uses not(feature = "native")
 extract = ["dep:graphql-extract", "graphql-ide/extract", "graphql-syntax/extract"]
 introspect = ["dep:graphql-introspect", "graphql-ide/introspect"]
 

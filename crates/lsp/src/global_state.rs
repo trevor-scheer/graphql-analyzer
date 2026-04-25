@@ -281,7 +281,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "native"))]
 mod dispatcher_tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};

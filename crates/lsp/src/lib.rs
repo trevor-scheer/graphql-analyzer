@@ -6,6 +6,10 @@
 
 // Under wasm, the native entrypoint (`run_server`) is gated out, so most items
 // appear dead until the wasm entrypoint (Task 10) provides a caller.
+// This suppression should be removed once the wasm entrypoint in Task 10
+// (`crates/lsp-wasm`) provides a caller that reaches this crate's public API.
+// After Task 10 lands, verify removal:
+//   cargo check -p graphql-lsp --no-default-features --features wasm
 #![cfg_attr(not(feature = "native"), allow(dead_code, unused_imports))]
 
 mod conversions;
