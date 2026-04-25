@@ -122,20 +122,16 @@ test("no unexpected extra rules vs graphql-eslint", () => {
 
 // Rules whose output is verified against graphql-eslint, keyed by rule name.
 //
-//   span: "line" — compare diagnostic count, messages, and firing line. Used
-//     for rules where we agree on what to flag and roughly where, but
-//     graphql-eslint doesn't emit `endLine`/`endColumn` (e.g. comment-attached
-//     diagnostics).
-//   span: "full" — also compare column/endLine/endColumn. Use for rules whose
-//     position parity has been deliberately aligned, so column-level fixes
-//     (e.g. reporting on the inner named type rather than the type wrapper)
-//     stay verified.
+//   span: "line" — compare diagnostic count, messages, and firing line.
+//   span: "full" — also compare column/endLine/endColumn (or assert that
+//     both sides emit the same single-position loc — `endLine` and
+//     `endColumn` may be `undefined` if graphql-eslint reports start-only).
 //
 // Adding a rule here is the single point where parity coverage is declared.
 const EXERCISED = {
   "no-anonymous-operations": { file: "src/operations.graphql", severity: 2, span: "line" },
   "no-duplicate-fields": { file: "src/operations.graphql", severity: 2, span: "line" },
-  "no-hashtag-description": { file: "schema.graphql", severity: 1, span: "line" },
+  "no-hashtag-description": { file: "schema.graphql", severity: 1, span: "full" },
   // Position parity verified after #1008 (TypeRef.name_range). The
   // `require-nullable-result-in-root` rule isn't here yet — graphql-eslint
   // skips non-null list types and emits a different message format
