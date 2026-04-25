@@ -27,7 +27,17 @@ function diagnosticsFor(filePath: string, source: string): binding.JsDiagnostic[
   return fresh;
 }
 
+// Rules where graphql-eslint reports a single-position `loc` (start only) so
+// `endLine`/`endColumn` come back `undefined`. Our underlying diagnostic
+// always carries a full range — useful for LSP/CLI consumers — but for these
+// specific rules the eslint adapter strips the end so the message shape
+// matches graphql-eslint exactly. Add a rule here only when graphql-eslint's
+// own implementation is intentionally start-only (e.g. `no-hashtag-description`
+// passes `loc: { line, column }` rather than `{ start, end }`).
+const START_ONLY_RULES = new Set(["noHashtagDescription"]);
+
 function makeRule(analyzerRuleName: string, description: string): Rule.RuleModule {
+  const startOnly = START_ONLY_RULES.has(analyzerRuleName);
   return {
     meta: {
       type: "problem",
@@ -40,13 +50,13 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
           const diagnostics = diagnosticsFor(context.filename, context.sourceCode.text);
           for (const d of diagnostics) {
             if (d.rule !== analyzerRuleName) continue;
-            context.report({
-              message: d.message,
-              loc: {
-                start: { line: d.line, column: d.column - 1 },
-                end: { line: d.endLine, column: d.endColumn - 1 },
-              },
-            });
+            const loc = startOnly
+              ? { line: d.line, column: d.column - 1 }
+              : {
+                  start: { line: d.line, column: d.column - 1 },
+                  end: { line: d.endLine, column: d.endColumn - 1 },
+                };
+            context.report({ message: d.message, loc });
           }
         },
       };
