@@ -9,9 +9,13 @@ description = "GraphQL parsing layer with TypeScript/JavaScript support"
 keywords = ["graphql", "parser", "syntax"]
 categories = ["parser-implementations", "development-tools"]
 
+[features]
+default = ["extract"]
+extract = ["dep:graphql-extract"]
+
 [dependencies]
 graphql-base-db = { path = "../base-db" }
-graphql-extract = { path = "../extract" }
+graphql-extract = { path = "../extract", optional = true }
 graphql-types = { path = "../types" }
 salsa = { workspace = true }
 apollo-parser = { workspace = true }
