@@ -58,7 +58,11 @@ impl StandaloneSchemaLintRule for RequireNullableResultInRootRuleImpl {
             };
 
             for field in &root_type.fields {
-                if field.type_ref.is_non_null {
+                // Match graphql-eslint: only flag non-null *named* returns
+                // (e.g. `User!`). A non-null list (`[User!]!`) is acceptable —
+                // an empty list is a valid empty-but-non-null payload, so the
+                // null-bubbling concern doesn't apply at the list level.
+                if field.type_ref.is_non_null && !field.type_ref.is_list {
                     let span = graphql_syntax::SourceSpan {
                         start: field.type_ref.name_range.start().into(),
                         end: field.type_ref.name_range.end().into(),
@@ -72,7 +76,7 @@ impl StandaloneSchemaLintRule for RequireNullableResultInRootRuleImpl {
                             span,
                             LintSeverity::Warning,
                             format!(
-                                "Unexpected non-null result {} in {}",
+                                "Unexpected non-null result {} in type \"{}\"",
                                 field.type_ref.name, type_name
                             ),
                             "requireNullableResultInRoot",
@@ -148,7 +152,10 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert_eq!(all[0].message, "Unexpected non-null result User in Query");
+        assert_eq!(
+            all[0].message,
+            "Unexpected non-null result User in type \"Query\""
+        );
         // Diagnostic spans the inner named type (`User`), matching the
         // `TypeRef.name_range` provenance from the HIR.
         let span = &all[0].span;
@@ -166,7 +173,7 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(
             all[0].message,
-            "Unexpected non-null result User in Mutation"
+            "Unexpected non-null result User in type \"Mutation\""
         );
     }
 
@@ -181,24 +188,22 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(
             all[0].message,
-            "Unexpected non-null result Message in Subscription"
+            "Unexpected non-null result Message in type \"Subscription\""
         );
     }
 
     #[test]
-    fn test_non_null_list_fails() {
+    fn test_non_null_list_passes() {
+        // Non-null list types (`[User!]!`) are acceptable — graphql-eslint
+        // skips them too, since an empty list is a valid empty-but-non-null
+        // payload that doesn't trigger field-level null-bubbling.
         let db = RootDatabase::default();
         let rule = RequireNullableResultInRootRuleImpl;
         let schema = "type Query { users: [User!]! } type User { id: ID! }";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
-        assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("non-null result"));
-        assert!(all[0].message.contains("in Query"));
-        // Diagnostic spans the inner named type (`User`) inside the wrapper.
-        let span = &all[0].span;
-        assert_eq!(&schema[span.start..span.end], "User");
+        assert!(all.is_empty());
     }
 
     #[test]
@@ -250,7 +255,7 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(
             all[0].message,
-            "Unexpected non-null result User in RootQuery"
+            "Unexpected non-null result User in type \"RootQuery\""
         );
     }
 
@@ -276,6 +281,9 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert_eq!(all[0].message, "Unexpected non-null result Post in Query");
+        assert_eq!(
+            all[0].message,
+            "Unexpected non-null result Post in type \"Query\""
+        );
     }
 }

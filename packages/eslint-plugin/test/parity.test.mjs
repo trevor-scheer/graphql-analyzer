@@ -132,12 +132,15 @@ const EXERCISED = {
   "no-anonymous-operations": { file: "src/operations.graphql", severity: 2, span: "line" },
   "no-duplicate-fields": { file: "src/operations.graphql", severity: 2, span: "line" },
   "no-hashtag-description": { file: "schema.graphql", severity: 1, span: "full" },
-  // Position parity verified after #1008 (TypeRef.name_range). The
-  // `require-nullable-result-in-root` rule isn't here yet — graphql-eslint
-  // skips non-null list types and emits a different message format
-  // (`in type "Query"` vs our `in Query`); aligning those is follow-up work
-  // tracked separately from #1008's position-only change.
+  // Position parity verified after #1008 (TypeRef.name_range).
   "require-field-of-type-query-in-mutation-result": {
+    file: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+  // Firing condition aligned (skip non-null lists) and message format
+  // aligned (`in type "Query"`) to match graphql-eslint exactly.
+  "require-nullable-result-in-root": {
     file: "schema.graphql",
     severity: 1,
     span: "full",
