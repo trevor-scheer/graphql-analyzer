@@ -13,29 +13,32 @@
 ## File Structure
 
 ### New Files
-| File | Responsibility |
-|---|---|
-| `crates/lsp/src/main_loop.rs` | Main event loop, `Event` enum, dispatch logic |
+
+| File                             | Responsibility                                                          |
+| -------------------------------- | ----------------------------------------------------------------------- |
+| `crates/lsp/src/main_loop.rs`    | Main event loop, `Event` enum, dispatch logic                           |
 | `crates/lsp/src/global_state.rs` | `GlobalState` (mutable owner), `GlobalStateSnapshot` (immutable reader) |
-| `crates/lsp/src/dispatch.rs` | `RequestDispatcher` and `NotificationDispatcher` chain helpers |
+| `crates/lsp/src/dispatch.rs`     | `RequestDispatcher` and `NotificationDispatcher` chain helpers          |
 
 ### Modified Files
-| File | Change |
-|---|---|
-| `Cargo.toml` (workspace root) | Add `lsp-server`, `crossbeam-channel`, `threadpool` workspace deps |
-| `crates/lsp/Cargo.toml` | Swap `tower-lsp-server` for `lsp-server` + `crossbeam-channel` + `threadpool`; keep `tokio` with reduced features for introspection |
-| `crates/lsp/src/lib.rs` | Replace async `run_server()` with sync version; keep tracing init |
-| `crates/lsp/src/main.rs` | Remove `#[tokio::main]`, use plain `fn main()` |
-| `crates/lsp/src/server.rs` | Remove `GraphQLLanguageServer`, `LanguageServer` impl, `with_analysis`/`blocking` helpers. Keep `StatusNotification`, `PingResponse`, `VirtualFileContentParams`, `validation_errors_to_diagnostics`, `describe_join_error` (adapted for `std::thread` panics) |
-| `crates/lsp/src/workspace.rs` | Remove `ProjectHost` async wrapper, replace `DashMap` with `HashMap`, make all methods sync |
-| `crates/lsp/src/handlers/navigation.rs` | Sync signatures, take `&GlobalStateSnapshot` |
-| `crates/lsp/src/handlers/display.rs` | Sync signatures, take `&GlobalStateSnapshot` |
-| `crates/lsp/src/handlers/editing.rs` | Sync signatures, take `&GlobalStateSnapshot` or `&mut GlobalState` |
-| `crates/lsp/src/handlers/document_sync.rs` | Sync signatures, take `&mut GlobalState` (main thread mutations) |
-| `crates/lsp/src/conversions.rs` | Update imports from `tower_lsp_server::ls_types` to `lsp_types` directly |
-| `crates/lsp/src/trace_capture.rs` | No logic changes; update if any tower-lsp types were used (they aren't) |
+
+| File                                       | Change                                                                                                                                                                                                                                                         |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Cargo.toml` (workspace root)              | Add `lsp-server`, `crossbeam-channel`, `threadpool` workspace deps                                                                                                                                                                                             |
+| `crates/lsp/Cargo.toml`                    | Swap `tower-lsp-server` for `lsp-server` + `crossbeam-channel` + `threadpool`; keep `tokio` with reduced features for introspection                                                                                                                            |
+| `crates/lsp/src/lib.rs`                    | Replace async `run_server()` with sync version; keep tracing init                                                                                                                                                                                              |
+| `crates/lsp/src/main.rs`                   | Remove `#[tokio::main]`, use plain `fn main()`                                                                                                                                                                                                                 |
+| `crates/lsp/src/server.rs`                 | Remove `GraphQLLanguageServer`, `LanguageServer` impl, `with_analysis`/`blocking` helpers. Keep `StatusNotification`, `PingResponse`, `VirtualFileContentParams`, `validation_errors_to_diagnostics`, `describe_join_error` (adapted for `std::thread` panics) |
+| `crates/lsp/src/workspace.rs`              | Remove `ProjectHost` async wrapper, replace `DashMap` with `HashMap`, make all methods sync                                                                                                                                                                    |
+| `crates/lsp/src/handlers/navigation.rs`    | Sync signatures, take `&GlobalStateSnapshot`                                                                                                                                                                                                                   |
+| `crates/lsp/src/handlers/display.rs`       | Sync signatures, take `&GlobalStateSnapshot`                                                                                                                                                                                                                   |
+| `crates/lsp/src/handlers/editing.rs`       | Sync signatures, take `&GlobalStateSnapshot` or `&mut GlobalState`                                                                                                                                                                                             |
+| `crates/lsp/src/handlers/document_sync.rs` | Sync signatures, take `&mut GlobalState` (main thread mutations)                                                                                                                                                                                               |
+| `crates/lsp/src/conversions.rs`            | Update imports from `tower_lsp_server::ls_types` to `lsp_types` directly                                                                                                                                                                                       |
+| `crates/lsp/src/trace_capture.rs`          | No logic changes; update if any tower-lsp types were used (they aren't)                                                                                                                                                                                        |
 
 ### Deleted Code
+
 - `ProjectHost` struct and all its methods (replaced by direct `AnalysisHost` ownership)
 - `LanguageServer` trait impl (replaced by dispatch chain)
 - `with_analysis()`, `blocking()` helpers (no longer needed)
@@ -49,6 +52,7 @@
 ## Task 1: Add Dependencies
 
 **Files:**
+
 - Modify: `Cargo.toml` (workspace root, lines 32-84)
 - Modify: `crates/lsp/Cargo.toml` (lines 20-60)
 
@@ -105,6 +109,7 @@ git commit -m "swap tower-lsp-server for lsp-server + crossbeam-channel + thread
 ## Task 2: Create `GlobalState` and `GlobalStateSnapshot`
 
 **Files:**
+
 - Create: `crates/lsp/src/global_state.rs`
 
 This task creates the two core types that replace `GraphQLLanguageServer`. `GlobalState` lives on the main thread and owns all mutable state. `GlobalStateSnapshot` is a cheap immutable view passed to worker threads.
@@ -334,6 +339,7 @@ fn num_cpus() -> usize {
 - [ ] **Step 2: Register the module**
 
 In `crates/lsp/src/lib.rs`, add (alongside existing `mod` declarations):
+
 ```rust
 mod global_state;
 ```
@@ -350,13 +356,14 @@ git commit -m "add GlobalState and GlobalStateSnapshot types"
 ## Task 3: Create Request/Notification Dispatch Helpers
 
 **Files:**
+
 - Create: `crates/lsp/src/dispatch.rs`
 
 Provides ergonomic dispatch chains for routing incoming LSP messages to handlers, modeled after rust-analyzer's `RequestDispatcher`/`NotificationDispatcher`.
 
 - [ ] **Step 1: Create `dispatch.rs`**
 
-```rust
+````rust
 use lsp_server::{ExtractError, Notification, Request, RequestId};
 use lsp_types::notification::Notification as _;
 use lsp_types::request::Request as _;
@@ -520,11 +527,12 @@ impl<'a> NotificationDispatcher<'a> {
         }
     }
 }
-```
+````
 
 - [ ] **Step 2: Register the module**
 
 In `crates/lsp/src/lib.rs`, add:
+
 ```rust
 mod dispatch;
 ```
@@ -541,6 +549,7 @@ git commit -m "add RequestDispatcher and NotificationDispatcher"
 ## Task 4: Migrate `WorkspaceManager` to Sync
 
 **Files:**
+
 - Modify: `crates/lsp/src/workspace.rs`
 
 Remove the `ProjectHost` async wrapper entirely. Replace `DashMap` with `HashMap`. All methods become plain `&self`/`&mut self`. The `AnalysisHost` instances are now directly owned by the `WorkspaceManager` without any `Mutex` — the main thread is the sole writer.
@@ -548,6 +557,7 @@ Remove the `ProjectHost` async wrapper entirely. Replace `DashMap` with `HashMap
 - [ ] **Step 1: Replace imports and remove `ProjectHost`**
 
 Remove these imports:
+
 ```rust
 use std::sync::Arc;
 use std::time::Duration;
@@ -557,6 +567,7 @@ use crate::server::describe_join_error;
 ```
 
 Replace with:
+
 ```rust
 use lsp_types::Uri;
 ```
@@ -747,6 +758,7 @@ git commit -m "migrate WorkspaceManager from DashMap + async Mutex to sync HashM
 ## Task 5: Migrate Notification Handlers (Document Sync)
 
 **Files:**
+
 - Modify: `crates/lsp/src/handlers/document_sync.rs`
 
 All document sync handlers become sync functions that take `&mut GlobalState`. They mutate the workspace directly on the main thread (no locks needed) and dispatch diagnostics computation to the thread pool.
@@ -1028,14 +1040,14 @@ pub(crate) fn handle_did_change_watched_files(
 
 Create a new file `crates/lsp/src/loading.rs` with the following free functions, all taking `&mut GlobalState`:
 
-| Old function (server.rs) | New function (loading.rs) | Key changes |
-|---|---|---|
-| `load_workspace_config()` (line 810) | `load_workspace_config(state, ws_uri, ws_path)` | Remove `.await`; replace `self.client.show_message_request().await` with `state.send_notification::<ShowMessage>(...)` (fire-and-forget, no response); replace `self.client.publish_diagnostics().await` with `state.publish_diagnostics()` |
-| `load_all_project_files()` (line 1083) | `load_all_project_files(state, ws_uri, ws_path, config, config_path)` | Remove `.await`; call `host.set_extract_config()` / `host.set_lint_config()` directly (no lock); call `host.load_schemas_from_config()` directly; send introspection requests via `state.introspection_request_sender.send(...)` instead of `client.execute().await`; diagnostics via `state.publish_diagnostics()` |
-| `reload_workspace_config()` (line 1446) | `reload_workspace_config(state, ws_uri)` | Same pattern; calls `load_workspace_config` |
-| `reload_resolved_schema()` (line 1383) | `reload_resolved_schema(state, ws_uri, proj, path)` | Direct `host.add_file()` call, then `host.snapshot()` + diagnostics |
-| `create_default_config()` (line 967) | `create_default_config(state, ws_path)` | Replace `self.client.show_message().await` with `state.send_notification::<ShowMessage>()` |
-| `fetch_remote_schemas()` (line 1011) | Not needed — replaced by `state.introspection_request_sender.send()` in `load_all_project_files` |
+| Old function (server.rs)                | New function (loading.rs)                                                                        | Key changes                                                                                                                                                                                                                                                                                                         |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `load_workspace_config()` (line 810)    | `load_workspace_config(state, ws_uri, ws_path)`                                                  | Remove `.await`; replace `self.client.show_message_request().await` with `state.send_notification::<ShowMessage>(...)` (fire-and-forget, no response); replace `self.client.publish_diagnostics().await` with `state.publish_diagnostics()`                                                                         |
+| `load_all_project_files()` (line 1083)  | `load_all_project_files(state, ws_uri, ws_path, config, config_path)`                            | Remove `.await`; call `host.set_extract_config()` / `host.set_lint_config()` directly (no lock); call `host.load_schemas_from_config()` directly; send introspection requests via `state.introspection_request_sender.send(...)` instead of `client.execute().await`; diagnostics via `state.publish_diagnostics()` |
+| `reload_workspace_config()` (line 1446) | `reload_workspace_config(state, ws_uri)`                                                         | Same pattern; calls `load_workspace_config`                                                                                                                                                                                                                                                                         |
+| `reload_resolved_schema()` (line 1383)  | `reload_resolved_schema(state, ws_uri, proj, path)`                                              | Direct `host.add_file()` call, then `host.snapshot()` + diagnostics                                                                                                                                                                                                                                                 |
+| `create_default_config()` (line 967)    | `create_default_config(state, ws_path)`                                                          | Replace `self.client.show_message().await` with `state.send_notification::<ShowMessage>()`                                                                                                                                                                                                                          |
+| `fetch_remote_schemas()` (line 1011)    | Not needed — replaced by `state.introspection_request_sender.send()` in `load_all_project_files` |
 
 The `window/showMessageRequest` pattern (which awaits a client response) becomes a one-way `window/showMessage` for now. The interactive "Create Config" / "Open Config" dialogs lose their interactivity. This is an acceptable tradeoff — the config still loads, the user just doesn't get the clickable button.
 
@@ -1055,6 +1067,7 @@ git commit -m "migrate document sync handlers to sync"
 ## Task 6: Migrate Request Handlers
 
 **Files:**
+
 - Modify: `crates/lsp/src/handlers/navigation.rs`
 - Modify: `crates/lsp/src/handlers/display.rs`
 - Modify: `crates/lsp/src/handlers/editing.rs`
@@ -1065,9 +1078,11 @@ All request handlers become sync functions. They receive `GlobalStateSnapshot` (
 - [ ] **Step 1: Update `conversions.rs` imports**
 
 Replace:
+
 ```rust
 use tower_lsp_server::ls_types as lsp_types;
 ```
+
 With nothing — `lsp_types` is now a direct dependency, so all existing `lsp_types::` references work as-is. Remove the import alias line entirely.
 
 - [ ] **Step 2: Rewrite `navigation.rs`**
@@ -1169,6 +1184,7 @@ git commit -m "migrate all request handlers to sync"
 ## Task 7: Create Main Loop
 
 **Files:**
+
 - Create: `crates/lsp/src/main_loop.rs`
 
 The main loop is the heart of the sync architecture. It receives events from three sources (LSP messages, completed tasks, introspection results) and dispatches them.
@@ -1487,6 +1503,7 @@ git commit -m "add main event loop with request/notification dispatch"
 ## Task 8: Wire Up Server Entry Point and Initialize
 
 **Files:**
+
 - Modify: `crates/lsp/src/main.rs`
 - Modify: `crates/lsp/src/lib.rs`
 - Modify: `crates/lsp/src/server.rs`
@@ -1668,6 +1685,7 @@ fn spawn_introspection_thread(
 - [ ] **Step 5: Clean up `server.rs`**
 
 Remove:
+
 - `GraphQLLanguageServer` struct and all its methods
 - `impl LanguageServer for GraphQLLanguageServer`
 - `load_workspaces_background()` free function
@@ -1677,6 +1695,7 @@ Remove:
 - `describe_join_error()` (no more `JoinError`)
 
 Keep:
+
 - `VirtualFileContentParams`, `StatusNotification`, `StatusParams`, `PingResponse` (still used)
 - `validation_errors_to_diagnostics()` (still used during config loading)
 
@@ -1704,6 +1723,7 @@ git commit -m "wire up sync main loop and server entry point"
 ## Task 9: Clean Up and Validate
 
 **Files:**
+
 - Modify: `Cargo.toml` (workspace root)
 - Modify: `crates/lsp/Cargo.toml`
 
@@ -1739,6 +1759,7 @@ git commit -m "remove tower-lsp-server dependency"
 ## Task 10: Add Cancellation Support
 
 **Files:**
+
 - Modify: `crates/lsp/src/global_state.rs`
 - Modify: `crates/lsp/src/main_loop.rs`
 
@@ -1763,12 +1784,14 @@ pub struct GlobalState {
 - [ ] **Step 2: Track requests in the main loop**
 
 In `main_loop.rs`, when a request arrives:
+
 ```rust
 // In handle_request, before dispatching:
 state.in_flight.insert(req.id.clone());
 ```
 
 When sending a response (in `handle_task`):
+
 ```rust
 TaskResponse::Response(resp) => {
     // Only send if the request hasn't been cancelled
@@ -1783,6 +1806,7 @@ TaskResponse::Response(resp) => {
 - [ ] **Step 3: Handle `$/cancelRequest` notification**
 
 Add to the notification dispatcher in `handle_notification`:
+
 ```rust
 // Before the main dispatcher chain, handle cancel specially:
 if not.method == "$/cancelRequest" {
@@ -1822,6 +1846,7 @@ git commit -m "add $/cancelRequest support for in-flight request cancellation"
 ## Task 11: Update crates/CLAUDE.md
 
 **Files:**
+
 - Modify: `crates/CLAUDE.md`
 
 - [ ] **Step 1: Update the architecture documentation**
