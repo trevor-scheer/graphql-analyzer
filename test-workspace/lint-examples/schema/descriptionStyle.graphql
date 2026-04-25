@@ -10,10 +10,7 @@ type Category {
   """
   id: ID!
   "The category label"
-  label(
-    "Format hint for the label"
-    format: String
-  ): String!
+  label("Format hint for the label" format: String): String!
 }
 
 "Available color options"
@@ -24,14 +21,13 @@ enum Color {
   BLUE
 }
 
-"""Filter input for users"""
+"""
+Filter input for users
+"""
 input UserFilter {
   "Match users by id"
   id: ID
 }
 
 "Mark a field as cached"
-directive @cached(
-  "How long to cache, in seconds"
-  seconds: Int
-) on FIELD_DEFINITION
+directive @cached("How long to cache, in seconds" seconds: Int) on FIELD_DEFINITION
