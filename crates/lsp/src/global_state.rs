@@ -6,6 +6,31 @@ use lsp_types::Uri;
 
 use crate::workspace::WorkspaceManager;
 
+#[allow(dead_code)]
+pub trait TaskDispatcher: Send + Sync {
+    fn execute(&self, work: Box<dyn FnOnce() + Send + 'static>);
+}
+
+// Task 6 will wire GlobalState to use this in place of its bare ThreadPool field.
+#[allow(dead_code)]
+pub struct ThreadPoolDispatcher(pub threadpool::ThreadPool);
+
+impl TaskDispatcher for ThreadPoolDispatcher {
+    fn execute(&self, work: Box<dyn FnOnce() + Send + 'static>) {
+        self.0.execute(work);
+    }
+}
+
+// Used by the wasm target (no threads) and by tests; native always uses ThreadPoolDispatcher.
+#[allow(dead_code)]
+pub struct InlineDispatcher;
+
+impl TaskDispatcher for InlineDispatcher {
+    fn execute(&self, work: Box<dyn FnOnce() + Send + 'static>) {
+        work();
+    }
+}
+
 /// Owns all mutable server state. Lives exclusively on the main thread.
 ///
 /// Since the main thread is the only writer, no locks are needed for any
@@ -252,5 +277,42 @@ mod tests {
         assert_eq!(state.diagnostics_seq.get(b.as_str()).copied(), Some(1));
         // Independent counters: bumping b doesn't move a.
         assert_eq!(state.diagnostics_seq.get(a.as_str()).copied(), Some(2));
+    }
+}
+
+#[cfg(test)]
+mod dispatcher_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    #[test]
+    fn inline_dispatcher_runs_work_synchronously() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let dispatcher = InlineDispatcher;
+        let c = Arc::clone(&counter);
+        dispatcher.execute(Box::new(move || {
+            c.fetch_add(1, Ordering::SeqCst);
+        }));
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn threadpool_dispatcher_runs_work_eventually() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let pool = threadpool::ThreadPool::with_name("test".into(), 2);
+        let dispatcher = ThreadPoolDispatcher(pool);
+        let c = Arc::clone(&counter);
+        dispatcher.execute(Box::new(move || {
+            c.fetch_add(1, Ordering::SeqCst);
+        }));
+        // Drain the pool by joining; trait doesn't expose join so we sleep+poll.
+        for _ in 0..100 {
+            if counter.load(Ordering::SeqCst) == 1 {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("threadpool dispatcher never ran the task");
     }
 }
