@@ -1,55 +1,75 @@
 ---
-description: LSP handler conventions and protocol compliance
+description: LSP handler conventions for the sync main-loop architecture
 paths:
-  - "crates/graphql-lsp/**"
+  - "crates/lsp/**"
 ---
 
 # LSP Handler Conventions
 
-- All request handlers go in `crates/graphql-lsp/src/handlers/`
-- Register new capabilities in the server initialization
-- Every handler must support cancellation via the LSP cancellation token
-- Return `None`/empty results rather than errors for graceful degradation
-- Prefer incremental document sync over full sync
-- Never block the async runtime with expensive computation (see below)
+This crate runs a **synchronous, single-threaded main loop** on `lsp-server` +
+`crossbeam-channel`, with read-only Salsa queries dispatched to a `threadpool`. There is no
+async runtime in the LSP crate. The pre-migration tower-lsp / `spawn_blocking` constraints no
+longer apply.
 
-## Async Runtime Starvation — Critical Rule
+- All handlers go in `crates/lsp/src/handlers/` (`navigation`, `display`, `editing`,
+  `document_sync`, `custom`).
+- Register new request handlers in `main_loop::handle_request` via `on_pool` or `on_main`;
+  register notification handlers in `handle_notification` via `NotificationDispatcher::on`.
+- Advertise new server capabilities in `server::initialize_capabilities` (or the equivalent
+  initialize handler).
+- Return `None` / empty results rather than errors for graceful degradation.
+- Prefer incremental document sync over full sync.
 
-**All Salsa query execution MUST run inside `spawn_blocking`, never directly in an async handler.**
+## Pick the right dispatcher
 
-tower-lsp runs handlers on the tokio async runtime. Salsa queries are synchronous and can take
-hundreds of milliseconds on large schemas. Running them directly in an async handler starves the
-runtime — health checks time out, the client marks the server as dead, and the LSP appears to hang.
+| Helper    | When                                                                                          | Signature                                                            |
+| --------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `on_pool` | Read-only request keyed off a single URI (hover, completion, goto-def, references, ...)       | `fn(GlobalStateSnapshot, R::Params) -> R::Result` — runs on a worker |
+| `on_main` | Request that needs `&mut GlobalState`, traverses all hosts, or has trivial cost (resolve, ping) | `fn(&mut GlobalState, R::Params) -> R::Result` — runs on main         |
+| `NotificationDispatcher::on` | All notifications (`did_open`/`did_change`/`did_save`/`did_close`/`did_change_watched_files`) | `fn(&mut GlobalState, N::Params)` — runs on main                     |
 
-### Two helpers exist — use the right one:
+Notification handlers mutate `GlobalState` and `AnalysisHost` directly; no locks needed,
+because the main thread is the sole writer.
 
-| Helper          | Use when                                            | Does what                                                               |
-| --------------- | --------------------------------------------------- | ----------------------------------------------------------------------- |
-| `with_analysis` | Request handlers (need workspace lookup + snapshot) | Finds project host, acquires snapshot, runs closure in `spawn_blocking` |
-| `blocking`      | Notification handlers that already have a snapshot  | Thin `spawn_blocking` wrapper with panic handling                       |
+## Diagnostics: use the spawn helpers, not the snapshot directly
 
-### What counts as "expensive"?
-
-Any Salsa query call: `diagnostics()`, `all_diagnostics_for_file()`, `all_diagnostics_for_change()`,
-`all_diagnostics_for_files()`, `field_coverage()`, `goto_definition()`, `find_references()`, etc.
-If it touches `Analysis` or `snapshot`, it runs Salsa queries.
-
-### Pattern for notification handlers:
+For non-trivial diagnostics computation (any Salsa query), spawn it onto the worker pool
+instead of running it inline on the main thread:
 
 ```rust
-// WRONG — blocks the async runtime
-let diagnostics = snapshot.diagnostics(&changed_file);
+// Single-URI (e.g. did_change): generation-checked, stale results are dropped.
+state.spawn_diagnostics_for_uri(uri, move || {
+    snapshot.diagnostics(&file_path).into_iter().map(convert_ide_diagnostic).collect()
+});
 
-// CORRECT — runs on the blocking thread pool
-let Some(diagnostics) = Self::blocking(move || {
-    snapshot.diagnostics(&changed_file)
-}).await else {
-    return;
-};
+// Multi-URI (e.g. did_save, project-wide): not generation-checked.
+state.spawn_diagnostics_batch(move || project_wide_diagnostics(&snapshot));
 ```
 
-### Why not just use rust-analyzer's approach?
+`spawn_diagnostics_for_uri` bumps a per-URI counter in `diagnostics_seq` and tags the worker's
+result with the captured generation. `main_loop::handle_task` drops the result when a newer
+keystroke for the same URI has already incremented the counter. This is the sync equivalent of
+cancelling an in-flight diagnostics computation.
 
-rust-analyzer avoids this entirely by using a synchronous event loop (crossbeam channels) with an
-explicit thread pool — no async runtime to starve. We use tower-lsp which is async, so we must
-use `spawn_blocking` to bridge the gap. This is a fundamental architectural constraint.
+The exception is `did_open`: the snapshot is fresh, the file has just been added, and the
+handler publishes diagnostics inline so the editor sees them immediately on open.
+
+## Cancellation
+
+`$/cancelRequest` is handled in `main_loop::handle_notification` against
+`GlobalState::in_flight: HashSet<RequestId>`:
+
+- `handle_request` inserts `req.id` into `in_flight` before dispatching.
+- `respond` removes it.
+- A late worker response whose id is no longer in `in_flight` is logged and dropped in
+  `handle_task` rather than sent to the client.
+
+Don't bypass `respond`. Don't write to the connection sender directly from a worker.
+
+## What used to apply (and no longer does)
+
+The previous tower-lsp architecture required `spawn_blocking` around every Salsa query and
+helpers named `with_analysis` / `blocking`. **None of that exists in the current code.** If
+you see those names referenced in a doc, agent, or commit message, treat it as historical.
+The whole class of async/sync boundary bugs (DashMap shard locks across `.await`, runtime
+starvation when a setter ran on the async thread) was structurally eliminated by going sync.

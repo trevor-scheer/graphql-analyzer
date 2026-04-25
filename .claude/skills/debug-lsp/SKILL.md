@@ -111,49 +111,47 @@ Look for:
 3. Test LSP directly (see above)
 4. Check for panics in logs
 
-### Panics in `spawn_blocking` workers
+### Panics in worker-pool tasks
 
-**Symptoms**: `tracing::error!` lines like `Blocking task ended abnormally: panic: ...` or `Analysis task ended abnormally: panic: ...`. Individual requests fail but the server stays up.
+**Symptoms**: `tracing::error!` from the global panic hook, then an `InternalError` JSON-RPC response (id intact). Individual requests fail but the server stays up.
 
 **What to look for**:
 
-- The improved panic logging extracts the actual panic payload (string or `&'static str`) from `JoinError::into_panic()`. The default `JoinError` Display only says `task N panicked` — useless. If you see the bare `task N panicked` form, you're on an old binary.
-- A global panic hook (installed in `install_panic_hook` in `crates/lsp/src/lib.rs`) emits `tracing::error!` with the message, source location, and a backtrace if `RUST_BACKTRACE=1` is set. Set the env var on the LSP server process to get backtraces.
+- The threadpool worker wraps each task in `std::panic::catch_unwind(AssertUnwindSafe(...))` (see `GlobalState::spawn_with_snapshot`). On a caught panic the worker sends back a `Response::new_err(id, ErrorCode::InternalError, "internal error: handler panicked")`, so the request id always gets a response and `in_flight` is cleared.
+- The global panic hook (installed in `install_panic_hook` in `crates/lsp/src/lib.rs`) emits `tracing::error!` with the message, source location, and a backtrace if `RUST_BACKTRACE=1` is set. Set the env var on the LSP server process to get backtraces.
 - Common offenders: stale byte offsets in cached lint diagnostics colliding with a freshly-built `LineIndex` after rapid edits. `LineIndex::line_col` clamps and warns rather than panicking, but if you see `LineIndex::line_col offset is past end of source` or `landed mid-character` warnings, that's a pre-existing bug somewhere in the diagnostics pipeline that needs investigation.
 
 ### Hangs / Deadlocks
 
-**Symptoms**: LSP stops responding, CPU stays low (workers parked, not spinning)
+**Symptoms**: LSP stops responding, CPU stays low.
 
-**Likely cause**: a Salsa setter is waiting on a snapshot to drop, and something is preventing the snapshot from dropping.
+**Background**: After the sync-LSP migration, `GlobalState`/`AnalysisHost` mutations only happen on the main thread, and snapshots live on workers. The whole pre-migration deadlock class (snapshot blocked on a side-channel `RwLock` while the main thread held the writer) is gone. A hang today is much more likely to be:
+
+- The main thread is stuck inside a `select!` arm — e.g. a notification handler is running a long Salsa query inline instead of using `spawn_diagnostics_for_uri` / `spawn_with_snapshot`. Workers idle while the main thread blocks; the `recv(connection.receiver)` arm never fires.
+- A worker is parked inside a Salsa setter. This shouldn't happen, because setters only run on the main thread — if you see it, somebody added a setter to a `threadpool::execute` closure. Don't.
+- The introspection thread blocked on a request whose result the main thread isn't draining (look for `recv(state.introspection_result_receiver)` not firing).
 
 **Debug steps**:
 
-1. Enable `RUST_LOG=debug`
-2. Find the most recent `did_change` log line and confirm `add_file_and_snapshot` started but never returned. The blocking task is parked inside the Salsa setter.
-3. Identify which task still holds an `Analysis` snapshot. Common culprits: an in-flight `diagnostics_for_change` running in `spawn_blocking`, a debounced publish-diagnostics task, a `references`/`workspace_symbols` request handler.
-4. Verify that task isn't waiting on something the writer holds. The original deadlock class — snapshot waiting on `registry.read()` while writer held `registry.write()` — was eliminated structurally by moving file lookups into Salsa (`FilePathMap`), so any new occurrence implies a fresh shared lock somewhere. Find it.
-5. Consult the `salsa.md` SME agent for the full pattern catalog and the April 2026 incident writeup.
+1. Enable `RUST_LOG=debug`. Look at which `select!` arm last fired in the main loop.
+2. If a notification handler is taking a long time, check whether it's running Salsa queries inline. Move them onto the pool with `spawn_diagnostics_for_uri` / `spawn_diagnostics_batch`.
+3. If a request never gets a response, check `state.in_flight` — the request is either still in flight on a worker, or its response was dropped because the id was no longer in `in_flight` (cancelled).
+4. If a snapshot is blocking a setter, find the worker that's still holding it and confirm it isn't itself trying to call a setter. The "use a snapshot, drop it, then mutate" lifecycle rule still applies on the main thread.
 
-**The structural rule** (see `crates/CLAUDE.md` "Snapshot/Host Lock Discipline"): `Analysis` snapshots and `AnalysisHost` must not share any non-Salsa lock. If you need snapshot-visible data, put it in a Salsa input. If you find yourself adding an `Arc<RwLock<...>>` to `AnalysisHost` whose contents a snapshot would also read, **stop and reach for a `#[salsa::input]` instead**.
+**The structural rule** (see `crates/CLAUDE.md` "Snapshot Safety"): `Analysis` snapshots and `AnalysisHost` must not share any non-Salsa lock. If you need snapshot-visible data, put it in a Salsa input. If you find yourself adding an `Arc<RwLock<...>>` to `AnalysisHost` whose contents a snapshot would also read, **stop and reach for a `#[salsa::input]` instead**.
 
-**The lifecycle rule** still applies for code that explicitly mixes snapshots and mutations on the same task:
+**The lifecycle rule** still applies on the main thread when a notification handler holds a snapshot and then writes:
 
 ```rust
 // WRONG
 let snapshot = host.snapshot();
 let result = snapshot.some_query();
-host.add_file(...); // Hangs: snapshot still alive on this task
+host.add_file(...); // Hangs: snapshot still alive on this thread
 
-// RIGHT
-let result = {
-    let snapshot = host.snapshot();
-    snapshot.some_query()
-}; // snapshot dropped
-host.add_file(...); // Safe
+// RIGHT — let update_file_and_snapshot do the write+snapshot atomically:
+let (_is_new, snapshot) = host.update_file_and_snapshot(&file_path, &content, lang, kind);
+// snapshot is now safe to send to a worker
 ```
-
-The regression test for the structural fix is `crates/lsp/src/workspace.rs::test_concurrent_snapshot_lookups_during_writer` — run it locally if you suspect a new shared-lock deadlock has crept in.
 
 ### Incorrect Diagnostics
 
