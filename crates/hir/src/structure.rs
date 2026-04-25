@@ -100,6 +100,11 @@ pub struct EnumValue {
 pub struct DirectiveUsage {
     pub name: Arc<str>,
     pub arguments: Vec<DirectiveArgument>,
+    /// Source range of the directive's name token (e.g. `deprecated` in
+    /// `@deprecated(reason: "...")`). Used by lint rules that need to point
+    /// at the directive itself. Empty range when the directive came from a
+    /// synthetic source.
+    pub name_range: TextRange,
 }
 
 /// An argument passed to a directive
@@ -108,6 +113,11 @@ pub struct DirectiveArgument {
     pub name: Arc<str>,
     /// Serialized value (e.g. `"hello"`, `true`, `ENUM_VALUE`)
     pub value: Arc<str>,
+    /// Source range of the argument's value (e.g. the literal `"foo"` after
+    /// the colon). Used by lint rules that need to point at the value rather
+    /// than the surrounding directive. Empty range when the argument came
+    /// from a synthetic source.
+    pub value_range: TextRange,
 }
 
 /// A directive definition from the schema (e.g. `directive @cacheControl on FIELD_DEFINITION`)
@@ -1035,12 +1045,14 @@ fn extract_directives(directives: &apollo_compiler::ast::DirectiveList) -> Vec<D
         .iter()
         .map(|directive| DirectiveUsage {
             name: Arc::from(directive.name.as_str()),
+            name_range: name_range(&directive.name),
             arguments: directive
                 .arguments
                 .iter()
                 .map(|arg| DirectiveArgument {
                     name: Arc::from(arg.name.as_str()),
                     value: Arc::from(arg.value.to_string().as_str()),
+                    value_range: node_range(&arg.value),
                 })
                 .collect(),
         })

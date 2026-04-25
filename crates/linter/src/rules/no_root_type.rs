@@ -93,8 +93,21 @@ impl StandaloneSchemaLintRule for NoRootTypeRuleImpl {
                 continue;
             };
 
-            let start: usize = type_def.definition_range.start().into();
-            let end: usize = type_def.definition_range.end().into();
+            // Point at the type name (matches graphql-eslint's
+            // `node.name.loc`). Falls back to the definition span if the name
+            // range is empty (defensive).
+            let (start, end): (usize, usize) =
+                if type_def.name_range.start() == type_def.name_range.end() {
+                    (
+                        type_def.definition_range.start().into(),
+                        type_def.definition_range.end().into(),
+                    )
+                } else {
+                    (
+                        type_def.name_range.start().into(),
+                        type_def.name_range.end().into(),
+                    )
+                };
             let span = graphql_syntax::SourceSpan {
                 start,
                 end,

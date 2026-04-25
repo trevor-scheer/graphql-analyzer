@@ -203,16 +203,26 @@ impl StandaloneDocumentLintRule for MatchDocumentFilenameRuleImpl {
                 build_expected_filename(&name_text, config.style, &config.suffix);
 
             if expected_filename != filename_stem {
+                // graphql-eslint reports the *full* filename (stem + extension)
+                // on both sides of the message. We default to the actual
+                // extension if known, otherwise fall back to the configured
+                // `fileExtension` and finally `.graphql`.
+                let ext_for_msg = actual_extension
+                    .as_deref()
+                    .or(opts.file_extension.as_deref())
+                    .unwrap_or(".graphql");
+                let actual_full = format!("{filename_stem}{ext_for_msg}");
+                let expected_full = format!("{expected_filename}{ext_for_msg}");
                 diagnostics.push(
                     LintDiagnostic::warning(
                         anchor_span,
                         format!(
-                            "Unexpected filename \"{filename_stem}\". Rename it to \"{expected_filename}\""
+                            "Unexpected filename \"{actual_full}\". Rename it to \"{expected_full}\""
                         ),
                         "matchDocumentFilename",
                     )
                     .with_help(format!(
-                        "Rename the file to \"{expected_filename}.graphql\" or rename the {op_type_str} to match the filename"
+                        "Rename the file to \"{expected_full}\" or rename the {op_type_str} to match the filename"
                     )),
                 );
             }

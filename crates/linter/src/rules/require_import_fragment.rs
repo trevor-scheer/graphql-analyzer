@@ -161,10 +161,10 @@ impl StandaloneDocumentLintRule for RequireImportFragmentRuleImpl {
                     LintDiagnostic::new(
                         doc.span(start, end),
                         LintSeverity::Warning,
-                        format!("Expected `{frag_name}` fragment to be imported."),
+                        format!("Expected \"{frag_name}\" fragment to be imported."),
                         "requireImportFragment",
                     )
-                    .with_help(format!("Add import expression for `{frag_name}`.")),
+                    .with_help(format!("Add import expression for \"{frag_name}\".")),
                 );
             }
         }
@@ -303,7 +303,7 @@ query GetFeed { user { ...UserFields } posts { ...PostFields } }"#;
         let diagnostics = check(source);
         assert_eq!(diagnostics.len(), 1);
         let help = diagnostics[0].help.as_deref().unwrap();
-        assert!(help.contains("Add import expression for `UserFields`"));
+        assert!(help.contains("Add import expression for \"UserFields\""));
     }
 
     #[test]

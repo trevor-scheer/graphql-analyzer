@@ -4,26 +4,50 @@ use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use serde::Deserialize;
 
-/// Options for the `alphabetize` rule
+/// Selection-set owners that `alphabetize.selections` may restrict to. Mirrors
+/// graphql-eslint's `selectionsEnum` (`OperationDefinition`, `FragmentDefinition`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub enum SelectionsOwner {
+    OperationDefinition,
+    FragmentDefinition,
+}
+
+/// `selections` accepts either a boolean (legacy) or an array of owner kinds
+/// (matching graphql-eslint). `true` is treated as "both owner kinds enabled".
 #[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum SelectionsConfig {
+    Bool(bool),
+    Owners(Vec<SelectionsOwner>),
+}
+
+impl SelectionsConfig {
+    fn includes(&self, owner: SelectionsOwner) -> bool {
+        match self {
+            Self::Bool(b) => *b,
+            Self::Owners(list) => list.contains(&owner),
+        }
+    }
+}
+
+impl Default for SelectionsConfig {
+    fn default() -> Self {
+        Self::Bool(true)
+    }
+}
+
+/// Options for the `alphabetize` rule
+#[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
 pub struct AlphabetizeOptions {
-    /// Check selection sets for alphabetical order
-    pub selections: bool,
+    /// Check selection sets for alphabetical order. Either a boolean or an
+    /// array of selection-set owner kinds (`OperationDefinition`,
+    /// `FragmentDefinition`).
+    pub selections: SelectionsConfig,
     /// Check arguments for alphabetical order
     pub arguments: bool,
     /// Check variable definitions for alphabetical order
     pub variables: bool,
-}
-
-impl Default for AlphabetizeOptions {
-    fn default() -> Self {
-        Self {
-            selections: true,
-            arguments: false,
-            variables: false,
-        }
-    }
 }
 
 impl AlphabetizeOptions {
@@ -31,6 +55,10 @@ impl AlphabetizeOptions {
         value
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default()
+    }
+
+    fn check_owner(&self, owner: SelectionsOwner) -> bool {
+        self.selections.includes(owner)
     }
 }
 
@@ -79,20 +107,24 @@ impl StandaloneDocumentLintRule for AlphabetizeRuleImpl {
                                 check_variable_order(&var_defs, &doc, &mut diagnostics);
                             }
                         }
+                        let scan = opts.check_owner(SelectionsOwner::OperationDefinition);
                         if let Some(selection_set) = op.selection_set() {
                             check_selection_set_order(
                                 &selection_set,
                                 &opts,
+                                scan,
                                 &doc,
                                 &mut diagnostics,
                             );
                         }
                     }
                     cst::Definition::FragmentDefinition(frag) => {
+                        let scan = opts.check_owner(SelectionsOwner::FragmentDefinition);
                         if let Some(selection_set) = frag.selection_set() {
                             check_selection_set_order(
                                 &selection_set,
                                 &opts,
+                                scan,
                                 &doc,
                                 &mut diagnostics,
                             );
@@ -125,10 +157,11 @@ impl SelectionKind {
 fn check_selection_set_order(
     selection_set: &cst::SelectionSet,
     opts: &AlphabetizeOptions,
+    scan_selections: bool,
     doc: &graphql_syntax::DocumentRef<'_>,
     diagnostics: &mut Vec<LintDiagnostic>,
 ) {
-    if opts.selections {
+    if scan_selections {
         let mut last: Option<(String, SelectionKind)> = None;
 
         for selection in selection_set.selections() {
@@ -174,7 +207,7 @@ fn check_selection_set_order(
                                     doc.span(start, end),
                                     LintSeverity::Warning,
                                     format!(
-                                        "{curr_label} `{name}` should be before {prev_label} `{prev_name}`",
+                                        "{curr_label} \"{name}\" should be before {prev_label} \"{prev_name}\"",
                                         curr_label = curr_kind.label(),
                                         prev_label = prev_kind.label(),
                                     ),
@@ -202,12 +235,12 @@ fn check_selection_set_order(
                     }
                 }
                 if let Some(nested) = field.selection_set() {
-                    check_selection_set_order(&nested, opts, doc, diagnostics);
+                    check_selection_set_order(&nested, opts, scan_selections, doc, diagnostics);
                 }
             }
             cst::Selection::InlineFragment(inline) => {
                 if let Some(nested) = inline.selection_set() {
-                    check_selection_set_order(&nested, opts, doc, diagnostics);
+                    check_selection_set_order(&nested, opts, scan_selections, doc, diagnostics);
                 }
             }
             cst::Selection::FragmentSpread(_) => {}
@@ -233,7 +266,7 @@ fn check_argument_order(
                         LintDiagnostic::new(
                             doc.span(start, end),
                             LintSeverity::Warning,
-                            format!("argument `{name}` should be before argument `{prev}`"),
+                            format!("argument \"{name}\" should be before argument \"{prev}\""),
                             "alphabetize",
                         )
                         .with_help("Reorder arguments alphabetically by name"),
@@ -264,7 +297,7 @@ fn check_variable_order(
                             LintDiagnostic::new(
                                 doc.span(start, end),
                                 LintSeverity::Warning,
-                                format!("variable `{name}` should be before variable `{prev}`"),
+                                format!("variable \"{name}\" should be before variable \"{prev}\""),
                                 "alphabetize",
                             )
                             .with_help("Reorder variable definitions alphabetically by name"),
@@ -332,7 +365,7 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
             .message
-            .contains("field `age` should be before field `name`"));
+            .contains("field \"age\" should be before field \"name\""));
     }
 
     #[test]
@@ -341,7 +374,7 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
             .message
-            .contains("field `id` should be before field `title`"));
+            .contains("field \"id\" should be before field \"title\""));
     }
 
     #[test]
@@ -351,7 +384,7 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
             diagnostics[0].message,
-            "field `age` should be before fragment spread `Zed`"
+            "field \"age\" should be before fragment spread \"Zed\""
         );
     }
 
@@ -362,7 +395,68 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
             diagnostics[0].message,
-            "fragment spread `Avatar` should be before field `name`"
+            "fragment spread \"Avatar\" should be before field \"name\""
         );
+    }
+
+    fn check_with_options(source: &str, options: &serde_json::Value) -> Vec<LintDiagnostic> {
+        let db = RootDatabase::default();
+        let rule = AlphabetizeRuleImpl;
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        let project_files = create_test_project_files(&db);
+        rule.check(
+            &db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+            Some(options),
+        )
+    }
+
+    #[test]
+    fn test_selections_array_only_operation_definition() {
+        // With `selections: ["OperationDefinition"]`, fragment definitions
+        // are NOT scanned for selection-set ordering.
+        let opts = serde_json::json!({ "selections": ["OperationDefinition"] });
+        let source = "fragment F on User { name age id }\nquery Q { user { name age id } }\n";
+        let diagnostics = check_with_options(source, &opts);
+        assert_eq!(diagnostics.len(), 1, "expected only the query to fire");
+        assert!(diagnostics[0]
+            .message
+            .contains("field \"age\" should be before field \"name\""));
+    }
+
+    #[test]
+    fn test_selections_array_only_fragment_definition() {
+        let opts = serde_json::json!({ "selections": ["FragmentDefinition"] });
+        let source = "fragment F on User { name age id }\nquery Q { user { name age id } }\n";
+        let diagnostics = check_with_options(source, &opts);
+        assert_eq!(diagnostics.len(), 1, "expected only the fragment to fire");
+    }
+
+    #[test]
+    fn test_selections_array_both_kinds() {
+        let opts = serde_json::json!({
+            "selections": ["OperationDefinition", "FragmentDefinition"]
+        });
+        let source = "fragment F on User { name age id }\nquery Q { user { name age id } }\n";
+        let diagnostics = check_with_options(source, &opts);
+        assert_eq!(diagnostics.len(), 2);
+    }
+
+    #[test]
+    fn test_selections_false_disables_check() {
+        let opts = serde_json::json!({ "selections": false });
+        let diagnostics = check_with_options("query Q { user { name age } }", &opts);
+        assert!(diagnostics.is_empty());
     }
 }

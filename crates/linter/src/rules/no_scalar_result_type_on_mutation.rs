@@ -63,8 +63,8 @@ impl StandaloneSchemaLintRule for NoScalarResultTypeOnMutationRuleImpl {
                     .is_some_and(|t| t.kind == TypeDefKind::Scalar);
 
             if is_scalar {
-                let start: usize = field.name_range.start().into();
-                let end: usize = field.name_range.end().into();
+                let start: usize = field.type_ref.name_range.start().into();
+                let end: usize = field.type_ref.name_range.end().into();
                 let span = graphql_syntax::SourceSpan {
                     start,
                     end,
