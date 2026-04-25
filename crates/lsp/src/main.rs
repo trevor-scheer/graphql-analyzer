@@ -11,13 +11,12 @@ fn print_version() {
     println!("graphql-lsp {version} ({git_sha}{dirty_suffix})");
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--version" || a == "-V") {
         print_version();
         return;
     }
 
-    graphql_lsp::run_server().await;
+    graphql_lsp::run_server();
 }

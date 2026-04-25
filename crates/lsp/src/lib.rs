@@ -1,19 +1,36 @@
 //! GraphQL Language Server Protocol implementation.
 //!
 //! This crate provides a GraphQL language server that can be run as a standalone
-//! server communicating over stdio. It's typically invoked via `graphql lsp`.
+//! server communicating over stdio. It uses a sync main loop with a thread pool
+//! for Salsa query execution.
 
 mod conversions;
+mod dispatch;
+mod global_state;
 mod handlers;
-mod server;
+mod loading;
+mod main_loop;
+pub(crate) mod server;
 pub mod trace_capture;
 mod workspace;
 
-use server::GraphQLLanguageServer;
-use tower_lsp_server::{LspService, Server};
+use std::path::PathBuf;
+
+use lsp_types::{
+    CodeActionKind, CodeActionOptions, CompletionOptions, ExecuteCommandOptions,
+    FoldingRangeProviderCapability, HoverProviderCapability, InlayHintOptions,
+    InlayHintServerCapabilities, OneOf, RenameOptions, SelectionRangeProviderCapability,
+    SemanticTokenModifier, SemanticTokenType, SemanticTokensFullOptions, SemanticTokensLegend,
+    SemanticTokensOptions, SemanticTokensServerCapabilities, ServerCapabilities,
+    SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
+    WorkDoneProgressOptions,
+};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::Layer;
 use tracing_subscriber::Registry;
+
+use global_state::GlobalState;
+use server::{StatusNotification, StatusParams};
 
 /// Build a tracing `EnvFilter`, always suppressing Salsa's internal logs
 /// unless the user explicitly includes `salsa` in `RUST_LOG`.
@@ -28,7 +45,6 @@ fn build_env_filter(default: &str) -> tracing_subscriber::EnvFilter {
 }
 
 /// Initialize tracing with OpenTelemetry support.
-/// Returns the reload handle if tracing was initialized, None if already initialized.
 fn init_tracing_with_otel() -> Option<trace_capture::ReloadHandle> {
     use opentelemetry::trace::TracerProvider;
     use opentelemetry_otlp::WithExportConfig;
@@ -62,15 +78,9 @@ fn init_tracing_with_otel() -> Option<trace_capture::ReloadHandle> {
         .build();
 
     let tracer = provider.tracer("graphql-analyzer");
-
     let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
-    // Per-layer filtering: the fmt layer respects RUST_LOG (defaulting to warn)
-    // for quiet stderr output, while the OTEL layer always captures info-level
-    // spans so traces flow to the collector regardless of log verbosity.
     let fmt_filter = build_env_filter("warn");
-    // The OTEL filter ignores RUST_LOG -- it always captures info-level spans.
-    // RUST_LOG controls stderr verbosity, not trace export.
     let otel_filter = tracing_subscriber::EnvFilter::new("info,salsa=off");
 
     let fmt_layer = tracing_subscriber::fmt::layer()
@@ -84,8 +94,6 @@ fn init_tracing_with_otel() -> Option<trace_capture::ReloadHandle> {
 
     let (reload_layer, reload_handle) = trace_capture::create_reload_layer();
 
-    // Reload layer must be innermost (directly on Registry) so its type
-    // parameter matches. Other layers compose on top.
     let subscriber = Registry::default()
         .with(reload_layer)
         .with(telemetry_layer)
@@ -95,9 +103,6 @@ fn init_tracing_with_otel() -> Option<trace_capture::ReloadHandle> {
         return None;
     }
 
-    // The OTLP exporter connects lazily on first span export, so we can't
-    // verify connectivity at init time. Connection failures will surface as
-    // warnings from the opentelemetry SDK during export.
     eprintln!("OpenTelemetry tracing enabled (endpoint: {otlp_endpoint})");
     eprintln!(
         "Note: the OTLP exporter connects lazily. If no traces appear, \
@@ -108,7 +113,6 @@ fn init_tracing_with_otel() -> Option<trace_capture::ReloadHandle> {
 }
 
 /// Initialize basic tracing without OpenTelemetry.
-/// Returns the reload handle if tracing was initialized, None if already initialized.
 fn init_tracing_without_otel() -> Option<trace_capture::ReloadHandle> {
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
@@ -128,33 +132,15 @@ fn init_tracing_without_otel() -> Option<trace_capture::ReloadHandle> {
     Some(reload_handle)
 }
 
-/// Initialize tracing for the LSP server and return the reload handle for trace capture.
-///
-/// When `OTEL_TRACES_ENABLED` is set, traces will be sent to an
-/// OpenTelemetry collector. Otherwise, logs are written to stderr.
-///
-/// This function is safe to call even if tracing has already been initialized
-/// (e.g., when running as `graphql lsp` subcommand). It will simply skip
-/// initialization if a global subscriber is already set.
 #[must_use]
 pub fn init_tracing() -> Option<trace_capture::ReloadHandle> {
     if std::env::var("OTEL_TRACES_ENABLED").is_ok() {
         return init_tracing_with_otel();
     }
-
     init_tracing_without_otel()
 }
 
 /// Install a panic hook that routes panic info through `tracing`.
-///
-/// Without this, panics inside `spawn_blocking` are reported by the runtime as
-/// `JoinError("task N panicked")` with no location, no message, and no
-/// backtrace — useless for diagnosing bugs in IDE feature code. The hook
-/// captures the panic message, source location, and (if `RUST_BACKTRACE` is
-/// set) a backtrace, and emits them as a single `tracing::error!` event tagged
-/// with the panicking thread name. The previous panic handler still runs after
-/// the hook, so process behavior is unchanged for fatal panics and the default
-/// stderr formatting still works.
 pub fn install_panic_hook() {
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -184,38 +170,309 @@ pub fn install_panic_hook() {
     }));
 }
 
+fn build_server_capabilities() -> ServerCapabilities {
+    use lsp_types::CodeLensOptions;
+
+    ServerCapabilities {
+        text_document_sync: Some(TextDocumentSyncCapability::Kind(
+            TextDocumentSyncKind::INCREMENTAL,
+        )),
+        completion_provider: Some(CompletionOptions {
+            trigger_characters: Some(vec![
+                "{".to_string(),
+                "@".to_string(),
+                "(".to_string(),
+                "$".to_string(),
+            ]),
+            ..Default::default()
+        }),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
+        signature_help_provider: Some(SignatureHelpOptions {
+            trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
+            retrigger_characters: None,
+            work_done_progress_options: WorkDoneProgressOptions::default(),
+        }),
+        definition_provider: Some(OneOf::Left(true)),
+        references_provider: Some(OneOf::Left(true)),
+        document_symbol_provider: Some(OneOf::Left(true)),
+        workspace_symbol_provider: Some(OneOf::Left(true)),
+        code_action_provider: Some(lsp_types::CodeActionProviderCapability::Options(
+            CodeActionOptions {
+                code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
+                work_done_progress_options: WorkDoneProgressOptions::default(),
+                resolve_provider: None,
+            },
+        )),
+        semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
+            SemanticTokensOptions {
+                legend: SemanticTokensLegend {
+                    token_types: vec![
+                        SemanticTokenType::TYPE,
+                        SemanticTokenType::PROPERTY,
+                        SemanticTokenType::VARIABLE,
+                        SemanticTokenType::FUNCTION,
+                        SemanticTokenType::ENUM_MEMBER,
+                        SemanticTokenType::KEYWORD,
+                        SemanticTokenType::STRING,
+                        SemanticTokenType::NUMBER,
+                    ],
+                    token_modifiers: vec![
+                        SemanticTokenModifier::DEPRECATED,
+                        SemanticTokenModifier::DEFINITION,
+                    ],
+                },
+                full: Some(SemanticTokensFullOptions::Bool(true)),
+                range: None,
+                work_done_progress_options: WorkDoneProgressOptions::default(),
+            },
+        )),
+        code_lens_provider: Some(CodeLensOptions {
+            resolve_provider: Some(true),
+        }),
+        folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+        inlay_hint_provider: Some(OneOf::Right(InlayHintServerCapabilities::Options(
+            InlayHintOptions {
+                resolve_provider: Some(false),
+                work_done_progress_options: WorkDoneProgressOptions::default(),
+            },
+        ))),
+        selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
+        rename_provider: Some(OneOf::Right(RenameOptions {
+            prepare_provider: Some(true),
+            work_done_progress_options: WorkDoneProgressOptions::default(),
+        })),
+        execute_command_provider: Some(ExecuteCommandOptions {
+            commands: vec!["graphql-analyzer.checkStatus".to_string()],
+            work_done_progress_options: WorkDoneProgressOptions::default(),
+        }),
+        ..Default::default()
+    }
+}
+
+fn spawn_introspection_thread(
+    request_receiver: crossbeam_channel::Receiver<global_state::IntrospectionRequest>,
+    result_sender: crossbeam_channel::Sender<global_state::IntrospectionResult>,
+) {
+    std::thread::Builder::new()
+        .name("introspection-runtime".into())
+        .spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("tokio runtime for introspection");
+
+            rt.block_on(async {
+                while let Ok(req) = request_receiver.recv() {
+                    let mut client = graphql_introspect::IntrospectionClient::new();
+                    if let Some(headers) = &req.pending.headers {
+                        for (name, value) in headers {
+                            client = client.with_header(name, value);
+                        }
+                    }
+                    if let Some(timeout) = req.pending.timeout {
+                        client = client.with_timeout(std::time::Duration::from_secs(timeout));
+                    }
+                    if let Some(retries) = req.pending.retry {
+                        client = client.with_retries(retries);
+                    }
+
+                    let url = req.pending.url.clone();
+                    let result = match client.execute(&url).await {
+                        Ok(response) => Ok(graphql_introspect::introspection_to_sdl(&response)),
+                        Err(e) => Err(e.to_string()),
+                    };
+
+                    let _ = result_sender.send(global_state::IntrospectionResult {
+                        workspace_uri: req.workspace_uri,
+                        project_name: req.project_name,
+                        url,
+                        result,
+                    });
+                }
+            });
+        })
+        .expect("spawn introspection thread");
+}
+
+fn handle_initialized(state: &mut GlobalState) {
+    let version = env!("CARGO_PKG_VERSION");
+    let git_sha = option_env!("VERGEN_GIT_SHA").unwrap_or("unknown");
+    let git_dirty = option_env!("VERGEN_GIT_DIRTY").unwrap_or("false");
+    let build_timestamp = option_env!("VERGEN_BUILD_TIMESTAMP").unwrap_or("unknown");
+    let binary_path =
+        std::env::current_exe().map_or_else(|_| "unknown".to_string(), |p| p.display().to_string());
+
+    let dirty_suffix = if git_dirty == "true" { "-dirty" } else { "" };
+
+    tracing::info!(
+        version = version,
+        git_sha = format!("{git_sha}{dirty_suffix}"),
+        build_timestamp = build_timestamp,
+        binary_path = binary_path,
+        "GraphQL Language Server initialized"
+    );
+
+    state.send_notification::<lsp_types::notification::LogMessage>(lsp_types::LogMessageParams {
+        typ: lsp_types::MessageType::INFO,
+        message: format!(
+            "GraphQL LSP initialized (v{version} @ {git_sha}{dirty_suffix}, \
+                 built {build_timestamp}, binary: {binary_path})"
+        ),
+    });
+
+    let folders: Vec<(String, PathBuf)> = state.workspace.init_workspace_folders.drain().collect();
+
+    if folders.is_empty() {
+        tracing::debug!("No workspace folders to load");
+        state.send_notification::<StatusNotification>(StatusParams {
+            status: "ready".to_string(),
+            message: Some("No workspace folders".to_string()),
+        });
+        return;
+    }
+
+    state.send_notification::<StatusNotification>(StatusParams {
+        status: "loading".to_string(),
+        message: Some(format!("Loading {} workspace(s)...", folders.len())),
+    });
+
+    let loading_start = std::time::Instant::now();
+
+    for (uri, path) in &folders {
+        loading::load_workspace_config(state, uri, path);
+    }
+
+    let elapsed = loading_start.elapsed();
+    let total_files = state.workspace.file_to_project.len();
+
+    state.send_notification::<StatusNotification>(StatusParams {
+        status: "ready".to_string(),
+        message: Some(format!(
+            "{} files loaded in {:.1}s",
+            total_files,
+            elapsed.as_secs_f64()
+        )),
+    });
+
+    register_file_watchers(state);
+}
+
+fn register_file_watchers(state: &GlobalState) {
+    use lsp_types::FileSystemWatcher;
+
+    let config_paths: Vec<PathBuf> = state.workspace.config_paths.values().cloned().collect();
+
+    if config_paths.is_empty() {
+        tracing::debug!("No config paths found to watch");
+        return;
+    }
+
+    let mut watchers: Vec<FileSystemWatcher> = config_paths
+        .iter()
+        .filter_map(|path| {
+            let filename = path.file_name()?.to_str()?;
+            Some(FileSystemWatcher {
+                glob_pattern: lsp_types::GlobPattern::String(format!("**/{filename}")),
+                kind: Some(lsp_types::WatchKind::all()),
+            })
+        })
+        .collect();
+
+    // Also watch resolved schema files
+    for path in state.workspace.resolved_schema_paths.values() {
+        if let Some(filename) = path.file_name().and_then(|f| f.to_str()) {
+            watchers.push(FileSystemWatcher {
+                glob_pattern: lsp_types::GlobPattern::String(format!("**/{filename}")),
+                kind: Some(lsp_types::WatchKind::all()),
+            });
+        }
+    }
+
+    let registration = lsp_types::Registration {
+        id: "graphql-config-watcher".to_string(),
+        method: "workspace/didChangeWatchedFiles".to_string(),
+        register_options: Some(
+            serde_json::to_value(lsp_types::DidChangeWatchedFilesRegistrationOptions { watchers })
+                .expect("DidChangeWatchedFilesRegistrationOptions is always serializable"),
+        ),
+    };
+
+    // Send client/registerCapability request. In the sync model we fire this
+    // as a request and don't wait for the response (the main loop will handle
+    // the Response message when it arrives).
+    let params = lsp_types::RegistrationParams {
+        registrations: vec![registration],
+    };
+    let not = lsp_server::Request::new(
+        lsp_server::RequestId::from("register-file-watchers".to_string()),
+        "client/registerCapability".to_string(),
+        params,
+    );
+    state
+        .sender
+        .send(lsp_server::Message::Request(not))
+        .expect("client channel open");
+}
+
 /// Run the GraphQL language server over stdio.
-///
-/// This function initializes tracing and starts the LSP server,
-/// communicating via stdin/stdout using the JSON-RPC protocol.
-///
-/// # Example
-///
-/// ```ignore
-/// #[tokio::main]
-/// async fn main() {
-///     graphql_lsp::run_server().await;
-/// }
-/// ```
-pub async fn run_server() {
+pub fn run_server() {
     let reload_handle = init_tracing();
     install_panic_hook();
 
-    let stdin = tokio::io::stdin();
-    let stdout = tokio::io::stdout();
+    let (connection, io_threads) = lsp_server::Connection::stdio();
 
-    let (service, socket) =
-        LspService::build(|client| GraphQLLanguageServer::new(client, reload_handle))
-            .custom_method(
-                "graphql-analyzer/virtualFileContent",
-                GraphQLLanguageServer::virtual_file_content,
-            )
-            .custom_method("graphql-analyzer/ping", GraphQLLanguageServer::ping)
-            .custom_method(
-                "graphql-analyzer/traceCapture",
-                GraphQLLanguageServer::trace_capture,
-            )
-            .finish();
+    let server_capabilities = build_server_capabilities();
+    let initialization_params = match connection
+        .initialize(serde_json::to_value(server_capabilities).expect("caps serialize"))
+    {
+        Ok(params) => params,
+        Err(e) => {
+            // If the protocol-level error is a "request was cancelled" (code -32800),
+            // the client disconnected during handshake — exit cleanly.
+            if e.channel_is_disconnected() {
+                tracing::info!("Client disconnected during initialization");
+                return;
+            }
+            panic!("initialize handshake failed: {e}");
+        }
+    };
 
-    Server::new(stdin, stdout, socket).serve(service).await;
+    // Create introspection channels before GlobalState so we can pass them in
+    let (introspection_request_sender, introspection_request_receiver) =
+        crossbeam_channel::unbounded();
+    let (introspection_result_sender, introspection_result_receiver) =
+        crossbeam_channel::unbounded();
+
+    let mut state = global_state::GlobalState::new(
+        connection.sender.clone(),
+        introspection_request_sender,
+        introspection_result_receiver,
+    );
+    state.trace_capture = reload_handle.map(trace_capture::TraceCaptureManager::new);
+
+    let init_params: lsp_types::InitializeParams =
+        serde_json::from_value(initialization_params).expect("valid init params");
+
+    state.client_capabilities = Some(init_params.capabilities);
+
+    if let Some(folders) = init_params.workspace_folders {
+        for folder in folders {
+            if let Some(path) = conversions::uri_to_file_path(&folder.uri) {
+                state
+                    .workspace
+                    .init_workspace_folders
+                    .insert(folder.uri.to_string(), path);
+            }
+        }
+    }
+
+    spawn_introspection_thread(introspection_request_receiver, introspection_result_sender);
+
+    handle_initialized(&mut state);
+
+    main_loop::main_loop(&connection, &mut state);
+
+    // Drop the state before joining IO threads to close channels
+    drop(state);
+    io_threads.join().expect("io threads");
 }

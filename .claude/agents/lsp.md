@@ -98,28 +98,41 @@ interface Diagnostic {
 }
 ```
 
-## Implementation with tower-lsp
+## Implementation with `lsp-server` (sync, rust-analyzer-style)
 
-This project uses `tower-lsp` for the LSP implementation:
+This project uses `lsp-server` + `crossbeam-channel` + `threadpool`. The main loop is synchronous and single-threaded; read-only requests run on a worker pool against an `Analysis` snapshot. There is no async runtime in the LSP crate (introspection HTTP runs on a dedicated Tokio thread, isolated by a channel).
 
 ```rust
-use tower_lsp::{LspService, Server};
-use tower_lsp::lsp_types::*;
+use lsp_server::{Connection, Message};
 
-#[tower_lsp::async_trait]
-impl LanguageServer for Backend {
-    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        // Return server capabilities
-    }
-
-    async fn goto_definition(
-        &self,
-        params: GotoDefinitionParams,
-    ) -> Result<Option<GotoDefinitionResponse>> {
-        // Implementation
+// Main loop selects across: client messages, completed worker tasks,
+// and introspection results. All state mutations happen on this thread.
+fn main_loop(connection: &Connection, state: &mut GlobalState) {
+    loop {
+        crossbeam_channel::select! {
+            recv(connection.receiver) -> msg => match msg {
+                Ok(Message::Request(req)) => handle_request(state, req),
+                Ok(Message::Notification(not)) => handle_notification(state, not),
+                _ => return,
+            },
+            recv(state.task_receiver) -> task => { /* publish results */ },
+            recv(state.introspection_result_receiver) -> r => { /* apply schema */ },
+        }
     }
 }
+
+// Requests are routed via a chained dispatcher with two flavors:
+//   on_pool — snapshot + run on threadpool (read-only)
+//   on_main — run on the main thread (mutating or workspace-wide)
+RequestDispatcher::new(req, state)
+    .on_pool::<HoverRequest, _, _>(uri_from_params, handlers::display::handle_hover)
+    .on_main::<WorkspaceSymbolRequest, _>(handlers::navigation::handle_workspace_symbol)
+    .finish();
 ```
+
+Notification handlers (`did_open`, `did_change`, `did_save`, ...) take `&mut GlobalState` and mutate the host directly — no locks. Request handlers that go to the pool take a `GlobalStateSnapshot` (an `Analysis` snapshot + `FilePath`) and never touch `GlobalState`.
+
+Cancellation is handled via `$/cancelRequest` against an `in_flight: HashSet<RequestId>`: late worker responses for cancelled requests are dropped.
 
 ## Best Practices
 

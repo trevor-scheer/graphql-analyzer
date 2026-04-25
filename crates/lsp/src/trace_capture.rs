@@ -47,12 +47,12 @@ pub struct TraceCaptureManager {
     active: Mutex<Option<ActiveCapture>>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct TraceCaptureParams {
     pub action: String,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct TraceCaptureResult {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -61,6 +61,15 @@ pub struct TraceCaptureResult {
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
+}
+
+/// Custom request: start/stop tracing capture.
+pub enum TraceCaptureRequest {}
+
+impl lsp_types::request::Request for TraceCaptureRequest {
+    type Params = TraceCaptureParams;
+    type Result = TraceCaptureResult;
+    const METHOD: &'static str = "graphql-analyzer/traceCapture";
 }
 
 impl TraceCaptureManager {

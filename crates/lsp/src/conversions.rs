@@ -1,16 +1,30 @@
 //! Type conversion functions between LSP types and graphql-ide types
 //!
 //! This module contains pure conversion functions that translate between:
-//! - LSP protocol types (from tower-lsp/lsp-types)
+//! - LSP protocol types (from lsp-types)
 //! - graphql-ide types (our internal IDE API types)
 //!
 //! These conversions are stateless and can be used from any LSP handler.
+
+use std::path::PathBuf;
 
 use lsp_types::{
     CodeLens, Command, Diagnostic, DiagnosticSeverity, FoldingRange, FoldingRangeKind, InlayHint,
     InlayHintKind, InlayHintLabel, Location, Position, Range, Uri,
 };
-use tower_lsp_server::ls_types as lsp_types;
+
+// =============================================================================
+// URI Helpers
+// =============================================================================
+
+/// Convert a `file://` URI to a filesystem path.
+///
+/// Delegates to the `url` crate for correct percent-decoding (including
+/// multi-byte UTF-8) and Windows drive-letter handling.
+pub fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
+    let url = url::Url::parse(uri.as_str()).ok()?;
+    url.to_file_path().ok()
+}
 
 // =============================================================================
 // Conversion Functions

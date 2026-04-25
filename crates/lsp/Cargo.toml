@@ -30,14 +30,14 @@ graphql-introspect = { path = "../introspect" }
 apollo-compiler = { workspace = true }
 apollo-parser = { workspace = true }
 
-# LSP
-tower-lsp-server = { workspace = true }
+# LSP (sync server + types)
+lsp-server = { workspace = true }
+lsp-types = { workspace = true }
+crossbeam-channel = { workspace = true }
+threadpool = { workspace = true }
 
-# Async
-tokio = { workspace = true, features = ["sync", "rt", "io-std", "time"] }
-
-# Concurrency
-dashmap = { workspace = true }
+# Async - retained only for introspection HTTP calls
+tokio = { workspace = true, features = ["rt"] }
 
 # Utilities
 serde = { workspace = true }
@@ -56,11 +56,9 @@ opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
 opentelemetry-semantic-conventions = { workspace = true }
 
 # Temp files for TypeScript extraction
+url = "2"
 tempfile = "3.0"
 glob.workspace = true
-
-[dev-dependencies]
-tokio = { workspace = true, features = ["test-util", "macros"] }
 
 [build-dependencies]
 vergen-git2 = { version = "9.1", features = ["build", "cargo"] }
