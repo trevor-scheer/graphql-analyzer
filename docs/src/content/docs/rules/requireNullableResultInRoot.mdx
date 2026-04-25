@@ -13,25 +13,26 @@ description: Require root type fields to return nullable types for error resilie
 
 ## What it checks
 
-Requires fields on root types (Query, Mutation, Subscription) to return nullable types. When a root field returns a non-null type and an error occurs at runtime, GraphQL's null-bubbling behavior propagates the null up to the nearest nullable parent — potentially nulling out the entire `data` response. Making root fields nullable isolates errors to the individual field that failed, keeping the rest of the response intact.
+Requires fields on root types (Query, Mutation, Subscription) to return nullable types. When a root field returns a non-null named type and an error occurs at runtime, GraphQL's null-bubbling behavior propagates the null up to the nearest nullable parent — potentially nulling out the entire `data` response. Making root fields nullable isolates errors to the individual field that failed, keeping the rest of the response intact.
+
+Non-null **list** types like `[User!]!` are intentionally allowed: an empty list is a valid non-null payload, so the null-bubbling concern doesn't apply at the list level. This matches `@graphql-eslint/eslint-plugin`.
 
 The rule also works with custom root type names defined via a `schema` definition.
 
 ## Examples
 
 ```graphql
-# ❌ Bad — root fields return non-null types
+# ❌ Bad — root field returns a non-null named type
 type Query {
   user(id: ID!): User!
-  users: [User!]!
 }
 ```
 
 ```graphql
-# ✅ Good — root fields return nullable types
+# ✅ Good — root fields are nullable, or non-null lists
 type Query {
   user(id: ID!): User
-  users: [User!]
+  users: [User!]!
 }
 ```
 
