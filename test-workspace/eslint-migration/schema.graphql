@@ -23,4 +23,9 @@ type Post {
 
 type Mutation {
   deleteUser(id: ID!): Boolean
+  createUser(name: String!): CreateUserResult
+}
+
+type CreateUserResult {
+  user: User
 }

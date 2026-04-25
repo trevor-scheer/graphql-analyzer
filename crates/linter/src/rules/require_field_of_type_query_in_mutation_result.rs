@@ -85,7 +85,7 @@ impl StandaloneSchemaLintRule for RequireFieldOfTypeQueryInMutationResultRuleImp
                         span,
                         LintSeverity::Warning,
                         format!(
-                            "Mutation result type `{return_type_name}` must contain field of type `{query_type_name}`"
+                            "Mutation result type \"{return_type_name}\" must contain field of type \"{query_type_name}\""
                         ),
                         "requireFieldOfTypeQueryInMutationResult",
                     ));
@@ -159,7 +159,7 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(
             all[0].message,
-            "Mutation result type `CreateUserResult` must contain field of type `Query`"
+            "Mutation result type \"CreateUserResult\" must contain field of type \"Query\""
         );
         // Span points at the mutation field's return type name node, not the
         // field name — matching the graphql-eslint reporting position.
