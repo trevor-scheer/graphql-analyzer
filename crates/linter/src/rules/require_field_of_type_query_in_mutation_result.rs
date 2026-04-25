@@ -66,10 +66,10 @@ impl StandaloneSchemaLintRule for RequireFieldOfTypeQueryInMutationResultRuleImp
                 .any(|f| f.type_ref.name.as_ref() == query_type_name);
 
             if !has_query_field {
-                // TODO(parity): graphql-eslint reports on the mutation field's return type
-                // name node; we currently report on the mutation field name range.
-                let start: usize = field.name_range.start().into();
-                let end: usize = field.name_range.end().into();
+                // Report at the mutation field's return type name node, matching
+                // graphql-eslint.
+                let start: usize = field.type_ref.name_range.start().into();
+                let end: usize = field.type_ref.name_range.end().into();
                 let span = graphql_syntax::SourceSpan {
                     start,
                     end,
@@ -85,7 +85,7 @@ impl StandaloneSchemaLintRule for RequireFieldOfTypeQueryInMutationResultRuleImp
                         span,
                         LintSeverity::Warning,
                         format!(
-                            "Mutation result type `{return_type_name}` must contain field of type `{query_type_name}`"
+                            "Mutation result type \"{return_type_name}\" must contain field of type \"{query_type_name}\""
                         ),
                         "requireFieldOfTypeQueryInMutationResult",
                     ));
@@ -159,7 +159,11 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(
             all[0].message,
-            "Mutation result type `CreateUserResult` must contain field of type `Query`"
+            "Mutation result type \"CreateUserResult\" must contain field of type \"Query\""
         );
+        // Span points at the mutation field's return type name node, not the
+        // field name — matching the graphql-eslint reporting position.
+        let span = &all[0].span;
+        assert_eq!(&schema[span.start..span.end], "CreateUserResult");
     }
 }

@@ -120,21 +120,41 @@ test("no unexpected extra rules vs graphql-eslint", () => {
   );
 });
 
+// Rules whose output is verified against graphql-eslint, keyed by rule name.
+//
+//   span: "line" — compare diagnostic count, messages, and firing line. Used
+//     for rules where we agree on what to flag and roughly where, but
+//     graphql-eslint doesn't emit `endLine`/`endColumn` (e.g. comment-attached
+//     diagnostics).
+//   span: "full" — also compare column/endLine/endColumn. Use for rules whose
+//     position parity has been deliberately aligned, so column-level fixes
+//     (e.g. reporting on the inner named type rather than the type wrapper)
+//     stay verified.
+//
+// Adding a rule here is the single point where parity coverage is declared.
+const EXERCISED = {
+  "no-anonymous-operations": { file: "src/operations.graphql", severity: 2, span: "line" },
+  "no-duplicate-fields": { file: "src/operations.graphql", severity: 2, span: "line" },
+  "no-hashtag-description": { file: "schema.graphql", severity: 1, span: "line" },
+  // Position parity verified after #1008 (TypeRef.name_range). The
+  // `require-nullable-result-in-root` rule isn't here yet — graphql-eslint
+  // skips non-null list types and emits a different message format
+  // (`in type "Query"` vs our `in Query`); aligning those is follow-up work
+  // tracked separately from #1008's position-only change.
+  "require-field-of-type-query-in-mutation-result": {
+    file: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+};
+
 test("rules shared with graphql-eslint fire on the same fixture files", async () => {
   // Build both plugins against the same fixture config so differences are
   // attributable to analyzer behavior, not config drift.
   const sharedRules = [...ourRules()].filter((r) => theirRules().has(r));
   assert.ok(sharedRules.length > 0, "expected at least one shared rule");
 
-  // Only assert on rules that the fixture project actually exercises, so we
-  // don't rely on rules firing in empty files.
-  const exercised = {
-    "no-anonymous-operations": { file: "src/operations.graphql", severity: 2 },
-    "no-duplicate-fields": { file: "src/operations.graphql", severity: 2 },
-    "no-hashtag-description": { file: "schema.graphql", severity: 1 },
-  };
-
-  for (const [rule, { file, severity }] of Object.entries(exercised)) {
+  for (const [rule, { file, severity }] of Object.entries(EXERCISED)) {
     const ourDiag = await lintOne("ours", rule, severity, file);
     const theirDiag = await lintOne("theirs", rule, severity, file);
 
@@ -146,17 +166,10 @@ test("rules shared with graphql-eslint fire on the same fixture files", async ()
   }
 });
 
-test("messages and counts match graphql-eslint exactly for fixture-exercised rules", async () => {
-  // Hard parity: same diagnostic count, same messages, same lines. The
-  // analyzer's lint rule messages have been aligned to graphql-eslint's, so
-  // any drift here means a regression in either plugin's output.
-  const exercised = {
-    "no-anonymous-operations": { file: "src/operations.graphql", severity: 2 },
-    "no-duplicate-fields": { file: "src/operations.graphql", severity: 2 },
-    "no-hashtag-description": { file: "schema.graphql", severity: 1 },
-  };
-
-  for (const [rule, { file, severity }] of Object.entries(exercised)) {
+test("messages, counts, and source positions match graphql-eslint exactly", async () => {
+  // Hard parity: same diagnostic count, same messages, and source positions
+  // matching to the granularity declared in `EXERCISED[rule].span`.
+  for (const [rule, { file, severity, span }] of Object.entries(EXERCISED)) {
     const ourDiag = await lintOne("ours", rule, severity, file);
     const theirDiag = await lintOne("theirs", rule, severity, file);
 
@@ -170,11 +183,23 @@ test("messages and counts match graphql-eslint exactly for fixture-exercised rul
     const theirMessages = theirDiag.map((d) => d.message).sort();
     assert.deepEqual(ourMessages, theirMessages, `${rule} message text drift on ${file}`);
 
-    const ourLines = ourDiag.map((d) => d.line).sort((a, b) => a - b);
-    const theirLines = theirDiag.map((d) => d.line).sort((a, b) => a - b);
-    assert.deepEqual(ourLines, theirLines, `${rule} firing line drift on ${file}`);
+    assert.deepEqual(
+      sortedPositions(ourDiag, span),
+      sortedPositions(theirDiag, span),
+      `${rule} source-position drift on ${file} (span=${span})`,
+    );
   }
 });
+
+function sortedPositions(diagnostics, span) {
+  const project =
+    span === "full"
+      ? (d) => ({ line: d.line, column: d.column, endLine: d.endLine, endColumn: d.endColumn })
+      : (d) => ({ line: d.line });
+  return diagnostics
+    .map(project)
+    .sort((a, b) => a.line - b.line || (a.column ?? 0) - (b.column ?? 0));
+}
 
 async function lintOne(which, rule, severity, file) {
   const plugin = which === "ours" ? ours : theirs;
