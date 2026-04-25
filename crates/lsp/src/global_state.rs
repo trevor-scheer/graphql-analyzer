@@ -21,9 +21,12 @@ pub struct GlobalState {
     pub task_receiver: crossbeam_channel::Receiver<Task>,
     pub introspection_request_sender: Sender<IntrospectionRequest>,
     pub introspection_result_receiver: crossbeam_channel::Receiver<IntrospectionResult>,
-    #[allow(dead_code)]
-    pub shutdown_requested: bool,
     pub in_flight: HashSet<RequestId>,
+    /// Per-URI generation counter for diagnostics requests. Bumped each time
+    /// we spawn a single-URI diagnostics computation; the worker captures the
+    /// value and the publish step drops results whose generation no longer
+    /// matches (because a newer keystroke has superseded them).
+    pub diagnostics_seq: std::collections::HashMap<String, u64>,
 }
 
 /// A completed background task ready for the main thread to process.
@@ -33,7 +36,17 @@ pub struct Task {
 
 pub enum TaskResponse {
     Response(lsp_server::Response),
-    PublishDiagnostics(Vec<(Uri, Vec<lsp_types::Diagnostic>)>),
+    /// Diagnostics for a single URI, tagged with the generation at spawn time.
+    /// `handle_task` drops the result if a newer generation has been requested.
+    PublishDiagnosticsForUri {
+        uri: Uri,
+        diagnostics: Vec<lsp_types::Diagnostic>,
+        seq: u64,
+    },
+    /// Diagnostics for many URIs (e.g. project-wide on save). Always published —
+    /// no generation check, so a save+rapid-typing race may briefly publish
+    /// stale diagnostics, which the next keystroke corrects.
+    PublishDiagnosticsBatch(Vec<(Uri, Vec<lsp_types::Diagnostic>)>),
 }
 
 /// Request to fetch a remote schema via introspection (sent to async thread)
@@ -75,8 +88,8 @@ impl GlobalState {
             task_receiver,
             introspection_request_sender,
             introspection_result_receiver,
-            shutdown_requested: false,
             in_flight: HashSet::new(),
+            diagnostics_seq: std::collections::HashMap::new(),
         }
     }
 
@@ -124,10 +137,12 @@ impl GlobalState {
         })
     }
 
-    /// Dispatch a read-only query to the thread pool.
+    /// Dispatch a read-only query to the thread pool. The handler returns the
+    /// LSP `R::Result` directly (typically `Option<T>`), which is serialized
+    /// straight into the JSON-RPC response — `None` becomes `null`.
     pub fn spawn_with_snapshot<F, R>(&mut self, id: lsp_server::RequestId, uri: &Uri, f: F)
     where
-        F: FnOnce(GlobalStateSnapshot) -> Option<R> + Send + 'static,
+        F: FnOnce(GlobalStateSnapshot) -> R + Send + 'static,
         R: serde::Serialize + 'static,
     {
         let Some(snap) = self.snapshot_for_uri(uri) else {
@@ -139,8 +154,7 @@ impl GlobalState {
         self.threadpool.execute(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(snap)));
             let response = match result {
-                Ok(Some(value)) => lsp_server::Response::new_ok(id, value),
-                Ok(None) => lsp_server::Response::new_ok(id, serde_json::Value::Null),
+                Ok(value) => lsp_server::Response::new_ok(id, value),
                 Err(_) => lsp_server::Response::new_err(
                     id,
                     lsp_server::ErrorCode::InternalError as i32,
@@ -153,8 +167,39 @@ impl GlobalState {
         });
     }
 
-    /// Dispatch a diagnostics computation to the thread pool.
-    pub fn spawn_diagnostics<F>(&self, f: F)
+    /// Spawn a diagnostics computation for a single URI, tagged with the next
+    /// generation for that URI. If a later spawn for the same URI bumps the
+    /// generation before this one returns, the publish step drops the stale
+    /// result.
+    pub fn spawn_diagnostics_for_uri<F>(&mut self, uri: Uri, f: F)
+    where
+        F: FnOnce() -> Vec<lsp_types::Diagnostic> + Send + 'static,
+    {
+        let seq = self
+            .diagnostics_seq
+            .entry(uri.to_string())
+            .and_modify(|s| *s += 1)
+            .or_insert(1);
+        let captured_seq = *seq;
+
+        let task_sender = self.task_sender.clone();
+        self.threadpool.execute(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+            if let Ok(diagnostics) = result {
+                let _ = task_sender.send(Task {
+                    response: TaskResponse::PublishDiagnosticsForUri {
+                        uri,
+                        diagnostics,
+                        seq: captured_seq,
+                    },
+                });
+            }
+        });
+    }
+
+    /// Spawn a multi-URI diagnostics computation (e.g. project-wide on save).
+    /// Results are not generation-checked — see `PublishDiagnosticsBatch`.
+    pub fn spawn_diagnostics_batch<F>(&self, f: F)
     where
         F: FnOnce() -> Vec<(Uri, Vec<lsp_types::Diagnostic>)> + Send + 'static,
     {
@@ -163,7 +208,7 @@ impl GlobalState {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
             if let Ok(diagnostics) = result {
                 let _ = task_sender.send(Task {
-                    response: TaskResponse::PublishDiagnostics(diagnostics),
+                    response: TaskResponse::PublishDiagnosticsBatch(diagnostics),
                 });
             }
         });
@@ -174,4 +219,38 @@ fn num_cpus() -> usize {
     std::thread::available_parallelism()
         .map(usize::from)
         .unwrap_or(4)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::str::FromStr;
+
+    use crossbeam_channel::unbounded;
+
+    fn make_state() -> GlobalState {
+        let (msg_sender, _msg_receiver) = unbounded();
+        let (intro_req_sender, _intro_req_receiver) = unbounded();
+        let (_intro_res_sender, intro_res_receiver) = unbounded();
+        GlobalState::new(msg_sender, intro_req_sender, intro_res_receiver)
+    }
+
+    #[test]
+    fn diagnostics_seq_bumps_per_uri() {
+        let mut state = make_state();
+        let a = Uri::from_str("file:///a.graphql").unwrap();
+        let b = Uri::from_str("file:///b.graphql").unwrap();
+
+        state.spawn_diagnostics_for_uri(a.clone(), Vec::new);
+        assert_eq!(state.diagnostics_seq.get(a.as_str()).copied(), Some(1));
+
+        state.spawn_diagnostics_for_uri(a.clone(), Vec::new);
+        assert_eq!(state.diagnostics_seq.get(a.as_str()).copied(), Some(2));
+
+        state.spawn_diagnostics_for_uri(b.clone(), Vec::new);
+        assert_eq!(state.diagnostics_seq.get(b.as_str()).copied(), Some(1));
+        // Independent counters: bumping b doesn't move a.
+        assert_eq!(state.diagnostics_seq.get(a.as_str()).copied(), Some(2));
+    }
 }

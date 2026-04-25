@@ -132,14 +132,12 @@ pub(crate) fn handle_did_change(state: &mut GlobalState, params: DidChangeTextDo
         host.update_file_and_snapshot(&file_path, &current_content, language, document_kind);
 
     let file_path_clone = graphql_ide::FilePath::new(uri.as_str());
-    let uri_clone = uri.clone();
-    state.spawn_diagnostics(move || {
-        let diagnostics: Vec<lsp_types::Diagnostic> = snapshot
+    state.spawn_diagnostics_for_uri(uri, move || {
+        snapshot
             .diagnostics(&file_path_clone)
             .into_iter()
             .map(convert_ide_diagnostic)
-            .collect();
-        vec![(uri_clone, diagnostics)]
+            .collect()
     });
 }
 
@@ -170,7 +168,7 @@ pub(crate) fn handle_did_save(state: &mut GlobalState, params: DidSaveTextDocume
     let snapshot = host.snapshot();
     let changed_file = graphql_ide::FilePath::new(uri.as_str());
 
-    state.spawn_diagnostics(move || {
+    state.spawn_diagnostics_batch(move || {
         let all_diagnostics = snapshot.all_diagnostics_for_change(&changed_file);
         all_diagnostics
             .into_iter()
