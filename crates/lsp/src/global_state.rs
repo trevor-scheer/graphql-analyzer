@@ -10,14 +10,17 @@ pub trait TaskDispatcher: Send + Sync {
     fn execute(&self, work: Box<dyn FnOnce() + Send + 'static>);
 }
 
+#[cfg(feature = "native")]
 pub struct ThreadPoolDispatcher(threadpool::ThreadPool);
 
+#[cfg(feature = "native")]
 impl TaskDispatcher for ThreadPoolDispatcher {
     fn execute(&self, work: Box<dyn FnOnce() + Send + 'static>) {
         self.0.execute(work);
     }
 }
 
+#[cfg(feature = "native")]
 impl ThreadPoolDispatcher {
     pub fn new(pool: threadpool::ThreadPool) -> Self {
         Self(pool)

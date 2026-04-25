@@ -18,5 +18,12 @@ fn main() {
         return;
     }
 
+    #[cfg(feature = "native")]
     graphql_lsp::run_server();
+
+    // Without the native feature there is no stdio entrypoint. The binary
+    // target exists for completeness but is not intended to be run directly
+    // in this configuration.
+    #[cfg(not(feature = "native"))]
+    eprintln!("graphql-lsp: native feature is required to run the server");
 }

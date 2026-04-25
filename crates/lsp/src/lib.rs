@@ -4,6 +4,10 @@
 //! server communicating over stdio. It uses a sync main loop with a thread pool
 //! for Salsa query execution.
 
+// Under wasm, the native entrypoint (`run_server`) is gated out, so most items
+// appear dead until the wasm entrypoint (Task 10) provides a caller.
+#![cfg_attr(not(feature = "native"), allow(dead_code, unused_imports))]
+
 mod conversions;
 mod dispatch;
 mod global_state;
@@ -45,6 +49,7 @@ fn build_env_filter(default: &str) -> tracing_subscriber::EnvFilter {
 }
 
 /// Initialize tracing with OpenTelemetry support.
+#[cfg(feature = "native")]
 fn init_tracing_with_otel() -> Option<trace_capture::ReloadHandle> {
     use opentelemetry::trace::TracerProvider;
     use opentelemetry_otlp::WithExportConfig;
@@ -134,6 +139,7 @@ fn init_tracing_without_otel() -> Option<trace_capture::ReloadHandle> {
 
 #[must_use]
 pub fn init_tracing() -> Option<trace_capture::ReloadHandle> {
+    #[cfg(feature = "native")]
     if std::env::var("OTEL_TRACES_ENABLED").is_ok() {
         return init_tracing_with_otel();
     }
@@ -249,6 +255,7 @@ fn build_server_capabilities() -> ServerCapabilities {
     }
 }
 
+#[cfg(feature = "introspect")]
 fn spawn_introspection_thread(
     request_receiver: crossbeam_channel::Receiver<global_state::IntrospectionRequest>,
     result_sender: crossbeam_channel::Sender<global_state::IntrospectionResult>,
@@ -294,6 +301,7 @@ fn spawn_introspection_thread(
         .expect("spawn introspection thread");
 }
 
+#[cfg(feature = "native")]
 fn handle_initialized(state: &mut GlobalState) {
     let version = env!("CARGO_PKG_VERSION");
     let git_sha = option_env!("VERGEN_GIT_SHA").unwrap_or("unknown");
@@ -357,6 +365,7 @@ fn handle_initialized(state: &mut GlobalState) {
     register_file_watchers(state);
 }
 
+#[cfg(feature = "native")]
 fn register_file_watchers(state: &GlobalState) {
     use lsp_types::FileSystemWatcher;
 
@@ -415,6 +424,7 @@ fn register_file_watchers(state: &GlobalState) {
 }
 
 /// Run the GraphQL language server over stdio.
+#[cfg(feature = "native")]
 pub fn run_server() {
     let reload_handle = init_tracing();
     install_panic_hook();

@@ -3,16 +3,23 @@
 //! Extracted from the old `server.rs` async methods into free sync functions
 //! that take `&mut GlobalState`.
 
+#[cfg(feature = "native")]
 use std::path::Path;
+#[cfg(feature = "native")]
 use std::str::FromStr;
 
+#[cfg(feature = "native")]
 use lsp_types::{Diagnostic, MessageType, Uri};
 
+#[cfg(feature = "native")]
 use crate::conversions::convert_ide_diagnostic;
+#[cfg(feature = "native")]
 use crate::global_state::{GlobalState, IntrospectionRequest};
+#[cfg(feature = "native")]
 use crate::server::validation_errors_to_diagnostics;
 
 /// Load a workspace config and all its projects.
+#[cfg(feature = "native")]
 pub fn load_workspace_config(state: &mut GlobalState, workspace_uri: &str, workspace_path: &Path) {
     tracing::debug!(path = ?workspace_path, "Loading GraphQL config");
 
@@ -118,6 +125,7 @@ pub fn load_workspace_config(state: &mut GlobalState, workspace_uri: &str, works
 }
 
 /// Load all project files from a config into their respective `AnalysisHost` instances.
+#[cfg(feature = "native")]
 fn load_all_project_files(
     state: &mut GlobalState,
     workspace_uri: &str,
@@ -348,6 +356,7 @@ fn load_all_project_files(
 }
 
 /// Reload configuration for a workspace.
+#[cfg(feature = "native")]
 pub fn reload_workspace_config(state: &mut GlobalState, workspace_uri: &str) {
     tracing::debug!("Reloading configuration for workspace: {}", workspace_uri);
 
@@ -374,6 +383,7 @@ pub fn reload_workspace_config(state: &mut GlobalState, workspace_uri: &str) {
 }
 
 /// Reload a resolved schema file that changed on disk.
+#[cfg(feature = "native")]
 pub fn reload_resolved_schema(
     state: &mut GlobalState,
     workspace_uri: &str,

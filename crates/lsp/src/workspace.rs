@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use graphql_ide::AnalysisHost;
 use lsp_types::Uri;
 
+#[cfg(feature = "native")]
 use crate::conversions::uri_to_file_path;
 
 /// Manages workspace state for the GraphQL Language Server.
@@ -120,17 +121,20 @@ impl WorkspaceManager {
             return self.find_host_for_virtual_file(&uri_string);
         }
 
-        let doc_path = uri_to_file_path(document_uri)?;
-        for (workspace_uri, workspace_path) in &self.workspace_roots {
-            if doc_path.starts_with(workspace_path.as_path()) {
-                if let Some(config) = self.configs.get(workspace_uri.as_str()) {
-                    if let Some(project_name) =
-                        config.find_project_for_document(&doc_path, workspace_path)
-                    {
-                        return Some((workspace_uri.clone(), project_name.to_string()));
+        #[cfg(feature = "native")]
+        {
+            let doc_path = uri_to_file_path(document_uri)?;
+            for (workspace_uri, workspace_path) in &self.workspace_roots {
+                if doc_path.starts_with(workspace_path.as_path()) {
+                    if let Some(config) = self.configs.get(workspace_uri.as_str()) {
+                        if let Some(project_name) =
+                            config.find_project_for_document(&doc_path, workspace_path)
+                        {
+                            return Some((workspace_uri.clone(), project_name.to_string()));
+                        }
                     }
+                    return None;
                 }
-                return None;
             }
         }
 
@@ -166,10 +170,19 @@ impl WorkspaceManager {
         workspace_uri: &str,
         project_name: &str,
     ) -> Option<graphql_config::FileType> {
-        let doc_path = uri_to_file_path(uri)?;
-        let workspace_path = self.workspace_roots.get(workspace_uri)?;
-        let config = self.configs.get(workspace_uri)?;
-        config.get_file_type(&doc_path, workspace_path, project_name)
+        #[cfg(not(feature = "native"))]
+        {
+            let _ = (uri, workspace_uri, project_name);
+            return None;
+        }
+
+        #[cfg(feature = "native")]
+        {
+            let doc_path = uri_to_file_path(uri)?;
+            let workspace_path = self.workspace_roots.get(workspace_uri)?;
+            let config = self.configs.get(workspace_uri)?;
+            config.get_file_type(&doc_path, workspace_path, project_name)
+        }
     }
 }
 

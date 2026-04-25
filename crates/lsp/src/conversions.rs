@@ -6,6 +6,7 @@
 //!
 //! These conversions are stateless and can be used from any LSP handler.
 
+#[cfg(feature = "native")]
 use std::path::PathBuf;
 
 use lsp_types::{
@@ -21,6 +22,7 @@ use lsp_types::{
 ///
 /// Delegates to the `url` crate for correct percent-decoding (including
 /// multi-byte UTF-8) and Windows drive-letter handling.
+#[cfg(feature = "native")]
 pub fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
     let url = url::Url::parse(uri.as_str()).ok()?;
     url.to_file_path().ok()
