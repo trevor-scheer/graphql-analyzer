@@ -38,7 +38,8 @@ graphql-extract = { path = "../extract", optional = true }
 graphql-introspect = { path = "../introspect", optional = true }
 
 [features]
-default = ["extract", "introspect"]
+default = ["native", "extract", "introspect"]
+native = []
 extract = ["dep:graphql-extract", "graphql-syntax/extract", "graphql-ide-db/extract"]
 introspect = ["dep:graphql-introspect"]
 

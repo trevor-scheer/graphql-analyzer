@@ -10,7 +10,8 @@ keywords = ["graphql", "parser", "syntax"]
 categories = ["parser-implementations", "development-tools"]
 
 [features]
-default = ["extract"]
+default = ["native", "extract"]
+native = []
 extract = ["dep:graphql-extract"]
 
 [dependencies]
