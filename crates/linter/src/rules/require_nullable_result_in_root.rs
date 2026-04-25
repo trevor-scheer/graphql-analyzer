@@ -1,6 +1,6 @@
 use crate::diagnostics::{rule_doc_url, LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneSchemaLintRule};
-use graphql_base_db::{file_lookup, FileId, ProjectFiles};
+use graphql_base_db::{FileId, ProjectFiles};
 use std::collections::HashMap;
 
 /// Lint rule that requires root type fields to return nullable types
@@ -59,19 +59,9 @@ impl StandaloneSchemaLintRule for RequireNullableResultInRootRuleImpl {
 
             for field in &root_type.fields {
                 if field.type_ref.is_non_null {
-                    let name_end: usize = field.name_range.end().into();
-                    let (type_start, type_end) = match file_lookup(db, project_files, field.file_id)
-                    {
-                        Some((content, _)) => {
-                            let text = content.text(db);
-                            find_type_range(text.as_ref(), name_end)
-                                .unwrap_or((field.name_range.start().into(), name_end))
-                        }
-                        None => (field.name_range.start().into(), name_end),
-                    };
                     let span = graphql_syntax::SourceSpan {
-                        start: type_start,
-                        end: type_end,
+                        start: field.type_ref.name_range.start().into(),
+                        end: field.type_ref.name_range.end().into(),
                         line_offset: 0,
                         byte_offset: 0,
                         source: None,
@@ -95,80 +85,6 @@ impl StandaloneSchemaLintRule for RequireNullableResultInRootRuleImpl {
 
         diagnostics_by_file
     }
-}
-
-/// Locate the byte range of a field's type expression in source text.
-///
-/// Starting just past the field name, skips an optional argument list
-/// (balanced parens), the `:` separator, and any whitespace, then returns the
-/// span covering the type expression itself (e.g. `User!`, `[User!]!`).
-/// Returns `None` if the source text doesn't match the expected shape.
-fn find_type_range(source: &str, name_end: usize) -> Option<(usize, usize)> {
-    let bytes = source.as_bytes();
-    let mut idx = name_end;
-
-    idx = skip_whitespace(bytes, idx);
-    if bytes.get(idx) == Some(&b'(') {
-        let mut depth = 1usize;
-        idx += 1;
-        while idx < bytes.len() && depth > 0 {
-            match bytes[idx] {
-                b'(' => depth += 1,
-                b')' => depth -= 1,
-                _ => {}
-            }
-            idx += 1;
-        }
-        idx = skip_whitespace(bytes, idx);
-    }
-
-    if bytes.get(idx) != Some(&b':') {
-        return None;
-    }
-    idx += 1;
-    idx = skip_whitespace(bytes, idx);
-
-    let start = idx;
-    while idx < bytes.len() {
-        let c = bytes[idx];
-        if c == b'[' || c == b']' || c == b'!' || is_name_byte(c) {
-            idx += 1;
-        } else if c == b' ' || c == b'\t' {
-            // Whitespace between brackets/names (e.g. `[ User ! ]`) is allowed
-            // in GraphQL; tentatively consume it but don't extend `end` past it.
-            idx += 1;
-        } else {
-            break;
-        }
-    }
-    if idx == start {
-        return None;
-    }
-    let end = trim_trailing_whitespace(bytes, start, idx);
-    Some((start, end))
-}
-
-fn skip_whitespace(bytes: &[u8], mut idx: usize) -> usize {
-    while idx < bytes.len() {
-        // GraphQL treats commas as insignificant whitespace, so we group them
-        // here with literal whitespace.
-        match bytes[idx] {
-            b' ' | b'\t' | b'\n' | b'\r' | b',' => idx += 1,
-            _ => break,
-        }
-    }
-    idx
-}
-
-fn trim_trailing_whitespace(bytes: &[u8], start: usize, mut end: usize) -> usize {
-    while end > start && matches!(bytes[end - 1], b' ' | b'\t' | b'\n' | b'\r') {
-        end -= 1;
-    }
-    end
-}
-
-fn is_name_byte(c: u8) -> bool {
-    c.is_ascii_alphanumeric() || c == b'_'
 }
 
 #[cfg(test)]
@@ -233,9 +149,10 @@ mod tests {
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].message, "Unexpected non-null result User in Query");
-        // Diagnostic spans the type expression `User!`, matching @graphql-eslint.
+        // Diagnostic spans the inner named type (`User`), matching the
+        // `TypeRef.name_range` provenance from the HIR.
         let span = &all[0].span;
-        assert_eq!(&schema[span.start..span.end], "User!");
+        assert_eq!(&schema[span.start..span.end], "User");
     }
 
     #[test]
@@ -279,8 +196,9 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert!(all[0].message.contains("non-null result"));
         assert!(all[0].message.contains("in Query"));
+        // Diagnostic spans the inner named type (`User`) inside the wrapper.
         let span = &all[0].span;
-        assert_eq!(&schema[span.start..span.end], "[User!]!");
+        assert_eq!(&schema[span.start..span.end], "User");
     }
 
     #[test]
