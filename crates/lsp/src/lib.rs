@@ -22,6 +22,8 @@ pub(crate) mod server;
 pub mod trace_capture;
 mod workspace;
 
+pub use crate::loading::install_workspace_from_init_options;
+
 use std::path::PathBuf;
 
 use lsp_types::{
