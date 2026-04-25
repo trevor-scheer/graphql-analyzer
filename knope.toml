@@ -66,6 +66,22 @@ type = "PrepareRelease"
 prerelease_label = "alpha"
 ignore_conventional_commits = true
 
+# Knope only bumps `version` fields. Re-pin intra-workspace npm deps to the
+# new core version so published packages list the exact version they were
+# tested against (and so `npm ci` on the release branch can resolve via the
+# workspace).
+[[workflows.steps]]
+type = "Command"
+command = "node scripts/sync-workspace-deps.mjs"
+
+[[workflows.steps]]
+type = "Command"
+command = "npm install --package-lock-only"
+
+[[workflows.steps]]
+type = "Command"
+command = "git add packages/ package-lock.json"
+
 [[workflows.steps]]
 type = "Command"
 command = "cargo check --workspace"
