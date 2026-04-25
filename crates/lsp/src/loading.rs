@@ -206,7 +206,6 @@ fn load_all_project_files(
         }
 
         let no_user_schema = schema_result.has_no_user_schema();
-        let pending_introspections = schema_result.pending_introspections.clone();
         let schema_errors = schema_result.content_errors.clone();
 
         if no_user_schema {
@@ -242,7 +241,7 @@ fn load_all_project_files(
         }
 
         // Send introspection requests to the async thread
-        for pending in &pending_introspections {
+        for pending in &schema_result.pending_introspections {
             let _ = state
                 .introspection_request_sender
                 .send(IntrospectionRequest {
@@ -267,8 +266,8 @@ fn load_all_project_files(
                 );
             }
 
-            // Publish initial diagnostics
-            // Re-borrow host immutably for snapshot
+            // The earlier &mut borrow ended above, so we can re-borrow the host
+            // immutably to take a snapshot for diagnostics.
             let host = state
                 .workspace
                 .get_host(workspace_uri, project_name)
