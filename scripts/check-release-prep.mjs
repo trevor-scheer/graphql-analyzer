@@ -73,7 +73,8 @@ function collectWorkspacePackages() {
       continue;
     }
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      if (!entry.isDirectory() || entry.name === "node_modules" || entry.name.startsWith("."))
+        continue;
       queue.push(join(dir, entry.name));
       const sub = join(abs, entry.name);
       let subEntries;
@@ -83,7 +84,12 @@ function collectWorkspacePackages() {
         continue;
       }
       for (const subEntry of subEntries) {
-        if (!subEntry.isDirectory() || subEntry.name === "node_modules" || subEntry.name.startsWith(".")) continue;
+        if (
+          !subEntry.isDirectory() ||
+          subEntry.name === "node_modules" ||
+          subEntry.name.startsWith(".")
+        )
+          continue;
         queue.push(join(dir, entry.name, subEntry.name));
       }
     }

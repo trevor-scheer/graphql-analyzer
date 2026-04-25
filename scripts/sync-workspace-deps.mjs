@@ -22,7 +22,12 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const DEP_SECTIONS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
+const DEP_SECTIONS = [
+  "dependencies",
+  "devDependencies",
+  "peerDependencies",
+  "optionalDependencies",
+];
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -84,7 +89,8 @@ function collectWorkspacePackages() {
       continue;
     }
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      if (!entry.isDirectory() || entry.name === "node_modules" || entry.name.startsWith("."))
+        continue;
       queue.push(join(dir, entry.name));
       // Two levels deep also (covers nested napi platform stubs).
       const sub = join(abs, entry.name);
@@ -95,7 +101,12 @@ function collectWorkspacePackages() {
         continue;
       }
       for (const subEntry of subEntries) {
-        if (!subEntry.isDirectory() || subEntry.name === "node_modules" || subEntry.name.startsWith(".")) continue;
+        if (
+          !subEntry.isDirectory() ||
+          subEntry.name === "node_modules" ||
+          subEntry.name.startsWith(".")
+        )
+          continue;
         queue.push(join(dir, entry.name, subEntry.name));
       }
     }

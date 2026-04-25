@@ -248,7 +248,8 @@ jobs:
     name: CI Success
     runs-on: ubuntu-latest
     if: always()
-    needs: [test, lint, build, check, dogfood, vscode-extension, eslint-plugin, format, release-prep]
+    needs:
+      [test, lint, build, check, dogfood, vscode-extension, eslint-plugin, format, release-prep]
     steps:
       - name: Check all jobs
         run: |
