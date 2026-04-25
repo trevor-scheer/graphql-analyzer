@@ -22,11 +22,11 @@ longer apply.
 
 ## Pick the right dispatcher
 
-| Helper    | When                                                                                          | Signature                                                            |
-| --------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `on_pool` | Read-only request keyed off a single URI (hover, completion, goto-def, references, ...)       | `fn(GlobalStateSnapshot, R::Params) -> R::Result` — runs on a worker |
-| `on_main` | Request that needs `&mut GlobalState`, traverses all hosts, or has trivial cost (resolve, ping) | `fn(&mut GlobalState, R::Params) -> R::Result` — runs on main         |
-| `NotificationDispatcher::on` | All notifications (`did_open`/`did_change`/`did_save`/`did_close`/`did_change_watched_files`) | `fn(&mut GlobalState, N::Params)` — runs on main                     |
+| Helper                       | When                                                                                            | Signature                                                            |
+| ---------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `on_pool`                    | Read-only request keyed off a single URI (hover, completion, goto-def, references, ...)         | `fn(GlobalStateSnapshot, R::Params) -> R::Result` — runs on a worker |
+| `on_main`                    | Request that needs `&mut GlobalState`, traverses all hosts, or has trivial cost (resolve, ping) | `fn(&mut GlobalState, R::Params) -> R::Result` — runs on main        |
+| `NotificationDispatcher::on` | All notifications (`did_open`/`did_change`/`did_save`/`did_close`/`did_change_watched_files`)   | `fn(&mut GlobalState, N::Params)` — runs on main                     |
 
 Notification handlers mutate `GlobalState` and `AnalysisHost` directly; no locks needed,
 because the main thread is the sole writer.
