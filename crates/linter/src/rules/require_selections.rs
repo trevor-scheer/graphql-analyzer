@@ -291,6 +291,14 @@ fn check_selection_set(
     // Track which required fields are present in the selection
     let mut found_fields: HashSet<String> = HashSet::new();
 
+    // Named fragment spreads visited while resolving the required fields, in
+    // the order they were first walked. Mirrors graphql-eslint's
+    // `checkedFragmentSpreads` set, which feeds the
+    // ` or add to used fragment(s) X` diagnostic suffix. Inline fragments are
+    // intentionally excluded — they don't have a name to list.
+    let mut walked_fragments: Vec<String> = Vec::new();
+    let mut walked_fragments_seen: HashSet<String> = HashSet::new();
+
     // Always iterate through selections to recurse into nested selection sets
     for selection in selection_set.selections() {
         match selection {
@@ -343,6 +351,8 @@ fn check_selection_set(
                                     required_field,
                                     context,
                                     &mut visited_clone,
+                                    &mut walked_fragments,
+                                    &mut walked_fragments_seen,
                                 ) {
                                     found_fields.insert(required_field.clone());
                                 }
@@ -419,6 +429,8 @@ fn check_selection_set(
                                                     required_field,
                                                     context,
                                                     &mut visited_clone,
+                                                    &mut walked_fragments,
+                                                    &mut walked_fragments_seen,
                                                 ) {
                                                     found_fields.insert(required_field.clone());
                                                 }
@@ -492,15 +504,29 @@ fn check_selection_set(
                 .collect::<Vec<_>>(),
         );
 
-        // TODO(parity): graphql-eslint appends ` or add to used fragment(s) X`
-        // when the missing field is reachable through a fragment that doesn't
-        // yet contain it. That requires fragment-flow analysis we don't have
-        // wired through this rule yet.
+        // graphql-eslint appends ` or add to used fragment(s) X` when the
+        // missing field is reachable through fragment(s) walked above that
+        // didn't ultimately satisfy it. We only get here when no walked
+        // fragment contained the field, so listing all walked fragments
+        // mirrors upstream's `checkedFragmentSpreads` set behavior exactly.
+        let addition = if walked_fragments.is_empty() {
+            String::new()
+        } else {
+            let frag_plural = if walked_fragments.len() > 1 { "s" } else { "" };
+            let joined = english_join_words(
+                &walked_fragments
+                    .iter()
+                    .map(|n| format!("`{n}`"))
+                    .collect::<Vec<_>>(),
+            );
+            format!(" or add to used fragment{frag_plural} {joined}")
+        };
+
         diagnostics.push(
             LintDiagnostic::error(
                 doc.span(parent_location.start, parent_location.end),
                 format!(
-                    "Field{plural_suffix} {joined_field_refs} must be selected when it's available on a type.\nInclude it in your selection set."
+                    "Field{plural_suffix} {joined_field_refs} must be selected when it's available on a type.\nInclude it in your selection set{addition}."
                 ),
                 "requireSelections",
             )
@@ -561,14 +587,26 @@ fn extract_indentation(source: &str, pos: usize) -> String {
     }
 }
 
-/// Check if a fragment (or its nested fragments) contains the specified field
+/// Check if a fragment (or its nested fragments) contains the specified field.
+///
+/// Also records every named fragment spread visited during the walk into
+/// `walked_fragments` (insertion-ordered, deduplicated via
+/// `walked_fragments_seen`). The caller uses that list to render the
+/// ` or add to used fragment(s) X` suffix on the diagnostic, matching
+/// graphql-eslint's `checkedFragmentSpreads` set.
 fn fragment_contains_field(
     fragment_name: &str,
     parent_type_name: &str,
     target_field: &str,
     context: &CheckContext,
     visited_fragments: &mut HashSet<String>,
+    walked_fragments: &mut Vec<String>,
+    walked_fragments_seen: &mut HashSet<String>,
 ) -> bool {
+    if walked_fragments_seen.insert(fragment_name.to_string()) {
+        walked_fragments.push(fragment_name.to_string());
+    }
+
     if visited_fragments.contains(fragment_name) {
         return false;
     }
@@ -611,6 +649,8 @@ fn fragment_contains_field(
                         target_field,
                         context,
                         visited_fragments,
+                        walked_fragments,
+                        walked_fragments_seen,
                     );
                 }
             }
@@ -627,6 +667,8 @@ fn check_fragment_selection_for_field(
     target_field: &str,
     context: &CheckContext,
     visited_fragments: &mut HashSet<String>,
+    walked_fragments: &mut Vec<String>,
+    walked_fragments_seen: &mut HashSet<String>,
 ) -> bool {
     for selection in selection_set.selections() {
         match selection {
@@ -647,6 +689,8 @@ fn check_fragment_selection_for_field(
                             target_field,
                             context,
                             visited_fragments,
+                            walked_fragments,
+                            walked_fragments_seen,
                         ) {
                             return true;
                         }
@@ -667,6 +711,8 @@ fn check_fragment_selection_for_field(
                         target_field,
                         context,
                         visited_fragments,
+                        walked_fragments,
+                        walked_fragments_seen,
                     ) {
                         return true;
                     }
@@ -1175,5 +1221,227 @@ query GetNode {
         // Parent field is `node`; ensure at least one diagnostic surfaces
         // `node.id` (the alias/name form, not the type name).
         assert!(diagnostics.iter().any(|d| d.message.contains("`node.id`")));
+    }
+
+    #[test]
+    fn test_fragment_routing_suffix_single_fragment_without_field() {
+        let db = RootDatabase::default();
+        let rule = RequireSelectionsRuleImpl;
+
+        // The fragment is reachable from `user` but does NOT contain `id`.
+        // graphql-eslint appends ` or add to used fragment `UserName`` to the
+        // selection-set message.
+        let source = "
+fragment UserName on User {
+    name
+}
+
+query GetUser {
+    user(id: \"1\") {
+        ...UserName
+    }
+}
+";
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, TEST_SCHEMA, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        let user_diags: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.message.contains("`user.id`"))
+            .collect();
+        assert_eq!(user_diags.len(), 1, "got: {diagnostics:#?}");
+        let msg = &user_diags[0].message;
+        assert!(
+            msg.ends_with("Include it in your selection set or add to used fragment `UserName`."),
+            "got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_fragment_routing_suffix_two_fragments_without_field() {
+        let db = RootDatabase::default();
+        let rule = RequireSelectionsRuleImpl;
+
+        // Two fragments are reachable from `user`; neither has `id`.
+        let source = "
+fragment UserName on User {
+    name
+}
+
+fragment UserEmail on User {
+    email
+}
+
+query GetUser {
+    user(id: \"1\") {
+        ...UserName
+        ...UserEmail
+    }
+}
+";
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, TEST_SCHEMA, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        let user_diags: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.message.contains("`user.id`"))
+            .collect();
+        assert_eq!(user_diags.len(), 1, "got: {diagnostics:#?}");
+        let msg = &user_diags[0].message;
+        // Plural: "fragments". englishJoinWords disjunction joins two with " or ".
+        assert!(
+            msg.ends_with(
+                "Include it in your selection set or add to used fragments `UserName` or `UserEmail`."
+            ),
+            "got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_fragment_routing_suffix_omits_fragment_with_field() {
+        let db = RootDatabase::default();
+        let rule = RequireSelectionsRuleImpl;
+
+        // One fragment HAS `id`; it satisfies the rule and no diagnostic is
+        // emitted. Match graphql-eslint: when any walked fragment provides the
+        // field, `hasIdField` returns true and `report` short-circuits.
+        let source = "
+fragment UserId on User {
+    id
+}
+
+fragment UserEmail on User {
+    email
+}
+
+query GetUser {
+    user(id: \"1\") {
+        ...UserId
+        ...UserEmail
+    }
+}
+";
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, TEST_SCHEMA, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        // Fragment provides `id` -> no diagnostic on the `user` selection set.
+        assert!(
+            !diagnostics.iter().any(|d| d.message.contains("`user.id`")),
+            "got: {diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn test_fragment_routing_suffix_no_fragments_no_suffix() {
+        // Regression: existing behavior with no fragments at all -> no suffix.
+        let db = RootDatabase::default();
+        let rule = RequireSelectionsRuleImpl;
+
+        let source = "
+query GetUser {
+    user(id: \"1\") {
+        name
+    }
+}
+";
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, TEST_SCHEMA, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        let msg = &diagnostics[0].message;
+        assert!(
+            msg.ends_with("Include it in your selection set."),
+            "got: {msg}"
+        );
+        assert!(!msg.contains("fragment"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_fragment_routing_suffix_inline_fragments_not_listed() {
+        // Inline fragments don't have a name to list. graphql-eslint's
+        // `checkedFragmentSpreads` set is only populated by named fragment
+        // spreads, never by inline fragments. So an inline fragment alone
+        // must not produce a fragment-routing suffix.
+        let db = RootDatabase::default();
+        let rule = RequireSelectionsRuleImpl;
+
+        let source = "
+query GetUser {
+    user(id: \"1\") {
+        ... on User {
+            name
+        }
+    }
+}
+";
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, TEST_SCHEMA, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        // Inline fragment doesn't have `id`, so the `user` selection set is
+        // still missing it. We expect a diagnostic with NO fragment suffix.
+        let user_diags: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.message.contains("`user.id`"))
+            .collect();
+        assert_eq!(user_diags.len(), 1, "got: {diagnostics:#?}");
+        let msg = &user_diags[0].message;
+        assert!(
+            msg.ends_with("Include it in your selection set."),
+            "got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_fragment_routing_suffix_lists_transitively_walked_fragments() {
+        // graphql-eslint's `checkedFragmentSpreads` is populated by the
+        // recursive `hasIdField` walk: every named fragment spread it visits
+        // (including transitively through nested spreads) gets added.
+        let db = RootDatabase::default();
+        let rule = RequireSelectionsRuleImpl;
+
+        let source = "
+fragment Inner on User {
+    name
+}
+
+fragment Outer on User {
+    ...Inner
+}
+
+query GetUser {
+    user(id: \"1\") {
+        ...Outer
+    }
+}
+";
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, TEST_SCHEMA, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        let user_diags: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.message.contains("`user.id`"))
+            .collect();
+        assert_eq!(user_diags.len(), 1, "got: {diagnostics:#?}");
+        let msg = &user_diags[0].message;
+        // Both `Outer` and the transitively-walked `Inner` appear, in
+        // visit order. Plural "fragments".
+        assert!(
+            msg.ends_with(
+                "Include it in your selection set or add to used fragments `Outer` or `Inner`."
+            ),
+            "got: {msg}"
+        );
     }
 }
