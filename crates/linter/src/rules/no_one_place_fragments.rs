@@ -118,14 +118,24 @@ impl ProjectLintRule for NoOnePlaceFragmentsRuleImpl {
                                 continue;
                             };
 
-                            // TODO(parity): graphql-eslint includes the relative file path of
-                            // the single usage site (`Inline him in "{{filePath}}".`). Resolving
-                            // a `FileId` to a CWD-relative path requires plumbing not currently
-                            // available here, so we omit the trailing sentence for now.
+                            // Mirror graphql-eslint's message: `Inline him in "{filePath}".`,
+                            // where `filePath` is the usage site's path relative to CWD.
+                            let usage_file_id = sites.iter().next().map(|(id, _)| *id);
+                            let usage_path = usage_file_id.and_then(|id| {
+                                graphql_base_db::file_lookup(db, project_files, id)
+                                    .map(|(_, meta)| meta.uri(db).as_str().to_string())
+                            });
+                            let message = match usage_path.as_deref().map(cwd_relative_path) {
+                                Some(rel) => format!(
+                                    "Fragment `{name}` used only once. Inline him in \"{rel}\"."
+                                ),
+                                None => format!("Fragment `{name}` used only once."),
+                            };
+
                             diagnostics_by_file.entry(*file_id).or_default().push(
                                 LintDiagnostic::warning(
                                     doc.span(name_range.start, name_range.end),
-                                    format!("Fragment `{name}` used only once."),
+                                    message,
                                     "noOnePlaceFragments",
                                 )
                                 .with_help("Inline the fragment at its single usage site")
@@ -203,6 +213,50 @@ fn collect_spreads_in_selection_set(
     }
 }
 
+/// Convert a file URI or absolute path to a CWD-relative path, mirroring
+/// graphql-eslint's `path.relative(process.cwd(), filePath)` behaviour.
+///
+/// Falls back to the original string when the URI can't be resolved against the
+/// current working directory (e.g. virtual `file:///` paths in tests where the
+/// usage site lives outside CWD, or when `current_dir()` fails).
+fn cwd_relative_path(uri_or_path: &str) -> String {
+    use std::path::{Component, Path, PathBuf};
+
+    let path_str = uri_or_path.strip_prefix("file://").unwrap_or(uri_or_path);
+    let target = Path::new(path_str);
+    let Ok(cwd) = std::env::current_dir() else {
+        return path_str.to_string();
+    };
+
+    // Only meaningful when both paths are absolute; otherwise just echo the input
+    // (matches Node's behaviour of resolving relative-to-cwd, which is a no-op here).
+    if !target.is_absolute() {
+        return path_str.to_string();
+    }
+
+    let cwd_components: Vec<Component> = cwd.components().collect();
+    let target_components: Vec<Component> = target.components().collect();
+    let common = cwd_components
+        .iter()
+        .zip(target_components.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+
+    let mut out = PathBuf::new();
+    for _ in common..cwd_components.len() {
+        out.push("..");
+    }
+    for comp in &target_components[common..] {
+        out.push(comp.as_os_str());
+    }
+
+    if out.as_os_str().is_empty() {
+        String::new()
+    } else {
+        out.to_string_lossy().into_owned()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,6 +319,22 @@ mod tests {
         assert!(
             file_diags.is_some_and(|d| d.len() == 1),
             "Expected one diagnostic for one-place fragment"
+        );
+        let diag = &file_diags.unwrap()[0];
+        assert!(
+            diag.message.starts_with("Fragment `F` used only once."),
+            "unexpected message: {}",
+            diag.message
+        );
+        assert!(
+            diag.message.contains("Inline him in \""),
+            "missing `Inline him in` suffix; got: {}",
+            diag.message
+        );
+        assert!(
+            diag.message.contains("test.graphql"),
+            "expected usage-site path in message; got: {}",
+            diag.message
         );
     }
 

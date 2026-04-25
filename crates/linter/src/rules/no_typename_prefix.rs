@@ -35,12 +35,7 @@ impl StandaloneSchemaLintRule for NoTypenamePrefixRuleImpl {
         let schema_types = graphql_hir::schema_types(db, project_files);
 
         for type_def in schema_types.values() {
-            // TODO(parity): graphql-eslint only checks Object/Interface (and their extensions),
-            // not InputObject. We currently include InputObject as well.
-            if !matches!(
-                type_def.kind,
-                TypeDefKind::Object | TypeDefKind::Interface | TypeDefKind::InputObject
-            ) {
+            if !matches!(type_def.kind, TypeDefKind::Object | TypeDefKind::Interface) {
                 continue;
             }
 
@@ -49,12 +44,7 @@ impl StandaloneSchemaLintRule for NoTypenamePrefixRuleImpl {
             for field in &type_def.fields {
                 let field_name_lower = field.name.to_lowercase();
 
-                // TODO(parity): graphql-eslint flags any field whose lowercased name starts with
-                // the lowercased type name, including the case where they are equal. We additionally
-                // require the field name to be strictly longer than the type name.
-                if field_name_lower.starts_with(&type_name_lower)
-                    && field_name_lower.len() > type_name_lower.len()
-                {
+                if field_name_lower.starts_with(&type_name_lower) {
                     let start: usize = field.name_range.start().into();
                     let end: usize = field.name_range.end().into();
                     let span = graphql_syntax::SourceSpan {
@@ -146,5 +136,38 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn test_field_name_equals_type_name() {
+        let db = RootDatabase::default();
+        let rule = NoTypenamePrefixRuleImpl;
+        let schema = "type User { user: ID! }";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert_eq!(all.len(), 1);
+    }
+
+    #[test]
+    fn test_input_object_is_ignored() {
+        let db = RootDatabase::default();
+        let rule = NoTypenamePrefixRuleImpl;
+        let schema = "input UserInput { userId: ID! }";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert!(all.is_empty());
+    }
+
+    #[test]
+    fn test_interface_is_checked() {
+        let db = RootDatabase::default();
+        let rule = NoTypenamePrefixRuleImpl;
+        let schema = "interface Node { nodeId: ID! }";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert_eq!(all.len(), 1);
     }
 }

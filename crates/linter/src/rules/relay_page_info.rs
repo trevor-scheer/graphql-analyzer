@@ -58,9 +58,6 @@ const REQUIRED_FIELDS: &[RequiredField] = &[
 ];
 
 impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
-    // TODO(parity): graphql-eslint allows the cursor field type to be `String` OR any Scalar
-    // (via `isScalarType`). We currently only allow `String`. Custom scalar cursors
-    // (e.g. `ID`, custom `Cursor` scalars) should pass without diagnostic.
     fn check(
         &self,
         db: &dyn graphql_hir::GraphQLHirDatabase,
@@ -70,10 +67,28 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
         let schema_types = graphql_hir::schema_types(db, project_files);
 
-        // TODO(parity): graphql-eslint reports "The server must provide a `PageInfo` object."
-        // on the first character of the schema entry file when PageInfo is absent. We currently
-        // skip diagnostics in that case.
         let Some(page_info) = schema_types.get("PageInfo") else {
+            // Mirrors graphql-eslint: when PageInfo is entirely absent, emit a single
+            // diagnostic anchored at the first character of the first schema file.
+            let schema_ids = project_files.schema_file_ids(db).ids(db);
+            if let Some(&file_id) = schema_ids.first() {
+                let span = graphql_syntax::SourceSpan {
+                    start: 0,
+                    end: 1,
+                    line_offset: 0,
+                    byte_offset: 0,
+                    source: None,
+                };
+                diagnostics_by_file.entry(file_id).or_default().push(
+                    LintDiagnostic::new(
+                        span,
+                        LintSeverity::Warning,
+                        "The server must provide a `PageInfo` object.",
+                        "relayPageInfo",
+                    )
+                    .with_url("https://relay.dev/graphql/connections.htm#sec-undefined.PageInfo"),
+                );
+            }
             return diagnostics_by_file;
         };
 
@@ -108,10 +123,30 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
                 .iter()
                 .find(|f| f.name.as_ref() == required.name)
             {
-                // Field exists - check its type
-                let type_matches = field.type_ref.name.as_ref() == required.type_name
-                    && !field.type_ref.is_list
-                    && field.type_ref.is_non_null == required.is_non_null;
+                // Field exists - check its type. Boolean fields require an exact
+                // `Boolean!` match. Cursor fields (nullable `String`) match either
+                // `String` or any other scalar in the schema, mirroring graphql-eslint's
+                // `isScalarType` relaxation.
+                // GraphQL built-in scalars aren't always present in
+                // `schema_types`, which is keyed off user-declared types.
+                // Treat them as scalars so e.g. `ID` is accepted as a cursor
+                // type (matches graphql-eslint's `isScalarType` semantics).
+                const BUILTIN_SCALARS: &[&str] = &["String", "Int", "Float", "Boolean", "ID"];
+                let referent_name = field.type_ref.name.as_ref();
+                let referent_is_scalar = BUILTIN_SCALARS.contains(&referent_name)
+                    || schema_types
+                        .get(referent_name)
+                        .is_some_and(|t| t.kind == TypeDefKind::Scalar);
+
+                let type_matches = if required.is_non_null {
+                    referent_name == required.type_name
+                        && !field.type_ref.is_list
+                        && field.type_ref.is_non_null
+                } else {
+                    !field.type_ref.is_list
+                        && !field.type_ref.is_non_null
+                        && (referent_name == required.type_name || referent_is_scalar)
+                };
 
                 if !type_matches {
                     let expected_type = if required.is_non_null {
@@ -290,7 +325,70 @@ mod tests {
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
-        assert!(all.is_empty());
+        assert_eq!(all.len(), 1);
+        assert!(all[0].message.contains("server must provide a `PageInfo`"));
+        assert_eq!(all[0].span.start, 0);
+        assert_eq!(all[0].span.end, 1);
+    }
+
+    #[test]
+    fn custom_scalar_cursor_is_valid() {
+        let db = RootDatabase::default();
+        let rule = RelayPageInfoRuleImpl;
+        let schema = r"
+            scalar Cursor
+            type PageInfo {
+                hasPreviousPage: Boolean!
+                hasNextPage: Boolean!
+                startCursor: Cursor
+                endCursor: Cursor
+            }
+        ";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert!(all.is_empty(), "expected no diagnostics, got {all:?}");
+    }
+
+    #[test]
+    fn id_cursor_is_valid() {
+        let db = RootDatabase::default();
+        let rule = RelayPageInfoRuleImpl;
+        // `ID` is a built-in scalar, so it should also be accepted.
+        let schema = r"
+            type PageInfo {
+                hasPreviousPage: Boolean!
+                hasNextPage: Boolean!
+                startCursor: ID
+                endCursor: ID
+            }
+        ";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert!(all.is_empty(), "expected no diagnostics, got {all:?}");
+    }
+
+    #[test]
+    fn object_cursor_is_invalid() {
+        let db = RootDatabase::default();
+        let rule = RelayPageInfoRuleImpl;
+        // An object type is not a scalar, so it should still be flagged.
+        let schema = r"
+            type CursorObj { value: String }
+            type PageInfo {
+                hasPreviousPage: Boolean!
+                hasNextPage: Boolean!
+                startCursor: CursorObj
+                endCursor: CursorObj
+            }
+        ";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert_eq!(all.len(), 2);
+        assert!(all.iter().any(|d| d.message.contains("startCursor")));
+        assert!(all.iter().any(|d| d.message.contains("endCursor")));
     }
 
     #[test]

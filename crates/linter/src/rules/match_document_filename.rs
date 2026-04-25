@@ -1,3 +1,4 @@
+use super::{get_operation_kind, OperationKind};
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
@@ -48,6 +49,10 @@ pub struct MatchDocumentFilenameOptions {
     pub subscription: DefinitionTypeConfig,
     /// Configuration for fragment definitions
     pub fragment: DefinitionTypeConfig,
+    /// Expected file extension (e.g. `.graphql`, `.gql`).
+    /// When set, files whose extension differs trigger a separate diagnostic.
+    #[serde(rename = "fileExtension")]
+    pub file_extension: Option<String>,
 }
 
 impl MatchDocumentFilenameOptions {
@@ -112,8 +117,8 @@ impl StandaloneDocumentLintRule for MatchDocumentFilenameRuleImpl {
         let uri = metadata.uri(db);
         let uri_str = uri.as_str();
 
-        // Extract filename stem from the URI (strip path and extension)
-        let Some(filename_stem) = extract_filename_stem(uri_str) else {
+        // Extract filename stem and actual extension from the URI
+        let Some((filename_stem, actual_extension)) = extract_filename_parts(uri_str) else {
             return diagnostics;
         };
 
@@ -125,94 +130,91 @@ impl StandaloneDocumentLintRule for MatchDocumentFilenameRuleImpl {
         for doc in parse.documents() {
             let doc_cst = doc.tree.document();
 
+            // graphql-eslint reports at most one filename diagnostic per document,
+            // selecting `firstOperation || firstFragment` and pointing at the
+            // first character of the file. We mirror that here.
+            let mut first_operation: Option<cst::OperationDefinition> = None;
+            let mut first_fragment: Option<cst::FragmentDefinition> = None;
             for definition in doc_cst.definitions() {
-                match &definition {
-                    cst::Definition::OperationDefinition(operation) => {
-                        if let Some(name) = operation.name() {
-                            use super::{get_operation_kind, OperationKind};
-                            let op_kind = operation
-                                .operation_type()
-                                .map_or(OperationKind::Query, |op_type| {
-                                    get_operation_kind(&op_type)
-                                });
-
-                            let config = match op_kind {
-                                OperationKind::Query => &opts.query,
-                                OperationKind::Mutation => &opts.mutation,
-                                OperationKind::Subscription => &opts.subscription,
-                            };
-
-                            let name_text = name.text().to_string();
-                            let expected_filename =
-                                build_expected_filename(&name_text, config.style, &config.suffix);
-
-                            if expected_filename != filename_stem {
-                                let op_type_str = match op_kind {
-                                    OperationKind::Query => "query",
-                                    OperationKind::Mutation => "mutation",
-                                    OperationKind::Subscription => "subscription",
-                                };
-
-                                let syntax = name.syntax();
-                                let start: usize = syntax.text_range().start().into();
-                                let end: usize = syntax.text_range().end().into();
-
-                                // TODO(parity): graphql-eslint reports only on the first
-                                // operation or fragment in the document and points at the
-                                // first character; we report on every definition at the
-                                // name's location.
-                                diagnostics.push(
-                                    LintDiagnostic::warning(
-                                        doc.span(start, end),
-                                        format!(
-                                            "Unexpected filename \"{filename_stem}\". Rename it to \"{expected_filename}\""
-                                        ),
-                                        "matchDocumentFilename",
-                                    )
-                                    .with_help(format!(
-                                        "Rename the file to \"{expected_filename}.graphql\" or rename the {op_type_str} to match the filename"
-                                    )),
-                                );
-                            }
-                        }
+                match definition {
+                    cst::Definition::OperationDefinition(op) if first_operation.is_none() => {
+                        first_operation = Some(op);
                     }
-                    cst::Definition::FragmentDefinition(fragment) => {
-                        if let Some(frag_name) = fragment.fragment_name() {
-                            if let Some(name) = frag_name.name() {
-                                let name_text = name.text().to_string();
-                                let expected_filename = build_expected_filename(
-                                    &name_text,
-                                    opts.fragment.style,
-                                    &opts.fragment.suffix,
-                                );
-
-                                if expected_filename != filename_stem {
-                                    let syntax = name.syntax();
-                                    let start: usize = syntax.text_range().start().into();
-                                    let end: usize = syntax.text_range().end().into();
-
-                                    // TODO(parity): graphql-eslint reports only on the
-                                    // first operation or fragment in the document and
-                                    // points at the first character; we report on every
-                                    // definition at the name's location.
-                                    diagnostics.push(
-                                        LintDiagnostic::warning(
-                                            doc.span(start, end),
-                                            format!(
-                                                "Unexpected filename \"{filename_stem}\". Rename it to \"{expected_filename}\""
-                                            ),
-                                            "matchDocumentFilename",
-                                        )
-                                        .with_help(format!(
-                                            "Rename the file to \"{expected_filename}.graphql\" or rename the fragment to match the filename"
-                                        )),
-                                    );
-                                }
-                            }
-                        }
+                    cst::Definition::FragmentDefinition(frag) if first_fragment.is_none() => {
+                        first_fragment = Some(frag);
                     }
                     _ => {}
                 }
+                if first_operation.is_some() && first_fragment.is_some() {
+                    break;
+                }
+            }
+
+            let (target_start, name_text, op_type_str, config) =
+                if let Some(op) = first_operation.as_ref() {
+                    let Some(name) = op.name() else { continue };
+                    let op_kind = op
+                        .operation_type()
+                        .map_or(OperationKind::Query, |op_type| get_operation_kind(&op_type));
+                    let cfg = match op_kind {
+                        OperationKind::Query => &opts.query,
+                        OperationKind::Mutation => &opts.mutation,
+                        OperationKind::Subscription => &opts.subscription,
+                    };
+                    let kind_str = match op_kind {
+                        OperationKind::Query => "query",
+                        OperationKind::Mutation => "mutation",
+                        OperationKind::Subscription => "subscription",
+                    };
+                    let start: usize = op.syntax().text_range().start().into();
+                    (start, name.text().to_string(), kind_str, cfg)
+                } else if let Some(frag) = first_fragment.as_ref() {
+                    let Some(frag_name) = frag.fragment_name() else {
+                        continue;
+                    };
+                    let Some(name) = frag_name.name() else {
+                        continue;
+                    };
+                    let start: usize = frag.syntax().text_range().start().into();
+                    (start, name.text().to_string(), "fragment", &opts.fragment)
+                } else {
+                    continue;
+                };
+
+            let anchor_span = doc.span(target_start, target_start);
+
+            // MATCH_EXTENSION: emit before MATCH_STYLE so ordering matches the
+            // upstream rule (extension check runs first in `Document(documentNode)`).
+            if let Some(expected_ext) = opts.file_extension.as_deref() {
+                if let Some(actual) = actual_extension.as_deref() {
+                    if actual != expected_ext {
+                        diagnostics.push(LintDiagnostic::warning(
+                            anchor_span.clone(),
+                            format!(
+                                "File extension \"{actual}\" don't match extension \"{expected_ext}\""
+                            ),
+                            "matchDocumentFilename",
+                        ));
+                    }
+                }
+            }
+
+            let expected_filename =
+                build_expected_filename(&name_text, config.style, &config.suffix);
+
+            if expected_filename != filename_stem {
+                diagnostics.push(
+                    LintDiagnostic::warning(
+                        anchor_span,
+                        format!(
+                            "Unexpected filename \"{filename_stem}\". Rename it to \"{expected_filename}\""
+                        ),
+                        "matchDocumentFilename",
+                    )
+                    .with_help(format!(
+                        "Rename the file to \"{expected_filename}.graphql\" or rename the {op_type_str} to match the filename"
+                    )),
+                );
             }
         }
 
@@ -220,12 +222,13 @@ impl StandaloneDocumentLintRule for MatchDocumentFilenameRuleImpl {
     }
 }
 
-/// Extract the filename stem (no path, no extension) from a URI string.
+/// Extract the filename stem and extension from a URI string.
 ///
 /// Handles both file URIs (`file:///path/to/File.graphql`) and plain paths.
-/// Strips `.graphql` and `.gql` extensions.
-fn extract_filename_stem(uri: &str) -> Option<String> {
-    // Get the last path segment
+/// Recognises `.graphql` and `.gql` extensions; the returned extension includes
+/// the leading dot (matching Node's `path.extname` behaviour). Returns `None`
+/// for the extension when the filename has no recognised GraphQL suffix.
+fn extract_filename_parts(uri: &str) -> Option<(String, Option<String>)> {
     let path = uri.strip_prefix("file://").unwrap_or(uri);
     let filename = path.rsplit('/').next()?;
 
@@ -233,17 +236,16 @@ fn extract_filename_stem(uri: &str) -> Option<String> {
         return None;
     }
 
-    // Strip known GraphQL extensions
-    let stem = filename
-        .strip_suffix(".graphql")
-        .or_else(|| filename.strip_suffix(".gql"))
-        .unwrap_or(filename);
-
-    if stem.is_empty() {
-        return None;
+    for ext in [".graphql", ".gql"] {
+        if let Some(stem) = filename.strip_suffix(ext) {
+            if stem.is_empty() {
+                return None;
+            }
+            return Some((stem.to_string(), Some(ext.to_string())));
+        }
     }
 
-    Some(stem.to_string())
+    Some((filename.to_string(), None))
 }
 
 /// Build the expected filename from a definition name, applying the given style
@@ -394,32 +396,32 @@ mod tests {
     #[test]
     fn test_extract_filename_stem_graphql() {
         assert_eq!(
-            extract_filename_stem("file:///path/to/GetUser.graphql"),
-            Some("GetUser".to_string())
+            extract_filename_parts("file:///path/to/GetUser.graphql"),
+            Some(("GetUser".to_string(), Some(".graphql".to_string())))
         );
     }
 
     #[test]
     fn test_extract_filename_stem_gql() {
         assert_eq!(
-            extract_filename_stem("file:///path/to/GetUser.gql"),
-            Some("GetUser".to_string())
+            extract_filename_parts("file:///path/to/GetUser.gql"),
+            Some(("GetUser".to_string(), Some(".gql".to_string())))
         );
     }
 
     #[test]
     fn test_extract_filename_stem_no_extension() {
         assert_eq!(
-            extract_filename_stem("file:///path/to/GetUser"),
-            Some("GetUser".to_string())
+            extract_filename_parts("file:///path/to/GetUser"),
+            Some(("GetUser".to_string(), None))
         );
     }
 
     #[test]
     fn test_extract_filename_stem_plain_path() {
         assert_eq!(
-            extract_filename_stem("GetUser.graphql"),
-            Some("GetUser".to_string())
+            extract_filename_parts("GetUser.graphql"),
+            Some(("GetUser".to_string(), Some(".graphql".to_string())))
         );
     }
 
@@ -636,14 +638,63 @@ mod tests {
     // --- Multiple definitions ---
 
     #[test]
-    fn test_multiple_operations_one_matches() {
+    fn test_multiple_operations_only_first_checked() {
+        // graphql-eslint only checks the first operation; the second is ignored
+        // even when it doesn't match the filename.
         let diagnostics = check_with_uri(
             "query GetUser { user { id } }\nquery FetchPosts { posts { id } }",
             "file:///path/to/GetUser.graphql",
         );
-        // Second operation doesn't match
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_multiple_operations_first_mismatch_only_one_diagnostic() {
+        let diagnostics = check_with_uri(
+            "query FetchPosts { posts { id } }\nquery GetUser { user { id } }",
+            "file:///path/to/GetUser.graphql",
+        );
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("FetchPosts"));
+    }
+
+    #[test]
+    fn test_first_operation_takes_precedence_over_fragment() {
+        // graphql-eslint's `firstOperation || firstFragment` selection picks the
+        // operation even when a fragment appears earlier in the document.
+        let diagnostics = check_with_uri(
+            "fragment UserFields on User { id }\nquery GetUser { user { id } }",
+            "file:///path/to/GetUser.graphql",
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    // --- File extension matching ---
+
+    #[test]
+    fn test_file_extension_match() {
+        let options = serde_json::json!({ "fileExtension": ".graphql" });
+        let diagnostics = check_with_uri_and_options(
+            "query GetUser { user { id } }",
+            "file:///path/to/GetUser.graphql",
+            Some(&options),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_file_extension_mismatch() {
+        let options = serde_json::json!({ "fileExtension": ".graphql" });
+        let diagnostics = check_with_uri_and_options(
+            "query GetUser { user { id } }",
+            "file:///path/to/GetUser.gql",
+            Some(&options),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].message,
+            "File extension \".gql\" don't match extension \".graphql\""
+        );
     }
 
     // --- .gql extension ---

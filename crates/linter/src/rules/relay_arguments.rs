@@ -1,7 +1,7 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneSchemaLintRule};
 use graphql_base_db::{FileId, ProjectFiles};
-use graphql_hir::TypeDefKind;
+use graphql_hir::{ArgumentDef, TypeDefKind, TypeDefMap};
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -38,6 +38,48 @@ impl RelayArgumentsOptions {
         value
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default()
+    }
+}
+
+/// What type a pagination argument is expected to have.
+#[derive(Debug, Clone, Copy)]
+enum ExpectedType {
+    /// Used for `first`/`last`: must be exactly `Int`.
+    Int,
+    /// Used for `after`/`before`: must be `String` or any user-defined Scalar.
+    StringOrScalar,
+}
+
+impl ExpectedType {
+    fn return_type_label(self) -> &'static str {
+        match self {
+            ExpectedType::Int => "Int",
+            ExpectedType::StringOrScalar => "String or Scalar",
+        }
+    }
+}
+
+/// Mirrors graphql-eslint's `isAllowedNonNullType` check: unwraps a single
+/// `NonNull` wrapper, rejects `List` types, then verifies the named type matches
+/// the expected kind. For `StringOrScalar`, any `Scalar` type is accepted.
+fn is_allowed_arg_type(
+    type_ref: &graphql_hir::TypeRef,
+    expected: ExpectedType,
+    schema_types: &TypeDefMap,
+) -> bool {
+    if type_ref.is_list {
+        return false;
+    }
+    match expected {
+        ExpectedType::Int => type_ref.name.as_ref() == "Int",
+        ExpectedType::StringOrScalar => {
+            if type_ref.name.as_ref() == "String" {
+                return true;
+            }
+            schema_types
+                .get(&type_ref.name)
+                .is_some_and(|t| matches!(t.kind, TypeDefKind::Scalar))
+        }
     }
 }
 
@@ -85,108 +127,101 @@ impl StandaloneSchemaLintRule for RelayArgumentsRuleImpl {
                     continue;
                 }
 
-                let arg_names: Vec<&str> =
-                    field.arguments.iter().map(|a| a.name.as_ref()).collect();
-
-                let has_first = arg_names.contains(&"first");
-                let has_after = arg_names.contains(&"after");
-                let has_last = arg_names.contains(&"last");
-                let has_before = arg_names.contains(&"before");
-
-                let has_forward = has_first && has_after;
-                let has_backward = has_last && has_before;
-
-                let is_valid = if opts.include_both {
-                    has_forward && has_backward
-                } else {
-                    has_forward || has_backward
+                let find_arg = |name: &str| -> Option<&ArgumentDef> {
+                    field.arguments.iter().find(|a| a.name.as_ref() == name)
                 };
 
-                if !is_valid {
+                let first_arg = find_arg("first");
+                let after_arg = find_arg("after");
+                let last_arg = find_arg("last");
+                let before_arg = find_arg("before");
+
+                let has_forward = first_arg.is_some() && after_arg.is_some();
+                let has_backward = last_arg.is_some() && before_arg.is_some();
+
+                let field_span = {
                     let start: usize = field.name_range.start().into();
                     let end: usize = field.name_range.end().into();
-                    let span = graphql_syntax::SourceSpan {
+                    graphql_syntax::SourceSpan {
                         start,
                         end,
                         line_offset: 0,
                         byte_offset: 0,
                         source: None,
-                    };
-
-                    // Match graphql-eslint behavior: when neither forward nor
-                    // backward pagination is present, emit a single
-                    // MISSING_ARGUMENTS diagnostic and stop checking this field.
-                    if !has_forward && !has_backward {
-                        diagnostics_by_file
-                            .entry(field.file_id)
-                            .or_default()
-                            .push(LintDiagnostic::new(
-                                span,
-                                LintSeverity::Warning,
-                                "A field that returns a Connection type must include forward pagination arguments (`first` and `after`), backward pagination arguments (`last` and `before`), or both.".to_string(),
-                                "relayArguments",
-                            ));
-                        continue;
                     }
+                };
 
-                    // Otherwise, with `includeBoth=true`, one pair is present and
-                    // we need to flag each missing argument from the other pair
-                    // individually. graphql-eslint emits per-argument messages
-                    // of the form:
-                    //   "Field `X` must contain an argument `Y`, that return Z."
-                    // where Z is `Int` for first/last and `String or Scalar`
-                    // for after/before.
-                    //
-                    // TODO(parity): graphql-eslint also validates the *types* of
-                    // existing first/after/last/before arguments and emits
-                    // "Argument `Y` must return Z." when types don't match. We
-                    // currently only check presence, not types.
-                    let check_missing = |arg_name: &str,
-                                         present: bool,
-                                         return_type: &str|
-                     -> Option<LintDiagnostic> {
-                        if present {
-                            return None;
-                        }
-                        Some(LintDiagnostic::new(
-                            span.clone(),
+                // Match graphql-eslint behavior: when neither forward nor
+                // backward pagination is present, emit a single
+                // MISSING_ARGUMENTS diagnostic and stop checking this field.
+                if !has_forward && !has_backward {
+                    diagnostics_by_file
+                        .entry(field.file_id)
+                        .or_default()
+                        .push(LintDiagnostic::new(
+                            field_span,
                             LintSeverity::Warning,
-                            format!(
-                                "Field `{}` must contain an argument `{}`, that return {}.",
-                                field.name, arg_name, return_type
-                            ),
+                            "A field that returns a Connection type must include forward pagination arguments (`first` and `after`), backward pagination arguments (`last` and `before`), or both.".to_string(),
                             "relayArguments",
-                        ))
+                        ));
+                    continue;
+                }
+
+                // Otherwise, run per-argument presence + type checks.
+                // graphql-eslint emits one of two messages per argument:
+                //   "Field `X` must contain an argument `Y`, that return Z."  (missing)
+                //   "Argument `Y` must return Z."                              (mistyped)
+                // where Z is `Int` for first/last and `String or Scalar`
+                // for after/before.
+                let mut check_field =
+                    |arg_name: &str, arg: Option<&ArgumentDef>, expected: ExpectedType| {
+                        let return_type = expected.return_type_label();
+                        let diagnostic = match arg {
+                            None => Some(LintDiagnostic::new(
+                                field_span.clone(),
+                                LintSeverity::Warning,
+                                format!(
+                                    "Field `{}` must contain an argument `{}`, that return {}.",
+                                    field.name, arg_name, return_type
+                                ),
+                                "relayArguments",
+                            )),
+                            Some(a)
+                                if !is_allowed_arg_type(&a.type_ref, expected, schema_types) =>
+                            {
+                                let start: usize = a.name_range.start().into();
+                                let end: usize = a.name_range.end().into();
+                                let span = graphql_syntax::SourceSpan {
+                                    start,
+                                    end,
+                                    line_offset: 0,
+                                    byte_offset: 0,
+                                    source: None,
+                                };
+                                Some(LintDiagnostic::new(
+                                    span,
+                                    LintSeverity::Warning,
+                                    format!("Argument `{arg_name}` must return {return_type}."),
+                                    "relayArguments",
+                                ))
+                            }
+                            Some(_) => None,
+                        };
+                        if let Some(d) = diagnostic {
+                            diagnostics_by_file
+                                .entry(field.file_id)
+                                .or_default()
+                                .push(d);
+                        }
                     };
 
-                    if opts.include_both || has_first || has_after {
-                        if let Some(d) = check_missing("first", has_first, "Int") {
-                            diagnostics_by_file
-                                .entry(field.file_id)
-                                .or_default()
-                                .push(d);
-                        }
-                        if let Some(d) = check_missing("after", has_after, "String or Scalar") {
-                            diagnostics_by_file
-                                .entry(field.file_id)
-                                .or_default()
-                                .push(d);
-                        }
-                    }
-                    if opts.include_both || has_last || has_before {
-                        if let Some(d) = check_missing("last", has_last, "Int") {
-                            diagnostics_by_file
-                                .entry(field.file_id)
-                                .or_default()
-                                .push(d);
-                        }
-                        if let Some(d) = check_missing("before", has_before, "String or Scalar") {
-                            diagnostics_by_file
-                                .entry(field.file_id)
-                                .or_default()
-                                .push(d);
-                        }
-                    }
+                if opts.include_both || first_arg.is_some() || after_arg.is_some() {
+                    check_field("first", first_arg, ExpectedType::Int);
+                    check_field("after", after_arg, ExpectedType::StringOrScalar);
+                }
+                if opts.include_both || last_arg.is_some() || before_arg.is_some() {
+                    check_field("last", last_arg, ExpectedType::Int);
+                    check_field("before", before_arg, ExpectedType::StringOrScalar);
                 }
             }
         }
@@ -546,6 +581,118 @@ type Post { id: ID! }
         assert!(
             all.is_empty(),
             "Extra args beyond pagination should not cause warnings: {all:?}"
+        );
+    }
+
+    #[test]
+    fn test_first_with_non_int_type_warning() {
+        let db = RootDatabase::default();
+        let rule = RelayArgumentsRuleImpl;
+        let schema = r"
+type User {
+    posts(first: String, after: String, last: Int, before: String): PostConnection
+}
+
+type PostConnection { edges: [Post] }
+type Post { id: ID! }
+";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        let messages: Vec<&str> = all.iter().map(|d| d.message.as_str()).collect();
+        assert_eq!(all.len(), 1, "Expected one warning: {messages:?}");
+        assert_eq!(messages[0], "Argument `first` must return Int.");
+    }
+
+    #[test]
+    fn test_after_with_custom_scalar_no_warning() {
+        let db = RootDatabase::default();
+        let rule = RelayArgumentsRuleImpl;
+        let schema = r"
+scalar Cursor
+
+type User {
+    posts(first: Int, after: Cursor, last: Int, before: Cursor): PostConnection
+}
+
+type PostConnection { edges: [Post] }
+type Post { id: ID! }
+";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert!(
+            all.is_empty(),
+            "Custom scalars are accepted for after/before: {all:?}"
+        );
+    }
+
+    #[test]
+    fn test_after_with_non_scalar_type_warning() {
+        let db = RootDatabase::default();
+        let rule = RelayArgumentsRuleImpl;
+        let schema = r"
+type CursorObj {
+    value: String
+}
+
+type User {
+    posts(first: Int, after: CursorObj, last: Int, before: String): PostConnection
+}
+
+type PostConnection { edges: [Post] }
+type Post { id: ID! }
+";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        let messages: Vec<&str> = all.iter().map(|d| d.message.as_str()).collect();
+        assert_eq!(all.len(), 1, "Expected one warning: {messages:?}");
+        assert_eq!(
+            messages[0],
+            "Argument `after` must return String or Scalar."
+        );
+    }
+
+    #[test]
+    fn test_pagination_args_with_list_types_warning() {
+        let db = RootDatabase::default();
+        let rule = RelayArgumentsRuleImpl;
+        let schema = r"
+type User {
+    posts(first: [Int], after: [String], last: Int, before: String): PostConnection
+}
+
+type PostConnection { edges: [Post] }
+type Post { id: ID! }
+";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        let messages: Vec<&str> = all.iter().map(|d| d.message.as_str()).collect();
+        assert_eq!(all.len(), 2, "Expected two warnings: {messages:?}");
+        assert!(messages.contains(&"Argument `first` must return Int."));
+        assert!(messages.contains(&"Argument `after` must return String or Scalar."));
+    }
+
+    #[test]
+    fn test_pagination_args_with_non_null_types_no_warning() {
+        let db = RootDatabase::default();
+        let rule = RelayArgumentsRuleImpl;
+        let schema = r"
+type User {
+    posts(first: Int!, after: String!, last: Int!, before: String!): PostConnection
+}
+
+type PostConnection { edges: [Post] }
+type Post { id: ID! }
+";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert!(
+            all.is_empty(),
+            "NonNull wrapper around correct type is allowed: {all:?}"
         );
     }
 }

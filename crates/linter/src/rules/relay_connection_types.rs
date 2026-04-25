@@ -40,10 +40,6 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
         let schema_types = graphql_hir::schema_types(db, project_files);
 
         for type_def in schema_types.values() {
-            if !type_def.name.ends_with("Connection") {
-                continue;
-            }
-
             let type_span = || {
                 let start: usize = type_def.name_range.start().into();
                 let end: usize = type_def.name_range.end().into();
@@ -55,6 +51,36 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                     source: None,
                 }
             };
+
+            if !type_def.name.ends_with("Connection") {
+                // Object types lacking the `Connection` suffix but containing
+                // both `edges` and `pageInfo` should still be flagged so that
+                // they're renamed to follow the Relay spec.
+                if type_def.kind == TypeDefKind::Object {
+                    let has_edges = type_def.fields.iter().any(|f| f.name.as_ref() == "edges");
+                    let has_page_info = type_def
+                        .fields
+                        .iter()
+                        .any(|f| f.name.as_ref() == "pageInfo");
+                    if has_edges && has_page_info {
+                        diagnostics_by_file
+                            .entry(type_def.file_id)
+                            .or_default()
+                            .push(
+                                LintDiagnostic::new(
+                                    type_span(),
+                                    LintSeverity::Warning,
+                                    "Connection type must have `Connection` suffix.".to_string(),
+                                    RULE_NAME,
+                                )
+                                .with_help(
+                                    "Rename the type so its name ends in `Connection` (e.g., `UserConnection`)",
+                                ),
+                            );
+                    }
+                }
+                continue;
+            }
 
             // Connection types must be object types
             if type_def.kind != TypeDefKind::Object {
@@ -74,10 +100,6 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                     );
                 continue;
             }
-            // TODO(parity): graphql-eslint also fires MUST_HAVE_CONNECTION_SUFFIX
-            // on Object types containing both `edges` and `pageInfo` whose name
-            // does NOT end in `Connection`. We currently only inspect types that
-            // already have the `Connection` suffix.
 
             // Check for edges field
             let edges_field = type_def.fields.iter().find(|f| f.name.as_ref() == "edges");
@@ -344,5 +366,35 @@ mod tests {
         );
         // PostConnection is missing both edges and pageInfo
         assert_eq!(diagnostics.len(), 2);
+    }
+
+    #[test]
+    fn missing_connection_suffix() {
+        let diagnostics = check_schema("type Foo { edges: [FooEdge] pageInfo: PageInfo! }");
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0]
+            .message
+            .contains("Connection type must have `Connection` suffix."));
+    }
+
+    #[test]
+    fn missing_connection_suffix_only_edges() {
+        // Has only `edges` (no `pageInfo`) and isn't named Connection - should not fire
+        let diagnostics = check_schema("type Foo { edges: [FooEdge] }");
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn missing_connection_suffix_only_page_info() {
+        // Has only `pageInfo` (no `edges`) and isn't named Connection - should not fire
+        let diagnostics = check_schema("type Foo { pageInfo: PageInfo! }");
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn missing_connection_suffix_non_object() {
+        // Interfaces/unions etc. without the suffix should not fire MUST_HAVE_CONNECTION_SUFFIX
+        let diagnostics = check_schema("interface Foo { edges: [FooEdge] pageInfo: PageInfo! }");
+        assert!(diagnostics.is_empty());
     }
 }

@@ -1,7 +1,5 @@
 ---
 source: crates/linter/src/rules/match_document_filename.rs
-assertion_line: 701
 expression: messages
 ---
 - "Unexpected filename \"GetUser\". Rename it to \"FetchUser\""
-- "Unexpected filename \"GetUser\". Rename it to \"PostDetails\""

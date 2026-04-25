@@ -1,22 +1,37 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneSchemaLintRule};
 use graphql_base_db::{FileId, ProjectFiles};
-use graphql_hir::TypeDefKind;
+use graphql_hir::TypeDef;
 use serde::Deserialize;
 use std::collections::HashMap;
 
 /// Options for the `input_name` rule
+///
+/// Mirrors the `@graphql-eslint/eslint-plugin` rule of the same name. The
+/// rule fires on field arguments of `Mutation` (and optionally `Query`) to
+/// enforce a consistent argument name (`input`) and, optionally, a
+/// matching input type name.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools)]
 pub struct InputNameOptions {
-    /// Required suffix for input type names. Defaults to "Input".
-    pub suffix: String,
+    /// Check that the input type name follows the convention `<FieldName>Input`.
+    pub check_input_type: bool,
+    /// Allow case differences when comparing the input type name.
+    pub case_sensitive_input_type: bool,
+    /// Apply the rule to fields of the Query root type.
+    pub check_queries: bool,
+    /// Apply the rule to fields of the Mutation root type.
+    pub check_mutations: bool,
 }
 
 impl Default for InputNameOptions {
     fn default() -> Self {
         Self {
-            suffix: "Input".to_string(),
+            check_input_type: false,
+            case_sensitive_input_type: true,
+            check_queries: false,
+            check_mutations: true,
         }
     }
 }
@@ -29,10 +44,13 @@ impl InputNameOptions {
     }
 }
 
-/// Lint rule that enforces naming convention for input types
+/// Lint rule that enforces conventional naming for mutation/query field
+/// arguments.
 ///
-/// Input type names should end with "Input" (or a configurable suffix)
-/// to distinguish them from output types.
+/// By default, every argument on a `Mutation` field must be named `input`.
+/// When `checkInputType` is enabled, the argument's type name must equal
+/// `<FieldName>Input`. Optionally applies the same checks to `Query`
+/// fields when `checkQueries` is enabled.
 pub struct InputNameRuleImpl;
 
 impl LintRule for InputNameRuleImpl {
@@ -41,7 +59,7 @@ impl LintRule for InputNameRuleImpl {
     }
 
     fn description(&self) -> &'static str {
-        "Enforces that input type names end with a specific suffix"
+        "Require mutation/query field arguments to be named `input` and (optionally) typed as `<FieldName>Input`"
     }
 
     fn default_severity(&self) -> LintSeverity {
@@ -58,49 +76,94 @@ impl StandaloneSchemaLintRule for InputNameRuleImpl {
     ) -> HashMap<FileId, Vec<LintDiagnostic>> {
         let opts = InputNameOptions::from_json(options);
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
+
+        if !opts.check_mutations && !opts.check_queries {
+            return diagnostics_by_file;
+        }
+
         let schema_types = graphql_hir::schema_types(db, project_files);
+        let root_type_names =
+            crate::schema_utils::extract_root_type_names(db, project_files, schema_types);
 
-        for type_def in schema_types.values() {
-            if type_def.kind != TypeDefKind::InputObject {
-                continue;
+        let mut roots: Vec<&TypeDef> = Vec::new();
+        if opts.check_mutations {
+            if let Some(name) = root_type_names.mutation.as_deref() {
+                if let Some(td) = schema_types.get(name) {
+                    roots.push(td);
+                }
             }
+        }
+        if opts.check_queries {
+            if let Some(name) = root_type_names.query.as_deref() {
+                if let Some(td) = schema_types.get(name) {
+                    roots.push(td);
+                }
+            }
+        }
 
-            // TODO(parity): graphql-eslint's `input-name` rule fires on mutation/query
-            // field arguments and checks (a) the argument is named `input` and
-            // (b) the argument type name matches `${FieldName}Input`. Our implementation
-            // instead checks every input object type name ends with `opts.suffix`
-            // globally. The diagnostic wording below mirrors graphql-eslint's input-type
-            // message as closely as the differing scope allows.
-            if !type_def.name.ends_with(&opts.suffix) {
-                let start: usize = type_def.name_range.start().into();
-                let end: usize = type_def.name_range.end().into();
-                let span = graphql_syntax::SourceSpan {
-                    start,
-                    end,
-                    line_offset: 0,
-                    byte_offset: 0,
-                    source: None,
-                };
+        for root_type in roots {
+            for field in &root_type.fields {
+                for arg in &field.arguments {
+                    if arg.name.as_ref() != "input" {
+                        let span = make_span(arg.name_range);
+                        diagnostics_by_file.entry(arg.file_id).or_default().push(
+                            LintDiagnostic::new(
+                                span,
+                                LintSeverity::Warning,
+                                format!(
+                                    "Input \"{}\" should be named \"input\" for \"{}.{}\"",
+                                    arg.name, root_type.name, field.name
+                                ),
+                                "inputName",
+                            )
+                            .with_help("Rename to `input`"),
+                        );
+                    }
 
-                diagnostics_by_file
-                    .entry(type_def.file_id)
-                    .or_default()
-                    .push(
-                        LintDiagnostic::new(
-                            span,
-                            LintSeverity::Warning,
-                            format!(
-                                "Input type `{}` name should end with `{}`.",
-                                type_def.name, opts.suffix
-                            ),
-                            "inputName",
-                        )
-                        .with_help(format!("Rename to end with `{}`", opts.suffix)),
-                    );
+                    if opts.check_input_type {
+                        let expected = format!("{}Input", field.name);
+                        let actual = arg.type_ref.name.as_ref();
+                        let mismatch = if opts.case_sensitive_input_type {
+                            actual != expected
+                        } else {
+                            !actual.eq_ignore_ascii_case(&expected)
+                        };
+
+                        if mismatch {
+                            // The HIR doesn't expose a separate range for the
+                            // argument's type reference, so fall back to the
+                            // argument's name range. This is consistent with
+                            // how other schema rules surface argument-level
+                            // diagnostics.
+                            let span = make_span(arg.name_range);
+                            diagnostics_by_file.entry(arg.file_id).or_default().push(
+                                LintDiagnostic::new(
+                                    span,
+                                    LintSeverity::Warning,
+                                    format!("Input type `{actual}` name should be `{expected}`."),
+                                    "inputName",
+                                )
+                                .with_help(format!("Rename to `{expected}`")),
+                            );
+                        }
+                    }
+                }
             }
         }
 
         diagnostics_by_file
+    }
+}
+
+fn make_span(range: graphql_hir::TextRange) -> graphql_syntax::SourceSpan {
+    let start: usize = range.start().into();
+    let end: usize = range.end().into();
+    graphql_syntax::SourceSpan {
+        start,
+        end,
+        line_offset: 0,
+        byte_offset: 0,
+        source: None,
     }
 }
 
@@ -146,10 +209,11 @@ mod tests {
     }
 
     #[test]
-    fn test_input_with_suffix() {
+    fn mutation_argument_named_input_is_ok() {
         let db = RootDatabase::default();
         let rule = InputNameRuleImpl;
-        let schema = "input CreateUserInput { name: String! }";
+        let schema = "type Mutation { setMessage(input: SetMessageInput): String } \
+                      input SetMessageInput { message: String }";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
@@ -157,14 +221,142 @@ mod tests {
     }
 
     #[test]
-    fn test_input_without_suffix() {
+    fn mutation_argument_not_named_input_reports() {
         let db = RootDatabase::default();
         let rule = InputNameRuleImpl;
-        let schema = "input CreateUser { name: String! }";
+        let schema = "type Mutation { setMessage(message: String): String }";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("should end with `Input`"));
+        assert_eq!(
+            all[0].message,
+            "Input \"message\" should be named \"input\" for \"Mutation.setMessage\""
+        );
+    }
+
+    #[test]
+    fn multiple_arguments_each_must_be_input() {
+        let db = RootDatabase::default();
+        let rule = InputNameRuleImpl;
+        let schema = "type Mutation { setMessage(a: String, b: Int): String }";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn query_arguments_skipped_by_default() {
+        let db = RootDatabase::default();
+        let rule = InputNameRuleImpl;
+        let schema = "type Query { user(id: ID!): String }";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert!(all.is_empty());
+    }
+
+    #[test]
+    fn query_arguments_checked_when_enabled() {
+        let db = RootDatabase::default();
+        let rule = InputNameRuleImpl;
+        let schema = "type Query { user(id: ID!): String }";
+        let project_files = create_schema_project(&db, schema);
+        let opts = serde_json::json!({ "checkQueries": true });
+        let diagnostics = rule.check(&db, project_files, Some(&opts));
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert_eq!(all.len(), 1);
+        assert!(all[0].message.contains("Query.user"));
+    }
+
+    #[test]
+    fn mutations_can_be_disabled() {
+        let db = RootDatabase::default();
+        let rule = InputNameRuleImpl;
+        let schema = "type Mutation { setMessage(message: String): String }";
+        let project_files = create_schema_project(&db, schema);
+        let opts = serde_json::json!({ "checkMutations": false });
+        let diagnostics = rule.check(&db, project_files, Some(&opts));
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert!(all.is_empty());
+    }
+
+    #[test]
+    fn check_input_type_flags_mismatch() {
+        let db = RootDatabase::default();
+        let rule = InputNameRuleImpl;
+        let schema = "type Mutation { setMessage(input: InputMessage): String } \
+                      input InputMessage { message: String }";
+        let project_files = create_schema_project(&db, schema);
+        let opts = serde_json::json!({ "checkInputType": true });
+        let diagnostics = rule.check(&db, project_files, Some(&opts));
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert_eq!(all.len(), 1);
+        assert_eq!(
+            all[0].message,
+            "Input type `InputMessage` name should be `setMessageInput`."
+        );
+    }
+
+    #[test]
+    fn check_input_type_passes_on_matching_name() {
+        let db = RootDatabase::default();
+        let rule = InputNameRuleImpl;
+        let schema = "type Mutation { setMessage(input: setMessageInput): String } \
+                      input setMessageInput { message: String }";
+        let project_files = create_schema_project(&db, schema);
+        let opts = serde_json::json!({ "checkInputType": true });
+        let diagnostics = rule.check(&db, project_files, Some(&opts));
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert!(all.is_empty());
+    }
+
+    #[test]
+    fn case_insensitive_input_type_allows_case_differences() {
+        let db = RootDatabase::default();
+        let rule = InputNameRuleImpl;
+        let schema = "type Mutation { SetMessage(input: setmessageinput): String } \
+                      input setmessageinput { message: String }";
+        let project_files = create_schema_project(&db, schema);
+        let opts = serde_json::json!({
+            "checkInputType": true,
+            "caseSensitiveInputType": false,
+        });
+        let diagnostics = rule.check(&db, project_files, Some(&opts));
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert!(all.is_empty());
+    }
+
+    #[test]
+    fn check_input_type_and_argument_name_both_reported() {
+        let db = RootDatabase::default();
+        let rule = InputNameRuleImpl;
+        let schema = "type Mutation { setMessage(message: InputMessage): String } \
+                      input InputMessage { message: String }";
+        let project_files = create_schema_project(&db, schema);
+        let opts = serde_json::json!({ "checkInputType": true });
+        let diagnostics = rule.check(&db, project_files, Some(&opts));
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert_eq!(all.len(), 2);
+        assert!(all
+            .iter()
+            .any(|d| d.message.contains("should be named \"input\"")));
+        assert!(all
+            .iter()
+            .any(|d| d.message.contains("name should be `setMessageInput`")));
+    }
+
+    #[test]
+    fn input_object_type_definitions_are_not_checked() {
+        let db = RootDatabase::default();
+        let rule = InputNameRuleImpl;
+        // No mutation/query fields - the rule should ignore input type
+        // definitions entirely.
+        let schema = "input SomeArbitraryName { name: String }";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert!(all.is_empty());
     }
 }

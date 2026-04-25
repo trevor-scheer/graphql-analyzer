@@ -35,6 +35,10 @@ impl StandaloneSchemaLintRule for RequireTypePatternWithOneofRuleImpl {
         let schema_types = graphql_hir::schema_types(db, project_files);
 
         for type_def in schema_types.values() {
+            if type_def.kind != graphql_hir::TypeDefKind::Object {
+                continue;
+            }
+
             let has_oneof = type_def
                 .directives
                 .iter()
@@ -45,19 +49,6 @@ impl StandaloneSchemaLintRule for RequireTypePatternWithOneofRuleImpl {
             }
 
             let field_names: Vec<&str> = type_def.fields.iter().map(|f| f.name.as_ref()).collect();
-
-            // TODO(parity): graphql-eslint's selector only matches
-            // `ObjectTypeDefinition`, so it never reports on input types. We
-            // currently flag any type with `@oneOf` (objects, interfaces,
-            // inputs, etc.).
-            let node_kind_label = match type_def.kind {
-                graphql_hir::TypeDefKind::InputObject => "input",
-                graphql_hir::TypeDefKind::Interface => "interface",
-                graphql_hir::TypeDefKind::Union => "union",
-                graphql_hir::TypeDefKind::Enum => "enum",
-                graphql_hir::TypeDefKind::Scalar => "scalar",
-                _ => "object",
-            };
 
             for field_name in ["error", "ok"] {
                 if field_names.contains(&field_name) {
@@ -81,8 +72,8 @@ impl StandaloneSchemaLintRule for RequireTypePatternWithOneofRuleImpl {
                         span,
                         LintSeverity::Warning,
                         format!(
-                            "{} \"{}\" is defined as output with \"@oneOf\" and must be defined with \"{}\" field",
-                            node_kind_label, type_def.name, field_name
+                            "type \"{}\" is defined as output with \"@oneOf\" and must be defined with \"{}\" field",
+                            type_def.name, field_name
                         ),
                         "requireTypePatternWithOneof",
                     ));
@@ -217,7 +208,9 @@ mod tests {
     }
 
     #[test]
-    fn test_input_type_with_oneof_missing_fields() {
+    fn test_non_object_types_with_oneof_are_ignored() {
+        // graphql-eslint's selector only targets ObjectTypeDefinition, so
+        // input/interface types annotated with @oneOf must not be flagged.
         let db = RootDatabase::default();
         let rule = RequireTypePatternWithOneofRuleImpl;
         let schema = r"
@@ -225,22 +218,9 @@ mod tests {
                 title: String
                 author: String
             }
-        ";
-        let project_files = create_schema_project(&db, schema);
-        let diagnostics = rule.check(&db, project_files, None);
-        let all: Vec<_> = diagnostics.values().flatten().collect();
-        assert_eq!(all.len(), 2);
-        assert!(all[0].message.starts_with("input \"SearchInput\""));
-    }
-
-    #[test]
-    fn test_input_type_with_oneof_and_ok_error_is_valid() {
-        let db = RootDatabase::default();
-        let rule = RequireTypePatternWithOneofRuleImpl;
-        let schema = r"
-            input SearchInput @oneOf {
-                ok: String
-                error: String
+            interface SearchInterface @oneOf {
+                title: String
+                author: String
             }
         ";
         let project_files = create_schema_project(&db, schema);
