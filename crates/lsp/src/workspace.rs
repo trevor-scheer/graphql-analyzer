@@ -253,11 +253,11 @@ mod tests {
 
         manager.clear_workspace("workspace1");
 
-        assert!(manager.file_to_project.get("file1.graphql").is_none());
-        assert!(manager.file_to_project.get("file2.graphql").is_none());
+        assert!(!manager.file_to_project.contains_key("file1.graphql"));
+        assert!(!manager.file_to_project.contains_key("file2.graphql"));
         assert!(manager.get_host("workspace1", "project1").is_none());
 
-        assert!(manager.file_to_project.get("file3.graphql").is_some());
+        assert!(manager.file_to_project.contains_key("file3.graphql"));
         assert!(manager.get_host("workspace2", "project1").is_some());
     }
 
