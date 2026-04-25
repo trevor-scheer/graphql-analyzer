@@ -1,13 +1,21 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
-use crate::traits::{LintRule, StandaloneSchemaLintRule};
-use graphql_base_db::{FileId, ProjectFiles};
-use graphql_hir::TypeDefKind;
+use crate::traits::{LintRule, StandaloneDocumentLintRule, StandaloneSchemaLintRule};
+use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+use graphql_hir::{TextRange, TypeDefKind};
 use std::collections::HashMap;
 
-/// Lint rule that requires descriptions on type definitions
+/// Lint rule that requires descriptions on schema definitions and operations.
 ///
-/// Descriptions serve as documentation for schema consumers. This rule
-/// ensures that all type definitions include a description.
+/// Descriptions serve as documentation for schema consumers and operation
+/// readers. Mirrors `@graphql-eslint/eslint-plugin`'s `require-description`,
+/// which fires on every AST node that can carry a `.description`:
+/// type/interface/union/enum/scalar/input definitions, field definitions,
+/// input value definitions (input fields and arguments), enum value
+/// definitions, directive definitions, and operation definitions.
+///
+/// `OperationDefinition` description support uses the GraphQL `#` comment
+/// immediately above the operation (operations don't have a syntactic
+/// `description` slot in the spec).
 pub struct RequireDescriptionRuleImpl;
 
 impl LintRule for RequireDescriptionRuleImpl {
@@ -16,7 +24,7 @@ impl LintRule for RequireDescriptionRuleImpl {
     }
 
     fn description(&self) -> &'static str {
-        "Requires descriptions on type definitions"
+        "Requires descriptions on type definitions, fields, arguments, enum values, directives, and operations"
     }
 
     fn default_severity(&self) -> LintSeverity {
@@ -34,6 +42,23 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
         let schema_types = graphql_hir::schema_types(db, project_files);
 
+        // Source schema file ids — used to filter out builtins and resolved-schema
+        // entries that the user didn't write themselves and can't add descriptions to.
+        let source_file_ids: std::collections::HashSet<FileId> = project_files
+            .schema_file_ids(db)
+            .ids(db)
+            .iter()
+            .copied()
+            .filter(|fid| {
+                graphql_base_db::file_lookup(db, project_files, *fid).is_some_and(|(_, meta)| {
+                    let uri = meta.uri(db);
+                    let s = uri.as_str();
+                    !s.ends_with("schema_builtins.graphql")
+                        && !s.ends_with("client_builtins.graphql")
+                })
+            })
+            .collect();
+
         for type_def in schema_types.values() {
             // Skip built-in scalars
             if type_def.kind == TypeDefKind::Scalar
@@ -42,6 +67,11 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
                     "String" | "Int" | "Float" | "Boolean" | "ID"
                 )
             {
+                continue;
+            }
+
+            // Only flag entities defined in source files (skip resolved schema/builtins)
+            if !source_file_ids.contains(&type_def.file_id) {
                 continue;
             }
 
@@ -55,35 +85,104 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
                     _ => "type",
                 };
 
-                let start: usize = type_def.name_range.start().into();
-                let end: usize = type_def.name_range.end().into();
+                push_missing_description(
+                    &mut diagnostics_by_file,
+                    type_def.file_id,
+                    type_def.name_range,
+                    &format!("{kind_name} \"{}\"", type_def.name),
+                );
+            }
 
-                // Create a SourceSpan from the schema file
-                let span = graphql_syntax::SourceSpan {
-                    start,
-                    end,
-                    line_offset: 0,
-                    byte_offset: 0,
-                    source: None,
+            let parent_label = match type_def.kind {
+                TypeDefKind::Interface => format!("interface \"{}\"", type_def.name),
+                TypeDefKind::InputObject => format!("input \"{}\"", type_def.name),
+                TypeDefKind::Enum => format!("enum \"{}\"", type_def.name),
+                _ => format!("type \"{}\"", type_def.name),
+            };
+
+            // Field definitions (object/interface) and input value definitions (input).
+            for field in &type_def.fields {
+                let field_kind = if type_def.kind == TypeDefKind::InputObject {
+                    "input value"
+                } else {
+                    "field"
                 };
+                let field_label = format!("{field_kind} \"{}\" in {parent_label}", field.name);
 
-                diagnostics_by_file
-                    .entry(type_def.file_id)
-                    .or_default()
-                    .push(
-                        LintDiagnostic::new(
-                            span,
-                            LintSeverity::Warning,
-                            format!(
-                                "Description is required for {kind_name} \"{}\"",
-                                type_def.name
-                            ),
-                            "requireDescription",
-                        )
-                        .with_help(
-                            "Add a description string above the definition to document its purpose",
-                        ),
+                if !source_file_ids.contains(&field.file_id) {
+                    continue;
+                }
+
+                if field.description.is_none() {
+                    push_missing_description(
+                        &mut diagnostics_by_file,
+                        field.file_id,
+                        field.name_range,
+                        &field_label,
                     );
+                }
+
+                // Arguments only apply to object/interface fields, not input values.
+                if type_def.kind != TypeDefKind::InputObject {
+                    for arg in &field.arguments {
+                        if !source_file_ids.contains(&arg.file_id) {
+                            continue;
+                        }
+                        if arg.description.is_none() {
+                            push_missing_description(
+                                &mut diagnostics_by_file,
+                                arg.file_id,
+                                arg.name_range,
+                                &format!("input value \"{}\" in {field_label}", arg.name),
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Enum value definitions
+            for value in &type_def.enum_values {
+                if value.description.is_none() {
+                    push_missing_description(
+                        &mut diagnostics_by_file,
+                        type_def.file_id,
+                        value.name_range,
+                        &format!("enum value \"{}\" in {parent_label}", value.name),
+                    );
+                }
+            }
+        }
+
+        // Directive definitions (and their arguments).
+        let directives = graphql_hir::schema_directives(db, project_files);
+        for dir_def in directives.values() {
+            if !source_file_ids.contains(&dir_def.file_id) {
+                continue;
+            }
+
+            let dir_label = format!("directive \"{}\"", dir_def.name);
+
+            if dir_def.description.is_none() {
+                push_missing_description(
+                    &mut diagnostics_by_file,
+                    dir_def.file_id,
+                    dir_def.name_range,
+                    &dir_label,
+                );
+            }
+
+            for arg in &dir_def.arguments {
+                if !source_file_ids.contains(&arg.file_id) {
+                    continue;
+                }
+                if arg.description.is_none() {
+                    push_missing_description(
+                        &mut diagnostics_by_file,
+                        arg.file_id,
+                        arg.name_range,
+                        &format!("input value \"{}\" in {dir_label}", arg.name),
+                    );
+                }
             }
         }
 
@@ -91,10 +190,160 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
     }
 }
 
+impl StandaloneDocumentLintRule for RequireDescriptionRuleImpl {
+    fn check(
+        &self,
+        db: &dyn graphql_hir::GraphQLHirDatabase,
+        _file_id: FileId,
+        content: FileContent,
+        metadata: FileMetadata,
+        _project_files: ProjectFiles,
+        _options: Option<&serde_json::Value>,
+    ) -> Vec<LintDiagnostic> {
+        let mut diagnostics = Vec::new();
+        let parse = graphql_syntax::parse(db, content, metadata);
+        if parse.has_errors() {
+            return diagnostics;
+        }
+
+        // graphql-eslint treats the `#` comment immediately above an operation
+        // (no blank line between) as that operation's description.
+        for doc in parse.documents() {
+            let source = doc.source;
+            for definition in &doc.ast.definitions {
+                let apollo_compiler::ast::Definition::OperationDefinition(op) = definition else {
+                    continue;
+                };
+                let Some(loc) = op.location() else { continue };
+                let op_start = loc.offset();
+                let op_end = loc.end_offset();
+                if op_start >= source.len() || op_end > source.len() {
+                    continue;
+                }
+
+                if has_immediate_comment(source, op_start) {
+                    continue;
+                }
+
+                // Find the operation keyword (`query`/`mutation`/`subscription`)
+                // or for shorthand queries, the opening `{` brace. Mirrors
+                // `getLocation(node.loc.start, node.operation)` in graphql-eslint.
+                let op_keyword = match op.operation_type {
+                    apollo_compiler::ast::OperationType::Query => "query",
+                    apollo_compiler::ast::OperationType::Mutation => "mutation",
+                    apollo_compiler::ast::OperationType::Subscription => "subscription",
+                };
+                let raw = &source[op_start..op_end];
+                let (rel_start, rel_end) =
+                    if let Some(pos) = raw.find(op_keyword).filter(|p| *p < 8) {
+                        (pos, pos + op_keyword.len())
+                    } else if let Some(pos) = raw.find('{') {
+                        (pos, pos + 1)
+                    } else {
+                        (0, raw.len().min(1))
+                    };
+                let span_start = op_start + rel_start;
+                let span_end = op_start + rel_end;
+
+                let label = match (op.name.as_ref(), op.operation_type) {
+                    (Some(name), apollo_compiler::ast::OperationType::Query) => {
+                        format!("query \"{name}\"")
+                    }
+                    (Some(name), apollo_compiler::ast::OperationType::Mutation) => {
+                        format!("mutation \"{name}\"")
+                    }
+                    (Some(name), apollo_compiler::ast::OperationType::Subscription) => {
+                        format!("subscription \"{name}\"")
+                    }
+                    (None, _) => op_keyword.to_string(),
+                };
+
+                diagnostics.push(
+                    LintDiagnostic::new(
+                        doc.span(span_start, span_end),
+                        LintSeverity::Warning,
+                        format!("Description is required for {label}"),
+                        "requireDescription",
+                    )
+                    .with_help(
+                        "Add a `# comment` line directly above the operation to document its purpose",
+                    ),
+                );
+            }
+        }
+
+        diagnostics
+    }
+}
+
+fn push_missing_description(
+    diagnostics_by_file: &mut HashMap<FileId, Vec<LintDiagnostic>>,
+    file_id: FileId,
+    name_range: TextRange,
+    label: &str,
+) {
+    let span = graphql_syntax::SourceSpan {
+        start: name_range.start().into(),
+        end: name_range.end().into(),
+        line_offset: 0,
+        byte_offset: 0,
+        source: None,
+    };
+
+    diagnostics_by_file.entry(file_id).or_default().push(
+        LintDiagnostic::new(
+            span,
+            LintSeverity::Warning,
+            format!("Description is required for {label}"),
+            "requireDescription",
+        )
+        .with_help("Add a description string above the definition to document its purpose"),
+    );
+}
+
+/// Returns true when the byte at `op_start` is preceded by a `#` comment
+/// whose final newline is on the line directly before the operation
+/// (matches graphql-eslint's `linesBefore === 1` check).
+fn has_immediate_comment(source: &str, op_start: usize) -> bool {
+    let before = &source[..op_start];
+
+    // Walk back over whitespace on the operation's start line.
+    let mut idx = before.len();
+    while idx > 0 {
+        let b = before.as_bytes()[idx - 1];
+        if b == b'\n' {
+            break;
+        }
+        if !b.is_ascii_whitespace() {
+            // Non-whitespace before the operation on its own line — anything
+            // else here means this isn't a leading-comment scenario.
+            return false;
+        }
+        idx -= 1;
+    }
+
+    // `idx` now points at the newline at the end of the previous line, or 0.
+    // Skip back past blank lines — graphql-eslint requires the comment to be
+    // on the line *immediately* preceding the operation.
+    if idx == 0 {
+        return false;
+    }
+    // Step over the newline at idx-1, then look at the previous line.
+    let prev_line_end = idx - 1; // position of '\n'
+    let prev_line_start = before[..prev_line_end].rfind('\n').map_or(0, |nl| nl + 1);
+    let prev_line = &before[prev_line_start..prev_line_end];
+    let trimmed = prev_line.trim_start();
+    if !trimmed.starts_with('#') {
+        return false;
+    }
+    // Skip ESLint directive comments — `# eslint-disable …` etc.
+    let body = trimmed.trim_start_matches('#').trim();
+    !body.starts_with("eslint")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::traits::StandaloneSchemaLintRule;
     use graphql_base_db::{
         DocumentFileIds, DocumentKind, FileContent, FileEntry, FileEntryMap, FileId, FileMetadata,
         FileUri, Language, ProjectFiles, SchemaFileIds,
@@ -133,6 +382,49 @@ mod tests {
         )
     }
 
+    fn create_document_project(
+        db: &RootDatabase,
+        source: &str,
+    ) -> (FileId, FileContent, FileMetadata, ProjectFiles) {
+        let file_id = FileId::new(0);
+        let content = FileContent::new(db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            db,
+            file_id,
+            FileUri::new("file:///query.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        let entry = FileEntry::new(db, content, metadata);
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(file_id, entry);
+
+        let schema_file_ids = SchemaFileIds::new(db, Arc::new(vec![]));
+        let document_file_ids = DocumentFileIds::new(db, Arc::new(vec![file_id]));
+        let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
+        let project_files = ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        );
+        (file_id, content, metadata, project_files)
+    }
+
+    fn messages(diagnostics: &HashMap<FileId, Vec<LintDiagnostic>>) -> Vec<&str> {
+        diagnostics
+            .values()
+            .flatten()
+            .map(|d| d.message.as_str())
+            .collect()
+    }
+
     #[test]
     fn test_type_with_description() {
         let db = RootDatabase::default();
@@ -141,15 +433,16 @@ mod tests {
         let schema = r#"
 "A user in the system"
 type User {
+    "An id"
     id: ID!
+    "A name"
     name: String!
 }
 "#;
 
         let project_files = create_schema_project(&db, schema);
-        let diagnostics = rule.check(&db, project_files, None);
+        let diagnostics = StandaloneSchemaLintRule::check(&rule, &db, project_files, None);
 
-        // Should not warn about User (has description) or built-in types
         let user_warnings: Vec<_> = diagnostics
             .values()
             .flatten()
@@ -171,13 +464,273 @@ type User {
 ";
 
         let project_files = create_schema_project(&db, schema);
-        let diagnostics = rule.check(&db, project_files, None);
+        let diagnostics = StandaloneSchemaLintRule::check(&rule, &db, project_files, None);
 
         let user_warnings: Vec<_> = diagnostics
             .values()
             .flatten()
-            .filter(|d| d.message.contains("\"User\""))
+            .filter(|d| d.message == "Description is required for type \"User\"")
             .collect();
         assert_eq!(user_warnings.len(), 1);
+    }
+
+    #[test]
+    fn test_field_without_description_flagged() {
+        let db = RootDatabase::default();
+        let rule = RequireDescriptionRuleImpl;
+        let schema = r#"
+"A user"
+type User {
+    id: ID!
+}
+"#;
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = StandaloneSchemaLintRule::check(&rule, &db, project_files, None);
+        let msgs = messages(&diagnostics);
+        assert!(
+            msgs.contains(&"Description is required for field \"id\" in type \"User\""),
+            "missing field diagnostic, got: {msgs:?}"
+        );
+    }
+
+    #[test]
+    fn test_argument_without_description_flagged() {
+        let db = RootDatabase::default();
+        let rule = RequireDescriptionRuleImpl;
+        let schema = r#"
+"A query"
+type Query {
+    "Lookup a user"
+    user(id: ID!): String
+}
+"#;
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = StandaloneSchemaLintRule::check(&rule, &db, project_files, None);
+        let msgs = messages(&diagnostics);
+        assert!(
+            msgs.contains(
+                &"Description is required for input value \"id\" in field \"user\" in type \"Query\""
+            ),
+            "missing arg diagnostic, got: {msgs:?}"
+        );
+    }
+
+    #[test]
+    fn test_input_field_without_description_flagged() {
+        let db = RootDatabase::default();
+        let rule = RequireDescriptionRuleImpl;
+        let schema = r#"
+"Filter input"
+input UserFilter {
+    id: ID
+}
+"#;
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = StandaloneSchemaLintRule::check(&rule, &db, project_files, None);
+        let msgs = messages(&diagnostics);
+        assert!(
+            msgs.contains(
+                &"Description is required for input value \"id\" in input \"UserFilter\""
+            ),
+            "missing input field diagnostic, got: {msgs:?}"
+        );
+    }
+
+    #[test]
+    fn test_enum_value_without_description_flagged() {
+        let db = RootDatabase::default();
+        let rule = RequireDescriptionRuleImpl;
+        let schema = r#"
+"A color"
+enum Color {
+    RED
+}
+"#;
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = StandaloneSchemaLintRule::check(&rule, &db, project_files, None);
+        let msgs = messages(&diagnostics);
+        assert!(
+            msgs.contains(&"Description is required for enum value \"RED\" in enum \"Color\""),
+            "missing enum value diagnostic, got: {msgs:?}"
+        );
+    }
+
+    #[test]
+    fn test_directive_without_description_flagged() {
+        let db = RootDatabase::default();
+        let rule = RequireDescriptionRuleImpl;
+        let schema = r"
+directive @cached(seconds: Int) on FIELD_DEFINITION
+";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = StandaloneSchemaLintRule::check(&rule, &db, project_files, None);
+        let msgs = messages(&diagnostics);
+        assert!(
+            msgs.contains(&"Description is required for directive \"cached\""),
+            "missing directive diagnostic, got: {msgs:?}"
+        );
+        assert!(
+            msgs.contains(
+                &"Description is required for input value \"seconds\" in directive \"cached\""
+            ),
+            "missing directive arg diagnostic, got: {msgs:?}"
+        );
+    }
+
+    #[test]
+    fn test_fully_documented_schema_clean() {
+        let db = RootDatabase::default();
+        let rule = RequireDescriptionRuleImpl;
+        let schema = r#"
+"A user"
+type User {
+    "The id"
+    id: ID!
+}
+
+"Filter input"
+input UserFilter {
+    "Filter by id"
+    id: ID
+}
+
+"Color"
+enum Color {
+    "Red"
+    RED
+}
+
+"Cache directive"
+directive @cached(
+    "How long to cache"
+    seconds: Int
+) on FIELD_DEFINITION
+"#;
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = StandaloneSchemaLintRule::check(&rule, &db, project_files, None);
+        let msgs = messages(&diagnostics);
+        assert!(msgs.is_empty(), "expected no diagnostics, got: {msgs:?}");
+    }
+
+    #[test]
+    fn test_operation_without_comment_flagged() {
+        let db = RootDatabase::default();
+        let rule = RequireDescriptionRuleImpl;
+        let source = "query GetUser { user { id } }\n";
+        let (file_id, content, metadata, project_files) = create_document_project(&db, source);
+        let diagnostics = StandaloneDocumentLintRule::check(
+            &rule,
+            &db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+            None,
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].message,
+            "Description is required for query \"GetUser\""
+        );
+    }
+
+    #[test]
+    fn test_operation_with_leading_comment_clean() {
+        let db = RootDatabase::default();
+        let rule = RequireDescriptionRuleImpl;
+        let source = "# Fetches the current user\nquery GetUser { user { id } }\n";
+        let (file_id, content, metadata, project_files) = create_document_project(&db, source);
+        let diagnostics = StandaloneDocumentLintRule::check(
+            &rule,
+            &db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+            None,
+        );
+        assert!(
+            diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_operation_with_blank_line_after_comment_flagged() {
+        let db = RootDatabase::default();
+        let rule = RequireDescriptionRuleImpl;
+        // Blank line between comment and operation — graphql-eslint requires
+        // `linesBefore === 1`, so this is NOT a description.
+        let source = "# Fetches the current user\n\nquery GetUser { user { id } }\n";
+        let (file_id, content, metadata, project_files) = create_document_project(&db, source);
+        let diagnostics = StandaloneDocumentLintRule::check(
+            &rule,
+            &db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+            None,
+        );
+        assert_eq!(diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn test_anonymous_operation_uses_keyword_label() {
+        let db = RootDatabase::default();
+        let rule = RequireDescriptionRuleImpl;
+        let source = "mutation { updateUser(id: \"1\") { id } }\n";
+        let (file_id, content, metadata, project_files) = create_document_project(&db, source);
+        let diagnostics = StandaloneDocumentLintRule::check(
+            &rule,
+            &db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+            None,
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].message,
+            "Description is required for mutation"
+        );
+    }
+
+    #[test]
+    fn test_eslint_disable_comment_does_not_satisfy() {
+        let db = RootDatabase::default();
+        let rule = RequireDescriptionRuleImpl;
+        let source = "# eslint-disable-next-line\nquery GetUser { user { id } }\n";
+        let (file_id, content, metadata, project_files) = create_document_project(&db, source);
+        let diagnostics = StandaloneDocumentLintRule::check(
+            &rule,
+            &db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+            None,
+        );
+        assert_eq!(diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn test_fragment_definitions_not_flagged() {
+        let db = RootDatabase::default();
+        let rule = RequireDescriptionRuleImpl;
+        let source = "fragment UserFields on User { id }\n";
+        let (file_id, content, metadata, project_files) = create_document_project(&db, source);
+        let diagnostics = StandaloneDocumentLintRule::check(
+            &rule,
+            &db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+            None,
+        );
+        assert!(diagnostics.is_empty());
     }
 }
