@@ -91,6 +91,8 @@ pub struct EnumValue {
     pub is_deprecated: bool,
     pub deprecation_reason: Option<Arc<str>>,
     pub directives: Vec<DirectiveUsage>,
+    /// The text range of the enum value's name token
+    pub name_range: TextRange,
 }
 
 /// A directive applied to a schema element
@@ -662,6 +664,7 @@ fn extract_enum_type(enum_def: &Node<ast::EnumTypeDefinition>, file_id: FileId) 
                 is_deprecated,
                 deprecation_reason,
                 directives: extract_directives(&v.directives),
+                name_range: name_range(&v.value),
             }
         })
         .collect();
@@ -862,6 +865,7 @@ fn extract_enum_type_extension(ext: &Node<ast::EnumTypeExtension>, file_id: File
                 is_deprecated,
                 deprecation_reason,
                 directives: extract_directives(&v.directives),
+                name_range: name_range(&v.value),
             }
         })
         .collect();
