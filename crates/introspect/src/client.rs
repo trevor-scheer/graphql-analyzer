@@ -230,13 +230,14 @@ impl IntrospectionClient {
     /// Executes a single introspection request without retry logic.
     async fn execute_once(&self, url: &str) -> Result<IntrospectionResponse> {
         tracing::debug!("Creating HTTP client with timeouts");
-        let client = reqwest::Client::builder()
+        let builder = reqwest::Client::builder();
+        #[cfg(not(target_arch = "wasm32"))]
+        let builder = builder
             .timeout(self.timeout)
-            .connect_timeout(self.connect_timeout)
-            .build()
-            .map_err(|e| {
-                IntrospectionError::Network(format!("Failed to create HTTP client: {e}"))
-            })?;
+            .connect_timeout(self.connect_timeout);
+        let client = builder.build().map_err(|e| {
+            IntrospectionError::Network(format!("Failed to create HTTP client: {e}"))
+        })?;
 
         let query_body = serde_json::json!({
             "query": INTROSPECTION_QUERY
@@ -333,13 +334,14 @@ impl IntrospectionClient {
 
     /// Executes a single raw introspection request.
     async fn execute_raw_once(&self, url: &str) -> Result<serde_json::Value> {
-        let client = reqwest::Client::builder()
+        let builder = reqwest::Client::builder();
+        #[cfg(not(target_arch = "wasm32"))]
+        let builder = builder
             .timeout(self.timeout)
-            .connect_timeout(self.connect_timeout)
-            .build()
-            .map_err(|e| {
-                IntrospectionError::Network(format!("Failed to create HTTP client: {e}"))
-            })?;
+            .connect_timeout(self.connect_timeout);
+        let client = builder.build().map_err(|e| {
+            IntrospectionError::Network(format!("Failed to create HTTP client: {e}"))
+        })?;
 
         let query_body = serde_json::json!({
             "query": INTROSPECTION_QUERY
