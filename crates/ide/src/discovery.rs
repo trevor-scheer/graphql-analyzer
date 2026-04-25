@@ -263,10 +263,10 @@ pub(crate) fn path_to_file_path(path: &std::path::Path) -> FilePath {
 }
 
 #[cfg(test)]
+#[cfg(feature = "extract")]
 mod tests {
     use super::*;
 
-    #[cfg(feature = "extract")]
     #[test]
     fn test_discover_document_files_skips_ts_without_graphql() {
         let temp_dir = tempfile::tempdir().unwrap();

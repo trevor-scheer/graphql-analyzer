@@ -605,6 +605,8 @@ impl AnalysisHost {
     ///
     /// * `config` - The project configuration containing document patterns
     /// * `workspace_path` - The base directory for glob pattern resolution
+    /// * `extract_config` - Configuration for TS/JS GraphQL extraction
+    ///   (only present when the `extract` feature is enabled)
     ///
     /// # Returns
     ///
