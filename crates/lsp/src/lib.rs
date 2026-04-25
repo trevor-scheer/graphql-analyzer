@@ -443,8 +443,15 @@ pub fn run_server() {
     let (introspection_result_sender, introspection_result_receiver) =
         crossbeam_channel::unbounded();
 
+    let dispatcher: Box<dyn global_state::TaskDispatcher> = Box::new(
+        global_state::ThreadPoolDispatcher::new(threadpool::ThreadPool::with_name(
+            "salsa-worker".into(),
+            num_cpus(),
+        )),
+    );
     let mut state = global_state::GlobalState::new(
         connection.sender.clone(),
+        dispatcher,
         introspection_request_sender,
         introspection_result_receiver,
     );
@@ -475,4 +482,10 @@ pub fn run_server() {
     // Drop the state before joining IO threads to close channels
     drop(state);
     io_threads.join().expect("io threads");
+}
+
+fn num_cpus() -> usize {
+    std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(4)
 }

@@ -6,13 +6,10 @@ use lsp_types::Uri;
 
 use crate::workspace::WorkspaceManager;
 
-#[allow(dead_code)]
 pub trait TaskDispatcher: Send + Sync {
     fn execute(&self, work: Box<dyn FnOnce() + Send + 'static>);
 }
 
-// Task 6 will wire GlobalState to use this in place of its bare ThreadPool field.
-#[allow(dead_code)]
 pub struct ThreadPoolDispatcher(threadpool::ThreadPool);
 
 impl TaskDispatcher for ThreadPoolDispatcher {
@@ -22,7 +19,6 @@ impl TaskDispatcher for ThreadPoolDispatcher {
 }
 
 impl ThreadPoolDispatcher {
-    #[allow(dead_code)]
     pub fn new(pool: threadpool::ThreadPool) -> Self {
         Self(pool)
     }
@@ -45,7 +41,7 @@ impl TaskDispatcher for InlineDispatcher {
 /// instead.
 pub struct GlobalState {
     pub sender: Sender<Message>,
-    pub threadpool: threadpool::ThreadPool,
+    pub dispatcher: Box<dyn TaskDispatcher>,
     pub workspace: WorkspaceManager,
     pub client_capabilities: Option<lsp_types::ClientCapabilities>,
     pub trace_capture: Option<crate::trace_capture::TraceCaptureManager>,
@@ -105,6 +101,7 @@ pub struct GlobalStateSnapshot {
 impl GlobalState {
     pub fn new(
         sender: Sender<Message>,
+        dispatcher: Box<dyn TaskDispatcher>,
         introspection_request_sender: Sender<IntrospectionRequest>,
         introspection_result_receiver: crossbeam_channel::Receiver<IntrospectionResult>,
     ) -> Self {
@@ -112,7 +109,7 @@ impl GlobalState {
 
         Self {
             sender,
-            threadpool: threadpool::ThreadPool::with_name("salsa-worker".into(), num_cpus()),
+            dispatcher,
             workspace: WorkspaceManager::new(),
             client_capabilities: None,
             trace_capture: None,
@@ -183,7 +180,7 @@ impl GlobalState {
         };
 
         let task_sender = self.task_sender.clone();
-        self.threadpool.execute(move || {
+        self.dispatcher.execute(Box::new(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(snap)));
             let response = match result {
                 Ok(value) => lsp_server::Response::new_ok(id, value),
@@ -196,7 +193,7 @@ impl GlobalState {
             let _ = task_sender.send(Task {
                 response: TaskResponse::Response(response),
             });
-        });
+        }));
     }
 
     /// Spawn a diagnostics computation for a single URI, tagged with the next
@@ -215,7 +212,7 @@ impl GlobalState {
         let captured_seq = *seq;
 
         let task_sender = self.task_sender.clone();
-        self.threadpool.execute(move || {
+        self.dispatcher.execute(Box::new(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
             if let Ok(diagnostics) = result {
                 let _ = task_sender.send(Task {
@@ -226,7 +223,7 @@ impl GlobalState {
                     },
                 });
             }
-        });
+        }));
     }
 
     /// Spawn a multi-URI diagnostics computation (e.g. project-wide on save).
@@ -236,21 +233,15 @@ impl GlobalState {
         F: FnOnce() -> Vec<(Uri, Vec<lsp_types::Diagnostic>)> + Send + 'static,
     {
         let task_sender = self.task_sender.clone();
-        self.threadpool.execute(move || {
+        self.dispatcher.execute(Box::new(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
             if let Ok(diagnostics) = result {
                 let _ = task_sender.send(Task {
                     response: TaskResponse::PublishDiagnosticsBatch(diagnostics),
                 });
             }
-        });
+        }));
     }
-}
-
-fn num_cpus() -> usize {
-    std::thread::available_parallelism()
-        .map(usize::from)
-        .unwrap_or(4)
 }
 
 #[cfg(test)]
@@ -265,7 +256,7 @@ mod tests {
         let (msg_sender, _msg_receiver) = unbounded();
         let (intro_req_sender, _intro_req_receiver) = unbounded();
         let (_intro_res_sender, intro_res_receiver) = unbounded();
-        GlobalState::new(msg_sender, intro_req_sender, intro_res_receiver)
+        GlobalState::new(msg_sender, Box::new(InlineDispatcher), intro_req_sender, intro_res_receiver)
     }
 
     #[test]
