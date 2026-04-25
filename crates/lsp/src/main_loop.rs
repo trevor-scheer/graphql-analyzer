@@ -7,40 +7,53 @@ use crate::handlers;
 use crate::server::{PingRequest, VirtualFileContentRequest};
 use crate::trace_capture::TraceCaptureRequest;
 
-pub fn main_loop(connection: &Connection, state: &mut GlobalState) {
+pub enum ControlFlow {
+    Continue,
+    Shutdown,
+}
+
+/// Process all currently buffered messages without blocking. Returns
+/// `ControlFlow::Shutdown` when the connection has closed.
+pub fn tick(connection: &Connection, state: &mut GlobalState) -> ControlFlow {
+    use crossbeam_channel::TryRecvError;
+
+    loop {
+        match connection.receiver.try_recv() {
+            Ok(Message::Request(req)) => {
+                if connection.handle_shutdown(&req).expect("shutdown") {
+                    return ControlFlow::Shutdown;
+                }
+                handle_request(state, req);
+            }
+            Ok(Message::Notification(not)) => handle_notification(state, not),
+            Ok(Message::Response(resp)) => tracing::debug!(id = ?resp.id, "client response"),
+            Err(TryRecvError::Empty) => break,
+            Err(TryRecvError::Disconnected) => return ControlFlow::Shutdown,
+        }
+    }
+
+    while let Ok(task) = state.task_receiver.try_recv() {
+        handle_task(state, task.response);
+    }
+
+    while let Ok(result) = state.introspection_result_receiver.try_recv() {
+        handle_introspection_result(state, result);
+    }
+
+    ControlFlow::Continue
+}
+
+/// Blocking main loop for the native server. Wakes on any incoming message,
+/// then drains all pending messages via `tick`.
+pub fn run(connection: &Connection, state: &mut GlobalState) {
     loop {
         select! {
-            recv(connection.receiver) -> msg => {
-                match msg {
-                    Ok(Message::Request(req)) => {
-                        if connection.handle_shutdown(&req).expect("shutdown") {
-                            return;
-                        }
-                        handle_request(state, req);
-                    }
-                    Ok(Message::Notification(not)) => {
-                        handle_notification(state, not);
-                    }
-                    Ok(Message::Response(resp)) => {
-                        tracing::debug!("got client response: {:?}", resp.id);
-                    }
-                    Err(_) => {
-                        return;
-                    }
-                }
-            }
-
-            recv(state.task_receiver) -> task => {
-                if let Ok(task) = task {
-                    handle_task(state, task.response);
-                }
-            }
-
-            recv(state.introspection_result_receiver) -> result => {
-                if let Ok(result) = result {
-                    handle_introspection_result(state, result);
-                }
-            }
+            recv(connection.receiver) -> _ => {}
+            recv(state.task_receiver) -> _ => {}
+            recv(state.introspection_result_receiver) -> _ => {}
+        }
+        if matches!(tick(connection, state), ControlFlow::Shutdown) {
+            return;
         }
     }
 }

@@ -477,7 +477,7 @@ pub fn run_server() {
 
     handle_initialized(&mut state);
 
-    main_loop::main_loop(&connection, &mut state);
+    main_loop::run(&connection, &mut state);
 
     // Drop the state before joining IO threads to close channels
     drop(state);
