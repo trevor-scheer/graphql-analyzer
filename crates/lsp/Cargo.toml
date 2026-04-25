@@ -18,26 +18,28 @@ name = "graphql-lsp"
 path = "src/main.rs"
 
 [dependencies]
-# Internal dependencies
+# Internal deps (unconditional)
 graphql-linter = { path = "../linter" }
 graphql-config = { path = "../config" }
-graphql-extract = { path = "../extract" }
-graphql-ide = { path = "../ide" }
-graphql-syntax = { path = "../syntax" }
-graphql-introspect = { path = "../introspect" }
+graphql-ide = { path = "../ide", default-features = false }
+graphql-syntax = { path = "../syntax", default-features = false }
 
-# GraphQL
+# Optional based on feature
+graphql-extract = { path = "../extract", optional = true }
+graphql-introspect = { path = "../introspect", optional = true }
+
+# GraphQL (unconditional, both targets need parsing)
 apollo-compiler = { workspace = true }
 apollo-parser = { workspace = true }
 
-# LSP (sync server + types)
+# LSP transport
 lsp-server = { workspace = true }
 lsp-types = { workspace = true }
 crossbeam-channel = { workspace = true }
-threadpool = { workspace = true }
+threadpool = { workspace = true, optional = true }
 
-# Async - retained only for introspection HTTP calls
-tokio = { workspace = true, features = ["rt"] }
+# Async (introspection only)
+tokio = { workspace = true, features = ["rt"], optional = true }
 
 # Utilities
 serde = { workspace = true }
@@ -45,21 +47,42 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
-# Logging and Tracing
+# Tracing (subset on wasm)
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-tracing-chrome = "0.7"
-tracing-opentelemetry = { workspace = true }
-opentelemetry = { workspace = true }
-opentelemetry_sdk = { workspace = true }
-opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
-opentelemetry-semantic-conventions = { workspace = true }
+tracing-chrome = { version = "0.7", optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"], optional = true }
+opentelemetry-semantic-conventions = { workspace = true, optional = true }
 
-url = "2"
-glob.workspace = true
+# Native-only fs-related
+url = { version = "2", optional = true }
+glob = { workspace = true, optional = true }
 
 [build-dependencies]
 vergen-git2 = { version = "9.1", features = ["build", "cargo"] }
+
+[features]
+default = ["native"]
+native = [
+    "dep:threadpool",
+    "dep:tokio",
+    "dep:tracing-chrome",
+    "dep:tracing-opentelemetry",
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:opentelemetry-semantic-conventions",
+    "dep:url",
+    "dep:glob",
+    "extract",
+    "introspect",
+]
+wasm = []
+extract = ["dep:graphql-extract", "graphql-ide/extract", "graphql-syntax/extract"]
+introspect = ["dep:graphql-introspect", "graphql-ide/introspect"]
 
 [lints]
 workspace = true
