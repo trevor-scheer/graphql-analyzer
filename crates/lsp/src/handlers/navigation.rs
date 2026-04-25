@@ -61,7 +61,7 @@ pub(crate) fn handle_document_symbol(
 }
 
 pub(crate) fn handle_workspace_symbol(
-    state: &GlobalState,
+    state: &mut GlobalState,
     params: lsp_types::WorkspaceSymbolParams,
 ) -> Option<lsp_types::WorkspaceSymbolResponse> {
     let mut all_symbols = Vec::new();

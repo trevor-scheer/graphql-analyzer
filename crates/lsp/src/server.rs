@@ -1,9 +1,27 @@
 use lsp_types::Diagnostic;
 
 /// Parameters for the `graphql/virtualFileContent` custom request.
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct VirtualFileContentParams {
     pub uri: String,
+}
+
+/// Custom request: fetch the synthetic content for a virtual file URI.
+pub enum VirtualFileContentRequest {}
+
+impl lsp_types::request::Request for VirtualFileContentRequest {
+    type Params = VirtualFileContentParams;
+    type Result = Option<String>;
+    const METHOD: &'static str = "graphql-analyzer/virtualFileContent";
+}
+
+/// Custom request: client-server health check.
+pub enum PingRequest {}
+
+impl lsp_types::request::Request for PingRequest {
+    type Params = serde_json::Value;
+    type Result = PingResponse;
+    const METHOD: &'static str = "graphql-analyzer/ping";
 }
 
 /// Custom notification sent from server to client to indicate loading status.
@@ -22,7 +40,7 @@ pub struct StatusParams {
 }
 
 /// Response for the `graphql/ping` health check request.
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct PingResponse {
     pub timestamp: u64,
 }

@@ -4,7 +4,7 @@ use crate::global_state::GlobalState;
 use crate::server::{PingResponse, VirtualFileContentParams};
 
 pub(crate) fn handle_virtual_file_content(
-    state: &GlobalState,
+    state: &mut GlobalState,
     params: VirtualFileContentParams,
 ) -> Option<String> {
     tracing::debug!("Virtual file content requested: {}", params.uri);
@@ -23,7 +23,7 @@ pub(crate) fn handle_virtual_file_content(
     None
 }
 
-pub(crate) fn handle_ping() -> PingResponse {
+pub(crate) fn handle_ping(_state: &mut GlobalState, _params: serde_json::Value) -> PingResponse {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -32,7 +32,7 @@ pub(crate) fn handle_ping() -> PingResponse {
 }
 
 pub(crate) fn handle_trace_capture(
-    state: &GlobalState,
+    state: &mut GlobalState,
     params: crate::trace_capture::TraceCaptureParams,
 ) -> crate::trace_capture::TraceCaptureResult {
     let Some(ref manager) = state.trace_capture else {
