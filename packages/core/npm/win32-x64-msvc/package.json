@@ -1,0 +1,27 @@
+{
+  "name": "@graphql-analyzer/core-win32-x64-msvc",
+  "version": "0.1.0",
+  "description": "graphql-analyzer native addon (win32 x64 msvc)",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trevor-scheer/graphql-analyzer.git",
+    "directory": "packages/core/npm/win32-x64-msvc"
+  },
+  "files": [
+    "graphql-analyzer.win32-x64-msvc.node"
+  ],
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "graphql-analyzer.win32-x64-msvc.node",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

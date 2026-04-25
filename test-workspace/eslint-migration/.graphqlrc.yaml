@@ -1,0 +1,9 @@
+schema: "schema.graphql"
+documents: "src/**/*.graphql"
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        noHashtagDescription: warn
+        noAnonymousOperations: error
+        noDuplicateFields: error

@@ -1,0 +1,171 @@
+---
+title: ESLint Plugin
+description: Run graphql-analyzer lint rules inside ESLint as a drop-in replacement for @graphql-eslint/eslint-plugin.
+---
+
+`@graphql-analyzer/eslint-plugin` runs the same lint rules as the CLI and LSP,
+but inside ESLint. It's a drop-in replacement for
+[`@graphql-eslint/eslint-plugin`](https://the-guild.dev/graphql/eslint/docs) —
+same plugin names, same rule names, same flat-config preset names. The Rust
+analyzer does the real work via a native addon, so performance matches the CLI.
+
+## Requirements
+
+- Node.js 18 or later
+- ESLint 8.40+ or 9.x (flat config only)
+
+## Installation
+
+```sh
+npm install --save-dev @graphql-analyzer/eslint-plugin
+```
+
+During the alpha, install with the `alpha` dist-tag:
+
+```sh
+npm install --save-dev @graphql-analyzer/eslint-plugin@alpha
+```
+
+The native addon is distributed as platform-specific optional dependencies
+(`darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, `linux-arm64-gnu`,
+`win32-x64-msvc`). npm installs the one matching your machine automatically.
+
+## Usage
+
+```js
+// eslint.config.mjs
+import graphql from "@graphql-analyzer/eslint-plugin";
+
+export default [
+  {
+    files: ["**/*.graphql"],
+    languageOptions: {
+      parser: graphql.parser,
+    },
+    plugins: {
+      "@graphql-analyzer": graphql,
+    },
+    rules: {
+      "@graphql-analyzer/no-anonymous-operations": "error",
+      "@graphql-analyzer/no-duplicate-fields": "error",
+      "@graphql-analyzer/no-hashtag-description": "warn",
+    },
+  },
+  {
+    // For JS/TS files, let ESLint use its default parser. The plugin's
+    // `parser` is for `.graphql` files only — wiring it here would silence
+    // every other ESLint plugin that runs on your TS files.
+    files: ["**/*.{ts,tsx,js,jsx}"],
+    plugins: {
+      "@graphql-analyzer": graphql,
+    },
+    processor: graphql.processor,
+    rules: {
+      "@graphql-analyzer/no-anonymous-operations": "error",
+    },
+  },
+];
+```
+
+The native addon detects embedded GraphQL in TypeScript, JavaScript, Vue,
+Svelte, and Astro files. Diagnostics are reported at their original source
+position so `gql\`\`` tagged templates don't need a separate file.
+
+## Configuration
+
+Rules pick up their configuration from `.graphqlrc.yaml` (or any supported
+graphql-config file) in the nearest ancestor directory of the file being
+linted:
+
+```yaml
+# .graphqlrc.yaml
+schema: "schema.graphql"
+documents: "src/**/*.graphql"
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        noHashtagDescription: warn
+        noAnonymousOperations: error
+        noDuplicateFields: error
+```
+
+This is the same config format the CLI and LSP use, so your editor, CI, and
+ESLint all see the same rules.
+
+## Presets
+
+```js
+import graphql from "@graphql-analyzer/eslint-plugin";
+
+export default [
+  {
+    files: ["**/*.graphql"],
+    languageOptions: { parser: graphql.parser },
+    plugins: { "@graphql-analyzer": graphql },
+    rules: graphql.configs["flat/schema-recommended"].rules,
+  },
+];
+```
+
+Available presets:
+
+- `flat/schema-recommended` — sensible defaults for schema files
+- `flat/operations-recommended` — sensible defaults for operation documents
+
+## Migrating from `@graphql-eslint/eslint-plugin`
+
+The migration is a find-and-replace:
+
+1. `@graphql-eslint/eslint-plugin` → `@graphql-analyzer/eslint-plugin`
+2. `@graphql-eslint` → `@graphql-analyzer` (plugin names, rule prefixes)
+
+Rule names, rule options, and preset names are identical.
+
+```diff
+- import graphqlPlugin from "@graphql-eslint/eslint-plugin";
++ import graphqlPlugin from "@graphql-analyzer/eslint-plugin";
+
+  export default [
+    {
+      files: ["**/*.graphql"],
+      languageOptions: { parser: graphqlPlugin.parser },
+-     plugins: { "@graphql-eslint": graphqlPlugin },
++     plugins: { "@graphql-analyzer": graphqlPlugin },
+      rules: {
+-       "@graphql-eslint/no-anonymous-operations": "error",
++       "@graphql-analyzer/no-anonymous-operations": "error",
+      },
+    },
+  ];
+```
+
+## Rule parity with `@graphql-eslint/eslint-plugin`
+
+The plugin's test suite diffs its rule set against `@graphql-eslint/eslint-plugin`
+and fails CI on unexpected divergence — migration stays a find-and-replace.
+Current intentional gaps:
+
+- **Validation rules** (from `graphql-js`'s `specifiedRules`: `known-type-names`,
+  `fields-on-correct-type`, `no-undefined-variables`, etc.) aren't exposed as
+  lint rules. They run as part of the analyzer's validation pass instead.
+- **Three rules carry pre-`no-` names:** `unused-fields`, `unused-fragments`,
+  and `unused-variables` — these will be renamed to `no-unused-*` for true
+  drop-in parity before the first stable release.
+
+See `packages/eslint-plugin/test/parity.test.mjs` for the full allowlist.
+
+## Known limitations (alpha)
+
+- ESLint legacy config (`.eslintrc`) is not supported — flat config only.
+- Autofixes are not yet wired through the ESLint rule shim.
+- Rule options passed through ESLint's `rules: { ... }` object are not yet
+  forwarded; configure options via `.graphqlrc.yaml` for now.
+- Multi-project `.graphqlrc` configs aren't supported yet — the plugin will
+  error on a config with more than one project.
+- `no-hashtag-description` fires per `#` comment line, where
+  `@graphql-eslint/eslint-plugin` groups consecutive lines into one diagnostic.
+  Same issue flagged; different granularity.
+
+See the [rules catalog](/graphql-analyzer/rules/catalog/) for the full list of
+rules available.

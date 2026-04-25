@@ -79,25 +79,28 @@ impl StandaloneSchemaLintRule for DescriptionStyleRuleImpl {
             }
 
             for doc in parse.documents() {
+                // TODO(parity): graphql-eslint matches `.description` on every node
+                // (fields, input values, enum values, directive defs), not just
+                // top-level type definitions. We only iterate top-level defs here.
                 for definition in &doc.ast.definitions {
-                    let desc = match definition {
+                    let (desc, parent_label) = match definition {
                         apollo_compiler::ast::Definition::ObjectTypeDefinition(d) => {
-                            d.description.as_ref()
+                            (d.description.as_ref(), format!("type \"{}\"", d.name))
                         }
                         apollo_compiler::ast::Definition::InterfaceTypeDefinition(d) => {
-                            d.description.as_ref()
+                            (d.description.as_ref(), format!("interface \"{}\"", d.name))
                         }
                         apollo_compiler::ast::Definition::UnionTypeDefinition(d) => {
-                            d.description.as_ref()
+                            (d.description.as_ref(), format!("union \"{}\"", d.name))
                         }
                         apollo_compiler::ast::Definition::EnumTypeDefinition(d) => {
-                            d.description.as_ref()
+                            (d.description.as_ref(), format!("enum \"{}\"", d.name))
                         }
                         apollo_compiler::ast::Definition::ScalarTypeDefinition(d) => {
-                            d.description.as_ref()
+                            (d.description.as_ref(), format!("scalar \"{}\"", d.name))
                         }
                         apollo_compiler::ast::Definition::InputObjectTypeDefinition(d) => {
-                            d.description.as_ref()
+                            (d.description.as_ref(), format!("input \"{}\"", d.name))
                         }
                         _ => continue,
                     };
@@ -130,19 +133,23 @@ impl StandaloneSchemaLintRule for DescriptionStyleRuleImpl {
                     };
 
                     if wrong_style {
-                        let expected = match opts.style {
-                            DescriptionStyleKind::Block => "block (\"\"\"...\"\"\")",
-                            DescriptionStyleKind::Inline => "inline (\"...\")",
+                        let unexpected = match opts.style {
+                            DescriptionStyleKind::Block => "inline",
+                            DescriptionStyleKind::Inline => "block",
+                        };
+                        let suggested = match opts.style {
+                            DescriptionStyleKind::Block => "block",
+                            DescriptionStyleKind::Inline => "inline",
                         };
 
                         diagnostics_by_file.entry(*file_id).or_default().push(
                             LintDiagnostic::new(
                                 doc.span(start, end.min(start + desc_str.len().min(30) + 6)),
                                 LintSeverity::Warning,
-                                format!("Description should use {expected} style"),
+                                format!("Unexpected {unexpected} description for {parent_label}"),
                                 "descriptionStyle",
                             )
-                            .with_help(format!("Rewrite the description using {expected} syntax")),
+                            .with_help(format!("Change to {suggested} style description")),
                         );
                     }
                 }
@@ -224,6 +231,9 @@ type User {
         let diagnostics = rule.check(&db, project_files, None); // default is block
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("block"));
+        assert_eq!(
+            all[0].message,
+            "Unexpected inline description for type \"User\""
+        );
     }
 }

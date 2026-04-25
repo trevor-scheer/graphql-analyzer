@@ -110,14 +110,10 @@ impl StandaloneSchemaLintRule for NoRootTypeRuleImpl {
                     LintDiagnostic::new(
                         span,
                         LintSeverity::Error,
-                        format!(
-                            "Root type '{type_name}' ({disallowed}) is not allowed in this project"
-                        ),
+                        format!("Root type `{type_name}` is forbidden."),
                         "noRootType",
                     )
-                    .with_help(format!(
-                        "Remove the {disallowed} root type definition from the schema"
-                    )),
+                    .with_help(format!("Remove `{type_name}` type")),
                 );
         }
 
@@ -204,7 +200,7 @@ mod tests {
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
         assert!(all[0].message.contains("Mutation"));
-        assert!(all[0].message.contains("mutation"));
+        assert!(all[0].message.contains("forbidden"));
     }
 
     #[test]

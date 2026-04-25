@@ -1,0 +1,48 @@
+{
+  "name": "@graphql-analyzer/eslint-plugin",
+  "version": "0.1.0",
+  "description": "ESLint plugin for GraphQL, powered by graphql-analyzer. Drop-in replacement for @graphql-eslint/eslint-plugin.",
+  "keywords": [
+    "eslint",
+    "eslint-plugin",
+    "graphql",
+    "graphql-eslint",
+    "lint",
+    "linter"
+  ],
+  "homepage": "https://trevor-scheer.github.io/graphql-analyzer/linting/eslint-plugin/",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trevor-scheer/graphql-analyzer.git",
+    "directory": "packages/eslint-plugin"
+  },
+  "files": [
+    "dist/"
+  ],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test:unit": "node --test test/integration.test.mjs test/parity.test.mjs"
+  },
+  "dependencies": {
+    "@graphql-analyzer/core": "0.1.0"
+  },
+  "devDependencies": {
+    "@graphql-eslint/eslint-plugin": "^4.0.0",
+    "@types/node": "^20.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "eslint": "^8.40.0 || ^9.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

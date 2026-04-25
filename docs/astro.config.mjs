@@ -85,6 +85,7 @@ export default defineConfig({
           items: [
             { label: "Overview", slug: "linting/overview" },
             { label: "Configuration", slug: "linting/configuration" },
+            { label: "ESLint Plugin", slug: "linting/eslint-plugin" },
           ],
         },
         {

@@ -1,6 +1,6 @@
 # GraphQL Analyzer - Claude Guide
 
-**Last Updated**: March 2026
+**Last Updated**: April 2026
 
 Context and guidance for Claude when working with this codebase.
 
@@ -12,16 +12,20 @@ Context and guidance for Claude when working with this codebase.
 
 ### Critical File Locations
 
-| Location                         | Purpose                              |
-| -------------------------------- | ------------------------------------ |
-| `test-workspace/.graphqlrc.yaml` | Test project configuration           |
-| `crates/*/src/`                  | Crate sources                        |
-| `editors/vscode/`                | VS Code extension                    |
-| `.claude/agents/`                | SME agents for consultation          |
-| `.claude/skills/`                | Workflow guidance                    |
-| `.claude/rules/`                 | Path-scoped context rules            |
-| `.claude/hooks/`                 | Session, edit, and commit automation |
-| `DEVELOPMENT.md`                 | Build, test, and debug commands      |
+| Location                         | Purpose                                         |
+| -------------------------------- | ----------------------------------------------- |
+| `test-workspace/.graphqlrc.yaml` | Test project configuration                      |
+| `crates/*/src/`                  | Crate sources                                   |
+| `crates/napi/`                   | napi-rs Rust→Node bindings                      |
+| `editors/vscode/`                | VS Code extension                               |
+| `packages/core/`                 | `@graphql-analyzer/core` dispatcher + platforms |
+| `packages/eslint-plugin/`        | `@graphql-analyzer/eslint-plugin`               |
+| `.claude/agents/`                | SME agents for consultation                     |
+| `.claude/skills/`                | Workflow guidance                               |
+| `.claude/rules/`                 | Path-scoped context rules                       |
+| `.claude/hooks/`                 | Session, edit, and commit automation            |
+| `DEVELOPMENT.md`                 | Build, test, and debug commands                 |
+| `RELEASES.md`                    | Release pipeline, knope config, changesets      |
 
 ### Quick Answers
 
@@ -31,6 +35,8 @@ Context and guidance for Claude when working with this codebase.
 | Where to add validation?   | `crates/analysis/src/`                                      |
 | Where's schema loading?    | `crates/introspect/` (remote), `crates/config/` (local)     |
 | How does incremental work? | Salsa queries: `base-db` → `syntax` → `hir` → `analysis`    |
+| Where's the ESLint plugin? | `packages/eslint-plugin/` (TS) + `crates/napi/` (Rust FFI)  |
+| How do releases work?      | Knope + changesets — see `RELEASES.md`                      |
 
 ---
 

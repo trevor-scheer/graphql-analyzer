@@ -40,10 +40,6 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
         let schema_types = graphql_hir::schema_types(db, project_files);
 
         for type_def in schema_types.values() {
-            if !type_def.name.ends_with("Connection") {
-                continue;
-            }
-
             let type_span = || {
                 let start: usize = type_def.name_range.start().into();
                 let end: usize = type_def.name_range.end().into();
@@ -56,6 +52,36 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                 }
             };
 
+            if !type_def.name.ends_with("Connection") {
+                // Object types lacking the `Connection` suffix but containing
+                // both `edges` and `pageInfo` should still be flagged so that
+                // they're renamed to follow the Relay spec.
+                if type_def.kind == TypeDefKind::Object {
+                    let has_edges = type_def.fields.iter().any(|f| f.name.as_ref() == "edges");
+                    let has_page_info = type_def
+                        .fields
+                        .iter()
+                        .any(|f| f.name.as_ref() == "pageInfo");
+                    if has_edges && has_page_info {
+                        diagnostics_by_file
+                            .entry(type_def.file_id)
+                            .or_default()
+                            .push(
+                                LintDiagnostic::new(
+                                    type_span(),
+                                    LintSeverity::Warning,
+                                    "Connection type must have `Connection` suffix.".to_string(),
+                                    RULE_NAME,
+                                )
+                                .with_help(
+                                    "Rename the type so its name ends in `Connection` (e.g., `UserConnection`)",
+                                ),
+                            );
+                    }
+                }
+                continue;
+            }
+
             // Connection types must be object types
             if type_def.kind != TypeDefKind::Object {
                 diagnostics_by_file
@@ -65,14 +91,11 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                         LintDiagnostic::new(
                             type_span(),
                             LintSeverity::Warning,
-                            format!(
-                                "Type '{}' ends in 'Connection' but is not an object type",
-                                type_def.name
-                            ),
+                            "Connection type must be an Object type.".to_string(),
                             RULE_NAME,
                         )
                         .with_help(
-                            "Relay connection types must be object types with 'edges' and 'pageInfo' fields",
+                            "Relay connection types must be object types with `edges` and `pageInfo` fields",
                         ),
                     );
                 continue;
@@ -89,14 +112,11 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                             LintDiagnostic::new(
                                 type_span(),
                                 LintSeverity::Warning,
-                                format!(
-                                    "Connection type '{}' is missing an 'edges' field",
-                                    type_def.name
-                                ),
+                                "Connection type must contain a field `edges` that return a list type.".to_string(),
                                 RULE_NAME,
                             )
                             .with_help(
-                                "Add an 'edges' field that returns a list type (e.g., 'edges: [UserEdge]')",
+                                "Add an `edges` field that returns a list type (e.g., `edges: [UserEdge]`)",
                             ),
                         );
                 }
@@ -118,13 +138,10 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                                 LintDiagnostic::new(
                                     field_span,
                                     LintSeverity::Warning,
-                                    format!(
-                                    "'edges' field on connection type '{}' must return a list type",
-                                    type_def.name
-                                ),
+                                    "`edges` field must return a list type.".to_string(),
                                     RULE_NAME,
                                 )
-                                .with_help("Change the type to a list (e.g., '[UserEdge]')"),
+                                .with_help("Change the type to a list (e.g., `[UserEdge]`)"),
                             );
                     }
                 }
@@ -144,19 +161,18 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                             LintDiagnostic::new(
                                 type_span(),
                                 LintSeverity::Warning,
-                                format!(
-                                    "Connection type '{}' is missing a 'pageInfo' field",
-                                    type_def.name
-                                ),
+                                "Connection type must contain a field `pageInfo` that return a non-null `PageInfo` Object type.".to_string(),
                                 RULE_NAME,
                             )
                             .with_help(
-                                "Add a 'pageInfo' field that returns a non-null PageInfo type (e.g., 'pageInfo: PageInfo!')",
+                                "Add a `pageInfo` field that returns a non-null `PageInfo` type (e.g., `pageInfo: PageInfo!`)",
                             ),
                         );
                 }
                 Some(field) => {
-                    if field.type_ref.name.as_ref() != "PageInfo" {
+                    let is_wrong_type = field.type_ref.name.as_ref() != "PageInfo";
+                    let is_nullable = !field.type_ref.is_non_null;
+                    if is_wrong_type || is_nullable {
                         let field_start: usize = field.name_range.start().into();
                         let field_end: usize = field.name_range.end().into();
                         let field_span = graphql_syntax::SourceSpan {
@@ -170,44 +186,15 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                             .entry(type_def.file_id)
                             .or_default()
                             .push(
-                                LintDiagnostic::new(
-                                    field_span,
-                                    LintSeverity::Warning,
-                                    format!(
-                                        "'pageInfo' field on connection type '{}' must return 'PageInfo' type, found '{}'",
-                                        type_def.name, field.type_ref.name
-                                    ),
-                                    RULE_NAME,
-                                )
-                                .with_help(
-                                    "Change the type to 'PageInfo!'",
-                                ),
-                            );
-                    } else if !field.type_ref.is_non_null {
-                        let field_start: usize = field.name_range.start().into();
-                        let field_end: usize = field.name_range.end().into();
-                        let field_span = graphql_syntax::SourceSpan {
-                            start: field_start,
-                            end: field_end,
-                            line_offset: 0,
-                            byte_offset: 0,
-                            source: None,
-                        };
-                        diagnostics_by_file
-                            .entry(type_def.file_id)
-                            .or_default()
-                            .push(
-                                LintDiagnostic::new(
-                                    field_span,
-                                    LintSeverity::Warning,
-                                    format!(
-                                        "'pageInfo' field on connection type '{}' must be non-null",
-                                        type_def.name
-                                    ),
-                                    RULE_NAME,
-                                )
-                                .with_help("Change the type to 'PageInfo!' (non-null)"),
-                            );
+                            LintDiagnostic::new(
+                                field_span,
+                                LintSeverity::Warning,
+                                "`pageInfo` field must return a non-null `PageInfo` Object type."
+                                    .to_string(),
+                                RULE_NAME,
+                            )
+                            .with_help("Change the type to `PageInfo!`"),
+                        );
                     }
                 }
             }
@@ -291,16 +278,18 @@ mod tests {
     fn missing_edges_field() {
         let diagnostics = check_schema("type UserConnection { pageInfo: PageInfo! }");
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("missing an 'edges' field"));
+        assert!(diagnostics[0]
+            .message
+            .contains("Connection type must contain a field `edges` that return a list type."));
     }
 
     #[test]
     fn missing_page_info_field() {
         let diagnostics = check_schema("type UserConnection { edges: [UserEdge] }");
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0]
-            .message
-            .contains("missing a 'pageInfo' field"));
+        assert!(diagnostics[0].message.contains(
+            "Connection type must contain a field `pageInfo` that return a non-null `PageInfo` Object type."
+        ));
     }
 
     #[test]
@@ -314,7 +303,9 @@ mod tests {
         let diagnostics =
             check_schema("type UserConnection { edges: UserEdge pageInfo: PageInfo! }");
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("must return a list type"));
+        assert!(diagnostics[0]
+            .message
+            .contains("`edges` field must return a list type."));
     }
 
     #[test]
@@ -322,7 +313,9 @@ mod tests {
         let diagnostics =
             check_schema("type UserConnection { edges: [UserEdge] pageInfo: PageInfo }");
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("must be non-null"));
+        assert!(diagnostics[0]
+            .message
+            .contains("`pageInfo` field must return a non-null `PageInfo` Object type."));
     }
 
     #[test]
@@ -332,21 +325,25 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
             .message
-            .contains("must return 'PageInfo' type"));
+            .contains("`pageInfo` field must return a non-null `PageInfo` Object type."));
     }
 
     #[test]
     fn non_object_connection_type() {
         let diagnostics = check_schema("scalar UserConnection");
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("not an object type"));
+        assert!(diagnostics[0]
+            .message
+            .contains("Connection type must be an Object type."));
     }
 
     #[test]
     fn enum_connection_type() {
         let diagnostics = check_schema("enum StatusConnection { ACTIVE INACTIVE }");
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("not an object type"));
+        assert!(diagnostics[0]
+            .message
+            .contains("Connection type must be an Object type."));
     }
 
     #[test]
@@ -354,7 +351,9 @@ mod tests {
         let diagnostics =
             check_schema("interface NodeConnection { edges: [NodeEdge] pageInfo: PageInfo! }");
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("not an object type"));
+        assert!(diagnostics[0]
+            .message
+            .contains("Connection type must be an Object type."));
     }
 
     #[test]
@@ -367,5 +366,35 @@ mod tests {
         );
         // PostConnection is missing both edges and pageInfo
         assert_eq!(diagnostics.len(), 2);
+    }
+
+    #[test]
+    fn missing_connection_suffix() {
+        let diagnostics = check_schema("type Foo { edges: [FooEdge] pageInfo: PageInfo! }");
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0]
+            .message
+            .contains("Connection type must have `Connection` suffix."));
+    }
+
+    #[test]
+    fn missing_connection_suffix_only_edges() {
+        // Has only `edges` (no `pageInfo`) and isn't named Connection - should not fire
+        let diagnostics = check_schema("type Foo { edges: [FooEdge] }");
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn missing_connection_suffix_only_page_info() {
+        // Has only `pageInfo` (no `edges`) and isn't named Connection - should not fire
+        let diagnostics = check_schema("type Foo { pageInfo: PageInfo! }");
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn missing_connection_suffix_non_object() {
+        // Interfaces/unions etc. without the suffix should not fire MUST_HAVE_CONNECTION_SUFFIX
+        let diagnostics = check_schema("interface Foo { edges: [FooEdge] pageInfo: PageInfo! }");
+        assert!(diagnostics.is_empty());
     }
 }
