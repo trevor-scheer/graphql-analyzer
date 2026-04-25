@@ -74,7 +74,7 @@ impl FileDiscoveryResult {
 pub fn discover_document_files(
     config: &graphql_config::ProjectConfig,
     workspace_path: &std::path::Path,
-    extract_config: &graphql_extract::ExtractConfig,
+    #[cfg(feature = "extract")] extract_config: &graphql_extract::ExtractConfig,
 ) -> FileDiscoveryResult {
     let Some(documents_config) = &config.documents else {
         return FileDiscoveryResult::default();
@@ -121,18 +121,26 @@ pub fn discover_document_files(
                                         // Validate content matches expected kind (Executable)
                                         // For TS/JS files, we need to extract GraphQL first
                                         let graphql_content = if language.requires_extraction() {
-                                            // Extract and concatenate all GraphQL blocks
-                                            graphql_extract::extract_from_source(
-                                                &content,
-                                                language,
-                                                extract_config,
-                                                &path_str,
-                                            )
-                                            .unwrap_or_default()
-                                            .iter()
-                                            .map(|block| block.source.as_str())
-                                            .collect::<Vec<_>>()
-                                            .join("\n")
+                                            #[cfg(feature = "extract")]
+                                            {
+                                                // Extract and concatenate all GraphQL blocks
+                                                graphql_extract::extract_from_source(
+                                                    &content,
+                                                    language,
+                                                    extract_config,
+                                                    &path_str,
+                                                )
+                                                .unwrap_or_default()
+                                                .iter()
+                                                .map(|block| block.source.as_str())
+                                                .collect::<Vec<_>>()
+                                                .join("\n")
+                                            }
+                                            #[cfg(not(feature = "extract"))]
+                                            {
+                                                // No extractor available; treat as no GraphQL.
+                                                String::new()
+                                            }
                                         } else {
                                             content.clone()
                                         };
@@ -258,6 +266,7 @@ pub(crate) fn path_to_file_path(path: &std::path::Path) -> FilePath {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "extract")]
     #[test]
     fn test_discover_document_files_skips_ts_without_graphql() {
         let temp_dir = tempfile::tempdir().unwrap();

@@ -3429,6 +3429,7 @@ query GetUser {
         );
     }
 
+    #[cfg(feature = "extract")]
     #[test]
     fn test_typescript_graphql_extraction() {
         use graphql_extract::{extract_from_source, ExtractConfig, Language};
@@ -3653,6 +3654,7 @@ export const GET_POKEMON = gql`
         use super::*;
         use std::io::Write;
 
+        #[cfg(feature = "extract")]
         #[test]
         fn test_load_typescript_schema() {
             let temp_dir = tempfile::tempdir().unwrap();
@@ -5179,6 +5181,7 @@ export const RATE_LIMIT_QUERY = gql`
         );
     }
 
+    #[cfg(feature = "extract")]
     #[test]
     fn test_unused_fields_lint_with_config_loaded_typescript() {
         use std::io::Write;
@@ -5263,6 +5266,7 @@ export const RATE_LIMIT_QUERY = gql`
         );
     }
 
+    #[cfg(feature = "extract")]
     #[test]
     fn test_unused_fields_lint_simulating_save_after_open() {
         use std::io::Write;

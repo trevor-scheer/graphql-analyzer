@@ -34,8 +34,13 @@ graphql-syntax = { path = "../syntax" }
 graphql-hir = { path = "../hir" }
 graphql-analysis = { path = "../analysis" }
 graphql-linter = { path = "../linter" }
-graphql-extract = { path = "../extract" }
-graphql-introspect = { path = "../introspect" }
+graphql-extract = { path = "../extract", optional = true }
+graphql-introspect = { path = "../introspect", optional = true }
+
+[features]
+default = ["extract", "introspect"]
+extract = ["dep:graphql-extract", "graphql-syntax/extract", "graphql-ide-db/extract"]
+introspect = ["dep:graphql-introspect"]
 
 [dev-dependencies]
 tempfile = "3.0"
