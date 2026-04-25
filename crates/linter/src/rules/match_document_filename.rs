@@ -157,16 +157,20 @@ impl StandaloneDocumentLintRule for MatchDocumentFilenameRuleImpl {
                                 let start: usize = syntax.text_range().start().into();
                                 let end: usize = syntax.text_range().end().into();
 
+                                // TODO(parity): graphql-eslint reports only on the first
+                                // operation or fragment in the document and points at the
+                                // first character; we report on every definition at the
+                                // name's location.
                                 diagnostics.push(
                                     LintDiagnostic::warning(
                                         doc.span(start, end),
                                         format!(
-                                            "Filename '{filename_stem}' does not match {op_type_str} name '{name_text}'. Expected filename '{expected_filename}'."
+                                            "Unexpected filename \"{filename_stem}\". Rename it to \"{expected_filename}\""
                                         ),
                                         "matchDocumentFilename",
                                     )
                                     .with_help(format!(
-                                        "Rename the file to '{expected_filename}.graphql' or rename the {op_type_str} to match the filename"
+                                        "Rename the file to \"{expected_filename}.graphql\" or rename the {op_type_str} to match the filename"
                                     )),
                                 );
                             }
@@ -187,16 +191,20 @@ impl StandaloneDocumentLintRule for MatchDocumentFilenameRuleImpl {
                                     let start: usize = syntax.text_range().start().into();
                                     let end: usize = syntax.text_range().end().into();
 
+                                    // TODO(parity): graphql-eslint reports only on the
+                                    // first operation or fragment in the document and
+                                    // points at the first character; we report on every
+                                    // definition at the name's location.
                                     diagnostics.push(
                                         LintDiagnostic::warning(
                                             doc.span(start, end),
                                             format!(
-                                                "Filename '{filename_stem}' does not match fragment name '{name_text}'. Expected filename '{expected_filename}'."
+                                                "Unexpected filename \"{filename_stem}\". Rename it to \"{expected_filename}\""
                                             ),
                                             "matchDocumentFilename",
                                         )
                                         .with_help(format!(
-                                            "Rename the file to '{expected_filename}.graphql' or rename the fragment to match the filename"
+                                            "Rename the file to \"{expected_filename}.graphql\" or rename the fragment to match the filename"
                                         )),
                                     );
                                 }
@@ -481,7 +489,8 @@ mod tests {
             "file:///path/to/UpdateUser.graphql",
         );
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("mutation"));
+        assert!(diagnostics[0].message.contains("UpdateUser"));
+        assert!(diagnostics[0].message.contains("DeleteUser"));
     }
 
     #[test]
@@ -509,7 +518,7 @@ mod tests {
             "file:///path/to/UserFields.graphql",
         );
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("fragment"));
+        assert!(diagnostics[0].message.contains("UserFields"));
         assert!(diagnostics[0].message.contains("UserDetails"));
     }
 

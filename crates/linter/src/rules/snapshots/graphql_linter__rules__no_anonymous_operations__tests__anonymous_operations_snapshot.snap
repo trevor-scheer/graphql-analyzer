@@ -3,6 +3,6 @@ source: crates/graphql-linter/src/rules/no_anonymous_operations.rs
 assertion_line: 576
 expression: messages
 ---
-- Anonymous query operation. All operations should have explicit names for better monitoring and debugging
-- Anonymous mutation operation. All operations should have explicit names for better monitoring and debugging
-- Anonymous subscription operation. All operations should have explicit names for better monitoring and debugging
+- Anonymous GraphQL operations are forbidden. Make sure to name your query!
+- Anonymous GraphQL operations are forbidden. Make sure to name your mutation!
+- Anonymous GraphQL operations are forbidden. Make sure to name your subscription!

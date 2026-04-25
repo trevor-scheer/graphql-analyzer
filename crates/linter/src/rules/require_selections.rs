@@ -427,25 +427,27 @@ fn check_selection_set(
             );
 
             let fix = CodeFix::new(
-                format!("Add '{required_field}' field to {parent_type_name}"),
+                format!("Add `{required_field}` selection"),
                 vec![TextEdit::insert(
                     insert_pos,
                     format!("{required_field}\n{indent}"),
                 )],
             );
 
+            // TODO(parity): graphql-eslint groups missing fields into one diagnostic
+            // and references the parent selection's alias/name (e.g. `user.id`)
+            // rather than the parent type name. We emit one diagnostic per missing
+            // field and only have the type name in scope here. The wording below
+            // matches graphql-eslint's template otherwise.
             diagnostics.push(
                 LintDiagnostic::error(
                     doc.span(parent_location.start, parent_location.end),
                     format!(
-                        "Selection set on type '{parent_type_name}' is missing required field '{required_field}'"
+                        "Field `{parent_type_name}.{required_field}` must be selected when it's available on a type.\nInclude it in your selection set."
                     ),
                     "requireSelections",
                 )
-                .with_fix(fix)
-                .with_help(format!(
-                    "Add '{required_field}' to the selection set so the normalized cache can identify this object"
-                )),
+                .with_fix(fix),
             );
         }
     }
@@ -784,7 +786,7 @@ query GetUser {
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("User"));
-        assert!(diagnostics[0].message.contains("'id'"));
+        assert!(diagnostics[0].message.contains("`User.id`"));
         assert_eq!(diagnostics[0].severity, LintSeverity::Error);
     }
 
@@ -924,8 +926,8 @@ query GetUser {
         // Missing both `id` and `__typename`
         assert_eq!(diagnostics.len(), 2);
         let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
-        assert!(messages.iter().any(|m| m.contains("'id'")));
-        assert!(messages.iter().any(|m| m.contains("'__typename'")));
+        assert!(messages.iter().any(|m| m.contains("`User.id`")));
+        assert!(messages.iter().any(|m| m.contains("`User.__typename`")));
     }
 
     #[test]
@@ -973,8 +975,7 @@ query GetUser {
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Post"));
-        assert!(diagnostics[0].message.contains("'id'"));
+        assert!(diagnostics[0].message.contains("`Post.id`"));
     }
 
     #[test]
@@ -1010,7 +1011,7 @@ mutation UpdateUser {
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("User"));
-        assert!(diagnostics[0].message.contains("'id'"));
+        assert!(diagnostics[0].message.contains("`User.id`"));
     }
 
     #[test]
@@ -1094,6 +1095,8 @@ query GetNode {
         // The selection set on Node is missing `id`.
         // The inline fragment on User is also missing `id`.
         assert!(!diagnostics.is_empty());
-        assert!(diagnostics.iter().any(|d| d.message.contains("'id'")));
+        // Either the Node interface or the User inline fragment is missing
+        // `id` — at least one of those must surface.
+        assert!(diagnostics.iter().any(|d| d.message.contains(".id`")));
     }
 }

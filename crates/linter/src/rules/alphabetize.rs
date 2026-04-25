@@ -154,12 +154,23 @@ fn check_selection_set_order(
                         };
 
                         if let Some((start, end)) = start_offset {
+                            let curr_kind = match &selection {
+                                cst::Selection::FragmentSpread(_) => "fragment spread",
+                                _ => "field",
+                            };
+                            let prev_kind = match &selection {
+                                // TODO(parity): we don't track the previous node's kind, so
+                                // mixed field/fragment-spread orderings will report the current
+                                // selection's kind for both sides.
+                                cst::Selection::FragmentSpread(_) => "fragment spread",
+                                _ => "field",
+                            };
                             diagnostics.push(
                                 LintDiagnostic::new(
                                     doc.span(start, end),
                                     LintSeverity::Warning,
                                     format!(
-                                        "'{name}' should be before '{prev}' (alphabetical order)"
+                                        "{curr_kind} `{name}` should be before {prev_kind} `{prev}`"
                                     ),
                                     "alphabetize",
                                 )
@@ -216,9 +227,7 @@ fn check_argument_order(
                         LintDiagnostic::new(
                             doc.span(start, end),
                             LintSeverity::Warning,
-                            format!(
-                                "Argument '{name}' should be before '{prev}' (alphabetical order)"
-                            ),
+                            format!("argument `{name}` should be before argument `{prev}`"),
                             "alphabetize",
                         )
                         .with_help("Reorder arguments alphabetically by name"),
@@ -249,9 +258,7 @@ fn check_variable_order(
                             LintDiagnostic::new(
                                 doc.span(start, end),
                                 LintSeverity::Warning,
-                                format!(
-                                    "Variable '${name}' should be before '${prev}' (alphabetical order)"
-                                ),
+                                format!("variable `{name}` should be before variable `{prev}`"),
                                 "alphabetize",
                             )
                             .with_help("Reorder variable definitions alphabetically by name"),
@@ -319,7 +326,7 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
             .message
-            .contains("'age' should be before 'name'"));
+            .contains("field `age` should be before field `name`"));
     }
 
     #[test]
@@ -328,6 +335,6 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
             .message
-            .contains("'id' should be before 'title'"));
+            .contains("field `id` should be before field `title`"));
     }
 }

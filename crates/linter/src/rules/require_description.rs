@@ -74,7 +74,10 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
                         LintDiagnostic::new(
                             span,
                             LintSeverity::Warning,
-                            format!("{kind_name} '{}' is missing a description", type_def.name),
+                            format!(
+                                "Description is required for {kind_name} \"{}\"",
+                                type_def.name
+                            ),
                             "requireDescription",
                         )
                         .with_help(
@@ -150,7 +153,7 @@ type User {
         let user_warnings: Vec<_> = diagnostics
             .values()
             .flatten()
-            .filter(|d| d.message.contains("'User'"))
+            .filter(|d| d.message.contains("\"User\""))
             .collect();
         assert!(user_warnings.is_empty());
     }
@@ -173,7 +176,7 @@ type User {
         let user_warnings: Vec<_> = diagnostics
             .values()
             .flatten()
-            .filter(|d| d.message.contains("'User'"))
+            .filter(|d| d.message.contains("\"User\""))
             .collect();
         assert_eq!(user_warnings.len(), 1);
     }

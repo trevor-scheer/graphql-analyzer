@@ -120,13 +120,16 @@ fn check_selection_set(
                         if let Some(name_node) = name_node {
                             let start: usize = name_node.syntax().text_range().start().into();
                             let end: usize = name_node.syntax().text_range().end().into();
+                            // Message format mirrors `@graphql-eslint/eslint-plugin`'s
+                            // `no-duplicate-fields`. The `type` placeholder is
+                            // hardcoded to `Field` because we only detect duplicate
+                            // fields today; extending to duplicate Arguments and
+                            // VariableDefinitions is a follow-up.
                             diagnostics.push(
                                 LintDiagnostic::new(
                                     doc.span(start, end),
                                     LintSeverity::Warning,
-                                    format!(
-                                        "Field '{name}' is already selected in this selection set"
-                                    ),
+                                    format!("Field `{name}` defined multiple times."),
                                     "noDuplicateFields",
                                 )
                                 .with_help(
@@ -221,7 +224,7 @@ mod tests {
     fn test_duplicate_alias() {
         let diagnostics = check("query Q { user { a: name a: email } }");
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("'a'"));
+        assert!(diagnostics[0].message.contains("`a`"));
     }
 
     #[test]

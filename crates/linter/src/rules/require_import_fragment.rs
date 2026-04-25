@@ -161,14 +161,10 @@ impl StandaloneDocumentLintRule for RequireImportFragmentRuleImpl {
                     LintDiagnostic::new(
                         doc.span(start, end),
                         LintSeverity::Warning,
-                        format!(
-                            "Fragment '{frag_name}' is used without a corresponding import comment"
-                        ),
+                        format!("Expected `{frag_name}` fragment to be imported."),
                         "requireImportFragment",
                     )
-                    .with_help(format!(
-                        "Add an import comment: # import {frag_name} from \"path/to/file.graphql\""
-                    )),
+                    .with_help(format!("Add import expression for `{frag_name}`.")),
                 );
             }
         }
@@ -225,9 +221,7 @@ mod tests {
         let diagnostics = check("query GetUser { user { ...UserFields } }");
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("UserFields"));
-        assert!(diagnostics[0]
-            .message
-            .contains("without a corresponding import"));
+        assert!(diagnostics[0].message.contains("fragment to be imported"));
     }
 
     #[test]
@@ -309,7 +303,7 @@ query GetFeed { user { ...UserFields } posts { ...PostFields } }"#;
         let diagnostics = check(source);
         assert_eq!(diagnostics.len(), 1);
         let help = diagnostics[0].help.as_deref().unwrap();
-        assert!(help.contains("# import UserFields"));
+        assert!(help.contains("Add import expression for `UserFields`"));
     }
 
     #[test]

@@ -56,18 +56,17 @@ impl StandaloneSchemaLintRule for UniqueEnumValueNamesRuleImpl {
         }
 
         // Report values that appear in multiple enums
+        // TODO(parity): graphql-eslint flags case-insensitive duplicates within a single
+        // enum (e.g. `Value`, `VALUE`, `ValuE` in the same enum). Our rule instead flags
+        // exact-name duplicates across different enums. The behaviors are unrelated; the
+        // message wording below mirrors graphql-eslint's template using our cross-enum
+        // values, but the trigger condition still differs.
         for (value_name, enums) in &value_to_enums {
             if enums.len() <= 1 {
                 continue;
             }
 
             for (enum_name, file_id, name_range) in enums {
-                let other_enums: Vec<_> = enums
-                    .iter()
-                    .filter(|(n, _, _)| n != enum_name)
-                    .map(|(n, _, _)| n.as_str())
-                    .collect();
-
                 let start: usize = name_range.start().into();
                 let end: usize = name_range.end().into();
                 let span = graphql_syntax::SourceSpan {
@@ -83,13 +82,9 @@ impl StandaloneSchemaLintRule for UniqueEnumValueNamesRuleImpl {
                         span,
                         LintSeverity::Warning,
                         format!(
-                            "Enum value '{value_name}' in '{enum_name}' is also defined in: {}",
-                            other_enums.join(", ")
+                            "Unexpected case-insensitive enum values duplicates for enum value \"{value_name}\" in enum \"{enum_name}\""
                         ),
                         "uniqueEnumValueNames",
-                    )
-                    .with_help(
-                        "Rename one of the enum values so each value is unique across the schema",
                     ),
                 );
             }

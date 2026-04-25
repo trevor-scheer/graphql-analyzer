@@ -35,6 +35,8 @@ impl StandaloneSchemaLintRule for NoTypenamePrefixRuleImpl {
         let schema_types = graphql_hir::schema_types(db, project_files);
 
         for type_def in schema_types.values() {
+            // TODO(parity): graphql-eslint only checks Object/Interface (and their extensions),
+            // not InputObject. We currently include InputObject as well.
             if !matches!(
                 type_def.kind,
                 TypeDefKind::Object | TypeDefKind::Interface | TypeDefKind::InputObject
@@ -47,6 +49,9 @@ impl StandaloneSchemaLintRule for NoTypenamePrefixRuleImpl {
             for field in &type_def.fields {
                 let field_name_lower = field.name.to_lowercase();
 
+                // TODO(parity): graphql-eslint flags any field whose lowercased name starts with
+                // the lowercased type name, including the case where they are equal. We additionally
+                // require the field name to be strictly longer than the type name.
                 if field_name_lower.starts_with(&type_name_lower)
                     && field_name_lower.len() > type_name_lower.len()
                 {
@@ -63,23 +68,15 @@ impl StandaloneSchemaLintRule for NoTypenamePrefixRuleImpl {
                     diagnostics_by_file
                         .entry(type_def.file_id)
                         .or_default()
-                        .push(
-                            LintDiagnostic::new(
-                                span,
-                                LintSeverity::Warning,
-                                format!(
-                                    "Field '{}' on type '{}' starts with the type name. Consider renaming to '{}'.",
-                                    field.name,
-                                    type_def.name,
-                                    &field.name[type_def.name.len()..]
-                                ),
-                                "noTypenamePrefix",
-                            )
-                            .with_help(format!(
-                                "Rename the field to '{}' to avoid repeating the parent type name",
-                                &field.name[type_def.name.len()..]
-                            )),
-                        );
+                        .push(LintDiagnostic::new(
+                            span,
+                            LintSeverity::Warning,
+                            format!(
+                                "Field \"{}\" starts with the name of the parent type \"{}\"",
+                                field.name, type_def.name,
+                            ),
+                            "noTypenamePrefix",
+                        ));
                 }
             }
         }

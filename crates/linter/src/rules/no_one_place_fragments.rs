@@ -118,12 +118,14 @@ impl ProjectLintRule for NoOnePlaceFragmentsRuleImpl {
                                 continue;
                             };
 
+                            // TODO(parity): graphql-eslint includes the relative file path of
+                            // the single usage site (`Inline him in "{{filePath}}".`). Resolving
+                            // a `FileId` to a CWD-relative path requires plumbing not currently
+                            // available here, so we omit the trailing sentence for now.
                             diagnostics_by_file.entry(*file_id).or_default().push(
                                 LintDiagnostic::warning(
                                     doc.span(name_range.start, name_range.end),
-                                    format!(
-                                        "Fragment '{name}' is used in only one place. Consider inlining it."
-                                    ),
+                                    format!("Fragment `{name}` used only once."),
                                     "noOnePlaceFragments",
                                 )
                                 .with_help("Inline the fragment at its single usage site")

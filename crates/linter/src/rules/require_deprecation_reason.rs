@@ -1,7 +1,21 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneSchemaLintRule};
 use graphql_base_db::{FileId, ProjectFiles};
+use graphql_hir::TypeDefKind;
 use std::collections::HashMap;
+
+fn type_def_kind_display(kind: TypeDefKind) -> &'static str {
+    match kind {
+        TypeDefKind::Interface => "interface",
+        TypeDefKind::Union => "union",
+        TypeDefKind::Enum => "enum",
+        TypeDefKind::Scalar => "scalar",
+        TypeDefKind::InputObject => "input",
+        // `Object` and any future TypeDefKind variants fall through to the
+        // generic "type" — matches graphql-eslint's `displayNodeName` default.
+        _ => "type",
+    }
+}
 
 /// Lint rule that requires a reason in @deprecated directives
 pub struct RequireDeprecationReasonRuleImpl;
@@ -52,8 +66,10 @@ impl StandaloneSchemaLintRule for RequireDeprecationReasonRuleImpl {
                                 span,
                                 LintSeverity::Warning,
                                 format!(
-                                    "Field '{}.{}' is deprecated without a reason",
-                                    type_def.name, field.name
+                                    "Deprecation reason is required for field \"{}\" in {} \"{}\".",
+                                    field.name,
+                                    type_def_kind_display(type_def.kind),
+                                    type_def.name
                                 ),
                                 "requireDeprecationReason",
                             )
@@ -84,8 +100,8 @@ impl StandaloneSchemaLintRule for RequireDeprecationReasonRuleImpl {
                                     span,
                                     LintSeverity::Warning,
                                     format!(
-                                        "Argument '{}' on '{}.{}' is deprecated without a reason",
-                                        arg.name, type_def.name, field.name
+                                        "Deprecation reason is required for input value \"{}\" in field \"{}\".",
+                                        arg.name, field.name
                                     ),
                                     "requireDeprecationReason",
                                 )
@@ -118,8 +134,8 @@ impl StandaloneSchemaLintRule for RequireDeprecationReasonRuleImpl {
                                 span,
                                 LintSeverity::Warning,
                                 format!(
-                                    "Enum value '{}.{}' is deprecated without a reason",
-                                    type_def.name, ev.name
+                                    "Deprecation reason is required for enum value \"{}\" in enum \"{}\".",
+                                    ev.name, type_def.name
                                 ),
                                 "requireDeprecationReason",
                             )
@@ -206,6 +222,6 @@ type User {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("without a reason"));
+        assert!(all[0].message.contains("Deprecation reason is required"));
     }
 }

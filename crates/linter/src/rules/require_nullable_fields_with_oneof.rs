@@ -69,14 +69,13 @@ impl StandaloneSchemaLintRule for RequireNullableFieldsWithOneofRuleImpl {
                                 span,
                                 LintSeverity::Error,
                                 format!(
-                                    "Field '{}' on @oneOf input type '{}' must be nullable. \
-                                     @oneOf requires exactly one field to be provided, so all fields must be optional.",
+                                    "input value `{}` in input `{}` must be nullable when `@oneOf` is in use",
                                     field.name, type_def.name
                                 ),
                                 "requireNullableFieldsWithOneof",
                             )
                             .with_help(format!(
-                                "Remove the '!' from the type of field '{}' to make it nullable",
+                                "Remove the `!` from the type of field `{}` to make it nullable",
                                 field.name
                             ))
                             .with_url("https://the-guild.dev/graphql/eslint/rules/require-nullable-fields-with-oneof"),

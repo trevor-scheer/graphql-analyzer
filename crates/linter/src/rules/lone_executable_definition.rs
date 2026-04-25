@@ -3,6 +3,8 @@ use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 
+use super::{get_operation_kind, OperationKind};
+
 /// Lint rule that requires each file to contain only one executable definition
 ///
 /// Having one operation or fragment per file improves code organization and
@@ -62,10 +64,19 @@ impl StandaloneDocumentLintRule for LoneExecutableDefinitionRuleImpl {
                 continue;
             }
 
-            // Report all definitions after the first one
-            let mut all_defs: Vec<(&str, Option<String>, usize, usize)> = Vec::new();
+            // Report all definitions after the first one. The pascal-cased "kind"
+            // (`Query`, `Mutation`, `Subscription`, `Fragment`) matches graphql-eslint's
+            // message wording.
+            let mut all_defs: Vec<(&'static str, Option<String>, usize, usize)> = Vec::new();
 
             for op in &operations {
+                let kind = op
+                    .operation_type()
+                    .map_or("Query", |op_type| match get_operation_kind(&op_type) {
+                        OperationKind::Query => "Query",
+                        OperationKind::Mutation => "Mutation",
+                        OperationKind::Subscription => "Subscription",
+                    });
                 let name = op.name().map(|n| n.text().to_string());
                 let name_or_keyword = op
                     .name()
@@ -89,7 +100,7 @@ impl StandaloneDocumentLintRule for LoneExecutableDefinitionRuleImpl {
                     });
 
                 if let Some((start, end)) = name_or_keyword {
-                    all_defs.push(("operation", name, start, end));
+                    all_defs.push((kind, name, start, end));
                 }
             }
 
@@ -105,26 +116,23 @@ impl StandaloneDocumentLintRule for LoneExecutableDefinitionRuleImpl {
                 });
 
                 if let Some((start, end)) = name_or_keyword {
-                    all_defs.push(("fragment", name, start, end));
+                    all_defs.push(("Fragment", name, start, end));
                 }
             }
 
             // Sort by position and skip the first definition
             all_defs.sort_by_key(|d| d.2);
             for (kind, name, start, end) in all_defs.into_iter().skip(1) {
-                let def_desc =
-                    name.map_or_else(|| format!("anonymous {kind}"), |n| format!("{kind} '{n}'"));
-                diagnostics.push(
-                    LintDiagnostic::new(
-                        doc.span(start, end),
-                        LintSeverity::Warning,
-                        format!(
-                            "Only one executable definition is allowed per file. Found additional {def_desc}."
-                        ),
-                        "loneExecutableDefinition",
-                    )
-                    .with_help("Move the extra definition into its own file"),
-                );
+                let label = match name {
+                    Some(n) => format!("{kind} \"{n}\""),
+                    None => kind.to_string(),
+                };
+                diagnostics.push(LintDiagnostic::new(
+                    doc.span(start, end),
+                    LintSeverity::Warning,
+                    format!("{label} should be in a separate file."),
+                    "loneExecutableDefinition",
+                ));
             }
         }
 
@@ -191,7 +199,10 @@ mod tests {
     fn test_multiple_operations() {
         let diagnostics = check("query Q1 { user { id } } query Q2 { posts { id } }");
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Q2"));
+        assert_eq!(
+            diagnostics[0].message,
+            "Query \"Q2\" should be in a separate file."
+        );
     }
 
     #[test]

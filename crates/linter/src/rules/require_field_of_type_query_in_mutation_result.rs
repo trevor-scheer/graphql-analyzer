@@ -66,6 +66,8 @@ impl StandaloneSchemaLintRule for RequireFieldOfTypeQueryInMutationResultRuleImp
                 .any(|f| f.type_ref.name.as_ref() == query_type_name);
 
             if !has_query_field {
+                // TODO(parity): graphql-eslint reports on the mutation field's return type
+                // name node; we currently report on the mutation field name range.
                 let start: usize = field.name_range.start().into();
                 let end: usize = field.name_range.end().into();
                 let span = graphql_syntax::SourceSpan {
@@ -79,20 +81,14 @@ impl StandaloneSchemaLintRule for RequireFieldOfTypeQueryInMutationResultRuleImp
                 diagnostics_by_file
                     .entry(mutation_type.file_id)
                     .or_default()
-                    .push(
-                        LintDiagnostic::new(
-                            span,
-                            LintSeverity::Warning,
-                            format!(
-                                "Mutation field '{}' result type '{}' should include a field of type '{}'",
-                                field.name, return_type_name, query_type_name
-                            ),
-                            "requireFieldOfTypeQueryInMutationResult",
-                        )
-                        .with_help(format!(
-                            "Add a field returning '{query_type_name}' to the mutation payload so clients can refetch in the same round trip"
-                        )),
-                    );
+                    .push(LintDiagnostic::new(
+                        span,
+                        LintSeverity::Warning,
+                        format!(
+                            "Mutation result type `{return_type_name}` must contain field of type `{query_type_name}`"
+                        ),
+                        "requireFieldOfTypeQueryInMutationResult",
+                    ));
             }
         }
 
@@ -161,6 +157,9 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("createUser"));
+        assert_eq!(
+            all[0].message,
+            "Mutation result type `CreateUserResult` must contain field of type `Query`"
+        );
     }
 }

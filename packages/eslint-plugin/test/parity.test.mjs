@@ -146,6 +146,36 @@ test("rules shared with graphql-eslint fire on the same fixture files", async ()
   }
 });
 
+test("messages and counts match graphql-eslint exactly for fixture-exercised rules", async () => {
+  // Hard parity: same diagnostic count, same messages, same lines. The
+  // analyzer's lint rule messages have been aligned to graphql-eslint's, so
+  // any drift here means a regression in either plugin's output.
+  const exercised = {
+    "no-anonymous-operations": { file: "src/operations.graphql", severity: 2 },
+    "no-duplicate-fields": { file: "src/operations.graphql", severity: 2 },
+    "no-hashtag-description": { file: "schema.graphql", severity: 1 },
+  };
+
+  for (const [rule, { file, severity }] of Object.entries(exercised)) {
+    const ourDiag = await lintOne("ours", rule, severity, file);
+    const theirDiag = await lintOne("theirs", rule, severity, file);
+
+    assert.equal(
+      ourDiag.length,
+      theirDiag.length,
+      `${rule} diagnostic count drift: ours=${ourDiag.length} theirs=${theirDiag.length}`,
+    );
+
+    const ourMessages = ourDiag.map((d) => d.message).sort();
+    const theirMessages = theirDiag.map((d) => d.message).sort();
+    assert.deepEqual(ourMessages, theirMessages, `${rule} message text drift on ${file}`);
+
+    const ourLines = ourDiag.map((d) => d.line).sort((a, b) => a - b);
+    const theirLines = theirDiag.map((d) => d.line).sort((a, b) => a - b);
+    assert.deepEqual(ourLines, theirLines, `${rule} firing line drift on ${file}`);
+  }
+});
+
 async function lintOne(which, rule, severity, file) {
   const plugin = which === "ours" ? ours : theirs;
   const scope = which === "ours" ? "@graphql-analyzer" : "@graphql-eslint";

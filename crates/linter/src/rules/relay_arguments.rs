@@ -113,61 +113,80 @@ impl StandaloneSchemaLintRule for RelayArgumentsRuleImpl {
                         source: None,
                     };
 
-                    let mut missing = Vec::new();
-                    if opts.include_both {
-                        if !has_first {
-                            missing.push("first");
-                        }
-                        if !has_after {
-                            missing.push("after");
-                        }
-                        if !has_last {
-                            missing.push("last");
-                        }
-                        if !has_before {
-                            missing.push("before");
-                        }
-                    } else {
-                        // Need at least one complete pair
-                        if !has_forward && !has_backward {
-                            if !has_first {
-                                missing.push("first");
-                            }
-                            if !has_after {
-                                missing.push("after");
-                            }
-                            if !has_last {
-                                missing.push("last");
-                            }
-                            if !has_before {
-                                missing.push("before");
-                            }
-                        }
-                    }
-
-                    let missing_str = missing.join(", ");
-
-                    let help_msg = if opts.include_both {
-                        "Add both forward (first/after) and backward (last/before) pagination arguments"
-                    } else {
-                        "Add forward (first/after) or backward (last/before) pagination arguments"
-                    };
-
-                    diagnostics_by_file
-                        .entry(field.file_id)
-                        .or_default()
-                        .push(
-                            LintDiagnostic::new(
+                    // Match graphql-eslint behavior: when neither forward nor
+                    // backward pagination is present, emit a single
+                    // MISSING_ARGUMENTS diagnostic and stop checking this field.
+                    if !has_forward && !has_backward {
+                        diagnostics_by_file
+                            .entry(field.file_id)
+                            .or_default()
+                            .push(LintDiagnostic::new(
                                 span,
                                 LintSeverity::Warning,
-                                format!(
-                                    "Field '{}' on type '{}' returns a Connection type but is missing pagination arguments: {}",
-                                    field.name, type_def.name, missing_str
-                                ),
+                                "A field that returns a Connection type must include forward pagination arguments (`first` and `after`), backward pagination arguments (`last` and `before`), or both.".to_string(),
                                 "relayArguments",
-                            )
-                            .with_help(help_msg),
-                        );
+                            ));
+                        continue;
+                    }
+
+                    // Otherwise, with `includeBoth=true`, one pair is present and
+                    // we need to flag each missing argument from the other pair
+                    // individually. graphql-eslint emits per-argument messages
+                    // of the form:
+                    //   "Field `X` must contain an argument `Y`, that return Z."
+                    // where Z is `Int` for first/last and `String or Scalar`
+                    // for after/before.
+                    //
+                    // TODO(parity): graphql-eslint also validates the *types* of
+                    // existing first/after/last/before arguments and emits
+                    // "Argument `Y` must return Z." when types don't match. We
+                    // currently only check presence, not types.
+                    let check_missing = |arg_name: &str,
+                                         present: bool,
+                                         return_type: &str|
+                     -> Option<LintDiagnostic> {
+                        if present {
+                            return None;
+                        }
+                        Some(LintDiagnostic::new(
+                            span.clone(),
+                            LintSeverity::Warning,
+                            format!(
+                                "Field `{}` must contain an argument `{}`, that return {}.",
+                                field.name, arg_name, return_type
+                            ),
+                            "relayArguments",
+                        ))
+                    };
+
+                    if opts.include_both || has_first || has_after {
+                        if let Some(d) = check_missing("first", has_first, "Int") {
+                            diagnostics_by_file
+                                .entry(field.file_id)
+                                .or_default()
+                                .push(d);
+                        }
+                        if let Some(d) = check_missing("after", has_after, "String or Scalar") {
+                            diagnostics_by_file
+                                .entry(field.file_id)
+                                .or_default()
+                                .push(d);
+                        }
+                    }
+                    if opts.include_both || has_last || has_before {
+                        if let Some(d) = check_missing("last", has_last, "Int") {
+                            diagnostics_by_file
+                                .entry(field.file_id)
+                                .or_default()
+                                .push(d);
+                        }
+                        if let Some(d) = check_missing("before", has_before, "String or Scalar") {
+                            diagnostics_by_file
+                                .entry(field.file_id)
+                                .or_default()
+                                .push(d);
+                        }
+                    }
                 }
             }
         }
@@ -272,8 +291,9 @@ type Post {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("posts"));
-        assert!(all[0].message.contains("missing pagination arguments"));
+        assert!(all[0].message.contains("Connection type must include"));
+        assert!(all[0].message.contains("`first` and `after`"));
+        assert!(all[0].message.contains("`last` and `before`"));
     }
 
     #[test]
@@ -302,9 +322,20 @@ type Post {
         // Default: includeBoth = true, so only forward args should warn
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
-        assert_eq!(all.len(), 1, "Should warn when only forward args: {all:?}");
-        assert!(all[0].message.contains("last"));
-        assert!(all[0].message.contains("before"));
+        // graphql-eslint emits one diagnostic per missing argument when one
+        // pair is present but the other is missing.
+        assert_eq!(
+            all.len(),
+            2,
+            "Should warn for missing `last` and `before`: {all:?}"
+        );
+        let messages: Vec<&str> = all.iter().map(|d| d.message.as_str()).collect();
+        assert!(messages
+            .iter()
+            .any(|m| m.contains("`last`") && m.contains("Int")));
+        assert!(messages
+            .iter()
+            .any(|m| m.contains("`before`") && m.contains("String or Scalar")));
     }
 
     #[test]
@@ -461,7 +492,7 @@ type Post implements Node {
             1,
             "Should warn on interface connection fields: {all:?}"
         );
-        assert!(all[0].message.contains("HasPosts"));
+        assert!(all[0].message.contains("Connection type must include"));
     }
 
     #[test]
@@ -489,9 +520,12 @@ type Comment { id: ID! }
             2,
             "Should warn on posts and followers but not comments: {all:?}"
         );
+        // The aligned graphql-eslint MISSING_ARGUMENTS message is generic and
+        // does not include the field name; both diagnostics share the same text.
         let messages: Vec<&str> = all.iter().map(|d| d.message.as_str()).collect();
-        assert!(messages.iter().any(|m| m.contains("'posts'")));
-        assert!(messages.iter().any(|m| m.contains("'followers'")));
+        assert!(messages
+            .iter()
+            .all(|m| m.contains("Connection type must include")));
     }
 
     #[test]

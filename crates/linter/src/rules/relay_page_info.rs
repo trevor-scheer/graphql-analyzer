@@ -58,6 +58,9 @@ const REQUIRED_FIELDS: &[RequiredField] = &[
 ];
 
 impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
+    // TODO(parity): graphql-eslint allows the cursor field type to be `String` OR any Scalar
+    // (via `isScalarType`). We currently only allow `String`. Custom scalar cursors
+    // (e.g. `ID`, custom `Cursor` scalars) should pass without diagnostic.
     fn check(
         &self,
         db: &dyn graphql_hir::GraphQLHirDatabase,
@@ -67,6 +70,9 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
         let schema_types = graphql_hir::schema_types(db, project_files);
 
+        // TODO(parity): graphql-eslint reports "The server must provide a `PageInfo` object."
+        // on the first character of the schema entry file when PageInfo is absent. We currently
+        // skip diagnostics in that case.
         let Some(page_info) = schema_types.get("PageInfo") else {
             return diagnostics_by_file;
         };
@@ -88,7 +94,7 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
                     LintDiagnostic::new(
                         span,
                         LintSeverity::Warning,
-                        "PageInfo must be an object type per the Relay specification",
+                        "`PageInfo` must be an Object type.",
                         "relayPageInfo",
                     )
                     .with_url("https://relay.dev/graphql/connections.htm#sec-undefined.PageInfo"),
@@ -113,6 +119,12 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
                     } else {
                         required.type_name.to_string()
                     };
+                    let return_type = if required.is_non_null {
+                        "non-null Boolean".to_string()
+                    } else {
+                        "either String or Scalar, which can be null if there are no results"
+                            .to_string()
+                    };
 
                     let start: usize = field.name_range.start().into();
                     let end: usize = field.name_range.end().into();
@@ -130,12 +142,13 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
                             LintDiagnostic::new(
                                 span,
                                 LintSeverity::Warning,
-                                format!(
-                                    "PageInfo field '{}' must have type '{}' per the Relay specification",
-                                    required.name, expected_type
-                                ),
+                                format!("Field `{}` must return {}.", required.name, return_type),
                                 "relayPageInfo",
                             )
+                            .with_help(format!(
+                                "Change the type of `{}` to `{}`",
+                                required.name, expected_type
+                            ))
                             .with_url(
                                 "https://relay.dev/graphql/connections.htm#sec-undefined.PageInfo",
                             ),
@@ -147,6 +160,11 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
                     format!("{}!", required.type_name)
                 } else {
                     required.type_name.to_string()
+                };
+                let return_type = if required.is_non_null {
+                    "non-null Boolean".to_string()
+                } else {
+                    "either String or Scalar, which can be null if there are no results".to_string()
                 };
 
                 let start: usize = page_info.name_range.start().into();
@@ -166,13 +184,13 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
                             span,
                             LintSeverity::Warning,
                             format!(
-                                "PageInfo is missing required field '{}: {}' per the Relay specification",
-                                required.name, expected_type
+                                "`PageInfo` must contain a field `{}`, that return {}.",
+                                required.name, return_type
                             ),
                             "relayPageInfo",
                         )
                         .with_help(format!(
-                            "Add field '{}: {}' to the PageInfo type",
+                            "Add field `{}: {}` to the `PageInfo` type",
                             required.name, expected_type
                         ))
                         .with_url(
@@ -311,7 +329,7 @@ mod tests {
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
         assert!(all[0].message.contains("hasNextPage"));
-        assert!(all[0].message.contains("Boolean!"));
+        assert!(all[0].message.contains("non-null Boolean"));
     }
 
     #[test]
@@ -366,6 +384,6 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("must be an object type"));
+        assert!(all[0].message.contains("`PageInfo` must be an Object type"));
     }
 }

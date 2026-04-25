@@ -65,6 +65,10 @@ impl StandaloneSchemaLintRule for StrictIdInTypesRuleImpl {
                     source: None,
                 };
 
+                // TODO(parity): graphql-eslint supports configurable
+                // `acceptedIdNames`, `acceptedIdTypes`, and `exceptions`
+                // (types/suffixes); we currently hardcode `id`/`ID` and only
+                // skip root types.
                 diagnostics_by_file
                     .entry(type_def.file_id)
                     .or_default()
@@ -73,13 +77,13 @@ impl StandaloneSchemaLintRule for StrictIdInTypesRuleImpl {
                         span,
                         LintSeverity::Warning,
                         format!(
-                            "Type '{}' is missing an 'id' field of type 'ID'",
+                            "type `{}` must have exactly one non-nullable unique identifier.\nAccepted name: `id`.\nAccepted type: `ID`.",
                             type_def.name
                         ),
                         "strictIdInTypes",
                     )
                     .with_help(
-                        "Add an 'id: ID!' field so this type can be uniquely identified and cached",
+                        "Add an `id: ID!` field so this type can be uniquely identified and cached",
                     ),
                 );
             }
@@ -150,7 +154,10 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("'User'"));
+        assert!(all[0].message.contains("`User`"));
+        assert!(all[0]
+            .message
+            .contains("must have exactly one non-nullable unique identifier"));
     }
 
     #[test]

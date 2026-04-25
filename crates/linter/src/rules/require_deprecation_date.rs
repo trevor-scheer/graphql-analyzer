@@ -36,6 +36,14 @@ impl RequireDeprecationDateOptions {
 /// This helps teams track when deprecated fields should be removed by requiring
 /// a date to be included in the deprecation reason via a pattern like
 /// `deletionDate: 01/01/2025`.
+// TODO(parity): graphql-eslint reads the deletion date from a dedicated
+// `deletionDate` argument on the `@deprecated` directive (not the reason
+// string), and additionally reports MESSAGE_INVALID_FORMAT (`Deletion date
+// must be in format "DD/MM/YYYY" for ...`), MESSAGE_INVALID_DATE (`Invalid
+// "..." deletion date for ...`), and MESSAGE_CAN_BE_REMOVED (`... can be
+// removed`). Our implementation only checks for the argument-name substring
+// inside the reason string and only emits the "must have a deletion date"
+// message.
 pub struct RequireDeprecationDateRuleImpl;
 
 impl LintRule for RequireDeprecationDateRuleImpl {
@@ -113,15 +121,11 @@ impl StandaloneSchemaLintRule for RequireDeprecationDateRuleImpl {
                                     span,
                                     LintSeverity::Warning,
                                     format!(
-                                        "Field '{}.{}' is deprecated without a deletion date",
-                                        type_def.name, field.name
+                                        "Directive `@deprecated` must have a deletion date for field `{}` in type `{}`",
+                                        field.name, type_def.name
                                     ),
                                     "requireDeprecationDate",
-                                )
-                                .with_help(format!(
-                                    "Include '{}: <date>' in the @deprecated reason string",
-                                    opts.argument_name
-                                )),
+                                ),
                             );
                     }
                 }
@@ -152,15 +156,11 @@ impl StandaloneSchemaLintRule for RequireDeprecationDateRuleImpl {
                                         span,
                                         LintSeverity::Warning,
                                         format!(
-                                            "Argument '{}' on '{}.{}' is deprecated without a deletion date",
-                                            arg.name, type_def.name, field.name
+                                            "Directive `@deprecated` must have a deletion date for input value `{}` in field `{}`",
+                                            arg.name, field.name
                                         ),
                                         "requireDeprecationDate",
-                                    )
-                                    .with_help(format!(
-                                        "Include '{}: <date>' in the @deprecated reason string",
-                                        opts.argument_name
-                                    )),
+                                    ),
                                 );
                         }
                     }
@@ -193,15 +193,11 @@ impl StandaloneSchemaLintRule for RequireDeprecationDateRuleImpl {
                                     span,
                                     LintSeverity::Warning,
                                     format!(
-                                        "Enum value '{}.{}' is deprecated without a deletion date",
-                                        type_def.name, ev.name
+                                        "Directive `@deprecated` must have a deletion date for enum value `{}` in enum `{}`",
+                                        ev.name, type_def.name
                                     ),
                                     "requireDeprecationDate",
-                                )
-                                .with_help(format!(
-                                    "Include '{}: <date>' in the @deprecated reason string",
-                                    opts.argument_name
-                                )),
+                                ),
                             );
                     }
                 }
@@ -292,7 +288,7 @@ type User {
 "#,
         );
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("without a deletion date"));
+        assert!(diagnostics[0].message.contains("must have a deletion date"));
     }
 
     #[test]
@@ -306,7 +302,7 @@ type User {
 ",
         );
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("without a deletion date"));
+        assert!(diagnostics[0].message.contains("must have a deletion date"));
     }
 
     #[test]
@@ -320,7 +316,7 @@ enum Status {
 "#,
         );
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Enum value"));
+        assert!(diagnostics[0].message.contains("enum value"));
     }
 
     #[test]

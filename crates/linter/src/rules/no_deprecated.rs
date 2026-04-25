@@ -148,11 +148,18 @@ fn check_selection_set(
                             let syntax_node = field_name_node.syntax();
                             let offset: usize = syntax_node.text_range().start().into();
 
+                            // TODO(parity): graphql-eslint only reports when a deprecation
+                            // reason is present; we also report when no reason is given.
                             let message = field_def.deprecation_reason.as_ref().map_or_else(
-                                || format!("Field '{}' is deprecated", field_name.as_ref()),
+                                || {
+                                    format!(
+                                        "Field `{}` is marked as deprecated in your GraphQL schema",
+                                        field_name.as_ref()
+                                    )
+                                },
                                 |reason| {
                                     format!(
-                                        "Field '{}' is deprecated: {}",
+                                        "Field `{}` is marked as deprecated in your GraphQL schema (reason: {})",
                                         field_name.as_ref(),
                                         reason
                                     )
@@ -189,17 +196,20 @@ fn check_selection_set(
                                             let offset: usize =
                                                 syntax_node.text_range().start().into();
 
+                                            // TODO(parity): graphql-eslint only reports when a
+                                            // deprecation reason is present; we also report when
+                                            // no reason is given.
                                             let message =
                                                 arg_def.deprecation_reason.as_ref().map_or_else(
                                                     || {
                                                         format!(
-                                                            "Argument '{}' is deprecated",
+                                                            "Argument `{}` is marked as deprecated in your GraphQL schema",
                                                             arg_name.as_ref()
                                                         )
                                                     },
                                                     |reason| {
                                                         format!(
-                                                            "Argument '{}' is deprecated: {}",
+                                                            "Argument `{}` is marked as deprecated in your GraphQL schema (reason: {})",
                                                             arg_name.as_ref(),
                                                             reason
                                                         )
@@ -302,11 +312,18 @@ fn check_value_for_deprecated_enum(
                                 let syntax_node = enum_name_node.syntax();
                                 let offset: usize = syntax_node.text_range().start().into();
 
+                                // TODO(parity): graphql-eslint only reports when a deprecation
+                                // reason is present; we also report when no reason is given.
                                 let message = enum_val.deprecation_reason.as_ref().map_or_else(
-                                    || format!("Enum value '{}' is deprecated", enum_name.as_ref()),
+                                    || {
+                                        format!(
+                                            "Enum `{}` is marked as deprecated in your GraphQL schema",
+                                            enum_name.as_ref()
+                                        )
+                                    },
                                     |reason| {
                                         format!(
-                                            "Enum value '{}' is deprecated: {}",
+                                            "Enum `{}` is marked as deprecated in your GraphQL schema (reason: {})",
                                             enum_name.as_ref(),
                                             reason
                                         )

@@ -45,50 +45,48 @@ impl StandaloneSchemaLintRule for RequireTypePatternWithOneofRuleImpl {
             }
 
             let field_names: Vec<&str> = type_def.fields.iter().map(|f| f.name.as_ref()).collect();
-            let has_ok = field_names.contains(&"ok");
-            let has_error = field_names.contains(&"error");
 
-            if has_ok && has_error {
-                continue;
-            }
-
-            let mut missing = Vec::new();
-            if !has_ok {
-                missing.push("'ok'");
-            }
-            if !has_error {
-                missing.push("'error'");
-            }
-
-            let start: usize = type_def.name_range.start().into();
-            let end: usize = type_def.name_range.end().into();
-            let span = graphql_syntax::SourceSpan {
-                start,
-                end,
-                line_offset: 0,
-                byte_offset: 0,
-                source: None,
+            // TODO(parity): graphql-eslint's selector only matches
+            // `ObjectTypeDefinition`, so it never reports on input types. We
+            // currently flag any type with `@oneOf` (objects, interfaces,
+            // inputs, etc.).
+            let node_kind_label = match type_def.kind {
+                graphql_hir::TypeDefKind::InputObject => "input",
+                graphql_hir::TypeDefKind::Interface => "interface",
+                graphql_hir::TypeDefKind::Union => "union",
+                graphql_hir::TypeDefKind::Enum => "enum",
+                graphql_hir::TypeDefKind::Scalar => "scalar",
+                _ => "object",
             };
 
-            diagnostics_by_file
-                .entry(type_def.file_id)
-                .or_default()
-                .push(
-                    LintDiagnostic::new(
+            for field_name in ["error", "ok"] {
+                if field_names.contains(&field_name) {
+                    continue;
+                }
+
+                let start: usize = type_def.name_range.start().into();
+                let end: usize = type_def.name_range.end().into();
+                let span = graphql_syntax::SourceSpan {
+                    start,
+                    end,
+                    line_offset: 0,
+                    byte_offset: 0,
+                    source: None,
+                };
+
+                diagnostics_by_file
+                    .entry(type_def.file_id)
+                    .or_default()
+                    .push(LintDiagnostic::new(
                         span,
                         LintSeverity::Warning,
                         format!(
-                            "Type '{}' uses @oneOf but is missing required field(s): {}",
-                            type_def.name,
-                            missing.join(", ")
+                            "{} \"{}\" is defined as output with \"@oneOf\" and must be defined with \"{}\" field",
+                            node_kind_label, type_def.name, field_name
                         ),
                         "requireTypePatternWithOneof",
-                    )
-                    .with_help(
-                        "Types with @oneOf should follow the result pattern with both 'ok' and 'error' fields"
-                            .to_string(),
-                    ),
-                );
+                    ));
+            }
         }
 
         diagnostics_by_file
@@ -165,7 +163,7 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("'error'"));
+        assert!(all[0].message.contains("\"error\""));
     }
 
     #[test]
@@ -181,7 +179,7 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("'ok'"));
+        assert!(all[0].message.contains("\"ok\""));
     }
 
     #[test]
@@ -197,9 +195,10 @@ mod tests {
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
-        assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("'ok'"));
-        assert!(all[0].message.contains("'error'"));
+        assert_eq!(all.len(), 2);
+        let messages: Vec<_> = all.iter().map(|d| d.message.as_str()).collect();
+        assert!(messages.iter().any(|m| m.contains("\"ok\"")));
+        assert!(messages.iter().any(|m| m.contains("\"error\"")));
     }
 
     #[test]
@@ -230,7 +229,8 @@ mod tests {
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
-        assert_eq!(all.len(), 1);
+        assert_eq!(all.len(), 2);
+        assert!(all[0].message.starts_with("input \"SearchInput\""));
     }
 
     #[test]
@@ -258,8 +258,9 @@ mod tests {
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
-        assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("'ok'"));
-        assert!(all[0].message.contains("'error'"));
+        assert_eq!(all.len(), 2);
+        let messages: Vec<_> = all.iter().map(|d| d.message.as_str()).collect();
+        assert!(messages.iter().any(|m| m.contains("\"ok\"")));
+        assert!(messages.iter().any(|m| m.contains("\"error\"")));
     }
 }

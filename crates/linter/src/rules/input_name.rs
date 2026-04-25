@@ -65,6 +65,12 @@ impl StandaloneSchemaLintRule for InputNameRuleImpl {
                 continue;
             }
 
+            // TODO(parity): graphql-eslint's `input-name` rule fires on mutation/query
+            // field arguments and checks (a) the argument is named `input` and
+            // (b) the argument type name matches `${FieldName}Input`. Our implementation
+            // instead checks every input object type name ends with `opts.suffix`
+            // globally. The diagnostic wording below mirrors graphql-eslint's input-type
+            // message as closely as the differing scope allows.
             if !type_def.name.ends_with(&opts.suffix) {
                 let start: usize = type_def.name_range.start().into();
                 let end: usize = type_def.name_range.end().into();
@@ -84,15 +90,12 @@ impl StandaloneSchemaLintRule for InputNameRuleImpl {
                             span,
                             LintSeverity::Warning,
                             format!(
-                                "Input type '{}' should end with '{}'",
+                                "Input type `{}` name should end with `{}`.",
                                 type_def.name, opts.suffix
                             ),
                             "inputName",
                         )
-                        .with_help(format!(
-                            "Rename the input type to end with '{}'",
-                            opts.suffix
-                        )),
+                        .with_help(format!("Rename to end with `{}`", opts.suffix)),
                     );
             }
         }
@@ -162,6 +165,6 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("should end with 'Input'"));
+        assert!(all[0].message.contains("should end with `Input`"));
     }
 }
