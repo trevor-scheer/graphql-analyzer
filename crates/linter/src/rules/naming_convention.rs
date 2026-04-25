@@ -1,4 +1,5 @@
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::rules::{get_operation_kind, OperationKind};
 use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
@@ -99,6 +100,16 @@ impl NamingConventionOptions {
 }
 
 /// Lint rule that enforces naming conventions for operations and fragments
+// TODO(parity): graphql-eslint's `naming-convention` rule supports many more
+// options not implemented here: `prefix`, `suffix`, `forbiddenPatterns`,
+// `requiredPattern`, `forbiddenPrefixes`/`forbiddenSuffixes`,
+// `requiredPrefixes`/`requiredSuffixes`, `ignorePattern`,
+// `allowLeadingUnderscore`/`allowTrailingUnderscore`, the `types` umbrella
+// option, ESLint selector keys, and schema-side kinds (FieldDefinition,
+// ObjectTypeDefinition, EnumValueDefinition, etc.). Their corresponding
+// diagnostic messages (`have "X" prefix`, `not contain the forbidden
+// pattern "..."`, `Leading underscores are not allowed`, etc.) are not
+// emitted here.
 pub struct NamingConventionRuleImpl;
 
 impl LintRule for NamingConventionRuleImpl {
@@ -143,6 +154,15 @@ impl StandaloneDocumentLintRule for NamingConventionRuleImpl {
                         {
                             let name = name_node.text();
                             if !convention.check(&name) {
+                                let op_kind =
+                                    op.operation_type().map_or(OperationKind::Query, |op_type| {
+                                        get_operation_kind(&op_type)
+                                    });
+                                let op_label = match op_kind {
+                                    OperationKind::Query => "Query",
+                                    OperationKind::Mutation => "Mutation",
+                                    OperationKind::Subscription => "Subscription",
+                                };
                                 let start: usize = name_node.syntax().text_range().start().into();
                                 let end: usize = name_node.syntax().text_range().end().into();
                                 diagnostics.push(
@@ -150,7 +170,7 @@ impl StandaloneDocumentLintRule for NamingConventionRuleImpl {
                                         doc.span(start, end),
                                         LintSeverity::Warning,
                                         format!(
-                                            "Operation name '{name}' should be in {} format",
+                                            "{op_label} \"{name}\" should be in {} format",
                                             convention.label()
                                         ),
                                         "namingConvention",
@@ -180,7 +200,7 @@ impl StandaloneDocumentLintRule for NamingConventionRuleImpl {
                                                         doc.span(start, end),
                                                         LintSeverity::Warning,
                                                         format!(
-                                                            "Variable '${name}' should be in {} format",
+                                                            "Variable \"{name}\" should be in {} format",
                                                             convention.label()
                                                         ),
                                                         "namingConvention",
@@ -211,7 +231,7 @@ impl StandaloneDocumentLintRule for NamingConventionRuleImpl {
                                         doc.span(start, end),
                                         LintSeverity::Warning,
                                         format!(
-                                            "Fragment name '{name}' should be in {} format",
+                                            "Fragment \"{name}\" should be in {} format",
                                             convention.label()
                                         ),
                                         "namingConvention",

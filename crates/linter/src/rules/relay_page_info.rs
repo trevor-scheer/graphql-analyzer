@@ -68,6 +68,27 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
         let schema_types = graphql_hir::schema_types(db, project_files);
 
         let Some(page_info) = schema_types.get("PageInfo") else {
+            // Mirrors graphql-eslint: when PageInfo is entirely absent, emit a single
+            // diagnostic anchored at the first character of the first schema file.
+            let schema_ids = project_files.schema_file_ids(db).ids(db);
+            if let Some(&file_id) = schema_ids.first() {
+                let span = graphql_syntax::SourceSpan {
+                    start: 0,
+                    end: 1,
+                    line_offset: 0,
+                    byte_offset: 0,
+                    source: None,
+                };
+                diagnostics_by_file.entry(file_id).or_default().push(
+                    LintDiagnostic::new(
+                        span,
+                        LintSeverity::Warning,
+                        "The server must provide a `PageInfo` object.",
+                        "relayPageInfo",
+                    )
+                    .with_url("https://relay.dev/graphql/connections.htm#sec-undefined.PageInfo"),
+                );
+            }
             return diagnostics_by_file;
         };
 
@@ -88,7 +109,7 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
                     LintDiagnostic::new(
                         span,
                         LintSeverity::Warning,
-                        "PageInfo must be an object type per the Relay specification",
+                        "`PageInfo` must be an Object type.",
                         "relayPageInfo",
                     )
                     .with_url("https://relay.dev/graphql/connections.htm#sec-undefined.PageInfo"),
@@ -102,16 +123,42 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
                 .iter()
                 .find(|f| f.name.as_ref() == required.name)
             {
-                // Field exists - check its type
-                let type_matches = field.type_ref.name.as_ref() == required.type_name
-                    && !field.type_ref.is_list
-                    && field.type_ref.is_non_null == required.is_non_null;
+                // Field exists - check its type. Boolean fields require an exact
+                // `Boolean!` match. Cursor fields (nullable `String`) match either
+                // `String` or any other scalar in the schema, mirroring graphql-eslint's
+                // `isScalarType` relaxation.
+                // GraphQL built-in scalars aren't always present in
+                // `schema_types`, which is keyed off user-declared types.
+                // Treat them as scalars so e.g. `ID` is accepted as a cursor
+                // type (matches graphql-eslint's `isScalarType` semantics).
+                const BUILTIN_SCALARS: &[&str] = &["String", "Int", "Float", "Boolean", "ID"];
+                let referent_name = field.type_ref.name.as_ref();
+                let referent_is_scalar = BUILTIN_SCALARS.contains(&referent_name)
+                    || schema_types
+                        .get(referent_name)
+                        .is_some_and(|t| t.kind == TypeDefKind::Scalar);
+
+                let type_matches = if required.is_non_null {
+                    referent_name == required.type_name
+                        && !field.type_ref.is_list
+                        && field.type_ref.is_non_null
+                } else {
+                    !field.type_ref.is_list
+                        && !field.type_ref.is_non_null
+                        && (referent_name == required.type_name || referent_is_scalar)
+                };
 
                 if !type_matches {
                     let expected_type = if required.is_non_null {
                         format!("{}!", required.type_name)
                     } else {
                         required.type_name.to_string()
+                    };
+                    let return_type = if required.is_non_null {
+                        "non-null Boolean".to_string()
+                    } else {
+                        "either String or Scalar, which can be null if there are no results"
+                            .to_string()
                     };
 
                     let start: usize = field.name_range.start().into();
@@ -130,12 +177,13 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
                             LintDiagnostic::new(
                                 span,
                                 LintSeverity::Warning,
-                                format!(
-                                    "PageInfo field '{}' must have type '{}' per the Relay specification",
-                                    required.name, expected_type
-                                ),
+                                format!("Field `{}` must return {}.", required.name, return_type),
                                 "relayPageInfo",
                             )
+                            .with_help(format!(
+                                "Change the type of `{}` to `{}`",
+                                required.name, expected_type
+                            ))
                             .with_url(
                                 "https://relay.dev/graphql/connections.htm#sec-undefined.PageInfo",
                             ),
@@ -147,6 +195,11 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
                     format!("{}!", required.type_name)
                 } else {
                     required.type_name.to_string()
+                };
+                let return_type = if required.is_non_null {
+                    "non-null Boolean".to_string()
+                } else {
+                    "either String or Scalar, which can be null if there are no results".to_string()
                 };
 
                 let start: usize = page_info.name_range.start().into();
@@ -166,13 +219,13 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
                             span,
                             LintSeverity::Warning,
                             format!(
-                                "PageInfo is missing required field '{}: {}' per the Relay specification",
-                                required.name, expected_type
+                                "`PageInfo` must contain a field `{}`, that return {}.",
+                                required.name, return_type
                             ),
                             "relayPageInfo",
                         )
                         .with_help(format!(
-                            "Add field '{}: {}' to the PageInfo type",
+                            "Add field `{}: {}` to the `PageInfo` type",
                             required.name, expected_type
                         ))
                         .with_url(
@@ -272,7 +325,70 @@ mod tests {
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
-        assert!(all.is_empty());
+        assert_eq!(all.len(), 1);
+        assert!(all[0].message.contains("server must provide a `PageInfo`"));
+        assert_eq!(all[0].span.start, 0);
+        assert_eq!(all[0].span.end, 1);
+    }
+
+    #[test]
+    fn custom_scalar_cursor_is_valid() {
+        let db = RootDatabase::default();
+        let rule = RelayPageInfoRuleImpl;
+        let schema = r"
+            scalar Cursor
+            type PageInfo {
+                hasPreviousPage: Boolean!
+                hasNextPage: Boolean!
+                startCursor: Cursor
+                endCursor: Cursor
+            }
+        ";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert!(all.is_empty(), "expected no diagnostics, got {all:?}");
+    }
+
+    #[test]
+    fn id_cursor_is_valid() {
+        let db = RootDatabase::default();
+        let rule = RelayPageInfoRuleImpl;
+        // `ID` is a built-in scalar, so it should also be accepted.
+        let schema = r"
+            type PageInfo {
+                hasPreviousPage: Boolean!
+                hasNextPage: Boolean!
+                startCursor: ID
+                endCursor: ID
+            }
+        ";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert!(all.is_empty(), "expected no diagnostics, got {all:?}");
+    }
+
+    #[test]
+    fn object_cursor_is_invalid() {
+        let db = RootDatabase::default();
+        let rule = RelayPageInfoRuleImpl;
+        // An object type is not a scalar, so it should still be flagged.
+        let schema = r"
+            type CursorObj { value: String }
+            type PageInfo {
+                hasPreviousPage: Boolean!
+                hasNextPage: Boolean!
+                startCursor: CursorObj
+                endCursor: CursorObj
+            }
+        ";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert_eq!(all.len(), 2);
+        assert!(all.iter().any(|d| d.message.contains("startCursor")));
+        assert!(all.iter().any(|d| d.message.contains("endCursor")));
     }
 
     #[test]
@@ -311,7 +427,7 @@ mod tests {
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
         assert!(all[0].message.contains("hasNextPage"));
-        assert!(all[0].message.contains("Boolean!"));
+        assert!(all[0].message.contains("non-null Boolean"));
     }
 
     #[test]
@@ -366,6 +482,6 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("must be an object type"));
+        assert!(all[0].message.contains("`PageInfo` must be an Object type"));
     }
 }

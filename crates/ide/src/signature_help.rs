@@ -351,6 +351,7 @@ mod tests {
                         is_list: false,
                         is_non_null: non_null,
                         inner_non_null: false,
+                        name_range: graphql_hir::TextRange::new(0.into(), 0.into()),
                     },
                     default_value: default.map(std::convert::Into::into),
                     description: None,

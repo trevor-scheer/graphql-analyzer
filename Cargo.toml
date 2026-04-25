@@ -16,6 +16,7 @@ members = [
   "crates/ide-db",
   "crates/test-utils",
   "crates/mcp",
+  "crates/napi",
   "crates/apollo-ext",
   "benches",
   ".husky",

@@ -107,6 +107,21 @@ impl StandaloneDocumentLintRule for AlphabetizeRuleImpl {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum SelectionKind {
+    Field,
+    FragmentSpread,
+}
+
+impl SelectionKind {
+    fn label(self) -> &'static str {
+        match self {
+            SelectionKind::Field => "field",
+            SelectionKind::FragmentSpread => "fragment spread",
+        }
+    }
+}
+
 fn check_selection_set_order(
     selection_set: &cst::SelectionSet,
     opts: &AlphabetizeOptions,
@@ -114,25 +129,25 @@ fn check_selection_set_order(
     diagnostics: &mut Vec<LintDiagnostic>,
 ) {
     if opts.selections {
-        let mut last_name: Option<String> = None;
+        let mut last: Option<(String, SelectionKind)> = None;
 
         for selection in selection_set.selections() {
-            let current_name = match &selection {
+            let current = match &selection {
                 cst::Selection::Field(field) => field
                     .alias()
                     .and_then(|a| a.name())
                     .or_else(|| field.name())
-                    .map(|n| n.text().to_string()),
+                    .map(|n| (n.text().to_string(), SelectionKind::Field)),
                 cst::Selection::FragmentSpread(spread) => spread
                     .fragment_name()
                     .and_then(|fn_| fn_.name())
-                    .map(|n| n.text().to_string()),
-                cst::Selection::InlineFragment(_) => None, // Skip inline fragments for ordering
+                    .map(|n| (n.text().to_string(), SelectionKind::FragmentSpread)),
+                cst::Selection::InlineFragment(_) => None, // Inline fragments don't have a name to order by
             };
 
-            if let Some(ref name) = current_name {
-                if let Some(ref prev) = last_name {
-                    if name.to_lowercase() < prev.to_lowercase() {
+            if let Some((name, curr_kind)) = current {
+                if let Some((prev_name, prev_kind)) = &last {
+                    if name.to_lowercase() < prev_name.to_lowercase() {
                         let start_offset = match &selection {
                             cst::Selection::Field(f) => f
                                 .alias()
@@ -159,7 +174,9 @@ fn check_selection_set_order(
                                     doc.span(start, end),
                                     LintSeverity::Warning,
                                     format!(
-                                        "'{name}' should be before '{prev}' (alphabetical order)"
+                                        "{curr_label} `{name}` should be before {prev_label} `{prev_name}`",
+                                        curr_label = curr_kind.label(),
+                                        prev_label = prev_kind.label(),
                                     ),
                                     "alphabetize",
                                 )
@@ -170,7 +187,7 @@ fn check_selection_set_order(
                         }
                     }
                 }
-                last_name = Some(name.clone());
+                last = Some((name, curr_kind));
             }
         }
     }
@@ -216,9 +233,7 @@ fn check_argument_order(
                         LintDiagnostic::new(
                             doc.span(start, end),
                             LintSeverity::Warning,
-                            format!(
-                                "Argument '{name}' should be before '{prev}' (alphabetical order)"
-                            ),
+                            format!("argument `{name}` should be before argument `{prev}`"),
                             "alphabetize",
                         )
                         .with_help("Reorder arguments alphabetically by name"),
@@ -249,9 +264,7 @@ fn check_variable_order(
                             LintDiagnostic::new(
                                 doc.span(start, end),
                                 LintSeverity::Warning,
-                                format!(
-                                    "Variable '${name}' should be before '${prev}' (alphabetical order)"
-                                ),
+                                format!("variable `{name}` should be before variable `{prev}`"),
                                 "alphabetize",
                             )
                             .with_help("Reorder variable definitions alphabetically by name"),
@@ -319,7 +332,7 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
             .message
-            .contains("'age' should be before 'name'"));
+            .contains("field `age` should be before field `name`"));
     }
 
     #[test]
@@ -328,6 +341,28 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
             .message
-            .contains("'id' should be before 'title'"));
+            .contains("field `id` should be before field `title`"));
+    }
+
+    #[test]
+    fn test_mixed_field_after_fragment_spread() {
+        // Fragment spread `Zed` then field `age` — current is field, previous is fragment spread.
+        let diagnostics = check("query Q { user { ...Zed age } }");
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].message,
+            "field `age` should be before fragment spread `Zed`"
+        );
+    }
+
+    #[test]
+    fn test_mixed_fragment_spread_after_field() {
+        // Field `name` then fragment spread `Avatar` — current is fragment spread, previous is field.
+        let diagnostics = check("query Q { user { name ...Avatar } }");
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].message,
+            "fragment spread `Avatar` should be before field `name`"
+        );
     }
 }

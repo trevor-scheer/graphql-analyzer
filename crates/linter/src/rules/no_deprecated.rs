@@ -144,19 +144,14 @@ fn check_selection_set(
                         .iter()
                         .find(|f| f.name.as_ref() == field_name.as_ref())
                     {
-                        if field_def.is_deprecated {
+                        if let Some(reason) = field_def.deprecation_reason.as_ref() {
                             let syntax_node = field_name_node.syntax();
                             let offset: usize = syntax_node.text_range().start().into();
 
-                            let message = field_def.deprecation_reason.as_ref().map_or_else(
-                                || format!("Field '{}' is deprecated", field_name.as_ref()),
-                                |reason| {
-                                    format!(
-                                        "Field '{}' is deprecated: {}",
-                                        field_name.as_ref(),
-                                        reason
-                                    )
-                                },
+                            let message = format!(
+                                "Field `{}` is marked as deprecated in your GraphQL schema (reason: {})",
+                                field_name.as_ref(),
+                                reason
                             );
 
                             diagnostics.push(
@@ -184,27 +179,16 @@ fn check_selection_set(
                                         .iter()
                                         .find(|a| a.name.as_ref() == arg_name.as_ref())
                                     {
-                                        if arg_def.is_deprecated {
+                                        if let Some(reason) = arg_def.deprecation_reason.as_ref() {
                                             let syntax_node = arg_name_node.syntax();
                                             let offset: usize =
                                                 syntax_node.text_range().start().into();
 
-                                            let message =
-                                                arg_def.deprecation_reason.as_ref().map_or_else(
-                                                    || {
-                                                        format!(
-                                                            "Argument '{}' is deprecated",
-                                                            arg_name.as_ref()
-                                                        )
-                                                    },
-                                                    |reason| {
-                                                        format!(
-                                                            "Argument '{}' is deprecated: {}",
-                                                            arg_name.as_ref(),
-                                                            reason
-                                                        )
-                                                    },
-                                                );
+                                            let message = format!(
+                                                "Argument `{}` is marked as deprecated in your GraphQL schema (reason: {})",
+                                                arg_name.as_ref(),
+                                                reason
+                                            );
 
                                             diagnostics.push(
                                                 LintDiagnostic::new(
@@ -298,19 +282,14 @@ fn check_value_for_deprecated_enum(
                             .iter()
                             .find(|v| v.name.as_ref() == enum_name.as_ref())
                         {
-                            if enum_val.is_deprecated {
+                            if let Some(reason) = enum_val.deprecation_reason.as_ref() {
                                 let syntax_node = enum_name_node.syntax();
                                 let offset: usize = syntax_node.text_range().start().into();
 
-                                let message = enum_val.deprecation_reason.as_ref().map_or_else(
-                                    || format!("Enum value '{}' is deprecated", enum_name.as_ref()),
-                                    |reason| {
-                                        format!(
-                                            "Enum value '{}' is deprecated: {}",
-                                            enum_name.as_ref(),
-                                            reason
-                                        )
-                                    },
+                                let message = format!(
+                                    "Enum `{}` is marked as deprecated in your GraphQL schema (reason: {})",
+                                    enum_name.as_ref(),
+                                    reason
                                 );
 
                                 diagnostics.push(
@@ -629,7 +608,9 @@ query GetUser {
         let db = RootDatabase::default();
         let rule = NoDeprecatedRuleImpl;
 
-        let schema = r"
+        // graphql-eslint only fires when @deprecated has an explicit reason; a
+        // bare @deprecated must not produce a diagnostic.
+        let schema = r#"
 type Query {
     user: User
 }
@@ -641,9 +622,9 @@ type Mutation {
 type User {
     id: ID!
     name: String!
-    oldField: String @deprecated
+    oldField: String @deprecated(reason: "Use name instead")
 }
-";
+"#;
 
         let source = r#"
 mutation UpdateUser {
@@ -707,7 +688,7 @@ query GetUser {
         let db = RootDatabase::default();
         let rule = NoDeprecatedRuleImpl;
 
-        let schema = r"
+        let schema = r#"
 type Query {
     node(id: ID!): Node
 }
@@ -719,9 +700,9 @@ interface Node {
 type User implements Node {
     id: ID!
     name: String!
-    oldField: String @deprecated
+    oldField: String @deprecated(reason: "Use name instead")
 }
-";
+"#;
 
         let source = r#"
 query GetNode {
@@ -748,6 +729,8 @@ query GetNode {
         let db = RootDatabase::default();
         let rule = NoDeprecatedRuleImpl;
 
+        // Match graphql-eslint: @deprecated without an explicit `reason` argument
+        // does not trigger the rule.
         let schema = r"
 type Query {
     user: User
@@ -771,9 +754,6 @@ query GetUser {
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
-        assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("legacyField"));
-        assert!(diagnostics[0].message.contains("deprecated"));
-        assert!(!diagnostics[0].message.contains(':'));
+        assert_eq!(diagnostics.len(), 0);
     }
 }

@@ -1,0 +1,5 @@
+[profile.default]
+# Fail fast — stop on first test failure
+fail-fast = true
+# Show which tests are slow (>1s)
+slow-timeout = { period = "1s" }

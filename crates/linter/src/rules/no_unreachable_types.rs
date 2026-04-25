@@ -111,10 +111,12 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
                 };
 
                 let kind_name = match type_def.kind {
-                    TypeDefKind::Interface => "Interface",
-                    TypeDefKind::Union => "Union",
-                    TypeDefKind::Enum => "Enum",
-                    TypeDefKind::InputObject => "Input",
+                    TypeDefKind::Object => "Object type",
+                    TypeDefKind::Interface => "Interface type",
+                    TypeDefKind::Union => "Union type",
+                    TypeDefKind::Enum => "Enum type",
+                    TypeDefKind::InputObject => "Input object type",
+                    TypeDefKind::Scalar => "Scalar type",
                     _ => "Type",
                 };
 
@@ -125,10 +127,7 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
                         LintDiagnostic::new(
                             span,
                             LintSeverity::Warning,
-                            format!(
-                                "{kind_name} '{}' is not reachable from any root type",
-                                type_def.name
-                            ),
+                            format!("{kind_name} `{}` is unreachable.", type_def.name),
                             "noUnreachableTypes",
                         )
                         .with_help(
@@ -194,7 +193,7 @@ mod tests {
         let user_warnings: Vec<_> = diagnostics
             .values()
             .flatten()
-            .filter(|d| d.message.contains("'User'"))
+            .filter(|d| d.message.contains("`User`"))
             .collect();
         assert!(user_warnings.is_empty());
     }
@@ -210,7 +209,7 @@ mod tests {
         let orphan_warnings: Vec<_> = diagnostics
             .values()
             .flatten()
-            .filter(|d| d.message.contains("'OrphanType'"))
+            .filter(|d| d.message.contains("`OrphanType`"))
             .collect();
         assert_eq!(orphan_warnings.len(), 1);
     }

@@ -81,8 +81,8 @@ impl StandaloneSchemaLintRule for NoScalarResultTypeOnMutationRuleImpl {
                             span,
                             LintSeverity::Warning,
                             format!(
-                                "Mutation field '{}' returns scalar type '{}'. Mutations should return object types.",
-                                field.name, return_type_name
+                                "Unexpected scalar result type `{}` for field \"{}\" in type \"{}\"",
+                                return_type_name, field.name, mutation_type_name
                             ),
                             "noScalarResultTypeOnMutation",
                         )

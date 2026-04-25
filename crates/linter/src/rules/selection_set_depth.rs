@@ -124,16 +124,13 @@ fn check_depth(
                         if let Some(name_node) = name_node {
                             let start: usize = name_node.syntax().text_range().start().into();
                             let end: usize = name_node.syntax().text_range().end().into();
-                            let def_desc = definition_name.map_or_else(
-                                || "anonymous operation".to_string(),
-                                |n| format!("'{n}'"),
-                            );
+                            let name_for_message = definition_name.unwrap_or("");
                             diagnostics.push(
                                 LintDiagnostic::new(
                                     doc.span(start, end),
                                     LintSeverity::Warning,
                                     format!(
-                                        "Selection set depth {new_depth} exceeds maximum of {max_depth} in {def_desc}"
+                                        "`{name_for_message}` exceeds maximum operation depth of {max_depth}"
                                     ),
                                     "selectionSetDepth",
                                 )
@@ -247,7 +244,9 @@ mod tests {
         // depth 1: user, depth 2: posts, depth 3: author, depth 4: friends (exceeds 3)
         let diagnostics = check("query Q { user { posts { author { friends { name } } } } }");
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("exceeds maximum"));
+        assert!(diagnostics[0]
+            .message
+            .contains("exceeds maximum operation depth of"));
     }
 
     #[test]

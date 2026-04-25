@@ -2,26 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main, "release/**"]
-    paths:
-      - "**/*.rs"
-      - "**/Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - "rustfmt.toml"
-      - "editors/vscode/**/*.ts"
-      - "editors/vscode/package.json"
-      - "editors/vscode/package-lock.json"
-      - "editors/vscode/tsconfig.json"
-      - "test-workspace/**/*.ts"
-      - "test-workspace/**/*.tsx"
-      - "test-workspace/**/*.js"
-      - "**/*.graphql"
-      - "package.json"
-      - "package-lock.json"
-      - "CHANGELOG.md"
-      - ".github/workflows/**"
-  pull_request:
     branches: [main]
     paths:
       - "**/*.rs"
@@ -33,14 +13,18 @@ on:
       - "editors/vscode/package.json"
       - "editors/vscode/package-lock.json"
       - "editors/vscode/tsconfig.json"
+      - "packages/**"
       - "test-workspace/**/*.ts"
       - "test-workspace/**/*.tsx"
       - "test-workspace/**/*.js"
+      - "test-workspace/**/*.mjs"
       - "**/*.graphql"
       - "package.json"
       - "package-lock.json"
       - "CHANGELOG.md"
       - ".github/workflows/**"
+  pull_request:
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -75,6 +59,9 @@ jobs:
 
       - name: Run tests
         run: cargo nextest run --workspace --all-features
+
+      - name: Run doctests
+        run: cargo test --workspace --doc
 
   lint:
     name: Lint
@@ -135,8 +122,8 @@ jobs:
 
   dogfood:
     name: Dogfood GraphQL Check
-    runs-on: ubuntu-latest
     needs: [build]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -177,6 +164,38 @@ jobs:
         working-directory: editors/vscode
         run: npm run compile
 
+  eslint-plugin:
+    name: ESLint Plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install Rust
+        run: rustup show
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: "ci-eslint-plugin"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install workspace deps
+        run: npm ci
+
+      - name: Build @graphql-analyzer/core native addon
+        run: npm run build:debug --workspace=@graphql-analyzer/core
+
+      - name: Build @graphql-analyzer/eslint-plugin
+        run: npm run build --workspace=@graphql-analyzer/eslint-plugin
+
+      - name: Run plugin tests
+        run: npm run test:unit --workspace=@graphql-analyzer/eslint-plugin
+
   format:
     name: Format
     runs-on: ubuntu-latest
@@ -210,11 +229,27 @@ jobs:
       - name: TypeScript type check
         run: npm run typecheck
 
+  release-prep:
+    name: Release Prep Simulation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Simulate knope's release-prep
+        run: node scripts/check-release-prep.mjs
+
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
     if: always()
-    needs: [test, lint, build, check, vscode-extension, format]
+    needs:
+      [test, lint, build, check, dogfood, vscode-extension, eslint-plugin, format, release-prep]
     steps:
       - name: Check all jobs
         run: |

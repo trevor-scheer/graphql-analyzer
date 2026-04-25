@@ -110,8 +110,10 @@ fn check_operation_has_name(
             },
         );
 
+        // Message format mirrors `@graphql-eslint/eslint-plugin`'s
+        // `no-anonymous-operations` so the two plugins emit equivalent text.
         let message = format!(
-            "Anonymous {operation_type} operation. All operations should have explicit names for better monitoring and debugging"
+            "Anonymous GraphQL operations are forbidden. Make sure to name your {operation_type}!"
         );
 
         diagnostics.push(
@@ -194,7 +196,9 @@ query {
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Anonymous query operation"));
+        assert!(diagnostics[0]
+            .message
+            .contains("Anonymous GraphQL operations are forbidden. Make sure to name your query"));
         assert_eq!(diagnostics[0].severity, LintSeverity::Error);
     }
 
@@ -226,7 +230,9 @@ query {
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Anonymous query operation"));
+        assert!(diagnostics[0]
+            .message
+            .contains("Anonymous GraphQL operations are forbidden. Make sure to name your query"));
         assert_eq!(diagnostics[0].severity, LintSeverity::Error);
     }
 
@@ -258,9 +264,9 @@ mutation {
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0]
-            .message
-            .contains("Anonymous mutation operation"));
+        assert!(diagnostics[0].message.contains(
+            "Anonymous GraphQL operations are forbidden. Make sure to name your mutation"
+        ));
         assert_eq!(diagnostics[0].severity, LintSeverity::Error);
     }
 
@@ -292,9 +298,9 @@ subscription {
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0]
-            .message
-            .contains("Anonymous subscription operation"));
+        assert!(diagnostics[0].message.contains(
+            "Anonymous GraphQL operations are forbidden. Make sure to name your subscription"
+        ));
         assert_eq!(diagnostics[0].severity, LintSeverity::Error);
     }
 
@@ -430,10 +436,10 @@ query {
         assert_eq!(diagnostics.len(), 2);
         assert!(diagnostics
             .iter()
-            .any(|d| d.message.contains("Anonymous mutation")));
+            .any(|d| d.message.contains("name your mutation")));
         assert!(diagnostics
             .iter()
-            .any(|d| d.message.contains("Anonymous query")));
+            .any(|d| d.message.contains("name your query")));
     }
 
     #[test]
@@ -501,7 +507,9 @@ query {
 
         // Even a single anonymous operation should fail (per user's request)
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Anonymous query operation"));
+        assert!(diagnostics[0]
+            .message
+            .contains("Anonymous GraphQL operations are forbidden. Make sure to name your query"));
     }
 
     #[test]
@@ -562,7 +570,9 @@ query($id: ID!) {
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Anonymous query operation"));
+        assert!(diagnostics[0]
+            .message
+            .contains("Anonymous GraphQL operations are forbidden. Make sure to name your query"));
     }
 
     /// Snapshot test demonstrating insta for diagnostic output

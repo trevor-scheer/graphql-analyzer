@@ -1,0 +1,27 @@
+{
+  "name": "@graphql-analyzer/core-darwin-arm64",
+  "version": "0.1.0",
+  "description": "graphql-analyzer native addon (darwin arm64)",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trevor-scheer/graphql-analyzer.git",
+    "directory": "packages/core/npm/darwin-arm64"
+  },
+  "files": [
+    "graphql-analyzer.darwin-arm64.node"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "main": "graphql-analyzer.darwin-arm64.node",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

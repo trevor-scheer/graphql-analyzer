@@ -133,11 +133,7 @@ impl StandaloneSchemaLintRule for RelayEdgeTypesRuleImpl {
                                     make_diagnostic(
                                         start,
                                         end,
-                                        format!(
-                                            "List field '{}' on connection type '{}' wraps '{}', \
-                                             which is not an edge type",
-                                            field.name, type_def.name, wrapped_type,
-                                        ),
+                                        "A list type should only wrap an edge type.".to_string(),
                                     ),
                                 );
                             }
@@ -167,10 +163,7 @@ impl StandaloneSchemaLintRule for RelayEdgeTypesRuleImpl {
                     .push(make_diagnostic(
                         start,
                         end,
-                        format!(
-                            "Edge type '{}' should have the 'Edge' suffix",
-                            edge_def.name,
-                        ),
+                        "Edge type must have \"Edge\" suffix.".to_string(),
                     ));
             }
 
@@ -187,7 +180,10 @@ impl StandaloneSchemaLintRule for RelayEdgeTypesRuleImpl {
                             make_diagnostic(
                                 start,
                                 end,
-                                format!("Edge type '{}' is missing a 'node' field", edge_def.name,),
+                                "Edge type must contain a field `node` that return either a \
+                                 Scalar, Enum, Object, Interface, Union, or a non-null wrapper \
+                                 around one of those types."
+                                    .to_string(),
                             )
                             .with_help("Add a 'node' field that returns the connected type"),
                         );
@@ -203,10 +199,10 @@ impl StandaloneSchemaLintRule for RelayEdgeTypesRuleImpl {
                             .push(make_diagnostic(
                                 start,
                                 end,
-                                format!(
-                                    "The 'node' field on edge type '{}' must not return a list",
-                                    edge_def.name,
-                                ),
+                                "Field `node` must return either a Scalar, Enum, Object, \
+                                 Interface, Union, or a non-null wrapper around one of those \
+                                 types."
+                                    .to_string(),
                             ));
                     }
 
@@ -231,11 +227,9 @@ impl StandaloneSchemaLintRule for RelayEdgeTypesRuleImpl {
                                     make_diagnostic(
                                         start,
                                         end,
-                                        format!(
-                                            "The 'node' field type '{}' on edge type '{}' \
-                                                 should implement the 'Node' interface",
-                                            node_type_name, edge_def.name,
-                                        ),
+                                        "Edge type's field `node` must implement `Node` \
+                                         interface."
+                                            .to_string(),
                                     )
                                     .with_help(format!(
                                         "Add 'implements Node' to the '{node_type_name}' type definition",
@@ -260,10 +254,10 @@ impl StandaloneSchemaLintRule for RelayEdgeTypesRuleImpl {
                             make_diagnostic(
                                 start,
                                 end,
-                                format!(
-                                    "Edge type '{}' is missing a 'cursor' field",
-                                    edge_def.name,
-                                ),
+                                "Edge type must contain a field `cursor` that return either a \
+                                 String, Scalar, or a non-null wrapper wrapper around one of \
+                                 those types."
+                                    .to_string(),
                             )
                             .with_help("Add a 'cursor: String!' field to the edge type"),
                         );
@@ -284,11 +278,9 @@ impl StandaloneSchemaLintRule for RelayEdgeTypesRuleImpl {
                                 make_diagnostic(
                                     start,
                                     end,
-                                    format!(
-                                        "The 'cursor' field on edge type '{}' must return \
-                                         'String' or a scalar type, but returns '{}'",
-                                        edge_def.name, cursor_type,
-                                    ),
+                                    "Field `cursor` must return either a String, Scalar, or a \
+                                     non-null wrapper wrapper around one of those types."
+                                        .to_string(),
                                 ),
                             );
                         }
@@ -405,7 +397,9 @@ mod tests {
         ";
         let diagnostics = check(schema);
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("missing a 'node' field"));
+        assert!(diagnostics[0]
+            .message
+            .contains("Edge type must contain a field `node`"));
     }
 
     #[test]
@@ -422,7 +416,9 @@ mod tests {
         ";
         let diagnostics = check(schema);
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("missing a 'cursor' field"));
+        assert!(diagnostics[0]
+            .message
+            .contains("Edge type must contain a field `cursor`"));
     }
 
     #[test]
@@ -438,8 +434,8 @@ mod tests {
         let diagnostics = check(schema);
         assert_eq!(diagnostics.len(), 2);
         let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
-        assert!(messages.iter().any(|m| m.contains("'node'")));
-        assert!(messages.iter().any(|m| m.contains("'cursor'")));
+        assert!(messages.iter().any(|m| m.contains("`node`")));
+        assert!(messages.iter().any(|m| m.contains("`cursor`")));
     }
 
     #[test]
@@ -457,7 +453,9 @@ mod tests {
         ";
         let diagnostics = check(schema);
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("must not return a list"));
+        assert!(diagnostics[0]
+            .message
+            .contains("Field `node` must return either"));
     }
 
     #[test]
@@ -477,7 +475,7 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
             .message
-            .contains("must return 'String' or a scalar type"));
+            .contains("Field `cursor` must return either"));
     }
 
     #[test]
@@ -538,7 +536,7 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
             .message
-            .contains("should have the 'Edge' suffix"));
+            .contains("Edge type must have \"Edge\" suffix."));
     }
 
     #[test]
@@ -582,7 +580,7 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
             .message
-            .contains("implement the 'Node' interface"));
+            .contains("Edge type's field `node` must implement `Node` interface."));
     }
 
     #[test]

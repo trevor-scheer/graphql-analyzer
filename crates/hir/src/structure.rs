@@ -62,6 +62,9 @@ pub struct TypeRef {
     pub is_list: bool,
     pub is_non_null: bool,
     pub inner_non_null: bool,
+    /// Source range of the inner named type (e.g. `User` in `[User!]!`).
+    /// Empty range when the type came from a synthetic source (e.g. introspection).
+    pub name_range: TextRange,
 }
 
 /// Argument definition
@@ -1044,7 +1047,9 @@ fn extract_type_ref(ty: &ast::Type) -> TypeRef {
     let is_non_null = ty.is_non_null();
     let is_list = ty.is_list();
 
-    let name = Arc::from(ty.inner_named_type().as_str());
+    let inner_named = ty.inner_named_type();
+    let name = Arc::from(inner_named.as_str());
+    let type_name_range = name_range(inner_named);
 
     // For [Type!]! we need to check if the inner type is non-null
     let inner_non_null = if is_list {
@@ -1056,6 +1061,7 @@ fn extract_type_ref(ty: &ast::Type) -> TypeRef {
                         is_list: false,
                         is_non_null: true,
                         inner_non_null: false,
+                        name_range: type_name_range,
                     }
                 }
                 ast::Type::NonNullList(inner) | ast::Type::List(inner) => inner.as_ref(),
@@ -1075,5 +1081,6 @@ fn extract_type_ref(ty: &ast::Type) -> TypeRef {
         is_list,
         is_non_null,
         inner_non_null,
+        name_range: type_name_range,
     }
 }

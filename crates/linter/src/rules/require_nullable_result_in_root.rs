@@ -43,12 +43,12 @@ impl StandaloneSchemaLintRule for RequireNullableResultInRootRuleImpl {
 
         // Check each root type (Query, Mutation, Subscription)
         let root_entries = [
-            (&root_type_names.query, "Query"),
-            (&root_type_names.mutation, "Mutation"),
-            (&root_type_names.subscription, "Subscription"),
+            &root_type_names.query,
+            &root_type_names.mutation,
+            &root_type_names.subscription,
         ];
 
-        for (root_name, operation_kind) in &root_entries {
+        for root_name in root_entries {
             let Some(type_name) = root_name else {
                 continue;
             };
@@ -59,57 +59,31 @@ impl StandaloneSchemaLintRule for RequireNullableResultInRootRuleImpl {
 
             for field in &root_type.fields {
                 if field.type_ref.is_non_null {
-                    let start: usize = field.name_range.start().into();
-                    let end: usize = field.name_range.end().into();
                     let span = graphql_syntax::SourceSpan {
-                        start,
-                        end,
+                        start: field.type_ref.name_range.start().into(),
+                        end: field.type_ref.name_range.end().into(),
                         line_offset: 0,
                         byte_offset: 0,
                         source: None,
                     };
 
-                    diagnostics_by_file
-                        .entry(field.file_id)
-                        .or_default()
-                        .push(
-                            LintDiagnostic::new(
-                                span,
-                                LintSeverity::Warning,
-                                format!(
-                                    "{operation_kind} field '{}' returns non-null type '{}'. Root type fields should return nullable types to prevent null-bubbling on errors.",
-                                    field.name, format_type_ref(&field.type_ref)
-                                ),
-                                "requireNullableResultInRoot",
-                            )
-                            .with_help("Make the return type nullable to isolate errors to individual fields")
-                            .with_url(rule_doc_url("requireNullableResultInRoot")),
-                        );
+                    diagnostics_by_file.entry(field.file_id).or_default().push(
+                        LintDiagnostic::new(
+                            span,
+                            LintSeverity::Warning,
+                            format!(
+                                "Unexpected non-null result {} in {}",
+                                field.type_ref.name, type_name
+                            ),
+                            "requireNullableResultInRoot",
+                        )
+                        .with_url(rule_doc_url("requireNullableResultInRoot")),
+                    );
                 }
             }
         }
 
         diagnostics_by_file
-    }
-}
-
-/// Format a `TypeRef` for display (e.g. `String!`, `[User!]!`)
-fn format_type_ref(type_ref: &graphql_hir::TypeRef) -> String {
-    if type_ref.is_list {
-        let inner = if type_ref.inner_non_null {
-            format!("{}!", type_ref.name)
-        } else {
-            type_ref.name.to_string()
-        };
-        if type_ref.is_non_null {
-            format!("[{inner}]!")
-        } else {
-            format!("[{inner}]")
-        }
-    } else if type_ref.is_non_null {
-        format!("{}!", type_ref.name)
-    } else {
-        type_ref.name.to_string()
     }
 }
 
@@ -174,8 +148,11 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("user"));
-        assert!(all[0].message.contains("User!"));
+        assert_eq!(all[0].message, "Unexpected non-null result User in Query");
+        // Diagnostic spans the inner named type (`User`), matching the
+        // `TypeRef.name_range` provenance from the HIR.
+        let span = &all[0].span;
+        assert_eq!(&schema[span.start..span.end], "User");
     }
 
     #[test]
@@ -187,7 +164,10 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("createUser"));
+        assert_eq!(
+            all[0].message,
+            "Unexpected non-null result User in Mutation"
+        );
     }
 
     #[test]
@@ -199,7 +179,10 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("onMessage"));
+        assert_eq!(
+            all[0].message,
+            "Unexpected non-null result Message in Subscription"
+        );
     }
 
     #[test]
@@ -211,8 +194,11 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("users"));
-        assert!(all[0].message.contains("non-null"));
+        assert!(all[0].message.contains("non-null result"));
+        assert!(all[0].message.contains("in Query"));
+        // Diagnostic spans the inner named type (`User`) inside the wrapper.
+        let span = &all[0].span;
+        assert_eq!(&schema[span.start..span.end], "User");
     }
 
     #[test]
@@ -262,7 +248,10 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("user"));
+        assert_eq!(
+            all[0].message,
+            "Unexpected non-null result User in RootQuery"
+        );
     }
 
     #[test]
@@ -287,6 +276,6 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("post"));
+        assert_eq!(all[0].message, "Unexpected non-null result Post in Query");
     }
 }

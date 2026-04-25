@@ -57,6 +57,14 @@ These rules are available but not in the `recommended` preset — enable them ba
 
 See the [Rules Catalog](/graphql-analyzer/rules/catalog/) for details on each rule.
 
+## Running rules through ESLint
+
+If your project already uses ESLint, you can run the same rules through the
+[`@graphql-analyzer/eslint-plugin`](/graphql-analyzer/linting/eslint-plugin/) —
+a drop-in replacement for `@graphql-eslint/eslint-plugin`. Configuration lives
+in the same `.graphqlrc.yaml`, so your editor, CI, and ESLint all see an
+identical ruleset.
+
 ## Rule contexts
 
 Rules run in different contexts depending on how much information they need:

@@ -4,10 +4,11 @@ use graphql_base_db::{FileId, ProjectFiles};
 use graphql_hir::TypeDefKind;
 use std::collections::HashMap;
 
-/// Lint rule that detects duplicate enum value names across different enums
+/// Lint rule that flags case-insensitive duplicate value names within a single enum.
 ///
-/// When the same value name appears in multiple enums, it can cause confusion
-/// and make refactoring harder. This rule warns when enum value names collide.
+/// Mirrors graphql-eslint's `unique-enum-value-names`: any value whose
+/// lowercased name collides with an earlier value in the same enum is reported
+/// (the first occurrence is left alone).
 pub struct UniqueEnumValueNamesRuleImpl;
 
 impl LintRule for UniqueEnumValueNamesRuleImpl {
@@ -16,7 +17,7 @@ impl LintRule for UniqueEnumValueNamesRuleImpl {
     }
 
     fn description(&self) -> &'static str {
-        "Detects duplicate enum value names across different enum types"
+        "Disallows case-insensitive duplicate values within a single enum"
     }
 
     fn default_severity(&self) -> LintSeverity {
@@ -34,42 +35,26 @@ impl StandaloneSchemaLintRule for UniqueEnumValueNamesRuleImpl {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
         let schema_types = graphql_hir::schema_types(db, project_files);
 
-        // Collect all enum value -> enum type mappings
-        let mut value_to_enums: HashMap<String, Vec<(String, FileId, graphql_hir::TextRange)>> =
-            HashMap::new();
-
         for type_def in schema_types.values() {
             if type_def.kind != TypeDefKind::Enum {
                 continue;
             }
 
+            // Track which lowercased names have already been seen in this enum;
+            // anything appearing a second-or-later time is a case-insensitive duplicate.
+            let mut seen: HashMap<String, usize> = HashMap::new();
             for ev in &type_def.enum_values {
-                value_to_enums
-                    .entry(ev.name.to_string())
-                    .or_default()
-                    .push((
-                        type_def.name.to_string(),
-                        type_def.file_id,
-                        type_def.name_range,
-                    ));
-            }
-        }
+                let key = ev.name.to_lowercase();
+                let count = seen.entry(key).or_insert(0);
+                *count += 1;
+                if *count == 1 {
+                    continue;
+                }
 
-        // Report values that appear in multiple enums
-        for (value_name, enums) in &value_to_enums {
-            if enums.len() <= 1 {
-                continue;
-            }
-
-            for (enum_name, file_id, name_range) in enums {
-                let other_enums: Vec<_> = enums
-                    .iter()
-                    .filter(|(n, _, _)| n != enum_name)
-                    .map(|(n, _, _)| n.as_str())
-                    .collect();
-
-                let start: usize = name_range.start().into();
-                let end: usize = name_range.end().into();
+                // Per-value ranges are not tracked on HIR `EnumValue`, so we fall back
+                // to the enum's name range (consistent with other enum-value rules).
+                let start: usize = type_def.name_range.start().into();
+                let end: usize = type_def.name_range.end().into();
                 let span = graphql_syntax::SourceSpan {
                     start,
                     end,
@@ -78,18 +63,15 @@ impl StandaloneSchemaLintRule for UniqueEnumValueNamesRuleImpl {
                     source: None,
                 };
 
-                diagnostics_by_file.entry(*file_id).or_default().push(
+                diagnostics_by_file.entry(type_def.file_id).or_default().push(
                     LintDiagnostic::new(
                         span,
                         LintSeverity::Warning,
                         format!(
-                            "Enum value '{value_name}' in '{enum_name}' is also defined in: {}",
-                            other_enums.join(", ")
+                            "Unexpected case-insensitive enum values duplicates for enum value \"{}\" in enum \"{}\"",
+                            ev.name, type_def.name
                         ),
                         "uniqueEnumValueNames",
-                    )
-                    .with_help(
-                        "Rename one of the enum values so each value is unique across the schema",
                     ),
                 );
             }
@@ -141,7 +123,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unique_values() {
+    fn test_unique_values_within_enum() {
         let db = RootDatabase::default();
         let rule = UniqueEnumValueNamesRuleImpl;
         let schema = "enum Status { ACTIVE INACTIVE } enum Role { ADMIN USER }";
@@ -152,13 +134,59 @@ mod tests {
     }
 
     #[test]
-    fn test_duplicate_values() {
+    fn test_cross_enum_duplicates_are_allowed() {
+        // graphql-eslint only flags within-enum collisions; identical names across
+        // different enums are intentionally not reported.
         let db = RootDatabase::default();
         let rule = UniqueEnumValueNamesRuleImpl;
         let schema = "enum Status { ACTIVE INACTIVE } enum UserStatus { ACTIVE PENDING }";
         let project_files = create_schema_project(&db, schema);
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
-        assert_eq!(all.len(), 2); // One for each enum that has "ACTIVE"
+        assert!(all.is_empty());
+    }
+
+    #[test]
+    fn test_case_insensitive_duplicate_pair() {
+        let db = RootDatabase::default();
+        let rule = UniqueEnumValueNamesRuleImpl;
+        let schema = "enum E { Active ACTIVE }";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert_eq!(all.len(), 1);
+        assert!(all[0]
+            .message
+            .contains("enum value \"ACTIVE\" in enum \"E\""));
+    }
+
+    #[test]
+    fn test_case_insensitive_duplicate_triple() {
+        let db = RootDatabase::default();
+        let rule = UniqueEnumValueNamesRuleImpl;
+        let schema = "enum E { foo FOO Foo }";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let mut messages: Vec<_> = diagnostics
+            .values()
+            .flatten()
+            .map(|d| d.message.clone())
+            .collect();
+        messages.sort();
+        assert_eq!(messages.len(), 2);
+        assert!(messages[0].contains("enum value \"FOO\" in enum \"E\""));
+        assert!(messages[1].contains("enum value \"Foo\" in enum \"E\""));
+    }
+
+    #[test]
+    fn test_exact_duplicate_is_also_reported() {
+        // Exact-match duplicates are a subset of case-insensitive duplicates.
+        let db = RootDatabase::default();
+        let rule = UniqueEnumValueNamesRuleImpl;
+        let schema = "enum E { VALUE VALUE }";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert_eq!(all.len(), 1);
     }
 }

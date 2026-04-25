@@ -38,3 +38,15 @@ query GetUserProfile {
     }
   }
 }
+
+# Missing `id` reachable through a fragment that also doesn't include it -
+# the diagnostic should append ` or add to used fragment `UserName``
+fragment UserName on User {
+  name
+}
+
+query GetUserViaFragmentWithoutId {
+  user(id: "1") {
+    ...UserName
+  }
+}
