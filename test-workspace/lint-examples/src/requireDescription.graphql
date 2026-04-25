@@ -1,0 +1,15 @@
+# Demonstrates: requireDescription (operation side)
+# Operations need a `#` comment line directly above them (no blank line
+# between the comment and the operation keyword). Otherwise the rule fires.
+
+query UndocumentedQuery {
+  undocumented {
+    id
+  }
+}
+
+mutation {
+  undocumentedMutation {
+    id
+  }
+}

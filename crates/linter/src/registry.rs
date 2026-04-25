@@ -36,6 +36,7 @@ static STANDALONE_DOCUMENT_RULES: LazyLock<Vec<Arc<dyn StandaloneDocumentLintRul
             Arc::new(NoDuplicateFieldsRuleImpl),
             Arc::new(OperationNameSuffixRuleImpl),
             Arc::new(RedundantFieldsRuleImpl),
+            Arc::new(RequireDescriptionRuleImpl),
             Arc::new(RequireImportFragmentRuleImpl),
             Arc::new(SelectionSetDepthRuleImpl),
             Arc::new(UnusedVariablesRuleImpl),
@@ -114,19 +115,26 @@ pub fn standalone_schema_rules() -> &'static [Arc<dyn StandaloneSchemaLintRule>]
 
 #[must_use]
 pub fn all_rule_names() -> Vec<&'static str> {
+    let mut seen = std::collections::HashSet::new();
     let mut names = Vec::new();
 
+    let mut push_unique = |name: &'static str, names: &mut Vec<&'static str>| {
+        if seen.insert(name) {
+            names.push(name);
+        }
+    };
+
     for rule in standalone_document_rules() {
-        names.push(rule.name());
+        push_unique(rule.name(), &mut names);
     }
     for rule in document_schema_rules() {
-        names.push(rule.name());
+        push_unique(rule.name(), &mut names);
     }
     for rule in project_rules() {
-        names.push(rule.name());
+        push_unique(rule.name(), &mut names);
     }
     for rule in standalone_schema_rules() {
-        names.push(rule.name());
+        push_unique(rule.name(), &mut names);
     }
 
     names.sort_unstable();
@@ -170,21 +178,33 @@ fn collect_rule_info(rule: &dyn LintRule, category: RuleCategory) -> RuleInfo {
 }
 
 /// Returns metadata for all registered lint rules, grouped by category.
+///
+/// Rules implemented for multiple sides (e.g. a rule that runs on both
+/// schemas and documents) are reported once, using the category of the
+/// first registry the rule appears in. Schema-side wins over document-side.
 #[must_use]
 pub fn all_rule_info() -> Vec<RuleInfo> {
+    let mut seen = std::collections::HashSet::new();
     let mut info = Vec::new();
 
+    let mut push_unique =
+        |rule: &dyn LintRule, category: RuleCategory, info: &mut Vec<RuleInfo>| {
+            if seen.insert(rule.name()) {
+                info.push(collect_rule_info(rule, category));
+            }
+        };
+
     for rule in standalone_schema_rules() {
-        info.push(collect_rule_info(rule.as_ref(), RuleCategory::Schema));
+        push_unique(rule.as_ref(), RuleCategory::Schema, &mut info);
     }
     for rule in standalone_document_rules() {
-        info.push(collect_rule_info(rule.as_ref(), RuleCategory::Document));
+        push_unique(rule.as_ref(), RuleCategory::Document, &mut info);
     }
     for rule in document_schema_rules() {
-        info.push(collect_rule_info(rule.as_ref(), RuleCategory::Document));
+        push_unique(rule.as_ref(), RuleCategory::Document, &mut info);
     }
     for rule in project_rules() {
-        info.push(collect_rule_info(rule.as_ref(), RuleCategory::Project));
+        push_unique(rule.as_ref(), RuleCategory::Project, &mut info);
     }
 
     info
