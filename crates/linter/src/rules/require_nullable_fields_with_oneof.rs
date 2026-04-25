@@ -69,7 +69,7 @@ impl StandaloneSchemaLintRule for RequireNullableFieldsWithOneofRuleImpl {
                                 span,
                                 LintSeverity::Error,
                                 format!(
-                                    "input value `{}` in input `{}` must be nullable when `@oneOf` is in use",
+                                    "input value \"{}\" in input \"{}\" must be nullable when \"@oneOf\" is in use",
                                     field.name, type_def.name
                                 ),
                                 "requireNullableFieldsWithOneof",

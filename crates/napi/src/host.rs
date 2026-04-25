@@ -29,6 +29,15 @@ pub fn get_host() -> &'static Mutex<NapiAnalysisHost> {
 
 impl NapiAnalysisHost {
     pub fn init_from_config(&mut self, config_path: &Path) -> anyhow::Result<()> {
+        // Reset host state so a second init for a *different* config doesn't
+        // leave the prior project's schema/documents resident. The JS adapter
+        // calls `init` once per resolved config path, so monorepos with
+        // multiple configs (and parity tests that spin up many throwaway
+        // projects in a single process) need each init to start fresh.
+        self.host = AnalysisHost::new();
+        self.known_files.clear();
+        self.initialized = false;
+
         let config = graphql_config::load_config(config_path)?;
         let base_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
 

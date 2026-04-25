@@ -122,8 +122,8 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                 }
                 Some(field) => {
                     if !field.type_ref.is_list {
-                        let field_start: usize = field.name_range.start().into();
-                        let field_end: usize = field.name_range.end().into();
+                        let field_start: usize = field.type_ref.name_range.start().into();
+                        let field_end: usize = field.type_ref.name_range.end().into();
                         let field_span = graphql_syntax::SourceSpan {
                             start: field_start,
                             end: field_end,
@@ -173,8 +173,8 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                     let is_wrong_type = field.type_ref.name.as_ref() != "PageInfo";
                     let is_nullable = !field.type_ref.is_non_null;
                     if is_wrong_type || is_nullable {
-                        let field_start: usize = field.name_range.start().into();
-                        let field_end: usize = field.name_range.end().into();
+                        let field_start: usize = field.type_ref.name_range.start().into();
+                        let field_end: usize = field.type_ref.name_range.end().into();
                         let field_span = graphql_syntax::SourceSpan {
                             start: field_start,
                             end: field_end,

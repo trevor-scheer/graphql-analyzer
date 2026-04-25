@@ -5,19 +5,21 @@ use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use serde::Deserialize;
 
-/// Convention for names
+/// Convention for names. Accepts the same string forms as graphql-eslint:
+/// `"camelCase"`, `"PascalCase"`, `"snake_case"`, `"UPPER_CASE"`.
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
 pub enum NamingCase {
     /// camelCase
+    #[serde(rename = "camelCase")]
     Camel,
     /// `PascalCase`
+    #[serde(rename = "PascalCase")]
     Pascal,
     /// `snake_case`
-    #[serde(alias = "snake_case")]
+    #[serde(rename = "snake_case")]
     Snake,
     /// `UPPER_CASE`
-    #[serde(alias = "UPPER_CASE")]
+    #[serde(rename = "UPPER_CASE")]
     Upper,
 }
 
@@ -67,28 +69,22 @@ fn is_upper_case(s: &str) -> bool {
         .all(|c| c.is_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
-/// Options for the `naming_convention` rule
-#[derive(Debug, Clone, Deserialize)]
+/// Options for the `naming_convention` rule.
+///
+/// Mirrors graphql-eslint: with no options the rule no-ops. Each AST kind
+/// must be opted into explicitly.
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct NamingConventionOptions {
-    /// Convention for operation names (default: `PascalCase`)
+    /// Convention for operation names (no default; must be set to fire)
     #[serde(rename = "OperationDefinition")]
     pub operation_definition: Option<NamingCase>,
-    /// Convention for fragment names (default: `PascalCase`)
+    /// Convention for fragment names (no default; must be set to fire)
     #[serde(rename = "FragmentDefinition")]
     pub fragment_definition: Option<NamingCase>,
-    /// Convention for variable names (default: camelCase, prefixed with $)
+    /// Convention for variable names (no default; must be set to fire)
+    #[serde(rename = "VariableDefinition", alias = "Variable")]
     pub variable: Option<NamingCase>,
-}
-
-impl Default for NamingConventionOptions {
-    fn default() -> Self {
-        Self {
-            operation_definition: Some(NamingCase::Pascal),
-            fragment_definition: Some(NamingCase::Pascal),
-            variable: Some(NamingCase::Camel),
-        }
-    }
 }
 
 impl NamingConventionOptions {
@@ -99,17 +95,19 @@ impl NamingConventionOptions {
     }
 }
 
-/// Lint rule that enforces naming conventions for operations and fragments
-// TODO(parity): graphql-eslint's `naming-convention` rule supports many more
-// options not implemented here: `prefix`, `suffix`, `forbiddenPatterns`,
-// `requiredPattern`, `forbiddenPrefixes`/`forbiddenSuffixes`,
-// `requiredPrefixes`/`requiredSuffixes`, `ignorePattern`,
-// `allowLeadingUnderscore`/`allowTrailingUnderscore`, the `types` umbrella
-// option, ESLint selector keys, and schema-side kinds (FieldDefinition,
-// ObjectTypeDefinition, EnumValueDefinition, etc.). Their corresponding
-// diagnostic messages (`have "X" prefix`, `not contain the forbidden
-// pattern "..."`, `Leading underscores are not allowed`, etc.) are not
-// emitted here.
+/// Lint rule that enforces naming conventions for operations and fragments.
+///
+/// Like graphql-eslint, the rule no-ops with no options — each kind must be
+/// explicitly configured.
+// TODO(parity): graphql-eslint's `naming-convention` rule additionally
+// supports `prefix`, `suffix`, `forbiddenPatterns`, `requiredPattern`,
+// `forbiddenPrefixes`/`forbiddenSuffixes`, `requiredPrefixes`/`requiredSuffixes`,
+// `ignorePattern`, `allowLeadingUnderscore`/`allowTrailingUnderscore`, the
+// `types` umbrella option, ESLint selector keys, and schema-side kinds
+// (FieldDefinition, ObjectTypeDefinition, EnumValueDefinition, etc.). Their
+// corresponding diagnostic messages (`have "X" prefix`, `not contain the
+// forbidden pattern "..."`, `Leading underscores are not allowed`, etc.) are
+// not emitted here.
 pub struct NamingConventionRuleImpl;
 
 impl LintRule for NamingConventionRuleImpl {
@@ -280,7 +278,10 @@ mod tests {
         )
     }
 
-    fn check(source: &str) -> Vec<LintDiagnostic> {
+    fn check_with_options(
+        source: &str,
+        options: Option<&serde_json::Value>,
+    ) -> Vec<LintDiagnostic> {
         let db = RootDatabase::default();
         let rule = NamingConventionRuleImpl;
         let file_id = FileId::new(0);
@@ -293,44 +294,73 @@ mod tests {
             DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
-        rule.check(&db, file_id, content, metadata, project_files, None)
+        rule.check(&db, file_id, content, metadata, project_files, options)
+    }
+
+    fn check(source: &str) -> Vec<LintDiagnostic> {
+        check_with_options(source, None)
+    }
+
+    #[test]
+    fn test_no_options_is_noop() {
+        // graphql-eslint parity: with no options every kind is unset, so the
+        // rule produces zero diagnostics regardless of how badly named the
+        // operation/fragment/variable is.
+        let diagnostics = check("query lowercaseOp { user { id } }");
+        assert!(diagnostics.is_empty());
+        let diagnostics = check("fragment lowercase_frag on User { id }");
+        assert!(diagnostics.is_empty());
+        let diagnostics = check("query Q($Bad: ID!) { user(id: $Bad) { id } }");
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
     fn test_valid_operation_name() {
-        let diagnostics = check("query GetUser { user { id } }");
+        let opts = serde_json::json!({ "OperationDefinition": "PascalCase" });
+        let diagnostics = check_with_options("query GetUser { user { id } }", Some(&opts));
         assert!(diagnostics.is_empty());
     }
 
     #[test]
     fn test_invalid_operation_name() {
-        let diagnostics = check("query get_user { user { id } }");
+        let opts = serde_json::json!({ "OperationDefinition": "PascalCase" });
+        let diagnostics = check_with_options("query get_user { user { id } }", Some(&opts));
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("PascalCase"));
     }
 
     #[test]
     fn test_valid_fragment_name() {
-        let diagnostics = check("fragment UserFields on User { id }");
+        let opts = serde_json::json!({ "FragmentDefinition": "PascalCase" });
+        let diagnostics = check_with_options("fragment UserFields on User { id }", Some(&opts));
         assert!(diagnostics.is_empty());
     }
 
     #[test]
     fn test_invalid_fragment_name() {
-        let diagnostics = check("fragment user_fields on User { id }");
+        let opts = serde_json::json!({ "FragmentDefinition": "PascalCase" });
+        let diagnostics = check_with_options("fragment user_fields on User { id }", Some(&opts));
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("PascalCase"));
     }
 
     #[test]
     fn test_valid_variable_name() {
-        let diagnostics = check("query Q($userId: ID!) { user(id: $userId) { id } }");
+        let opts = serde_json::json!({ "VariableDefinition": "camelCase" });
+        let diagnostics = check_with_options(
+            "query Q($userId: ID!) { user(id: $userId) { id } }",
+            Some(&opts),
+        );
         assert!(diagnostics.is_empty());
     }
 
     #[test]
     fn test_invalid_variable_name() {
-        let diagnostics = check("query Q($UserId: ID!) { user(id: $UserId) { id } }");
+        let opts = serde_json::json!({ "VariableDefinition": "camelCase" });
+        let diagnostics = check_with_options(
+            "query Q($UserId: ID!) { user(id: $UserId) { id } }",
+            Some(&opts),
+        );
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("camelCase"));
     }

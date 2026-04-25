@@ -34,7 +34,22 @@ function diagnosticsFor(filePath: string, source: string): binding.JsDiagnostic[
 // matches graphql-eslint exactly. Add a rule here only when graphql-eslint's
 // own implementation is intentionally start-only (e.g. `no-hashtag-description`
 // passes `loc: { line, column }` rather than `{ start, end }`).
-const START_ONLY_RULES = new Set(["noHashtagDescription"]);
+const START_ONLY_RULES = new Set([
+  "noHashtagDescription",
+  "requireSelections",
+  "matchDocumentFilename",
+  "selectionSetDepth",
+]);
+
+// Universally permissive options schema. graphql-eslint declares per-rule
+// JSON Schemas (often `additionalProperties: false`); we don't need to
+// duplicate those validators here because the Rust side already deserialises
+// into typed structs and ignores unknown keys. Allowing any object lets users
+// pass the same options graphql-eslint accepts (and a superset) without
+// ESLint's flat-config validator rejecting calls to rules with options.
+const OPTIONS_SCHEMA: Rule.RuleMetaData["schema"] = [
+  { type: "object", additionalProperties: true },
+];
 
 function makeRule(analyzerRuleName: string, description: string): Rule.RuleModule {
   const startOnly = START_ONLY_RULES.has(analyzerRuleName);
@@ -42,7 +57,7 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
     meta: {
       type: "problem",
       docs: { description },
-      schema: [],
+      schema: OPTIONS_SCHEMA,
     },
     create(context) {
       return {

@@ -28,7 +28,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test:unit": "node --test test/integration.test.mjs test/parity.test.mjs"
+    "test:unit": "NODE_ENV=test node --test test/integration.test.mjs test/parity.test.mjs"
   },
   "dependencies": {
     "@graphql-analyzer/core": "0.1.0"

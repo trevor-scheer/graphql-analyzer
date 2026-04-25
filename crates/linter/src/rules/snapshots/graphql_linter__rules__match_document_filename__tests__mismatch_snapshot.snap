@@ -2,4 +2,4 @@
 source: crates/linter/src/rules/match_document_filename.rs
 expression: messages
 ---
-- "Unexpected filename \"GetUser\". Rename it to \"FetchUser\""
+- "Unexpected filename \"GetUser.graphql\". Rename it to \"FetchUser.graphql\""

@@ -148,8 +148,12 @@ fn check_selection_set(
                             let syntax_node = field_name_node.syntax();
                             let offset: usize = syntax_node.text_range().start().into();
 
+                            // graphql-eslint format:
+                            //   `Field "name" is marked as deprecated in your GraphQL schema (reason: ...)`
+                            // displayNodeName uses the kind label ("field")
+                            // capitalized in the rule's reporter.
                             let message = format!(
-                                "Field `{}` is marked as deprecated in your GraphQL schema (reason: {})",
+                                "Field \"{}\" is marked as deprecated in your GraphQL schema (reason: {})",
                                 field_name.as_ref(),
                                 reason
                             );
@@ -185,7 +189,7 @@ fn check_selection_set(
                                                 syntax_node.text_range().start().into();
 
                                             let message = format!(
-                                                "Argument `{}` is marked as deprecated in your GraphQL schema (reason: {})",
+                                                "Argument \"{}\" is marked as deprecated in your GraphQL schema (reason: {})",
                                                 arg_name.as_ref(),
                                                 reason
                                             );
@@ -287,7 +291,7 @@ fn check_value_for_deprecated_enum(
                                 let offset: usize = syntax_node.text_range().start().into();
 
                                 let message = format!(
-                                    "Enum `{}` is marked as deprecated in your GraphQL schema (reason: {})",
+                                    "Enum \"{}\" is marked as deprecated in your GraphQL schema (reason: {})",
                                     enum_name.as_ref(),
                                     reason
                                 );
@@ -436,9 +440,11 @@ query GetUser {
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("username"));
-        assert!(diagnostics[0].message.contains("deprecated"));
-        assert!(diagnostics[0].message.contains("Use name instead"));
+        // graphql-eslint parity: messages quote names with double quotes.
+        assert_eq!(
+            diagnostics[0].message,
+            "Field \"username\" is marked as deprecated in your GraphQL schema (reason: Use name instead)"
+        );
 
         // Enrichment: deprecated-class rules should carry help text and the
         // Deprecated tag so editors can render them appropriately.

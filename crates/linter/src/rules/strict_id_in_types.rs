@@ -180,7 +180,7 @@ impl StandaloneSchemaLintRule for StrictIdInTypesRuleImpl {
                         span,
                         LintSeverity::Warning,
                         format!(
-                            "type `{type_name}` must have exactly one non-nullable unique identifier.\nAccepted {names_label}: {names_joined}.\nAccepted {types_label}: {types_joined}."
+                            "type \"{type_name}\" must have exactly one non-nullable unique identifier.\nAccepted {names_label}: {names_joined}.\nAccepted {types_label}: {types_joined}."
                         ),
                         "strictIdInTypes",
                     )
@@ -194,20 +194,17 @@ impl StandaloneSchemaLintRule for StrictIdInTypesRuleImpl {
     }
 }
 
-/// Join words with backtick-quoted entries using `Intl.ListFormat`-style
-/// disjunction (`a`, `a or b`, `a, b, or c`).
+/// Join words using `Intl.ListFormat`-style disjunction
+/// (`a`, `a or b`, `a, b, or c`). Entries are printed bare to mirror
+/// graphql-eslint's wording.
 fn english_join(words: &[String]) -> String {
     match words.len() {
         0 => String::new(),
-        1 => format!("`{}`", words[0]),
-        2 => format!("`{}` or `{}`", words[0], words[1]),
+        1 => words[0].clone(),
+        2 => format!("{} or {}", words[0], words[1]),
         _ => {
-            let head = words[..words.len() - 1]
-                .iter()
-                .map(|w| format!("`{w}`"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("{head}, or `{}`", words[words.len() - 1])
+            let head = words[..words.len() - 1].join(", ");
+            format!("{head}, or {}", words[words.len() - 1])
         }
     }
 }
@@ -273,12 +270,12 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("`User`"));
+        assert!(all[0].message.contains("\"User\""));
         assert!(all[0]
             .message
             .contains("must have exactly one non-nullable unique identifier"));
-        assert!(all[0].message.contains("Accepted name: `id`"));
-        assert!(all[0].message.contains("Accepted type: `ID`"));
+        assert!(all[0].message.contains("Accepted name: id"));
+        assert!(all[0].message.contains("Accepted type: ID"));
     }
 
     #[test]
@@ -301,7 +298,7 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("`User`"));
+        assert!(all[0].message.contains("\"User\""));
     }
 
     #[test]
@@ -325,8 +322,8 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, Some(&opts));
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("`User`"));
-        assert!(all[0].message.contains("Accepted names: `id` or `_id`"));
+        assert!(all[0].message.contains("\"User\""));
+        assert!(all[0].message.contains("Accepted names: id or _id"));
     }
 
     #[test]
@@ -389,6 +386,6 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, Some(&opts));
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
-        assert!(all[0].message.contains("`User`"));
+        assert!(all[0].message.contains("\"User\""));
     }
 }

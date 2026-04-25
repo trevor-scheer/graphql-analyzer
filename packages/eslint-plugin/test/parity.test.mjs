@@ -3,34 +3,49 @@
 // Enforces that:
 //   1. Rules we already expose have the same name as graphql-eslint's
 //      counterpart (drop-in migration is find-and-replace on the plugin name).
-//   2. For rule names shared between the two plugins, both fire on the same
-//      fixture files — the migration produces "equivalent" diagnostics, not
-//      necessarily identical wording.
+//   2. Every shared rule fires identically on a per-rule isolated fixture —
+//      same diagnostic count, same messages, same source positions.
+//
+// Each rule in EXERCISED carries its own fixture (inline strings); the
+// runner builds a throwaway project per probe, writes the fixture, runs both
+// plugins with the named rule enabled, and compares. This keeps fixtures from
+// cross-firing (rule X's fixture won't accidentally trip rule Y's parity
+// test) and means adding a new rule's coverage doesn't perturb existing
+// fixtures.
+//
+// The "every shared rule is parity-verified" test below fails if a rule is
+// added to either plugin without landing in EXERCISED. So new shared rules
+// force a parity decision on first sight.
 //
 // Intentional gaps (see docs/src/content/docs/linting/eslint-plugin.mdx):
 //   - Validation-category rules from graphql-js (`known-type-names`,
-//     `fields-on-correct-type`, etc.) are not exposed as lint rules in
-//     graphql-analyzer. They run as part of the analyzer's validation pass.
-//     `KNOWN_MISSING` captures this so we fail CI when graphql-eslint adds a
-//     non-validation rule we should have.
+//     `fields-on-correct-type`, etc.) run inside the analyzer's validation
+//     pass, not as configurable lint rules. `KNOWN_MISSING` captures these
+//     so we fail CI when graphql-eslint adds a non-validation rule we should
+//     have.
 //   - A handful of linter-specific rules we have that graphql-eslint doesn't
 //     (`operation-name-suffix`, `redundant-fields`, `require-id-field`, etc.).
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { ESLint } from "eslint";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import * as path from "node:path";
-import { ESLint } from "eslint";
 
 import ours from "../dist/index.js";
 import theirsNs from "@graphql-eslint/eslint-plugin";
 
 const theirs = theirsNs.default ?? theirsNs;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const fixtureRoot = path.resolve(__dirname, "../../../test-workspace/eslint-migration");
+// graphql-eslint caches its parsed `graphQLConfig` at module scope. Running
+// each `theirs` probe in a fresh child process bypasses the cache and
+// prevents rule-N's project state from leaking into rule-(N+1)'s diagnostics.
+const THEIRS_RUNNER = path.join(__dirname, "_lint-theirs.mjs");
 
-// graphql-eslint rules we intentionally don't ship. Keep this list
-// alphabetized and note the reason.
+// graphql-eslint rules we intentionally don't ship.
 const KNOWN_MISSING = new Set([
   // GraphQL-spec validation rules (from graphql-js `specifiedRules`). They
   // run inside the analyzer's validation pass rather than as configurable
@@ -65,9 +80,7 @@ const KNOWN_MISSING = new Set([
   "value-literals-of-correct-type",
   "variables-are-input-types",
   "variables-in-allowed-position",
-  // Naming mismatch tracked separately (see KNOWN_NAMING_MISMATCH below) —
-  // treat these as "not present under graphql-eslint's name" so the strict
-  // parity check still has a signal.
+  // Naming mismatch tracked separately (see KNOWN_NAMING_MISMATCH below).
   "no-unused-fields",
   "no-unused-fragments",
   "no-unused-variables",
@@ -81,9 +94,7 @@ const KNOWN_NAMING_MISMATCH = new Map([
   ["unused-variables", "no-unused-variables"],
 ]);
 
-// Rules we ship that graphql-eslint doesn't. OK to extend the surface, but
-// surprising additions should be deliberate — the allowlist catches
-// accidental ones.
+// Rules we ship that graphql-eslint doesn't.
 const KNOWN_EXTRA = new Set([
   "operation-name-suffix",
   "redundant-fields",
@@ -120,78 +131,468 @@ test("no unexpected extra rules vs graphql-eslint", () => {
   );
 });
 
-// Rules whose output is verified against graphql-eslint, keyed by rule name.
+// Convert kebab-case (rule names) to camelCase (analyzer config keys).
+const camelCase = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+
+// Each entry describes a per-rule isolated fixture and the parity assertion
+// applied to the resulting diagnostics.
 //
-//   span: "line" — compare diagnostic count, messages, and firing line.
-//   span: "full" — also compare column/endLine/endColumn (or assert that
-//     both sides emit the same single-position loc — `endLine` and
-//     `endColumn` may be `undefined` if graphql-eslint reports start-only).
+//   files: { "<relpath>": "<contents>", ... }
+//     The set of files written into the throwaway project. `schema.graphql` is
+//     loaded as the project schema; everything under `src/` is treated as a
+//     document. At least one file must be the lint target (`target`).
 //
-// Adding a rule here is the single point where parity coverage is declared.
+//   target: "<relpath>"
+//     The single file we run ESLint against — diagnostics are filtered by
+//     `ruleId === <scope>/<rule>` so this rule's parity is measured in
+//     isolation even when a fixture also trips other rules.
+//
+//   options: <any> (optional)
+//     Passed as the rule's option payload to BOTH plugins. Use this when
+//     graphql-eslint's rule schema requires options or when the only sensible
+//     parity is at non-default options. Ours must accept the same shape.
+//
+//   severity: 1 | 2
+//
+//   span: "line" | "full"
+//     "full" compares { line, column, endLine, endColumn }; "line" only
+//     compares the firing line. Use "full" wherever both plugins produce
+//     well-defined ranges.
 const EXERCISED = {
-  "no-anonymous-operations": { file: "src/operations.graphql", severity: 2, span: "line" },
-  "no-duplicate-fields": { file: "src/operations.graphql", severity: 2, span: "line" },
-  "no-hashtag-description": { file: "schema.graphql", severity: 1, span: "full" },
-  // Position parity verified after #1008 (TypeRef.name_range).
+  // ----- already-verified rules from prior PRs (#1008, #1011, #1012, #1013, #1014) -----
+
+  "no-anonymous-operations": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/op.graphql": "query { hello }\nquery { hello }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "line",
+  },
+
+  "no-duplicate-fields": {
+    files: {
+      "schema.graphql": "type Query { user: User } type User { id: ID! email: String }\n",
+      "src/op.graphql": "query Q { user { id email id } }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "line",
+  },
+
+  "no-hashtag-description": {
+    files: {
+      "schema.graphql": "# Don't use this as a description\ntype Query { hello: String }\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "description-style": {
+    files: {
+      "schema.graphql": '"A type"\ntype Query { id: ID! }\n',
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
   "require-field-of-type-query-in-mutation-result": {
-    file: "schema.graphql",
+    files: {
+      "schema.graphql":
+        "type Query { hello: String }\n" +
+        "type Mutation { createUser: CreateUserResult }\n" +
+        "type CreateUserResult { user: User }\n" +
+        "type User { id: ID! }\n",
+    },
+    target: "schema.graphql",
     severity: 1,
     span: "full",
   },
-  // Firing condition aligned (skip non-null lists) and message format
-  // aligned (`in type "Query"`) to match graphql-eslint exactly.
+
   "require-nullable-result-in-root": {
-    file: "schema.graphql",
+    files: {
+      "schema.graphql": "type Query { version: String! }\n",
+    },
+    target: "schema.graphql",
     severity: 1,
     span: "full",
   },
-  // Coverage extended to nested nodes in #1011 (matches graphql-eslint's
-  // `getNodeName`-shaped diagnostic).
-  "description-style": { file: "schema.graphql", severity: 1, span: "full" },
+
+  // ----- newly verified rules (this PR) -----
+
+  alphabetize: {
+    // graphql-eslint requires explicit options (`minProperties: 1`).
+    options: { selections: ["OperationDefinition"] },
+    files: {
+      "schema.graphql": "type Query { user: User } type User { id: ID! name: String! age: Int }\n",
+      "src/op.graphql": "query Q { user { name age id } }\n",
+    },
+    target: "src/op.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "input-name": {
+    files: {
+      "schema.graphql":
+        "type Query { _: Boolean }\n" + "type Mutation { setMessage(message: String): String }\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "lone-executable-definition": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/op.graphql": "query A { hello }\nquery B { hello }\nfragment F on Query { hello }\n",
+    },
+    target: "src/op.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "match-document-filename": {
+    options: { query: "PascalCase" },
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/operation.graphql": "query SomethingElse { hello }\n",
+    },
+    target: "src/operation.graphql",
+    severity: 1,
+    span: "line",
+  },
+
+  "naming-convention": {
+    // Both plugins no-op without explicit kind config; this fixture just
+    // exercises that the no-config behavior matches.
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/op.graphql": "query lowercaseOp { hello }\n",
+    },
+    target: "src/op.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "no-deprecated": {
+    files: {
+      "schema.graphql":
+        "type Query { user: User }\n" +
+        "type User {\n" +
+        "  id: ID!\n" +
+        '  oldField: String @deprecated(reason: "use newField")\n' +
+        "  newField: String\n" +
+        "}\n",
+      "src/op.graphql": "query GetUser { user { id oldField } }\n",
+    },
+    target: "src/op.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "no-one-place-fragments": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/op.graphql": "fragment F on Query { hello }\nquery Q { ...F }\n",
+    },
+    target: "src/op.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "no-root-type": {
+    options: { disallow: ["mutation", "subscription"] },
+    files: {
+      "schema.graphql":
+        "type Query { hello: String }\n" + "type Mutation { setHello(s: String): String }\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "no-scalar-result-type-on-mutation": {
+    files: {
+      "schema.graphql":
+        "type Query { ok: Boolean }\n" + "type Mutation {\n  deleteUser: Boolean!\n}\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "no-typename-prefix": {
+    files: {
+      "schema.graphql":
+        "type Query { user: User }\ntype User {\n  userId: ID!\n  name: String\n}\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "no-unreachable-types": {
+    files: {
+      "schema.graphql":
+        "type Query { me: User }\n" + "type User { id: ID! }\n" + "type Orphan { name: String }\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "relay-arguments": {
+    files: {
+      "schema.graphql":
+        "type Query {\n  posts: PostConnection\n}\n\n" +
+        "type PostConnection { edges: [PostEdge] pageInfo: PageInfo! }\n" +
+        "type PostEdge { node: Post cursor: String! }\n" +
+        "type Post { id: ID! }\n" +
+        "type PageInfo { hasPreviousPage: Boolean! hasNextPage: Boolean! startCursor: String endCursor: String }\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "relay-connection-types": {
+    files: {
+      "schema.graphql":
+        "type Query { users: UserConnection }\n\n" +
+        "type UserConnection {\n  edges: UserEdge\n  pageInfo: PageInfo\n}\n\n" +
+        "type UserEdge { node: User cursor: String! }\n" +
+        "type User { id: ID! }\n" +
+        "type PageInfo { hasPreviousPage: Boolean! hasNextPage: Boolean! startCursor: String endCursor: String }\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "relay-edge-types": {
+    files: {
+      "schema.graphql":
+        "type Query { users: UserConnection }\n\n" +
+        "type UserConnection { edges: [UserItem] pageInfo: PageInfo! }\n\n" +
+        "type UserItem {\n  cursor: String!\n}\n\n" +
+        "type User { id: ID! }\n" +
+        "type PageInfo { hasPreviousPage: Boolean! hasNextPage: Boolean! startCursor: String endCursor: String }\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "relay-page-info": {
+    files: {
+      "schema.graphql":
+        "type Query { hello: String }\n\n" +
+        "type PageInfo {\n  hasPreviousPage: Boolean\n  hasNextPage: String\n  startCursor: String\n}\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "require-deprecation-date": {
+    files: {
+      "schema.graphql":
+        "type Query { _: Boolean }\n" +
+        "type User {\n" +
+        "  id: ID!\n" +
+        '  oldField: String @deprecated(reason: "use newField")\n' +
+        "}\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "require-deprecation-reason": {
+    files: {
+      "schema.graphql":
+        "type Query { _: Boolean }\n" +
+        "type User {\n  id: ID!\n  oldField: String @deprecated\n}\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "require-description": {
+    options: { types: true },
+    files: {
+      "schema.graphql": "type Query { _: Boolean }\n\ntype Undocumented {\n  id: ID!\n}\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "require-import-fragment": {
+    files: {
+      "schema.graphql": "type Query { user: User } type User { id: ID! name: String }\n",
+      "src/op.graphql": "query GetUser { user { ...UserFields } }\n",
+    },
+    target: "src/op.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "require-nullable-fields-with-oneof": {
+    files: {
+      "schema.graphql":
+        "directive @oneOf on INPUT_OBJECT | OBJECT\n" +
+        "type Query { _: Boolean }\n" +
+        "input Foo @oneOf {\n  a: String!\n  b: Int\n}\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "require-selections": {
+    files: {
+      "schema.graphql": "type Query { user: User }\n" + "type User { id: ID! name: String! }\n",
+      "src/op.graphql": "query Q { user { name } }\n",
+    },
+    target: "src/op.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "require-type-pattern-with-oneof": {
+    files: {
+      "schema.graphql":
+        "directive @oneOf on INPUT_OBJECT | OBJECT\n" +
+        "type Query { _: Boolean }\n" +
+        "type Result @oneOf {\n  success: String\n}\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "selection-set-depth": {
+    options: { maxDepth: 2 },
+    files: {
+      "schema.graphql":
+        "type Query { a: A } type A { b: B } type B { c: C } type C { d: String }\n",
+      "src/op.graphql": "query Q {\n  a { b { c { d } } }\n}\n",
+    },
+    target: "src/op.graphql",
+    severity: 1,
+    span: "line",
+  },
+
+  "strict-id-in-types": {
+    files: {
+      "schema.graphql": "type Query { user: User }\ntype User {\n  name: String!\n}\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "unique-enum-value-names": {
+    files: {
+      "schema.graphql":
+        "type Query { e: MyEnum }\n" + "enum MyEnum {\n  Value\n  VALUE\n  ValuE\n}\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
 };
 
-test("rules shared with graphql-eslint fire on the same fixture files", async () => {
-  // Build both plugins against the same fixture config so differences are
-  // attributable to analyzer behavior, not config drift.
-  const sharedRules = [...ourRules()].filter((r) => theirRules().has(r));
-  assert.ok(sharedRules.length > 0, "expected at least one shared rule");
+test("every shared rule is parity-verified", () => {
+  // Inverts the default: any shared rule must appear in EXERCISED with a
+  // verified parity assertion. New rules added to either plugin force a
+  // decision on first sight.
+  const shared = [...ourRules()].filter((r) => theirRules().has(r));
+  const exercised = new Set(Object.keys(EXERCISED));
 
-  for (const [rule, { file, severity }] of Object.entries(EXERCISED)) {
-    const ourDiag = await lintOne("ours", rule, severity, file);
-    const theirDiag = await lintOne("theirs", rule, severity, file);
+  const unaccounted = shared.filter((r) => !exercised.has(r)).sort();
+  assert.deepEqual(
+    unaccounted,
+    [],
+    "Shared rules without parity coverage. Add to EXERCISED with a fixture:\n  " +
+      unaccounted.join("\n  "),
+  );
 
-    assert.ok(ourDiag.length > 0, `our plugin didn't fire ${rule} on ${file}`);
-    assert.ok(
-      theirDiag.length > 0,
-      `graphql-eslint didn't fire ${rule} on ${file} — fixture may need updating`,
-    );
-  }
+  const stale = [...exercised].filter((r) => !shared.includes(r)).sort();
+  assert.deepEqual(
+    stale,
+    [],
+    `EXERCISED entries that aren't shared rules — remove them:\n  ${stale.join("\n  ")}`,
+  );
 });
 
 test("messages, counts, and source positions match graphql-eslint exactly", async () => {
-  // Hard parity: same diagnostic count, same messages, and source positions
-  // matching to the granularity declared in `EXERCISED[rule].span`.
-  for (const [rule, { file, severity, span }] of Object.entries(EXERCISED)) {
-    const ourDiag = await lintOne("ours", rule, severity, file);
-    const theirDiag = await lintOne("theirs", rule, severity, file);
-
-    assert.equal(
-      ourDiag.length,
-      theirDiag.length,
-      `${rule} diagnostic count drift: ours=${ourDiag.length} theirs=${theirDiag.length}`,
-    );
-
-    const ourMessages = ourDiag.map((d) => d.message).sort();
-    const theirMessages = theirDiag.map((d) => d.message).sort();
-    assert.deepEqual(ourMessages, theirMessages, `${rule} message text drift on ${file}`);
-
-    assert.deepEqual(
-      sortedPositions(ourDiag, span),
-      sortedPositions(theirDiag, span),
-      `${rule} source-position drift on ${file} (span=${span})`,
-    );
+  // Hard parity: same diagnostic count, same messages, same positions
+  // (granularity per cfg.span). All rules are checked; failures are
+  // collected so a single failing rule doesn't mask drifts in others.
+  //
+  // Both plugins lint the SAME tmp project per rule, so messages that
+  // happen to embed the document path (e.g. `no-one-place-fragments`'s
+  // "Inline him in '<path>'.") match between the two runs.
+  const errors = [];
+  for (const [rule, cfg] of Object.entries(EXERCISED)) {
+    await withProject(rule, cfg, async (root) => {
+      let ourDiag, theirDiag;
+      try {
+        ourDiag = await lintInProject(root, ours, "@graphql-analyzer", rule, cfg);
+      } catch (err) {
+        errors.push(`${rule}: ours threw: ${err.message.split("\n")[0]}`);
+        return;
+      }
+      try {
+        theirDiag = lintTheirsInChild(root, rule, cfg);
+      } catch (err) {
+        errors.push(`${rule}: theirs threw: ${err.message.split("\n")[0]}`);
+        return;
+      }
+      if (ourDiag.length === 0 && theirDiag.length === 0) {
+        // Both fire zero — trivially at parity. (Some rules no-op at default
+        // options on purpose, e.g. `naming-convention` requires explicit
+        // kind config in both plugins.)
+        return;
+      }
+      if (ourDiag.length > 0 && theirDiag.length === 0) {
+        errors.push(`${rule}: ours fired (${ourDiag.length}) but theirs didn't`);
+        return;
+      }
+      if (theirDiag.length > 0 && ourDiag.length === 0) {
+        errors.push(`${rule}: theirs fired (${theirDiag.length}) but ours didn't`);
+        return;
+      }
+      const drift = parityDiff(ourDiag, theirDiag, cfg.span);
+      if (drift) errors.push(`${rule}: ${drift}`);
+    });
   }
+  assert.deepEqual(errors, [], `parity drift:\n  ${errors.join("\n  ")}`);
 });
+
+function parityDiff(ours, theirs, span) {
+  if (ours.length !== theirs.length) {
+    return `count drift: ours=${ours.length} theirs=${theirs.length}`;
+  }
+  const oursMsgs = ours.map((d) => d.message).sort();
+  const theirsMsgs = theirs.map((d) => d.message).sort();
+  if (JSON.stringify(oursMsgs) !== JSON.stringify(theirsMsgs)) {
+    return `message drift\n    ours:   ${JSON.stringify(oursMsgs)}\n    theirs: ${JSON.stringify(theirsMsgs)}`;
+  }
+  const oursPos = sortedPositions(ours, span);
+  const theirsPos = sortedPositions(theirs, span);
+  if (JSON.stringify(oursPos) !== JSON.stringify(theirsPos)) {
+    return `position drift (span=${span})\n    ours:   ${JSON.stringify(oursPos)}\n    theirs: ${JSON.stringify(theirsPos)}`;
+  }
+  return null;
+}
 
 function sortedPositions(diagnostics, span) {
   const project =
@@ -203,21 +604,66 @@ function sortedPositions(diagnostics, span) {
     .sort((a, b) => a.line - b.line || (a.column ?? 0) - (b.column ?? 0));
 }
 
-async function lintOne(which, rule, severity, file) {
-  const plugin = which === "ours" ? ours : theirs;
-  const scope = which === "ours" ? "@graphql-analyzer" : "@graphql-eslint";
+async function withProject(rule, cfg, fn) {
+  const root = mkdtempSync(path.join(tmpdir(), `parity-${rule}-`));
+  try {
+    // Write fixture files.
+    for (const [relpath, content] of Object.entries(cfg.files)) {
+      const abs = path.join(root, relpath);
+      mkdirSync(path.dirname(abs), { recursive: true });
+      writeFileSync(abs, content);
+    }
+
+    // Write `.graphqlrc.yaml` so the analyzer binding fires the rule and
+    // graphql-config resolves the project (graphql-eslint relies on this
+    // to know which file is schema vs document).
+    const lines = [];
+    if (cfg.files["schema.graphql"]) lines.push(`schema: "schema.graphql"`);
+    const docs = Object.keys(cfg.files).filter((p) => p.startsWith("src/"));
+    if (docs.length > 0) lines.push(`documents: "src/**/*"`);
+    lines.push(`extensions:`);
+    lines.push(`  graphql-analyzer:`);
+    lines.push(`    lint:`);
+    lines.push(`      rules:`);
+    if (cfg.options !== undefined) {
+      lines.push(`        ${camelCase(rule)}:`);
+      lines.push(`          - warn`);
+      lines.push(`          - ${JSON.stringify(cfg.options)}`);
+    } else {
+      lines.push(`        ${camelCase(rule)}: warn`);
+    }
+    writeFileSync(path.join(root, ".graphqlrc.yaml"), lines.join("\n") + "\n");
+
+    return await fn(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function lintInProject(root, plugin, scope, rule, cfg) {
+  const ruleEntry = cfg.options !== undefined ? [cfg.severity, cfg.options] : cfg.severity;
   const eslint = new ESLint({
     overrideConfigFile: true,
-    cwd: fixtureRoot,
+    cwd: root,
     overrideConfig: [
       {
         files: ["**/*.graphql"],
         languageOptions: { parser: plugin.parser },
         plugins: { [scope]: plugin },
-        rules: { [`${scope}/${rule}`]: severity },
+        rules: { [`${scope}/${rule}`]: ruleEntry },
       },
     ],
   });
-  const [result] = await eslint.lintFiles([file]);
-  return result.messages.filter((m) => m.ruleId === `${scope}/${rule}`);
+  const [r] = await eslint.lintFiles([cfg.target]);
+  return r.messages.filter((m) => m.ruleId === `${scope}/${rule}`);
+}
+
+function lintTheirsInChild(root, rule, cfg) {
+  const optionsRaw = cfg.options !== undefined ? JSON.stringify(cfg.options) : "undefined";
+  const out = execFileSync(
+    process.execPath,
+    [THEIRS_RUNNER, root, rule, cfg.target, String(cfg.severity), optionsRaw],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
+  );
+  return JSON.parse(out);
 }
