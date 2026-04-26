@@ -22,7 +22,9 @@ pub(crate) mod server;
 pub mod trace_capture;
 mod workspace;
 
+pub use crate::global_state::{GlobalState, InlineDispatcher, TaskDispatcher};
 pub use crate::loading::install_workspace_from_init_options;
+pub use crate::main_loop::{tick, ControlFlow};
 
 use std::path::PathBuf;
 
@@ -39,7 +41,6 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::Layer;
 use tracing_subscriber::Registry;
 
-use global_state::GlobalState;
 use server::{StatusNotification, StatusParams};
 
 /// Build a tracing `EnvFilter`, always suppressing Salsa's internal logs
@@ -261,7 +262,7 @@ fn build_server_capabilities() -> ServerCapabilities {
     }
 }
 
-#[cfg(feature = "introspect")]
+#[cfg(feature = "native")]
 fn spawn_introspection_thread(
     request_receiver: crossbeam_channel::Receiver<global_state::IntrospectionRequest>,
     result_sender: crossbeam_channel::Sender<global_state::IntrospectionResult>,

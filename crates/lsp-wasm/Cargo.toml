@@ -1,0 +1,27 @@
+[package]
+name = "graphql-lsp-wasm"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Wasm bindings for the GraphQL language server"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+graphql-lsp = { path = "../lsp", default-features = false, features = ["wasm", "introspect"] }
+lsp-server = { workspace = true }
+lsp-types = { workspace = true }
+crossbeam-channel = { workspace = true }
+serde_json = { workspace = true }
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+tracing = { workspace = true }
+tracing-wasm = "0.2"
+
+[lints]
+workspace = true
