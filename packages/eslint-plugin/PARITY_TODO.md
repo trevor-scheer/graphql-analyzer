@@ -260,18 +260,14 @@ catch-all upstream — that part of the original TODO was wrong.
 
 ### 7. `no-hashtag-description` per-line vs grouped granularity
 
-**Status:** SOLVABLE.
+**Status:** RESOLVED. The doc caveat was stale.
 
-**Evidence:** `eslint-plugin.mdx:163-165` documents the divergence. We fire
-once per `#` comment line; upstream coalesces consecutive comment lines into
-one diagnostic.
-
-**Plan:** in `crates/linter/src/rules/no_hashtag_description.rs`, group
-consecutive comment lines (comments on adjacent source lines, no
-intervening blank line) and emit one diagnostic per run, located at the
-first line of the run. Add a parity fixture with two adjacent `#` lines
-followed by another after a blank line — should produce 2 diagnostics, not 3,
-and match upstream's positions exactly. Then drop the caveat from the docs.
+**Result:** `crates/linter/src/rules/no_hashtag_description.rs` already
+groups consecutive `#` lines into one diagnostic per attached node. The
+parity fixture now exercises both an unattached file-scope comment and a
+two-line attached comment block, and parity passes against upstream
+byte-for-byte. The eslint-plugin.mdx caveat was already removed alongside
+PARITY_TODO item 1's doc cleanup.
 
 ---
 

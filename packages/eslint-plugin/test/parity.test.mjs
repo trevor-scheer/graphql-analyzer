@@ -170,8 +170,21 @@ const EXERCISED = {
   },
 
   "no-hashtag-description": {
+    // Multiple `#` lines on adjacent rows attached to the same definition
+    // count as ONE comment block (graphql-eslint groups; we group). A
+    // separate `#` block at file scope (gap row before the next definition)
+    // is its own diagnostic. Single line covered indirectly by the second
+    // attached comment.
     files: {
-      "schema.graphql": "# Don't use this as a description\ntype Query { hello: String }\n",
+      "schema.graphql":
+        "# A note about the schema.\n" +
+        "\n" +
+        "# Represents a user\n" +
+        "# with a name\n" +
+        "type User { name: String }\n" +
+        "\n" +
+        "# A query type\n" +
+        "type Query { user: User }\n",
     },
     target: "schema.graphql",
     severity: 1,
