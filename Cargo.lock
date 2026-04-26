@@ -1215,7 +1215,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-analyzer-napi"
-version = "0.1.0"
+version = "0.1.1-alpha.0"
 dependencies = [
  "anyhow",
  "graphql-config",
@@ -1246,7 +1246,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-cli"
-version = "0.2.2"
+version = "0.2.3-alpha.0"
 dependencies = [
  "anyhow",
  "apollo-parser 0.8.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1386,7 +1386,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-lsp"
-version = "0.2.2"
+version = "0.2.3-alpha.0"
 dependencies = [
  "anyhow",
  "apollo-compiler",
@@ -1451,7 +1451,7 @@ dependencies = [
 
 [[package]]
 name = "graphql-mcp"
-version = "0.1.9"
+version = "0.1.10-alpha.0"
 dependencies = [
  "anyhow",
  "glob",
