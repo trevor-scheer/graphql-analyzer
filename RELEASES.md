@@ -123,13 +123,33 @@ component(s) the change reaches users through.
 ## npm publishing auth
 
 The workflow uses npm [Trusted Publishing](https://docs.npmjs.com/trusted-publishers)
-(OIDC) exclusively — no `NPM_TOKEN` secret lives in CI. All seven
-`@graphql-analyzer/*` package names are bound to this repo + `release.yml` on
-npmjs.com.
+(OIDC) exclusively — no `NPM_TOKEN` secret lives in CI. Each of the seven
+`@graphql-analyzer/*` package names must be bound on npmjs.com to:
 
-In `release.yml`, the publish job sets `permissions: id-token: write` and uses
-`npm publish --provenance`. npm verifies the OIDC token against the registered
-binding before accepting the publish.
+- Organization / user: `trevor-scheer`
+- Repository: `graphql-analyzer`
+- Workflow filename: `release.yml`
+- Environment: _(leave empty)_
+
+The binding is scoped to the workflow file, not to individual jobs — so the
+same binding authorizes `publish-vscode`, `publish-openvsx`, and `publish-npm`.
+
+The `publish-npm` job sets `permissions: id-token: write` and runs
+`npm publish --provenance --access public --tag alpha` for every package. npm
+verifies the OIDC token against the registered binding before accepting the
+publish.
+
+### Publish ordering and idempotency
+
+The `publish-npm` job runs publishes in a fixed order: 5 platform stubs →
+`@graphql-analyzer/core` dispatcher → `@graphql-analyzer/eslint-plugin`. The
+order is mandatory — the dispatcher pins each platform stub via exact-version
+`optionalDependencies`, and the eslint-plugin pins the dispatcher via a normal
+exact-version dependency.
+
+Each step short-circuits via `npm view <name>@<version>` if that version is
+already on the registry, so a re-run of a partially-completed job picks up where
+the failure left off.
 
 ## Testing a release locally
 
@@ -199,16 +219,21 @@ All files listed under a single `versioned_files` must already share a
 version before the next release. If they drift, hand-align them in a
 preparatory commit.
 
-### npm publish fails with "version already exists"
+### npm publish fails partway through
 
-Knope wrote the version but a previous publish partially completed. Either
-bump to the next patch and re-run, or delete the offending versions from
-npm (within the 72-hour unpublish window).
+Re-run the failed `publish-npm` job from the GitHub Actions UI. Each publish
+step checks `npm view <name>@<version>` first and skips packages already on the
+registry, so a re-run finishes whatever didn't complete the first time.
+
+If a stub fails mid-stream and the dispatcher publishes anyway (it shouldn't —
+each step is sequential and `set -euo pipefail`), users on the affected
+platform will see `Cannot find module @graphql-analyzer/core-<triple>` at
+install time. Recover by re-running the workflow once the underlying issue is
+fixed.
 
 ### optionalDependencies resolve incorrectly
 
-All six `@graphql-analyzer/core*` packages must share an exact version, and
-the platform stubs must be published _before_ the dispatcher. The
-`publish-npm` job enforces this ordering — if a stub publish fails, the
-dispatcher publish must be skipped or users on that platform will see
-`Cannot find module @graphql-analyzer/core-<triple>` at install time.
+All six `@graphql-analyzer/core*` packages must share an exact version, and the
+platform stubs must be published _before_ the dispatcher. The `publish-npm` job
+enforces this ordering, and `scripts/sync-workspace-deps.mjs` (run by knope
+during prepare-release) keeps the version pins in lockstep.

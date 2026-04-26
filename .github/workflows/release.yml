@@ -205,6 +205,91 @@ jobs:
           name: vscode-extension-${{ matrix.vscode_target }}
           path: editors/vscode/*.vsix
 
+  # Build the @graphql-analyzer/core native addon for each platform.
+  # The matrix mirrors build-binaries (5 targets); only linux-arm64-gnu cross
+  # compiles, and it uses an apt-installed gcc cross toolchain rather than
+  # `cross` (Docker) because napi-rs invokes cargo directly.
+  build-core:
+    needs: check-release
+    if: needs.check-release.outputs.should_release == 'true'
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            npm_dir: darwin-arm64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            npm_dir: darwin-x64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm_dir: linux-arm64-gnu
+            linux_cross: true
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm_dir: linux-x64-gnu
+            # Picked arbitrarily as the runner that also uploads the
+            # platform-independent dispatcher entry points (index.js, index.d.ts)
+            # so publish-npm gets exactly one copy.
+            dispatcher: true
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            npm_dir: win32-x64-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install Rust
+        run: rustup show
+
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: "release-core-${{ matrix.target }}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install workspace deps
+        run: npm ci
+
+      - name: Install Linux ARM cross toolchain
+        if: matrix.linux_cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+
+      - name: Build native addon
+        working-directory: packages/core
+        run: npx napi build --cargo-cwd ../../crates/napi --platform --release --target ${{ matrix.target }}
+
+      - name: Upload .node binding
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: core-bindings-${{ matrix.npm_dir }}
+          path: packages/core/graphql-analyzer.*.node
+          if-no-files-found: error
+
+      # index.js and index.d.ts are platform-independent — every runner produces
+      # identical bytes. Upload from a single runner so publish-npm gets one copy.
+      - name: Upload dispatcher entry points
+        if: matrix.dispatcher
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: core-dispatcher
+          path: |
+            packages/core/index.js
+            packages/core/index.d.ts
+          if-no-files-found: error
+
   # Create GitHub releases and upload all assets
   release:
     needs: [check-release, build-binaries, build-vscode]
@@ -315,6 +400,103 @@ jobs:
             echo "Publishing $vsix"
             npx ovsx publish "$vsix" --pat "$OVSX_PAT"
           done
+
+  # Publish @graphql-analyzer/* packages to npm.
+  #
+  # Order matters: platform stubs must publish first because the dispatcher pins
+  # them via exact-version optionalDependencies; @graphql-analyzer/eslint-plugin
+  # publishes last because it depends on @graphql-analyzer/core. Each step is
+  # idempotent (`npm view` short-circuits already-published versions) so a
+  # partial failure can be recovered by re-running the workflow.
+  #
+  # OIDC trusted publishing: no NPM_TOKEN required. Each of the 7 published
+  # package names must have npmjs.com → trusted publisher → this repo +
+  # release.yml + publish-npm job bound on the registry.
+  publish-npm:
+    needs: [check-release, build-core, release]
+    if: needs.check-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "24"
+          cache: "npm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install workspace deps
+        run: npm ci
+
+      - name: Download .node bindings (all platforms)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: core-bindings-*
+          path: napi-artifacts
+          merge-multiple: true
+
+      - name: Download dispatcher entry points
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: core-dispatcher
+          path: packages/core
+
+      # `napi artifacts` reads the flat dir of `<name>.<platform-suffix>.node`
+      # files and copies each into packages/core/npm/<dir>/ based on the suffix.
+      - name: Distribute .node bindings into platform stub dirs
+        working-directory: packages/core
+        run: npx napi artifacts --dir ../../napi-artifacts
+
+      - name: Confirm publish layout
+        run: find packages/core packages/eslint-plugin -type f \( -name "*.node" -o -name "index.js" -o -name "index.d.ts" -o -name "package.json" \) -not -path "*/node_modules/*" | sort
+
+      # eslint-plugin's TS imports the dispatcher's index.d.ts, so the dispatcher
+      # files (downloaded above) must be in place before tsc runs.
+      - name: Build @graphql-analyzer/eslint-plugin
+        run: npm run build --workspace=@graphql-analyzer/eslint-plugin
+
+      - name: Publish @graphql-analyzer/core platform stubs
+        run: |
+          set -euo pipefail
+          for dir in packages/core/npm/*/; do
+            name=$(node -p "require('./${dir}package.json').name")
+            version=$(node -p "require('./${dir}package.json').version")
+            if npm view "${name}@${version}" version >/dev/null 2>&1; then
+              echo "${name}@${version} already published — skipping"
+              continue
+            fi
+            echo "::group::Publishing ${name}@${version}"
+            (cd "$dir" && npm publish --tag alpha --provenance --access public)
+            echo "::endgroup::"
+          done
+
+      - name: Publish @graphql-analyzer/core
+        working-directory: packages/core
+        run: |
+          set -euo pipefail
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "${name}@${version}" version >/dev/null 2>&1; then
+            echo "${name}@${version} already published — skipping"
+            exit 0
+          fi
+          npm publish --tag alpha --provenance --access public
+
+      - name: Publish @graphql-analyzer/eslint-plugin
+        working-directory: packages/eslint-plugin
+        run: |
+          set -euo pipefail
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "${name}@${version}" version >/dev/null 2>&1; then
+            echo "${name}@${version} already published — skipping"
+            exit 0
+          fi
+          npm publish --tag alpha --provenance --access public
 
   # Update the Homebrew tap formula with the new CLI version
   update-homebrew-formula:

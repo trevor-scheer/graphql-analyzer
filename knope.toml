@@ -8,6 +8,13 @@
 #   graphql-analyzer-lsp: minor
 #   ---
 
+# We drive every release from changesets exclusively. Conventional-commit
+# parsing would otherwise also bump versions based on commit message prefixes
+# (`feat:`, `fix:`), and our commit style intentionally doesn't follow that
+# convention.
+[changes]
+ignore_conventional_commits = true
+
 [packages.graphql-analyzer-cli]
 versioned_files = ["crates/cli/Cargo.toml"]
 changelog = "crates/cli/CHANGELOG.md"
@@ -64,7 +71,6 @@ name = "prepare-release"
 [[workflows.steps]]
 type = "PrepareRelease"
 prerelease_label = "alpha"
-ignore_conventional_commits = true
 
 # Knope only bumps `version` fields. Re-pin intra-workspace npm deps to the
 # new core version so published packages list the exact version they were
