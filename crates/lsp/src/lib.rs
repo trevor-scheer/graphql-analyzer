@@ -4,7 +4,6 @@
 //! server communicating over stdio. It uses a sync main loop with a thread pool
 //! for Salsa query execution.
 
-
 mod conversions;
 mod dispatch;
 mod global_state;
