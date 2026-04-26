@@ -128,31 +128,63 @@ kind config — a real upstream config silently under-covers when migrated.
 
 ### 4. Autofix surface only covers `alphabetize`
 
-**Status:** RESEARCH-FIRST, then SOLVABLE per-rule.
+**Status:** RESOLVED for `fix` parity. SEPARATE ITEM for `suggest` parity.
 
-**Evidence:** `rules.ts:54-61` — `ESLINT_FIXABLE_RULES = new Set(["alphabetize"])`.
-The doc claim at `eslint-plugin.mdx:158` ("Autofixes are not yet wired through
-the ESLint rule shim") contradicts the fact that `alphabetize` *is* wired,
-and the migration guide (`:101-104`) says the right thing.
+**Research result:** Upstream ships `meta.fixable: "code"` on **only one rule**:
+`alphabetize`. We already match. 22 upstream rules ship `meta.hasSuggestions:
+true` with `suggest:` arrays (`no-anonymous-operations`, `no-deprecated`,
+`description-style`, `no-duplicate-fields`, `no-hashtag-description`,
+`no-typename-prefix`, `no-unreachable-types`, `no-root-type`,
+`require-deprecation-date`, `require-import-fragment`, `selection-set-depth`,
+`unique-enum-value-names`, `naming-convention`, `no-unused-fields`,
+`require-selections`, `input-name`, `require-nullable-result-in-root`,
+`no-scalar-result-type-on-mutation`, others). 11 ship neither.
 
 **Plan:**
 
-1. Enumerate which upstream rules ship `fix` (vs `suggest`-only) by reading
-   each rule's source in `node_modules/@graphql-eslint/eslint-plugin/`.
-   Produce a matrix in this file before any code changes.
-2. For each upstream rule with `fix`: confirm our Rust rule produces an
-   equivalent fix payload, add the analyzer rule name to
-   `ESLINT_FIXABLE_RULES`, and add the rule's fixture to the parity-test set
-   that compares `fix.range` and `fix.text`. The current `canonical()`
-   already compares `fix` (`parity.test.mjs:631`) — we just need the
-   fixtures to actually trigger fixes.
-3. Reconcile the two docs (`eslint-plugin.mdx:158` and
-   `migrating:101-104`) once the matrix is complete.
-
-**Why research-first:** "fix" vs "suggest" is a per-rule editorial decision
-upstream and we should match it exactly, not guess.
+1. Doc fix: change `eslint-plugin.mdx:158` to match the migration guide —
+   `alphabetize` is wired and that's the entire upstream `fix` surface.
+2. **New sub-item ("4b: ESLint suggestions")** — wire `suggest` for the 22
+   rules upstream ships them on. Our Rust diagnostics already carry `fix`
+   payloads on most of these (we surface them via LSP "Quick Fix" already);
+   the work is exposing them as ESLint suggestions instead of fixes.
+   - Plumb `JsDiagnostic.suggestions: Array<{ messageId, fix }>` (new field)
+     through the napi boundary.
+   - In `rules.ts`, when a diagnostic carries suggestions, populate
+     `context.report({ suggest: [...] })` rather than `fix`.
+   - Add a SUGGEST set parallel to `ESLINT_FIXABLE_RULES`.
+   - Extend the parity test to compare `suggest` arrays (currently only
+     `fix` is in `canonical()` at `parity.test.mjs:631`).
 
 ---
+
+### 4c. `alphabetize` is missing the schema-side options upstream's `flat/schema-all` uses
+
+**Status:** SOLVABLE — surfaced while auditing presets for item 6.
+
+**Evidence:** `crates/linter/src/rules/alphabetize.rs:42-51` — our options
+struct accepts `selections`, `arguments` (bool), `variables` (bool).
+Upstream's `flat/schema-all` configures `alphabetize` with `definitions`,
+`fields: ["ObjectTypeDefinition", ...]`, `values: true`, `arguments:
+[...]` (array of contexts, not bool), and `groups: ["id", "*",
+"createdAt", "updatedAt"]`. Configuring our rule with that payload silently
+ignores the unknown keys.
+
+**Plan:**
+
+1. Extend `AlphabetizeOptions` with `definitions: bool`, `fields:
+   FieldsConfig` (bool or array of type-kind owners), `values: bool`,
+   change `arguments` to a `bool | Array<owner>` shape, add `groups:
+   Vec<String>`.
+2. Implement the new sort modes:
+   - `definitions: true` — sort top-level definitions in a document.
+   - `fields: [...]` — sort field declarations in the given type kinds.
+   - `values: true` — sort enum values.
+   - `arguments: [...]` — sort arguments in the given AST contexts (field
+     defs, field selections, directive defs, directive applications).
+   - `groups: [...]` — explicit ordering groups; `*` is the catch-all.
+3. Update the parity fixture for `alphabetize` to exercise the schema-side
+   shape from `flat/schema-all`.
 
 ### 5. `selection-set-depth`'s `ignore` option is recognized but a no-op
 
@@ -169,19 +201,60 @@ and a depth-3 selection that the ignore should exempt.
 
 ---
 
-### 6. Missing `flat/recommended` catch-all preset
+### 6. Preset surface is incomplete and the contents diverge from upstream
 
-**Status:** SOLVABLE, trivial.
+**Status:** RESEARCHED — substantially larger than the original TODO assumed.
 
-**Evidence:** `packages/eslint-plugin/src/configs.ts:21-24` only exports
-`flat/schema-recommended` and `flat/operations-recommended`. Upstream ships a
-combined `flat/recommended`; consumers importing it from us get an undefined
-preset.
+**Evidence:** Upstream ships **5** flat presets (`flat/schema-recommended`,
+`flat/schema-all`, `flat/schema-relay`, `flat/operations-recommended`,
+`flat/operations-all`); we ship 2. There is **no** `flat/recommended`
+catch-all upstream — that part of the original TODO was wrong.
 
-**Plan:** add `flat/recommended` to `configs.ts` as the union of the two
-existing presets, with `files` constraints if needed (graphql-eslint's
-`flat/recommended` may require a `files: ["**/*.graphql"]` block). Verify
-against the upstream export shape before committing the structure.
+**More importantly**, the *contents* diverge:
+
+- Upstream's `flat/schema-recommended` enables 21 rules. 11 of those are
+  GraphQL spec validation rules (`known-argument-names`, `known-directives`,
+  `known-type-names`, `lone-schema-definition`, `possible-type-extension`,
+  `provided-required-arguments`, `unique-directive-names`,
+  `unique-directive-names-per-location`, `unique-field-definition-names`,
+  `unique-operation-types`, `unique-type-names`) — exactly the rules in our
+  `KNOWN_MISSING` set. Our plugin doesn't expose those rule names at all,
+  so a user running upstream's preset name but pointed at our plugin would
+  get "rule not found" errors.
+
+- Upstream's preset uses `naming-convention` with ESLint selectors
+  (`"FieldDefinition[parent.name.value=Query]"`) and the
+  `forbiddenPrefixes`/`forbiddenSuffixes`/`types` umbrella — features
+  blocked on **item 3** of this TODO.
+
+- Upstream's `operations-recommended` does the same — uses 13 spec
+  validation rules + `naming-convention` object form.
+
+**Plan (sequenced):**
+
+1. **Stub the validation rule names.** Register the 30+ KNOWN_MISSING rule
+   names as no-op rule modules in our plugin so users can keep their
+   existing preset references without errors. Document in
+   `migrating-from-graphql-eslint.mdx` that the underlying check still runs
+   as built-in validation (so behavior is preserved). Do *not* try to route
+   the existing built-in diagnostics through the stub rule names yet — that
+   needs analyzer-side rule-id assignment, separate concern.
+2. **Land item 3 (`naming-convention` features)** — the recommended presets
+   can't be configured identically to upstream until those exist.
+3. **Add `flat/schema-relay`** (4 relay rules, all ours, trivial).
+4. **Add `flat/schema-all`** as `extends` of recommended + 8 more rules
+   (`alphabetize`, `input-name`, `no-root-type`, `no-scalar-result-type-on-mutation`,
+   `require-deprecation-date`, `require-field-of-type-query-in-mutation-result`,
+   `require-nullable-fields-with-oneof`, `require-nullable-result-in-root`,
+   `require-type-pattern-with-oneof`). All ours.
+5. **Add `flat/operations-all`** as `extends` of recommended + 5 more rules
+   (`alphabetize`, `lone-executable-definition`, `match-document-filename`,
+   `no-one-place-fragments`, `require-import-fragment`). All ours.
+6. **Update `flat/schema-recommended` and `flat/operations-recommended`** to
+   match upstream's content byte-for-byte (now possible because of step 1
+   and step 2). Add a parity test that diffs the rule lists.
+7. **No `flat/recommended` catch-all** — upstream doesn't ship one; remove
+   that mention from the original TODO.
 
 ---
 
@@ -204,31 +277,32 @@ and match upstream's positions exactly. Then drop the caveat from the docs.
 
 ### 8. Multi-project `.graphqlrc` configs not supported
 
-**Status:** RESEARCH-FIRST, then SOLVABLE or EXPLAIN.
+**Status:** SOLVABLE — confirmed parity gap.
 
-**Evidence:** `binding.ts:53-79` — `ensureInitialized` resolves *one* config
-file by walking parents, calls `coreBinding.init(resolved)` once per resolved
-path, and never asks "which project does *this file* belong to". Documented
-limitation in `migrating-from-graphql-eslint.mdx:99-100`.
+**Research result:** Upstream uses
+`graphql-config`'s `getProjectForFile(filePath)` in both its parser
+(`node_modules/@graphql-eslint/eslint-plugin/cjs/parser.js:43`) and processor
+(`cjs/processor.js:30`) to route each file to the matching project. We
+currently pick the first config we find walking up parents
+(`binding.ts:53-79`) and never check which project the file belongs to.
+Real bug for users with `projects:` in their config.
 
 **Plan:**
 
-1. Confirm upstream's behavior: graphql-config supports `projects`
-   natively, and graphql-eslint routes per-file to the matching project.
-   Verify by reading their source (and their test fixtures with multi-project
-   configs).
-2. **If they do support it**: this is a real parity gap. Need a per-file
-   project-resolution step (graphql-config's matchers) before calling the
-   analyzer, plus a way to pass a project key into `lintFile` so the
-   analyzer scopes its lookup. May require a Salsa input change to key
-   projects within a config rather than per-config-file.
-3. **If they don't**: drop the doc caveat; not a parity concern.
-
-The Salsa init change is the largest unknown. If it turns out architecturally
-disruptive (e.g. requires re-keying a lot of database inputs), document the
-constraint here and ship without it — but only after confirming users won't
-hit it on the common cases (single schema, multiple document globs is
-already handled).
+1. In `binding.ts`, after resolving the config file, also extract the
+   per-project file matchers (include/exclude globs).
+2. Add a `projectForFile(configPath, filePath)` helper that picks the
+   matching project (matching graphql-config's algorithm: first project
+   whose `match()` passes; fall back to a project with no constraints if
+   exactly one exists).
+3. Extend the napi `lint_file` signature to take a project key, or
+   alternatively initialize one Salsa instance per (config, project) pair
+   and route via that map.
+4. Add an integration fixture with a `.graphqlrc.yaml` that has two
+   projects (different schemas, different lint configs). Assert each file
+   is linted against its own project.
+5. Update `parity.test.mjs` with a multi-project fixture and run both
+   plugins against it.
 
 ---
 
